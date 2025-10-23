@@ -74,9 +74,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Codex’s Baby instrumentation plan
-2. Deterministic math module validation tests
-3. Branch tree merge conflict playbook
+1. Deterministic math module validation tests
+2. Branch tree merge conflict playbook
+3. Codex’s Baby implementation checklist
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

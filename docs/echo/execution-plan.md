@@ -33,16 +33,16 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Specify scheduler pseudo-code and DAG resolution flow.
-- **Definition of done**: Detailed spec covering system registration, dependency graph build, phase execution, parallel batch planning, and timeline flush hooks with open questions documented.
+- **Focus**: Draft branch tree persistence spec (node structure, diffs, GC).
+- **Definition of done**: Document persistent timeline node layout, diff encoding strategy, merge/conflict resolution, and open questions.
 
 ---
 
 ## Immediate Backlog
 
 - [x] ECS storage blueprint (archetype layout, chunk metadata, copy-on-write strategy).
-- [ ] Scheduler pseudo-code and DAG resolution rules. _(In progress)_
-- [ ] Codex’s Baby command lifecycle with flush phases + backpressure policies.
+- [x] Scheduler pseudo-code and DAG resolution rules.
+- [x] Codex’s Baby command lifecycle with flush phases + backpressure policies.
 - [ ] Branch tree persistence spec (node structure, diff format, GC policy).
 - [ ] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 
@@ -73,9 +73,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Scheduler pseudo-code (Phase 0)
-2. Codex’s Baby lifecycle spec
-3. Deterministic math module API draft
+1. Branch tree persistence spec
+2. Deterministic math module API draft
+3. Scheduler pseudo-code benchmarks (prototype)
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

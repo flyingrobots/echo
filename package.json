@@ -1,0 +1,26 @@
+{
+  "name": "echo-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Echo: a deterministic multiverse engine experiment.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @echo/core",
+    "dev": "npm run dev -w echo-playground",
+    "lint": "npm run lint -w @echo/core",
+    "test": "npm run test -w @echo/core",
+    "format": "npm run format -w @echo/core"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.0"
+  }
+}

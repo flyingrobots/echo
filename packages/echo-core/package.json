@@ -1,0 +1,34 @@
+{
+  "name": "@echo/core",
+  "version": "0.0.0",
+  "description": "Echo core: deterministic ECS, scheduler, and timeline runtime.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "keywords": [
+    "echo",
+    "ecs",
+    "game-engine",
+    "deterministic"
+  ],
+  "author": "Echo Contributors",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://example.com/echo.git"
+  }
+}

@@ -48,6 +48,7 @@ AGENTS.md             # Expectations for LLM & human collaborators
 - Explore [`docs/echo/diagrams.md`](docs/echo/diagrams.md) for Mermaid visuals of system constellations and the Chronos loop.
 - Honor Caverns with [`docs/echo/memorial.md`](docs/echo/memorial.md)—we carry the torch forward.
 - Peek at [`docs/echo/legacy-excavation.md`](docs/echo/legacy-excavation.md) to see which ideas survived the archaeological roast.
+- Track active work in [`docs/echo/execution-plan.md`](docs/echo/execution-plan.md); update it every session.
 
 ## Contributing
 - Start each task by verifying a clean git state and branching (`echo/<feature>` recommended).

@@ -33,8 +33,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Draft branch tree persistence spec (node structure, diffs, GC).
-- **Definition of done**: Document persistent timeline node layout, diff encoding strategy, merge/conflict resolution, and open questions.
+- **Focus**: Draft deterministic math module API (vectors, matrices, PRNG).
+- **Definition of done**: Spec covering math types, deterministic operations, PRNG seeding, and integration points with scheduler/branches.
 
 ---
 
@@ -43,8 +43,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] ECS storage blueprint (archetype layout, chunk metadata, copy-on-write strategy).
 - [x] Scheduler pseudo-code and DAG resolution rules.
 - [x] Codex’s Baby command lifecycle with flush phases + backpressure policies.
-- [ ] Branch tree persistence spec (node structure, diff format, GC policy).
-- [ ] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
+- [x] Branch tree persistence spec (node structure, diff format, GC policy).
+- [ ] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles). _(In progress)_
 
 ### Code Tasks (Phase 1 prep)
 - [ ] Set up `packages/echo-core/test/` with Vitest configuration + helpers.
@@ -73,9 +73,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Branch tree persistence spec
-2. Deterministic math module API draft
-3. Scheduler pseudo-code benchmarks (prototype)
+1. Deterministic math module API draft
+2. Scheduler pseudo-code benchmarks (prototype)
+3. Codex’s Baby instrumentation plan
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

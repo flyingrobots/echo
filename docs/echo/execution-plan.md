@@ -47,7 +47,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 
 ### Code Tasks (Phase 1 prep)
-- [ ] Install & configure Vitest (current `pnpm test` fails: `vitest` missing).
+- [x] Install & configure Vitest (current `pnpm test` fails: `vitest` missing).
 - [ ] Set up `packages/echo-core/test/` with Vitest configuration + helpers.
 - [ ] Write failing tests for entity ID allocation + recycling.
 - [ ] Prototype `TimelineFingerprint` hashing & equality tests.

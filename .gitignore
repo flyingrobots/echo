@@ -8,6 +8,7 @@ coverage
 .idea
 .vscode/*
 !.vscode/extensions.json
+.obsidian
 
 # Logs
 npm-debug.log*

@@ -33,16 +33,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Draft the ECS storage blueprint (archetype layout, chunk lifecycle, metadata).
-- **Definition of done**: Architecture doc capturing component registration flow, chunk structure diagrams/description, mutation + branch persistence strategy, and open questions logged.
+- **Focus**: Specify scheduler pseudo-code and DAG resolution flow.
+- **Definition of done**: Detailed spec covering system registration, dependency graph build, phase execution, parallel batch planning, and timeline flush hooks with open questions documented.
 
 ---
 
 ## Immediate Backlog
 
-### Spec Tasks
 - [x] ECS storage blueprint (archetype layout, chunk metadata, copy-on-write strategy).
-- [ ] Scheduler pseudo-code and DAG resolution rules.
+- [ ] Scheduler pseudo-code and DAG resolution rules. _(In progress)_
 - [ ] Codex’s Baby command lifecycle with flush phases + backpressure policies.
 - [ ] Branch tree persistence spec (node structure, diff format, GC policy).
 - [ ] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).

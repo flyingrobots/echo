@@ -33,8 +33,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Draft deterministic math module API (vectors, matrices, PRNG).
-- **Definition of done**: Spec covering math types, deterministic operations, PRNG seeding, and integration points with scheduler/branches.
+- **Focus**: Outline scheduler benchmark prototype (goals, metrics, tooling).
+- **Definition of done**: Notes on benchmark scenarios, measurement approach, and tasks for implementation.
 
 ---
 
@@ -44,9 +44,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Scheduler pseudo-code and DAG resolution rules.
 - [x] Codex’s Baby command lifecycle with flush phases + backpressure policies.
 - [x] Branch tree persistence spec (node structure, diff format, GC policy).
-- [ ] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles). _(In progress)_
+- [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 
 ### Code Tasks (Phase 1 prep)
+- [ ] Install & configure Vitest (current `pnpm test` fails: `vitest` missing).
 - [ ] Set up `packages/echo-core/test/` with Vitest configuration + helpers.
 - [ ] Write failing tests for entity ID allocation + recycling.
 - [ ] Prototype `TimelineFingerprint` hashing & equality tests.
@@ -73,9 +74,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Deterministic math module API draft
-2. Scheduler pseudo-code benchmarks (prototype)
-3. Codex’s Baby instrumentation plan
+1. Scheduler pseudo-code benchmarks (prototype)
+2. Codex’s Baby instrumentation plan
+3. Deterministic math module validation tests
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

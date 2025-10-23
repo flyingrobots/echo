@@ -33,15 +33,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: _…_
-- **Definition of done**: _…_
+- **Focus**: Draft the ECS storage blueprint (archetype layout, chunk lifecycle, metadata).
+- **Definition of done**: Architecture doc capturing component registration flow, chunk structure diagrams/description, mutation + branch persistence strategy, and open questions logged.
 
 ---
 
 ## Immediate Backlog
 
 ### Spec Tasks
-- [ ] ECS storage blueprint (archetype layout, chunk metadata, copy-on-write strategy).
+- [x] ECS storage blueprint (archetype layout, chunk metadata, copy-on-write strategy).
 - [ ] Scheduler pseudo-code and DAG resolution rules.
 - [ ] Codex’s Baby command lifecycle with flush phases + backpressure policies.
 - [ ] Branch tree persistence spec (node structure, diff format, GC policy).
@@ -74,9 +74,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. _Empty_
-2. _Empty_
-3. _Empty_
+1. Scheduler pseudo-code (Phase 0)
+2. Codex’s Baby lifecycle spec
+3. Deterministic math module API draft
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

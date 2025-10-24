@@ -11,17 +11,17 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 ## Shared Memory (Neo4j)
 We use the agent-collab Neo4j instance as a temporal journal.
 
-Scripts live in `/Users/james/git/agent-collab/scripts/neo4j-msg.js`.
+Scripts live in `<agent-collab checkout>/scripts/neo4j-msg.js`.
 
 ### Setup
 ```bash
 # Register yourself once. Choose a display name that identifies the agent.
-node /Users/james/git/agent-collab/scripts/neo4j-msg.js agent-init "Echo Codex"
+node path/to/agent-collab/scripts/neo4j-msg.js agent-init "Echo Codex"
 ```
 
 ### Writing a Journal Entry
 ```bash
-node /Users/james/git/agent-collab/scripts/neo4j-msg.js msg-send \
+node path/to/agent-collab/scripts/neo4j-msg.js msg-send \
   --from "Echo Codex" \
   --to "Echo Archive" \
   --text "[Echo] short summary of what you changed or decided." \
@@ -39,7 +39,7 @@ Guidelines:
 
 ### Reading Past Entries
 ```bash
-node /Users/james/git/agent-collab/scripts/neo4j-msg.js messages \
+node path/to/agent-collab/scripts/neo4j-msg.js messages \
   --thread "echo-devlog" \
   --limit 20
 ```

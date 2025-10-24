@@ -10,7 +10,10 @@ Checklist for closing Phase 0.5 and starting Phase 1 implementation.
 - [ ] Entropy observers and inspector packets verified.
 - [ ] Capability tokens and security envelopes enforced.
 - [ ] Determinism test suite green on Node, Chromium, WebKit.
-- [ ] Decision log updated with outcomes.
+- [ ] Deterministic config loader produces `configHash`.
+- [ ] Plugin manifest loader validates capabilities and records `pluginsManifestHash`.
+- [ ] Inspector JSONL writer produces canonical frames.
+- [ ] Decision log updated with outcomes (including EPI bundle).
 - [ ] Documentation index current (spec map).
 
 Once all items checked, open Phase 1 milestone and migrate outstanding tasks to implementation backlog.

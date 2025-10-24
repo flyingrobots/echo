@@ -1,201 +1,253 @@
 # Branch Tree Persistence Specification (Phase 0)
 
-Echo’s temporal sandbox relies on a persistent simulation tree to support branching, rewinding, and merging. This document details the data model and algorithms for maintaining that tree, capturing diffs, and reconciling timelines.
+Echo’s temporal sandbox relies on a persistent simulation tree to support branching, rewinding, and merging. This document defines the data model, hashing, diff encoding, and algorithms that guarantee determinism while enabling rich tooling.
 
 ---
 
 ## Goals
-- Represent the multiverse as a persistent structure with structural sharing to minimize memory usage.
-- Support fast branching (O(1) to fork) and efficient re-simulation via diff caches.
-- Provide merge tooling with deterministic conflict detection.
-- Track entropy/paradox metrics to inform gameplay and diagnostics.
+- Represent the multiverse as a persistent structure with structural sharing and content-addressed storage.
+- Support O(1) branching and efficient diff capture without scanning entire worlds.
+- Provide three-way, per-component merges with deterministic conflict resolution hooks (including CRDT strategies).
+- Track entropy/paradox metrics through read/write sets and deterministic math scopes.
+- Support deterministic GC and inspector tooling.
 
 ---
 
 ## Core Structures
 
-### TimelineNode
+### Dirty Chunk Index (ECS → Timeline)
+On every tick the ECS emits a `DirtyChunkIndex` containing only modified chunks. This is the sole source of diff data—no full archetype scans.
+
 ```ts
-interface TimelineNode {
-  readonly id: string;                // stable UUID (deterministic hash of parent+chronos?)
-  readonly parentId: string | null;
-  readonly branchId: KairosBranchId;  // branch this node belongs to
-  readonly chronos: ChronosTick;
-  readonly aionWeight: number;
-  readonly snapshotId: string;        // reference to persisted world snapshot
-  readonly diffId: string | null;     // diff from parent snapshot
-  readonly entropyDelta: number;      // change in entropy at this node
-  readonly metadata: TimelineMetadata;
+interface DirtyChunkEntry {
+  chunkId: string;
+  archetypeId: number;
+  versionBefore: number;
+  versionAfter: number;
+  dirtyByComponent: Map<ComponentTypeId, RoaringBitmap>;
+  readSet: Map<ComponentTypeId, readonly ReadKey[]>;
+  writeSet: Map<ComponentTypeId, readonly WriteKey[]>;
 }
 
-interface TimelineMetadata {
-  readonly createdAt: number;         // monotonic tick counter
-  readonly createdBy: string;         // system/systemID or tool
-  readonly tags?: readonly string[];  // designer annotations
-  readonly summary?: string;          // short description for inspector
-}
+type DirtyChunkIndex = Map<string, DirtyChunkEntry>;
 ```
-- `snapshotId` points to persisted chunk state (see below).
-- `diffId` optional: absent for root nodes or when snapshot is full state.
 
-### Snapshot Store
-- `SnapshotId -> SnapshotRecord`
-```ts
-interface SnapshotRecord {
-  readonly id: string;
-  readonly archetypeHashes: string[];      // for quick validation
-  readonly chunkRefs: readonly ChunkRef[]; // references to ECS chunk buffers
-  readonly sizeBytes: number;
-  readonly createdFrom: string | null;     // parent snapshot
-  readonly branchRefCount: number;         // number of branches sharing this snapshot
-}
-```
-- Snapshot store deduplicates by content hash. When a branch forks without modifications, it references same snapshot with increased ref count.
+- `versionBefore` / `versionAfter` are epoch counters incremented by the ECS whenever the chunk mutates.
+- `RoaringBitmap` tracks dirty slots for the component within the chunk.
+- `ReadKey` / `WriteKey` are canonical keys (e.g., `{ slot: number, field?: string }`) used for paradox detection.
 
 ### Diff Record
+Three-way, chunk-local diffs keyed by `(archetypeId, chunkId, componentType)`.
+
 ```ts
+interface ChunkDiff {
+  archetypeId: number;
+  chunkId: string;
+  componentType: number;
+  versionBefore: number;
+  versionAfter: number;
+  dirty: RoaringBitmap;
+  readSet: ReadKey[];
+  writeSet: WriteKey[];
+  mergeStrategy: MergeStrategyId; // recorded decision for replay
+  payloadRef: Hash;               // content-addressed component data
+}
+
 interface DiffRecord {
-  readonly id: string;
-  readonly parentSnapshotId: string;
-  readonly modifiedChunks: readonly ChunkDiff[];
-  readonly createdEntities: readonly EntityDiff[];
-  readonly destroyedEntities: readonly EntityDiff[];
-  readonly metadata: {
-    readonly mutationCount: number;
-    readonly impactedComponents: readonly number[];
-    readonly isStructural: boolean;
-  };
+  readonly id: Hash;
+  readonly parentSnapshotId: Hash;
+  readonly chunkDiffs: readonly ChunkDiff[];
+  readonly decisionsDigest: Hash; // hash of per-component merge decisions
+  readonly entropyDelta: number;
+  readonly metadata: DiffMetadata;
 }
 ```
-- `ChunkDiff` contains chunk ID, version, bitmask of modified slots, and optional column deltas.
-- `EntityDiff` describes entity handles + serialized components (for create/destroy).
-- `isStructural` indicates diff introduced structural change (e.g., new archetype) vs data-only.
 
-### Branch Registry
+- `mergeStrategy` defaults to `lastWriteWins`, but components can specify `sum`, `max`, `min`, `setUnion`, `domainResolver`, etc. CRDT-friendly components can provide custom merge functions.
+- `payloadRef` points to serialized component data stored in the block store.
+- `readSet`/`writeSet` enable paradox detection.
+
+### Snapshot Record
+Rolling base snapshots with delta chains capped at depth `K`.
+
 ```ts
+interface SnapshotRecord {
+  readonly id: Hash;
+  readonly parentId: Hash | null;
+  readonly schemaVersion: number;
+  readonly endianness: "le";
+  readonly chunkRefs: readonly ChunkRef[]; // content-addressed chunk payloads
+  readonly cumulativeDiffSize: number;
+  readonly depth: number; // distance from last full base
+}
+```
+
+Policy:
+- Take a full snapshot every N ticks or when cumulative diff bytes > X% of the base snapshot.
+- Limit delta chains to length `K` (e.g., 5). On commit, if chain length exceeds `K`, materialize a new base snapshot.
+
+### Timeline Node
+```ts
+interface TimelineNode {
+  readonly id: Hash;              // content-addressed
+  readonly parentId: Hash | null;
+  readonly branchId: KairosBranchId;
+  readonly chronos: ChronosTick;
+  readonly aionWeight: number;
+  readonly snapshotId: Hash;
+  readonly diffId: Hash | null;
+  readonly entropyDelta: number;
+  readonly mergeParents?: [Hash, Hash]; // present for merge nodes
+  readonly metadata: TimelineMetadata;
+}
+```
+
+`id = BLAKE3( parentId || branchId || chronos || diffId || mergeDecisionDigest )` using canonical byte encoding (sorted keys, little-endian numeric fields).
+
+### Branch Record
+```ts
+type BranchStatus = "active" | "collapsed" | "abandoned";
+
 interface BranchRecord {
   readonly id: KairosBranchId;
-  readonly rootNodeId: string;
-  readonly headNodeId: string;
-  readonly entropy: number;
-  readonly status: "active" | "collapsed" | "merged";
-  readonly ancestry: readonly string[]; // node IDs from root to head
+  readonly rootNodeId: Hash;
+  headNodeId: Hash;
+  entropy: number;
+  status: BranchStatus;
+  ancestry: readonly Hash[]; // cached path from root to head
 }
 ```
-- `ancestry` may be stored as linked list to avoid duplication; cached array for quick inspector use.
+
+- `collapsed`: branch intentionally merged into another branch/root.
+- `abandoned`: orphaned draft/proposal; subject to auto-expiry policies.
 
 ---
 
-## Operations
+## Persistence: Block Store
+All persistent artifacts live in a content-addressed block store, enabling pluggable backends (memory, IndexedDB, SQLite).
 
-### Fork Branch
-1. Identify current head node `H` for branch `α`.
-2. Create new branch record `β`:
-   - `rootNodeId = H.id` if branch diverges from current head.
-   - `headNodeId = H.id`.
-   - Entropy inherits from parent plus fork penalty.
-3. Increment snapshot ref counts for `H.snapshotId` (and diff chain if needed).
-4. Register branch in branch registry.
-
-### Commit Tick
-On each tick for branch `α`:
-1. ECS diff generator compares world state against last committed snapshot/diff for branch head.
-2. Build `DiffRecord`:
-   - For each chunk touched (based on chunk `version` vs stored version), compute bitmask of dirty slots.
-   - Serialize changed components into `ChunkDiff`.
-   - Note created/destroyed entities.
-3. Persist diff (store in diff store keyed by hashed content).
-4. Optionally persist snapshot:
-   - Policy: full snapshot every N ticks or when diff size exceeds threshold.
-   - Snapshot references chunk buffers (copy-on-write ensures branch-specific data).
-5. Create new `TimelineNode` with parent = `headNodeId`, update branch `headNodeId`.
-6. Update entropy: `entropy += entropyDelta(diff)` (e.g., based on number of merges, cross-branch messages).
-
-### Merge Branches
-To merge branch `β` into `α`:
-1. Find lowest common ancestor node `L`.
-2. Collect diffs from `L -> head(α)` and `L -> head(β)`.
-3. Replay diffs in deterministic order:
-   - If both modify same component slot with different values, flag conflict.
-   - Conflict resolution policy (initial): manual selection or prioritizing chosen branch.
-4. Apply merged diff to create new snapshot/diff for `α`.
-5. Mark branch `β` status `collapsed` or `merged`, adjust entropy.
-6. Decrement ref counts for snapshots exclusive to `β`; free chunks where ref count hits zero.
-7. Log merge metadata for inspector (list of nodes involved, conflicts resolved).
-
-### Collapse Branch
-When branch ends without merge:
-1. Mark status `collapsed`.
-2. Release snapshot/diff references (decrement counts).
-3. Optionally keep branch nodes for history; GC old nodes based on retention policy.
-
-### Garbage Collection
-- Snapshots/diffs use ref counting. When `branchRefCount` reaches zero, mark for deletion.
-- Periodic GC pass prunes nodes older than retention window if no references.
-- Provide manual “pinning” to keep nodes around for analysis.
-
----
-
-## Diff Encoding
-- Chunk diff bitmasks stored as:
-  - `uint32[]` bitset for slot mutations.
-  - Optional run-length encoding if contiguous sections common.
-- Component deltas encoded per data type:
-  - POD types: copy bytes.
-  - Managed types: hash + pointer to serialized payload stored separately.
-- Entity create/destroy use component descriptors to reconstruct state deterministically.
-
----
-
-## Timeline Navigation
-- `TimelineIndex` structure for quick lookups:
 ```ts
-interface TimelineIndex {
-  readonly nodesByChronos: Map<ChronosTick, readonly string[]>;
-  readonly nodesByBranch: Map<KairosBranchId, readonly string[]>;
-  readonly nodesByAion: BalancedTree<number, string>; // sorted by significance
+interface BlockStore {
+  put(kind: "node" | "snapshot" | "diff" | "payload", bytes: Uint8Array): Hash;
+  get(hash: Hash): Promise<Uint8Array | null>;
+  pin(hash: Hash): void;   // inspector / user pins
+  unpin(hash: Hash): void;
 }
 ```
-- Updated on each commit/merge.
-- Inspector uses index to render timeline graph.
+
+Pins must be recorded in the timeline so replays reflect identical liveness.
 
 ---
 
-## Entropy & Paradox Tracking
-- Each node stores `entropyDelta` (e.g., +1 for fork, +2 for paradox resolved).
-- Global entropy meter = sum(branch.entropy).
-- Paradox detection hooks integrate with Codex’s Baby; flagged nodes link to paradox resolution records.
+## Algorithms
+
+### Fork Branch (O(1))
+1. Retrieve head node `H` of branch `α`.
+2. Create new branch record `β`: `rootNodeId = head(α)`, `headNodeId = head(α)`.
+3. Increment snapshot/diff reference counts (epoch-aware API).
+
+### Commit Branch (O(touched slots + metadata))
+1. ECS provides `DirtyChunkIndex`.
+2. For each dirty chunk:
+   - Validate `versionBefore` matches snapshot version.
+   - Serialize component payloads using canonical encoding.
+   - Build `ChunkDiff` with roaring bitmap, read/write sets, merge strategy (default `lastWriteWins`).
+3. Compute cumulative diff size; decide whether to create new base snapshot.
+4. Write diff and optional snapshot to block store.
+5. Create new TimelineNode with hashed ID; update branch head.
+6. Update branch entropy using formula:
+   `entropyDelta = wF*forks + wC*conflicts + wP*paradoxes + wM*crossMsgs − wX*collapses` (clamped [0,1]).
+
+### Merge Branches (α ← β)
+1. Find lowest common ancestor `L` via binary lifting (store `up[k]` tables and depths on nodes).
+2. Walk diff chains from `head(α)` and `head(β)` back to `L`, collecting chunk diffs.
+3. For each `(chunk, component)` in lexicographic order:
+   - Combine roaring bitmaps to identify slots touched by either branch.
+   - Perform three-way merge using snapshot at `L` as base.
+   - If both branches changed the same slot and results differ (`!equals(A', B')`), register conflict.
+   - Apply merge strategy (policy, CRDT, manual). Record decision digest.
+4. Build merged diff & optional snapshot, commit new node as head of α.
+5. Mark branch β `collapsed` or `abandoned` depending on workflow.
+
+### Paradox Detection
+- For each diff, track `readSet`/`writeSet`.
+- On merge or commit, paradox exists if `writesB` intersects with any `readsA` where operation A precedes B in Chronos.
+- Paradoxes increment entropy and may block merge depending on policy.
+
+### Random Determinism
+- Each diff that samples randomness records `{ seedStart, count }`. Branch forks derive new seeds via `seed' = BLAKE3(seed || branchId || chronos)`.
+- Replay consumes exactly `count` draws to maintain determinism.
+
+### Garbage Collection (Deterministic)
+- GC runs only at fixed intervals (e.g., every 256 ticks) and processes nodes in sorted `Hash` order.
+- When GC disabled (deterministic mode), reference counts accumulate but release occurs at predetermined checkpoints.
+- Inspector pins are recorded in timeline to keep GC behavior replayable.
 
 ---
 
-## Persistence Backend
-- Pluggable storage backend (initial: in-memory + optional JSON snapshots).
-- Interface:
+## Data Structure Enhancements
+- `TimelineNode.mergeParents` captures the two node IDs merged, aiding inspector and proofs.
+- `DiffRecord.decisionsDigest` stores hash of merge decisions for deterministic replay.
+- `SnapshotRecord` includes `schemaVersion` & `endianness` for portability.
+- `DirtyChunkIndex` is the authoritative source for chunk mutations (no fallbacks).
+
+---
+
+## Block Hashing & Canonical Encoding
+- All persisted data encoded little-endian, with sorted keys for maps.
+- Use canonical NaN encoding to avoid float hash drift.
+- No timestamps feed into IDs; timestamps remain metadata only.
+
+---
+
+## Inspector Roadmap (Future)
+- Conflict heatmaps by archetype/component across Chronos.
+- Causality lens: click a component to reveal diffs that read it before mutation.
+- Entropy graph: visualize branch stability; warn when nearing paradox thresholds.
+- Scrub & splice: preview merges over a selected node range before committing.
+
+---
+
+## Minimal API (MVP)
 ```ts
-interface TimelinePersistence {
-  saveNode(node: TimelineNode): void;
-  saveSnapshot(snapshot: SnapshotRecord): void;
-  saveDiff(diff: DiffRecord): void;
-  loadBranch(branchId: KairosBranchId): BranchRecord | null;
-  // etc.
+type NodeId = string;
+type BranchId = string;
+
+type MergeResult = {
+  node: NodeId;
+  conflicts: readonly MergeConflict[];
+};
+
+interface EchoTimeline {
+  head(branch: BranchId): NodeId;
+  fork(from: NodeId, newBranch?: BranchId): BranchId;
+  commit(branch: BranchId, worldView: WorldView, dirtyIndex: DirtyChunkIndex): NodeId;
+  merge(into: BranchId, from: BranchId): MergeResult;
+  collapse(branch: BranchId): void;
+  materialize(node: NodeId): SnapshotRecord;
+  gc(policy: GCPolicy): void;
 }
 ```
-- Design decouples in-memory runtime from eventual database-backed storage (SQLite, IndexedDB, etc.).
+
+Ship MVP with roaring bitmaps, chunk epochs, rolling snapshots, deterministic hashing, three-way merges (default LWW), paradox detection, and entropy accumulation.
 
 ---
 
-## Determinism Considerations
-- Node IDs generated deterministically: e.g., `hash(parentId + chronos + branchId + diffId)`.
-- Snapshot and diff hashing stable across runs; avoid including non-deterministic data (timestamps).
-- Merge resolution must be deterministic given same choices; record decision path for replay.
-- GC should run in deterministic order (sorted by node ID) or be disabled during deterministic runs.
+## Test Plan
+1. **Replay Identity:** Fork → no writes → commit → world equals parent snapshot byte-for-byte.
+2. **Order Independence:** Two systems write disjoint slots; merged diff identical regardless of execution order.
+3. **Three-Way Merge:** Synthetic 1M-slot scenario with 1% overlap; conflicts deterministic, merge sub-second.
+4. **GC Determinism:** Same action sequence with GC on/off → materialized world identical.
+5. **Paradox Scanner:** Inject read/write overlaps → paradox count stable across replays.
+6. **Hash Stability:** Different JS runtimes, same seeds → identical node IDs across N ticks.
+7. **Entropy Regression:** Validate entropy formula per branch with known events.
 
 ---
 
 ## Open Questions
-- How to expose partial timeline reload (e.g., load only last N nodes) without violating determinism?
-- Should branch merges allow weighted blending (mix of two diffs) or only discrete selection?
-- How to efficiently diff large numbers of chunks without scanning full structure (use dirty chunk set from ECS)?
-- What retention policy suits multiplayer vs single-player use cases?
+- Which roaring bitmap implementation offers best balance of size/perf in JS? (Possibly WebAssembly bridge.)
+- Should we expose plugin hooks for domain-specific merge strategies? (e.g., geometry vs inventory.)
+- Best policy for auto-expiring abandoned branches? (Time-based vs depth-based.)
+- Inspector pin semantics: how to surface pinned nodes to users without threatening determinism.
+- CRDT component library: identify candidate components (counters, sets) for conflict-free merges.
 
-Future work: integrate with inspector, define serialization formats for save/load, and add conflict resolution strategies.

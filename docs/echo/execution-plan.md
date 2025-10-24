@@ -23,8 +23,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 | Phase | Codename | Goal | Status | Notes |
 | ----- | -------- | ---- | ------ | ----- |
-| 0 | **Spec Forge** | Finalize ECS storage, scheduler, event bus, and timeline designs with diagrams + pseudo-code. | In Progress | Build data-structure diagrams; prototype membership benchmarks. |
-| 1 | **Core Ignition** | Implement `@echo/core` MVP: entity manager, component archetypes, scheduler, Codex’s Baby basics, deterministic math utilities, tests. | Backlog | Requires spec sign-off. |
+| 0 | **Spec Forge** | Finalize ECS storage, scheduler, event bus, and timeline designs with diagrams + pseudo-code. | In Progress | Implement roaring bitmaps, chunk epochs, deterministic hashing, LCA binary lifting. |
+| 1 | **Core Ignition** | Implement `@echo/core` MVP: entity manager, component archetypes, scheduler, Codex’s Baby basics, deterministic math utilities, tests. | Backlog | Needs dirty-index integration and branch tree core. |
 | 2 | **Double-Jump** | Deliver reference adapters (Pixi/WebGL renderer, browser input), seed playground app, timeline inspector scaffolding. | Backlog | Depends on Phase 1 stability. |
 | 3 | **Temporal Bloom** | Advanced ports (physics, audio, network), branch merging tools, debugging overlays. | Backlog | Long-term horizon. |
 
@@ -43,24 +43,35 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] ECS storage blueprint (archetype layout, chunk metadata, copy-on-write strategy).
 - [x] Scheduler pseudo-code and DAG resolution rules.
 - [x] Codex’s Baby command lifecycle with flush phases + backpressure policies.
-- [x] Branch tree persistence spec (node structure, diff format, GC policy).
+- [x] Branch tree persistence spec (three-way diffs, roaring bitmaps, epochs, hashing).
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 - [x] Deterministic math validation strategy.
 - [x] Branch merge conflict playbook.
 
 ### Code Tasks (Phase 1 prep)
-- [x] Install & configure Vitest (current `pnpm test` fails: `vitest` missing).
-- [ ] Set up `packages/echo-core/test/` with Vitest configuration + helpers.
+- [x] Install & configure Vitest.
+- [ ] Set up `packages/echo-core/test/` helpers & fixtures layout.
 - [ ] Write failing tests for entity ID allocation + recycling.
 - [ ] Prototype `TimelineFingerprint` hashing & equality tests.
 - [ ] Scaffold deterministic PRNG wrapper with tests.
 - [ ] Establish `pnpm test` pipeline in CI (incoming GitHub Actions).
+- [ ] Integrate roaring bitmaps into ECS dirty tracking.
+- [ ] Implement chunk epoch counters on mutation.
+- [ ] Add deterministic hashing module (canonical encode + BLAKE3).
+- [ ] Build DirtyChunkIndex pipeline from ECS to branch tree.
+- [ ] Implement merge decision recording + decisions digest.
+- [ ] Implement paradox detection (read/write set comparison).
+- [ ] Implement entropy tracking formula in branch tree.
+- [ ] Prototype epoch-aware refcount API (stub for single-thread).
+- [ ] Implement deterministic GC scheduler (sorted node order + intervals).
 
 ### Tooling & Docs
-- [ ] Build `docs/echo/data-structures.md` with Mermaid diagrams for storage + timeline tree.
+- [ ] Build `docs/echo/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).
 - [ ] Extend `docs/echo/diagrams.md` with scheduler flow & command queue animations.
 - [ ] Prepare Neo4j query cheatsheet for faster journaling.
 - [ ] Design test fixture layout (`test/fixtures/…`) with sample component schemas.
+- [ ] Document roaring bitmap integration and merge strategies.
+- [ ] Update future inspector roadmap with conflict heatmaps and causality lens.
 
 ---
 
@@ -69,6 +80,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | Date | Decision | Context | Follow-up |
 | ---- | -------- | ------- | --------- |
 | 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
+| 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
 | _…_ | | | |
 
 (Keep this table updated; link to Neo4j message IDs when useful.)
@@ -76,9 +88,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Codex’s Baby implementation checklist
-2. Math validation fixtures & tests implementation
-3. ECS storage implementation plan
+1. Math validation fixtures & tests implementation
+2. ECS storage implementation plan
+3. Branch tree BlockStore abstraction design
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 
@@ -87,7 +99,8 @@ Populate with concrete tasks in priority order. When you start one, move it to �
 ## Notes to Future Codex
 - Use `Neo4j thread: echo-devlog` for daily runtime updates.
 - Record test coverage gaps as they appear; they inform future backlog items.
-- If the playground app needs new adapters, draft the API contracts here before coding.
+- Ensure roaring bitmap and hashing dependencies are deterministic across environments.
+- Inspector pins must be recorded to keep GC deterministic.
 - When finishing a milestone, snapshot the diagrams and link them in the memorial for posterity.
 
 Remember: every entry here shrinks temporal drift between Codices. Leave breadcrumbs; keep Echo’s spine alive. 🌀

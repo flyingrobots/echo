@@ -47,7 +47,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 - [x] Deterministic math validation strategy.
 - [x] Branch merge conflict playbook.
-- [ ] Scaffold Rust workspace (`crates/echo-core`, `crates/echo-bindings-c`, `crates/echo-bindings-lua`).
+- [ ] Scaffold Rust workspace (`crates/rmg-core`, `crates/rmg-ffi`, `crates/rmg-wasm`, `crates/rmg-cli`).
 - [ ] Port ECS archetype storage + branch diff engine to Rust.
 - [ ] Implement deterministic PRNG + math module in Rust.
 - [ ] Expose C ABI for Lua and C integrations.
@@ -91,7 +91,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
 | 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Lua scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
-| _…_ | | | |
+| 2025-10-26 | Adopt RMG + Confluence as core architecture | RMG v2 (typed DPOi engine) + Confluence replication baseline | Scaffold rmg-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
 
 (Keep this table updated; link to Neo4j message IDs when useful.)
 

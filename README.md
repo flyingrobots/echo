@@ -1,6 +1,19 @@
 # Echo Engine
 
-Echo is a deterministic, renderer-agnostic game engine spine forged from the ashes of the 2013 Caverns prototype. Its mission: treat **time** as a first-class playground—branchable timelines, mergeable realities, and tooling that makes temporal gymnastics feel routine.
+```rust
+//! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
+//! ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
+//! ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
+//! ░▒▓██████▓▒░░▒▓█▓▒░      ░▒▓████████▓▒░▒▓█▓▒░░▒▓█▓▒░
+//! ░▒▓█▓▒░     ░▒▓█▓▒░      ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
+//! ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░
+//! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
+//!
+//! “What we do in life ECHOES through eternity”
+//! (Recursively, in the Metaverse)
+```
+
+> *Echo is a deterministic game engine that treats **time** as a first-class playground—branchable timelines, mergeable realities, and tooling that makes temporal gymnastics feel routine—that's made possible by the harnessing the power of recursive metagraphs.*
 
 ## Why Echo?
 - **Deterministic Core** – fixed-step scheduler, archetype storage, and reproducible math make rollback, replay, and multiverse trickery possible.

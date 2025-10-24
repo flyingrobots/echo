@@ -183,3 +183,9 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 - [ ] **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.
 
 Chrononauts welcome. Strap in, branch responsibly, and leave the timeline cleaner than you found it.
+
+---
+
+## License
+
+MIT • © J. Kirby Ross • [flyingrobots](http://github.com/flyingrobots)

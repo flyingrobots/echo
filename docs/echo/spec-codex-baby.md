@@ -1,207 +1,227 @@
-# Codex’s Baby Specification (Phase 0)
+# Codex’s Baby Specification (Phase 0.5)
 
-Codex’s Baby is Echo’s event/command bus. It routes gameplay commands, system events, and inter-branch communication while preserving determinism. This spec documents the data structures, lifecycle, and integration points for the initial implementation.
-
----
-
-## Goals
-- Deterministic buffering and delivery of commands within the fixed-timestep loop.
-- Segregated queues per phase to control when handlers execute.
-- Capacity planning and backpressure to prevent runaway memory usage.
-- Inter-branch bridge to deliver messages across timelines (including retro branches).
-- Instrumentation hooks for profiling and debugging (timeline inspector).
+Codex’s Baby (CB) is Echo’s deterministic event bus. It orchestrates simulation events, cross-branch messaging, and inspector telemetry while respecting causality, security, and the determinism invariants defined in Phase 0.5.
 
 ---
 
-## Data Model
+## Terminology
+- **Event** – immutable envelope describing a mutation request or signal. Commands are a subtype of events.
+- **Phase Lane** – per-scheduler phase queue storing pending events.
+- **Priority Lane** – optional high-priority sub-queue for engine-critical events.
 
-### Command Envelope
 ```ts
-interface CommandEnvelope<TPayload = unknown> {
-  readonly id: number;                   // stable, per-branch incrementing
-  readonly kind: string;                 // semantic tag (e.g., "input/keyboard")
-  readonly chronos: ChronosTick;         // target tick (>= current for current branch)
-  readonly kairos: KairosBranchId;       // branch recipient
-  readonly aionWeight?: number;          // optional significance
+type EventKind = string; // e.g., "input/keyboard", "ai/proposal", "net/reliable"
+```
+
+---
+
+## Event Envelope
+
+```ts
+interface EventEnvelope<TPayload = unknown> {
+  readonly id: number;                 // monotonic per branch per tick
+  readonly kind: EventKind;
+  readonly chronos: ChronosTick;       // target tick (>= current for same-branch)
+  readonly kairos: KairosBranchId;     // target branch
+  readonly aionWeight?: number;
   readonly payload: TPayload;
-  readonly metadata?: Record<string, unknown>; // instrumentation, debugging
+
+  // Determinism & causality
+  readonly prngSpan?: { seedStart: string; count: number };
+  readonly readSet?: ReadKey[];
+  readonly writeSet?: WriteKey[];
+  readonly causeIds?: readonly string[]; // upstream event/diff hashes
+
+  // Security & provenance
+  readonly caps?: readonly string[];   // capability tokens required by handlers
+  readonly envelopeHash?: string;      // BLAKE3(canonical bytes)
+  readonly signature?: string;         // optional Ed25519 signature
+  readonly signerId?: string;
+
+  readonly metadata?: Record<string, unknown>; // inspector notes only
 }
 ```
 
-`id` is deterministic within a branch: start at 0 each tick, increment per enqueue. For cross-branch messages, the bridge assigns a composite ID `(sourceBranchId, sequence)` so messages can be traced.
+ID semantics:
+- Reset to 0 each tick per branch.
+- Cross-branch mail records `bridgeSeq`, but delivery order remains `(chronos, id, bridgeSeq)`.
+- Canonical encoding: sorted keys for maps/arrays, little-endian numeric fields, no timestamps in hash.
 
-### Queues
+---
 
-Codex’s Baby maintains multiple buffers:
+## Queues & Lanes
+Per scheduler phase, CB maintains a deterministic ring buffer with an optional priority lane.
 
-| Buffer | Description | Delivery Phase |
-| ------ | ----------- | -------------- |
-| `immediateQueue` | Rare “execute-now” commands (discouraged, telemetry heavy). | Direct dispatch (same frame) |
-| `preUpdateQueue` | Input assimilation, external adapter commands. | `pre_update` |
-| `updateQueue` | Simulation events generated during `update`. | `update` (next system) |
-| `postUpdateQueue` | Deferred cleanup, physics callbacks. | `post_update` |
-| `timelineQueue` | Branch management, timeline merges. | `timeline_flush` |
-
-Each queue is a ring buffer with fixed capacity configured via engine options (growable via doubling if allowed). Structure:
 ```ts
-interface CommandQueue {
+interface EventQueue {
   readonly phase: SchedulerPhase;
-  buffer: CommandEnvelope[];
-  head: number;  // dequeue index
-  tail: number;  // enqueue index
+  priorityLane: RingBuffer<EventEnvelope>;
+  normalLane: RingBuffer<EventEnvelope>;
   size: number;
   capacity: number;
+  highWater: number;
+  immediateUses: number;
 }
 ```
 
-### Handler Registry
+Dequeue order per phase: `priorityLane` FIFO, then `normalLane` FIFO. Capacities are configurable per lane; high-water marks tracked for inspector telemetry.
+
+---
+
+## Handler Contract
+
 ```ts
-interface CommandHandler {
-  readonly kind: string;
+interface EventHandler {
+  readonly kind: EventKind;
   readonly phase: SchedulerPhase;
   readonly priority?: number;
   readonly once?: boolean;
-  (envelope: CommandEnvelope, context: CommandContext): void;
+  readonly requiresCaps?: readonly string[];
+  (evt: EventEnvelope, ctx: EventContext): void;
 }
 ```
-Handlers register per `kind` and phase. Multiple handlers per kind allowed; executed in deterministic order (priority desc, registration order).
 
-### Command Context
-Provides limited capabilities to handler:
-```ts
-interface CommandContext {
-  readonly timeline: TimelineFingerprint;
-  enqueue: <T>(phase: SchedulerPhase, envelope: CommandEnvelope<T>) => void;
-  branchFork: (options) => BranchHandle;
-  // Additional utilities: deterministic PRNG, inspector hooks, etc.
-}
-```
+Registration:
+- Deterministic order captured in `handlerTableHash = BLAKE3(sorted(phase, kind, priority, registrationIndex))`.
+- Hash recorded once per run for replay audits.
+
+Handlers may only run if `requiresCaps` ⊆ `evt.caps`; otherwise `ERR_CAPABILITY_DENIED` halts the tick deterministically.
 
 ---
 
-## Lifecycle
+## Event Context
 
-### Enqueue
 ```ts
-function enqueue(phase: SchedulerPhase, envelope: CommandEnvelope): void {
-  const queue = queues[phase];
-  if (queue.size === queue.capacity) {
-    if (!allowGrowth) throw new BackpressureError(phase);
-    growQueue(queue);
-  }
-  queue.buffer[queue.tail] = envelope;
-  queue.tail = (queue.tail + 1) % queue.capacity;
-  queue.size += 1;
-  metrics.enqueued[phase] += 1;
-}
-```
-- `growQueue` doubles capacity by allocating new array and copying existing elements in order.
-- Backpressure: if queue full and growth disabled, scheduler logs and drops oldest (configurable) or throws. Defaults to throw in development, drop-with-warning in production with metrics.
+interface EventContext {
+  readonly timeline: TimelineFingerprint; // { chronos, kairos, aion }
+  readonly rng: DeterministicRNG;         // obeys evt.prngSpan if present
 
-### Flush (per phase)
-During scheduler phases, Codex’s Baby flushes relevant queue:
-```ts
-function flushPhase(phase: SchedulerPhase, context: CommandContext) {
-  const queue = queues[phase];
-  while (queue.size > 0) {
-    const envelope = queue.buffer[queue.head];
-    queue.buffer[queue.head] = undefined!;
-    queue.head = (queue.head + 1) % queue.capacity;
-    queue.size -= 1;
-
-    dispatch(envelope, context);
-  }
+  enqueue<T>(phase: SchedulerPhase, evt: EventEnvelope<T>): void;
+  forkBranch(fromNode?: NodeId): BranchId;
+  sendCross<T>(evt: EventEnvelope<T>): void; // wraps Temporal Bridge
 }
 ```
 
-### Dispatch
-```ts
-function dispatch(envelope: CommandEnvelope, context: CommandContext) {
-  const handlers = handlerRegistry.get(envelope.kind, envelope.phase);
-  if (!handlers?.length) return;
-  for (const handler of handlers) {
-    handler(envelope, context);
-    metrics.dispatched[envelope.phase] += 1;
-    if (handler.once) unregister(handler);
-  }
-}
-```
-- Exceptions from handlers bubble up; engine decides whether to halt tick or continue (likely halt to preserve determinism).
+Rules:
+- `enqueue` targets same-branch events with `evt.chronos >= currentTick`.
+- `sendCross` is the only sanctioned cross-timeline route.
+- If `evt.prngSpan` provided, handler must consume exactly `count` draws; mismatch raises `ERR_PRNG_MISMATCH`.
 
 ---
 
-## Inter-Branch Bridge
+## Temporal Bridge
 
-### Sender Workflow
-1. System enqueues `CommandEnvelope` targeting branch `β`.
-2. If `β` equals current branch, standard enqueue.
-3. Else, pass to `TemporalBridge`:
-   - Validate chronology (`envelope.chronos >= currentChronos`).
-   - If `envelope.chronos < currentChronos`, create retro branch:
-     - Fork from timeline node at `chronos`.
-     - Assign new branch ID `β'`.
-     - Rewrite envelope with `kairos = β'`.
-4. Bridge stores message in per-target buffer keyed by `(branchId, chronos)`.
+Features:
+- **Exactly-once toggle** via dedup set `seenEnvelopes: Set<hash>` on receiver.
+- **Retro delivery**: if `evt.chronos < head(target).chronos`, spawn retro branch β′ from LCA, rewrite target, tag `evt.metadata.retro = true`.
+- **Reroute on collapse**: if branch collapses before delivery, forward to merge target and record `evt.metadata.reroutedFrom`.
+- **Paradox pre-check**: if `evt.writeSet` intersects reads applied since LCA, route to paradox handler/quarantine and increment entropy by `wM + wP`.
 
-### Delivery
-During `timeline_flush` phase:
-```ts
-function deliverCrossBranch(context: TimelineContext) {
-  const pending = bridge.popForBranch(context.branchId, context.chronos);
-  for (const envelope of pending) {
-    enqueue(envelope.phase, envelope);
-  }
-}
-```
-- If branch collapsed before delivery, bridge retries by rerouting to parent branch or logging orphaned message (tooling hook).
-
-### Entropy & Paradox Checks
-- Bridge consults paradox guard: if message would violate invariant (e.g., removing object that already merged), mark envelope with `metadata.paradox` and route to special handler.
-- Entropy meter increments based on cross-branch message volume and paradox flags.
+Delivery policy defaults to at-least-once; exactly-once enables dedup.
 
 ---
 
 ## Immediate Channel
-- Small queue processed immediately upon enqueue (outside scheduler).
-- Heavy instrumentation: track usage count per frame; exceed threshold triggers warning.
-- Only for engine-critical signals (e.g., emergency halt). Gameplay systems should avoid.
+- Whitelist event kinds (`engine/halt`, `engine/diagnostic`, etc.).
+- Per-tick budget; exceeding emits `ERR_IMMEDIATE_BUDGET_EXCEEDED` and halts deterministically.
 
 ---
 
-## Instrumentation
-- Metrics per phase: enqueued, dispatched, dropped, queue high water mark.
-- Profiling: average handler duration, percent time spent in Codex’s Baby per phase.
-- Timeline inspector: ability to snapshot queue contents, replay at dev time.
-- Logging: optional event trace of envelopes (with sampling to limit volume).
+## Backpressure Policies
+
+```ts
+type BackpressureMode = "throw" | "dropOldest" | "dropNewest";
+```
+
+- Development default: `throw` (abort tick with `ERR_QUEUE_OVERFLOW`).
+- Production defaults: `dropNewest` for `pre_update`, `dropOldest` for `update`/`post_update`.
+- Each drop records `DropRecord { phase, kind, id, chronos }` added to the run manifest; replay reproduces drop order.
 
 ---
 
-## Determinism Considerations
-- Queue iteration order is stable (FIFO).
-- Handler registration deterministic: stored in array by registration order, with stable priority sorting.
-- Cross-branch delivery uses deterministic branch IDs; message ordering within target branch sorted by `(chronos, id)`.
-- Avoid asynchronous handlers; enforce synchronous execution.
+## Inspector Packet
+
+```ts
+interface CBInspectorFrame {
+  tick: ChronosTick;
+  branch: KairosBranchId;
+  queues: {
+    [phase in SchedulerPhase]?: {
+      size: number;
+      capacity: number;
+      highWater: number;
+      enqueued: number;
+      dispatched: number;
+      dropped: number;
+      immediateUses?: number;
+      p50Latency: number; // enqueue→dispatch ticks
+      p95Latency: number;
+      kindsTopN: Array<{ kind: EventKind; count: number }>;
+    };
+  };
+}
+```
+
+Emitted after `timeline_flush` so metrics do not perturb simulation.
 
 ---
 
-## Backpressure Policy
-- Default capacities (configurable):
-  - `pre_update`: 2048
-  - `update`: 4096
-  - `post_update`: 2048
-  - `timeline_flush`: 1024
-- Options:
-  - `throw`: halt tick when queue full (development).
-  - `dropOldest`: remove oldest envelope (production fallback).
-  - `dropNewest`: discard new envelope (if safe).
-- Each queue tracks drop stats for telemetry.
+## Determinism Hooks
+- Dispatch order per phase: FIFO by `(chronos, id, bridgeSeq)` with deterministic tie-break by registration order and priority.
+- PRNG spans enforced; mismatches halt tick.
+- `readSet`/`writeSet` recorded for causality graph and paradox detection.
+- Security envelopes verified before handler invocation; tampering emits `ERR_ENVELOPE_TAMPERED`.
 
 ---
 
-## Open Questions
-- Should envelope payloads be strongly typed via generics per handler registration?
-- How to serialize envelopes for network replication (shared format with Persistence port)?
-- Do we need priority queues for certain kinds (e.g., high-priority AI commands)?
-- What’s the best representation for retro-branch acknowledgments so designers can detect timeline edits?
+## Capability & Security
+- `requiresCaps` enforced at dispatch.
+- If `signature` present, verify `Ed25519(signature, envelopeHash)`; failure halts deterministically.
+- Capability violations and tampering log deterministic error nodes.
 
-Updates to this spec should be reflected in `execution-plan.md` and the decision log once implemented. Subsequent work: branch tree diff spec and deterministic math module.
+---
+
+## Public API Surface
+
+```ts
+interface CodexBaby {
+  on(handler: EventHandler): void;
+  off(handler: EventHandler): void;
+
+  emit<T>(phase: SchedulerPhase, evt: EventEnvelope<T>): void;   // same branch
+  emitCross<T>(evt: EventEnvelope<T>): void;                     // via bridge
+
+  flush(phase: SchedulerPhase, ctx: EventContext): void;         // scheduler hook
+  stats(): CBInspectorFrame;                                     // inspector packet
+}
+```
+
+All mutations route through CB; external systems observe only inspector packets and deterministic manifests.
+
+---
+
+## Implementation Checklist
+1. **Rename & Canonicalize** – adopt `EventEnvelope`, implement canonical encoder + BLAKE3 hash.
+2. **Handler Table Hash** – compute once at startup, record in run manifest.
+3. **Backpressure & Drop Records** – per-queue policies with deterministic drop manifests.
+4. **PRNG Span Enforcement** – wrap handlers to track draws when `prngSpan` present.
+5. **Temporal Bridge Enhancements** – dedup, retro branch creation, reroute on collapse, paradox pre-check.
+6. **Capability Gate** – enforce `requiresCaps`, emit errors on violation.
+7. **Inspector Packet** – produce `CBInspectorFrame` with latency/top-N metrics.
+8. **Immediate Channel Budget** – whitelist + counter enforcement.
+9. **Error Codes** – define deterministic errors: `ERR_QUEUE_OVERFLOW`, `ERR_CAPABILITY_DENIED`, `ERR_ENVELOPE_TAMPERED`, `ERR_IMMEDIATE_BUDGET_EXCEEDED`, `ERR_PRNG_MISMATCH`.
+10. **Docs & Samples** – provide example flow (input event → system → diff) with read/write sets and zero PRNG span.
+
+---
+
+## Test Matrix
+- **Determinism:** Same event set (with PRNG spans) across Node/Chromium/WebKit ⇒ identical `worldHash` and handlerTableHash.
+- **Backpressure:** Force overflow for each mode; replay reproduces drop manifest.
+- **Temporal Bridge:** Cross-branch retro delivery creates β′ correctly and respects paradox quarantine.
+- **Security:** Capability mismatch raises deterministic error; tampered signatures rejected.
+- **Immediate Channel:** Budget exceed halts deterministically; under budget yields identical final state.
+- **Inspector Metrics:** Latencies stable; inspector calls have no side effects.
+
+---
+
+Adhering to this spec aligns Codex’s Baby with the causality layer and determinism guarantees established for the branch tree.

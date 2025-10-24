@@ -64,6 +64,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [ ] Implement entropy tracking formula in branch tree.
 - [ ] Prototype epoch-aware refcount API (stub for single-thread).
 - [ ] Implement deterministic GC scheduler (sorted node order + intervals).
+- [ ] Update Codex's Baby to Phase 0.5 spec (event envelope, bridge, backpressure, inspector packet, security).
 
 ### Tooling & Docs
 - [ ] Build `docs/echo/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).

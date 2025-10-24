@@ -49,9 +49,8 @@ Objective: validate the scheduler design under realistic workloads before full i
 ---
 
 ## Tasks
-- [ ] Scaffold benchmark harness (TS script + pnpm script `bench:scheduler`).
+- [ ] Scaffold Rust benchmark harness (`cargo bench --bench scheduler`).
 - [ ] Implement mock system descriptors for each scenario.
 - [ ] Integrate with timeline fingerprint to simulate branches.
 - [ ] Record baseline numbers in docs and add to decision log.
 - [ ] Automate nightly run (future CI step).
-

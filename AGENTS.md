@@ -3,8 +3,8 @@
 Welcome to the **Echo** project. This file captures expectations for any LLM agent (and future-human collaborator) who touches the repo.
 
 ## Core Principles
-- **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/echo/architecture-outline.md` before touching runtime code.
-- **Document Ruthlessly**: Every meaningful design choice should land in `docs/echo/` (spec, diagrams, memorials) or a Neo4j journal entry tagged `Echo`.
+- **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/architecture-outline.md` before touching runtime code.
+- **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, memorials) or a Neo4j journal entry tagged `Echo`.
 - **Determinism First**: Avoid introducing sources of nondeterminism without a mitigation plan.
 - **Temporal Mindset**: Think in timelines—branching, merging, entropy budgets. Feature work should map to Chronos/Kairos/Aion axes where appropriate.
 
@@ -49,7 +49,7 @@ Use `messages-search --text "Echo"` for ad-hoc queries.
 ## Repository Layout
 - `packages/echo-core`: Runtime core (ECS, scheduler, Codex’s Baby, timelines).
 - `apps/playground`: Vite sandbox and inspector (future).
-- `docs/echo`: Specs, diagrams, memorials.
+- `docs/`: Specs, diagrams, memorials.
 - `docs/legacy`: Preserved artifacts from the Caverns era.
 
 ## Working Agreement

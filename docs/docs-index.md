@@ -16,6 +16,7 @@
 | `spec-plugin-system.md` | Plugin discovery, namespace isolation, capabilities |
 | `spec-concurrency-and-authoring.md` | Parallel core & single-threaded scripting model |
 | `spec-networking.md` | Deterministic event replication modes |
+| `phase1-plan.md` | Phase 1 implementation roadmap & demo targets |
 | `spec-rmg-core.md` | Recursive Meta Graph core format and runtime |
 | `spec-rmg-confluence.md` | Global graph synchronization (Confluence) |
 | `spec-ecs-storage.md` | ECS storage (archetypes, chunks, COW) |

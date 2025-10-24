@@ -107,7 +107,7 @@ Optimization roadmap once baseline is working:
 ---
 
 ## Documentation Checklist
-- Update `docs/echo/rmg-runtime-architecture.md` as rules/loop evolve.
+- Update `docs/rmg-runtime-architecture.md` as rules/loop evolve.
 - Append decision log entries per phase.
 - Record demo outcomes in Neo4j (`echo-devlog`).
 

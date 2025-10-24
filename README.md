@@ -85,11 +85,11 @@ git clone git@github.com:flyingrobots/EchoEngine.git
 
 > *“Roads? Where we’re going, we don’t need roads.” — Doc Brown, Back to the Future*
 
-- Read [`docs/echo/architecture-outline.md`](docs/echo/architecture-outline.md) for the full spec (storage, scheduler, ports, timelines).
-- Explore [`docs/echo/diagrams.md`](docs/echo/diagrams.md) for Mermaid visuals of system constellations and the Chronos loop.
-- Honor Caverns with [`docs/echo/memorial.md`](docs/echo/memorial.md)—we carry the torch forward.
-- Peek at [`docs/echo/legacy-excavation.md`](docs/echo/legacy-excavation.md) to see which ideas survived the archaeological roast.
-- Track active work in [`docs/echo/execution-plan.md`](docs/echo/execution-plan.md); update it every session.
+- Read [`docs/architecture-outline.md`](docs/architecture-outline.md) for the full spec (storage, scheduler, ports, timelines).
+- Explore [`docs/diagrams.md`](docs/diagrams.md) for Mermaid visuals of system constellations and the Chronos loop.
+- Honor Caverns with [`docs/memorial.md`](docs/memorial.md)—we carry the torch forward.
+- Peek at [`docs/legacy-excavation.md`](docs/legacy-excavation.md) to see which ideas survived the archaeological roast.
+- Track active work in [`docs/execution-plan.md`](docs/execution-plan.md); update it every session.
 
 ---
 

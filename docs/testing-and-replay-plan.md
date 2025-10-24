@@ -49,11 +49,11 @@ interface VerificationReport {
 ---
 
 ## Automation Plan
-- `pnpm test:determinism` – runs replay and comparers for golden datasets.
-- `pnpm test:paradox` – injects artificial read/write overlaps to validate quarantine behavior.
-- `pnpm test:entropy` – verifies entropy observers and metrics.
-- `pnpm test:bridge` – covers temporal bridge retro/reroute.
-- `pnpm bench:scheduler` – as defined earlier, ensures performance regressions are recorded.
+- `cargo test --package rmg-core --features determinism` – runs replay and comparers for golden datasets.
+- `cargo test --package rmg-core --test paradox` – injects artificial read/write overlaps to validate quarantine behavior.
+- `cargo test --package rmg-core --test entropy` – verifies entropy observers and metrics.
+- `cargo test --package rmg-core --test bridge` – covers temporal bridge retro/reroute.
+- `cargo bench --package rmg-core --bench scheduler` – ensures performance regressions are recorded (once benches enabled).
 
 ---
 

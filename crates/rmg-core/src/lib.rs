@@ -1,3 +1,5 @@
+//! rmg-core: typed deterministic graph rewriting engine.
+
 use std::collections::{BTreeMap, HashMap};
 
 use blake3::Hasher;
@@ -38,10 +40,6 @@ pub struct GraphStore {
 }
 
 impl GraphStore {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn node(&self, id: &NodeId) -> Option<&NodeRecord> {
         self.nodes.get(id)
     }
@@ -51,12 +49,12 @@ impl GraphStore {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PatternGraph {
     pub nodes: Vec<TypeId>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RewriteRule {
     pub id: Hash,
     pub name: &'static str,
@@ -79,7 +77,7 @@ pub struct DeterministicScheduler {
     pending: BTreeMap<(Hash, Hash), PendingRewrite>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PendingRewrite {
     pub tx: TxId,
     pub rule_id: Hash,
@@ -114,7 +112,7 @@ impl Engine {
             rules: HashMap::new(),
             scheduler: DeterministicScheduler::default(),
             tx_counter: 0,
-            current_root: root.clone(),
+            current_root: root,
             last_snapshot: None,
         }
     }
@@ -159,8 +157,7 @@ impl Engine {
         if tx.0 == 0 || tx.0 > self.tx_counter {
             return Err(EngineError::UnknownTx);
         }
-
-        // TODO: execute rewrites (placeholder deterministic ordering)
+        // TODO: execute pending rewrites in deterministic order (placeholder flush)
         self.scheduler.pending.clear();
 
         let hash = hash_root(&self.current_root);

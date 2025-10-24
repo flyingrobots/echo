@@ -2,5 +2,5 @@
 # Reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 *       @flyingrobots
-/docs/echo/ @flyingrobots
+/docs/ @flyingrobots
 /packages/echo-core/ @flyingrobots

@@ -13,11 +13,18 @@
 //! (Recursively, in the Metaverse)
 ```
 
-> ECHO is a recursive metagraph simulation engine that executes and rewrites typed graphs deterministically across branching timelines and merges them through Confluence.
+<img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="500" align="right" />
 
-## Say what??
 
-Most 
+> ECHO is a recursive metagraph (RMG) simulation engine that executes and rewrites typed graphs deterministically across branching timelines and merges them through Confluence.
+
+### Say what??
+
+**Echo is an ambitious, mind-bending, fundamentally different computational model for game engines and other interactive simulations.** The RMG is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
+
+Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
+
+Echo is fundamentally **built different**.
 
 Echo is a computer program that runs a recursive metagraph (RMG), a **typed, deterministic graph-rewriting engine**.
 
@@ -73,8 +80,6 @@ You can pause time, fork a copy of reality, try out a new idea, and merge the ti
 
 > *"Things are only impossible until they're not."* — Jean-Luc Picard
 
-Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." Echo is built different.
-
 Can your game engine do...
 
 ### Perfect Determinism 
@@ -116,8 +121,6 @@ Rules are graphs. Systems are graphs. The whole runtime is a graph. This gives y
 ---
 
 ## The Math Checks Out
-
-Echo is an ambitious, mind-bending, fundamentally different computational model for game engines. The RMG is a powerful mathematical tool that brings full weight of textbook category theory to game engines. 
 
 The mathematical properties of RMGs offer:
 

@@ -26,8 +26,6 @@ Most game engines are object-oriented state machines. Unity, Unreal, Godot all m
 
 Echo is fundamentally **built different**.
 
-Echo is a computer program that runs a recursive metagraph (RMG), a **typed, deterministic graph-rewriting engine**.
-
 RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation.
 
 It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.

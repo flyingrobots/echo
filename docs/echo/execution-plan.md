@@ -46,6 +46,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Branch tree persistence spec (node structure, diff format, GC policy).
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 - [x] Deterministic math validation strategy.
+- [x] Branch merge conflict playbook.
 
 ### Code Tasks (Phase 1 prep)
 - [x] Install & configure Vitest (current `pnpm test` fails: `vitest` missing).
@@ -75,9 +76,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Branch tree merge conflict playbook
-2. Codex’s Baby implementation checklist
-3. Math validation fixtures & tests implementation
+1. Codex’s Baby implementation checklist
+2. Math validation fixtures & tests implementation
+3. ECS storage implementation plan
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

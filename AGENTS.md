@@ -35,6 +35,7 @@ Guidelines:
 - Prefix the message with `[Echo]` so the tag survives future searches.
 - Summarise intent, work done, and next steps for future agents.
 - Use the thread `echo-devlog` unless a more specific thread already exists.
+- **Cadence:** Log when you start work (intent), when you hit a major milestone or decision, when you reference external sources (paths, specs), and when you finish a session (outcome + next steps). Treat Neo4j as the authoritative timeline.
 
 ### Reading Past Entries
 ```bash

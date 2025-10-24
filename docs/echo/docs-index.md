@@ -14,17 +14,14 @@
 | `spec-editor-and-inspector.md` | Inspector frame protocol & tooling transport |
 | `spec-runtime-config.md` | Deterministic configuration schema and hashing |
 | `spec-plugin-system.md` | Plugin discovery, namespace isolation, capabilities |
+| `spec-concurrency-and-authoring.md` | Parallel core & single-threaded scripting model |
+| `spec-networking.md` | Deterministic event replication modes |
 | `spec-ecs-storage.md` | ECS storage (archetypes, chunks, COW) |
-| `spec-codex-baby.md` | Event bus (Codex’s Baby) |
-| `spec-temporal-bridge.md` | Temporal bridge lifecycle |
 | `math-validation-plan.md` | Deterministic math coverage |
 | `scheduler-benchmarks.md` | Scheduler performance scenarios |
 | `testing-and-replay-plan.md` | Replay, golden hashes, entropy tests |
 | `runtime-diagnostics-plan.md` | Logging, tracing, inspector streams |
 | `codex-instrumentation.md` | CB metrics and telemetry hooks |
-| `spec-serialization-protocol.md` | Binary encoding, block manifests |
-| `spec-capabilities-and-security.md` | Capability tokens and signatures |
-| `spec-plugin-system.md` | Plugin registry |
 | `docs-index.md` | This index |
 | `hash-graph.md` | Hash relationships across subsystems |
 | `legacy-excavation.md` | Historical artifact log |

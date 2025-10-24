@@ -92,6 +92,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 1. Math validation fixtures & tests implementation
 2. ECS storage implementation plan
 3. Branch tree BlockStore abstraction design
+4. Temporal Bridge implementation plan
+5. Serialization protocol review
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

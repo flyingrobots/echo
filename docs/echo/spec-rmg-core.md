@@ -14,10 +14,11 @@ RMG is designed for:
 | --- | --- |
 | Everything is a Graph | Nodes, edges, and relationships are themselves graphs. |
 | Recursive | Graphs can contain other graphs arbitrarily deep. |
-| Content-Addressed | Every record uses a BLAKE3 hash of canonical bytes; graphs form Merkle-like DAGs. |
+| Content-Addressed | Every record uses a BLAKE3 hash of canonical bytes. |
 | Zero-Copy | Binary payloads (meshes, shaders, etc.) stored directly and memory-mapped. |
-| Deterministic | Traversal order, hashing, and diffing are canonical across platforms. |
-| Append-Only | Stores are immutable logs; new versions are diffs of old graphs. |
+| Deterministic | Traversal order, hashing, and rewrites are canonical across platforms. |
+| Atomic Rewrites | Mutations apply via deterministic graph rewrite rules (P-O DPO). |
+| Snapshot Isolation | Snapshots emitted from live graph state without halting execution. |
 | Self-Describing | Nodes carry type hashes pointing to their schema graphs. |
 
 ## 3. Binary Layout
@@ -86,6 +87,21 @@ impl RmgStore {
 }
 ```
 
+## 5.1 Deterministic Local Scheduler
+- Rewrites scheduled in deterministic order based on (rule priority, target hash).
+- Parallel rewrites allowed when pattern matches disjoint subgraphs.
+- Conflicts resolved via canonical ordering; last writer wins only when rules declare commutativity.
+- Execution emits commit entries:
+  ```rust
+  struct CommitEntry {
+      rule_id: Hash;
+      target: Hash;
+      snapshot_before: Hash;
+      snapshot_after: Hash;
+      timestamp: u64; // logical tick
+  }
+  ```
+
 Execution = deterministic traversal:
 ```rust
 fn execute(node: &NodeRecord, store: &RmgStore) {
@@ -107,16 +123,17 @@ fn execute(node: &NodeRecord, store: &RmgStore) {
 | Asset bundle | Graph with leaves storing binary payloads |
 | Import/Export pipeline | Graph describing conversion steps |
 
-## 7. Diff & Merge
-- DiffGraph = added/removed/modified node/edge hashes.
-- MergeGraph = deterministic three-way merge using base graph and chunk diff strategies from Echo specs.
-- DiffGraph itself stored as RMG nodes/edges → version history is self-describing.
+## 7. Rewrite & Confluence
+- Rewrites expressed as typed DPO rules over subgraphs.
+- Deterministic scheduler orders concurrent rewrites by rule priority and hash to guarantee confluence.
+- Commit log stores rewrite transactions; snapshots derive from committed state.
+- Confluent semantics: independent rewrites yielding same effect converge to identical canonical graph.
 
 ## 8. Determinism Guarantees
 1. Traversal order sorted by `(edge_type_hash, to_hash)`.
-2. Hash depends solely on canonical encoding; never on memory layout.
-3. Append-only history ensures forks share ancestry; merges are deterministic.
-4. Replaying traversal over identical graph yields identical results.
+2. Rewrite scheduler resolves concurrently matched rules deterministically.
+3. Snapshots hashed from live graph guarantee identical replay views.
+4. Replaying traversal over identical graph and commit log yields identical results.
 
 ## 9. Language Bindings
 | Language | Role | Binding |

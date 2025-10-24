@@ -251,3 +251,142 @@ Ship MVP with roaring bitmaps, chunk epochs, rolling snapshots, deterministic ha
 - Inspector pin semantics: how to surface pinned nodes to users without threatening determinism.
 - CRDT component library: identify candidate components (counters, sets) for conflict-free merges.
 
+
+---
+
+## Phase 0.5 Addendum — Causality & Determinism Layer
+
+This addendum extends the branch tree specification with causal tracking, schema safety, replay guarantees, and the public API boundary.
+
+### Causality Graph
+Each node may store a causal DAG linking events to their effects.
+
+```ts
+interface CausalEdge {
+  readonly causeId: string;
+  readonly effectId: string;
+  readonly relation: "reads" | "writes" | "spawns" | "resolves";
+}
+
+interface CausalityGraph {
+  readonly nodeId: string;
+  readonly edges: readonly CausalEdge[];
+}
+```
+
+The diff generator populates the graph from `readSet` / `writeSet`. Causal graphs are persisted as deterministic blocks to enable “why” queries and paradox prevention.
+
+### Component Schema Ledger
+Keep a ledger of component layouts to ensure cross-branch compatibility.
+
+```ts
+interface ComponentSchemaRecord {
+  readonly typeId: number;
+  readonly layoutHash: string;
+  readonly version: number;
+}
+
+interface SchemaLedgerSnapshot {
+  readonly id: string;
+  readonly schemas: readonly ComponentSchemaRecord[];
+}
+```
+
+Snapshots reference their ledger ID. Layout hashes (BLAKE3 over canonical schema JSON) must match before merges occur.
+
+### Inspector Data Protocol
+Expose structured telemetry per tick for UI or headless consumers.
+
+```ts
+interface InspectorFrame {
+  readonly tick: ChronosTick;
+  readonly branches: KairosBranchId[];
+  readonly entropy: number;
+  readonly metrics: Record<string, number>;
+  readonly diffsApplied: number;
+  readonly conflicts: number;
+  readonly paradoxes: number;
+  readonly worldHash: string;
+}
+```
+
+Inspector frames are serialized alongside timeline events; inspector UIs subscribe to the feed without direct runtime mutation.
+
+### Diff Compaction & Compression
+- Deduplicate identical `ChunkDiff` entries via content hashes.
+- Pack small diffs into 64 KB pages to reduce block overhead.
+- Compress pages with Zstandard (level 3 default).
+- Compaction runs in deterministic order: sort `(chunkId, componentType, versionBefore)`.
+
+### Deterministic Replay Contract
+Expose a replay command (conceptually `echo replay --from nodeId --until nodeId --verify`) with guarantees:
+1. Identical diff sequences yield identical `worldHash`.
+2. Event order and PRNG consumption counts are identical.
+3. GC, compression, or inspector hooks do not affect semantics.
+
+Verification mode re-hashes snapshots/diffs and flags divergence.
+
+### Entropy Observers
+Provide hooks for gameplay systems to respond to stability changes.
+
+```ts
+interface EntropyObserver {
+  onEntropyChange(node: TimelineNode, delta: number, total: number): void;
+}
+```
+
+Observers subscribe to branch-level entropy updates to trigger narrative or mechanical responses.
+
+### Security Envelope & Capability Tokens
+Wrap persistent blocks with a security envelope.
+
+```ts
+interface SecurityEnvelope {
+  readonly hash: string;
+  readonly signature?: string;
+  readonly signerId?: string;
+}
+```
+
+Diffs, snapshots, and merges carry envelopes. Capability tokens assign which adapters can mutate which component domains; violations raise deterministic errors (e.g., `ERR_CAPABILITY_DENIED`).
+
+### Determinism Invariants
+1. **World Equivalence:** identical diff sequences ⇒ identical `worldHash`.
+2. **Merge Determinism:** identical inputs + merge decisions ⇒ identical output.
+3. **Temporal Stability:** GC, compression, inspector activity do not affect logical state.
+4. **Schema Consistency:** mismatched layout hashes block merges.
+5. **Causal Integrity:** writes do not modify values they transitively read earlier in Chronos.
+6. **Entropy Reproducibility:** entropy delta derives solely from recorded events.
+
+Violations terminate the tick and record deterministic error nodes.
+
+### Error Model & Recovery
+| Failure | Detection | Recovery | Status |
+| ------- | --------- | -------- | ------ |
+| Diff apply fails | checksum mismatch | discard node, mark branch `corrupted` | deterministic |
+| Snapshot corrupted | hash mismatch | rebuild from last base snapshot | deterministic |
+| Capability violation | runtime guard | abort tick, log error | deterministic |
+| Merge unresolved | conflict count | require manual merge node | deterministic |
+| Paradox | read/write overlap | isolate branch, emit paradox node | deterministic |
+
+Recovery operations emit synthetic nodes so replay matches origin.
+
+### Public API Boundary
+Expose a stable façade while internals remain replaceable.
+
+```ts
+interface EchoWorldAPI {
+  createEntity(archetype: ArchetypeDef): EntityId;
+  destroyEntity(id: EntityId): void;
+  query<Q extends QuerySpec>(q: Q): QueryResult<Q>;
+  emit<E extends Event>(event: E): void;
+  fork(from?: NodeId): BranchId;
+  merge(into: BranchId, from: BranchId): MergeResult;
+  replay(options: ReplayOpts): VerificationReport;
+  inspect(tick?: ChronosTick): InspectorFrame;
+}
+```
+
+All mutating operations route through Codex’s Baby; determinism invariants enforced at this boundary. Internal systems (storage, scheduler, adapters) remain swappable under the same contract.
+
+---

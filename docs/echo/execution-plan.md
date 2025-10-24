@@ -33,8 +33,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Outline deterministic math validation strategy.
-- **Definition of done**: Test plan covering cross-platform determinism checks, sample cases, and tooling requirements.
+- **Focus**: Draft Codex’s Baby implementation checklist.
+- **Definition of done**: Concrete task list for coding the event bus (queues, bridge, instrumentation) with ownership pointers to upcoming tests.
 
 ---
 

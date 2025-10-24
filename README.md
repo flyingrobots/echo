@@ -63,3 +63,13 @@ AGENTS.md             # Expectations for LLM & human collaborators
 - **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.
 
 Chrononauts welcome. Strap in, branch responsibly, and leave the timeline cleaner than you found it. 🌀
+
+## Community Docs Scaffold
+
+Use the interactive scaffold to generate community-facing documents in new timelines:
+
+```bash
+bash scripts/scaffold-community.sh
+```
+
+The CLI uses `gum` for prompts and will detect sensible defaults (project name, README summary, etc.) before rendering templates in `templates/`.

@@ -1,0 +1,60 @@
+# Contributing to ${PROJECT_NAME}
+
+Welcome, chrononaut! ${PROJECT_NAME} thrives when timelines collaborate. Please read this guide before diving in.
+
+## Table of Contents
+- [Project Philosophy](#project-philosophy)
+- [Getting Started](#getting-started)
+- [Branching & Workflow](#branching--workflow)
+- [Testing Expectations](#testing-expectations)
+- [Documentation & Telemetry](#documentation--telemetry)
+- [Submitting Changes](#submitting-changes)
+- [Code Style](#code-style)
+- [Communication](#communication)
+
+## Project Philosophy
+${PROJECT_NAME} is a deterministic, renderer-agnostic engine. We prioritize:
+- **Determinism**: every change must preserve reproducible simulations.
+- **Documentation**: specs and decision logs live alongside code.
+- **Temporal Tooling**: features support branching timelines and merges.
+
+## Getting Started
+1. Clone the repo and run \\`${PACKAGE_MANAGER} install\\`.
+2. Read ${ARCHITECTURE_DOC} and ${EXECUTION_PLAN_DOC}.
+3. Register yourself in the shared memory (see ${AGENT_GUIDE}).
+
+## Branching & Workflow
+- Keep \\`main\\` pristine. Create feature branches like \\`echo/<feature>\\` or \\`timeline/<experiment>\\`.
+- Before starting work, ensure \\`git status\\` is clean. Coordinate with the human operator if not.
+- Log intent in the shared memory (`[${PROJECT_TAG}]` tag) at the start of each session.
+
+## Testing Expectations
+- Write tests before or alongside code changes.
+- \\`${PACKAGE_MANAGER} test\\` must pass locally before PR submission.
+- Add unit/integration coverage for new logic; end-to-end suites live under the playground app.
+
+## Documentation & Telemetry
+- Update relevant docs whenever behavior or architecture changes.
+- Record major decisions or deviations in the execution plan or decision logs.
+- Use the shared memory to leave breadcrumbs for future maintainers.
+
+## Submitting Changes
+1. Run \\`${PACKAGE_MANAGER} lint\\` and \\`${PACKAGE_MANAGER} test\\`.
+2. Commit with meaningful messages (tell the story; no conventional prefixes required).
+3. Push your branch and open a PR. Include:
+   - Summary of changes and motivation.
+   - Tests performed.
+   - Any determinism or timeline considerations.
+4. Request review from maintainers (see CODEOWNERS).
+
+## Code Style
+- TypeScript + ESLint + Prettier (config provided).
+- Prefer explicit types when clarity improves comprehension.
+- Avoid non-deterministic APIs (no \\`Math.random\\`, \\`Date.now\\`, etc.). Use ${PROJECT_NAME}'s math/PRNG services.
+
+## Communication
+- Major updates logged in shared memory threads (`${DEVLOG_THREAD}`, `${SPEC_THREAD}`).
+- Use GitHub discussions or issues for larger design proposals.
+- Respect the temporal theme—leave the codebase cleaner for the next timeline traveler.
+
+Thanks for helping forge ${PROJECT_NAME}'s spine. 🌀

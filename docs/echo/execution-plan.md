@@ -47,6 +47,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 - [x] Deterministic math validation strategy.
 - [x] Branch merge conflict playbook.
+- [ ] Scaffold Rust workspace (`crates/echo-core`, `crates/echo-bindings-c`, `crates/echo-bindings-lua`).
+- [ ] Port ECS archetype storage + branch diff engine to Rust.
+- [ ] Implement deterministic PRNG + math module in Rust.
+- [ ] Expose C ABI for Lua and C integrations.
+- [ ] Integrate Lua 5.4 runtime via bindings (mlua or custom FFI).
+- [ ] Adapt TypeScript CLI/inspector to Rust backend (WASM/FFI).
+- [ ] Archive TypeScript prototype under `/reference/` as spec baseline.
+- [ ] Add Rust CI jobs (cargo test, replay verification).
 
 ### Code Tasks (Phase 1 prep)
 - [x] Install & configure Vitest.
@@ -82,6 +90,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | ---- | -------- | ------- | --------- |
 | 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
+| 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Lua scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
 | _…_ | | | |
 
 (Keep this table updated; link to Neo4j message IDs when useful.)

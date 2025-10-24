@@ -33,8 +33,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Outline scheduler benchmark prototype (goals, metrics, tooling).
-- **Definition of done**: Notes on benchmark scenarios, measurement approach, and tasks for implementation.
+- **Focus**: Outline deterministic math validation strategy.
+- **Definition of done**: Test plan covering cross-platform determinism checks, sample cases, and tooling requirements.
 
 ---
 
@@ -45,6 +45,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Codex’s Baby command lifecycle with flush phases + backpressure policies.
 - [x] Branch tree persistence spec (node structure, diff format, GC policy).
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
+- [x] Deterministic math validation strategy.
 
 ### Code Tasks (Phase 1 prep)
 - [x] Install & configure Vitest (current `pnpm test` fails: `vitest` missing).
@@ -74,9 +75,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Deterministic math module validation tests
-2. Branch tree merge conflict playbook
-3. Codex’s Baby implementation checklist
+1. Branch tree merge conflict playbook
+2. Codex’s Baby implementation checklist
+3. Math validation fixtures & tests implementation
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

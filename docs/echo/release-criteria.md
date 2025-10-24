@@ -1,0 +1,16 @@
+# Release Criteria — Phase 0.5 → Phase 1
+
+Checklist for closing Phase 0.5 and starting Phase 1 implementation.
+
+- [ ] Branch tree spec v0.5 implemented (roaring bitmaps, epochs, hashing).
+- [ ] Codex’s Baby Phase 0.5 features implemented (event envelope, bridge, backpressure).
+- [ ] Temporal bridge integrated with branch tree and CB.
+- [ ] Serialization protocol implemented with content-addressed blocks.
+- [ ] Replay CLI (`echo replay --verify`) passes golden hash suite.
+- [ ] Entropy observers and inspector packets verified.
+- [ ] Capability tokens and security envelopes enforced.
+- [ ] Determinism test suite green on Node, Chromium, WebKit.
+- [ ] Decision log updated with outcomes.
+- [ ] Documentation index current (spec map).
+
+Once all items checked, open Phase 1 milestone and migrate outstanding tasks to implementation backlog.

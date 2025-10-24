@@ -118,7 +118,21 @@ Rules are graphs. Systems are graphs. The whole runtime is a graph. This gives y
 
 ---
 
-## The Math Checks Out
+## Current Status
+
+Echo is in **active development**. We're currently:
+
+- ✅ Formal proofs of confluence (tick-level determinism proven)
+- ✅ [C implementation](http://github.com/meta-graph/core) of independence checks and footprint calculus
+- ✅ 200-iteration property tests validating commutativity
+- 🚧 Performance optimization (subgraph matching, spatial indexing)
+- 🚧 Rust rewrite of core runtime
+- ❌ Lua scripting integration (not started)
+- ❌ Rendering backend (not started)
+
+---
+
+### The Math Checks Out
 
 The mathematical properties of RMGs offer:
 
@@ -133,7 +147,7 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 
 ---
 
-## Learning the Vision
+### Learning the Vision
 
 > *“Roads? Where we’re going, we don’t need roads.” — Doc Brown, Back to the Future*
 

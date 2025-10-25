@@ -14,6 +14,7 @@ use rmg_core::{
 };
 use wasm_bindgen::prelude::*;
 
+// Generates a 3D vector type with wasm_bindgen bindings.
 macro_rules! wasm_vector_type {
     ($struct_doc:literal, $name:ident, $ctor_doc:literal, $x_doc:literal, $y_doc:literal, $z_doc:literal) => {
         #[wasm_bindgen]

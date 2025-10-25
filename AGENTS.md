@@ -60,6 +60,13 @@ Use `messages-search --text "Echo"` for ad-hoc queries.
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.
 - Run `cargo clippy --all-targets -- -D missing_docs` and `cargo test` before every PR; CI will expect a zero-warning, fully documented surface.
 
+## Git Real
+1. **NEVER** use `--force` with any git command. If you think you need it, stop and ask the human for help.
+2. **NEVER** use rebase. Embrace messy distributed history; plain merges capture the truth, rebases rewrite it.
+3. **NEVER** amend a commit. Make a new commit instead of erasing recorded history.
+
+In short: no one cares about a tidy commit graph, but everyone cares if you rewrite commits on origin.
+
 ## Contact Threads
 - Neo4j Thread `echo-devlog`: Daily journal, decisions, blockers.
 - Neo4j Thread `echo-spec`: High-level architectural proposals.

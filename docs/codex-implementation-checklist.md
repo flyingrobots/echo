@@ -57,5 +57,5 @@ A step-by-step guide for turning the event bus spec into working code.
 
 ## 10. Follow-up
 - [ ] Add inspector panel to display metrics.
-- [ ] Extend Neo4j devlog to capture major bus events (optional).
+- [ ] Extend `docs/decision-log.md` with a bus-event template (optional).
 - [ ] Profile throughput with scheduler benchmarks.

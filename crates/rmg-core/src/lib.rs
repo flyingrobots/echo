@@ -8,17 +8,32 @@ use thiserror::Error;
 
 const POSITION_VELOCITY_BYTES: usize = 24;
 
+/// Canonical 256-bit hash used throughout the engine for addressing nodes,
+/// types, snapshots, and rewrite rules.
 pub type Hash = [u8; 32];
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct TypeId(pub Hash);
-
+/// Strongly typed identifier for a registered entity or structural node.
+///
+/// `NodeId` values are obtained from `make_node_id` and remain stable across
+/// runs because they are derived from a BLAKE3 hash of a string label.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NodeId(pub Hash);
 
+/// Strongly typed identifier for the logical kind of a node or component.
+///
+/// `TypeId` values are produced by `make_type_id` which hashes a label; using
+/// a dedicated wrapper prevents accidental mixing of node and type identifiers.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct TypeId(pub Hash);
+
+/// Identifier for a directed edge within the graph.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct EdgeId(pub Hash);
 
+/// Materialised record for a single node stored in the graph.
+///
+/// The optional `payload` carries domain-specific bytes (component data,
+/// attachments, etc) and is interpreted by higher layers.
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
     pub id: NodeId,
@@ -26,6 +41,7 @@ pub struct NodeRecord {
     pub payload: Option<Bytes>,
 }
 
+/// Materialised record for a single edge stored in the graph.
 #[derive(Clone, Debug)]
 pub struct EdgeRecord {
     pub id: EdgeId,
@@ -35,6 +51,10 @@ pub struct EdgeRecord {
     pub payload: Option<Bytes>,
 }
 
+/// Minimal in-memory graph store used by the rewrite executor tests.
+///
+/// The production engine will eventually swap in a content-addressed store,
+/// but this structure keeps the motion rewrite spike self-contained.
 #[derive(Default)]
 pub struct GraphStore {
     pub nodes: BTreeMap<NodeId, NodeRecord>,
@@ -42,31 +62,46 @@ pub struct GraphStore {
 }
 
 impl GraphStore {
+    /// Returns a shared reference to a node when it exists.
     pub fn node(&self, id: &NodeId) -> Option<&NodeRecord> {
         self.nodes.get(id)
     }
 
+    /// Returns an iterator over edges that originate from the provided node.
     pub fn edges_from(&self, id: &NodeId) -> impl Iterator<Item = &EdgeRecord> {
         self.edges_from.get(id).into_iter().flatten()
     }
 
+    /// Returns a mutable reference to a node when it exists.
     pub fn node_mut(&mut self, id: &NodeId) -> Option<&mut NodeRecord> {
         self.nodes.get_mut(id)
     }
 
+    /// Inserts or replaces a node in the store.
     pub fn insert_node(&mut self, record: NodeRecord) {
         self.nodes.insert(record.id.clone(), record);
     }
 }
 
+/// Pattern metadata used by a rewrite rule to describe the input graph shape.
 #[derive(Debug, Clone)]
 pub struct PatternGraph {
     pub nodes: Vec<TypeId>,
 }
 
+/// Function pointer used to determine whether a rule matches the provided scope.
 pub type MatchFn = fn(&GraphStore, &NodeId) -> bool;
+
+/// Function pointer that applies a rewrite to the given scope.
 pub type ExecuteFn = fn(&mut GraphStore, &NodeId);
 
+/// Descriptor for a rewrite rule registered with the engine.
+///
+/// Each rule owns:
+/// * a deterministic identifier (`id`)
+/// * a human-readable name
+/// * a left pattern (currently unused by the spike)
+/// * callbacks for matching and execution
 pub struct RewriteRule {
     pub id: Hash,
     pub name: &'static str,
@@ -75,9 +110,14 @@ pub struct RewriteRule {
     pub executor: ExecuteFn,
 }
 
+/// Thin wrapper around an auto-incrementing transaction identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TxId(pub u64);
 
+/// Snapshot returned after a successful commit.
+///
+/// The `hash` value is deterministic and reflects the entire canonicalised
+/// graph state (root + payloads).
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     pub root: NodeId,
@@ -86,11 +126,13 @@ pub struct Snapshot {
     pub tx: TxId,
 }
 
+/// Ordering queue that guarantees rewrites execute deterministically.
 #[derive(Debug, Default)]
 pub struct DeterministicScheduler {
     pending: BTreeMap<(Hash, Hash), PendingRewrite>,
 }
 
+/// Internal representation of a rewrite waiting to be applied.
 #[derive(Debug, Clone)]
 pub struct PendingRewrite {
     pub tx: TxId,
@@ -98,18 +140,23 @@ pub struct PendingRewrite {
     pub scope: NodeId,
 }
 
+/// Result of calling `Engine::apply`.
 #[derive(Debug)]
 pub enum ApplyResult {
     Applied,
     NoMatch,
 }
 
+/// Errors emitted by the engine.
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error("transaction not found")]
     UnknownTx,
 }
 
+/// Core rewrite engine used by the spike.
+///
+/// It owns a `GraphStore`, the registered rules, and the deterministic scheduler.
 pub struct Engine {
     store: GraphStore,
     rules: HashMap<&'static str, RewriteRule>,
@@ -120,6 +167,7 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Constructs a new engine with the supplied backing store and root node id.
     pub fn new(store: GraphStore, root: NodeId) -> Self {
         Self {
             store,
@@ -131,15 +179,18 @@ impl Engine {
         }
     }
 
+    /// Registers a rewrite rule so it can be referenced by name.
     pub fn register_rule(&mut self, rule: RewriteRule) {
         self.rules.insert(rule.name, rule);
     }
 
+    /// Begins a new transaction and returns its identifier.
     pub fn begin(&mut self) -> TxId {
         self.tx_counter += 1;
         TxId(self.tx_counter)
     }
 
+    /// Queues a rewrite for execution if it matches the provided scope.
     pub fn apply(
         &mut self,
         tx: TxId,
@@ -170,6 +221,7 @@ impl Engine {
         Ok(ApplyResult::Applied)
     }
 
+    /// Executes all pending rewrites for the transaction and produces a snapshot.
     pub fn commit(&mut self, tx: TxId) -> Result<Snapshot, EngineError> {
         if tx.0 == 0 || tx.0 > self.tx_counter {
             return Err(EngineError::UnknownTx);
@@ -192,6 +244,7 @@ impl Engine {
         Ok(snapshot)
     }
 
+    /// Returns a snapshot for the current graph state without executing rewrites.
     pub fn snapshot(&self) -> Snapshot {
         let hash = compute_snapshot_hash(&self.store, &self.current_root);
         Snapshot {
@@ -202,8 +255,16 @@ impl Engine {
         }
     }
 
+    /// Returns a shared view of a node when it exists.
     pub fn node(&self, id: &NodeId) -> Option<&NodeRecord> {
         self.store.node(id)
+    }
+
+    /// Inserts or replaces a node directly inside the store.
+    ///
+    /// The spike uses this to create motion entities prior to executing rewrites.
+    pub fn insert_node(&mut self, record: NodeRecord) {
+        self.store.insert_node(record);
     }
 }
 
@@ -273,7 +334,8 @@ impl DeterministicScheduler {
     }
 }
 
-fn encode_position_velocity(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
+/// Serialises a 3D position + velocity vector pair into the canonical payload.
+pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(POSITION_VELOCITY_BYTES);
     for value in position.into_iter().chain(velocity.into_iter()) {
         buf.extend_from_slice(&value.to_le_bytes());
@@ -281,7 +343,8 @@ fn encode_position_velocity(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     Bytes::from(buf)
 }
 
-fn decode_position_velocity(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
+/// Deserialises a canonical motion payload into (position, velocity) slices.
+pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     if bytes.len() != POSITION_VELOCITY_BYTES {
         return None;
     }
@@ -294,10 +357,12 @@ fn decode_position_velocity(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     Some((position, velocity))
 }
 
+/// Convenience helper for deriving `TypeId` values from human-readable labels.
 pub fn make_type_id(label: &str) -> TypeId {
     TypeId(hash_label(label))
 }
 
+/// Convenience helper for deriving `NodeId` values from human-readable labels.
 pub fn make_node_id(label: &str) -> NodeId {
     NodeId(hash_label(label))
 }
@@ -312,25 +377,31 @@ fn add_vec(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
 
+/// Executor that updates the encoded position in the entity payload.
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
     if let Some(record) = store.node_mut(scope) {
         if let Some(payload) = &record.payload {
-            if let Some((position, velocity)) = decode_position_velocity(payload) {
-                let updated = encode_position_velocity(add_vec(position, velocity), velocity);
+            if let Some((position, velocity)) = decode_motion_payload(payload) {
+                let updated = encode_motion_payload(add_vec(position, velocity), velocity);
                 record.payload = Some(updated);
             }
         }
     }
 }
 
+/// Matcher used by the motion rule to ensure the payload is well-formed.
 fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
     store
         .node(scope)
         .and_then(|record| record.payload.as_ref())
-        .and_then(decode_position_velocity)
+        .and_then(decode_motion_payload)
         .is_some()
 }
 
+/// Returns the built-in motion rule used by the spike.
+///
+/// The rule advances an entity's position by its velocity; it is deliberately
+/// deterministic so hash comparisons stay stable across independent executions.
 pub fn motion_rule() -> RewriteRule {
     let mut hasher = Hasher::new();
     hasher.update(b"motion/update");
@@ -352,7 +423,7 @@ mod tests {
     fn motion_rule_updates_position_deterministically() {
         let entity = make_node_id("entity-1");
         let entity_type = make_type_id("entity");
-        let payload = encode_position_velocity([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
+        let payload = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
 
         let mut store = GraphStore::default();
         store.insert_node(NodeRecord {
@@ -373,7 +444,7 @@ mod tests {
 
         // Run a second engine with identical initial state and ensure hashes match.
         let mut store_b = GraphStore::default();
-        let payload_b = encode_position_velocity([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
+        let payload_b = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
         store_b.insert_node(NodeRecord {
             id: entity.clone(),
             ty: entity_type,
@@ -395,7 +466,7 @@ mod tests {
             .expect("entity exists")
             .payload
             .as_ref()
-            .and_then(decode_position_velocity)
+            .and_then(decode_motion_payload)
             .expect("payload decode");
         assert_eq!(node.0, [1.5, 1.0, 3.25]);
     }

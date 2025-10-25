@@ -5,6 +5,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 ## Core Principles
 - **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/architecture-outline.md` before touching runtime code.
 - **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, memorials) or a Neo4j journal entry tagged `Echo`.
+- **Docstrings Aren't Optional**: Public APIs across crates (`rmg-core`, `rmg-ffi`, `rmg-wasm`, etc.) must carry rustdoc comments that explain intent, invariants, and usage. Treat missing docs as a failing test.
 - **Determinism First**: Avoid introducing sources of nondeterminism without a mitigation plan.
 - **Temporal Mindset**: Think in timelines—branching, merging, entropy budgets. Feature work should map to Chronos/Kairos/Aion axes where appropriate.
 

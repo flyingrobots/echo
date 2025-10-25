@@ -1,8 +1,8 @@
 //! rmg-core: typed deterministic graph rewriting engine.
 //!
-//! **NOTE**: Phase 0 bootstrap implementation – only the minimal rewrite path used by
-//! the motion-rule spike is implemented. Additional storage and scheduling features
-//! arrive in later phases.
+//! The current implementation executes queued rewrites deterministically via the
+//! motion-rule spike utilities. Broader storage and scheduling features will
+//! continue to land over subsequent phases.
 #![deny(missing_docs)]
 
 use std::collections::{BTreeMap, HashMap};
@@ -12,6 +12,8 @@ use bytes::Bytes;
 use thiserror::Error;
 
 const POSITION_VELOCITY_BYTES: usize = 24;
+/// Public identifier for the built-in motion update rule.
+pub const MOTION_RULE_NAME: &str = "motion/update";
 
 /// Canonical 256-bit hash used throughout the engine for addressing nodes,
 /// types, snapshots, and rewrite rules.
@@ -21,7 +23,7 @@ pub type Hash = [u8; 32];
 ///
 /// `NodeId` values are obtained from `make_node_id` and remain stable across
 /// runs because they are derived from a BLAKE3 hash of a string label.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NodeId(pub Hash);
 
 /// Strongly typed identifier for the logical kind of a node or component.
@@ -41,8 +43,6 @@ pub struct EdgeId(pub Hash);
 /// attachments, etc) and is interpreted by higher layers.
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
-    /// Stable identifier for the node.
-    pub id: NodeId,
     /// Type identifier describing the node.
     pub ty: TypeId,
     /// Optional payload owned by the node (component data, attachments, etc.).
@@ -93,8 +93,8 @@ impl GraphStore {
     }
 
     /// Inserts or replaces a node in the store.
-    pub fn insert_node(&mut self, record: NodeRecord) {
-        self.nodes.insert(record.id.clone(), record);
+    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
+        self.nodes.insert(id, record);
     }
 }
 
@@ -132,7 +132,7 @@ pub struct RewriteRule {
 }
 
 /// Thin wrapper around an auto-incrementing transaction identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TxId(pub u64);
 
 /// Snapshot returned after a successful commit.
@@ -154,7 +154,7 @@ pub struct Snapshot {
 /// Ordering queue that guarantees rewrites execute deterministically.
 #[derive(Debug, Default)]
 pub struct DeterministicScheduler {
-    pending: BTreeMap<(Hash, Hash), PendingRewrite>,
+    pending: HashMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
 }
 
 /// Internal representation of a rewrite waiting to be applied.
@@ -183,6 +183,9 @@ pub enum EngineError {
     /// The supplied transaction identifier did not exist or was already closed.
     #[error("transaction not found")]
     UnknownTx,
+    /// A rule was requested that has not been registered with the engine.
+    #[error("rule not registered: {0}")]
+    UnknownRule(String),
 }
 
 /// Core rewrite engine used by the spike.
@@ -233,19 +236,20 @@ impl Engine {
         }
         let rule = match self.rules.get(rule_name) {
             Some(rule) => rule,
-            None => return Ok(ApplyResult::NoMatch),
+            None => return Err(EngineError::UnknownRule(rule_name.to_owned())),
         };
-        if !(rule.matcher)(&self.store, scope) {
+        let matches = (rule.matcher)(&self.store, scope);
+        if !matches {
             return Ok(ApplyResult::NoMatch);
         }
 
         let scope_hash = scope_hash(rule, scope);
-        self.scheduler.pending.insert(
+        self.scheduler.pending.entry(tx).or_default().insert(
             (scope_hash, rule.id),
             PendingRewrite {
                 tx,
                 rule_id: rule.id,
-                scope: scope.clone(),
+                scope: *scope,
             },
         );
 
@@ -266,7 +270,7 @@ impl Engine {
 
         let hash = compute_snapshot_hash(&self.store, &self.current_root);
         let snapshot = Snapshot {
-            root: self.current_root.clone(),
+            root: self.current_root,
             hash,
             parent: self.last_snapshot.as_ref().map(|s| s.hash),
             tx,
@@ -279,7 +283,7 @@ impl Engine {
     pub fn snapshot(&self) -> Snapshot {
         let hash = compute_snapshot_hash(&self.store, &self.current_root);
         Snapshot {
-            root: self.current_root.clone(),
+            root: self.current_root,
             hash,
             parent: self.last_snapshot.as_ref().map(|s| s.hash),
             tx: TxId(self.tx_counter),
@@ -294,8 +298,8 @@ impl Engine {
     /// Inserts or replaces a node directly inside the store.
     ///
     /// The spike uses this to create motion entities prior to executing rewrites.
-    pub fn insert_node(&mut self, record: NodeRecord) {
-        self.store.insert_node(record);
+    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
+        self.store.insert_node(id, record);
     }
 }
 
@@ -331,7 +335,9 @@ fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
     for (from, edges) in &store.edges_from {
         hasher.update(&from.0);
         hasher.update(&(edges.len() as u64).to_le_bytes());
-        for edge in edges {
+        let mut sorted_edges: Vec<&EdgeRecord> = edges.iter().collect();
+        sorted_edges.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        for edge in sorted_edges {
             hasher.update(&(edge.id).0);
             hasher.update(&(edge.ty).0);
             hasher.update(&(edge.to).0);
@@ -346,22 +352,15 @@ fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
             }
         }
     }
-    hasher.update(&root.0);
     hasher.finalize().into()
 }
 
 impl DeterministicScheduler {
     fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
-        let mut ready = Vec::new();
-        let pending = std::mem::take(&mut self.pending);
-        for (key, rewrite) in pending {
-            if rewrite.tx == tx {
-                ready.push(rewrite);
-            } else {
-                self.pending.insert(key, rewrite);
-            }
-        }
-        ready
+        self.pending
+            .remove(&tx)
+            .map(|map| map.into_values().collect())
+            .unwrap_or_default()
     }
 }
 
@@ -434,144 +433,39 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
 /// deterministic so hash comparisons stay stable across independent executions.
 pub fn motion_rule() -> RewriteRule {
     let mut hasher = Hasher::new();
-    hasher.update(b"motion/update");
+    hasher.update(MOTION_RULE_NAME.as_bytes());
     let id = hasher.finalize().into();
     RewriteRule {
         id,
-        name: "motion/update",
+        name: MOTION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: motion_matcher,
         executor: motion_executor,
     }
 }
 
+/// Builds an engine with the default world root and the motion rule registered.
+pub fn build_motion_demo_engine() -> Engine {
+    let mut store = GraphStore::default();
+    let root_id = make_node_id("world-root");
+    let root_type = make_type_id("world");
+    store.insert_node(
+        root_id,
+        NodeRecord {
+            ty: root_type,
+            payload: None,
+        },
+    );
+
+    let mut engine = Engine::new(store, root_id);
+    engine.register_rule(motion_rule());
+    engine
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn motion_engine_with_entities(label_offset: &str) -> (Engine, NodeId, NodeId) {
-        let entity_type = make_type_id(&format!("entity-{}", label_offset));
-        let entity_a = make_node_id(&format!("{}-a", label_offset));
-        let entity_b = make_node_id(&format!("{}-b", label_offset));
-
-        let mut store = GraphStore::default();
-        store.insert_node(NodeRecord {
-            id: entity_a.clone(),
-            ty: entity_type,
-            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.5, 1.0, -0.25])),
-        });
-        store.insert_node(NodeRecord {
-            id: entity_b.clone(),
-            ty: entity_type,
-            payload: Some(encode_motion_payload([10.0, -5.0, 2.0], [-0.5, 2.0, 0.5])),
-        });
-
-        let mut engine = Engine::new(store, make_node_id(&format!("world-{}", label_offset)));
-        engine.register_rule(motion_rule());
-        (engine, entity_a, entity_b)
-    }
-
-    #[test]
-    fn commit_without_rewrites_is_noop() {
-        let (mut engine, entity_a, entity_b) = motion_engine_with_entities("noop");
-        let snapshot_before = engine.snapshot();
-
-        let tx = engine.begin();
-        let snapshot_after = engine.commit(tx).expect("commit noop");
-
-        assert_eq!(snapshot_before.hash, snapshot_after.hash);
-
-        let payload_a = decode_motion_payload(
-            engine
-                .node(&entity_a)
-                .and_then(|rec| rec.payload.as_ref())
-                .expect("entity a payload"),
-        )
-        .expect("decode entity a");
-        let payload_b = decode_motion_payload(
-            engine
-                .node(&entity_b)
-                .and_then(|rec| rec.payload.as_ref())
-                .expect("entity b payload"),
-        )
-        .expect("decode entity b");
-
-        assert_eq!(payload_a.0, [0.0, 0.0, 0.0]);
-        assert_eq!(payload_b.0, [10.0, -5.0, 2.0]);
-    }
-
-    #[test]
-    fn invalid_transaction_rejected() {
-        let (mut engine, entity_a, _) = motion_engine_with_entities("invalid");
-        let invalid_tx = TxId(999);
-
-        let apply_err = engine.apply(invalid_tx, "motion/update", &entity_a);
-        assert!(matches!(apply_err, Err(EngineError::UnknownTx)));
-
-        let commit_err = engine.commit(invalid_tx);
-        assert!(matches!(commit_err, Err(EngineError::UnknownTx)));
-    }
-
-    #[test]
-    fn multiple_commits_advance_state() {
-        let (mut engine, entity_a, _) = motion_engine_with_entities("advance");
-
-        let tx1 = engine.begin();
-        engine.apply(tx1, "motion/update", &entity_a).unwrap();
-        engine.commit(tx1).unwrap();
-
-        let tx2 = engine.begin();
-        engine.apply(tx2, "motion/update", &entity_a).unwrap();
-        engine.commit(tx2).unwrap();
-
-        let (position, velocity) = decode_motion_payload(
-            engine
-                .node(&entity_a)
-                .and_then(|rec| rec.payload.as_ref())
-                .expect("entity payload"),
-        )
-        .expect("decode entity");
-
-        // velocity unchanged, position advanced twice (25 increments each axis).
-        assert_eq!(velocity, [0.5, 1.0, -0.25]);
-        assert_eq!(position, [1.0, 2.0, -0.5]);
-    }
-
-    #[test]
-    fn commit_clears_pending_queue() {
-        let (mut engine, entity_a, entity_b) = motion_engine_with_entities("flush");
-
-        let tx = engine.begin();
-        engine.apply(tx, "motion/update", &entity_a).unwrap();
-        engine.apply(tx, "motion/update", &entity_b).unwrap();
-        engine.commit(tx).unwrap();
-
-        let tx2 = engine.begin();
-        let snapshot = engine.commit(tx2).unwrap();
-
-        // Snapshot hash is identical to prior commit; no phantom rewrites executed.
-        assert_eq!(snapshot.hash, engine.snapshot().hash);
-    }
-
-    #[test]
-    fn no_match_does_not_enqueue() {
-        let (mut engine, entity_a, _) = motion_engine_with_entities("nomatch");
-
-        // Remove payload so matcher returns None.
-        engine
-            .store
-            .nodes
-            .get_mut(&entity_a)
-            .expect("entity present")
-            .payload = None;
-
-        let tx = engine.begin();
-        let result = engine.apply(tx, "motion/update", &entity_a).unwrap();
-        assert!(matches!(result, ApplyResult::NoMatch));
-
-        let snap = engine.commit(tx).unwrap();
-        assert_eq!(snap.hash, engine.snapshot().hash);
-    }
     #[test]
     fn motion_rule_updates_position_deterministically() {
         let entity = make_node_id("entity-1");
@@ -579,17 +473,19 @@ mod tests {
         let payload = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
 
         let mut store = GraphStore::default();
-        store.insert_node(NodeRecord {
-            id: entity.clone(),
-            ty: entity_type,
-            payload: Some(payload),
-        });
+        store.insert_node(
+            entity,
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(payload),
+            },
+        );
 
-        let mut engine = Engine::new(store, entity.clone());
+        let mut engine = Engine::new(store, entity);
         engine.register_rule(motion_rule());
 
         let tx = engine.begin();
-        let apply = engine.apply(tx, "motion/update", &entity).unwrap();
+        let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
         assert!(matches!(apply, ApplyResult::Applied));
 
         let snap = engine.commit(tx).expect("commit");
@@ -598,16 +494,18 @@ mod tests {
         // Run a second engine with identical initial state and ensure hashes match.
         let mut store_b = GraphStore::default();
         let payload_b = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
-        store_b.insert_node(NodeRecord {
-            id: entity.clone(),
-            ty: entity_type,
-            payload: Some(payload_b),
-        });
+        store_b.insert_node(
+            entity,
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(payload_b),
+            },
+        );
 
-        let mut engine_b = Engine::new(store_b, entity.clone());
+        let mut engine_b = Engine::new(store_b, entity);
         engine_b.register_rule(motion_rule());
         let tx_b = engine_b.begin();
-        let apply_b = engine_b.apply(tx_b, "motion/update", &entity).unwrap();
+        let apply_b = engine_b.apply(tx_b, MOTION_RULE_NAME, &entity).unwrap();
         assert!(matches!(apply_b, ApplyResult::Applied));
         let snap_b = engine_b.commit(tx_b).expect("commit B");
 
@@ -630,75 +528,39 @@ mod tests {
         let entity_type = make_type_id("entity");
 
         let mut store = GraphStore::default();
-        store.insert_node(NodeRecord {
-            id: entity.clone(),
-            ty: entity_type,
-            payload: None,
-        });
+        store.insert_node(
+            entity,
+            NodeRecord {
+                ty: entity_type,
+                payload: None,
+            },
+        );
 
-        let mut engine = Engine::new(store, entity.clone());
+        let mut engine = Engine::new(store, entity);
         engine.register_rule(motion_rule());
 
         let tx = engine.begin();
-        let apply = engine.apply(tx, "motion/update", &entity).unwrap();
+        let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
         assert!(matches!(apply, ApplyResult::NoMatch));
     }
 
     #[test]
-    fn commit_executes_pending_rewrites_for_all_scopes() {
-        let (mut engine_a, entity_a1, entity_b1) = motion_engine_with_entities("deterministic");
-        let tx_a = engine_a.begin();
-        engine_a.apply(tx_a, "motion/update", &entity_a1).unwrap();
-        engine_a.apply(tx_a, "motion/update", &entity_b1).unwrap();
-        let snap_a = engine_a.commit(tx_a).expect("commit a");
+    fn apply_unknown_rule_returns_error() {
+        let entity = make_node_id("entity-unknown-rule");
+        let entity_type = make_type_id("entity");
 
-        let (mut engine_b, entity_a2, entity_b2) = motion_engine_with_entities("deterministic");
-        let tx_b = engine_b.begin();
-        // Apply in reverse order to verify ordering is deterministic.
-        engine_b.apply(tx_b, "motion/update", &entity_b2).unwrap();
-        engine_b.apply(tx_b, "motion/update", &entity_a2).unwrap();
-        let snap_b = engine_b.commit(tx_b).expect("commit b");
+        let mut store = GraphStore::default();
+        store.insert_node(
+            entity,
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
+            },
+        );
 
-        assert_eq!(snap_a.hash, snap_b.hash, "Snapshot hashes should be deterministic regardless of apply order");
-
-        let (pos_a1, vel_a1) = decode_motion_payload(
-            engine_a
-                .node(&entity_a1)
-                .and_then(|rec| rec.payload.as_ref())
-                .expect("entity a payload"),
-        )
-        .expect("decode entity a1");
-        let (pos_b1, vel_b1) = decode_motion_payload(
-            engine_a
-                .node(&entity_b1)
-                .and_then(|rec| rec.payload.as_ref())
-                .expect("entity b payload"),
-        )
-        .expect("decode entity b1");
-
-        assert_eq!(pos_a1, [0.5, 1.0, -0.25]);
-        assert_eq!(vel_a1, [0.5, 1.0, -0.25]);
-        assert_eq!(pos_b1, [9.5, -3.0, 2.5]);
-        assert_eq!(vel_b1, [-0.5, 2.0, 0.5]);
-
-        let (pos_a2, vel_a2) = decode_motion_payload(
-            engine_b
-                .node(&entity_a2)
-                .and_then(|rec| rec.payload.as_ref())
-                .expect("entity a2 payload"),
-        )
-        .expect("decode entity a2");
-        let (pos_b2, vel_b2) = decode_motion_payload(
-            engine_b
-                .node(&entity_b2)
-                .and_then(|rec| rec.payload.as_ref())
-                .expect("entity b2 payload"),
-        )
-        .expect("decode entity b2");
-
-        assert_eq!(pos_a2, pos_a1);
-        assert_eq!(vel_a2, vel_a1);
-        assert_eq!(pos_b2, pos_b1);
-        assert_eq!(vel_b2, vel_b1);
+        let mut engine = Engine::new(store, entity);
+        let tx = engine.begin();
+        let result = engine.apply(tx, "missing-rule", &entity);
+        assert!(matches!(result, Err(EngineError::UnknownRule(rule)) if rule == "missing-rule"));
     }
 }

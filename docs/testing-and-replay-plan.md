@@ -49,10 +49,12 @@ interface VerificationReport {
 ---
 
 ## Automation Plan
-- `cargo test --package rmg-core --features determinism` – runs replay and comparers for golden datasets.
-- `cargo test --package rmg-core --test paradox` – injects artificial read/write overlaps to validate quarantine behavior.
-- `cargo test --package rmg-core --test entropy` – verifies entropy observers and metrics.
-- `cargo test --package rmg-core --test bridge` – covers temporal bridge retro/reroute.
+Once implemented, the automated test suite will include:
+
+- PLANNED: `cargo test --package rmg-core --features determinism` – runs replay and comparers for golden datasets.
+- PLANNED: `cargo test --package rmg-core --test paradox` – injects artificial read/write overlaps to validate quarantine behavior.
+- PLANNED: `cargo test --package rmg-core --test entropy` – verifies entropy observers and metrics.
+- PLANNED: `cargo test --package rmg-core --test bridge` – covers temporal bridge retro/reroute.
 - TODO: Add Criterion-based scheduler benches to CI once implemented (Phase 1 task).
 
 ---

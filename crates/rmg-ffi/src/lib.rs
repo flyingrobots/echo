@@ -10,8 +10,8 @@ use std::os::raw::c_char;
 use std::slice;
 
 use rmg_core::{
-    ApplyResult, Engine, GraphStore, NodeId, NodeRecord, TxId, decode_motion_payload,
-    encode_motion_payload, make_node_id, make_type_id, motion_rule,
+    ApplyResult, Engine, MOTION_RULE_NAME, NodeId, NodeRecord, TxId, build_motion_demo_engine,
+    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id,
 };
 
 /// Opaque engine pointer exposed over the C ABI.
@@ -44,21 +44,16 @@ pub struct rmg_snapshot {
 }
 
 /// Creates a new engine with the motion rule registered.
+///
+/// # Safety
+/// The caller assumes ownership of the returned pointer and must release it
+/// via [`rmg_engine_free`] to avoid leaking memory.
+// Rust 2024 requires `#[unsafe(no_mangle)]` as `no_mangle` is an unsafe attribute.
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_new() -> *mut RmgEngine {
-    let mut store = GraphStore::default();
-    let root_id = make_node_id("world-root");
-    let root_type = make_type_id("world");
-    store.insert_node(NodeRecord {
-        id: root_id.clone(),
-        ty: root_type,
-        payload: None,
-    });
-
-    let mut engine = Engine::new(store, root_id);
-    engine.register_rule(motion_rule());
-
-    Box::into_raw(Box::new(RmgEngine { inner: engine }))
+pub unsafe extern "C" fn rmg_engine_new() -> *mut RmgEngine {
+    Box::into_raw(Box::new(RmgEngine {
+        inner: build_motion_demo_engine(),
+    }))
 }
 
 /// Releases the engine allocation created by [`rmg_engine_new`].
@@ -80,7 +75,7 @@ pub unsafe extern "C" fn rmg_engine_free(engine: *mut RmgEngine) {
 ///
 /// # Safety
 /// `engine`, `label`, and `out_handle` must be valid pointers. `label` must
-/// reference a null-terminated string.
+/// reference a null-terminated UTF-8 string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     engine: *mut RmgEngine,
@@ -107,11 +102,13 @@ pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     let entity_type = make_type_id("entity");
     let payload = encode_motion_payload([px, py, pz], [vx, vy, vz]);
 
-    engine.inner.insert_node(NodeRecord {
-        id: node_id.clone(),
-        ty: entity_type,
-        payload: Some(payload),
-    });
+    engine.inner.insert_node(
+        node_id,
+        NodeRecord {
+            ty: entity_type,
+            payload: Some(payload),
+        },
+    );
 
     unsafe {
         (*out_handle).bytes = node_id.0;
@@ -156,7 +153,7 @@ pub unsafe extern "C" fn rmg_engine_apply_motion(
     };
     match engine
         .inner
-        .apply(TxId(tx.value), "motion/update", &node_id)
+        .apply(TxId(tx.value), MOTION_RULE_NAME, &node_id)
     {
         Ok(ApplyResult::Applied) => true,
         Ok(ApplyResult::NoMatch) => false,
@@ -200,7 +197,7 @@ pub unsafe extern "C" fn rmg_engine_read_motion(
     out_position: *mut f32,
     out_velocity: *mut f32,
 ) -> bool {
-    let engine = match unsafe { engine.as_mut() } {
+    let engine = match unsafe { engine.as_ref() } {
         Some(engine) => engine,
         None => return false,
     };

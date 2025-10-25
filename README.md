@@ -1,4 +1,4 @@
-# Echo Engine
+# Echo
 
 ```rust
 //! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
@@ -13,11 +13,18 @@
 //! (Recursively, in the Metaverse)
 ```
 
-> ECHO is a recursive metagraph simulation engine that executes and rewrites typed graphs deterministically across branching timelines and merges them through Confluence.
+<img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="500" align="right" />
 
-## Say what??
 
-Echo is a computer program that runs a recursive metagraph (RMG), a **typed, deterministic graph-rewriting engine**.
+> _Echo is a recursive metagraph (RMG) simulation engine that executes and rewrites typed graphs deterministically across branching timelines and merges them through confluence._
+
+### Say what??
+
+**Echo is an ambitious, mind-bending, fundamentally different computational model for game engines and other interactive simulations.** The RMG is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
+
+Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
+
+Echo is fundamentally **built different**.
 
 RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation.
 
@@ -34,7 +41,7 @@ It’s the core of the Echo engine: runtime, assets, networking, and tools all o
 | Atomic in-place edits    | Mutations apply directly to the graph with snapshot isolation.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Confluence               | Independent rewrite sequences that overlap converge to the same canonical graph.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Snapshots, not logs      | Snapshots are emitted from the live graph; append-only history is optional.                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| Deterministic scheduling | The same set of rewrite rules applies to the same graph always yields identical results.                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Deterministic scheduling | The same set of rewrite rules applied to the same graph always yields identical results.                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | QCA-Ready                | Rules can express reversible and superposed transformations for future quantum/parallel semantics. Quantum? Yep. But in this context it means the rewrite engine can be extended to tag rules as **reversible**: every transformation can be walked backward without loss. Built-in, lossless rollback and causal replay, the ability to run parallel speculative branches deterministically, and, yes, quantum, meaning that a research path toward quantum / probabilistic simulation modes is possible. |
 
 ---
@@ -50,7 +57,7 @@ It’s the core of the Echo engine: runtime, assets, networking, and tools all o
 
 ECHO runs on something called an **RMG (Recursive Meta-Graph)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
 
-When the engine runs, it doesn’t just “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
+Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
 
 ### Why this is cool
 
@@ -59,9 +66,6 @@ When the engine runs, it doesn’t just “update objects.” It _rewrites_ part
 - **Confluent:** independent edits always end up in the same final state.
 - **Snapshot-based:** you can freeze the whole graph at any moment for replay or rollback.
 - **Recursive:** a node can contain its own sub-graph—systems inside systems.
-- **QCA-ready:** the math we’re using is general enough to support reversible and parallel updates later, so the engine can do instant rollback, run speculative branches, or even experiment with quantum-style simulations down the road.
-
-There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Let's just say that the RMG is weird, and **extremely powerful.**
 
 ### In Plain English
 
@@ -70,18 +74,80 @@ You can pause time, fork a copy of reality, try out a new idea, and merge the ti
 
 ---
 
-## Getting Started
+## Advantages
+
+> *"Things are only impossible until they're not."* — Jean-Luc Picard
+
+Can your game engine do...
+
+### Perfect Determinism 
+
+Same input graph + same rules = same output, always. This is huge for:
+
+- Networked multiplayer (no desync, ever)
+- Replays (just store the initial state + inputs)
+- Testing (reproducible bugs)
+- Time travel debugging
+
+### Branching Timelines 
 
 > “All we have to decide is what to do with the time that is given us.” — _Gandalf, The Lord of the Rings_
 
-```bash
-git clone git@github.com:flyingrobots/EchoEngine.git
-<coming soon>
-```
+The Git metaphor is accurate. Fork reality, try something, merge back. This enables:
+
+- Speculative execution
+- "What if?" simulation
+- Save/load that's mathematically guaranteed to work
+
+### Confluence
+
+Independent changes converge to the same result. This is operational transformation meets game engine, and it's bonkers powerful for:
+
+- Collaborative editing
+- Distributed simulation
+- Conflict-free merges
+
+### Everything-is-a-graph 
+
+Rules are graphs. Systems are graphs. The whole runtime is a graph. This gives you:
+
+- Introspection at every level
+- Hot-reloading without special cases
+- Tools that operate on the same substrate as the engine
+- Zero-copy loading
 
 ---
 
-## Learning the Vision
+## Current Status
+
+Echo is in **active development**. We're currently:
+
+- ✅ Formal proofs of confluence (tick-level determinism proven)
+- ✅ [C implementation](http://github.com/meta-graph/core) of independence checks and footprint calculus
+- ✅ 200-iteration property tests validating commutativity
+- 🚧 Performance optimization (subgraph matching, spatial indexing)
+- 🚧 Rust rewrite of core runtime
+- ❌ Lua scripting integration (not started)
+- ❌ Rendering backend (not started)
+
+---
+
+### The Math Checks Out
+
+The mathematical properties of RMGs offer:
+
+- **Folds (catamorphisms)**: there is a guaranteed, one-true way to “walk” the graph.
+  - That’s how rendering, physics, and serialization all stay consistent: they’re just different folds over the same data.
+- **Double-Pushout (DPO) rewriting**: a safe, proven way to modify graphs.
+  - Instead of ad-hoc mutation, every change is a rewrite rule with an explicit match and replacement, so the engine can reason about merges, rollbacks, and conflicts.
+- **Confluence** – when two people or two threads make compatible edits, they deterministically converge to the same state.
+  - That’s the key to multiplayer sync, time-travel debugging, and collaborative editing.
+
+There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Let's just say that the RMG is weird, and **extremely powerful.**
+
+---
+
+### Learning the Vision
 
 > *“Roads? Where we’re going, we don’t need roads.” — Doc Brown, Back to the Future*
 
@@ -120,3 +186,9 @@ git clone git@github.com:flyingrobots/EchoEngine.git
 - [ ] **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.
 
 Chrononauts welcome. Strap in, branch responsibly, and leave the timeline cleaner than you found it.
+
+---
+
+## License
+
+MIT • © J. Kirby Ross • [flyingrobots](http://github.com/flyingrobots)

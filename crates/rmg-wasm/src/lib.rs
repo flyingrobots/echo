@@ -7,26 +7,22 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use js_sys::Uint8Array;
 use rmg_core::{
-    ApplyResult, Engine, GraphStore, NodeId, NodeRecord, TxId, decode_motion_payload,
-    encode_motion_payload, make_node_id, make_type_id, motion_rule,
+    ApplyResult, Engine, MOTION_RULE_NAME, NodeId, NodeRecord, TxId, build_motion_demo_engine,
+    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id,
 };
 use wasm_bindgen::prelude::*;
 
 /// Builds a fresh engine with the motion rule pre-registered.
 fn build_engine() -> Engine {
-    let mut store = GraphStore::default();
-    let root_id = make_node_id("world-root");
-    let root_type = make_type_id("world");
-    store.insert_node(NodeRecord {
-        id: root_id.clone(),
-        ty: root_type,
-        payload: None,
-    });
+    build_motion_demo_engine()
+}
 
-    let mut engine = Engine::new(store, root_id);
-    engine.register_rule(motion_rule());
-    engine
+#[cfg(feature = "console-panic")]
+#[wasm_bindgen(start)]
+pub fn init_console_panic_hook() {
+    console_error_panic_hook::set_once();
 }
 
 /// Converts a 32-byte buffer into a [`NodeId`].
@@ -62,7 +58,15 @@ impl WasmEngine {
     }
 
     #[wasm_bindgen]
-    /// Spawns an entity with encoded motion payload and returns its id bytes.
+    /// Spawns an entity with encoded motion payload.
+    ///
+    /// * `label` – stable identifier used to derive the entity node id. Must be
+    ///   unique for the caller's scope.
+    /// * `px`, `py`, `pz` – initial position components (meters) in a
+    ///   right-handed coordinate system.
+    /// * `vx`, `vy`, `vz` – velocity components (meters/second).
+    ///
+    /// Returns the 32-byte node id as a `Uint8Array` for JavaScript consumers.
     pub fn spawn_motion_entity(
         &self,
         label: &str,
@@ -72,19 +76,21 @@ impl WasmEngine {
         vx: f32,
         vy: f32,
         vz: f32,
-    ) -> Vec<u8> {
+    ) -> Uint8Array {
         let mut engine = self.inner.borrow_mut();
         let node_id = make_node_id(label);
         let entity_type = make_type_id("entity");
         let payload = encode_motion_payload([px, py, pz], [vx, vy, vz]);
 
-        engine.insert_node(NodeRecord {
-            id: node_id.clone(),
-            ty: entity_type,
-            payload: Some(payload),
-        });
+        engine.insert_node(
+            node_id,
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(payload),
+            },
+        );
 
-        node_id.0.to_vec()
+        Uint8Array::from(node_id.0.as_slice())
     }
 
     #[wasm_bindgen]
@@ -95,6 +101,10 @@ impl WasmEngine {
 
     #[wasm_bindgen]
     /// Applies the motion rewrite to the entity identified by `entity_id`.
+    ///
+    /// Returns `true` on success and `false` if the transaction id, entity id,
+    /// or rule match is invalid. Future revisions will surface richer error
+    /// information.
     pub fn apply_motion(&self, tx_id: u64, entity_id: &[u8]) -> bool {
         if tx_id == 0 {
             return false;
@@ -104,7 +114,7 @@ impl WasmEngine {
             None => return false,
         };
         let mut engine = self.inner.borrow_mut();
-        match engine.apply(TxId(tx_id), "motion/update", &node_id) {
+        match engine.apply(TxId(tx_id), MOTION_RULE_NAME, &node_id) {
             Ok(ApplyResult::Applied) => true,
             Ok(ApplyResult::NoMatch) => false,
             Err(_) => false,
@@ -143,7 +153,9 @@ mod tests {
     use wasm_bindgen_test::*;
 
     fn spawn(engine: &WasmEngine) -> Vec<u8> {
-        engine.spawn_motion_entity("entity-wasm", 1.0, 2.0, 3.0, 0.5, -1.0, 0.25)
+        engine
+            .spawn_motion_entity("entity-wasm", 1.0, 2.0, 3.0, 0.5, -1.0, 0.25)
+            .to_vec()
     }
 
     #[wasm_bindgen_test]

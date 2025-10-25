@@ -41,6 +41,88 @@ pub struct WasmEngine {
     inner: Rc<RefCell<Engine>>,
 }
 
+/// Position vector expressed in meters.
+#[wasm_bindgen]
+pub struct Position {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+#[wasm_bindgen]
+impl Position {
+    #[wasm_bindgen(constructor)]
+    /// Creates a new position vector.
+    pub fn new(x: f32, y: f32, z: f32) -> Position {
+        Position { x, y, z }
+    }
+
+    #[wasm_bindgen(getter)]
+    /// Returns the X component in meters.
+    pub fn x(&self) -> f32 {
+        self.x
+    }
+
+    #[wasm_bindgen(getter)]
+    /// Returns the Y component in meters.
+    pub fn y(&self) -> f32 {
+        self.y
+    }
+
+    #[wasm_bindgen(getter)]
+    /// Returns the Z component in meters.
+    pub fn z(&self) -> f32 {
+        self.z
+    }
+}
+
+impl Position {
+    fn components(&self) -> [f32; 3] {
+        [self.x, self.y, self.z]
+    }
+}
+
+/// Velocity vector expressed in meters/second.
+#[wasm_bindgen]
+pub struct Velocity {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+#[wasm_bindgen]
+impl Velocity {
+    #[wasm_bindgen(constructor)]
+    /// Creates a new velocity vector.
+    pub fn new(x: f32, y: f32, z: f32) -> Velocity {
+        Velocity { x, y, z }
+    }
+
+    #[wasm_bindgen(getter)]
+    /// Returns the X component in meters/second.
+    pub fn x(&self) -> f32 {
+        self.x
+    }
+
+    #[wasm_bindgen(getter)]
+    /// Returns the Y component in meters/second.
+    pub fn y(&self) -> f32 {
+        self.y
+    }
+
+    #[wasm_bindgen(getter)]
+    /// Returns the Z component in meters/second.
+    pub fn z(&self) -> f32 {
+        self.z
+    }
+}
+
+impl Velocity {
+    fn components(&self) -> [f32; 3] {
+        [self.x, self.y, self.z]
+    }
+}
+
 impl Default for WasmEngine {
     fn default() -> Self {
         Self::new()
@@ -58,30 +140,24 @@ impl WasmEngine {
     }
 
     #[wasm_bindgen]
-    #[allow(clippy::too_many_arguments)]
     /// Spawns an entity with encoded motion payload.
     ///
     /// * `label` – stable identifier used to derive the entity node id. Must be
     ///   unique for the caller's scope.
-    /// * `px`, `py`, `pz` – initial position components (meters) in a
-    ///   right-handed coordinate system.
-    /// * `vx`, `vy`, `vz` – velocity components (meters/second).
+    /// * `position` – initial position in meters.
+    /// * `velocity` – velocity components in meters/second.
     ///
     /// Returns the 32-byte node id as a `Uint8Array` for JavaScript consumers.
     pub fn spawn_motion_entity(
         &self,
         label: &str,
-        px: f32,
-        py: f32,
-        pz: f32,
-        vx: f32,
-        vy: f32,
-        vz: f32,
+        position: &Position,
+        velocity: &Velocity,
     ) -> Uint8Array {
         let mut engine = self.inner.borrow_mut();
         let node_id = make_node_id(label);
         let entity_type = make_type_id("entity");
-        let payload = encode_motion_payload([px, py, pz], [vx, vy, vz]);
+        let payload = encode_motion_payload(position.components(), velocity.components());
 
         engine.insert_node(
             node_id,
@@ -154,8 +230,10 @@ mod tests {
     use wasm_bindgen_test::*;
 
     fn spawn(engine: &WasmEngine) -> Vec<u8> {
+        let position = Position::new(1.0, 2.0, 3.0);
+        let velocity = Velocity::new(0.5, -1.0, 0.25);
         engine
-            .spawn_motion_entity("entity-wasm", 1.0, 2.0, 3.0, 0.5, -1.0, 0.25)
+            .spawn_motion_entity("entity-wasm", &position, &velocity)
             .to_vec()
     }
 

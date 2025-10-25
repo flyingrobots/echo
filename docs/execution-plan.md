@@ -62,7 +62,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [ ] Write failing tests for entity ID allocation + recycling.
 - [ ] Prototype `TimelineFingerprint` hashing & equality tests.
 - [ ] Scaffold deterministic PRNG wrapper with tests.
-- [ ] Establish `pnpm test` pipeline in CI (incoming GitHub Actions).
+- [ ] Establish `cargo test` pipeline in CI (incoming GitHub Actions).
 - [ ] Integrate roaring bitmaps into ECS dirty tracking.
 - [ ] Implement chunk epoch counters on mutation.
 - [ ] Add deterministic hashing module (canonical encode + BLAKE3).
@@ -75,8 +75,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [ ] Update Codex's Baby to Phase 0.5 spec (event envelope, bridge, backpressure, inspector packet, security).
 
 ### Tooling & Docs
-- [ ] Build `docs/echo/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).
-- [ ] Extend `docs/echo/diagrams.md` with scheduler flow & command queue animations.
+- [ ] Build `docs/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).
+- [ ] Extend `docs/diagrams.md` with scheduler flow & command queue animations.
 - [ ] Prepare Neo4j query cheatsheet for faster journaling.
 - [ ] Design test fixture layout (`test/fixtures/…`) with sample component schemas.
 - [ ] Document roaring bitmap integration and merge strategies.

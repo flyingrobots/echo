@@ -123,7 +123,7 @@
 
 ## Legacy Excavation Log
 - **Goal**: Track every legacy file, classify (keep concept, redesign, discard), note dependencies (Mootools, globals, duplicate IDs), and record learnings to inform Echo.
-- **Artifacts**: `docs/echo/legacy-excavation.md` (to be populated) with columns for file, role, verdict, action items, and notes.
+- **Artifacts**: `docs/legacy-excavation.md` (to be populated) with columns for file, role, verdict, action items, and notes.
 - **Process**: Review file → summarize intent → capture bugs/gaps → map to Echo’s modules → decide migration path or deprecation.
 - **Outcome**: Comprehensive reference that prevents accidental feature loss and keeps the rewrite grounded in historical context.
 

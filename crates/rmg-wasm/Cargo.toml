@@ -3,4 +3,18 @@ name = "rmg-wasm"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+console-panic = ["console_error_panic_hook"]
+
 [dependencies]
+rmg-core = { path = "../rmg-core" }
+wasm-bindgen = "0.2.104"
+js-sys = "0.3.81"
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.42"

@@ -190,5 +190,4 @@ sequenceDiagram
 - **Entropy Pulse**: Animate stroke width/color based on the Entropy meter.
 - **Interactive Sequencer**: Play back the sequence diagram with tooltips showing Codex queue sizes.
 
-Once the architecture crystallizes, we’ll wire these into a `docs/echo/viewer/` playground that live-updates from this Markdown.
-
+Once the architecture crystallizes, we’ll wire these into a future documentation viewer/playground that live-updates from this Markdown.

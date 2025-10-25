@@ -19,8 +19,8 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - **Temporal Tooling**: features support branching timelines and merges.
 
 ## Getting Started
-1. Clone the repo and run `pnpm install`.
-2. Read `docs/echo/architecture-outline.md` and `docs/echo/execution-plan.md`.
+1. Clone the repo and run `cargo check` to ensure the Rust workspace builds.
+2. Read `docs/architecture-outline.md` and `docs/execution-plan.md`.
 3. Register yourself in Neo4j via `AGENTS.md` instructions and note your display handle.
 
 ## Branching & Workflow
@@ -30,16 +30,16 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 ## Testing Expectations
 - Write tests before or alongside code changes.
-- `pnpm test` must pass locally before PR submission.
-- Add Vitest coverage for new logic; integration tests will live under `apps/playground` when ready.
+- `cargo test` must pass locally before PR submission.
+- Add unit/integration coverage for new logic; Lua/TypeScript tooling will regain coverage when reintroduced.
 
 ## Documentation & Telemetry
-- Update relevant docs in `docs/echo/` whenever behavior or architecture changes.
+- Update relevant docs in `docs/` whenever behavior or architecture changes.
 - Record major decisions or deviations in the execution plan or decision log tables.
 - Use Neo4j to leave breadcrumbs for future Codex agents.
 
 ## Submitting Changes
-1. Run `pnpm lint` and `pnpm test`.
+1. Run `cargo fmt`, `cargo clippy`, and `cargo test`.
 2. Commit with meaningful messages (no conventional prefixes; tell the story).
 3. Push your branch and open a PR. Include:
    - Summary of changes and motivation.
@@ -48,9 +48,10 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 4. Request review from maintainers (see CODEOWNERS).
 
 ## Code Style
-- TypeScript + ESLint + Prettier (config provided).
-- Prefer explicit types when clarity improves comprehension.
-- Avoid non-deterministic APIs (no `Math.random`, `Date.now`, etc.). Use Echo’s math/PRNG services.
+- Rust code must pass `cargo fmt` and `cargo clippy` without warnings.
+- Lua scripts should remain deterministic (no uncontrolled globals, RNG via engine services).
+- TypeScript tooling (when active) lives in `reference/typescript/`; follow local lint configs when reactivated.
+- Avoid non-deterministic APIs (no wall-clock, no uncontrolled randomness). Use Echo’s deterministic services.
 
 ## Communication
 - Major updates logged in Neo4j threads (`echo-devlog`, `echo-spec`).

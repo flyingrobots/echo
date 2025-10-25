@@ -3,25 +3,26 @@
 Welcome to the **Echo** project. This file captures expectations for any LLM agent (and future-human collaborator) who touches the repo.
 
 ## Core Principles
-- **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/echo/architecture-outline.md` before touching runtime code.
-- **Document Ruthlessly**: Every meaningful design choice should land in `docs/echo/` (spec, diagrams, memorials) or a Neo4j journal entry tagged `Echo`.
+- **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/architecture-outline.md` before touching runtime code.
+- **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, memorials) or a Neo4j journal entry tagged `Echo`.
+- **Docstrings Aren't Optional**: Public APIs across crates (`rmg-core`, `rmg-ffi`, `rmg-wasm`, etc.) must carry rustdoc comments that explain intent, invariants, and usage. Treat missing docs as a failing test.
 - **Determinism First**: Avoid introducing sources of nondeterminism without a mitigation plan.
 - **Temporal Mindset**: Think in timelines—branching, merging, entropy budgets. Feature work should map to Chronos/Kairos/Aion axes where appropriate.
 
 ## Shared Memory (Neo4j)
 We use the agent-collab Neo4j instance as a temporal journal.
 
-Scripts live in `/Users/james/git/agent-collab/scripts/neo4j-msg.js`.
+Scripts live in `<agent-collab checkout>/scripts/neo4j-msg.js`.
 
 ### Setup
 ```bash
 # Register yourself once. Choose a display name that identifies the agent.
-node /Users/james/git/agent-collab/scripts/neo4j-msg.js agent-init "Echo Codex"
+node path/to/agent-collab/scripts/neo4j-msg.js agent-init "Echo Codex"
 ```
 
 ### Writing a Journal Entry
 ```bash
-node /Users/james/git/agent-collab/scripts/neo4j-msg.js msg-send \
+node path/to/agent-collab/scripts/neo4j-msg.js msg-send \
   --from "Echo Codex" \
   --to "Echo Archive" \
   --text "[Echo] short summary of what you changed or decided." \
@@ -35,10 +36,11 @@ Guidelines:
 - Prefix the message with `[Echo]` so the tag survives future searches.
 - Summarise intent, work done, and next steps for future agents.
 - Use the thread `echo-devlog` unless a more specific thread already exists.
+- **Cadence:** Log when you start work (intent), when you hit a major milestone or decision, when you reference external sources (paths, specs), and when you finish a session (outcome + next steps). Treat Neo4j as the authoritative timeline.
 
 ### Reading Past Entries
 ```bash
-node /Users/james/git/agent-collab/scripts/neo4j-msg.js messages \
+node path/to/agent-collab/scripts/neo4j-msg.js messages \
   --thread "echo-devlog" \
   --limit 20
 ```
@@ -48,7 +50,7 @@ Use `messages-search --text "Echo"` for ad-hoc queries.
 ## Repository Layout
 - `packages/echo-core`: Runtime core (ECS, scheduler, Codex’s Baby, timelines).
 - `apps/playground`: Vite sandbox and inspector (future).
-- `docs/echo`: Specs, diagrams, memorials.
+- `docs/`: Specs, diagrams, memorials.
 - `docs/legacy`: Preserved artifacts from the Caverns era.
 
 ## Working Agreement
@@ -56,6 +58,14 @@ Use `messages-search --text "Echo"` for ad-hoc queries.
 - Tests and benchmarks are mandatory for runtime changes once the harness exists.
 - Update the Neo4j log before you down tools, even if the work is incomplete.
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.
+- Run `cargo clippy --all-targets -- -D missing_docs` and `cargo test` before every PR; CI will expect a zero-warning, fully documented surface.
+
+## Git Real
+1. **NEVER** use `--force` with any git command. If you think you need it, stop and ask the human for help.
+2. **NEVER** use rebase. Embrace messy distributed history; plain merges capture the truth, rebases rewrite it.
+3. **NEVER** amend a commit. Make a new commit instead of erasing recorded history.
+
+In short: no one cares about a tidy commit graph, but everyone cares if you rewrite commits on origin.
 
 ## Contact Threads
 - Neo4j Thread `echo-devlog`: Daily journal, decisions, blockers.

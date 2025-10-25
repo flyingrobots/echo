@@ -234,7 +234,8 @@ impl Engine {
             Some(rule) => rule,
             None => return Ok(ApplyResult::NoMatch),
         };
-        if !(rule.matcher)(&self.store, scope) {
+        let matches = (rule.matcher)(&self.store, scope);
+        if !matches {
             return Ok(ApplyResult::NoMatch);
         }
 

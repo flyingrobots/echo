@@ -3,6 +3,7 @@
 //! This module exposes a minimal ABI that higher-level languages (Lua, Python,
 //! etc.) can use to interact with the deterministic engine without knowing the
 //! internal Rust types.
+#![deny(missing_docs)]
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -22,6 +23,7 @@ pub struct RmgEngine {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct rmg_node_id {
+    /// Raw bytes representing the hashed node identifier.
     pub bytes: [u8; 32],
 }
 
@@ -29,6 +31,7 @@ pub struct rmg_node_id {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct rmg_tx_id {
+    /// Native transaction value.
     pub value: u64,
 }
 
@@ -36,6 +39,7 @@ pub struct rmg_tx_id {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct rmg_snapshot {
+    /// Canonical hash bytes for the snapshot.
     pub hash: [u8; 32],
 }
 
@@ -58,8 +62,12 @@ pub extern "C" fn rmg_engine_new() -> *mut RmgEngine {
 }
 
 /// Releases the engine allocation created by [`rmg_engine_new`].
+///
+/// # Safety
+/// `engine` must be a pointer previously returned by [`rmg_engine_new`] that
+/// has not already been freed.
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_free(engine: *mut RmgEngine) {
+pub unsafe extern "C" fn rmg_engine_free(engine: *mut RmgEngine) {
     if engine.is_null() {
         return;
     }
@@ -69,8 +77,12 @@ pub extern "C" fn rmg_engine_free(engine: *mut RmgEngine) {
 }
 
 /// Spawns an entity with encoded motion data and returns its identifier.
+///
+/// # Safety
+/// `engine`, `label`, and `out_handle` must be valid pointers. `label` must
+/// reference a null-terminated string.
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_spawn_motion_entity(
+pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     engine: *mut RmgEngine,
     label: *const c_char,
     px: f32,
@@ -108,8 +120,11 @@ pub extern "C" fn rmg_engine_spawn_motion_entity(
 }
 
 /// Starts a new transaction and returns its identifier.
+///
+/// # Safety
+/// `engine` must be a valid pointer created by [`rmg_engine_new`].
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
+pub unsafe extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
     if engine.is_null() {
         return rmg_tx_id { value: 0 };
     }
@@ -119,8 +134,11 @@ pub extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
 }
 
 /// Applies the motion rewrite to the provided entity within transaction `tx`.
+///
+/// # Safety
+/// All pointers must be valid. `tx` must reference an active transaction.
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_apply_motion(
+pub unsafe extern "C" fn rmg_engine_apply_motion(
     engine: *mut RmgEngine,
     tx: rmg_tx_id,
     node_handle: *const rmg_node_id,
@@ -147,8 +165,11 @@ pub extern "C" fn rmg_engine_apply_motion(
 }
 
 /// Commits the transaction and writes the resulting snapshot hash.
+///
+/// # Safety
+/// Pointers must be valid; `tx` must correspond to a live transaction.
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_commit(
+pub unsafe extern "C" fn rmg_engine_commit(
     engine: *mut RmgEngine,
     tx: rmg_tx_id,
     out_snapshot: *mut rmg_snapshot,
@@ -169,8 +190,11 @@ pub extern "C" fn rmg_engine_commit(
 }
 
 /// Reads the decoded position and velocity for an entity.
+///
+/// # Safety
+/// Pointers must be valid; output buffers must have length at least three.
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_read_motion(
+pub unsafe extern "C" fn rmg_engine_read_motion(
     engine: *mut RmgEngine,
     node_handle: *const rmg_node_id,
     out_position: *mut f32,
@@ -229,17 +253,19 @@ mod tests {
     unsafe fn spawn(engine: *mut RmgEngine, label: &str) -> rmg_node_id {
         let c_label = CString::new(label).unwrap();
         let mut handle = rmg_node_id { bytes: [0; 32] };
-        let ok = rmg_engine_spawn_motion_entity(
-            engine,
-            c_label.as_ptr(),
-            1.0,
-            2.0,
-            3.0,
-            0.5,
-            -1.0,
-            0.25,
-            &mut handle as *mut _,
-        );
+        let ok = unsafe {
+            rmg_engine_spawn_motion_entity(
+                engine,
+                c_label.as_ptr(),
+                1.0,
+                2.0,
+                3.0,
+                0.5,
+                -1.0,
+                0.25,
+                &mut handle as *mut _,
+            )
+        };
         assert!(ok);
         handle
     }
@@ -289,10 +315,12 @@ mod tests {
 
     #[test]
     fn ffi_apply_no_match_returns_false() {
-        let engine = rmg_engine_new();
-        let tx = rmg_engine_begin(engine);
-        let bogus = rmg_node_id { bytes: [1; 32] };
-        assert!(!rmg_engine_apply_motion(engine, tx, &bogus as *const _));
-        rmg_engine_free(engine);
+        unsafe {
+            let engine = rmg_engine_new();
+            let tx = rmg_engine_begin(engine);
+            let bogus = rmg_node_id { bytes: [1; 32] };
+            assert!(!rmg_engine_apply_motion(engine, tx, &bogus as *const _));
+            rmg_engine_free(engine);
+        }
     }
 }

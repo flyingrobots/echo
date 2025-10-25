@@ -58,6 +58,7 @@ Use `messages-search --text "Echo"` for ad-hoc queries.
 - Tests and benchmarks are mandatory for runtime changes once the harness exists.
 - Update the Neo4j log before you down tools, even if the work is incomplete.
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.
+- Run `cargo clippy --all-targets -- -D missing_docs` and `cargo test` before every PR; CI will expect a zero-warning, fully documented surface.
 
 ## Contact Threads
 - Neo4j Thread `echo-devlog`: Daily journal, decisions, blockers.

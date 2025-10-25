@@ -2,6 +2,7 @@
 //!
 //! The exported `WasmEngine` mirrors the C ABI surface so browser clients can
 //! create entities, drive transactions, and read deterministic hashes.
+#![deny(missing_docs)]
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -42,6 +43,12 @@ fn bytes_to_node_id(bytes: &[u8]) -> Option<NodeId> {
 #[wasm_bindgen]
 pub struct WasmEngine {
     inner: Rc<RefCell<Engine>>,
+}
+
+impl Default for WasmEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[wasm_bindgen]

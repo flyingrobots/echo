@@ -1,4 +1,5 @@
 //! rmg-core: typed deterministic graph rewriting engine.
+#![deny(missing_docs)]
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -36,18 +37,26 @@ pub struct EdgeId(pub Hash);
 /// attachments, etc) and is interpreted by higher layers.
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
+    /// Stable identifier for the node.
     pub id: NodeId,
+    /// Type identifier describing the node.
     pub ty: TypeId,
+    /// Optional payload owned by the node (component data, attachments, etc.).
     pub payload: Option<Bytes>,
 }
 
 /// Materialised record for a single edge stored in the graph.
 #[derive(Clone, Debug)]
 pub struct EdgeRecord {
+    /// Stable identifier for the edge.
     pub id: EdgeId,
+    /// Source node identifier.
     pub from: NodeId,
+    /// Destination node identifier.
     pub to: NodeId,
+    /// Type identifier describing the edge.
     pub ty: TypeId,
+    /// Optional payload owned by the edge.
     pub payload: Option<Bytes>,
 }
 
@@ -57,7 +66,9 @@ pub struct EdgeRecord {
 /// but this structure keeps the motion rewrite spike self-contained.
 #[derive(Default)]
 pub struct GraphStore {
+    /// Mapping from node identifiers to their materialised records.
     pub nodes: BTreeMap<NodeId, NodeRecord>,
+    /// Mapping from source node to outbound edge records.
     pub edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>,
 }
 
@@ -86,6 +97,7 @@ impl GraphStore {
 /// Pattern metadata used by a rewrite rule to describe the input graph shape.
 #[derive(Debug, Clone)]
 pub struct PatternGraph {
+    /// Ordered list of type identifiers that make up the pattern.
     pub nodes: Vec<TypeId>,
 }
 
@@ -103,10 +115,15 @@ pub type ExecuteFn = fn(&mut GraphStore, &NodeId);
 /// * a left pattern (currently unused by the spike)
 /// * callbacks for matching and execution
 pub struct RewriteRule {
+    /// Deterministic identifier for the rewrite rule.
     pub id: Hash,
+    /// Human-readable name for logs and debugging.
     pub name: &'static str,
+    /// Pattern used to describe the left-hand side of the rule.
     pub left: PatternGraph,
+    /// Callback that determines whether the rule matches a given scope.
     pub matcher: MatchFn,
+    /// Callback that applies the rewrite to the given scope.
     pub executor: ExecuteFn,
 }
 
@@ -120,9 +137,13 @@ pub struct TxId(pub u64);
 /// graph state (root + payloads).
 #[derive(Debug, Clone)]
 pub struct Snapshot {
+    /// Node identifier that serves as the root of the snapshot.
     pub root: NodeId,
+    /// Canonical hash derived from the entire graph state.
     pub hash: Hash,
+    /// Optional parent snapshot hash (if one exists).
     pub parent: Option<Hash>,
+    /// Transaction identifier associated with the snapshot.
     pub tx: TxId,
 }
 
@@ -135,21 +156,27 @@ pub struct DeterministicScheduler {
 /// Internal representation of a rewrite waiting to be applied.
 #[derive(Debug, Clone)]
 pub struct PendingRewrite {
+    /// Transaction identifier that enqueued the rewrite.
     pub tx: TxId,
+    /// Identifier of the rule to execute.
     pub rule_id: Hash,
+    /// Scope node supplied when `apply` was invoked.
     pub scope: NodeId,
 }
 
 /// Result of calling `Engine::apply`.
 #[derive(Debug)]
 pub enum ApplyResult {
+    /// The rewrite matched and was enqueued for execution.
     Applied,
+    /// The rewrite did not match the provided scope.
     NoMatch,
 }
 
 /// Errors emitted by the engine.
 #[derive(Debug, Error)]
 pub enum EngineError {
+    /// The supplied transaction identifier did not exist or was already closed.
     #[error("transaction not found")]
     UnknownTx,
 }
@@ -379,13 +406,12 @@ fn add_vec(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 /// Executor that updates the encoded position in the entity payload.
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
-    if let Some(record) = store.node_mut(scope) {
-        if let Some(payload) = &record.payload {
-            if let Some((position, velocity)) = decode_motion_payload(payload) {
-                let updated = encode_motion_payload(add_vec(position, velocity), velocity);
-                record.payload = Some(updated);
-            }
-        }
+    if let Some(record) = store.node_mut(scope)
+        && let Some(payload) = &record.payload
+        && let Some((position, velocity)) = decode_motion_payload(payload)
+    {
+        let updated = encode_motion_payload(add_vec(position, velocity), velocity);
+        record.payload = Some(updated);
     }
 }
 

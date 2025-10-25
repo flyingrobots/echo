@@ -1,4 +1,7 @@
 //! rmg-core: typed deterministic graph rewriting engine.
+//!
+//! **WARNING**: This is a Phase 0 bootstrap skeleton. The rewrite executor is not implemented.
+//! `Engine::commit()` currently discards pending rewrites without executing them.
 #![deny(missing_docs)]
 
 use std::collections::{BTreeMap, HashMap};
@@ -95,7 +98,7 @@ impl GraphStore {
 }
 
 /// Pattern metadata used by a rewrite rule to describe the input graph shape.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PatternGraph {
     /// Ordered list of type identifiers that make up the pattern.
     pub nodes: Vec<TypeId>,
@@ -154,7 +157,7 @@ pub struct DeterministicScheduler {
 }
 
 /// Internal representation of a rewrite waiting to be applied.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PendingRewrite {
     /// Transaction identifier that enqueued the rewrite.
     pub tx: TxId,

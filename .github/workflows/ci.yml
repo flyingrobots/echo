@@ -24,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings -D missing_docs
@@ -33,6 +35,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo test
         run: cargo test

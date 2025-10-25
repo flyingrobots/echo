@@ -40,8 +40,6 @@ pub struct EdgeId(pub Hash);
 /// attachments, etc) and is interpreted by higher layers.
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
-    /// Stable identifier for the node.
-    pub id: NodeId,
     /// Type identifier describing the node.
     pub ty: TypeId,
     /// Optional payload owned by the node (component data, attachments, etc.).
@@ -92,8 +90,8 @@ impl GraphStore {
     }
 
     /// Inserts or replaces a node in the store.
-    pub fn insert_node(&mut self, record: NodeRecord) {
-        self.nodes.insert(record.id.clone(), record);
+    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
+        self.nodes.insert(id, record);
     }
 }
 
@@ -294,8 +292,8 @@ impl Engine {
     /// Inserts or replaces a node directly inside the store.
     ///
     /// The spike uses this to create motion entities prior to executing rewrites.
-    pub fn insert_node(&mut self, record: NodeRecord) {
-        self.store.insert_node(record);
+    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
+        self.store.insert_node(id, record);
     }
 }
 
@@ -346,7 +344,6 @@ fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
             }
         }
     }
-    hasher.update(&root.0);
     hasher.finalize().into()
 }
 
@@ -445,6 +442,24 @@ pub fn motion_rule() -> RewriteRule {
     }
 }
 
+/// Builds an engine with the default world root and the motion rule registered.
+pub fn build_motion_demo_engine() -> Engine {
+    let mut store = GraphStore::default();
+    let root_id = make_node_id("world-root");
+    let root_type = make_type_id("world");
+    store.insert_node(
+        root_id.clone(),
+        NodeRecord {
+            ty: root_type,
+            payload: None,
+        },
+    );
+
+    let mut engine = Engine::new(store, root_id);
+    engine.register_rule(motion_rule());
+    engine
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,11 +471,13 @@ mod tests {
         let payload = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
 
         let mut store = GraphStore::default();
-        store.insert_node(NodeRecord {
-            id: entity.clone(),
-            ty: entity_type,
-            payload: Some(payload),
-        });
+        store.insert_node(
+            entity.clone(),
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(payload),
+            },
+        );
 
         let mut engine = Engine::new(store, entity.clone());
         engine.register_rule(motion_rule());
@@ -475,11 +492,13 @@ mod tests {
         // Run a second engine with identical initial state and ensure hashes match.
         let mut store_b = GraphStore::default();
         let payload_b = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
-        store_b.insert_node(NodeRecord {
-            id: entity.clone(),
-            ty: entity_type,
-            payload: Some(payload_b),
-        });
+        store_b.insert_node(
+            entity.clone(),
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(payload_b),
+            },
+        );
 
         let mut engine_b = Engine::new(store_b, entity.clone());
         engine_b.register_rule(motion_rule());
@@ -507,11 +526,13 @@ mod tests {
         let entity_type = make_type_id("entity");
 
         let mut store = GraphStore::default();
-        store.insert_node(NodeRecord {
-            id: entity.clone(),
-            ty: entity_type,
-            payload: None,
-        });
+        store.insert_node(
+            entity.clone(),
+            NodeRecord {
+                ty: entity_type,
+                payload: None,
+            },
+        );
 
         let mut engine = Engine::new(store, entity.clone());
         engine.register_rule(motion_rule());

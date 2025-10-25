@@ -10,8 +10,8 @@ use std::os::raw::c_char;
 use std::slice;
 
 use rmg_core::{
-    ApplyResult, Engine, GraphStore, NodeId, NodeRecord, TxId, decode_motion_payload,
-    encode_motion_payload, make_node_id, make_type_id, motion_rule,
+    ApplyResult, Engine, NodeId, NodeRecord, TxId, build_motion_demo_engine, decode_motion_payload,
+    encode_motion_payload, make_node_id, make_type_id,
 };
 
 /// Opaque engine pointer exposed over the C ABI.
@@ -46,19 +46,9 @@ pub struct rmg_snapshot {
 /// Creates a new engine with the motion rule registered.
 #[unsafe(no_mangle)]
 pub extern "C" fn rmg_engine_new() -> *mut RmgEngine {
-    let mut store = GraphStore::default();
-    let root_id = make_node_id("world-root");
-    let root_type = make_type_id("world");
-    store.insert_node(NodeRecord {
-        id: root_id.clone(),
-        ty: root_type,
-        payload: None,
-    });
-
-    let mut engine = Engine::new(store, root_id);
-    engine.register_rule(motion_rule());
-
-    Box::into_raw(Box::new(RmgEngine { inner: engine }))
+    Box::into_raw(Box::new(RmgEngine {
+        inner: build_motion_demo_engine(),
+    }))
 }
 
 /// Releases the engine allocation created by [`rmg_engine_new`].
@@ -107,11 +97,13 @@ pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     let entity_type = make_type_id("entity");
     let payload = encode_motion_payload([px, py, pz], [vx, vy, vz]);
 
-    engine.inner.insert_node(NodeRecord {
-        id: node_id.clone(),
-        ty: entity_type,
-        payload: Some(payload),
-    });
+    engine.inner.insert_node(
+        node_id.clone(),
+        NodeRecord {
+            ty: entity_type,
+            payload: Some(payload),
+        },
+    );
 
     unsafe {
         (*out_handle).bytes = node_id.0;

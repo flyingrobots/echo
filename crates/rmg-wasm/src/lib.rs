@@ -87,7 +87,7 @@ pub struct WasmEngine {
     inner: Rc<RefCell<Engine>>,
 }
 wasm_vector_type!(
-    "Position vector expressed in meters.",
+    "Position vector expressed in meters.\n\nProvides deterministic float32 components shared between host and Wasm callers. Each component must remain finite and encodes world-space coordinates in metres.\n\n# Usage\nPass a `Position` reference to `WasmEngine::spawn_motion_entity` to seed an entity's initial transform.\n\n# Example\n```\nlet position = Position::new(1.0, 2.0, 3.0);\n```\n",
     Position,
     "Creates a new position vector.",
     "Returns the X component in meters.",
@@ -96,7 +96,7 @@ wasm_vector_type!(
 );
 
 wasm_vector_type!(
-    "Velocity vector expressed in meters/second.",
+    "Velocity vector expressed in meters/second.\n\nEncapsulates deterministic float32 velocity components used by the motion demo rewrite. Components must remain finite and describe linear velocity for each axis in metres/second.\n\n# Usage\nConstruct a `Velocity` and pass it by reference to `WasmEngine::spawn_motion_entity` alongside a `Position` to initialise entity motion.\n\n# Example\n```\nlet velocity = Velocity::new(0.5, -1.0, 0.25);\n```\n",
     Velocity,
     "Creates a new velocity vector.",
     "Returns the X component in meters/second.",

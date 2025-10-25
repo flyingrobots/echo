@@ -1,7 +1,8 @@
 //! rmg-core: typed deterministic graph rewriting engine.
 //!
-//! **WARNING**: This is a Phase 0 bootstrap skeleton. The rewrite executor is not implemented.
-//! `Engine::commit()` currently discards pending rewrites without executing them.
+//! **NOTE**: Phase 0 bootstrap implementation – only the minimal rewrite path used by
+//! the motion-rule spike is implemented. Additional storage and scheduling features
+//! arrive in later phases.
 #![deny(missing_docs)]
 
 use std::collections::{BTreeMap, HashMap};
@@ -448,6 +449,28 @@ pub fn motion_rule() -> RewriteRule {
 mod tests {
     use super::*;
 
+    fn motion_engine_with_entities(label_offset: &str) -> (Engine, NodeId, NodeId) {
+        let entity_type = make_type_id(&format!("entity-{}", label_offset));
+        let entity_a = make_node_id(&format!("{}-a", label_offset));
+        let entity_b = make_node_id(&format!("{}-b", label_offset));
+
+        let mut store = GraphStore::default();
+        store.insert_node(NodeRecord {
+            id: entity_a.clone(),
+            ty: entity_type,
+            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.5, 1.0, -0.25])),
+        });
+        store.insert_node(NodeRecord {
+            id: entity_b.clone(),
+            ty: entity_type,
+            payload: Some(encode_motion_payload([10.0, -5.0, 2.0], [-0.5, 2.0, 0.5])),
+        });
+
+        let mut engine = Engine::new(store, make_node_id(&format!("world-{}", label_offset)));
+        engine.register_rule(motion_rule());
+        (engine, entity_a, entity_b)
+    }
+
     #[test]
     fn motion_rule_updates_position_deterministically() {
         let entity = make_node_id("entity-1");
@@ -518,5 +541,63 @@ mod tests {
         let tx = engine.begin();
         let apply = engine.apply(tx, "motion/update", &entity).unwrap();
         assert!(matches!(apply, ApplyResult::NoMatch));
+    }
+
+    #[test]
+    fn commit_executes_pending_rewrites_for_all_scopes() {
+        let (mut engine_a, entity_a1, entity_b1) = motion_engine_with_entities("deterministic");
+        let tx_a = engine_a.begin();
+        engine_a.apply(tx_a, "motion/update", &entity_a1).unwrap();
+        engine_a.apply(tx_a, "motion/update", &entity_b1).unwrap();
+        let snap_a = engine_a.commit(tx_a).expect("commit a");
+
+        let (mut engine_b, entity_a2, entity_b2) = motion_engine_with_entities("deterministic");
+        let tx_b = engine_b.begin();
+        // Apply in reverse order to verify ordering is deterministic.
+        engine_b.apply(tx_b, "motion/update", &entity_b2).unwrap();
+        engine_b.apply(tx_b, "motion/update", &entity_a2).unwrap();
+        let snap_b = engine_b.commit(tx_b).expect("commit b");
+
+        assert_eq!(snap_a.hash, snap_b.hash, "Snapshot hashes should be deterministic regardless of apply order");
+
+        let (pos_a1, vel_a1) = decode_motion_payload(
+            engine_a
+                .node(&entity_a1)
+                .and_then(|rec| rec.payload.as_ref())
+                .expect("entity a payload"),
+        )
+        .expect("decode entity a1");
+        let (pos_b1, vel_b1) = decode_motion_payload(
+            engine_a
+                .node(&entity_b1)
+                .and_then(|rec| rec.payload.as_ref())
+                .expect("entity b payload"),
+        )
+        .expect("decode entity b1");
+
+        assert_eq!(pos_a1, [0.5, 1.0, -0.25]);
+        assert_eq!(vel_a1, [0.5, 1.0, -0.25]);
+        assert_eq!(pos_b1, [9.5, -3.0, 2.5]);
+        assert_eq!(vel_b1, [-0.5, 2.0, 0.5]);
+
+        let (pos_a2, vel_a2) = decode_motion_payload(
+            engine_b
+                .node(&entity_a2)
+                .and_then(|rec| rec.payload.as_ref())
+                .expect("entity a2 payload"),
+        )
+        .expect("decode entity a2");
+        let (pos_b2, vel_b2) = decode_motion_payload(
+            engine_b
+                .node(&entity_b2)
+                .and_then(|rec| rec.payload.as_ref())
+                .expect("entity b2 payload"),
+        )
+        .expect("decode entity b2");
+
+        assert_eq!(pos_a2, pos_a1);
+        assert_eq!(vel_a2, vel_a1);
+        assert_eq!(pos_b2, pos_b1);
+        assert_eq!(vel_b2, vel_b1);
     }
 }

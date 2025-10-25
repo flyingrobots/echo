@@ -23,7 +23,7 @@ pub type Hash = [u8; 32];
 ///
 /// `NodeId` values are obtained from `make_node_id` and remain stable across
 /// runs because they are derived from a BLAKE3 hash of a string label.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NodeId(pub Hash);
 
 /// Strongly typed identifier for the logical kind of a node or component.
@@ -183,6 +183,9 @@ pub enum EngineError {
     /// The supplied transaction identifier did not exist or was already closed.
     #[error("transaction not found")]
     UnknownTx,
+    /// A rule was requested that has not been registered with the engine.
+    #[error("rule not registered: {0}")]
+    UnknownRule(String),
 }
 
 /// Core rewrite engine used by the spike.
@@ -233,7 +236,7 @@ impl Engine {
         }
         let rule = match self.rules.get(rule_name) {
             Some(rule) => rule,
-            None => return Ok(ApplyResult::NoMatch),
+            None => return Err(EngineError::UnknownRule(rule_name.to_owned())),
         };
         let matches = (rule.matcher)(&self.store, scope);
         if !matches {
@@ -246,7 +249,7 @@ impl Engine {
             PendingRewrite {
                 tx,
                 rule_id: rule.id,
-                scope: scope.clone(),
+                scope: *scope,
             },
         );
 
@@ -267,7 +270,7 @@ impl Engine {
 
         let hash = compute_snapshot_hash(&self.store, &self.current_root);
         let snapshot = Snapshot {
-            root: self.current_root.clone(),
+            root: self.current_root,
             hash,
             parent: self.last_snapshot.as_ref().map(|s| s.hash),
             tx,
@@ -280,7 +283,7 @@ impl Engine {
     pub fn snapshot(&self) -> Snapshot {
         let hash = compute_snapshot_hash(&self.store, &self.current_root);
         Snapshot {
-            root: self.current_root.clone(),
+            root: self.current_root,
             hash,
             parent: self.last_snapshot.as_ref().map(|s| s.hash),
             tx: TxId(self.tx_counter),
@@ -332,7 +335,9 @@ fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
     for (from, edges) in &store.edges_from {
         hasher.update(&from.0);
         hasher.update(&(edges.len() as u64).to_le_bytes());
-        for edge in edges {
+        let mut sorted_edges: Vec<&EdgeRecord> = edges.iter().collect();
+        sorted_edges.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+        for edge in sorted_edges {
             hasher.update(&(edge.id).0);
             hasher.update(&(edge.ty).0);
             hasher.update(&(edge.to).0);
@@ -445,7 +450,7 @@ pub fn build_motion_demo_engine() -> Engine {
     let root_id = make_node_id("world-root");
     let root_type = make_type_id("world");
     store.insert_node(
-        root_id.clone(),
+        root_id,
         NodeRecord {
             ty: root_type,
             payload: None,
@@ -469,14 +474,14 @@ mod tests {
 
         let mut store = GraphStore::default();
         store.insert_node(
-            entity.clone(),
+            entity,
             NodeRecord {
                 ty: entity_type,
                 payload: Some(payload),
             },
         );
 
-        let mut engine = Engine::new(store, entity.clone());
+        let mut engine = Engine::new(store, entity);
         engine.register_rule(motion_rule());
 
         let tx = engine.begin();
@@ -490,14 +495,14 @@ mod tests {
         let mut store_b = GraphStore::default();
         let payload_b = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
         store_b.insert_node(
-            entity.clone(),
+            entity,
             NodeRecord {
                 ty: entity_type,
                 payload: Some(payload_b),
             },
         );
 
-        let mut engine_b = Engine::new(store_b, entity.clone());
+        let mut engine_b = Engine::new(store_b, entity);
         engine_b.register_rule(motion_rule());
         let tx_b = engine_b.begin();
         let apply_b = engine_b.apply(tx_b, MOTION_RULE_NAME, &entity).unwrap();
@@ -524,18 +529,38 @@ mod tests {
 
         let mut store = GraphStore::default();
         store.insert_node(
-            entity.clone(),
+            entity,
             NodeRecord {
                 ty: entity_type,
                 payload: None,
             },
         );
 
-        let mut engine = Engine::new(store, entity.clone());
+        let mut engine = Engine::new(store, entity);
         engine.register_rule(motion_rule());
 
         let tx = engine.begin();
         let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
         assert!(matches!(apply, ApplyResult::NoMatch));
+    }
+
+    #[test]
+    fn apply_unknown_rule_returns_error() {
+        let entity = make_node_id("entity-unknown-rule");
+        let entity_type = make_type_id("entity");
+
+        let mut store = GraphStore::default();
+        store.insert_node(
+            entity,
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
+            },
+        );
+
+        let mut engine = Engine::new(store, entity);
+        let tx = engine.begin();
+        let result = engine.apply(tx, "missing-rule", &entity);
+        assert!(matches!(result, Err(EngineError::UnknownRule(rule)) if rule == "missing-rule"));
     }
 }

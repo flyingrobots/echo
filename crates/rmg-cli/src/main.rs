@@ -1,6 +1,6 @@
 //! Echo CLI entrypoint.
 //!
-//! Provides developer-facing commands for working with Echo projects. Planned
+//! Provides developer-facing commands for working with Echo projects. *Planned*
 //! subcommands include `echo demo` (run deterministic demo suites), `echo
 //! bench` (execute Criterion benchmarks), and `echo inspect` (open the
 //! inspector tooling).

@@ -46,7 +46,9 @@ pub struct rmg_snapshot {
 /// Creates a new engine with the motion rule registered.
 ///
 /// # Safety
-/// The returned raw pointer must be released by calling [`rmg_engine_free`].
+/// The caller assumes ownership of the returned pointer and must release it
+/// via [`rmg_engine_free`] to avoid leaking memory.
+// Rust 2024 requires `#[unsafe(no_mangle)]` as `no_mangle` is an unsafe attribute.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmg_engine_new() -> *mut RmgEngine {
     Box::into_raw(Box::new(RmgEngine {
@@ -73,7 +75,7 @@ pub unsafe extern "C" fn rmg_engine_free(engine: *mut RmgEngine) {
 ///
 /// # Safety
 /// `engine`, `label`, and `out_handle` must be valid pointers. `label` must
-/// reference a null-terminated string.
+/// reference a null-terminated UTF-8 string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     engine: *mut RmgEngine,
@@ -101,7 +103,7 @@ pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     let payload = encode_motion_payload([px, py, pz], [vx, vy, vz]);
 
     engine.inner.insert_node(
-        node_id.clone(),
+        node_id,
         NodeRecord {
             ty: entity_type,
             payload: Some(payload),

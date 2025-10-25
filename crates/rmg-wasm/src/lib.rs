@@ -58,7 +58,15 @@ impl WasmEngine {
     }
 
     #[wasm_bindgen]
-    /// Spawns an entity with encoded motion payload and returns its id bytes.
+    /// Spawns an entity with encoded motion payload.
+    ///
+    /// * `label` – stable identifier used to derive the entity node id. Must be
+    ///   unique for the caller's scope.
+    /// * `px`, `py`, `pz` – initial position components (meters) in a
+    ///   right-handed coordinate system.
+    /// * `vx`, `vy`, `vz` – velocity components (meters/second).
+    ///
+    /// Returns the 32-byte node id as a `Uint8Array` for JavaScript consumers.
     pub fn spawn_motion_entity(
         &self,
         label: &str,
@@ -75,7 +83,7 @@ impl WasmEngine {
         let payload = encode_motion_payload([px, py, pz], [vx, vy, vz]);
 
         engine.insert_node(
-            node_id.clone(),
+            node_id,
             NodeRecord {
                 ty: entity_type,
                 payload: Some(payload),
@@ -93,6 +101,10 @@ impl WasmEngine {
 
     #[wasm_bindgen]
     /// Applies the motion rewrite to the entity identified by `entity_id`.
+    ///
+    /// Returns `true` on success and `false` if the transaction id, entity id,
+    /// or rule match is invalid. Future revisions will surface richer error
+    /// information.
     pub fn apply_motion(&self, tx_id: u64, entity_id: &[u8]) -> bool {
         if tx_id == 0 {
             return false;

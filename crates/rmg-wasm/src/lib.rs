@@ -58,6 +58,7 @@ impl WasmEngine {
     }
 
     #[wasm_bindgen]
+    #[allow(clippy::too_many_arguments)]
     /// Spawns an entity with encoded motion payload.
     ///
     /// * `label` – stable identifier used to derive the entity node id. Must be

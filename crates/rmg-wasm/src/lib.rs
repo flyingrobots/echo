@@ -14,6 +14,51 @@ use rmg_core::{
 };
 use wasm_bindgen::prelude::*;
 
+macro_rules! wasm_vector_type {
+    ($struct_doc:literal, $name:ident, $ctor_doc:literal, $x_doc:literal, $y_doc:literal, $z_doc:literal) => {
+        #[wasm_bindgen]
+        #[doc = $struct_doc]
+        pub struct $name {
+            x: f32,
+            y: f32,
+            z: f32,
+        }
+
+        #[wasm_bindgen]
+        impl $name {
+            #[wasm_bindgen(constructor)]
+            #[doc = $ctor_doc]
+            pub fn new(x: f32, y: f32, z: f32) -> $name {
+                $name { x, y, z }
+            }
+
+            #[wasm_bindgen(getter)]
+            #[doc = $x_doc]
+            pub fn x(&self) -> f32 {
+                self.x
+            }
+
+            #[wasm_bindgen(getter)]
+            #[doc = $y_doc]
+            pub fn y(&self) -> f32 {
+                self.y
+            }
+
+            #[wasm_bindgen(getter)]
+            #[doc = $z_doc]
+            pub fn z(&self) -> f32 {
+                self.z
+            }
+        }
+
+        impl $name {
+            pub(crate) fn components(&self) -> [f32; 3] {
+                [self.x, self.y, self.z]
+            }
+        }
+    };
+}
+
 /// Builds a fresh engine with the motion rule pre-registered.
 fn build_engine() -> Engine {
     build_motion_demo_engine()
@@ -40,88 +85,23 @@ fn bytes_to_node_id(bytes: &[u8]) -> Option<NodeId> {
 pub struct WasmEngine {
     inner: Rc<RefCell<Engine>>,
 }
+wasm_vector_type!(
+    "Position vector expressed in meters.",
+    Position,
+    "Creates a new position vector.",
+    "Returns the X component in meters.",
+    "Returns the Y component in meters.",
+    "Returns the Z component in meters."
+);
 
-/// Position vector expressed in meters.
-#[wasm_bindgen]
-pub struct Position {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-#[wasm_bindgen]
-impl Position {
-    #[wasm_bindgen(constructor)]
-    /// Creates a new position vector.
-    pub fn new(x: f32, y: f32, z: f32) -> Position {
-        Position { x, y, z }
-    }
-
-    #[wasm_bindgen(getter)]
-    /// Returns the X component in meters.
-    pub fn x(&self) -> f32 {
-        self.x
-    }
-
-    #[wasm_bindgen(getter)]
-    /// Returns the Y component in meters.
-    pub fn y(&self) -> f32 {
-        self.y
-    }
-
-    #[wasm_bindgen(getter)]
-    /// Returns the Z component in meters.
-    pub fn z(&self) -> f32 {
-        self.z
-    }
-}
-
-impl Position {
-    fn components(&self) -> [f32; 3] {
-        [self.x, self.y, self.z]
-    }
-}
-
-/// Velocity vector expressed in meters/second.
-#[wasm_bindgen]
-pub struct Velocity {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-#[wasm_bindgen]
-impl Velocity {
-    #[wasm_bindgen(constructor)]
-    /// Creates a new velocity vector.
-    pub fn new(x: f32, y: f32, z: f32) -> Velocity {
-        Velocity { x, y, z }
-    }
-
-    #[wasm_bindgen(getter)]
-    /// Returns the X component in meters/second.
-    pub fn x(&self) -> f32 {
-        self.x
-    }
-
-    #[wasm_bindgen(getter)]
-    /// Returns the Y component in meters/second.
-    pub fn y(&self) -> f32 {
-        self.y
-    }
-
-    #[wasm_bindgen(getter)]
-    /// Returns the Z component in meters/second.
-    pub fn z(&self) -> f32 {
-        self.z
-    }
-}
-
-impl Velocity {
-    fn components(&self) -> [f32; 3] {
-        [self.x, self.y, self.z]
-    }
-}
+wasm_vector_type!(
+    "Velocity vector expressed in meters/second.",
+    Velocity,
+    "Creates a new velocity vector.",
+    "Returns the X component in meters/second.",
+    "Returns the Y component in meters/second.",
+    "Returns the Z component in meters/second."
+);
 
 impl Default for WasmEngine {
     fn default() -> Self {

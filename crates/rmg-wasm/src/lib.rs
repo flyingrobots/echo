@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use js_sys::Uint8Array;
 use rmg_core::{
-    ApplyResult, Engine, NodeId, NodeRecord, TxId, build_motion_demo_engine, decode_motion_payload,
-    encode_motion_payload, make_node_id, make_type_id,
+    ApplyResult, Engine, MOTION_RULE_NAME, NodeId, NodeRecord, TxId, build_motion_demo_engine,
+    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id,
 };
 use wasm_bindgen::prelude::*;
 
@@ -102,7 +102,7 @@ impl WasmEngine {
             None => return false,
         };
         let mut engine = self.inner.borrow_mut();
-        match engine.apply(TxId(tx_id), "motion/update", &node_id) {
+        match engine.apply(TxId(tx_id), MOTION_RULE_NAME, &node_id) {
             Ok(ApplyResult::Applied) => true,
             Ok(ApplyResult::NoMatch) => false,
             Err(_) => false,

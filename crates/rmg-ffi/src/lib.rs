@@ -10,8 +10,8 @@ use std::os::raw::c_char;
 use std::slice;
 
 use rmg_core::{
-    ApplyResult, Engine, NodeId, NodeRecord, TxId, build_motion_demo_engine, decode_motion_payload,
-    encode_motion_payload, make_node_id, make_type_id,
+    ApplyResult, Engine, MOTION_RULE_NAME, NodeId, NodeRecord, TxId, build_motion_demo_engine,
+    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id,
 };
 
 /// Opaque engine pointer exposed over the C ABI.
@@ -44,8 +44,11 @@ pub struct rmg_snapshot {
 }
 
 /// Creates a new engine with the motion rule registered.
+///
+/// # Safety
+/// The returned raw pointer must be released by calling [`rmg_engine_free`].
 #[unsafe(no_mangle)]
-pub extern "C" fn rmg_engine_new() -> *mut RmgEngine {
+pub unsafe extern "C" fn rmg_engine_new() -> *mut RmgEngine {
     Box::into_raw(Box::new(RmgEngine {
         inner: build_motion_demo_engine(),
     }))
@@ -148,7 +151,7 @@ pub unsafe extern "C" fn rmg_engine_apply_motion(
     };
     match engine
         .inner
-        .apply(TxId(tx.value), "motion/update", &node_id)
+        .apply(TxId(tx.value), MOTION_RULE_NAME, &node_id)
     {
         Ok(ApplyResult::Applied) => true,
         Ok(ApplyResult::NoMatch) => false,
@@ -192,7 +195,7 @@ pub unsafe extern "C" fn rmg_engine_read_motion(
     out_position: *mut f32,
     out_velocity: *mut f32,
 ) -> bool {
-    let engine = match unsafe { engine.as_mut() } {
+    let engine = match unsafe { engine.as_ref() } {
         Some(engine) => engine,
         None => return false,
     };

@@ -1,7 +1,8 @@
 //! rmg-core: typed deterministic graph rewriting engine.
 //!
-//! **WARNING**: This is a Phase 0 bootstrap skeleton. The rewrite executor is not implemented.
-//! `Engine::commit()` currently discards pending rewrites without executing them.
+//! The current implementation executes queued rewrites deterministically via the
+//! motion-rule spike utilities. Broader storage and scheduling features will
+//! continue to land over subsequent phases.
 #![deny(missing_docs)]
 
 use std::collections::{BTreeMap, HashMap};
@@ -11,6 +12,8 @@ use bytes::Bytes;
 use thiserror::Error;
 
 const POSITION_VELOCITY_BYTES: usize = 24;
+/// Public identifier for the built-in motion update rule.
+pub const MOTION_RULE_NAME: &str = "motion/update";
 
 /// Canonical 256-bit hash used throughout the engine for addressing nodes,
 /// types, snapshots, and rewrite rules.
@@ -129,7 +132,7 @@ pub struct RewriteRule {
 }
 
 /// Thin wrapper around an auto-incrementing transaction identifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TxId(pub u64);
 
 /// Snapshot returned after a successful commit.
@@ -151,7 +154,7 @@ pub struct Snapshot {
 /// Ordering queue that guarantees rewrites execute deterministically.
 #[derive(Debug, Default)]
 pub struct DeterministicScheduler {
-    pending: BTreeMap<(Hash, Hash), PendingRewrite>,
+    pending: HashMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
 }
 
 /// Internal representation of a rewrite waiting to be applied.
@@ -238,7 +241,7 @@ impl Engine {
         }
 
         let scope_hash = scope_hash(rule, scope);
-        self.scheduler.pending.insert(
+        self.scheduler.pending.entry(tx).or_default().insert(
             (scope_hash, rule.id),
             PendingRewrite {
                 tx,
@@ -349,16 +352,10 @@ fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
 
 impl DeterministicScheduler {
     fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
-        let mut ready = Vec::new();
-        let pending = std::mem::take(&mut self.pending);
-        for (key, rewrite) in pending {
-            if rewrite.tx == tx {
-                ready.push(rewrite);
-            } else {
-                self.pending.insert(key, rewrite);
-            }
-        }
-        ready
+        self.pending
+            .remove(&tx)
+            .map(|map| map.into_values().collect())
+            .unwrap_or_default()
     }
 }
 
@@ -431,11 +428,11 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
 /// deterministic so hash comparisons stay stable across independent executions.
 pub fn motion_rule() -> RewriteRule {
     let mut hasher = Hasher::new();
-    hasher.update(b"motion/update");
+    hasher.update(MOTION_RULE_NAME.as_bytes());
     let id = hasher.finalize().into();
     RewriteRule {
         id,
-        name: "motion/update",
+        name: MOTION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: motion_matcher,
         executor: motion_executor,
@@ -483,7 +480,7 @@ mod tests {
         engine.register_rule(motion_rule());
 
         let tx = engine.begin();
-        let apply = engine.apply(tx, "motion/update", &entity).unwrap();
+        let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
         assert!(matches!(apply, ApplyResult::Applied));
 
         let snap = engine.commit(tx).expect("commit");
@@ -503,7 +500,7 @@ mod tests {
         let mut engine_b = Engine::new(store_b, entity.clone());
         engine_b.register_rule(motion_rule());
         let tx_b = engine_b.begin();
-        let apply_b = engine_b.apply(tx_b, "motion/update", &entity).unwrap();
+        let apply_b = engine_b.apply(tx_b, MOTION_RULE_NAME, &entity).unwrap();
         assert!(matches!(apply_b, ApplyResult::Applied));
         let snap_b = engine_b.commit(tx_b).expect("commit B");
 
@@ -538,7 +535,7 @@ mod tests {
         engine.register_rule(motion_rule());
 
         let tx = engine.begin();
-        let apply = engine.apply(tx, "motion/update", &entity).unwrap();
+        let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
         assert!(matches!(apply, ApplyResult::NoMatch));
     }
 }

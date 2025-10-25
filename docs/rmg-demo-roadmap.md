@@ -71,7 +71,9 @@ This document captures the interactive demos and performance milestones we want 
 | 1E    | Demo 5 networking | Confluence transaction protocol, replay verification |
 | 1F    | Demo dashboards | Inspector frame overlays, JSON ingestion |
 
+
 **Prerequisites:** BLAKE3 hashing utilities, deterministic PRNG module, snapshot serialiser, inspector graph viewer, Neo4j logging for demo outcomes, CI runners with wasm/criterion toolchains.
+
 
 **Timeline:**
 - Milestone Alpha (end 1B): Demo 1 frame-hash prototype + Demo 2 toy bench executed manually.

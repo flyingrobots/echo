@@ -472,6 +472,107 @@ mod tests {
     }
 
     #[test]
+    fn commit_without_rewrites_is_noop() {
+        let (mut engine, entity_a, entity_b) = motion_engine_with_entities("noop");
+        let snapshot_before = engine.snapshot();
+
+        let tx = engine.begin();
+        let snapshot_after = engine.commit(tx).expect("commit noop");
+
+        assert_eq!(snapshot_before.hash, snapshot_after.hash);
+
+        let payload_a = decode_motion_payload(
+            engine
+                .node(&entity_a)
+                .and_then(|rec| rec.payload.as_ref())
+                .expect("entity a payload"),
+        )
+        .expect("decode entity a");
+        let payload_b = decode_motion_payload(
+            engine
+                .node(&entity_b)
+                .and_then(|rec| rec.payload.as_ref())
+                .expect("entity b payload"),
+        )
+        .expect("decode entity b");
+
+        assert_eq!(payload_a.0, [0.0, 0.0, 0.0]);
+        assert_eq!(payload_b.0, [10.0, -5.0, 2.0]);
+    }
+
+    #[test]
+    fn invalid_transaction_rejected() {
+        let (mut engine, entity_a, _) = motion_engine_with_entities("invalid");
+        let invalid_tx = TxId(999);
+
+        let apply_err = engine.apply(invalid_tx, "motion/update", &entity_a);
+        assert!(matches!(apply_err, Err(EngineError::UnknownTx)));
+
+        let commit_err = engine.commit(invalid_tx);
+        assert!(matches!(commit_err, Err(EngineError::UnknownTx)));
+    }
+
+    #[test]
+    fn multiple_commits_advance_state() {
+        let (mut engine, entity_a, _) = motion_engine_with_entities("advance");
+
+        let tx1 = engine.begin();
+        engine.apply(tx1, "motion/update", &entity_a).unwrap();
+        engine.commit(tx1).unwrap();
+
+        let tx2 = engine.begin();
+        engine.apply(tx2, "motion/update", &entity_a).unwrap();
+        engine.commit(tx2).unwrap();
+
+        let (position, velocity) = decode_motion_payload(
+            engine
+                .node(&entity_a)
+                .and_then(|rec| rec.payload.as_ref())
+                .expect("entity payload"),
+        )
+        .expect("decode entity");
+
+        // velocity unchanged, position advanced twice (25 increments each axis).
+        assert_eq!(velocity, [0.5, 1.0, -0.25]);
+        assert_eq!(position, [1.0, 2.0, -0.5]);
+    }
+
+    #[test]
+    fn commit_clears_pending_queue() {
+        let (mut engine, entity_a, entity_b) = motion_engine_with_entities("flush");
+
+        let tx = engine.begin();
+        engine.apply(tx, "motion/update", &entity_a).unwrap();
+        engine.apply(tx, "motion/update", &entity_b).unwrap();
+        engine.commit(tx).unwrap();
+
+        let tx2 = engine.begin();
+        let snapshot = engine.commit(tx2).unwrap();
+
+        // Snapshot hash is identical to prior commit; no phantom rewrites executed.
+        assert_eq!(snapshot.hash, engine.snapshot().hash);
+    }
+
+    #[test]
+    fn no_match_does_not_enqueue() {
+        let (mut engine, entity_a, _) = motion_engine_with_entities("nomatch");
+
+        // Remove payload so matcher returns None.
+        engine
+            .store
+            .nodes
+            .get_mut(&entity_a)
+            .expect("entity present")
+            .payload = None;
+
+        let tx = engine.begin();
+        let result = engine.apply(tx, "motion/update", &entity_a).unwrap();
+        assert!(matches!(result, ApplyResult::NoMatch));
+
+        let snap = engine.commit(tx).unwrap();
+        assert_eq!(snap.hash, engine.snapshot().hash);
+    }
+    #[test]
     fn motion_rule_updates_position_deterministically() {
         let entity = make_node_id("entity-1");
         let entity_type = make_type_id("entity");

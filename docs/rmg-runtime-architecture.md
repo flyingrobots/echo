@@ -18,6 +18,10 @@ This document captures the consensus that emerged for Echo’s Phase 1 implement
 
 ## Tick Loop (Deterministic Scheduler)
 
+> **Note**: This is the target Phase 1 API design. The current `rmg-core` crate
+> is a bootstrap skeleton; consult `crates/rmg-core/src/lib.rs` for the working
+> interfaces.
+
 ```rust
 loop {
     let tx = engine.begin();

@@ -53,7 +53,7 @@ interface VerificationReport {
 - `cargo test --package rmg-core --test paradox` – injects artificial read/write overlaps to validate quarantine behavior.
 - `cargo test --package rmg-core --test entropy` – verifies entropy observers and metrics.
 - `cargo test --package rmg-core --test bridge` – covers temporal bridge retro/reroute.
-- `cargo bench --package rmg-core --bench scheduler` – ensures performance regressions are recorded (once benches enabled).
+- TODO: Add Criterion-based scheduler benches to CI once implemented (Phase 1 task).
 
 ---
 

@@ -41,15 +41,15 @@ Objective: validate the scheduler design under realistic workloads before full i
 ---
 
 ## Tooling
-- Use Vitest benchmarks (`@vitest/benchmark`) or simple `performance.now()` wrappers.
-- Provide CLI entry point in `packages/echo-core/scripts/bench-scheduler.ts`.
+- Use Criterion for Rust benchmarks with statistical analysis.
+- Benchmarks live in `tests/benchmarks/scheduler.rs` (or similar crate structure).
 - Output results as JSON for inspector consumption.
 - Reuse deterministic math PRNG for synthetic workload generation.
 
 ---
 
 ## Tasks
-- [ ] Scaffold Rust benchmark harness (`cargo bench --bench scheduler`).
+- [ ] TODO: Implement scheduler benchmark harness (tracked for Phase 1 once Criterion benches land).
 - [ ] Implement mock system descriptors for each scenario.
 - [ ] Integrate with timeline fingerprint to simulate branches.
 - [ ] Record baseline numbers in docs and add to decision log.

@@ -6,7 +6,7 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 
 ## Rust (rmg-core, ffi, wasm, cli)
 
-**Responsibilities**
+### Responsibilities
 - RMG engine: GraphStore, PatternGraph, RewriteRule, DeterministicScheduler, commit/Snapshot APIs.
 - ECS foundations: Worlds, Systems, Components expressed as rewrite rules.
 - Timeline & Branch tree: rewrite transactions, snapshot hashing, concurrency guard rails.
@@ -17,7 +17,7 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 - Lua VM hosting: embed Lua 5.4, expose RMG bindings via FFI.
 - CLI tools: `rmg` command for apply/snapshot/diff/verify.
 
-**Key Crates**
+### Key Crates
 - `rmg-core` – core engine
 - `rmg-ffi` – C ABI for Lua and other native consumers
 - `rmg-wasm` – WASM build for tooling/editor
@@ -27,18 +27,18 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 
 ## Lua (gameplay authoring layer)
 
-**Responsibilities**
+### Responsibilities
 - Gameplay systems & components (e.g., AI state machines, quests, input handling).
 - Component registration, entity creation/destruction via exposed APIs.
 - Scripting for deterministic “async” (scheduled events through Codex’s Baby).
 - Editor lenses and inspector overlays written in Lua for rapid iteration.
 
-**Constraints**
+### Constraints
 - Single-threaded per branch; no OS threads.
 - GC runs in deterministic stepped mode, bounded per tick.
 - Mutations occur through rewrite intents (`rmg.apply(...)`), not raw memory access.
 
-**Bindings**
+### Bindings
 - `rmg` Lua module providing:
   - `apply(rule_name, scope, params)`
   - `delay(seconds, fn)` (schedules replay-safe events)
@@ -49,19 +49,19 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 
 ## TypeScript / Web Tooling
 
-**Responsibilities**
+### Responsibilities
 - Echo Studio (graph IDE) – visualizes world graph, rewrites, branch tree.
 - Inspector dashboards – display Codex, entropy, paradox frames.
 - Replay/rollback visualizers, network debugging tools.
 - Plugin builders and determinism test harness UI.
 
-**Integration**
+### Integration
 - Uses `rmg-wasm` to call into RMG engine from the browser.
 - IPC/WebSocket for live inspector feeds (`InspectorEnvelope`).
 - Works with JSONL logs for offline analysis.
 - All mutations go through bindings; tooling never mutates state outside RMG APIs.
 
-**Tech**
+### Tech
 - Frontend frameworks: React/Svelte/Vanilla as needed.
 - WebGPU/WebGL for graph visualization.
 - TypeScript ensures type safety for tooling code.

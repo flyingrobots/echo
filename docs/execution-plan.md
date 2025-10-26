@@ -6,14 +6,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Operating Rhythm
 - **Before Starting**
-  1. Ensure `git status` is clean. If not, document in Neo4j and wait for human guidance.
-  2. Read the latest entries tagged `[Echo]` in Neo4j (`scripts/neo4j-msg.js messages --thread "echo-devlog"`).
+  1. Ensure `git status` is clean. If not, capture the state in `docs/decision-log.md` and wait for human guidance.
+  2. Skim the latest updates in this document and `docs/decision-log.md` to synchronize with the active timeline.
   3. Update the *Today’s Intent* section below.
 - **During Work**
-  - Log major decisions, blockers, or epiphanies via Neo4j (`msg-send` with `[Echo]` prefix).
+  - Record major decisions, blockers, or epiphanies in `docs/decision-log.md` (canonical log) and copy a concise summary into the Decision Log table below for quick reference.
   - Keep this document current: mark completed tasks, add new sub-items, refine specs.
 - **After Work**
-  1. Summarize outcomes, next steps, and open questions in Neo4j.
+  1. Summarize outcomes, next steps, and open questions in the Decision Log section below and ensure the full entry is captured in `docs/decision-log.md`.
   2. Update the “Next Up” queue.
   3. Push branches / PRs or leave explicit instructions for future Codex.
 
@@ -77,7 +77,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ### Tooling & Docs
 - [ ] Build `docs/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).
 - [ ] Extend `docs/diagrams.md` with scheduler flow & command queue animations.
-- [ ] Prepare Neo4j query cheatsheet for faster journaling.
+- [ ] Document lightweight journaling workflow in `docs/decision-log.md` (include entry template + daily/weekly cadence guidance; owner: Documentation squad before Phase 1 kickoff).
 - [ ] Design test fixture layout (`test/fixtures/…`) with sample component schemas.
 - [ ] Document roaring bitmap integration and merge strategies.
 - [ ] Update future inspector roadmap with conflict heatmaps and causality lens.
@@ -93,7 +93,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Lua scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
 | 2025-10-26 | Adopt RMG + Confluence as core architecture | RMG v2 (typed DPOi engine) + Confluence replication baseline | Scaffold rmg-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
 
-(Keep this table updated; link to Neo4j message IDs when useful.)
+(Keep this table updated; include file references or commit hashes when useful.)
 
 ---
 
@@ -109,7 +109,7 @@ Populate with concrete tasks in priority order. When you start one, move it to �
 ---
 
 ## Notes to Future Codex
-- Use `Neo4j thread: echo-devlog` for daily runtime updates.
+- Update this document (and `docs/decision-log.md`) for daily runtime updates.
 - Record test coverage gaps as they appear; they inform future backlog items.
 - Ensure roaring bitmap and hashing dependencies are deterministic across environments.
 - Inspector pins must be recorded to keep GC deterministic.

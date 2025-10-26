@@ -1,3 +1,8 @@
+//! Deterministic math validation harness for the motion rewrite spike.
+//!
+//! Ensures scalar, vector, matrix, quaternion, and PRNG behaviour stays
+//! consistent with the documented fixtures across platforms.
+
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 
@@ -366,11 +371,12 @@ fn vec3_fixtures_cover_operations() {
 #[test]
 fn mat4_fixtures_validate_transformations() {
     let tol = &FIXTURES.tolerance;
-    for fix in &FIXTURES.mat4.multiply {
+    for (i, fix) in FIXTURES.mat4.multiply.iter().enumerate() {
         let a = Mat4::from(fix.a);
         let b = Mat4::from(fix.b);
         let actual = a.multiply(&b);
-        assert_mat4(actual, fix.expected, tol, &format!("mat4.multiply"));
+        let context = format!("mat4.multiply[{}] a0={:.3} b0={:.3}", i, fix.a[0], fix.b[0]);
+        assert_mat4(actual, fix.expected, tol, &context);
     }
 
     for fix in &FIXTURES.mat4.transform_vec3 {

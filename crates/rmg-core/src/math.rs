@@ -24,7 +24,13 @@ pub fn rad_to_deg(value: f32) -> f32 {
     value * (360.0 / TAU)
 }
 
-/// 3D vector with deterministic float32 operations.
+/// Deterministic 3D vector used throughout the engine.
+///
+/// * Components encode world-space metres and may represent either points or
+///   directions depending on the calling context.
+/// * Arithmetic clamps to `f32` so results match the runtime’s float32 mode.
+/// * Use [`Mat4::transform_point`] for points (homogeneous `w = 1`) and
+///   [`Mat4::transform_direction`] for directions (homogeneous `w = 0`).
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Vec3 {
     data: [f32; 3],
@@ -32,6 +38,9 @@ pub struct Vec3 {
 
 impl Vec3 {
     /// Creates a vector from components.
+    ///
+    /// Inputs are interpreted as metres in world coordinates; callers must
+    /// ensure values are finite.
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { data: [x, y, z] }
     }
@@ -101,6 +110,9 @@ impl Vec3 {
     }
 
     /// Normalises the vector, returning zero vector if length is ~0.
+    ///
+    /// Zero-length inputs remain the zero vector so downstream callers can
+    /// detect degenerate directions deterministically.
     pub fn normalize(&self) -> Self {
         let len = self.length();
         if len.abs() <= EPSILON {
@@ -116,7 +128,11 @@ impl From<[f32; 3]> for Vec3 {
     }
 }
 
-/// Column-major 4x4 matrix.
+/// Column-major 4×4 matrix matching Echo’s deterministic math layout.
+///
+/// * Stored in column-major order to align with GPU uploads and ECS storage.
+/// * Represents affine transforms; perspective terms are preserved but the
+///   helpers in this module treat them homogeneously (`w = 1` for points).
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Mat4 {
     data: [f32; 16],
@@ -124,6 +140,8 @@ pub struct Mat4 {
 
 impl Mat4 {
     /// Creates a matrix from column-major array data.
+    ///
+    /// Callers must supply 16 finite values already laid out column-major.
     pub const fn new(data: [f32; 16]) -> Self {
         Self { data }
     }
@@ -138,6 +156,9 @@ impl Mat4 {
     }
 
     /// Multiplies the matrix with another matrix (self * rhs).
+    ///
+    /// Multiplication follows column-major semantics (`self` on the left,
+    /// `rhs` on the right) to mirror GPU-style transforms.
     pub fn multiply(&self, rhs: &Self) -> Self {
         let mut out = [0.0; 16];
         for row in 0..4 {
@@ -152,7 +173,10 @@ impl Mat4 {
         Self::new(out)
     }
 
-    /// Transforms a point (assumes w = 1, no perspective divide).
+    /// Transforms a point (assumes `w = 1`, no perspective divide).
+    ///
+    /// Translation components are applied and the resulting vector is returned
+    /// with `w` implicitly equal to `1`.
     pub fn transform_point(&self, point: &Vec3) -> Vec3 {
         let x = point.component(0);
         let y = point.component(1);
@@ -166,7 +190,9 @@ impl Mat4 {
         Vec3::new(nx, ny, nz)
     }
 
-    /// Transforms a direction vector (ignores translation, w = 0).
+    /// Transforms a direction vector (ignores translation, `w = 0`).
+    ///
+    /// Only the rotational and scaling parts of the matrix affect the result.
     pub fn transform_direction(&self, direction: &Vec3) -> Vec3 {
         let x = direction.component(0);
         let y = direction.component(1);
@@ -186,7 +212,10 @@ impl From<[f32; 16]> for Mat4 {
     }
 }
 
-/// Quaternion stored as (x, y, z, w).
+/// Quaternion stored as `(x, y, z, w)` with deterministic float32 rounding.
+///
+/// * All angles are expressed in radians.
+/// * Normalisation clamps to `f32` to match runtime behaviour.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Quat {
     data: [f32; 4],
@@ -194,6 +223,9 @@ pub struct Quat {
 
 impl Quat {
     /// Creates a quaternion from components.
+    ///
+    /// Callers should provide finite components; use
+    /// [`Quat::from_axis_angle`] for axis/angle construction.
     pub const fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
         Self { data: [x, y, z, w] }
     }
@@ -207,7 +239,10 @@ impl Quat {
         self.data[idx]
     }
 
-    /// Constructs a quaternion from a rotation axis (assumed non-zero) and angle in radians.
+    /// Constructs a quaternion from a rotation axis and angle in radians.
+    ///
+    /// Returns the identity quaternion when the axis has zero length to avoid
+    /// undefined orientations.
     pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
         let len_sq = axis.length_squared();
         if len_sq <= EPSILON * EPSILON {
@@ -315,7 +350,11 @@ impl From<[f32; 4]> for Quat {
     }
 }
 
-/// Stateful `xoroshiro128+` pseudo-random number generator.
+/// Stateful `xoroshiro128+` pseudo-random number generator for deterministic timelines.
+///
+/// * Not cryptographically secure; use only for gameplay/state simulation.
+/// * Seeding controls reproducibility within a single process/run and matching
+///   seeds yield identical sequences across supported platforms.
 #[derive(Debug, Clone, Copy)]
 pub struct Prng {
     state: [u64; 2],
@@ -323,6 +362,10 @@ pub struct Prng {
 
 impl Prng {
     /// Constructs a PRNG from two 64-bit seeds.
+    ///
+    /// Identical seeds produce identical sequences; the generator remains
+    /// deterministic as long as each process consumes random numbers in the
+    /// same order.
     pub fn from_seed(seed0: u64, seed1: u64) -> Self {
         let mut state = [seed0, seed1];
         if state[0] == 0 && state[1] == 0 {
@@ -344,13 +387,19 @@ impl Prng {
     }
 
     /// Returns the next float in `[0, 1)`.
+    ///
+    /// Uses the high 23 bits of the xoroshiro128+ state to fill the mantissa,
+    /// ensuring uniform float32 sampling without relying on platform RNGs.
     pub fn next_f32(&mut self) -> f32 {
         let raw = self.next_u64();
-        let bits = ((raw >> 40) as u32) | 0x3f80_0000;
+        let bits = ((raw >> 41) as u32) | 0x3f80_0000;
         f32::from_bits(bits) - 1.0
     }
 
     /// Returns the next integer in the inclusive range `[min, max]`.
+    ///
+    /// Uses rejection sampling to avoid modulo bias, ensuring every value in
+    /// the range is produced with equal probability.
     pub fn next_int(&mut self, min: i32, max: i32) -> i32 {
         assert!(min <= max, "invalid range: {min}..={max}");
         let span = (i64::from(max) - i64::from(min)) as u64 + 1;

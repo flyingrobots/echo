@@ -72,7 +72,7 @@ This document captures the interactive demos and performance milestones we want 
 | 1F    | Demo dashboards | Inspector frame overlays, JSON ingestion |
 
 
-**Prerequisites:** BLAKE3 hashing utilities, deterministic PRNG module, snapshot serialiser, inspector graph viewer, Neo4j logging for demo outcomes, CI runners with wasm/criterion toolchains.
+**Prerequisites:** BLAKE3 hashing utilities, deterministic PRNG module, snapshot serialiser, inspector graph viewer, documentation workflow for logging demo outcomes, CI runners with wasm/criterion toolchains.
 
 
 **Timeline:**

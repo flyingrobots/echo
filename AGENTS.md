@@ -4,48 +4,15 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 
 ## Core Principles
 - **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/architecture-outline.md` before touching runtime code.
-- **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, memorials) or a Neo4j journal entry tagged `Echo`.
+- **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, memorials) or other durable repo artifacts (e.g. `docs/decision-log.md`).
 - **Docstrings Aren't Optional**: Public APIs across crates (`rmg-core`, `rmg-ffi`, `rmg-wasm`, etc.) must carry rustdoc comments that explain intent, invariants, and usage. Treat missing docs as a failing test.
 - **Determinism First**: Avoid introducing sources of nondeterminism without a mitigation plan.
 - **Temporal Mindset**: Think in timelines—branching, merging, entropy budgets. Feature work should map to Chronos/Kairos/Aion axes where appropriate.
 
-## Shared Memory (Neo4j)
-We use the agent-collab Neo4j instance as a temporal journal.
-
-Scripts live in `<agent-collab checkout>/scripts/neo4j-msg.js`.
-
-### Setup
-```bash
-# Register yourself once. Choose a display name that identifies the agent.
-node path/to/agent-collab/scripts/neo4j-msg.js agent-init "Echo Codex"
-```
-
-### Writing a Journal Entry
-```bash
-node path/to/agent-collab/scripts/neo4j-msg.js msg-send \
-  --from "Echo Codex" \
-  --to "Echo Archive" \
-  --text "[Echo] short summary of what you changed or decided." \
-  --thread "echo-devlog" \
-  --topic "Echo" \
-  --project "Echo Engine" \
-  --kind note
-```
-
-Guidelines:
-- Prefix the message with `[Echo]` so the tag survives future searches.
-- Summarise intent, work done, and next steps for future agents.
-- Use the thread `echo-devlog` unless a more specific thread already exists.
-- **Cadence:** Log when you start work (intent), when you hit a major milestone or decision, when you reference external sources (paths, specs), and when you finish a session (outcome + next steps). Treat Neo4j as the authoritative timeline.
-
-### Reading Past Entries
-```bash
-node path/to/agent-collab/scripts/neo4j-msg.js messages \
-  --thread "echo-devlog" \
-  --limit 20
-```
-
-Use `messages-search --text "Echo"` for ad-hoc queries.
+## Timeline Logging
+- Start each session by updating *Today’s Intent* in `docs/execution-plan.md`.
+- Capture milestones, blockers, and decisions directly in this repo (e.g. `docs/decision-log.md`, relevant specs, or PR descriptions).
+- When wrapping up, record outcomes and next steps in the Decision Log and ensure any impacted docs stay in sync.
 
 ## Repository Layout
 - `packages/echo-core`: Runtime core (ECS, scheduler, Codex’s Baby, timelines).
@@ -56,7 +23,6 @@ Use `messages-search --text "Echo"` for ad-hoc queries.
 ## Working Agreement
 - Keep `main` pristine. Feature work belongs on branches named `echo/<feature>` or `timeline/<experiment>`.
 - Tests and benchmarks are mandatory for runtime changes once the harness exists.
-- Update the Neo4j log before you down tools, even if the work is incomplete.
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.
 - Run `cargo clippy --all-targets -- -D missing_docs` and `cargo test` before every PR; CI will expect a zero-warning, fully documented surface.
 
@@ -68,7 +34,7 @@ Use `messages-search --text "Echo"` for ad-hoc queries.
 In short: no one cares about a tidy commit graph, but everyone cares if you rewrite commits on origin.
 
 ## Contact Threads
-- Neo4j Thread `echo-devlog`: Daily journal, decisions, blockers.
-- Neo4j Thread `echo-spec`: High-level architectural proposals.
+- Docs `decision-log.md`: Chronological design decisions.
+- Docs `execution-plan.md`: Working map of tasks, intent, and progress.
 
 Safe travels in the multiverse. Logged timelines are happy timelines. 🌀

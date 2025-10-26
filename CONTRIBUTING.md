@@ -21,12 +21,12 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Getting Started
 1. Clone the repo and run `cargo check` to ensure the Rust workspace builds.
 2. Read `docs/architecture-outline.md` and `docs/execution-plan.md`.
-3. Register yourself in Neo4j via `AGENTS.md` instructions and note your display handle.
+3. Review `AGENTS.md` for collaboration norms before touching runtime code.
 
 ## Branching & Workflow
 - Keep `main` pristine. Create feature branches like `echo/<feature>` or `timeline/<experiment>`.
 - Before starting work, ensure `git status` is clean. If not, resolve or coordinate with the human operator.
-- Log intent in Neo4j (`[Echo]` tag) at the start of each session.
+- Before each session, update the “Today’s Intent” section in `docs/execution-plan.md` so future collaborators can follow the timeline.
 
 ## Testing Expectations
 - Write tests before or alongside code changes.
@@ -36,7 +36,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Documentation & Telemetry
 - Update relevant docs in `docs/` whenever behavior or architecture changes.
 - Record major decisions or deviations in the execution plan or decision log tables.
-- Use Neo4j to leave breadcrumbs for future Codex agents.
+- Capture breadcrumbs for future Codex agents in `docs/decision-log.md` or related specs.
 
 ## Submitting Changes
 1. Run `cargo fmt`, `cargo clippy`, and `cargo test`.
@@ -54,8 +54,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - Avoid non-deterministic APIs (no wall-clock, no uncontrolled randomness). Use Echo’s deterministic services.
 
 ## Communication
-- Major updates logged in Neo4j threads (`echo-devlog`, `echo-spec`).
-- Use GitHub discussions or issues for larger design proposals.
+- Major updates should land in `docs/execution-plan.md` and `docs/decision-log.md`; rely on GitHub discussions or issues for longer-form proposals.
 - Respect the temporal theme—leave the codebase cleaner for the next timeline traveler.
 
 Thanks for helping forge Echo’s spine. 🌀

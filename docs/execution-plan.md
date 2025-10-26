@@ -33,8 +33,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ## Today’s Intent
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Plan math validation fixtures & tests implementation.
-- **Definition of done**: Outline concrete tasks for generating fixtures, writing suites, and integrating cross-environment checks.
+- **Focus**: Draft ECS storage implementation plan (archetype storage port to Rust).
+- **Definition of done**: Identify storage milestones, required data structures, and sequencing for integration with branch diff engine.
 
 ---
 
@@ -92,6 +92,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
 | 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Lua scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
 | 2025-10-26 | Adopt RMG + Confluence as core architecture | RMG v2 (typed DPOi engine) + Confluence replication baseline | Scaffold rmg-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
+| 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in rmg-core | Extend coverage to browser environments and fixed-point mode |
 
 (Keep this table updated; link to Neo4j message IDs when useful.)
 

@@ -1,5 +1,7 @@
 # Decision Log
 
+*Demo outcomes should prefix the Decision column with `Demo <number> — …` to keep entries searchable.*
+
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
 | 2025-10-23 | Repo reset | Adopt pnpm + TS skeleton | Monorepo scaffolding for Echo | Phase 0 tasks established |

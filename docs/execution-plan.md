@@ -10,10 +10,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   2. Skim the latest updates in this document and `docs/decision-log.md` to synchronize with the active timeline.
   3. Update the *Today’s Intent* section below.
 - **During Work**
-  - Log major decisions, blockers, or epiphanies in the Decision Log section below (and mirror details in `docs/decision-log.md` when appropriate).
+  - Record major decisions, blockers, or epiphanies in `docs/decision-log.md` (canonical log) and copy a concise summary into the Decision Log table below for quick reference.
   - Keep this document current: mark completed tasks, add new sub-items, refine specs.
 - **After Work**
-  1. Summarize outcomes, next steps, and open questions in the Decision Log section or `docs/decision-log.md`.
+  1. Summarize outcomes, next steps, and open questions in the Decision Log section below and ensure the full entry is captured in `docs/decision-log.md`.
   2. Update the “Next Up” queue.
   3. Push branches / PRs or leave explicit instructions for future Codex.
 
@@ -77,7 +77,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ### Tooling & Docs
 - [ ] Build `docs/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).
 - [ ] Extend `docs/diagrams.md` with scheduler flow & command queue animations.
-- [ ] Document lightweight journaling workflow in `docs/decision-log.md` (templates, cadence).
+- [ ] Document lightweight journaling workflow in `docs/decision-log.md` (include entry template + daily/weekly cadence guidance; owner: Documentation squad before Phase 1 kickoff).
 - [ ] Design test fixture layout (`test/fixtures/…`) with sample component schemas.
 - [ ] Document roaring bitmap integration and merge strategies.
 - [ ] Update future inspector roadmap with conflict heatmaps and causality lens.

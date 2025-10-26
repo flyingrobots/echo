@@ -5,6 +5,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Operating Rhythm
+
 - **Before Starting**
   1. Ensure `git status` is clean. If not, capture the state in `docs/decision-log.md` and wait for human guidance.
   2. Skim the latest updates in this document and `docs/decision-log.md` to synchronize with the active timeline.
@@ -31,6 +32,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Today’s Intent
+
 > Write the top priority for the current session and what “done” means.
 
 - **Focus**: Draft ECS storage implementation plan (archetype storage port to Rust).
@@ -99,6 +101,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
+
 1. ECS storage implementation plan *(in progress)*
 2. Branch tree BlockStore abstraction design
 3. Temporal Bridge implementation plan
@@ -110,6 +113,7 @@ Populate with concrete tasks in priority order. When you start one, move it to �
 ---
 
 ## Notes to Future Codex
+
 - Update this document and `docs/decision-log.md` for daily runtime updates.
 - Record test coverage gaps as they appear; they inform future backlog items.
 - Ensure roaring bitmap and hashing dependencies are deterministic across environments.

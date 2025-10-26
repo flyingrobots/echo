@@ -46,7 +46,8 @@ impl MathFixtures {
         ensure("vec3.length", &self.vec3.length);
         ensure("vec3.normalize", &self.vec3.normalize);
         ensure("mat4.multiply", &self.mat4.multiply);
-        ensure("mat4.transform_vec3", &self.mat4.transform_vec3);
+        ensure("mat4.transform_point", &self.mat4.transform_point);
+        ensure("mat4.transform_direction", &self.mat4.transform_direction);
         ensure("quat.from_axis_angle", &self.quat.from_axis_angle);
         ensure("quat.multiply", &self.quat.multiply);
         ensure("quat.normalize", &self.quat.normalize);
@@ -146,7 +147,10 @@ enum FixtureValue {
 #[derive(Debug, Deserialize)]
 struct Mat4Fixtures {
     multiply: Vec<Mat4BinaryFixture>,
-    transform_vec3: Vec<Mat4Vec3Fixture>,
+    #[serde(rename = "transform_point")]
+    transform_point: Vec<Mat4Vec3Fixture>,
+    #[serde(rename = "transform_direction")]
+    transform_direction: Vec<Mat4Vec3Fixture>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -379,15 +383,28 @@ fn mat4_fixtures_validate_transformations() {
         assert_mat4(actual, fix.expected, tol, &context);
     }
 
-    for fix in &FIXTURES.mat4.transform_vec3 {
+    for fix in &FIXTURES.mat4.transform_point {
         let matrix = Mat4::from(fix.matrix);
         let vector = Vec3::from(fix.vector);
+        // Fixture vectors are treated as points (homogeneous w = 1).
         let actual = matrix.transform_point(&vector);
         assert_vec3(
             actual,
             fix.expected,
             tol,
-            &format!("mat4.transform_vec3 vector={:?}", fix.vector),
+            &format!("mat4.transform_point vector={:?}", fix.vector),
+        );
+    }
+
+    for fix in &FIXTURES.mat4.transform_direction {
+        let matrix = Mat4::from(fix.matrix);
+        let vector = Vec3::from(fix.vector);
+        let actual = matrix.transform_direction(&vector);
+        assert_vec3(
+            actual,
+            fix.expected,
+            tol,
+            &format!("mat4.transform_direction vector={:?}", fix.vector),
         );
     }
 }

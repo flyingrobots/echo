@@ -115,7 +115,7 @@ impl Vec3 {
     /// detect degenerate directions deterministically.
     pub fn normalize(&self) -> Self {
         let len = self.length();
-        if len.abs() <= EPSILON {
+        if len <= EPSILON {
             return Self::new(0.0, 0.0, 0.0);
         }
         self.scale(1.0 / len)
@@ -242,7 +242,7 @@ impl Quat {
     /// Constructs a quaternion from a rotation axis and angle in radians.
     ///
     /// Returns the identity quaternion when the axis has zero length to avoid
-    /// undefined orientations.
+    /// undefined orientations and preserve deterministic behaviour.
     pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
         let len_sq = axis.length_squared();
         if len_sq <= EPSILON * EPSILON {
@@ -421,6 +421,24 @@ impl Prng {
 
         let offset = value as i64 + i64::from(min);
         offset as i32
+    }
+
+    /// Constructs a PRNG from a single 64-bit seed via SplitMix64 expansion.
+    pub fn from_seed_u64(seed: u64) -> Self {
+        fn splitmix64(state: &mut u64) -> u64 {
+            *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = *state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            z ^ (z >> 31)
+        }
+
+        let mut sm_state = seed;
+        let mut state = [splitmix64(&mut sm_state), splitmix64(&mut sm_state)];
+        if state[0] == 0 && state[1] == 0 {
+            state[0] = 0x9e37_79b9_7f4a_7c15;
+        }
+        Self { state }
     }
 }
 

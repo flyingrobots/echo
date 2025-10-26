@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+  pull_request:
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings -D missing_docs
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo test
+        run: cargo test
+
+  docs:
+    name: Docs Guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Ensure execution plan and decision log were updated
+        run: |
+          set -euo pipefail
+          base_ref="${{ github.event.pull_request.base.ref }}"
+          git fetch origin "$base_ref" --depth=1
+          changed=$(git diff --name-only "origin/${base_ref}"..."${{ github.sha }}")
+          if [ -z "$changed" ]; then
+            exit 0
+          fi
+          non_doc=$(echo "$changed" | grep -vE '(^docs/)|(\.md$)' || true)
+          if [ -z "$non_doc" ]; then
+            exit 0
+          fi
+          echo "Non-doc files changed:"
+          echo "$non_doc"
+          echo "$changed" | grep -Fx 'docs/execution-plan.md' >/dev/null || {
+            echo 'docs/execution-plan.md must be updated when non-doc files change.';
+            exit 1;
+          }
+          echo "$changed" | grep -Fx 'docs/decision-log.md' >/dev/null || {
+            echo 'docs/decision-log.md must be updated when non-doc files change.';
+            exit 1;
+          }

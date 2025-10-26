@@ -10,7 +10,7 @@ const EPSILON: f32 = 1e-6;
 
 /// Clamps `value` to the inclusive `[min, max]` range using float32 rounding.
 pub fn clamp(value: f32, min: f32, max: f32) -> f32 {
-    debug_assert!(min <= max, "invalid clamp range: {min} > {max}");
+    assert!(min <= max, "invalid clamp range: {min} > {max}");
     value.max(min).min(max)
 }
 
@@ -95,6 +95,11 @@ impl Vec3 {
         self.dot(self).sqrt()
     }
 
+    /// Squared magnitude of the vector.
+    pub fn length_squared(&self) -> f32 {
+        self.dot(self)
+    }
+
     /// Normalises the vector, returning zero vector if length is ~0.
     pub fn normalize(&self) -> Self {
         let len = self.length();
@@ -147,7 +152,7 @@ impl Mat4 {
         Self::new(out)
     }
 
-    /// Transforms a point (assumes w = 1).
+    /// Transforms a point (assumes w = 1, no perspective divide).
     pub fn transform_point(&self, point: &Vec3) -> Vec3 {
         let x = point.component(0);
         let y = point.component(1);
@@ -157,6 +162,19 @@ impl Mat4 {
         let nx = self.at(0, 0) * x + self.at(0, 1) * y + self.at(0, 2) * z + self.at(0, 3) * w;
         let ny = self.at(1, 0) * x + self.at(1, 1) * y + self.at(1, 2) * z + self.at(1, 3) * w;
         let nz = self.at(2, 0) * x + self.at(2, 1) * y + self.at(2, 2) * z + self.at(2, 3) * w;
+
+        Vec3::new(nx, ny, nz)
+    }
+
+    /// Transforms a direction vector (ignores translation, w = 0).
+    pub fn transform_direction(&self, direction: &Vec3) -> Vec3 {
+        let x = direction.component(0);
+        let y = direction.component(1);
+        let z = direction.component(2);
+
+        let nx = self.at(0, 0) * x + self.at(0, 1) * y + self.at(0, 2) * z;
+        let ny = self.at(1, 0) * x + self.at(1, 1) * y + self.at(1, 2) * z;
+        let nz = self.at(2, 0) * x + self.at(2, 1) * y + self.at(2, 2) * z;
 
         Vec3::new(nx, ny, nz)
     }
@@ -191,7 +209,12 @@ impl Quat {
 
     /// Constructs a quaternion from a rotation axis (assumed non-zero) and angle in radians.
     pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
-        let norm_axis = axis.normalize();
+        let len_sq = axis.length_squared();
+        if len_sq <= EPSILON * EPSILON {
+            return Self::identity();
+        }
+        let len = len_sq.sqrt();
+        let norm_axis = axis.scale(1.0 / len);
         let half = angle * 0.5;
         let (sin_half, cos_half) = half.sin_cos();
         let scaled = norm_axis.scale(sin_half);
@@ -292,7 +315,7 @@ impl From<[f32; 4]> for Quat {
     }
 }
 
-/// Counter-based PRNG derived from xoroshiro128**.
+/// Stateful `xoroshiro128+` pseudo-random number generator.
 #[derive(Debug, Clone, Copy)]
 pub struct Prng {
     state: [u64; 2],
@@ -330,8 +353,49 @@ impl Prng {
     /// Returns the next integer in the inclusive range `[min, max]`.
     pub fn next_int(&mut self, min: i32, max: i32) -> i32 {
         assert!(min <= max, "invalid range: {min}..={max}");
-        let span = (max - min + 1) as u32;
-        let value = (self.next_u64() % span as u64) as u32;
-        min + value as i32
+        let span = (i64::from(max) - i64::from(min)) as u64 + 1;
+        if span == 1 {
+            return min;
+        }
+
+        let value = if span.is_power_of_two() {
+            self.next_u64() & (span - 1)
+        } else {
+            let bound = u64::MAX - u64::MAX % span;
+            loop {
+                let candidate = self.next_u64();
+                if candidate < bound {
+                    break candidate % span;
+                }
+            }
+        };
+
+        let offset = value as i64 + i64::from(min);
+        offset as i32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_int_returns_single_value_for_equal_bounds() {
+        let mut prng = Prng::from_seed(42, 99);
+        assert_eq!(prng.next_int(7, 7), 7);
+    }
+
+    #[test]
+    fn next_int_handles_full_i32_range() {
+        let mut prng = Prng::from_seed(0xDEADBEEF, 0xFACEFEED);
+        let values: Vec<i32> = (0..3).map(|_| prng.next_int(i32::MIN, i32::MAX)).collect();
+        assert_eq!(values, vec![1501347292, 1946982111, -117316573]);
+    }
+
+    #[test]
+    fn next_int_handles_negative_ranges() {
+        let mut prng = Prng::from_seed(123, 456);
+        let values: Vec<i32> = (0..3).map(|_| prng.next_int(-10, -3)).collect();
+        assert_eq!(values, vec![-7, -7, -7]);
     }
 }

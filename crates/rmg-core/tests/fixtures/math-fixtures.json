@@ -1,4 +1,8 @@
 {
+  "tolerance": {
+    "absolute": 1e-6,
+    "relative": 1e-6
+  },
   "scalars": {
     "clamp": [
       {"value": -2.75, "min": -1.0, "max": 1.0, "expected": -1.0},
@@ -105,7 +109,7 @@
     {
       "seed": [173476091849832, 91255900676441],
       "expected_next": [0.00002861023, 0.982772, 0.519014],
-      "expected_ints": {"min": 5, "max": 10, "values": [5, 8, 7]}
+      "expected_ints": {"min": 5, "max": 10, "values": [10, 10, 6]}
     }
   ]
 }

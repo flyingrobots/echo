@@ -5,6 +5,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Operating Rhythm
+
 - **Before Starting**
   1. Ensure `git status` is clean. If not, capture the state in `docs/decision-log.md` and wait for human guidance.
   2. Skim the latest updates in this document and `docs/decision-log.md` to synchronize with the active timeline.
@@ -31,10 +32,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Today’s Intent
+
 > Write the top priority for the current session and what “done” means.
 
-- **Focus**: Plan math validation fixtures & tests implementation.
-- **Definition of done**: Outline concrete tasks for generating fixtures, writing suites, and integrating cross-environment checks.
+- **Focus**: Draft ECS storage implementation plan (archetype storage port to Rust).
+- **Definition of done**: Identify storage milestones, required data structures, and sequencing for integration with branch diff engine.
 
 ---
 
@@ -77,7 +79,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ### Tooling & Docs
 - [ ] Build `docs/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).
 - [ ] Extend `docs/diagrams.md` with scheduler flow & command queue animations.
-- [ ] Document lightweight journaling workflow in `docs/decision-log.md` (include entry template + daily/weekly cadence guidance; owner: Documentation squad before Phase 1 kickoff).
+- [ ] Publish decision-log quick reference (templates, cadence, examples; owner: Documentation squad before Phase 1 kickoff).
 - [ ] Design test fixture layout (`test/fixtures/…`) with sample component schemas.
 - [ ] Document roaring bitmap integration and merge strategies.
 - [ ] Update future inspector roadmap with conflict heatmaps and causality lens.
@@ -91,6 +93,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
 | 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Lua scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
+| 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in rmg-core | Extend coverage to browser environments and fixed-point mode |
 | 2025-10-26 | Adopt RMG + Confluence as core architecture | RMG v2 (typed DPOi engine) + Confluence replication baseline | Scaffold rmg-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
 
 (Keep this table updated; include file references or commit hashes when useful.)
@@ -98,18 +101,20 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 ---
 
 ## Next Up Queue
-1. Math validation fixtures & tests implementation
-2. ECS storage implementation plan
-3. Branch tree BlockStore abstraction design
-4. Temporal Bridge implementation plan
-5. Serialization protocol review
+
+1. ECS storage implementation plan *(in progress)*
+2. Branch tree BlockStore abstraction design
+3. Temporal Bridge implementation plan
+4. Serialization protocol review
+5. Math validation cross-environment rollout
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 
 ---
 
 ## Notes to Future Codex
-- Update this document (and `docs/decision-log.md`) for daily runtime updates.
+
+- Update this document and `docs/decision-log.md` for daily runtime updates.
 - Record test coverage gaps as they appear; they inform future backlog items.
 - Ensure roaring bitmap and hashing dependencies are deterministic across environments.
 - Inspector pins must be recorded to keep GC deterministic.

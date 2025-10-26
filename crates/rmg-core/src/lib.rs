@@ -11,6 +11,8 @@ use blake3::Hasher;
 use bytes::Bytes;
 use thiserror::Error;
 
+pub mod math;
+
 const POSITION_VELOCITY_BYTES: usize = 24;
 /// Public identifier for the built-in motion update rule.
 pub const MOTION_RULE_NAME: &str = "motion/update";

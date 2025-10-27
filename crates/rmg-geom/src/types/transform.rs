@@ -42,10 +42,11 @@ impl Transform {
     #[must_use]
     pub fn to_mat4(&self) -> Mat4 {
         // M = T * R * S
-        let s = Mat4::scale(self.scale.component(0), self.scale.component(1), self.scale.component(2));
+        let [sx, sy, sz] = self.scale.to_array();
+        let [tx, ty, tz] = self.translation.to_array();
+        let s = Mat4::scale(sx, sy, sz);
         let r = Mat4::from_quat(&self.rotation);
-        let t = Mat4::translation(self.translation.component(0), self.translation.component(1), self.translation.component(2));
+        let t = Mat4::translation(tx, ty, tz);
         t.multiply(&r).multiply(&s)
     }
 }
-

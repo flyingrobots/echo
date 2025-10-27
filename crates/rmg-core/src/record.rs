@@ -29,4 +29,3 @@ pub struct EdgeRecord {
     /// Optional payload owned by the edge.
     pub payload: Option<Bytes>,
 }
-

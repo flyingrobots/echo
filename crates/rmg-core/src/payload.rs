@@ -25,4 +25,3 @@ pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     let velocity = [floats[3], floats[4], floats[5]];
     Some((position, velocity))
 }
-

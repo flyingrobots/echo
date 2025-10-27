@@ -49,4 +49,3 @@ fn vec3_basis_and_zero() {
     assert_eq!(Vec3::UNIT_Z.to_array(), [0.0, 0.0, 1.0]);
     assert_eq!(Vec3::zero().to_array(), [0.0, 0.0, 0.0]);
 }
-

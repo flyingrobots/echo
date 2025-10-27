@@ -15,7 +15,9 @@ pub struct Vec3 {
 
 impl Vec3 {
     /// Standard zero vector (0, 0, 0).
-    pub const ZERO: Self = Self { data: [0.0, 0.0, 0.0] };
+    pub const ZERO: Self = Self {
+        data: [0.0, 0.0, 0.0],
+    };
     /// Unit vector pointing along the positive X axis.
     pub const UNIT_X: Self = Self::new(1.0, 0.0, 0.0);
 
@@ -34,7 +36,9 @@ impl Vec3 {
     }
 
     /// Constructs the zero vector.
-    pub const fn zero() -> Self { Self::ZERO }
+    pub const fn zero() -> Self {
+        Self::ZERO
+    }
 
     /// Returns the components as an array.
     pub fn to_array(self) -> [f32; 3] {
@@ -153,7 +157,11 @@ impl core::ops::Sub for Vec3 {
 impl core::ops::Mul<f32> for Vec3 {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self::Output {
-        Self::new(self.component(0) * rhs, self.component(1) * rhs, self.component(2) * rhs)
+        Self::new(
+            self.component(0) * rhs,
+            self.component(1) * rhs,
+            self.component(2) * rhs,
+        )
     }
 }
 
@@ -165,13 +173,19 @@ impl core::ops::Mul<Vec3> for f32 {
 }
 
 impl core::ops::AddAssign for Vec3 {
-    fn add_assign(&mut self, rhs: Self) { *self = *self + rhs; }
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
 }
 
 impl core::ops::SubAssign for Vec3 {
-    fn sub_assign(&mut self, rhs: Self) { *self = *self - rhs; }
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
 }
 
 impl core::ops::MulAssign<f32> for Vec3 {
-    fn mul_assign(&mut self, rhs: f32) { *self = *self * rhs; }
+    fn mul_assign(&mut self, rhs: f32) {
+        *self = *self * rhs;
+    }
 }

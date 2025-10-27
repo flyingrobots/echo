@@ -3,10 +3,7 @@ use rmg_core::math::Mat4;
 
 fn approx_eq16(a: [f32; 16], b: [f32; 16]) {
     for i in 0..16 {
-        assert!(
-            (a[i] - b[i]).abs() < 1e-6,
-            "index {i}: {a:?} vs {b:?}"
-        );
+        assert!((a[i] - b[i]).abs() < 1e-6, "index {i}: {a:?} vs {b:?}");
     }
 }
 

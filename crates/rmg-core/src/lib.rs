@@ -31,25 +31,25 @@
 
 pub mod math;
 
-mod ident;
-mod record;
+pub mod demo;
+mod engine_impl;
 mod graph;
+mod ident;
+mod payload;
+mod record;
 mod rule;
-mod tx;
 mod scheduler;
 mod snapshot;
-mod payload;
-mod engine_impl;
-pub mod demo;
+mod tx;
 
 // Re-exports for stable public API
-pub use ident::{make_node_id, make_type_id, EdgeId, Hash, NodeId, TypeId};
-pub use record::{EdgeRecord, NodeRecord};
+pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
+pub use engine_impl::{ApplyResult, Engine, EngineError};
 pub use graph::GraphStore;
+pub use ident::{make_node_id, make_type_id, EdgeId, Hash, NodeId, TypeId};
+pub use payload::{decode_motion_payload, encode_motion_payload};
+pub use record::{EdgeRecord, NodeRecord};
 pub use rule::{ExecuteFn, MatchFn, PatternGraph, RewriteRule};
-pub use tx::TxId;
 pub use scheduler::{DeterministicScheduler, PendingRewrite};
 pub use snapshot::Snapshot;
-pub use payload::{decode_motion_payload, encode_motion_payload};
-pub use engine_impl::{ApplyResult, Engine, EngineError};
-pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
+pub use tx::TxId;

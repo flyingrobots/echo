@@ -36,4 +36,3 @@ pub fn make_node_id(label: &str) -> NodeId {
     hasher.update(label.as_bytes());
     NodeId(hasher.finalize().into())
 }
-

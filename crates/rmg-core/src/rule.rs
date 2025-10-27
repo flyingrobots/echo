@@ -34,4 +34,3 @@ pub struct RewriteRule {
     /// Callback that applies the rewrite to the provided scope.
     pub executor: ExecuteFn,
 }
-

@@ -37,4 +37,3 @@ impl GraphStore {
         self.nodes.insert(id, record);
     }
 }
-

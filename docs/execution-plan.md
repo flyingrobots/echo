@@ -38,6 +38,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - **Focus**: Split `rmg-core` math into focused submodules (`vec3`, `mat4`, `quat`, `prng`).
 - **Definition of done**: CI passes; decision log updated; no behavior changes (pure refactor).
 
+> 2025-10-27 — PR #7 (echo/split-core-math-engine) merge prep
+
+- **Focus**: Land the extracted math + engine spike; add doc guard updates and preflight fmt/clippy/tests.
+- **Definition of done**: `docs/decision-log.md` + `docs/execution-plan.md` updated; `cargo fmt --check`, `cargo clippy -D warnings -D missing_docs`, and `cargo test` pass; branch is fast‑forward mergeable into `main`.
+
 ---
 
 ## Immediate Backlog

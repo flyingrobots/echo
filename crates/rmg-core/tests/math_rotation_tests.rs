@@ -4,10 +4,7 @@ use rmg_core::math::{Mat4, Vec3};
 
 fn approx_eq3(a: [f32; 3], b: [f32; 3]) {
     for i in 0..3 {
-        assert!(
-            (a[i] - b[i]).abs() < 1e-6,
-            "index {i}: {a:?} vs {b:?}"
-        );
+        assert!((a[i] - b[i]).abs() < 1e-6, "index {i}: {a:?} vs {b:?}");
     }
 }
 
@@ -35,7 +32,10 @@ fn axis_angle_matches_axis_specific_rotation() {
     let aa = Mat4::rotation_axis_angle(Vec3::UNIT_Y, FRAC_PI_2);
     let ry = Mat4::rotation_y(FRAC_PI_2);
     let v = Vec3::UNIT_Z;
-    approx_eq3(aa.transform_direction(&v).to_array(), ry.transform_direction(&v).to_array());
+    approx_eq3(
+        aa.transform_direction(&v).to_array(),
+        ry.transform_direction(&v).to_array(),
+    );
 }
 
 #[test]
@@ -43,15 +43,24 @@ fn euler_matches_axis_specific_rotations() {
     // Yaw only
     let e = Mat4::rotation_from_euler(FRAC_PI_2, 0.0, 0.0);
     let y = Mat4::rotation_y(FRAC_PI_2);
-    approx_eq3(e.transform_direction(&Vec3::UNIT_Z).to_array(), y.transform_direction(&Vec3::UNIT_Z).to_array());
+    approx_eq3(
+        e.transform_direction(&Vec3::UNIT_Z).to_array(),
+        y.transform_direction(&Vec3::UNIT_Z).to_array(),
+    );
 
     // Pitch only
     let e = Mat4::rotation_from_euler(0.0, FRAC_PI_2, 0.0);
     let x = Mat4::rotation_x(FRAC_PI_2);
-    approx_eq3(e.transform_direction(&Vec3::UNIT_Y).to_array(), x.transform_direction(&Vec3::UNIT_Y).to_array());
+    approx_eq3(
+        e.transform_direction(&Vec3::UNIT_Y).to_array(),
+        x.transform_direction(&Vec3::UNIT_Y).to_array(),
+    );
 
     // Roll only
     let e = Mat4::rotation_from_euler(0.0, 0.0, FRAC_PI_2);
     let z = Mat4::rotation_z(FRAC_PI_2);
-    approx_eq3(e.transform_direction(&Vec3::UNIT_X).to_array(), z.transform_direction(&Vec3::UNIT_X).to_array());
+    approx_eq3(
+        e.transform_direction(&Vec3::UNIT_X).to_array(),
+        z.transform_direction(&Vec3::UNIT_X).to_array(),
+    );
 }

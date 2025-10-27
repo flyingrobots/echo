@@ -13,9 +13,8 @@ const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
-    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES).unwrap_or_else(|err| {
-        panic!("failed to parse math fixtures at {FIXTURE_PATH}: {err}")
-    });
+    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES)
+        .unwrap_or_else(|err| panic!("failed to parse math fixtures at {FIXTURE_PATH}: {err}"));
     fixtures.validate();
     fixtures
 });

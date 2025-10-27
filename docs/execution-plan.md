@@ -43,6 +43,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - **Focus**: Land the extracted math + engine spike; add doc guard updates and preflight fmt/clippy/tests.
 - **Definition of done**: `docs/decision-log.md` + `docs/execution-plan.md` updated; `cargo fmt --check`, `cargo clippy -D warnings -D missing_docs`, and `cargo test` pass; branch is fast‑forward mergeable into `main`.
 
+> 2025-10-27 — MWMR reserve gate + telemetry wiring
+
+- **Focus**: Enforce `reserve()` gate (independence), add compact rule id execution path, and emit per‑tx telemetry summary; pin toolchain.
+- **Definition of done**: Scheduler `finalize_tx()` called by `Engine::commit`, compact‑id → rule lookup used on execute path, `rust-toolchain.toml` added and `rust-version = 1.68` set in crates; tests remain green.
+
 ---
 
 ## Immediate Backlog

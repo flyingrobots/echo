@@ -14,6 +14,15 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
+    /// Unit vector pointing along the positive X axis.
+    pub const UNIT_X: Self = Self::new(1.0, 0.0, 0.0);
+
+    /// Unit vector pointing along the positive Y axis.
+    pub const UNIT_Y: Self = Self::new(0.0, 1.0, 0.0);
+
+    /// Unit vector pointing along the positive Z axis.
+    pub const UNIT_Z: Self = Self::new(0.0, 0.0, 1.0);
+
     /// Creates a vector from components.
     ///
     /// Inputs are interpreted as metres in world coordinates; callers must

@@ -51,3 +51,18 @@ fi
 
 exit 0
 
+# Format gate: run rustfmt check if Rust files are staged
+if git diff --cached --name-only | grep -E '\.rs$' >/dev/null; then
+  echo "[pre-commit] Running cargo fmt --all -- --check ..."
+  if ! cargo fmt --all -- --check; then
+    cat <<'EOM' >&2
+[pre-commit] Formatting check failed.
+
+Run:  cargo fmt --all
+
+Our policy is to keep the tree rustfmt-clean to reduce review noise and
+merge conflicts. The CI also enforces this gate.
+EOM
+    exit 1
+  fi
+fi

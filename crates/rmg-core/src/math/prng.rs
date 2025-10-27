@@ -34,7 +34,7 @@ impl Prng {
         Self { state }
     }
 
-    /// Constructs a PRNG from a single 64-bit seed via SplitMix64 expansion.
+    /// Constructs a PRNG from a single 64-bit seed via `SplitMix64` expansion.
     pub fn from_seed_u64(seed: u64) -> Self {
         fn splitmix64(state: &mut u64) -> u64 {
             *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
@@ -81,6 +81,11 @@ impl Prng {
     ///
     /// Uses rejection sampling with a power-of-two fast path to avoid modulo
     /// bias, and supports the full `i32` span.
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap,
+        clippy::cast_possible_truncation
+    )]
     pub fn next_int(&mut self, min: i32, max: i32) -> i32 {
         assert!(min <= max, "invalid range: {min}..={max}");
         let span = (i64::from(max) - i64::from(min)) as u64 + 1;

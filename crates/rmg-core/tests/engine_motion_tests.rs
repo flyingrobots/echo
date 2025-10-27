@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use rmg_core::{
     decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
     EngineError, GraphStore, NodeRecord, MOTION_RULE_NAME,

@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use rmg_core::math::Mat4;
 
 fn approx_eq16(a: [f32; 16], b: [f32; 16]) {

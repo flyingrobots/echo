@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use rmg_core::math::Vec3;
 
 #[test]
@@ -20,4 +21,3 @@ fn add_assign_sub_assign_mul_assign_work() {
     v *= 0.5;
     assert_eq!(v.to_array(), [0.0, 1.0, 1.0]);
 }
-

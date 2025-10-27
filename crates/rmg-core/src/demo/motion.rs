@@ -12,14 +12,15 @@ use crate::rule::{PatternGraph, RewriteRule};
 pub const MOTION_RULE_NAME: &str = "motion/update";
 
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
-    if let Some(node) = store.node_mut(scope)
-        && let Some(payload) = &mut node.payload
-        && let Some((mut pos, vel)) = decode_motion_payload(payload)
-    {
-        pos[0] += vel[0];
-        pos[1] += vel[1];
-        pos[2] += vel[2];
-        *payload = encode_motion_payload(pos, vel);
+    if let Some(node) = store.node_mut(scope) {
+        if let Some(payload) = &mut node.payload {
+            if let Some((mut pos, vel)) = decode_motion_payload(payload) {
+                pos[0] += vel[0];
+                pos[1] += vel[1];
+                pos[2] += vel[2];
+                *payload = encode_motion_payload(pos, vel);
+            }
+        }
     }
 }
 

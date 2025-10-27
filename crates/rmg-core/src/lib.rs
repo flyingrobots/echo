@@ -25,7 +25,8 @@
     clippy::unreadable_literal,
     clippy::missing_const_for_fn,
     clippy::suboptimal_flops,
-    clippy::redundant_pub_crate
+    clippy::redundant_pub_crate,
+    clippy::many_single_char_names
 )]
 
 pub mod math;

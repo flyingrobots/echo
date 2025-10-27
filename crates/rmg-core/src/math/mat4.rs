@@ -1,4 +1,4 @@
-use crate::math::Vec3;
+use crate::math::{Quat, Vec3};
 
 /// Column-major 4×4 matrix matching Echo’s deterministic math layout.
 ///
@@ -11,6 +11,89 @@ pub struct Mat4 {
 }
 
 impl Mat4 {
+    /// Returns the identity matrix.
+    pub const fn identity() -> Self {
+        Self {
+            data: [
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 1.0,
+            ],
+        }
+    }
+
+    /// Builds a translation matrix in meters.
+    pub const fn translation(tx: f32, ty: f32, tz: f32) -> Self {
+        Self {
+            data: [
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                tx,  ty,  tz,  1.0,
+            ],
+        }
+    }
+
+    /// Builds a non-uniform scale matrix.
+    pub const fn scale(sx: f32, sy: f32, sz: f32) -> Self {
+        Self {
+            data: [
+                sx,  0.0, 0.0, 0.0,
+                0.0, sy,  0.0, 0.0,
+                0.0, 0.0, sz,  0.0,
+                0.0, 0.0, 0.0, 1.0,
+            ],
+        }
+    }
+
+    /// Builds a rotation matrix around the X axis by `angle` radians.
+    pub fn rotation_x(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new([
+            1.0, 0.0, 0.0, 0.0,
+            0.0, c,   s,   0.0,
+            0.0, -s,  c,   0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ])
+    }
+
+    /// Builds a rotation matrix around the Y axis by `angle` radians.
+    pub fn rotation_y(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new([
+            c,   0.0, -s,  0.0,
+            0.0, 1.0, 0.0, 0.0,
+            s,   0.0, c,   0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ])
+    }
+
+    /// Builds a rotation matrix around the Z axis by `angle` radians.
+    pub fn rotation_z(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new([
+            c,   s,   0.0, 0.0,
+            -s,  c,   0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ])
+    }
+
+    /// Builds a rotation matrix from Euler angles in radians.
+    pub fn rotation_from_euler(yaw: f32, pitch: f32, roll: f32) -> Self {
+        Self::rotation_y(yaw)
+            .multiply(&Self::rotation_x(pitch))
+            .multiply(&Self::rotation_z(roll))
+    }
+
+    /// Constructs a rotation matrix from an axis and angle in radians.
+    pub fn rotation_axis_angle(axis: Vec3, angle: f32) -> Self {
+        Self::from_quat(&Quat::from_axis_angle(axis, angle))
+    }
+
+    /// Constructs a rotation matrix from a quaternion.
+    pub fn from_quat(q: &Quat) -> Self { q.to_mat4() }
     /// Creates a matrix from column-major array data.
     ///
     /// Callers must supply 16 finite values already laid out column-major.
@@ -82,4 +165,9 @@ impl From<[f32; 16]> for Mat4 {
     fn from(value: [f32; 16]) -> Self {
         Self { data: value }
     }
+}
+
+impl core::ops::Mul for Mat4 {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output { self.multiply(&rhs) }
 }

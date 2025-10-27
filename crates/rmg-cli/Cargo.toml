@@ -2,5 +2,11 @@
 name = "rmg-cli"
 version = "0.1.0"
 edition = "2021"
+description = "Echo CLI: demos, benches, inspector launcher (future)"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "../../README.md"
+keywords = ["echo", "cli", "ecs"]
+categories = ["command-line-utilities"]
 
 [dependencies]

@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use core::f32::consts::FRAC_PI_2;
 use rmg_core::math::{Mat4, Vec3};
 

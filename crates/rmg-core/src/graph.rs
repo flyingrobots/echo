@@ -11,9 +11,9 @@ use crate::record::{EdgeRecord, NodeRecord};
 #[derive(Default)]
 pub struct GraphStore {
     /// Mapping from node identifiers to their materialised records.
-    pub nodes: BTreeMap<NodeId, NodeRecord>,
+    pub(crate) nodes: BTreeMap<NodeId, NodeRecord>,
     /// Mapping from source node to outbound edge records.
-    pub edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>,
+    pub(crate) edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>,
 }
 
 impl GraphStore {

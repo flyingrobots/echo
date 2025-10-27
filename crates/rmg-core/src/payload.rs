@@ -3,7 +3,13 @@ use bytes::Bytes;
 
 const POSITION_VELOCITY_BYTES: usize = 24;
 
-/// Serialises a 3D position + velocity vector pair into the canonical payload.
+/// Serialises a 3D position + velocity pair into the canonical payload.
+///
+/// Layout (little‑endian):
+/// - bytes 0..12: position [x, y, z] as 3 × f32
+/// - bytes 12..24: velocity [vx, vy, vz] as 3 × f32
+/// Always 24 bytes.
+#[inline]
 pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(POSITION_VELOCITY_BYTES);
     for value in position.into_iter().chain(velocity.into_iter()) {

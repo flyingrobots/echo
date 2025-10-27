@@ -58,6 +58,7 @@ fn motion_rule_updates_position_deterministically() {
         .and_then(decode_motion_payload)
         .expect("payload decode");
     assert_eq!(node.0, [1.5, 1.0, 3.25]);
+    assert_eq!(node.1, [0.5, -1.0, 0.25]);
 }
 
 #[test]

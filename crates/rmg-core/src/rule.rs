@@ -22,6 +22,7 @@ pub type ExecuteFn = fn(&mut GraphStore, &NodeId);
 /// * a human-readable name
 /// * a left pattern (currently unused by the spike)
 /// * callbacks for matching and execution
+#[derive(Debug)]
 pub struct RewriteRule {
     /// Deterministic identifier for the rewrite rule.
     pub id: Hash,

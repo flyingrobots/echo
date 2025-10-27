@@ -94,6 +94,7 @@ fn build_engine() -> Engine {
 
 #[cfg(feature = "console-panic")]
 #[wasm_bindgen(start)]
+/// Initializes the browser console panic hook when the `console-panic` feature is enabled.
 pub fn init_console_panic_hook() {
     console_error_panic_hook::set_once();
 }
@@ -208,6 +209,7 @@ impl WasmEngine {
 
     #[wasm_bindgen]
     /// Commits the transaction and returns the resulting snapshot hash.
+    #[must_use]
     pub fn commit(&self, tx_id: u64) -> Option<Vec<u8>> {
         if tx_id == 0 {
             return None;
@@ -219,6 +221,7 @@ impl WasmEngine {
 
     #[wasm_bindgen]
     /// Reads the decoded position/velocity tuple for the provided entity.
+    #[must_use]
     pub fn read_motion(&self, entity_id: &[u8]) -> Option<Box<[f32]>> {
         let engine = self.inner.borrow();
         let node_id = bytes_to_node_id(entity_id)?;

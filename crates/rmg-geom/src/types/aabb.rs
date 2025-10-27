@@ -81,17 +81,17 @@ impl Aabb {
     /// new axis-aligned box containing them.
     #[must_use]
     pub fn transformed(&self, mat: &Mat4) -> Self {
-        let [minx, miny, minz] = self.min.to_array();
-        let [maxx, maxy, maxz] = self.max.to_array();
+        let [min_x, min_y, min_z] = self.min.to_array();
+        let [max_x, max_y, max_z] = self.max.to_array();
         let corners = [
-            Vec3::new(minx, miny, minz),
-            Vec3::new(minx, miny, maxz),
-            Vec3::new(minx, maxy, minz),
-            Vec3::new(minx, maxy, maxz),
-            Vec3::new(maxx, miny, minz),
-            Vec3::new(maxx, miny, maxz),
-            Vec3::new(maxx, maxy, minz),
-            Vec3::new(maxx, maxy, maxz),
+            Vec3::new(min_x, min_y, min_z),
+            Vec3::new(min_x, min_y, max_z),
+            Vec3::new(min_x, max_y, min_z),
+            Vec3::new(min_x, max_y, max_z),
+            Vec3::new(max_x, min_y, min_z),
+            Vec3::new(max_x, min_y, max_z),
+            Vec3::new(max_x, max_y, min_z),
+            Vec3::new(max_x, max_y, max_z),
         ];
         // Compute bounds without allocating an intermediate Vec to avoid needless collects.
         let mut min = mat.transform_point(&corners[0]);

@@ -3,7 +3,10 @@ use rmg_core::math::{Mat4, Vec3};
 
 fn approx_eq3(a: [f32; 3], b: [f32; 3]) {
     for i in 0..3 {
-        assert!((a[i] - b[i]).abs() < 1e-6, "index {}: {:?} vs {:?}", i, a, b);
+        assert!(
+            (a[i] - b[i]).abs() < 1e-6,
+            "index {i}: {a:?} vs {b:?}"
+        );
     }
 }
 

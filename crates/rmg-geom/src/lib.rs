@@ -10,7 +10,7 @@
     clippy::expect_used,
     clippy::panic
 )]
-#![doc = r#"Geometry primitives for Echo.
+#![doc = r"Geometry primitives for Echo.
 
 This crate provides:
 - Axis-aligned bounding boxes (`Aabb`).
@@ -22,7 +22,7 @@ Design notes:
 - Deterministic: no ambient RNG; ordering of pair outputs is canonical.
 - Float32 throughout; operations favor clarity and reproducibility.
 - Rustdoc is treated as part of the contract; public items are documented.
-"#]
+"]
 
 /// Foundational geometric types.
 pub mod types;
@@ -33,4 +33,3 @@ pub mod broad;
 
 pub use types::aabb::Aabb;
 pub use types::transform::Transform;
-

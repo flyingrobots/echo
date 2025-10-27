@@ -62,6 +62,8 @@ pub fn build_motion_demo_engine() -> Engine {
     );
 
     let mut engine = Engine::new(store, root_id);
-    engine.register_rule(motion_rule());
+    // Demo setup: ignore duplicate registration if caller builds multiple demo engines
+    // within the same process/tests.
+    let _ = engine.register_rule(motion_rule());
     engine
 }

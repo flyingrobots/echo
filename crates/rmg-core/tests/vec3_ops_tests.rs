@@ -9,6 +9,9 @@ fn add_sub_mul_ops_work() {
     assert_eq!((a - b).to_array(), [4.0, -6.0, -1.0]);
     assert_eq!((a * 2.0).to_array(), [2.0, -4.0, 1.0]);
     assert_eq!((2.0 * a).to_array(), [2.0, -4.0, 1.0]);
+    // Negative scalar multiply (both orders)
+    assert_eq!((a * -2.0).to_array(), [-2.0, 4.0, -1.0]);
+    assert_eq!((-2.0 * a).to_array(), [-2.0, 4.0, -1.0]);
 }
 
 #[test]

@@ -20,7 +20,9 @@ fn motion_rule_updates_position_deterministically() {
     );
 
     let mut engine = Engine::new(store, entity);
-    engine.register_rule(rmg_core::motion_rule());
+    engine
+        .register_rule(rmg_core::motion_rule())
+        .expect("duplicate rule name");
 
     let tx = engine.begin();
     let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
@@ -41,7 +43,9 @@ fn motion_rule_updates_position_deterministically() {
     );
 
     let mut engine_b = Engine::new(store_b, entity);
-    engine_b.register_rule(rmg_core::motion_rule());
+    engine_b
+        .register_rule(rmg_core::motion_rule())
+        .expect("duplicate rule name");
     let tx_b = engine_b.begin();
     let apply_b = engine_b.apply(tx_b, MOTION_RULE_NAME, &entity).unwrap();
     assert!(matches!(apply_b, ApplyResult::Applied));
@@ -76,7 +80,9 @@ fn motion_rule_no_match_on_missing_payload() {
     );
 
     let mut engine = Engine::new(store, entity);
-    engine.register_rule(rmg_core::motion_rule());
+    engine
+        .register_rule(rmg_core::motion_rule())
+        .expect("duplicate rule name");
 
     // Capture hash before any tx
     let before = engine.snapshot().hash;
@@ -103,7 +109,9 @@ fn motion_rule_twice_is_deterministic_across_engines() {
         },
     );
     let mut engine_a = Engine::new(store_a, entity);
-    engine_a.register_rule(rmg_core::motion_rule());
+    engine_a
+        .register_rule(rmg_core::motion_rule())
+        .expect("duplicate rule name");
     for _ in 0..2 {
         let tx = engine_a.begin();
         engine_a.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
@@ -119,7 +127,9 @@ fn motion_rule_twice_is_deterministic_across_engines() {
         },
     );
     let mut engine_b = Engine::new(store_b, entity);
-    engine_b.register_rule(rmg_core::motion_rule());
+    engine_b
+        .register_rule(rmg_core::motion_rule())
+        .expect("duplicate rule name");
     for _ in 0..2 {
         let tx = engine_b.begin();
         engine_b.apply(tx, MOTION_RULE_NAME, &entity).unwrap();

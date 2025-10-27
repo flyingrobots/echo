@@ -11,7 +11,9 @@ fn tx_invalid_after_commit() {
     store.insert_node(entity, NodeRecord { ty: entity_type, payload: Some(payload) });
 
     let mut engine = rmg_core::Engine::new(store, entity);
-    engine.register_rule(rmg_core::motion_rule());
+    engine
+        .register_rule(rmg_core::motion_rule())
+        .expect("duplicate rule name");
 
     let tx = engine.begin();
     // Valid apply then commit

@@ -30,6 +30,9 @@ pub enum EngineError {
     /// A rule was requested that has not been registered with the engine.
     #[error("rule not registered: {0}")]
     UnknownRule(String),
+    /// Attempted to register a rule with a duplicate name.
+    #[error("duplicate rule name: {0}")]
+    DuplicateRuleName(&'static str),
 }
 
 /// Core rewrite engine used by the spike.
@@ -69,9 +72,17 @@ impl Engine {
     }
 
     /// Registers a rewrite rule so it can be referenced by name.
-    pub fn register_rule(&mut self, rule: RewriteRule) {
+    ///
+    /// # Errors
+    /// Returns [`EngineError::DuplicateRuleName`] if a rule with the same
+    /// name has already been registered.
+    pub fn register_rule(&mut self, rule: RewriteRule) -> Result<(), EngineError> {
+        if self.rules.contains_key(rule.name) {
+            return Err(EngineError::DuplicateRuleName(rule.name));
+        }
         self.rules_by_id.insert(rule.id, rule.name);
         self.rules.insert(rule.name, rule);
+        Ok(())
     }
 
     /// Begins a new transaction and returns its identifier.

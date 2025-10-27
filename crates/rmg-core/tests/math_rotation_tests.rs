@@ -3,8 +3,18 @@ use core::f32::consts::FRAC_PI_2;
 use rmg_core::math::{Mat4, Vec3};
 
 fn approx_eq3(a: [f32; 3], b: [f32; 3]) {
+    const ABS_TOL: f32 = 1e-7;
+    const REL_TOL: f32 = 1e-6;
     for i in 0..3 {
-        assert!((a[i] - b[i]).abs() < 1e-6, "index {i}: {a:?} vs {b:?}");
+        let ai = a[i];
+        let bi = b[i];
+        let diff = (ai - bi).abs();
+        let scale = ai.abs().max(bi.abs());
+        let tol = ABS_TOL.max(REL_TOL * scale);
+        assert!(
+            diff <= tol,
+            "index {i}: {a:?} vs {b:?}, diff={diff}, tol={tol} (scale={scale})"
+        );
     }
 }
 

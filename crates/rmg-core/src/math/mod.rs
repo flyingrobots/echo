@@ -1,15 +1,7 @@
 //! Deterministic math helpers covering scalar utilities, linear algebra
 //! primitives, quaternions, and timeline-friendly pseudo-random numbers.
 //!
-//! # Math Overview
-//! - Scalar type: all computations use `f32` to mirror runtime float32 mode.
-//! - Coordinate system: right-handed; matrices are column-major.
-//! - Multiplication order: `Mat4::multiply(a, b)` computes `a * b` (left * right).
-//! - Transform conventions:
-//!   - Points use homogeneous `w = 1` (`Mat4::transform_point`).
-//!   - Directions use homogeneous `w = 0` (`Mat4::transform_direction`).
-//! - Epsilon: [`EPSILON`] guards degeneracy (e.g., zero-length vectors).
-//! - Determinism: operations avoid platform RNGs and non-deterministic sources.
+//! All operations round to `f32` to mirror the runtime’s float32 mode.
 
 use std::f32::consts::TAU;
 
@@ -18,18 +10,31 @@ mod prng;
 mod quat;
 mod vec3;
 
+#[doc(inline)]
 pub use mat4::Mat4;
+#[doc(inline)]
 pub use prng::Prng;
+#[doc(inline)]
 pub use quat::Quat;
+#[doc(inline)]
 pub use vec3::Vec3;
 
-/// Global epsilon used by math routines when detecting degenerate values.
+/// Degeneracy threshold used by math routines to detect near-zero magnitudes.
+///
+/// This is not a generic numeric-precision epsilon; it is used to classify
+/// vectors/quaternions with magnitude ≤ `EPSILON` as degenerate so that
+/// operations like normalization can return stable, deterministic sentinels
+/// (e.g., the zero vector or identity quaternion).
 pub const EPSILON: f32 = 1e-6;
 
 /// Clamps `value` to the inclusive `[min, max]` range using float32 rounding.
 ///
 /// # Panics
 /// Panics if `min > max`.
+///
+/// # NaN handling
+/// If `value`, `min`, or `max` is `NaN`, the result is `NaN`. Callers must
+/// ensure inputs are finite if deterministic behavior is required.
 pub fn clamp(value: f32, min: f32, max: f32) -> f32 {
     assert!(min <= max, "invalid clamp range: {min} > {max}");
     value.max(min).min(max)

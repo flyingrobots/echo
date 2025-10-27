@@ -16,10 +16,31 @@ pub trait BroadPhase {
     fn pairs(&self) -> Vec<(usize, usize)>;
 }
 
-/// A minimal AABB-based broad-phase using an `O(n^2)` sweep for simplicity.
+/// A minimal AABB-based broad-phase using an `O(n^2)` all-pairs sweep.
 ///
-/// Intended for early correctness and determinism tests; real engines should
-/// replace this with SAP or BVH.
+/// Why this exists:
+/// - Serves as a correctness and determinism baseline while API surfaces
+///   stabilize (canonical pair identity and ordering, inclusive face overlap).
+/// - Keeps the algorithm small and easy to reason about for early tests.
+///
+/// Performance plan (to be replaced):
+/// - Sweep-and-Prune (aka Sort-and-Sweep) with stable endpoint arrays per
+///   axis. Determinism ensured via:
+///   - fixed axis order (e.g., X→Y→Z) or a deterministic axis choice
+///     (variance with ID tie-breakers),
+///   - stable sort and explicit ID tie-breaks,
+///   - final pair list sorted lexicographically by `(min_id, max_id)`.
+/// - Dynamic AABB Tree (BVH): deterministic insert/rotation heuristics with
+///   ID-based tie-breakers; canonical pair set post-sorted by `(min_id,max_id)`.
+///
+/// Complexity notes:
+/// - Any broad phase degenerates to `O(n^2)` when all proxies overlap (k≈n²).
+///   The goal of SAP/BVH is near-linear behavior when the true overlap count
+///   `k` is small and motion is temporally coherent.
+///
+/// TODO(geom): replace this reference implementation with a deterministic
+/// Sweep-and-Prune (Phase 1), and optionally a Dynamic AABB Tree. Preserve
+/// canonical pair ordering and inclusive face-touch semantics.
 #[derive(Default)]
 pub struct AabbTree {
     items: BTreeMap<usize, Aabb>,

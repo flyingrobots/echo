@@ -3,6 +3,7 @@
 //! Ensures scalar, vector, matrix, quaternion, and PRNG behaviour stays
 //! consistent with the documented fixtures across platforms.
 
+#![allow(clippy::panic, clippy::manual_assert, clippy::non_std_lazy_statics)]
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 
@@ -12,8 +13,9 @@ const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
-    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES)
-        .unwrap_or_else(|err| panic!("failed to parse math fixtures at {FIXTURE_PATH}: {err}"));
+    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES).unwrap_or_else(|err| {
+        panic!("failed to parse math fixtures at {FIXTURE_PATH}: {err}")
+    });
     fixtures.validate();
     fixtures
 });
@@ -32,9 +34,10 @@ struct MathFixtures {
 impl MathFixtures {
     fn validate(&self) {
         fn ensure<T>(name: &str, slice: &[T]) {
-            if slice.is_empty() {
-                panic!("math fixtures set '{name}' must not be empty");
-            }
+            assert!(
+                !slice.is_empty(),
+                "math fixtures set '{name}' must not be empty"
+            );
         }
 
         ensure("scalars.clamp", &self.scalars.clamp);

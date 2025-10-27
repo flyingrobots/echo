@@ -50,6 +50,7 @@ pub struct Engine {
     rules: HashMap<&'static str, RewriteRule>,
     rules_by_id: HashMap<Hash, &'static str>,
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
+    rules_by_compact: HashMap<CompactRuleId, &'static str>,
     scheduler: DeterministicScheduler,
     tx_counter: u64,
     live_txs: HashSet<u64>,
@@ -65,6 +66,7 @@ impl Engine {
             rules: HashMap::new(),
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
+            rules_by_compact: HashMap::new(),
             scheduler: DeterministicScheduler::default(),
             tx_counter: 0,
             live_txs: HashSet::new(),
@@ -85,7 +87,8 @@ impl Engine {
         self.rules_by_id.insert(rule.id, rule.name);
         #[allow(clippy::cast_possible_truncation)]
         let next = CompactRuleId(self.compact_rule_ids.len() as u32);
-        self.compact_rule_ids.entry(rule.id).or_insert(next);
+        let compact = *self.compact_rule_ids.entry(rule.id).or_insert(next);
+        self.rules_by_compact.insert(compact, rule.name);
         self.rules.insert(rule.name, rule);
         Ok(())
     }
@@ -166,7 +169,7 @@ impl Engine {
             }
         }
         for rewrite in reserved {
-            if let Some(rule) = self.rule_by_id(&rewrite.rule_id) {
+            if let Some(rule) = self.rule_by_compact(&rewrite.compact_rule) {
                 (rule.executor)(&mut self.store, &rewrite.scope);
             }
         }
@@ -179,8 +182,9 @@ impl Engine {
             tx,
         };
         self.last_snapshot = Some(snapshot.clone());
-        // Mark transaction as closed/inactive.
+        // Mark transaction as closed/inactive and finalize scheduler accounting.
         self.live_txs.remove(&tx.value());
+        self.scheduler.finalize_tx(tx);
         Ok(snapshot)
     }
 
@@ -213,6 +217,11 @@ impl Engine {
 impl Engine {
     fn rule_by_id(&self, id: &Hash) -> Option<&RewriteRule> {
         let name = self.rules_by_id.get(id)?;
+        self.rules.get(name)
+    }
+
+    fn rule_by_compact(&self, id: &CompactRuleId) -> Option<&RewriteRule> {
+        let name = self.rules_by_compact.get(id)?;
         self.rules.get(name)
     }
 }

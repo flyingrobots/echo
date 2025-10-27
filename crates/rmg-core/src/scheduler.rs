@@ -17,6 +17,8 @@ use crate::tx::TxId;
 pub(crate) struct DeterministicScheduler {
     pub(crate) pending: HashMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
     pub(crate) active: HashMap<TxId, Vec<Footprint>>, // Reserved/Committed frontier
+    #[cfg(feature = "telemetry")]
+    pub(crate) counters: HashMap<TxId, (u64, u64)>, // (reserved, conflict)
 }
 
 /// Internal representation of a rewrite waiting to be applied.
@@ -81,6 +83,11 @@ impl DeterministicScheduler {
             if !pr.footprint.independent(fp) {
                 pr.phase = RewritePhase::Aborted;
                 #[cfg(feature = "telemetry")]
+                {
+                    let entry = self.counters.entry(tx).or_default();
+                    entry.1 += 1;
+                }
+                #[cfg(feature = "telemetry")]
                 telemetry::conflict(tx, &pr.rule_id);
                 return false;
             }
@@ -88,7 +95,22 @@ impl DeterministicScheduler {
         pr.phase = RewritePhase::Reserved;
         frontier.push(pr.footprint.clone());
         #[cfg(feature = "telemetry")]
+        {
+            let entry = self.counters.entry(tx).or_default();
+            entry.0 += 1;
+        }
+        #[cfg(feature = "telemetry")]
         telemetry::reserved(tx, &pr.rule_id);
         true
+    }
+
+    /// Finalizes accounting for `tx`: emits a telemetry summary when enabled
+    /// and clears the active frontier and counters for the transaction.
+    pub(crate) fn finalize_tx(&mut self, tx: TxId) {
+        #[cfg(feature = "telemetry")]
+        if let Some((reserved, conflict)) = self.counters.remove(&tx) {
+            telemetry::summary(tx, reserved, conflict);
+        }
+        self.active.remove(&tx);
     }
 }

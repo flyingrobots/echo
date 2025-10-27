@@ -59,3 +59,24 @@ pub fn reserved(tx: TxId, rule: &Hash) {
     emit("reserved", tx, rule);
 }
 
+#[cfg(feature = "telemetry")]
+pub fn summary(tx: TxId, reserved_count: u64, conflict_count: u64) {
+    use serde::Serialize;
+    #[derive(Serialize)]
+    struct Summary {
+        timestamp_micros: u128,
+        tx_id: u64,
+        event: &'static str,
+        reserved: u64,
+        conflicts: u64,
+    }
+    let s = Summary {
+        timestamp_micros: ts_micros(),
+        tx_id: tx.value(),
+        event: "summary",
+        reserved: reserved_count,
+        conflicts: conflict_count,
+    };
+    let _ = serde_json::to_writer(std::io::stdout(), &s);
+    let _ = std::io::Write::write_all(&mut std::io::stdout(), b"\n");
+}

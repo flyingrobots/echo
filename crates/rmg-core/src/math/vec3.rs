@@ -86,10 +86,11 @@ impl Vec3 {
         self.dot(self)
     }
 
-    /// Normalises the vector, returning zero vector if length is ~0.
+    /// Normalises the vector, returning the zero vector if length ≤ `EPSILON`.
     ///
-    /// Zero-length inputs remain the zero vector so downstream callers can
-    /// detect degenerate directions deterministically.
+    /// `EPSILON` is a degeneracy threshold (not numeric precision): vectors
+    /// with length ≤ `EPSILON` are considered degenerate and normalized to
+    /// zero so downstream callers can detect them deterministically.
     pub fn normalize(&self) -> Self {
         let len = self.length();
         if len <= EPSILON {
@@ -99,6 +100,14 @@ impl Vec3 {
     }
 }
 
+/// Converts a 3-element `[f32; 3]` array into a `Vec3` interpreted as `(x, y, z)`.
+///
+/// # Examples
+/// ```
+/// use rmg_core::math::Vec3;
+/// let v = Vec3::from([1.0, 2.0, 3.0]);
+/// assert_eq!(v.to_array(), [1.0, 2.0, 3.0]);
+/// ```
 impl From<[f32; 3]> for Vec3 {
     fn from(value: [f32; 3]) -> Self {
         Self { data: value }

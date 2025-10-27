@@ -49,7 +49,30 @@ impl Quat {
         )
     }
 
-    /// Multiplies two quaternions (`self * other`).
+    /// Hamilton product of two quaternions (`self * other`).
+    ///
+    /// Operand order matters: the result composes the rotation represented by
+    /// `self` followed by the rotation represented by `other`. Quaternion
+    /// multiplication is non‑commutative.
+    ///
+    /// Component layout is `(x, y, z, w)` with `w` as the scalar part. Inputs
+    /// need not be normalized; however, when both operands are unit
+    /// quaternions, the result represents the composed rotation and remains a
+    /// unit quaternion up to floating‑point error (consider re‑normalizing over
+    /// long chains).
+    ///
+    /// # Examples
+    /// ```
+    /// use core::f32::consts::FRAC_PI_2;
+    /// use rmg_core::math::{Quat, Vec3};
+    /// // 90° yaw then 90° pitch
+    /// let yaw = Quat::from_axis_angle(Vec3::UNIT_Y, FRAC_PI_2);
+    /// let pitch = Quat::from_axis_angle(Vec3::UNIT_X, FRAC_PI_2);
+    /// let composed = yaw.multiply(&pitch); // yaw then pitch
+    /// // Non‑commutative: pitch*yaw is different
+    /// let other = pitch.multiply(&yaw);
+    /// assert_ne!(composed.to_array(), other.to_array());
+    /// ```
     pub fn multiply(&self, other: &Self) -> Self {
         let ax = self.component(0);
         let ay = self.component(1);
@@ -132,6 +155,9 @@ impl Quat {
     }
 }
 
+/// Converts a 4‑element `[f32; 4]` array `(x, y, z, w)` into a `Quat`.
+/// The components are taken verbatim; callers typically pass unit quaternions
+/// for rotations, but normalization is not enforced by this conversion.
 impl From<[f32; 4]> for Quat {
     fn from(value: [f32; 4]) -> Self {
         Self { data: value }

@@ -33,10 +33,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> Write the top priority for the current session and what “done” means.
+> 2025-10-27 — Core math modularization (PR #5)
 
-- **Focus**: Draft ECS storage implementation plan (archetype storage port to Rust).
-- **Definition of done**: Identify storage milestones, required data structures, and sequencing for integration with branch diff engine.
+- **Focus**: Split `rmg-core` math into focused submodules (`vec3`, `mat4`, `quat`, `prng`).
+- **Definition of done**: CI passes; decision log updated; no behavior changes (pure refactor).
 
 ---
 

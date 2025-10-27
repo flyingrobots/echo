@@ -1,0 +1,13 @@
+flowchart LR
+  subgraph LHS
+    PP[[PotentialPair(a,b,n)]]:::KClass
+    PP -- overlap_at_end --> YES{overlap?}
+  end
+  subgraph RHS
+    PP2[[PotentialPair(a,b,n)]]:::KClass
+    C((Contact(pair,n))):::Add
+    C -- contact_of --> PP2
+  end
+
+classDef KClass stroke:#ffd166,stroke-width:2;
+classDef Add stroke:#00c853,stroke-width:2,fill:#0d2a1a,color:#dfe7ff;

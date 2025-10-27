@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect x="0" y="0" width="320" height="200" fill="#0b1020"/>
+  <rect x="8" y="8" width="304" height="184" fill="#101732" stroke="#2a3c72" rx="6"/>
+  <circle cx="60" cy="120" r="10" fill="#6aa0ff"/>
+  <rect x="210" y="96" width="48" height="48" fill="#ff8a65"/>
+  <line x1="60" y1="120" x2="210" y2="120" stroke="#9fb0d6" stroke-width="2" marker-end="url(#a)"/>
+  <text x="16" y="28" fill="#dfe7ff" font-size="12">Fast mover towards obstacle (CCD)</text>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9fb0d6"/></marker></defs>
+</svg>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect x="0" y="0" width="320" height="200" fill="#0b1020"/>
+  <rect x="8" y="8" width="304" height="184" fill="#101732" stroke="#ffd166" rx="6"/>
+  <rect x="40" y="70" width="80" height="30" fill="#6aa0ff"/>
+  <rect x="140" y="70" width="80" height="30" fill="#ff8a65"/>
+  <rect x="240" y="70" width="60" height="30" fill="#ffd166"/>
+  <text x="16" y="28" fill="#dfe7ff" font-size="12">GC selection window</text>
+</svg>

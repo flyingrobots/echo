@@ -1,4 +1,24 @@
 //! Snapshot type and hash computation.
+//!
+//! Determinism contract
+//! - The snapshot hash is a BLAKE3 digest over a canonical byte stream that
+//!   encodes the entire reachable graph state for the current root.
+//! - Ordering is explicit and stable: nodes are visited in ascending `NodeId`
+//!   order (lexicographic over 32-byte ids). For each node, outbound edges are
+//!   sorted by ascending `EdgeId` before being encoded.
+//! - Encoding is fixed-size and architecture-independent:
+//!   - All ids (`NodeId`, `TypeId`, `EdgeId`) are raw 32-byte values.
+//!   - Payloads are prefixed by an 8-byte little-endian length, followed by the
+//!     exact payload bytes (or length `0` with no payload).
+//! - The root id is included first to bind the subgraph identity.
+//!
+//! Notes
+//! - Little-endian was chosen for length fields to match the rest of the code
+//!   base; changing endianness would change hash values and must be treated as a
+//!   breaking change. If we decide to adopt big-endian, update the encoding
+//!   here and add a migration note in the determinism spec.
+//! - The in-memory store uses `BTreeMap`, which guarantees deterministic key
+//!   iteration. For vectors (edge lists), we sort explicitly by `EdgeId`.
 use blake3::Hasher;
 
 use crate::graph::GraphStore;
@@ -23,6 +43,17 @@ pub struct Snapshot {
 }
 
 /// Computes a canonical hash for the current graph state.
+///
+/// Algorithm
+/// 1) Update with `root` id bytes.
+/// 2) For each `(node_id, node)` in `store.nodes` (ascending by `node_id`):
+///    - Update with `node_id`, `node.ty`.
+///    - Update with 8-byte LE payload length, then payload bytes (if any).
+/// 3) For each `(from, edges)` in `store.edges_from` (ascending by `from`):
+///    - Update with `from` id and edge count (8-byte LE).
+///    - Sort `edges` by `edge.id` ascending and for each edge:
+///      - Update with `edge.id`, `edge.ty`, `edge.to`.
+///      - Update with 8-byte LE payload length, then payload bytes (if any).
 pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(&root.0);

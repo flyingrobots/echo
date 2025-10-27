@@ -3,6 +3,14 @@
 /// * Not cryptographically secure; use only for gameplay/state simulation.
 /// * Seeding controls reproducibility within a single process/run and matching
 ///   seeds yield identical sequences across supported platforms.
+///
+/// Algorithm version for PRNG bit‑exact behavior.
+/// Bump this only when intentionally changing the algorithm or seeding rules
+/// and update any golden regression tests accordingly.
+#[allow(dead_code)]
+pub const PRNG_ALGO_VERSION: u32 = 1;
+
+/// Stateful PRNG instance.
 #[derive(Debug, Clone)]
 pub struct Prng {
     state: [u64; 2],

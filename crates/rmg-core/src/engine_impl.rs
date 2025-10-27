@@ -69,6 +69,10 @@ impl Engine {
     }
 
     /// Queues a rewrite for execution if it matches the provided scope.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownTx`] if the transaction is invalid, or
+    /// [`EngineError::UnknownRule`] if the named rule is not registered.
     pub fn apply(
         &mut self,
         tx: TxId,
@@ -78,9 +82,8 @@ impl Engine {
         if tx.0 == 0 || tx.0 > self.tx_counter {
             return Err(EngineError::UnknownTx);
         }
-        let rule = match self.rules.get(rule_name) {
-            Some(rule) => rule,
-            None => return Err(EngineError::UnknownRule(rule_name.to_owned())),
+        let Some(rule) = self.rules.get(rule_name) else {
+            return Err(EngineError::UnknownRule(rule_name.to_owned()));
         };
         let matches = (rule.matcher)(&self.store, scope);
         if !matches {
@@ -101,6 +104,9 @@ impl Engine {
     }
 
     /// Executes all pending rewrites for the transaction and produces a snapshot.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
     pub fn commit(&mut self, tx: TxId) -> Result<Snapshot, EngineError> {
         if tx.0 == 0 || tx.0 > self.tx_counter {
             return Err(EngineError::UnknownTx);
@@ -124,6 +130,7 @@ impl Engine {
     }
 
     /// Returns a snapshot for the current graph state without executing rewrites.
+    #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         let hash = compute_snapshot_hash(&self.store, &self.current_root);
         Snapshot {
@@ -135,6 +142,7 @@ impl Engine {
     }
 
     /// Returns a shared view of a node when it exists.
+    #[must_use]
     pub fn node(&self, id: &NodeId) -> Option<&NodeRecord> {
         self.store.node(id)
     }
@@ -159,4 +167,3 @@ fn scope_hash(rule: &RewriteRule, scope: &NodeId) -> Hash {
     hasher.update(&scope.0);
     hasher.finalize().into()
 }
-

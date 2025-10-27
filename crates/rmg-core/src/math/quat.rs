@@ -119,6 +119,7 @@ impl Quat {
     ///
     /// The result is an orthonormal rotation matrix suitable for transforming
     /// directions (`w = 0`) and, when combined with translation, points.
+    #[allow(clippy::many_single_char_names)]
     pub fn to_mat4(&self) -> Mat4 {
         let q = self.normalize();
         let x = q.component(0);

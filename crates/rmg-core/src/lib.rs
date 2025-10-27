@@ -19,6 +19,14 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
+#![allow(
+    clippy::must_use_candidate,
+    clippy::return_self_not_must_use,
+    clippy::unreadable_literal,
+    clippy::missing_const_for_fn,
+    clippy::suboptimal_flops,
+    clippy::redundant_pub_crate
+)]
 
 pub mod math;
 
@@ -44,4 +52,3 @@ pub use snapshot::Snapshot;
 pub use payload::{decode_motion_payload, encode_motion_payload};
 pub use engine_impl::{ApplyResult, Engine, EngineError};
 pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
-

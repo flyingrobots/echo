@@ -12,15 +12,14 @@ use crate::rule::{PatternGraph, RewriteRule};
 pub const MOTION_RULE_NAME: &str = "motion/update";
 
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
-    if let Some(node) = store.node_mut(scope) {
-        if let Some(payload) = &mut node.payload {
-            if let Some((mut pos, vel)) = decode_motion_payload(payload) {
-                pos[0] += vel[0];
-                pos[1] += vel[1];
-                pos[2] += vel[2];
-                *payload = encode_motion_payload(pos, vel);
-            }
-        }
+    if let Some(node) = store.node_mut(scope)
+        && let Some(payload) = &mut node.payload
+        && let Some((mut pos, vel)) = decode_motion_payload(payload)
+    {
+        pos[0] += vel[0];
+        pos[1] += vel[1];
+        pos[2] += vel[2];
+        *payload = encode_motion_payload(pos, vel);
     }
 }
 
@@ -33,6 +32,7 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
 }
 
 /// Demo rule used by tests: move an entity by its velocity.
+#[must_use]
 pub fn motion_rule() -> RewriteRule {
     let mut hasher = Hasher::new();
     hasher.update(MOTION_RULE_NAME.as_bytes());
@@ -47,6 +47,7 @@ pub fn motion_rule() -> RewriteRule {
 }
 
 /// Builds an engine with the default world root and the motion rule registered.
+#[must_use]
 pub fn build_motion_demo_engine() -> Engine {
     let mut store = GraphStore::default();
     let root_id = make_node_id("world-root");
@@ -63,4 +64,3 @@ pub fn build_motion_demo_engine() -> Engine {
     engine.register_rule(motion_rule());
     engine
 }
-

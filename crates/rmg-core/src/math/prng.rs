@@ -32,7 +32,7 @@ impl Prng {
         Self { state }
     }
 
-    /// Constructs a PRNG from a single 64‑bit seed via SplitMix64 expansion.
+    /// Constructs a PRNG from a single 64‑bit seed via `SplitMix64` expansion.
     pub fn from_seed_u64(seed: u64) -> Self {
         fn splitmix64(state: &mut u64) -> u64 {
             *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
@@ -79,6 +79,11 @@ impl Prng {
     ///
     /// # Panics
     /// Panics if `min > max`.
+    #[allow(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap,
+        clippy::cast_possible_truncation
+    )]
     pub fn next_int(&mut self, min: i32, max: i32) -> i32 {
         assert!(min <= max, "invalid range: {min}..={max}");
         let span = (i64::from(max) - i64::from(min)) as u64 + 1;
@@ -115,9 +120,9 @@ mod tests {
 
     #[test]
     fn next_int_handles_full_i32_range() {
-        let mut prng = Prng::from_seed(0xDEADBEEF, 0xFACEFEED);
+        let mut prng = Prng::from_seed(0xDEAD_BEEF, 0xFACE_FEED);
         let values: Vec<i32> = (0..3).map(|_| prng.next_int(i32::MIN, i32::MAX)).collect();
-        assert_eq!(values, vec![1501347292, 1946982111, -117316573]);
+        assert_eq!(values, vec![1_501_347_292, 1_946_982_111, -117_316_573]);
     }
 
     #[test]

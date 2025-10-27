@@ -1,7 +1,3 @@
-warns = [
-  # Keep config explicit for future tuning
-]
-
 # Prefer explicit MSRV in rust-toolchain; leave unset here to avoid stale gates.
 # msrv = "1.85.0"
 

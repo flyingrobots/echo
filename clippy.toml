@@ -1,0 +1,9 @@
+warns = [
+  # Keep config explicit for future tuning
+]
+
+# Prefer explicit MSRV in rust-toolchain; leave unset here to avoid stale gates.
+# msrv = "1.85.0"
+
+# Reduce noise from documentation links that may move during early iterations.
+doc-valid-idents = ["DPO", "DPOi", "RMG", "WASM", "Wasm", "FFI", "API", "CPU", "GPU"]

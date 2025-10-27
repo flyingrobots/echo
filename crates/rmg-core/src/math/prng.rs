@@ -1,19 +1,29 @@
-/// Stateful `xoroshiro128+` pseudo-random number generator for deterministic timelines.
+/// Stateful `xoroshiro128+` pseudo‑random number generator for deterministic timelines.
 ///
-/// * Not cryptographically secure; use only for gameplay/state simulation.
-/// * Seeding controls reproducibility within a single process/run and matching
-///   seeds yield identical sequences across supported platforms.
+/// - Not cryptographically secure; use only for gameplay/state simulation.
+/// - Matching seeds yield identical sequences across platforms as long as each
+///   process consumes numbers in the same order.
+/// - Period is `2^128 - 1` for the underlying state transition function.
+///
+/// # Examples
+/// ```
+/// use rmg_core::math::Prng;
+/// let mut prng = Prng::from_seed_u64(42);
+/// let a = prng.next_f32();
+/// let b = prng.next_int(5, 10);
+/// assert!(a >= 0.0 && a < 1.0);
+/// assert!((5..=10).contains(&b));
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Prng {
     state: [u64; 2],
 }
 
 impl Prng {
-    /// Constructs a PRNG from two 64-bit seeds.
+    /// Constructs a PRNG from two 64‑bit seeds.
     ///
-    /// Identical seeds produce identical sequences; the generator remains
-    /// deterministic as long as each process consumes random numbers in the
-    /// same order.
+    /// Identical seeds produce identical sequences; determinism holds as long
+    /// as each process consumes numbers in the same order.
     pub fn from_seed(seed0: u64, seed1: u64) -> Self {
         let mut state = [seed0, seed1];
         if state[0] == 0 && state[1] == 0 {
@@ -22,7 +32,7 @@ impl Prng {
         Self { state }
     }
 
-    /// Constructs a PRNG from a single 64-bit seed via SplitMix64 expansion.
+    /// Constructs a PRNG from a single 64‑bit seed via SplitMix64 expansion.
     pub fn from_seed_u64(seed: u64) -> Self {
         fn splitmix64(state: &mut u64) -> u64 {
             *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
@@ -54,8 +64,8 @@ impl Prng {
 
     /// Returns the next float in `[0, 1)`.
     ///
-    /// Uses the high 23 bits of the xoroshiro128+ state to fill the mantissa,
-    /// ensuring uniform float32 sampling without relying on platform RNGs.
+    /// Uses the high mantissa bits from the `u64` stream to construct a `f32`
+    /// in `[1.0, 2.0)` and subtracts `1.0` for a uniform sample in `[0, 1)`.
     pub fn next_f32(&mut self) -> f32 {
         let raw = self.next_u64();
         let bits = ((raw >> 41) as u32) | 0x3f80_0000;
@@ -64,8 +74,11 @@ impl Prng {
 
     /// Returns the next integer in the inclusive range `[min, max]`.
     ///
-    /// Uses rejection sampling to avoid modulo bias, ensuring every value in
-    /// the range is produced with equal probability.
+    /// Uses rejection sampling to avoid modulo bias so every value in the
+    /// range has equal probability.
+    ///
+    /// # Panics
+    /// Panics if `min > max`.
     pub fn next_int(&mut self, min: i32, max: i32) -> i32 {
         assert!(min <= max, "invalid range: {min}..={max}");
         let span = (i64::from(max) - i64::from(min)) as u64 + 1;

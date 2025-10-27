@@ -3,7 +3,21 @@
 //! This module exposes a minimal ABI that higher-level languages (Lua, Python,
 //! etc.) can use to interact with the deterministic engine without knowing the
 //! internal Rust types.
-#![deny(missing_docs)]
+#![deny(missing_docs, rust_2018_idioms, unsafe_op_in_unsafe_fn)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::dbg_macro,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -22,7 +36,7 @@ pub struct RmgEngine {
 /// 256-bit node identifier exposed as a raw byte array for FFI consumers.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct rmg_node_id {
+pub struct RmgNodeId {
     /// Raw bytes representing the hashed node identifier.
     pub bytes: [u8; 32],
 }
@@ -30,7 +44,7 @@ pub struct rmg_node_id {
 /// Transaction identifier mirrored on the C side.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct rmg_tx_id {
+pub struct RmgTxId {
     /// Native transaction value.
     pub value: u64,
 }
@@ -38,7 +52,7 @@ pub struct rmg_tx_id {
 /// Snapshot hash emitted after a successful commit.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct rmg_snapshot {
+pub struct RmgSnapshot {
     /// Canonical hash bytes for the snapshot.
     pub hash: [u8; 32],
 }
@@ -48,7 +62,6 @@ pub struct rmg_snapshot {
 /// # Safety
 /// The caller assumes ownership of the returned pointer and must release it
 /// via [`rmg_engine_free`] to avoid leaking memory.
-// Rust 2024 requires `#[unsafe(no_mangle)]` as `no_mangle` is an unsafe attribute.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmg_engine_new() -> *mut RmgEngine {
     Box::into_raw(Box::new(RmgEngine {
@@ -86,7 +99,7 @@ pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     vx: f32,
     vy: f32,
     vz: f32,
-    out_handle: *mut rmg_node_id,
+    out_handle: *mut RmgNodeId,
 ) -> bool {
     if engine.is_null() || label.is_null() || out_handle.is_null() {
         return false;
@@ -121,13 +134,13 @@ pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
 /// # Safety
 /// `engine` must be a valid pointer created by [`rmg_engine_new`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
+pub unsafe extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> RmgTxId {
     if engine.is_null() {
-        return rmg_tx_id { value: 0 };
+        return RmgTxId { value: 0 };
     }
     let engine = unsafe { &mut *engine };
     let tx = engine.inner.begin();
-    rmg_tx_id { value: tx.0 }
+    RmgTxId { value: tx.0 }
 }
 
 /// Applies the motion rewrite to the provided entity within transaction `tx`.
@@ -137,8 +150,8 @@ pub unsafe extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmg_engine_apply_motion(
     engine: *mut RmgEngine,
-    tx: rmg_tx_id,
-    node_handle: *const rmg_node_id,
+    tx: RmgTxId,
+    node_handle: *const RmgNodeId,
 ) -> bool {
     let engine = match unsafe { engine.as_mut() } {
         Some(engine) => engine,
@@ -168,8 +181,8 @@ pub unsafe extern "C" fn rmg_engine_apply_motion(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmg_engine_commit(
     engine: *mut RmgEngine,
-    tx: rmg_tx_id,
-    out_snapshot: *mut rmg_snapshot,
+    tx: RmgTxId,
+    out_snapshot: *mut RmgSnapshot,
 ) -> bool {
     if engine.is_null() || out_snapshot.is_null() || tx.value == 0 {
         return false;
@@ -177,9 +190,7 @@ pub unsafe extern "C" fn rmg_engine_commit(
     let engine = unsafe { &mut *engine };
     match engine.inner.commit(TxId(tx.value)) {
         Ok(snapshot) => {
-            unsafe {
-                (*out_snapshot).hash = snapshot.hash;
-            }
+            unsafe { (*out_snapshot).hash = snapshot.hash; }
             true
         }
         Err(_) => false,
@@ -193,7 +204,7 @@ pub unsafe extern "C" fn rmg_engine_commit(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rmg_engine_read_motion(
     engine: *mut RmgEngine,
-    node_handle: *const rmg_node_id,
+    node_handle: *const RmgNodeId,
     out_position: *mut f32,
     out_velocity: *mut f32,
 ) -> bool {
@@ -225,7 +236,7 @@ pub unsafe extern "C" fn rmg_engine_read_motion(
     true
 }
 
-fn handle_to_node_id(handle: *const rmg_node_id) -> Option<NodeId> {
+fn handle_to_node_id(handle: *const RmgNodeId) -> Option<NodeId> {
     // Helper used internally by the ABI; callers pass raw bytes from C.
     if handle.is_null() {
         return None;
@@ -247,9 +258,9 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
-    unsafe fn spawn(engine: *mut RmgEngine, label: &str) -> rmg_node_id {
+    unsafe fn spawn(engine: *mut RmgEngine, label: &str) -> RmgNodeId {
         let c_label = CString::new(label).unwrap();
-        let mut handle = rmg_node_id { bytes: [0; 32] };
+        let mut handle = RmgNodeId { bytes: [0; 32] };
         let ok = unsafe {
             rmg_engine_spawn_motion_entity(
                 engine,
@@ -278,7 +289,7 @@ mod tests {
                 tx_a,
                 &handle_a as *const _
             ));
-            let mut snap_a = rmg_snapshot { hash: [0; 32] };
+            let mut snap_a = RmgSnapshot { hash: [0; 32] };
             assert!(rmg_engine_commit(engine_a, tx_a, &mut snap_a as *mut _));
 
             let engine_b = rmg_engine_new();
@@ -289,7 +300,7 @@ mod tests {
                 tx_b,
                 &handle_b as *const _
             ));
-            let mut snap_b = rmg_snapshot { hash: [0; 32] };
+            let mut snap_b = RmgSnapshot { hash: [0; 32] };
             assert!(rmg_engine_commit(engine_b, tx_b, &mut snap_b as *mut _));
 
             assert_eq!(snap_a.hash, snap_b.hash);
@@ -315,7 +326,7 @@ mod tests {
         unsafe {
             let engine = rmg_engine_new();
             let tx = rmg_engine_begin(engine);
-            let bogus = rmg_node_id { bytes: [1; 32] };
+            let bogus = RmgNodeId { bytes: [1; 32] };
             assert!(!rmg_engine_apply_motion(engine, tx, &bogus as *const _));
             rmg_engine_free(engine);
         }

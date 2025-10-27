@@ -1,0 +1,323 @@
+<svg viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+  <style type="text/css">
+    <![CDATA[
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes draw {
+        to { stroke-dashoffset: 0; }
+      }
+      .node {
+        opacity: 0;
+        animation: fadeIn 1s ease forwards;
+        animation-delay: calc(1s * var(--order));
+      }
+      .edge {
+        animation: draw 1s ease forwards;
+        animation-delay: calc(1s * var(--order));
+      }
+    ]]>
+  </style>
+  <!-- Background -->
+  <rect width="1920" height="1080" fill="#1a1a2e"/>
+  
+  <!-- Top Bar -->
+  <rect width="1920" height="48" fill="#16213e"/>
+  <text x="16" y="30" font-family="system-ui" font-size="18" font-weight="600" fill="#f39c12">ECHO</text>
+  <text x="100" y="30" font-family="system-ui" font-size="14" fill="#7f8c8d">/ Temporal Meta-Graph Explorer</text>
+  
+  <!-- Mode Selector -->
+  <g transform="translate(1600, 12)">
+    <rect width="140" height="24" rx="4" fill="#f39c12" stroke="#e67e22" stroke-width="1"/>
+    <text x="70" y="17" text-anchor="middle" font-family="system-ui" font-size="12" fill="#16213e" font-weight="600">🕐 Time Graph</text>
+    <rect x="148" width="140" height="24" rx="4" fill="#0f3460" stroke="#34495e" stroke-width="1"/>
+    <text x="218" y="17" text-anchor="middle" font-family="system-ui" font-size="12" fill="#7f8c8d">🎮 State Graph</text>
+  </g>
+  
+  <!-- Main: Temporal Execution DAG -->
+  <rect x="20" y="68" width="1880" height="520" fill="#16213e" rx="8"/>
+  
+  <g transform="translate(40, 88)">
+    <text y="0" font-family="system-ui" font-size="18" font-weight="600" fill="#f39c12">Execution History DAG</text>
+    <text y="20" font-family="system-ui" font-size="12" fill="#7f8c8d">Time is a graph: branching represents independent rule orderings, convergence proves confluence</text>
+  </g>
+  
+  <!-- The Temporal DAG -->
+  <g transform="translate(80, 150)">
+    <!-- Tick 0 (root) -->
+    <g id="tick0" class="node" style="--order: 0;">
+      <circle cx="0" cy="0" r="30" fill="#2ecc71" stroke="#27ae60" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:0</text>
+      <text x="0" y="5" text-anchor="middle" font-family="system-ui" font-size="13" font-weight="600" fill="#fff">Init</text>
+      <text x="0" y="50" text-anchor="middle" font-family="monospace" font-size="9" fill="#7f8c8d">2 entities</text>
+    </g>
+    
+    <!-- Tick 1 (single path) -->
+    <g transform="translate(180, 0)" class="node" style="--order: 2;">
+      <circle cx="0" cy="0" r="30" fill="#3498db" stroke="#2c3e50" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:1</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₁</text>
+      <text x="0" y="50" text-anchor="middle" font-family="monospace" font-size="9" fill="#7f8c8d">Movement</text>
+    </g>
+    
+    <!-- Tick 2 - BRANCH POINT -->
+    <g transform="translate(360, 0)" class="node" style="--order: 4;">
+      <circle cx="0" cy="0" r="30" fill="#f39c12" stroke="#e67e22" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:2</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₂</text>
+      <text x="0" y="50" text-anchor="middle" font-family="monospace" font-size="9" fill="#f39c12" font-weight="600">⑂ BRANCH</text>
+      
+      <!-- Branch indicator -->
+      <circle cx="0" cy="-35" r="6" fill="#f39c12" opacity="0.8"/>
+      <text x="0" y="-70" text-anchor="middle" font-family="system-ui" font-size="10" fill="#f39c12">2 independent rules:</text>
+      <text x="0" y="-58" text-anchor="middle" font-family="system-ui" font-size="9" fill="#ecf0f1">CollisionCheck ⊥ HealthRegen</text>
+    </g>
+    
+    <!-- Branch A: Collision first -->
+    <g transform="translate(540, -100)" class="node" style="--order: 6;">
+      <circle cx="0" cy="0" r="30" fill="#9b59b6" stroke="#8e44ad" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:3a</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₃ᵃ</text>
+      <text x="0" y="50" text-anchor="middle" font-family="monospace" font-size="9" fill="#9b59b6">Collision → Regen</text>
+    </g>
+    
+    <!-- Branch B: Regen first -->
+    <g transform="translate(540, 100)" class="node" style="--order: 6;">
+      <circle cx="0" cy="0" r="30" fill="#9b59b6" stroke="#8e44ad" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:3b</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₃ᵇ</text>
+      <text x="0" y="50" text-anchor="middle" font-family="monospace" font-size="9" fill="#9b59b6">Regen → Collision</text>
+    </g>
+    
+    <!-- Both branches continue -->
+    <g transform="translate(720, -100)" class="node" style="--order: 8;">
+      <circle cx="0" cy="0" r="30" fill="#3498db" stroke="#2c3e50" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:4a</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₄ᵃ</text>
+    </g>
+    
+    <g transform="translate(720, 100)" class="node" style="--order: 8;">
+      <circle cx="0" cy="0" r="30" fill="#3498db" stroke="#2c3e50" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:4b</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₄ᵇ</text>
+    </g>
+    
+    <!-- CONFLUENCE POINT -->
+    <g transform="translate(900, 0)" class="node" style="--order: 10;">
+      <circle cx="0" cy="0" r="35" fill="#2ecc71" stroke="#27ae60" stroke-width="4"/>
+      <text x="0" y="-50" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:5</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="11" fill="#fff">σ₅</text>
+      <text x="0" y="55" text-anchor="middle" font-family="monospace" font-size="9" fill="#2ecc71" font-weight="600">✓ CONFLUENT</text>
+      
+      <!-- Confluence indicator -->
+      <circle cx="0" cy="-40" r="8" fill="#2ecc71" opacity="0.8"/>
+      <text x="0" y="-38" text-anchor="middle" font-family="system-ui" font-size="12" fill="#fff" font-weight="600">≅</text>
+      <text x="0" y="-75" text-anchor="middle" font-family="system-ui" font-size="10" fill="#2ecc71">Graph isomorphic!</text>
+      <text x="0" y="-63" text-anchor="middle" font-family="system-ui" font-size="9" fill="#ecf0f1">σ₄ᵃ ≅ σ₄ᵇ (up to IDs)</text>
+    </g>
+    
+    <!-- Continue after confluence -->
+    <g transform="translate(1080, 0)" class="node" style="--order: 12;">
+      <circle cx="0" cy="0" r="30" fill="#3498db" stroke="#2c3e50" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:6</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₆</text>
+    </g>
+    
+    <!-- Another branch point -->
+    <g transform="translate(1260, 0)" class="node" style="--order: 14;">
+      <circle cx="0" cy="0" r="30" fill="#f39c12" stroke="#e67e22" stroke-width="3"/>
+      <text x="0" y="-45" text-anchor="middle" font-family="system-ui" font-size="11" fill="#7f8c8d">T:7</text>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₇</text>
+      <text x="0" y="50" text-anchor="middle" font-family="monospace" font-size="9" fill="#f39c12" font-weight="600">⑂ BRANCH</text>
+      <circle cx="0" cy="-35" r="6" fill="#f39c12" opacity="0.8"/>
+    </g>
+    
+    <!-- New branches -->
+    <g transform="translate(1440, -80)" class="node" style="--order: 16;">
+      <circle cx="0" cy="0" r="30" fill="#9b59b6" stroke="#8e44ad" stroke-width="3"/>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₈ᵃ</text>
+    </g>
+    
+    <g transform="translate(1440, 80)" class="node" style="--order: 16;">
+      <circle cx="0" cy="0" r="30" fill="#9b59b6" stroke="#8e44ad" stroke-width="3"/>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₈ᵇ</text>
+    </g>
+    
+    <g transform="translate(1620, -40)" class="node" style="--order: 18;">
+      <circle cx="0" cy="0" r="30" fill="#3498db" stroke="#2c3e50" stroke-width="3"/>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₉</text>
+    </g>
+    
+    <g transform="translate(1620, 40)" class="node" style="--order: 18;">
+      <circle cx="0" cy="0" r="30" fill="#3498db" stroke="#2c3e50" stroke-width="3"/>
+      <text x="0" y="5" text-anchor="middle" font-family="monospace" font-size="10" fill="#fff">σ₉'</text>
+    </g>
+    
+    <!-- Edges (temporal progression) -->
+    <defs>
+      <marker id="arrow-time" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 10 3, 0 6" fill="#7f8c8d"/>
+      </marker>
+      <marker id="arrow-branch" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 10 3, 0 6" fill="#f39c12"/>
+      </marker>
+      <marker id="arrow-converge" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 10 3, 0 6" fill="#2ecc71"/>
+      </marker>
+    </defs>
+    
+    <!-- Main timeline -->
+    <line x1="30" y1="0" x2="150" y2="0" stroke="#7f8c8d" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="120" stroke-dashoffset="120" style="--order: 1;"/>
+    <line x1="210" y1="0" x2="330" y2="0" stroke="#7f8c8d" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="120" stroke-dashoffset="120" style="--order: 3;"/>
+    
+    <!-- Branch out -->
+    <path d="M 390,0 Q 450,-40 510,-100" fill="none" stroke="#f39c12" stroke-width="3" marker-end="url(#arrow-branch)" class="edge" stroke-dasharray="156" stroke-dashoffset="156" style="--order: 5;"/>
+    <path d="M 390,0 Q 450,40 510,100" fill="none" stroke="#f39c12" stroke-width="3" marker-end="url(#arrow-branch)" class="edge" stroke-dasharray="156" stroke-dashoffset="156" style="--order: 5;"/>
+    
+    <!-- Continue branches -->
+    <line x1="570" y1="-100" x2="690" y2="-100" stroke="#9b59b6" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="120" stroke-dashoffset="120" style="--order: 7;"/>
+    <line x1="570" y1="100" x2="690" y2="100" stroke="#9b59b6" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="120" stroke-dashoffset="120" style="--order: 7;"/>
+    
+    <!-- Converge -->
+    <path d="M 750,-100 Q 810,-60 870,-10" fill="none" stroke="#2ecc71" stroke-width="3" marker-end="url(#arrow-converge)" class="edge" stroke-dasharray="150" stroke-dashoffset="150" style="--order: 9;"/>
+    <path d="M 750,100 Q 810,60 870,10" fill="none" stroke="#2ecc71" stroke-width="3" marker-end="url(#arrow-converge)" class="edge" stroke-dasharray="150" stroke-dashoffset="150" style="--order: 9;"/>
+    
+    <!-- Continue -->
+    <line x1="935" y1="0" x2="1050" y2="0" stroke="#7f8c8d" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="115" stroke-dashoffset="115" style="--order: 11;"/>
+    <line x1="1110" y1="0" x2="1230" y2="0" stroke="#7f8c8d" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="120" stroke-dashoffset="120" style="--order: 13;"/>
+    
+    <!-- Second branch -->
+    <path d="M 1290,0 Q 1350,-35 1410,-80" fill="none" stroke="#f39c12" stroke-width="3" marker-end="url(#arrow-branch)" class="edge" stroke-dasharray="144" stroke-dashoffset="144" style="--order: 15;"/>
+    <path d="M 1290,0 Q 1350,35 1410,80" fill="none" stroke="#f39c12" stroke-width="3" marker-end="url(#arrow-branch)" class="edge" stroke-dasharray="144" stroke-dashoffset="144" style="--order: 15;"/>
+    
+    <!-- Branch continuations -->
+    <path d="M 1470,-80 Q 1530,-65 1590,-40" fill="none" stroke="#9b59b6" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="127" stroke-dashoffset="127" style="--order: 17;"/>
+    <path d="M 1470,80 Q 1530,65 1590,40" fill="none" stroke="#9b59b6" stroke-width="3" marker-end="url(#arrow-time)" class="edge" stroke-dasharray="127" stroke-dashoffset="127" style="--order: 17;"/>
+    
+    <!-- Rule labels on edges -->
+    <text x="90" y="-12" font-family="system-ui" font-size="9" fill="#ecf0f1">Movement</text>
+    <text x="270" y="-12" font-family="system-ui" font-size="9" fill="#ecf0f1">Input</text>
+    <text x="430" y="-60" font-family="system-ui" font-size="9" fill="#f39c12">Collision</text>
+    <text x="430" y="70" font-family="system-ui" font-size="9" fill="#f39c12">HealthRegen</text>
+    <text x="630" y="-112" font-family="system-ui" font-size="9" fill="#9b59b6">HealthRegen</text>
+    <text x="630" y="112" font-family="system-ui" font-size="9" fill="#9b59b6">Collision</text>
+  </g>
+  
+  <!-- Legend -->
+  <g transform="translate(1520, 150)" font-family="system-ui" font-size="11">
+    <text x="0" y="0" fill="#f39c12" font-weight="600">Legend:</text>
+    
+    <circle cx="8" cy="24" r="8" fill="#2ecc71"/>
+    <text x="24" y="28" fill="#ecf0f1">Init / Confluence</text>
+    
+    <circle cx="8" cy="52" r="8" fill="#f39c12"/>
+    <text x="24" y="56" fill="#ecf0f1">Branch Point</text>
+    
+    <circle cx="8" cy="80" r="8" fill="#9b59b6"/>
+    <text x="24" y="84" fill="#ecf0f1">Branch State</text>
+    
+    <circle cx="8" cy="108" r="8" fill="#3498db"/>
+    <text x="24" y="112" fill="#ecf0f1">Regular State</text>
+    
+    <rect x="0" y="130" width="200" height="1" fill="#34495e"/>
+    
+    <text x="0" y="152" fill="#7f8c8d" font-size="9">⊥ = Independent rules</text>
+    <text x="0" y="168" fill="#7f8c8d" font-size="9">≅ = Graph isomorphism</text>
+    <text x="0" y="184" fill="#7f8c8d" font-size="9">σ = Game state at tick</text>
+  </g>
+  
+  <!-- Bottom: Dual State Comparison -->
+  <rect x="20" y="608" width="1880" height="452" fill="#16213e" rx="8"/>
+  
+  <g transform="translate(40, 628)">
+    <text y="0" font-family="system-ui" font-size="18" font-weight="600" fill="#f39c12">State Graph Comparison</text>
+    <text y="20" font-family="system-ui" font-size="12" fill="#7f8c8d">Comparing: T:4a (σ₄ᵃ) vs T:4b (σ₄ᵇ) - Verifying confluence...</text>
+  </g>
+  
+  <!-- Split comparison -->
+  <g transform="translate(40, 680)">
+    <!-- Left: Branch A state -->
+    <g>
+      <rect width="880" height="360" rx="4" fill="#0f3460" stroke="#9b59b6" stroke-width="2"/>
+      <text x="440" y="24" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="600" fill="#9b59b6">Branch A: Collision → Regen</text>
+      
+      <!-- Mini game state graph -->
+      <g transform="translate(100, 80)">
+        <circle cx="0" cy="0" r="25" fill="#3498db" stroke="#2c3e50" stroke-width="2"/>
+        <text x="0" y="5" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Player</text>
+        <text x="0" y="-40" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">ID: e1</text>
+        
+        <circle cx="250" cy="0" r="25" fill="#e74c3c" stroke="#2c3e50" stroke-width="2"/>
+        <text x="250" y="5" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Enemy</text>
+        <text x="250" y="-40" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">ID: e2</text>
+        
+        <!-- Components -->
+        <rect x="-60" y="80" width="120" height="50" rx="4" fill="#9b59b6" stroke="#2c3e50" stroke-width="2"/>
+        <text x="0" y="100" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Health</text>
+        <text x="0" y="115" text-anchor="middle" font-family="monospace" font-size="9" fill="#2ecc71">72/100</text>
+        
+        <rect x="190" y="80" width="120" height="50" rx="4" fill="#9b59b6" stroke="#2c3e50" stroke-width="2"/>
+        <text x="250" y="100" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Health</text>
+        <text x="250" y="115" text-anchor="middle" font-family="monospace" font-size="9" fill="#2ecc71">72/100</text>
+        
+        <rect x="-60" y="150" width="120" height="50" rx="4" fill="#3498db" stroke="#2c3e50" stroke-width="2"/>
+        <text x="0" y="170" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Position</text>
+        <text x="0" y="185" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">(100, 200)</text>
+        
+        <rect x="190" y="150" width="120" height="50" rx="4" fill="#3498db" stroke="#2c3e50" stroke-width="2"/>
+        <text x="250" y="170" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Position</text>
+        <text x="250" y="185" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">(105, 200)</text>
+        
+        <!-- Connections -->
+        <line x1="0" y1="25" x2="0" y2="80" stroke="#7f8c8d" stroke-width="2"/>
+        <line x1="0" y1="130" x2="0" y2="150" stroke="#7f8c8d" stroke-width="2"/>
+        <line x1="250" y1="25" x2="250" y2="80" stroke="#7f8c8d" stroke-width="2"/>
+        <line x1="250" y1="130" x2="250" y2="150" stroke="#7f8c8d" stroke-width="2"/>
+      </g>
+    </g>
+    
+    <!-- Right: Branch B state -->
+    <g transform="translate(920, 0)">
+      <rect width="880" height="360" rx="4" fill="#0f3460" stroke="#9b59b6" stroke-width="2"/>
+      <text x="440" y="24" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="600" fill="#9b59b6">Branch B: Regen → Collision</text>
+      
+      <!-- Mini game state graph -->
+      <g transform="translate(100, 80)">
+        <circle cx="0" cy="0" r="25" fill="#3498db" stroke="#2c3e50" stroke-width="2"/>
+        <text x="0" y="5" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Player</text>
+        <text x="0" y="-40" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">ID: e3</text>
+        
+        <circle cx="250" cy="0" r="25" fill="#e74c3c" stroke="#2c3e50" stroke-width="2"/>
+        <text x="250" y="5" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Enemy</text>
+        <text x="250" y="-40" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">ID: e4</text>
+        
+        <!-- Components -->
+        <rect x="-60" y="80" width="120" height="50" rx="4" fill="#9b59b6" stroke="#2c3e50" stroke-width="2"/>
+        <text x="0" y="100" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Health</text>
+        <text x="0" y="115" text-anchor="middle" font-family="monospace" font-size="9" fill="#2ecc71">72/100</text>
+        
+        <rect x="190" y="80" width="120" height="50" rx="4" fill="#9b59b6" stroke="#2c3e50" stroke-width="2"/>
+        <text x="250" y="100" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Health</text>
+        <text x="250" y="115" text-anchor="middle" font-family="monospace" font-size="9" fill="#2ecc71">72/100</text>
+        
+        <rect x="-60" y="150" width="120" height="50" rx="4" fill="#3498db" stroke="#2c3e50" stroke-width="2"/>
+        <text x="0" y="170" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Position</text>
+        <text x="0" y="185" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">(100, 200)</text>
+        
+        <rect x="190" y="150" width="120" height="50" rx="4" fill="#3498db" stroke="#2c3e50" stroke-width="2"/>
+        <text x="250" y="170" text-anchor="middle" font-family="system-ui" font-size="10" fill="#fff">Position</text>
+        <text x="250" y="185" text-anchor="middle" font-family="monospace" font-size="9" fill="#ecf0f1">(105, 200)</text>
+        
+        <!-- Connections -->
+        <line x1="0" y1="25" x2="0" y2="80" stroke="#7f8c8d" stroke-width="2"/>
+        <line x1="0" y1="130" x2="0" y2="150" stroke="#7f8c8d" stroke-width="2"/>
+        <line x1="250" y1="25" x2="250" y2="80" stroke="#7f8c8d" stroke-width="2"/>
+        <line x1="250" y1="130" x2="250" y2="150" stroke="#7f8c8d" stroke-width="2"/>
+      </g>
+    </g>
+  </g>
+  <g transform="translate(900, 1040)">
+    <text x="0" y="0" text-anchor="middle" font-family="system-ui" font-size="16" font-weight="600" fill="#2ecc71">✓ Confluent: Graphs are isomorphic (ignoring IDs)</text>
+  </g>
+</svg>

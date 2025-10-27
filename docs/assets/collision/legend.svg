@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="220" viewBox="0 0 640 220">
+  <defs>
+    <style>
+      :root { --bg:#0b1020; --panel:#121a33; --text:#dfe7ff; --muted:#9fb0d6; --edge:#6aa0ff; --k:#ffd166; --added:#00c853; --removed:#ff5252; --scope:#ffa600; }
+      .panel { fill: var(--panel); rx: 8px; }
+      .title { fill: var(--text); font-weight: 600; font-size: 16px; }
+      .caption { fill: var(--muted); font-size: 12px; }
+      .node rect { fill:#182347; stroke:#3356a6; stroke-width:1.2; rx:6px; }
+      .node.interfaceK rect { fill:#2b2746; stroke:var(--k); stroke-width:2; }
+      .node.added rect { fill:#0d2a1a; stroke:var(--added); stroke-width:2; }
+      .node.removed rect { fill:#2a0d0d; stroke:var(--removed); stroke-width:2; }
+      .node text { fill:var(--text); font-size:12px; }
+      .edge line, .edge path { stroke:var(--edge); stroke-width:1.6; fill:none; }
+      .edge.added line, .edge.added path { stroke:var(--added); stroke-width:2; }
+      .edge.removed line, .edge.removed path { stroke:var(--removed); stroke-width:2; }
+      .edge text { fill:var(--muted); font-size:11px; }
+      .scope rect { fill:none; stroke:var(--scope); stroke-width:2; stroke-dasharray:6 4; rx:8px; }
+      .label { fill:var(--text); font-size:13px; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="640" height="220" fill="var(--bg)"/>
+  <text class="title" x="20" y="28">DPO Diagram Legend</text>
+  <g transform="translate(20,48)">
+    <g class="node" transform="translate(0,0)"><rect width="140" height="36"/><text x="8" y="22">Node</text></g>
+    <text class="caption" x="160" y="24">Regular node</text>
+  </g>
+  <g transform="translate(20,92)">
+    <g class="node interfaceK" transform="translate(0,0)"><rect width="140" height="36"/><text x="8" y="22">Interface K</text></g>
+    <text class="caption" x="160" y="24">Preserved between LHS and RHS</text>
+  </g>
+  <g transform="translate(20,136)">
+    <g class="node added" transform="translate(0,0)"><rect width="140" height="36"/><text x="8" y="22">Added</text></g>
+    <text class="caption" x="160" y="24">Created on RHS</text>
+  </g>
+  <g transform="translate(20,180)">
+    <g class="node removed" transform="translate(0,0)"><rect width="140" height="36"/><text x="8" y="22">Removed</text></g>
+    <text class="caption" x="160" y="24">Deleted on RHS</text>
+  </g>
+
+  <g transform="translate(360,60)">
+    <g class="edge"><line x1="0" y1="0" x2="80" y2="0"/><text x="0" y="-8">edge</text></g>
+    <g class="edge added" transform="translate(0,32)"><line x1="0" y1="0" x2="80" y2="0"/><text x="0" y="-8">added edge</text></g>
+    <g class="edge removed" transform="translate(0,64)"><line x1="0" y1="0" x2="80" y2="0"/><text x="0" y="-8">removed edge</text></g>
+  </g>
+
+  <g class="scope" transform="translate(330,140)"><rect x="0" y="0" width="140" height="44"/></g>
+  <text class="caption" x="480" y="166">Scope boundary</text>
+</svg>

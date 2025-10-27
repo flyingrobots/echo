@@ -156,6 +156,8 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 - Honor Caverns with [`docs/memorial.md`](docs/memorial.md)—we carry the torch forward.
 - Peek at [`docs/legacy-excavation.md`](docs/legacy-excavation.md) to see which ideas survived the archaeological roast.
 - Track active work in [`docs/execution-plan.md`](docs/execution-plan.md); update it every session.
+ - Walk the Collision/CCD visual tour: [`docs/collision-dpo-tour.html`](docs/collision-dpo-tour.html) (step‑by‑step DPO rules with world PiP and per‑slide explanations).
+ - See how Echo differs from Unity: [`docs/echo-vs-unity.md`](docs/echo-vs-unity.md) (RMG rewrites vs GameObject frame loops).
 
 ---
 
@@ -167,9 +169,14 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 > *I have only done this once before. **Safety not guaranteed.***
 
 - Start each task by verifying a clean git state and branching (`echo/<feature>` recommended).
-- Tests go in `packages/echo-core/test/` (fixtures in `test/fixtures/`). End-to-end scenarios will eventually live under `apps/playground`.
+- Tests live under `crates/rmg-core/tests/` (fixtures colocated). End-to-end scenarios will eventually live under a future inspector/playground.
 - Use expressive commits (`subject` / `body` / optional `trailer`)—tell future us the *why*, not just the *what*.
 - Treat determinism as sacred: prefer Echo’s PRNG, avoid non-deterministic APIs without wrapping them.
+
+### Precision
+
+- Echo math uses `f32` by design for determinism and cross‑platform parity.
+- Expect rounding error to accumulate across long chains of transforms; see `crates/rmg-core/src/math/mod.rs` for conventions (right‑handed coords, column‑major, multiply order, EPSILON usage) and examples.
   
 ### Development Principles
 

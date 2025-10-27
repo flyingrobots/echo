@@ -2,8 +2,23 @@ use crate::math::{EPSILON, Mat4, Vec3};
 
 /// Quaternion stored as `(x, y, z, w)` with deterministic float32 rounding.
 ///
-/// * All angles are expressed in radians.
-/// * Normalisation clamps to `f32` to match runtime behaviour.
+/// - All angles are expressed in radians.
+/// - Normalization clamps to `f32` to match runtime behaviour.
+/// - Zero‑length inputs to constructors fall back to the identity rotation.
+///
+/// # Examples
+/// From axis/angle and conversion to a matrix:
+/// ```
+/// use rmg_core::math::{Quat, Vec3};
+/// let q = Quat::from_axis_angle(Vec3::UNIT_Y, core::f32::consts::FRAC_PI_2);
+/// let m = q.to_mat4();
+/// // Rotates +X to +Z under a right‑handed convention
+/// assert!((m.to_array()[0]).abs() < 1e-6);
+/// ```
+///
+/// # Precision
+/// - Computations use `f32`; normalization minimizes drift but does not remove it.
+/// - Conversions to matrices are consistent with [`Mat4::from_quat`](crate::math::Mat4::from_quat).
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Quat {
     data: [f32; 4],
@@ -31,6 +46,13 @@ impl Quat {
     ///
     /// Returns the identity quaternion when the axis has zero length to avoid
     /// undefined orientations and preserve deterministic behaviour.
+    ///
+    /// # Examples
+    /// ```
+    /// use rmg_core::math::{Quat, Vec3};
+    /// let q = Quat::from_axis_angle(Vec3::UNIT_X, core::f32::consts::PI);
+    /// assert_eq!(q.normalize().to_array()[3].abs() < 1.0 + 1e-6, true);
+    /// ```
     pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
         let len_sq = axis.length_squared();
         if len_sq <= EPSILON * EPSILON {
@@ -69,7 +91,7 @@ impl Quat {
         )
     }
 
-    /// Normalises the quaternion; returns identity when norm is ~0.
+    /// Normalizes the quaternion; returns identity when norm is ~0.
     pub fn normalize(&self) -> Self {
         let len = (self.component(0) * self.component(0)
             + self.component(1) * self.component(1)
@@ -93,7 +115,10 @@ impl Quat {
         Self::new(0.0, 0.0, 0.0, 1.0)
     }
 
-    /// Converts the quaternion to a rotation matrix (column-major 4×4).
+    /// Converts the quaternion to a rotation matrix (column‑major 4×4).
+    ///
+    /// The result is an orthonormal rotation matrix suitable for transforming
+    /// directions (`w = 0`) and, when combined with translation, points.
     pub fn to_mat4(&self) -> Mat4 {
         let q = self.normalize();
         let x = q.component(0);

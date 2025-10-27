@@ -2,7 +2,22 @@
 //!
 //! The exported `WasmEngine` mirrors the C ABI surface so browser clients can
 //! create entities, drive transactions, and read deterministic hashes.
-#![deny(missing_docs)]
+#![forbid(unsafe_code)]
+#![deny(missing_docs, rust_2018_idioms)]
+#![deny(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::dbg_macro,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]
 
 use std::cell::RefCell;
 use std::rc::Rc;

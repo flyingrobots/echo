@@ -1,0 +1,7 @@
+[lints]
+style = "strict"
+schema = "enabled"
+
+[format]
+indent_string = "  "
+reorder_keys = true

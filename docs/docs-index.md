@@ -25,7 +25,12 @@
 | `testing-and-replay-plan.md` | Replay, golden hashes, entropy tests |
 | `runtime-diagnostics-plan.md` | Logging, tracing, inspector streams |
 | `codex-instrumentation.md` | CB metrics and telemetry hooks |
+| `spec-geom-collision.md` | Time-aware geometry, collision, and CCD |
+| `phase1-geom-plan.md` | Implementation milestones for geometry/collision |
 | `docs-index.md` | This index |
+| `code-map.md` | Code navigation: concepts → modules |
+| `echo-vs-unity.md` | Echo vs Unity — model and workflow differences |
+| `collision-dpo-tour.html` | Visual tour of DPO rules (SVG/animated) |
 | `hash-graph.md` | Hash relationships across subsystems |
 | `legacy-excavation.md` | Historical artifact log |
 | `memorial.md` | Tribute to Caverns |

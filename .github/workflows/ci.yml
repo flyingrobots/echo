@@ -35,8 +35,15 @@ jobs:
         with:
           workspaces: |
             .
-      - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings -D missing_docs
+      - name: cargo clippy (no-mercy)
+        run: |
+          cargo clippy --workspace --all-targets --all-features -- \
+            -D warnings \
+            -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo \
+            -W rust_2018_idioms \
+            -W clippy::unwrap_used -W clippy::expect_used -W clippy::panic \
+            -W clippy::todo -W clippy::unimplemented -W clippy::dbg_macro \
+            -W clippy::print_stdout -W clippy::print_stderr
 
   test:
     name: Tests
@@ -50,8 +57,139 @@ jobs:
         with:
           workspaces: |
             .
-      - name: cargo test
-        run: cargo test
+      - name: Install nextest
+        run: cargo install cargo-nextest --locked
+      - name: cargo nextest run
+        run: cargo nextest run --workspace
+
+  rustdoc:
+    name: Rustdoc Lints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo doc with warnings denied
+        env:
+          RUSTDOCFLAGS: -D warnings -D rustdoc::broken_intra_doc_links
+        run: |
+          cargo doc --no-deps --workspace
+
+  miri:
+    name: Miri (UB checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - name: Run miri
+        run: |
+          cargo miri setup
+          cargo miri test -p rmg-core
+
+  sanitizers:
+    name: Sanitizers
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        san: [address, undefined]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests with ${{ matrix.san }} sanitizer
+        env:
+          RUSTFLAGS: -Zsanitizer=${{ matrix.san }}
+          RUSTDOCFLAGS: -Zsanitizer=${{ matrix.san }}
+          ASAN_OPTIONS: detect_leaks=1
+        run: |
+          cargo test -p rmg-core
+
+  deps:
+    name: Dependency Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install tools
+        run: |
+          cargo install cargo-deny --locked
+          cargo install cargo-audit --locked
+      - name: cargo deny
+        run: cargo deny check bans licenses advisories sources
+      - name: cargo audit
+        run: cargo audit
+
+  udeps_geiger:
+    name: Unused Deps + Unsafe Inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install tools
+        run: |
+          cargo install cargo-udeps --locked
+          cargo install cargo-geiger --locked
+      - name: cargo udeps
+        run: cargo udeps --workspace
+      - name: cargo geiger
+        run: cargo geiger -q --all-features --workspace
+
+  hygiene:
+    name: Text & TOML Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install tools
+        run: |
+          cargo install typos-cli --locked
+          cargo install taplo-cli --locked
+      - name: typos
+        run: typos
+      - name: taplo lint
+        run: taplo lint
+
+  diagrams:
+    name: Mermaid Diagrams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node and mermaid-cli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nodejs npm
+          sudo npm i -g @mermaid-js/mermaid-cli
+      - name: Compile .mmd to .svg
+        run: |
+          set -euo pipefail
+          mkdir -p docs/assets/collision/generated
+          for f in $(find docs/assets -name '*.mmd'); do \
+            base=$(basename "$f" .mmd); \
+            mmdc -i "$f" -o "docs/assets/collision/generated/${base}.svg"; \
+          done
+      - name: Upload diagrams artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mermaid-diagrams
+          path: docs/assets/collision/generated
+
+  coverage:
+    name: Coverage Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+      - name: Run coverage
+        run: |
+          cargo llvm-cov --workspace --lcov --output-path lcov.info --fail-under-lines 90
 
   docs:
     name: Docs Guard

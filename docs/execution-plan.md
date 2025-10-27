@@ -33,10 +33,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> Write the top priority for the current session and what “done” means.
+> 2025-10-27 — Geometry & Docs wiring
 
-- **Focus**: Draft ECS storage implementation plan (archetype storage port to Rust).
-- **Definition of done**: Identify storage milestones, required data structures, and sequencing for integration with branch diff engine.
+- Focus: Scaffold `rmg-geom` with AABB/Transform + temporal utilities and a minimal broad-phase; add unit tests (fat AABB, deterministic pair order).
+- Secondary: Wire a VitePress docs site and add a page that links to the Collision DPO Tour HTML; add Playwright smoke tests for the tour (load, tabs toggle, prev/next nav).
+- Definition of done: New crate builds with docs; tests cover new code paths; docs site skeleton exists; smoke tests added (not yet wired in CI). Update decision log.
 
 ---
 
@@ -60,11 +61,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ### Code Tasks (Phase 1 prep)
 - [x] Install & configure Vitest.
-- [ ] Set up `packages/echo-core/test/` helpers & fixtures layout.
-- [ ] Write failing tests for entity ID allocation + recycling.
+- [ ] Add `rmg-core` test helpers & fixtures modules.
+- [ ] Write failing tests for entity ID allocation + recycling in Rust.
 - [ ] Prototype `TimelineFingerprint` hashing & equality tests.
 - [ ] Scaffold deterministic PRNG wrapper with tests.
-- [ ] Establish `cargo test` pipeline in CI (incoming GitHub Actions).
+- [x] Establish `cargo test`/nextest pipeline in CI (GitHub Actions).
 - [ ] Integrate roaring bitmaps into ECS dirty tracking.
 - [ ] Implement chunk epoch counters on mutation.
 - [ ] Add deterministic hashing module (canonical encode + BLAKE3).
@@ -80,7 +81,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [ ] Build `docs/data-structures.md` with Mermaid diagrams (storage, branch tree with roaring bitmaps).
 - [ ] Extend `docs/diagrams.md` with scheduler flow & command queue animations.
 - [ ] Publish decision-log quick reference (templates, cadence, examples; owner: Documentation squad before Phase 1 kickoff).
-- [ ] Design test fixture layout (`test/fixtures/…`) with sample component schemas.
+- [ ] Design test fixture layout under `crates/rmg-core/tests/fixtures` with sample component schemas.
 - [ ] Document roaring bitmap integration and merge strategies.
 - [ ] Update future inspector roadmap with conflict heatmaps and causality lens.
 
@@ -102,11 +103,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Next Up Queue
 
-1. ECS storage implementation plan *(in progress)*
-2. Branch tree BlockStore abstraction design
-3. Temporal Bridge implementation plan
-4. Serialization protocol review
-5. Math validation cross-environment rollout
+1. Scaffold `rmg-geom` crate + Temporal types
+2. Implement Dynamic AABB Tree (broad phase v1)
+3. Narrow v1 (spheres/capsules/OBB + manifold)
+4. CCD v1 (CA + swept primitives)
+5. Mesh BVH and dynamic–static queries
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

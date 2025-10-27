@@ -15,8 +15,10 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - When wrapping up, record outcomes and next steps in the Decision Log and ensure any impacted docs stay in sync.
 
 ## Repository Layout
-- `packages/echo-core`: Runtime core (ECS, scheduler, Codex’s Baby, timelines).
-- `apps/playground`: Vite sandbox and inspector (future).
+- `crates/rmg-core`: Runtime core (typed graph rewriting, ECS foundations, math).
+- `crates/rmg-ffi`: C ABI for host integrations (Lua/C/etc.).
+- `crates/rmg-wasm`: wasm-bindgen bindings for web/tooling.
+- `crates/rmg-cli`: CLI scaffolding (demos, benches, inspector launcher – future).
 - `docs/`: Specs, diagrams, memorials.
 - `docs/legacy`: Preserved artifacts from the Caverns era.
 

@@ -1,0 +1,63 @@
+/* Echo collision/CCD DPO diagrams — base styles and optional animations */
+:root {
+  --bg: #0b1020;
+  --panel: #121a33;
+  --text: #dfe7ff;
+  --muted: #9fb0d6;
+  --edge: #6aa0ff;
+  --k: #ffd166;
+  --added: #00c853;
+  --removed: #ff5252;
+  --scope: #ffa600;
+}
+
+svg { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif; }
+.panel { fill: var(--panel); rx: 8px; }
+.title { fill: var(--text); font-weight: 600; font-size: 16px; }
+.caption { fill: var(--muted); font-size: 12px; }
+.node rect { fill: #182347; stroke: #3356a6; stroke-width: 1.2; rx: 6px; }
+.node.interfaceK rect { fill: #2b2746; stroke: var(--k); stroke-width: 2; }
+.node.added rect { fill: #0d2a1a; stroke: var(--added); stroke-width: 2; }
+.node.removed rect { fill: #2a0d0d; stroke: var(--removed); stroke-width: 2; }
+.node text { fill: var(--text); font-size: 12px; }
+.edge line, .edge path { stroke: var(--edge); stroke-width: 1.6; fill: none; }
+.edge.added line, .edge.added path { stroke: var(--added); stroke-width: 2; }
+.edge.removed line, .edge.removed path { stroke: var(--removed); stroke-width: 2; }
+.edge text { fill: var(--muted); font-size: 11px; }
+.scope rect { fill: none; stroke: var(--scope); stroke-width: 2; stroke-dasharray: 6 4; rx: 8px; }
+.label { fill: var(--text); font-size: 13px; }
+
+/* Optional animation hooks */
+.pulse-add { animation: pulseAdd 1.6s ease-in-out infinite; }
+.pulse-remove { animation: pulseRemove 1.6s ease-in-out infinite; }
+@keyframes pulseAdd { 0%{opacity:0.5} 50%{opacity:1} 100%{opacity:0.5} }
+@keyframes pulseRemove { 0%{opacity:1} 50%{opacity:0.6} 100%{opacity:1} }
+
+/* Fade-in on scroll (tour page) */
+.fade-seed { opacity: 0; transform: translateY(12px); transition: opacity 400ms ease, transform 400ms ease; }
+.fade-in { opacity: 1; transform: translateY(0); }
+
+/* Carousel pager */
+.pager { display: flex; gap: 8px; margin-top: 8px; }
+.btn { background: #1b2446; color: var(--text); border: 1px solid #3356a6; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+.btn:hover { background: #223060; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.hidden { display: none; }
+
+/* Overlay caption inside figures */
+.has-overlay figcaption { display: none; }
+.overlay { position: absolute; left: 12px; right: 12px; bottom: 12px; background: rgba(18,26,51,0.85); border: 1px solid #3356a6; border-radius: 6px; padding: 8px 10px; backdrop-filter: blur(2px); }
+.overlay strong { color: var(--text); font-size: 12px; letter-spacing: 0.2px; }
+.overlay .ov-t { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.has-overlay { padding-bottom: 68px; }
+.slide-explain { margin-top: 10px; font-size: 13px; color: var(--text); }
+.slide-explain p { margin: 0 0 6px; }
+.slide-explain ul { margin: 6px 0 0 18px; }
+.slide-explain li { margin: 3px 0; color: var(--muted); }
+
+/* Picture-in-picture world view */
+.pip { position: absolute; right: 12px; top: 12px; width: 32%; max-width: 240px; border: 1px solid #3356a6; background: #0b1020; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.35); overflow: hidden; }
+.pip img { width: 100%; display: block; }
+.pip-tabs { display: flex; gap: 0; border-bottom: 1px solid #2a3c72; }
+.pip-tabs .tab { flex: 1; text-align: center; font-size: 11px; color: var(--muted); padding: 6px 4px; cursor: pointer; background: #121a33; }
+.pip-tabs .tab.active { color: var(--text); background: #1b2446; }

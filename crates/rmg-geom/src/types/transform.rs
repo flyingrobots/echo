@@ -1,0 +1,51 @@
+use rmg_core::math::{Mat4, Quat, Vec3};
+
+/// Rigid transform with non-uniform scale used by broad-phase and shape placement.
+///
+/// Conventions:
+/// - `translation` in meters (world space).
+/// - `rotation` as a unit quaternion (normalized internally when converting).
+/// - `scale` is non-uniform and applied before rotation/translation.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Transform {
+    translation: Vec3,
+    rotation: Quat,
+    scale: Vec3,
+}
+
+impl Transform {
+    /// Identity transform (no translation, no rotation, unit scale).
+    #[must_use]
+    pub fn identity() -> Self {
+        Self { translation: Vec3::ZERO, rotation: Quat::identity(), scale: Vec3::new(1.0, 1.0, 1.0) }
+    }
+
+    /// Creates a transform from components.
+    #[must_use]
+    pub const fn new(translation: Vec3, rotation: Quat, scale: Vec3) -> Self {
+        Self { translation, rotation, scale }
+    }
+
+    /// Translation component.
+    #[must_use]
+    pub fn translation(&self) -> Vec3 { self.translation }
+
+    /// Rotation component.
+    #[must_use]
+    pub fn rotation(&self) -> Quat { self.rotation }
+
+    /// Scale component.
+    #[must_use]
+    pub fn scale(&self) -> Vec3 { self.scale }
+
+    /// Returns the column-major `Mat4` corresponding to this transform.
+    #[must_use]
+    pub fn to_mat4(&self) -> Mat4 {
+        // M = T * R * S
+        let s = Mat4::scale(self.scale.component(0), self.scale.component(1), self.scale.component(2));
+        let r = Mat4::from_quat(&self.rotation);
+        let t = Mat4::translation(self.translation.component(0), self.translation.component(1), self.translation.component(2));
+        t.multiply(&r).multiply(&s)
+    }
+}
+

@@ -1,0 +1,9 @@
+[files]
+extend-exclude = [
+  "node_modules/**",
+  "target/**",
+  "dist/**",
+  ".git/**",
+  ".obsidian/**",
+  "docs/legacy/**"
+]

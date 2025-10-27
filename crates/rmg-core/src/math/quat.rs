@@ -66,8 +66,8 @@ impl Quat {
     /// use core::f32::consts::FRAC_PI_2;
     /// use rmg_core::math::{Quat, Vec3};
     /// // 90° yaw then 90° pitch
-    /// let yaw = Quat::from_axis_angle(Vec3::UNIT_Y, FRAC_PI_2);
-    /// let pitch = Quat::from_axis_angle(Vec3::UNIT_X, FRAC_PI_2);
+    /// let yaw = Quat::from_axis_angle(Vec3::from([0.0, 1.0, 0.0]), FRAC_PI_2);
+    /// let pitch = Quat::from_axis_angle(Vec3::from([1.0, 0.0, 0.0]), FRAC_PI_2);
     /// let composed = yaw.multiply(&pitch); // yaw then pitch
     /// // Non‑commutative: pitch*yaw is different
     /// let other = pitch.multiply(&yaw);

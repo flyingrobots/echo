@@ -92,12 +92,17 @@ impl Quat {
         )
     }
 
-    /// Normalises the quaternion; returns identity when norm is ~0.
+    /// Returns a unit quaternion (magnitude 1) pointing in the same direction.
+    ///
+    /// Quaternion operations can accumulate floating-point error; normalize 
+    /// periodically to maintain unit length for accurate rotations. If the 
+    /// magnitude is ≤ `EPSILON`, returns the identity quaternion to avoid 
+    /// division by near-zero (a degenerate quaternion cannot represent a rotation).
     pub fn normalize(&self) -> Self {
         let len = (self.component(0) * self.component(0)
-            + self.component(1) * self.component(1)
-            + self.component(2) * self.component(2)
-            + self.component(3) * self.component(3))
+             self.component(1) * self.component(1)
+             self.component(2) * self.component(2)
+             self.component(3) * self.component(3))
         .sqrt();
         if len <= EPSILON {
             return Self::identity();

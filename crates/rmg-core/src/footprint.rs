@@ -14,9 +14,12 @@ use crate::ident::{EdgeId, Hash, NodeId};
 
 /// Packed 64‑bit key for a boundary port.
 ///
-/// Layout: `(node_hi: u32 | node_lo: u16) << 32 | (port_id << 2) | dir_bits`.
-/// Callers should pack using a stable convention within the rule pack. The
-/// footprint logic only needs stable equality and ordering.
+/// This is an opaque, caller-supplied stable identifier used to detect
+/// conflicts on boundary interfaces. The engine only requires stable equality
+/// and ordering; it does not rely on a specific bit layout.
+///
+/// For demos/tests, use [`pack_port_key`] to derive a deterministic 64‑bit key
+/// from a [`NodeId`], a `port_id`, and a direction flag.
 pub type PortKey = u64;
 
 /// Simple ordered set of 256‑bit ids based on `BTreeSet` for deterministic
@@ -106,7 +109,11 @@ impl Footprint {
         if (self.factor_mask & other.factor_mask) == 0 {
             return true;
         }
-        if self.b_in.intersects(&other.b_in) || self.b_out.intersects(&other.b_out) {
+        if self.b_in.intersects(&other.b_in)
+            || self.b_in.intersects(&other.b_out)
+            || self.b_out.intersects(&other.b_in)
+            || self.b_out.intersects(&other.b_out)
+        {
             return false;
         }
         if self.e_write.intersects(&other.e_write)
@@ -122,5 +129,44 @@ impl Footprint {
             return false;
         }
         true
+    }
+}
+
+/// Helper to derive a deterministic [`PortKey`] from node, port id, and direction.
+///
+/// Layout used by this helper:
+/// - bits 63..32: lower 32 bits of the node's first 8 bytes (LE) — a stable
+///   per-node fingerprint, not reversible
+/// - bits 31..2: `port_id` (u30)
+/// - bit 0: direction flag (1 = input, 0 = output)
+///
+/// This is sufficient for tests and demos; production code may adopt a
+/// different stable scheme as long as equality and ordering are preserved.
+#[inline]
+pub fn pack_port_key(node: &NodeId, port_id: u32, dir_in: bool) -> PortKey {
+    let mut first8 = [0u8; 8];
+    first8.copy_from_slice(&node.0[0..8]);
+    let node_fingerprint = u64::from_le_bytes(first8) & 0xFFFF_FFFF;
+    let dir_bit = u64::from(dir_in);
+    (node_fingerprint << 32) | (u64::from(port_id) << 2) | dir_bit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_port_key_is_stable_and_distinct_by_inputs() {
+        let a = NodeId(blake3::hash(b"node-a").into());
+        let b = NodeId(blake3::hash(b"node-b").into());
+        let k1 = pack_port_key(&a, 0, true);
+        let k2 = pack_port_key(&a, 1, true);
+        let k3 = pack_port_key(&a, 0, false);
+        let k4 = pack_port_key(&b, 0, true);
+        assert_ne!(k1, k2);
+        assert_ne!(k1, k3);
+        assert_ne!(k1, k4);
+        // Stability
+        assert_eq!(k1, pack_port_key(&a, 0, true));
     }
 }

@@ -61,22 +61,19 @@ impl DeterministicScheduler {
     /// Removes and returns all pending rewrites for `tx`, ordered by
     /// `(scope_hash, rule_id)` in ascending lexicographic order.
     pub(crate) fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
-        let mut items: Vec<PendingRewrite> = self
-            .pending
+        self.pending
             .remove(&tx)
             .map(|map| map.into_values().collect())
-            .unwrap_or_default();
-        items.sort_by(|a, b| {
-            a.scope_hash
-                .cmp(&b.scope_hash)
-                .then(a.rule_id.cmp(&b.rule_id))
-        });
-        items
+            .unwrap_or_default()
     }
 
     /// Attempts to reserve a rewrite by checking independence against the
     /// active frontier for `tx`. On success, pushes the footprint into the
     /// frontier and transitions the phase to `Reserved`.
+    ///
+    /// Current implementation: O(n) scan of the active frontier. For large
+    /// transaction sizes, consider spatial indexing or hierarchical structures
+    /// to reduce reservation cost.
     pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
         let frontier = self.active.entry(tx).or_default();
         for fp in frontier.iter() {

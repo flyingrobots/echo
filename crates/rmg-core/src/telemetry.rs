@@ -32,7 +32,7 @@ fn ts_micros() -> u128 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_micros()
 }
 
@@ -49,11 +49,21 @@ fn emit(kind: &str, tx: TxId, rule: &Hash) {
     let _ = std::io::Write::write_all(&mut std::io::stdout(), b"\n");
 }
 
+/// Emits a conflict telemetry event when a rewrite fails independence checks.
+///
+/// Logs the transaction id and rule id (shortened) as a JSON line to stdout
+/// when the `telemetry` feature is enabled. Best-effort: I/O errors are
+/// ignored and timestamps fall back to 0 on clock errors.
 #[cfg(feature = "telemetry")]
 pub fn conflict(tx: TxId, rule: &Hash) {
     emit("conflict", tx, rule);
 }
 
+/// Emits a reserved telemetry event when a rewrite passes independence checks.
+///
+/// Logs the transaction id and rule id (shortened) as a JSON line to stdout
+/// when the `telemetry` feature is enabled. Best-effort: I/O errors are
+/// ignored and timestamps fall back to 0 on clock errors.
 #[cfg(feature = "telemetry")]
 pub fn reserved(tx: TxId, rule: &Hash) {
     emit("reserved", tx, rule);

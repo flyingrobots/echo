@@ -33,6 +33,9 @@ pub enum EngineError {
     /// Attempted to register a rule with a duplicate name.
     #[error("duplicate rule name: {0}")]
     DuplicateRuleName(&'static str),
+    /// Attempted to register a rule with a duplicate ID.
+    #[error("duplicate rule id: {0:?}")]
+    DuplicateRuleId(Hash),
 }
 
 /// Core rewrite engine used by the spike.
@@ -79,10 +82,14 @@ impl Engine {
     ///
     /// # Errors
     /// Returns [`EngineError::DuplicateRuleName`] if a rule with the same
-    /// name has already been registered.
+    /// name has already been registered, or [`EngineError::DuplicateRuleId`]
+    /// if a rule with the same id was previously registered.
     pub fn register_rule(&mut self, rule: RewriteRule) -> Result<(), EngineError> {
         if self.rules.contains_key(rule.name) {
             return Err(EngineError::DuplicateRuleName(rule.name));
+        }
+        if self.rules_by_id.contains_key(&rule.id) {
+            return Err(EngineError::DuplicateRuleId(rule.id));
         }
         self.rules_by_id.insert(rule.id, rule.name);
         #[allow(clippy::cast_possible_truncation)]
@@ -133,7 +140,7 @@ impl Engine {
         let compact_rule = *self
             .compact_rule_ids
             .get(&rule.id)
-            .unwrap_or(&CompactRuleId(0));
+            .expect("compact_rule_ids missing entry for a registered rule");
         self.scheduler
             .pending
             .entry(tx)
@@ -155,6 +162,11 @@ impl Engine {
 
     /// Executes all pending rewrites for the transaction and produces a snapshot.
     ///
+    /// Panics if a reserved rewrite references a non-existent rule. Such a
+    /// condition indicates internal state corruption (rules were deregistered or
+    /// tables mutated incorrectly) and should be impossible when rules are
+    /// registered via [`Engine::register_rule`].
+    ///
     /// # Errors
     /// Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
     pub fn commit(&mut self, tx: TxId) -> Result<Snapshot, EngineError> {
@@ -169,9 +181,10 @@ impl Engine {
             }
         }
         for rewrite in reserved {
-            if let Some(rule) = self.rule_by_compact(&rewrite.compact_rule) {
-                (rule.executor)(&mut self.store, &rewrite.scope);
-            }
+            let rule = self
+                .rule_by_compact(&rewrite.compact_rule)
+                .expect("missing rule for compact id during commit; internal corruption");
+            (rule.executor)(&mut self.store, &rewrite.scope);
         }
 
         let hash = compute_snapshot_hash(&self.store, &self.current_root);

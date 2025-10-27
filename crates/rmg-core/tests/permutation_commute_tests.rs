@@ -1,12 +1,8 @@
 #![allow(missing_docs)]
-use rmg_core::{
-    encode_motion_payload, make_node_id, make_type_id, Engine, GraphStore, NodeRecord,
-};
+use rmg_core::{encode_motion_payload, make_node_id, make_type_id, GraphStore, NodeRecord};
+mod common;
+use common::snapshot_hash_of;
 
-fn snapshot_hash_of(store: GraphStore, root: rmg_core::NodeId) -> [u8; 32] {
-    let engine = Engine::new(store, root);
-    engine.snapshot().hash
-}
 
 #[test]
 fn n_permutation_commute_n3_and_n4() {
@@ -20,7 +16,13 @@ fn n_permutation_commute_n3_and_n4() {
         let mut scopes = Vec::new();
         for i in 0..n {
             let id = make_node_id(&format!("entity-{i}"));
-            let v = [if i == 0 { 1.0 } else { 0.0 }, if i == 1 { 1.0 } else { 0.0 }, 0.0];
+            let v = match i {
+                0 => [1.0, 0.0, 0.0],
+                1 => [0.0, 1.0, 0.0],
+                2 => [0.0, 0.0, 1.0],
+                3 => [1.0, 1.0, 0.0],
+                _ => unreachable!(),
+            };
             store.insert_node(
                 id,
                 NodeRecord { ty: ent_ty, payload: Some(encode_motion_payload([0.0, 0.0, 0.0], v)) },
@@ -51,4 +53,3 @@ fn n_permutation_commute_n3_and_n4() {
         }
     }
 }
-

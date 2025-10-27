@@ -1,10 +1,7 @@
 #![allow(missing_docs)]
-use rmg_core::{encode_motion_payload, make_node_id, make_type_id, Engine, GraphStore, NodeRecord};
-
-fn snapshot_hash_of(store: GraphStore, root: rmg_core::NodeId) -> [u8; 32] {
-    let engine = Engine::new(store, root);
-    engine.snapshot().hash
-}
+use rmg_core::{encode_motion_payload, make_node_id, make_type_id, GraphStore, NodeRecord};
+mod common;
+use common::snapshot_hash_of;
 
 #[test]
 fn independent_motion_rewrites_commute_on_distinct_nodes() {

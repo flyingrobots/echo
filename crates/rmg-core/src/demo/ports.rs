@@ -2,7 +2,7 @@
 //! reservation gate and independence checks.
 
 use crate::engine_impl::Engine;
-use crate::footprint::{Footprint, IdSet, PortKey, PortSet};
+use crate::footprint::{pack_port_key, Footprint, IdSet, PortKey, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
 use crate::payload::{decode_motion_payload, encode_motion_payload};
@@ -11,14 +11,6 @@ use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 
 /// Public identifier for the port demo rule.
 pub const PORT_RULE_NAME: &str = "demo/port_nop";
-
-fn pack_port_key(node: &NodeId, port_id: u32, dir_in: bool) -> PortKey {
-    let mut hi = [0u8; 8];
-    hi.copy_from_slice(&node.0[0..8]);
-    let node_bits = u64::from_le_bytes(hi);
-    let dir_bit = u64::from(dir_in);
-    (node_bits << 32) | (u64::from(port_id) << 2) | dir_bit
-}
 
 fn port_matcher(_: &GraphStore, _: &NodeId) -> bool { true }
 
@@ -54,7 +46,18 @@ fn compute_port_footprint(_: &GraphStore, scope: &NodeId) -> Footprint {
     }
 }
 
-/// Demo rule used by tests: reserves a boundary input port and increments pos.x.
+/// Returns a demo rewrite rule that reserves a boundary input port.
+///
+/// This rule always matches and increments the x component of the scoped
+/// node's motion payload by 1.0 (or initializes to `[1.0, 0.0, 0.0]` if
+/// absent). Its footprint reserves a single boundary input port (port 0,
+/// direction=in) on the scoped node, used to test port-based independence
+/// checks.
+///
+/// Register with [`Engine::register_rule`], then apply with [`Engine::apply`]
+/// using [`PORT_RULE_NAME`]. Returns a [`RewriteRule`] with a runtime-computed
+/// id (BLAKE3 of the name for the spike), empty pattern, and
+/// [`ConflictPolicy::Abort`].
 #[must_use]
 pub fn port_rule() -> RewriteRule {
     // Family id will be generated later via build.rs when promoted to a stable demo.

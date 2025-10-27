@@ -37,7 +37,17 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
 /// Deterministic rule id bytes for `rule:motion/update`.
 const MOTION_RULE_ID: Hash = MOTION_UPDATE_FAMILY_ID;
 
-/// Demo rule used by tests: move an entity by its velocity.
+/// Returns a rewrite rule that updates entity positions based on velocity.
+///
+/// This rule matches any node containing a valid 24-byte motion payload
+/// (position + velocity encoded as 6 × f32 little-endian) and updates the
+/// position by adding the velocity component-wise.
+///
+/// Register this rule with [`Engine::register_rule`], then apply it with
+/// [`Engine::apply`] using [`MOTION_RULE_NAME`].
+///
+/// Returns a [`RewriteRule`] with deterministic id, empty pattern (relies on
+/// the matcher), and the motion update executor.
 #[must_use]
 pub fn motion_rule() -> RewriteRule {
     RewriteRule {
@@ -70,7 +80,16 @@ fn compute_motion_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     }
 }
 
-/// Builds an engine with the default world root and the motion rule registered.
+/// Constructs a demo [`Engine`] with a world-root node and motion rule pre-registered.
+///
+/// Creates a [`GraphStore`] with a single root node (id: "world-root", type:
+/// "world"), initializes an [`Engine`] with that root, and registers the
+/// [`motion_rule`]. Ready for immediate use in tests and demos.
+///
+/// Returns an [`Engine`] with the motion rule registered and an empty
+/// world‑root node.
+///
+/// Panics if rule registration fails (should not happen in a fresh engine).
 #[must_use]
 pub fn build_motion_demo_engine() -> Engine {
     let mut store = GraphStore::default();
@@ -89,4 +108,20 @@ pub fn build_motion_demo_engine() -> Engine {
     // within the same process/tests.
     let _ = engine.register_rule(motion_rule());
     engine
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn motion_rule_id_matches_domain_separated_name() {
+        // Our build.rs generates the family id using a domain separator:
+        // blake3("rule:" ++ MOTION_RULE_NAME)
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rule:");
+        hasher.update(MOTION_RULE_NAME.as_bytes());
+        let expected: Hash = hasher.finalize().into();
+        assert_eq!(MOTION_RULE_ID, expected, "MOTION_RULE_ID must equal blake3(\"rule:\" ++ MOTION_RULE_NAME)");
+    }
 }

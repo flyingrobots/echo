@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use js_sys::Uint8Array;
 use rmg_core::{
-    ApplyResult, Engine, MOTION_RULE_NAME, NodeId, NodeRecord, TxId, build_motion_demo_engine,
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id,
+    build_motion_demo_engine, decode_motion_payload, encode_motion_payload, make_node_id,
+    make_type_id, ApplyResult, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
 };
 use wasm_bindgen::prelude::*;
 

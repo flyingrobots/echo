@@ -1,4 +1,4 @@
-use crate::math::{EPSILON, Mat4, Vec3};
+use crate::math::{Mat4, Vec3, EPSILON};
 
 /// Quaternion stored as `(x, y, z, w)` with deterministic float32 rounding.
 ///

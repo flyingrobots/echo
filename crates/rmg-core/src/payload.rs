@@ -5,6 +5,10 @@ const POSITION_VELOCITY_BYTES: usize = 24;
 
 /// Serialises a 3D position + velocity pair into the canonical payload.
 ///
+/// Note: Values are encoded verbatim as `f32` little‑endian bytes; callers are
+/// responsible for ensuring finiteness if deterministic behaviour is required
+/// (NaN bit patterns compare unequal across some platforms).
+///
 /// Layout (little‑endian):
 /// - bytes 0..12: position [x, y, z] as 3 × f32
 /// - bytes 12..24: velocity [vx, vy, vz] as 3 × f32

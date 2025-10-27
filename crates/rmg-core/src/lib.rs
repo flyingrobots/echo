@@ -411,12 +411,13 @@ fn add_vec(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 
 /// Executor that updates the encoded position in the entity payload.
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
-    if let Some(record) = store.node_mut(scope)
-        && let Some(payload) = &record.payload
-        && let Some((position, velocity)) = decode_motion_payload(payload)
-    {
-        let updated = encode_motion_payload(add_vec(position, velocity), velocity);
-        record.payload = Some(updated);
+    if let Some(record) = store.node_mut(scope) {
+        if let Some(payload) = &record.payload {
+            if let Some((position, velocity)) = decode_motion_payload(payload) {
+                let updated = encode_motion_payload(add_vec(position, velocity), velocity);
+                record.payload = Some(updated);
+            }
+        }
     }
 }
 

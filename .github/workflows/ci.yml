@@ -52,6 +52,8 @@ jobs:
             .
       - name: cargo test
         run: cargo test
+      - name: PRNG golden regression (rmg-core)
+        run: cargo test -p rmg-core --features golden_prng -- tests::next_int_golden_regression
 
   docs:
     name: Docs Guard

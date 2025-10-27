@@ -1,7 +1,7 @@
 [package]
 name = "rmg-core"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 blake3 = "1"
@@ -12,3 +12,9 @@ thiserror = "1"
 once_cell = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[features]
+default = []
+# Optional regression check for PRNG sequences; off by default to avoid
+# freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
+golden_prng = []

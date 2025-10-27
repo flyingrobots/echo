@@ -4,6 +4,13 @@ use crate::types::{aabb::Aabb, transform::Transform};
 ///
 /// - `start` corresponds to tick `n`.
 /// - `end` corresponds to tick `n+1`.
+///
+/// Determinism and plan:
+/// - `fat_aabb` below currently uses a union of the start/end AABBs. This is
+///   conservative for linear motion and sufficient for pairing/CCD triggers.
+/// - Future: introduce a quantized margin policy (based on velocity, `dt`, and
+///   shape scale) so that fat proxies are identical across peers/branches. The
+///   policy and quantization will be recorded in the graph/spec.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct TemporalTransform {
     start: Transform,
@@ -35,4 +42,3 @@ impl TemporalTransform {
         a0.union(&a1)
     }
 }
-

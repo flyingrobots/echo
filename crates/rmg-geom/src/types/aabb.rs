@@ -5,6 +5,16 @@ use rmg_core::math::{Mat4, Vec3};
 /// Invariants:
 /// - `min` components are less than or equal to `max` components.
 /// - Values are `f32` and represent meters in world space.
+///
+/// Determinism and policy:
+/// - Overlap checks are inclusive on faces (touching AABBs count as overlap)
+///   to make broad-phase pairing stable at contact boundaries.
+/// - Transforming a box evaluates its eight corners with affine math and then
+///   re-aligns to world axes; we intentionally avoid fused multiply-add to keep
+///   results stable across platforms.
+/// - Future: margin quantization for "fat" proxies will be expressed in the
+///   temporal layer so that identical inputs produce identical inflated bounds
+///   on every peer.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Aabb {
     min: Vec3,
@@ -40,6 +50,9 @@ impl Aabb {
     }
 
     /// Returns `true` if this AABB overlaps another (inclusive on faces).
+    ///
+    /// Determinism: treating face-touch as overlap avoids pair creation
+    /// oscillating due to single-ULP differences in narrow-phase decisions.
     #[must_use]
     pub fn overlaps(&self, other: &Self) -> bool {
         let a_min = self.min.to_array();
@@ -78,7 +91,9 @@ impl Aabb {
     /// Computes the AABB that bounds this box after transformation by `mat`.
     ///
     /// This evaluates the eight corners under the affine transform and builds a
-    /// new axis-aligned box containing them.
+    /// new axis-aligned box containing them. Precision: uses `f32` operations
+    /// with separate multiply/add steps (no FMA) to preserve cross-platform
+    /// determinism consistent with `rmg-core` math.
     #[must_use]
     pub fn transformed(&self, mat: &Mat4) -> Self {
         let [min_x, min_y, min_z] = self.min.to_array();

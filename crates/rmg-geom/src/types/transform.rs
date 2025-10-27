@@ -6,6 +6,12 @@ use rmg_core::math::{Mat4, Quat, Vec3};
 /// - `translation` in meters (world space).
 /// - `rotation` as a unit quaternion (normalized internally when converting).
 /// - `scale` is non-uniform and applied before rotation/translation.
+///
+/// Determinism:
+/// - `to_mat4` constructs `M = T * R * S` with `f32` ops; no FMA to keep
+///   results stable across CPUs/targets. Negative scales are supported but may
+///   flip handedness; downstream collision policies should document any
+///   restrictions if introduced later.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Transform {
     translation: Vec3,

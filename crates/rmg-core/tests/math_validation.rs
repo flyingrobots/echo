@@ -3,7 +3,8 @@
 //! Ensures scalar, vector, matrix, quaternion, and PRNG behaviour stays
 //! consistent with the documented fixtures across platforms.
 
-#![allow(clippy::panic, clippy::manual_assert, clippy::non_std_lazy_statics)]
+// Intentionally allow `panic!` for fixture parse failures; keep scope narrow.
+#![allow(clippy::panic)]
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 

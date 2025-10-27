@@ -5,7 +5,7 @@ edition = "2021"
 description = "Echo WASM: wasm-bindgen bindings for tools and web"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
-readme = "../../README.md"
+readme = "README.md"
 keywords = ["echo", "wasm", "ecs", "deterministic"]
 categories = ["wasm", "game-engines"]
 

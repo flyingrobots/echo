@@ -16,4 +16,8 @@ fn mat4_mul_operator_matches_method() {
     // method
     let meth = id.multiply(&s);
     approx_eq16(op.to_array(), meth.to_array());
+    // also verify the opposite order
+    let op2 = s * id;
+    let meth2 = s.multiply(&id);
+    approx_eq16(op2.to_array(), meth2.to_array());
 }

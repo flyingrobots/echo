@@ -19,6 +19,8 @@
 //!   here and add a migration note in the determinism spec.
 //! - The in-memory store uses `BTreeMap`, which guarantees deterministic key
 //!   iteration. For vectors (edge lists), we sort explicitly by `EdgeId`.
+use std::collections::{BTreeSet, VecDeque};
+
 use blake3::Hasher;
 
 use crate::graph::GraphStore;
@@ -55,9 +57,27 @@ pub struct Snapshot {
 ///      - Update with `edge.id`, `edge.ty`, `edge.to`.
 ///      - Update with 8-byte LE payload length, then payload bytes (if any).
 pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
+    // 1) Determine reachable subgraph using a deterministic BFS over outgoing edges.
+    let mut reachable: BTreeSet<NodeId> = BTreeSet::new();
+    let mut queue: VecDeque<NodeId> = VecDeque::new();
+    reachable.insert(*root);
+    queue.push_back(*root);
+    while let Some(current) = queue.pop_front() {
+        for edge in store.edges_from(&current) {
+            if reachable.insert(edge.to) {
+                queue.push_back(edge.to);
+            }
+        }
+    }
+
     let mut hasher = Hasher::new();
     hasher.update(&root.0);
+
+    // 2) Hash nodes in ascending NodeId order but only if reachable.
     for (node_id, node) in &store.nodes {
+        if !reachable.contains(node_id) {
+            continue;
+        }
         hasher.update(&node_id.0);
         hasher.update(&(node.ty).0);
         match &node.payload {
@@ -70,11 +90,20 @@ pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
             }
         }
     }
+
+    // 3) Hash outgoing edges per reachable source, sorted by EdgeId, and only
+    // include edges whose destination is also reachable.
     for (from, edges) in &store.edges_from {
-        hasher.update(&from.0);
-        hasher.update(&(edges.len() as u64).to_le_bytes());
-        let mut sorted_edges: Vec<&EdgeRecord> = edges.iter().collect();
+        if !reachable.contains(from) {
+            continue;
+        }
+        // Filter to reachable targets first; length counts included edges only.
+        let mut sorted_edges: Vec<&EdgeRecord> =
+            edges.iter().filter(|e| reachable.contains(&e.to)).collect();
         sorted_edges.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+
+        hasher.update(&from.0);
+        hasher.update(&(sorted_edges.len() as u64).to_le_bytes());
         for edge in sorted_edges {
             hasher.update(&(edge.id).0);
             hasher.update(&(edge.ty).0);

@@ -5,7 +5,7 @@ edition = "2021"
 description = "Echo FFI: C ABI for host integrations (Lua/C/etc.)"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
-readme = "../../README.md"
+readme = "README.md"
 keywords = ["echo", "ffi", "ecs", "deterministic"]
 categories = ["external-ffi-bindings", "game-engines"]
 

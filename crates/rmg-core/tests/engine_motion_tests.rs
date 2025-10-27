@@ -78,9 +78,55 @@ fn motion_rule_no_match_on_missing_payload() {
     let mut engine = Engine::new(store, entity);
     engine.register_rule(rmg_core::motion_rule());
 
+    // Capture hash before any tx
+    let before = engine.snapshot().hash;
     let tx = engine.begin();
     let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
     assert!(matches!(apply, ApplyResult::NoMatch));
+    // Commit should be a no-op for state; hash remains identical.
+    let snap = engine.commit(tx).expect("no-op commit");
+    assert_eq!(snap.hash, before);
+}
+
+#[test]
+fn motion_rule_twice_is_deterministic_across_engines() {
+    let entity = make_node_id("entity-1-twice");
+    let entity_type = make_type_id("entity");
+    let payload = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
+
+    let mut store_a = GraphStore::default();
+    store_a.insert_node(
+        entity,
+        NodeRecord {
+            ty: entity_type,
+            payload: Some(payload.clone()),
+        },
+    );
+    let mut engine_a = Engine::new(store_a, entity);
+    engine_a.register_rule(rmg_core::motion_rule());
+    for _ in 0..2 {
+        let tx = engine_a.begin();
+        engine_a.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
+        engine_a.commit(tx).unwrap();
+    }
+
+    let mut store_b = GraphStore::default();
+    store_b.insert_node(
+        entity,
+        NodeRecord {
+            ty: entity_type,
+            payload: Some(payload),
+        },
+    );
+    let mut engine_b = Engine::new(store_b, entity);
+    engine_b.register_rule(rmg_core::motion_rule());
+    for _ in 0..2 {
+        let tx = engine_b.begin();
+        engine_b.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
+        engine_b.commit(tx).unwrap();
+    }
+
+    assert_eq!(engine_a.snapshot().hash, engine_b.snapshot().hash);
 }
 
 #[test]

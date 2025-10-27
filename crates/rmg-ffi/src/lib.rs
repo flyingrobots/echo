@@ -127,7 +127,7 @@ pub unsafe extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
     }
     let engine = unsafe { &mut *engine };
     let tx = engine.inner.begin();
-    rmg_tx_id { value: tx.0 }
+    rmg_tx_id { value: tx.value() }
 }
 
 /// Applies the motion rewrite to the provided entity within transaction `tx`.
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn rmg_engine_apply_motion(
     };
     match engine
         .inner
-        .apply(TxId(tx.value), MOTION_RULE_NAME, &node_id)
+        .apply(TxId::from_raw(tx.value), MOTION_RULE_NAME, &node_id)
     {
         Ok(ApplyResult::Applied) => true,
         Ok(ApplyResult::NoMatch) => false,
@@ -175,7 +175,7 @@ pub unsafe extern "C" fn rmg_engine_commit(
         return false;
     }
     let engine = unsafe { &mut *engine };
-    match engine.inner.commit(TxId(tx.value)) {
+    match engine.inner.commit(TxId::from_raw(tx.value)) {
         Ok(snapshot) => {
             unsafe {
                 (*out_snapshot).hash = snapshot.hash;

@@ -35,23 +35,16 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
 /// Demo rule used by tests: move an entity by its velocity.
 #[must_use]
 pub fn motion_rule() -> RewriteRule {
-use once_cell::sync::Lazy;
-
-static MOTION_RULE_ID: Lazy<Hash> = Lazy::new(|| {
     let mut hasher = Hasher::new();
     hasher.update(MOTION_RULE_NAME.as_bytes());
-    hasher.finalize().into()
-});
-
-pub fn motion_rule() -> RewriteRule {
+    let id: Hash = hasher.finalize().into();
     RewriteRule {
-        id: *MOTION_RULE_ID,
+        id,
         name: MOTION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: motion_matcher,
         executor: motion_executor,
     }
-}
 }
 
 /// Builds an engine with the default world root and the motion rule registered.

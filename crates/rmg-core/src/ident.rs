@@ -20,7 +20,7 @@ pub struct NodeId(pub Hash);
 pub struct TypeId(pub Hash);
 
 /// Identifier for a directed edge within the graph.
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct EdgeId(pub Hash);
 
 /// Produces a stable type identifier derived from a label using BLAKE3.
@@ -35,4 +35,12 @@ pub fn make_node_id(label: &str) -> NodeId {
     let mut hasher = Hasher::new();
     hasher.update(label.as_bytes());
     NodeId(hasher.finalize().into())
+}
+
+/// Produces a stable edge identifier derived from a label using BLAKE3.
+#[allow(dead_code)]
+pub fn make_edge_id(label: &str) -> EdgeId {
+    let mut hasher = Hasher::new();
+    hasher.update(label.as_bytes());
+    EdgeId(hasher.finalize().into())
 }

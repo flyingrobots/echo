@@ -8,7 +8,7 @@ const POSITION_VELOCITY_BYTES: usize = 24;
 /// Layout (little‑endian):
 /// - bytes 0..12: position [x, y, z] as 3 × f32
 /// - bytes 12..24: velocity [vx, vy, vz] as 3 × f32
-/// Always 24 bytes.
+///   Always 24 bytes.
 #[inline]
 pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(POSITION_VELOCITY_BYTES);
@@ -30,4 +30,35 @@ pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     let position = [floats[0], floats[1], floats[2]];
     let velocity = [floats[3], floats[4], floats[5]];
     Some((position, velocity))
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::panic,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::float_cmp
+)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn round_trip_ok() {
+        let pos = [1.0, 2.0, 3.0];
+        let vel = [0.5, -1.0, 0.25];
+        let bytes = encode_motion_payload(pos, vel);
+        let (p, v) = decode_motion_payload(&bytes).expect("24-byte payload");
+        for i in 0..3 {
+            assert_eq!(p[i].to_bits(), pos[i].to_bits());
+            assert_eq!(v[i].to_bits(), vel[i].to_bits());
+        }
+    }
+
+    #[test]
+    fn reject_wrong_len() {
+        let b = Bytes::from_static(&[0u8; 23]);
+        assert!(decode_motion_payload(&b).is_none());
+        let b = Bytes::from_static(&[0u8; 25]);
+        assert!(decode_motion_payload(&b).is_none());
+    }
 }

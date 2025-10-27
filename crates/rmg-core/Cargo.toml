@@ -5,7 +5,7 @@ edition = "2021"
 description = "Echo core: deterministic typed graph rewriting engine"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
-readme = "../../README.md"
+readme = "README.md"
 keywords = ["echo", "ecs", "deterministic", "graph"]
 categories = ["game-engines", "data-structures"]
 

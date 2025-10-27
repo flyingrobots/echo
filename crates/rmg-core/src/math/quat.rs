@@ -12,13 +12,16 @@ pub struct Quat {
 impl Quat {
     /// Creates a quaternion from components.
     ///
-    /// Callers should provide finite components; use
-    /// [`Quat::from_axis_angle`] for axis/angle construction.
+    /// Components are interpreted as `(x, y, z, w)` with `w` the scalar part.
+    /// In debug builds this asserts that all components are finite; in release
+    /// builds construction is unchecked. Prefer [`Quat::from_axis_angle`] for
+    /// axis/angle construction when possible.
     pub const fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
+        debug_assert!(x.is_finite() && y.is_finite() && z.is_finite() && w.is_finite());
         Self { data: [x, y, z, w] }
     }
 
-    /// Returns the quaternion as an array.
+    /// Returns the quaternion as an array `[x, y, z, w]`.
     pub fn to_array(self) -> [f32; 4] {
         self.data
     }
@@ -52,8 +55,9 @@ impl Quat {
     /// Hamilton product of two quaternions (`self * other`).
     ///
     /// Operand order matters: the result composes the rotation represented by
-    /// `self` followed by the rotation represented by `other`. Quaternion
-    /// multiplication is non‑commutative.
+    /// `other` followed by the rotation represented by `self`. Quaternion
+    /// multiplication is non‑commutative, so reversing the order yields a
+    /// different orientation in general.
     ///
     /// Component layout is `(x, y, z, w)` with `w` as the scalar part. Inputs
     /// need not be normalized; however, when both operands are unit
@@ -65,13 +69,13 @@ impl Quat {
     /// ```
     /// use core::f32::consts::FRAC_PI_2;
     /// use rmg_core::math::{Quat, Vec3};
-    /// // 90° yaw then 90° pitch
-    /// let yaw = Quat::from_axis_angle(Vec3::from([0.0, 1.0, 0.0]), FRAC_PI_2);
+    /// // Compose: 90° pitch around X, then 90° yaw around Y
     /// let pitch = Quat::from_axis_angle(Vec3::from([1.0, 0.0, 0.0]), FRAC_PI_2);
-    /// let composed = yaw.multiply(&pitch); // yaw then pitch
-    /// // Non‑commutative: pitch*yaw is different
-    /// let other = pitch.multiply(&yaw);
-    /// assert_ne!(composed.to_array(), other.to_array());
+    /// let yaw = Quat::from_axis_angle(Vec3::from([0.0, 1.0, 0.0]), FRAC_PI_2);
+    /// let composed = yaw.multiply(&pitch); // pitch first, then yaw
+    /// // Reversing order gives different result
+    /// let reversed = pitch.multiply(&yaw);
+    /// assert_ne!(composed.to_array(), reversed.to_array());
     /// ```
     pub fn multiply(&self, other: &Self) -> Self {
         let ax = self.component(0);
@@ -94,15 +98,15 @@ impl Quat {
 
     /// Returns a unit quaternion (magnitude 1) pointing in the same direction.
     ///
-    /// Quaternion operations can accumulate floating-point error; normalize 
-    /// periodically to maintain unit length for accurate rotations. If the 
-    /// magnitude is ≤ `EPSILON`, returns the identity quaternion to avoid 
-    /// division by near-zero (a degenerate quaternion cannot represent a rotation).
+    /// Quaternion operations can accumulate floating-point error; normalise
+    /// periodically to maintain unit length for accurate rotations. If the
+    /// magnitude is ≤ `EPSILON`, returns the identity quaternion to avoid
+    /// division by near‑zero (a degenerate quaternion cannot represent a rotation).
     pub fn normalize(&self) -> Self {
         let len = (self.component(0) * self.component(0)
-             self.component(1) * self.component(1)
-             self.component(2) * self.component(2)
-             self.component(3) * self.component(3))
+            + self.component(1) * self.component(1)
+            + self.component(2) * self.component(2)
+            + self.component(3) * self.component(3))
         .sqrt();
         if len <= EPSILON {
             return Self::identity();
@@ -117,11 +121,20 @@ impl Quat {
     }
 
     /// Returns the identity quaternion.
+    ///
+    /// Represents no rotation (the multiplicative identity for quaternion
+    /// multiplication).
     pub const fn identity() -> Self {
         Self::new(0.0, 0.0, 0.0, 1.0)
     }
 
-    /// Converts the quaternion to a rotation matrix (column-major 4×4).
+    /// Converts the quaternion to a 4×4 rotation matrix in column‑major order.
+    ///
+    /// The quaternion is normalised before conversion to ensure a valid
+    /// rotation matrix. The resulting matrix is a homogeneous transform with
+    /// the rotation in the upper‑left 3×3 block and `[0, 0, 0, 1]` in the last
+    /// row and column. Use this to integrate quaternion rotations into
+    /// matrix‑based pipelines and composition with translations/scales.
     pub fn to_mat4(&self) -> Mat4 {
         let q = self.normalize();
         let x = q.component(0);

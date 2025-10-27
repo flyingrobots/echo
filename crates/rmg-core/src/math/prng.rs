@@ -3,7 +3,7 @@
 /// * Not cryptographically secure; use only for gameplay/state simulation.
 /// * Seeding controls reproducibility within a single process/run and matching
 ///   seeds yield identical sequences across supported platforms.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Prng {
     state: [u64; 2],
 }

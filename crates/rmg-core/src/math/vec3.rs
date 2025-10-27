@@ -4,7 +4,7 @@ use crate::math::EPSILON;
 ///
 /// * Components encode world-space metres and may represent either points or
 ///   directions depending on the calling context.
-/// * Arithmetic clamps to `f32` so results match the runtime’s float32 mode.
+/// * Arithmetic uses `f32` so results round like the runtime's float32 mode.
 /// * Use [`crate::math::Mat4::transform_point`] for points (homogeneous `w = 1`)
 ///   and [`crate::math::Mat4::transform_direction`] for directions (homogeneous
 ///   `w = 0`).

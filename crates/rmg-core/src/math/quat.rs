@@ -29,8 +29,8 @@ impl Quat {
 
     /// Constructs a quaternion from a rotation axis and angle in radians.
     ///
-    /// Returns the identity quaternion when the axis has zero length to avoid
-    /// undefined orientations and preserve deterministic behaviour.
+    /// Returns the identity quaternion when the axis length is ≤ `EPSILON` to avoid
+    /// undefined orientations and preserve deterministic behaviour. No small-angle approximation is applied.
     pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
         let len_sq = axis.length_squared();
         if len_sq <= EPSILON * EPSILON {

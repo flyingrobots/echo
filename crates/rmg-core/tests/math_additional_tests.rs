@@ -7,7 +7,11 @@ fn approx_eq(a: f32, b: f32) {
 }
 
 #[allow(dead_code)]
-fn approx_eq3(a: [f32; 3], b: [f32; 3]) { for i in 0..3 { approx_eq(a[i], b[i]); } }
+fn approx_eq3(a: [f32; 3], b: [f32; 3]) {
+    for i in 0..3 {
+        approx_eq(a[i], b[i]);
+    }
+}
 
 #[test]
 fn vec3_normalize_degenerate_returns_zero() {

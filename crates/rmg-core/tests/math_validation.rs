@@ -15,8 +15,9 @@ const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
-    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES)
-        .expect("failed to parse math fixtures at crates/rmg-core/tests/fixtures/math-fixtures.json");
+    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES).expect(
+        "failed to parse math fixtures at crates/rmg-core/tests/fixtures/math-fixtures.json",
+    );
     fixtures.validate();
     fixtures
 });
@@ -37,7 +38,8 @@ impl MathFixtures {
         fn ensure<T>(name: &str, slice: &[T]) {
             assert!(
                 !slice.is_empty(),
-                "math fixtures set '{name}' must not be empty"
+                "math fixtures set '{name}' must not be empty (len={})",
+                slice.len()
             );
         }
 

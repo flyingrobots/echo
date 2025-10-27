@@ -116,15 +116,14 @@ impl Engine {
         }
 
         let scope_hash = scope_hash(rule, scope);
-        self
-            .scheduler
-            .pending
-            .entry(tx)
-            .or_default()
-            .insert(
-                (scope_hash, rule.id),
-                PendingRewrite { rule_id: rule.id, scope_hash, scope: *scope },
-            );
+        self.scheduler.pending.entry(tx).or_default().insert(
+            (scope_hash, rule.id),
+            PendingRewrite {
+                rule_id: rule.id,
+                scope_hash,
+                scope: *scope,
+            },
+        );
 
         Ok(ApplyResult::Applied)
     }

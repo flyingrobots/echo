@@ -24,8 +24,8 @@ impl GraphStore {
 
     /// Returns an iterator over edges that originate from the provided node.
     ///
-    /// Ordering note: edges are yielded in insertion order. When deterministic
-    /// ordering is required, sort by `EdgeId`.
+    /// Edges are yielded in insertion order. For deterministic traversal
+    /// (e.g., snapshot hashing), callers must sort by `EdgeId`.
     pub fn edges_from(&self, id: &NodeId) -> impl Iterator<Item = &EdgeRecord> {
         self.edges_from.get(id).into_iter().flatten()
     }

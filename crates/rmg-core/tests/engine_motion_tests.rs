@@ -89,9 +89,10 @@ fn motion_rule_no_match_on_missing_payload() {
     let tx = engine.begin();
     let apply = engine.apply(tx, MOTION_RULE_NAME, &entity).unwrap();
     assert!(matches!(apply, ApplyResult::NoMatch));
-    // Commit should be a no-op for state; hash remains identical.
+    // Commit should be a no-op for state; hash remains identical and payload stays None.
     let snap = engine.commit(tx).expect("no-op commit");
     assert_eq!(snap.hash, before);
+    assert!(engine.node(&entity).unwrap().payload.is_none());
 }
 
 #[test]

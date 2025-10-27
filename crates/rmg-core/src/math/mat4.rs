@@ -63,6 +63,14 @@ impl Mat4 {
     }
 
     /// Builds a rotation matrix from Euler angles in radians.
+    ///
+    /// Convention and order:
+    /// - Constructs `R = R_y(yaw) * R_x(pitch) * R_z(roll)`.
+    /// - Matrix multiplication in the code is performed left-to-right in this
+    ///   same order, so the rightmost rotation (`R_z`) is applied first when
+    ///   transforming a vector.
+    /// - Matrices are intended for column vectors with transforms of the form
+    ///   `M * v` (column-major storage; no implicit transpose).
     pub fn rotation_from_euler(yaw: f32, pitch: f32, roll: f32) -> Self {
         Self::rotation_y(yaw)
             .multiply(&Self::rotation_x(pitch))

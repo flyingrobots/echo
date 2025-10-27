@@ -11,13 +11,6 @@ use crate::rule::{PatternGraph, RewriteRule};
 /// Public identifier for the built-in motion update rule.
 pub const MOTION_RULE_NAME: &str = "motion/update";
 
-/// Lazily computed deterministic identifier for the motion rewrite rule.
-static MOTION_RULE_ID: std::sync::LazyLock<Hash> = std::sync::LazyLock::new(|| {
-    let mut hasher = Hasher::new();
-    hasher.update(MOTION_RULE_NAME.as_bytes());
-    hasher.finalize().into()
-});
-
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
     if let Some(node) = store.node_mut(scope) {
         if let Some(payload) = &mut node.payload {
@@ -42,8 +35,13 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
 /// Demo rule used by tests: move an entity by its velocity.
 #[must_use]
 pub fn motion_rule() -> RewriteRule {
+    // Lock-free: compute the deterministic id from the rule name on demand.
+    // This runs on registration (startup/demo), not in a hot loop.
+    let mut hasher = Hasher::new();
+    hasher.update(MOTION_RULE_NAME.as_bytes());
+    let id: Hash = hasher.finalize().into();
     RewriteRule {
-        id: *MOTION_RULE_ID,
+        id,
         name: MOTION_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: motion_matcher,

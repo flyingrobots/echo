@@ -1,11 +1,14 @@
 //! Demo motion rule: advances position by velocity stored in payload.
 
 use crate::engine_impl::Engine;
+use crate::footprint::{Footprint, IdSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
 use crate::payload::{decode_motion_payload, encode_motion_payload};
 use crate::record::NodeRecord;
-use crate::rule::{PatternGraph, RewriteRule};
+use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+// Build-time generated canonical ids (domain-separated).
+include!(concat!(env!("OUT_DIR"), "/rule_ids.rs"));
 
 /// Public identifier for the built-in motion update rule.
 pub const MOTION_RULE_NAME: &str = "motion/update";
@@ -31,11 +34,8 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
         .is_some()
 }
 
-/// Deterministic rule id bytes for `"motion/update"` (BLAKE3 over UTF‑8 bytes).
-const MOTION_RULE_ID: Hash = [
-    21, 96, 173, 176, 70, 82, 59, 69, 209, 209, 103, 15, 239, 155, 75, 65, 92, 0, 114, 163, 104,
-    206, 231, 26, 100, 143, 37, 131, 151, 151, 214, 211,
-];
+/// Deterministic rule id bytes for `rule:motion/update`.
+const MOTION_RULE_ID: Hash = MOTION_UPDATE_FAMILY_ID;
 
 /// Demo rule used by tests: move an entity by its velocity.
 #[must_use]
@@ -46,6 +46,27 @@ pub fn motion_rule() -> RewriteRule {
         left: PatternGraph { nodes: vec![] },
         matcher: motion_matcher,
         executor: motion_executor,
+        compute_footprint: compute_motion_footprint,
+        factor_mask: 0,
+        conflict_policy: ConflictPolicy::Abort,
+        join_fn: None,
+    }
+}
+
+fn compute_motion_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
+    // Motion updates the payload on the scoped node only (write), no edges/ports.
+    let mut n_write = IdSet::default();
+    if store.node(scope).is_some() {
+        n_write.insert_node(scope);
+    }
+    Footprint {
+        n_read: IdSet::default(),
+        n_write,
+        e_read: IdSet::default(),
+        e_write: IdSet::default(),
+        b_in: crate::footprint::PortSet::default(),
+        b_out: crate::footprint::PortSet::default(),
+        factor_mask: 0,
     }
 }
 

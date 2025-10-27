@@ -5,10 +5,10 @@ use blake3::Hasher;
 use thiserror::Error;
 
 use crate::graph::GraphStore;
-use crate::ident::{Hash, NodeId};
+use crate::ident::{CompactRuleId, Hash, NodeId};
 use crate::record::NodeRecord;
 use crate::rule::RewriteRule;
-use crate::scheduler::{DeterministicScheduler, PendingRewrite};
+use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase};
 use crate::snapshot::{compute_snapshot_hash, Snapshot};
 use crate::tx::TxId;
 
@@ -49,6 +49,7 @@ pub struct Engine {
     store: GraphStore,
     rules: HashMap<&'static str, RewriteRule>,
     rules_by_id: HashMap<Hash, &'static str>,
+    compact_rule_ids: HashMap<Hash, CompactRuleId>,
     scheduler: DeterministicScheduler,
     tx_counter: u64,
     live_txs: HashSet<u64>,
@@ -63,6 +64,7 @@ impl Engine {
             store,
             rules: HashMap::new(),
             rules_by_id: HashMap::new(),
+            compact_rule_ids: HashMap::new(),
             scheduler: DeterministicScheduler::default(),
             tx_counter: 0,
             live_txs: HashSet::new(),
@@ -81,6 +83,9 @@ impl Engine {
             return Err(EngineError::DuplicateRuleName(rule.name));
         }
         self.rules_by_id.insert(rule.id, rule.name);
+        #[allow(clippy::cast_possible_truncation)]
+        let next = CompactRuleId(self.compact_rule_ids.len() as u32);
+        self.compact_rule_ids.entry(rule.id).or_insert(next);
         self.rules.insert(rule.name, rule);
         Ok(())
     }
@@ -98,6 +103,11 @@ impl Engine {
     /// # Errors
     /// Returns [`EngineError::UnknownTx`] if the transaction is invalid, or
     /// [`EngineError::UnknownRule`] if the named rule is not registered.
+    /// Queues a rewrite for execution if it matches the provided scope.
+    ///
+    /// # Panics
+    /// Panics only if internal rule tables are corrupted (should not happen
+    /// when rules are registered via `register_rule`).
     pub fn apply(
         &mut self,
         tx: TxId,
@@ -116,14 +126,26 @@ impl Engine {
         }
 
         let scope_hash = scope_hash(rule, scope);
-        self.scheduler.pending.entry(tx).or_default().insert(
-            (scope_hash, rule.id),
-            PendingRewrite {
-                rule_id: rule.id,
-                scope_hash,
-                scope: *scope,
-            },
-        );
+        let footprint = (rule.compute_footprint)(&self.store, scope);
+        let compact_rule = *self
+            .compact_rule_ids
+            .get(&rule.id)
+            .unwrap_or(&CompactRuleId(0));
+        self.scheduler
+            .pending
+            .entry(tx)
+            .or_default()
+            .insert(
+                (scope_hash, rule.id),
+                PendingRewrite {
+                    rule_id: rule.id,
+                    compact_rule,
+                    scope_hash,
+                    scope: *scope,
+                    footprint,
+                    phase: RewritePhase::Matched,
+                },
+            );
 
         Ok(ApplyResult::Applied)
     }
@@ -136,8 +158,14 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
-        let pending = self.scheduler.drain_for_tx(tx);
-        for rewrite in pending {
+        // Reserve phase: enforce independence against active frontier.
+        let mut reserved: Vec<PendingRewrite> = Vec::new();
+        for mut rewrite in self.scheduler.drain_for_tx(tx) {
+            if self.scheduler.reserve(tx, &mut rewrite) {
+                reserved.push(rewrite);
+            }
+        }
+        for rewrite in reserved {
             if let Some(rule) = self.rule_by_id(&rewrite.rule_id) {
                 (rule.executor)(&mut self.store, &rewrite.scope);
             }

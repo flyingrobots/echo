@@ -37,6 +37,14 @@ pub fn make_node_id(label: &str) -> NodeId {
     NodeId(hasher.finalize().into())
 }
 
+/// Compact, process-local rule identifier used on hot paths.
+///
+/// The engine maps canonical 256-bit rule ids (family ids) to compact u32
+/// handles at registration time. These handles are never serialized; they are
+/// purely an in-process acceleration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompactRuleId(pub u32);
+
 /// Produces a stable edge identifier derived from a label using BLAKE3.
 #[allow(dead_code)]
 pub fn make_edge_id(label: &str) -> EdgeId {

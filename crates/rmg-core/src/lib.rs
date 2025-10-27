@@ -33,6 +33,7 @@ pub mod math;
 
 pub mod demo;
 mod engine_impl;
+mod footprint;
 mod graph;
 mod ident;
 mod payload;
@@ -49,6 +50,7 @@ pub use graph::GraphStore;
 pub use ident::{make_edge_id, make_node_id, make_type_id, EdgeId, Hash, NodeId, TypeId};
 pub use payload::{decode_motion_payload, encode_motion_payload};
 pub use record::{EdgeRecord, NodeRecord};
-pub use rule::{ExecuteFn, MatchFn, PatternGraph, RewriteRule};
+pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use snapshot::Snapshot;
 pub use tx::TxId;
+pub use footprint::{Footprint, PortKey};

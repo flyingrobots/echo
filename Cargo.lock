@@ -163,6 +163,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmg-geom"
+version = "0.1.0"
+dependencies = [
+ "rmg-core",
+]
+
+[[package]]
 name = "rmg-wasm"
 version = "0.1.0"
 dependencies = [

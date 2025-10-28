@@ -2,8 +2,6 @@
     warnings,
     clippy::all,
     clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo,
     rust_2018_idioms,
     missing_docs,
     clippy::unwrap_used,
@@ -28,8 +26,8 @@ Design notes:
 pub mod types;
 /// Time-aware utilities for broad-phase and motion.
 pub mod temporal;
-/// Broad-phase interfaces and a simple AABB-based implementation.
-pub mod broad;
+// Broad-phase will land in a follow-up PR.
+// pub mod broad;
 
 pub use types::aabb::Aabb;
 pub use types::transform::Transform;

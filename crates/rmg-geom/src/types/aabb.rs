@@ -95,7 +95,7 @@ impl Aabb {
     /// with separate multiply/add steps (no FMA) to preserve cross-platform
     /// determinism consistent with `rmg-core` math.
     #[must_use]
-    pub fn transformed(&self, mat: &Mat4) -> Self {
+    pub fn transformed(&self, matrix: &Mat4) -> Self {
         let [min_x, min_y, min_z] = self.min.to_array();
         let [max_x, max_y, max_z] = self.max.to_array();
         let corners = [
@@ -109,10 +109,10 @@ impl Aabb {
             Vec3::new(max_x, max_y, max_z),
         ];
         // Compute bounds without allocating an intermediate Vec to avoid needless collects.
-        let mut min = mat.transform_point(&corners[0]);
+        let mut min = matrix.transform_point(&corners[0]);
         let mut max = min;
         for c in &corners[1..] {
-            let p = mat.transform_point(c);
+            let p = matrix.transform_point(c);
             let pa = p.to_array();
             let mi = min.to_array();
             let ma = max.to_array();

@@ -23,7 +23,7 @@ impl Transform {
     /// Identity transform (no translation, no rotation, unit scale).
     #[must_use]
     pub fn identity() -> Self {
-        Self { translation: Vec3::ZERO, rotation: Quat::identity(), scale: Vec3::new(1.0, 1.0, 1.0) }
+        Self { translation: Vec3::new(0.0, 0.0, 0.0), rotation: Quat::identity(), scale: Vec3::new(1.0, 1.0, 1.0) }
     }
 
     /// Creates a transform from components.
@@ -47,12 +47,25 @@ impl Transform {
     /// Returns the column-major `Mat4` corresponding to this transform.
     #[must_use]
     pub fn to_mat4(&self) -> Mat4 {
-        // M = T * R * S
+        // M = T * R * S (column-major)
         let [sx, sy, sz] = self.scale.to_array();
         let [tx, ty, tz] = self.translation.to_array();
-        let s = Mat4::scale(sx, sy, sz);
-        let r = Mat4::from_quat(&self.rotation);
-        let t = Mat4::translation(tx, ty, tz);
+        // Scale matrix
+        let s = Mat4::new([
+            sx, 0.0, 0.0, 0.0,
+            0.0, sy, 0.0, 0.0,
+            0.0, 0.0, sz, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        ]);
+        // Rotation from quaternion (provided by rmg-core)
+        let r = self.rotation.to_mat4();
+        // Translation matrix (translation in last column)
+        let t = Mat4::new([
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            tx,  ty,  tz,  1.0,
+        ]);
         t.multiply(&r).multiply(&s)
     }
 }

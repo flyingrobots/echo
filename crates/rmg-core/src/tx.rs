@@ -5,21 +5,18 @@
 /// The engine issues monotonically increasing identifiers via
 /// [`crate::Engine::begin`]. External bindings may construct `TxId` values for
 /// FFI/Wasm interop using [`TxId::from_raw`].
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct TxId(u64);
 
 impl TxId {
     /// Constructs a `TxId` from a raw `u64` value.
     #[must_use]
-    pub fn from_raw(value: u64) -> Self {
-        Self(value)
-    }
+    pub const fn from_raw(value: u64) -> Self { Self(value) }
 
     /// Returns the underlying raw value.
     #[must_use]
-    pub fn value(self) -> u64 {
-        self.0
-    }
+    pub const fn value(self) -> u64 { self.0 }
 }
 
 impl core::fmt::Display for TxId {

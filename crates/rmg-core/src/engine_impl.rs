@@ -269,4 +269,26 @@ mod tests {
         let expected: Hash = hasher.finalize().into();
         assert_eq!(h1, expected);
     }
+
+    #[test]
+    fn register_rule_join_requires_join_fn() {
+        // Build a rule that declares Join but provides no join_fn.
+        let bad = RewriteRule {
+            id: [0u8; 32],
+            name: "bad/join",
+            left: crate::rule::PatternGraph { nodes: vec![] },
+            matcher: |_s, _n| true,
+            executor: |_s, _n| {},
+            compute_footprint: |_s, _n| crate::footprint::Footprint::default(),
+            factor_mask: 0,
+            conflict_policy: crate::rule::ConflictPolicy::Join,
+            join_fn: None,
+        };
+        let mut engine = Engine::new(GraphStore::default(), make_node_id("r"));
+        let res = engine.register_rule(bad);
+        assert!(
+            matches!(res, Err(EngineError::MissingJoinFn)),
+            "expected MissingJoinFn, got {res:?}"
+        );
+    }
 }

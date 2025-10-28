@@ -18,7 +18,13 @@ include!(concat!(env!("OUT_DIR"), "/rule_ids.rs"));
 /// 6 × f32 little-endian).
 ///
 /// Example usage (in tests):
-/// `engine.apply(MOTION_RULE_NAME, &entity_id)?;`
+/// ```ignore
+/// let mut engine = build_motion_demo_engine();
+/// let entity_id = make_node_id("entity");
+/// // ... insert entity and payload ...
+/// let tx = engine.begin();
+/// engine.apply(tx, MOTION_RULE_NAME, &entity_id)?;
+/// ```
 pub const MOTION_RULE_NAME: &str = "motion/update";
 
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
@@ -136,5 +142,46 @@ mod tests {
             MOTION_RULE_ID, expected,
             "MOTION_RULE_ID must equal blake3(\"rule:\" ++ MOTION_RULE_NAME)"
         );
+    }
+
+    #[test]
+    fn motion_executor_updates_position_and_bytes() {
+        let mut store = GraphStore::default();
+        let ent = make_node_id("entity-motion-bytes");
+        let ty = make_type_id("entity");
+        let pos = [10.0, -2.0, 3.5];
+        let vel = [0.125, 2.0, -1.5];
+        let payload = encode_motion_payload(pos, vel);
+        store.insert_node(
+            ent,
+            NodeRecord {
+                ty,
+                payload: Some(payload),
+            },
+        );
+
+        // Run executor directly and validate position math and encoded bytes.
+        motion_executor(&mut store, &ent);
+        let Some(rec) = store.node(&ent) else {
+            unreachable!("entity present");
+        };
+        let Some(bytes) = rec.payload.as_ref() else {
+            unreachable!("payload present");
+        };
+        let Some((new_pos, new_vel)) = decode_motion_payload(bytes) else {
+            unreachable!("payload decode");
+        };
+        // Compare component-wise using exact bit equality for deterministic values.
+        for i in 0..3 {
+            assert_eq!(new_vel[i].to_bits(), vel[i].to_bits());
+            let expected = (pos[i] + vel[i]).to_bits();
+            assert_eq!(new_pos[i].to_bits(), expected);
+        }
+        // Encoding round-trip should match re-encoding of updated values exactly.
+        let expected_bytes = encode_motion_payload(new_pos, new_vel);
+        let Some(bytes) = rec.payload.as_ref() else {
+            unreachable!("payload present after executor");
+        };
+        assert_eq!(bytes, &expected_bytes);
     }
 }

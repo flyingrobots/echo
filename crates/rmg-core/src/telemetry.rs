@@ -44,9 +44,11 @@ fn emit(kind: &str, tx: TxId, rule: &Hash) {
         event: kind,
         rule_id_short: short_id(rule),
     };
-    // Intentionally ignore errors; stdout is best‑effort in dev builds.
-    let _ = serde_json::to_writer(std::io::stdout(), &ev);
-    let _ = std::io::Write::write_all(&mut std::io::stdout(), b"\n");
+    // Best-effort stdout with a single locked write sequence to avoid interleaving.
+    let mut out = std::io::stdout().lock();
+    let _ = serde_json::to_writer(&mut out, &ev);
+    use std::io::Write as _;
+    let _ = out.write_all(b"\n");
 }
 
 /// Emits a conflict telemetry event when a rewrite fails independence checks.
@@ -93,6 +95,8 @@ pub fn summary(tx: TxId, reserved_count: u64, conflict_count: u64) {
         reserved: reserved_count,
         conflicts: conflict_count,
     };
-    let _ = serde_json::to_writer(std::io::stdout(), &s);
-    let _ = std::io::Write::write_all(&mut std::io::stdout(), b"\n");
+    let mut out = std::io::stdout().lock();
+    let _ = serde_json::to_writer(&mut out, &s);
+    use std::io::Write as _;
+    let _ = out.write_all(b"\n");
 }

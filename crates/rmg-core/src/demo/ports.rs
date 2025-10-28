@@ -32,9 +32,11 @@ fn port_executor(store: &mut GraphStore, scope: &NodeId) {
     }
 }
 
-fn compute_port_footprint(_: &GraphStore, scope: &NodeId) -> Footprint {
+fn compute_port_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut n_write = IdSet::default();
-    n_write.insert_node(scope);
+    if store.node(scope).is_some() {
+        n_write.insert_node(scope);
+    }
     let mut b_in = PortSet::default();
     b_in.insert(pack_port_key(scope, 0, true));
     Footprint {
@@ -63,8 +65,11 @@ fn compute_port_footprint(_: &GraphStore, scope: &NodeId) -> Footprint {
 #[must_use]
 pub fn port_rule() -> RewriteRule {
     // Family id will be generated later via build.rs when promoted to a stable demo.
-    // For the spike, derive from the name at runtime (cost is irrelevant in tests).
-    let id: Hash = blake3::hash(PORT_RULE_NAME.as_bytes()).into();
+    // For the spike, derive from a domain-separated name at runtime.
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"rule:");
+    hasher.update(PORT_RULE_NAME.as_bytes());
+    let id: Hash = hasher.finalize().into();
     RewriteRule {
         id,
         name: PORT_RULE_NAME,
@@ -92,4 +97,19 @@ pub fn build_port_demo_engine() -> Engine {
         },
     );
     Engine::new(store, root_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_rule_id_is_domain_separated() {
+        let rule = port_rule();
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rule:");
+        hasher.update(PORT_RULE_NAME.as_bytes());
+        let expected: Hash = hasher.finalize().into();
+        assert_eq!(rule.id, expected);
+    }
 }

@@ -34,6 +34,29 @@ fn independent_motion_rewrites_commute_on_distinct_nodes() {
             payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 1.0, 0.0])),
         },
     );
+    // Make entities reachable from root via edges so snapshots include them.
+    let edge_ty = make_type_id("edge");
+    use rmg_core::{make_edge_id, EdgeRecord};
+    store1.insert_edge(
+        root,
+        EdgeRecord {
+            id: make_edge_id("root->a"),
+            from: root,
+            to: a,
+            ty: edge_ty,
+            payload: None,
+        },
+    );
+    store1.insert_edge(
+        root,
+        EdgeRecord {
+            id: make_edge_id("root->b"),
+            from: root,
+            to: b,
+            ty: edge_ty,
+            payload: None,
+        },
+    );
     let mut store2 = store1.clone();
 
     let rule = rmg_core::motion_rule();

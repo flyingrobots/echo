@@ -43,7 +43,6 @@ pub type JoinFn = fn(/* left */ &NodeId, /* right */ &NodeId) -> bool;
 /// * a human-readable name
 /// * a left pattern (currently unused by the spike)
 /// * callbacks for matching and execution
-#[derive(Debug)]
 pub struct RewriteRule {
     /// Deterministic identifier for the rewrite rule.
     pub id: Hash,
@@ -63,4 +62,13 @@ pub struct RewriteRule {
     pub conflict_policy: ConflictPolicy,
     /// Optional join function when `conflict_policy == Join`.
     pub join_fn: Option<JoinFn>,
+}
+
+impl core::fmt::Debug for RewriteRule {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RewriteRule")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }

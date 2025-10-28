@@ -49,7 +49,11 @@ pub struct AabbTree {
 impl AabbTree {
     /// Creates an empty tree.
     #[must_use]
-    pub fn new() -> Self { Self { items: BTreeMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            items: BTreeMap::new(),
+        }
+    }
 }
 
 impl BroadPhase for AabbTree {

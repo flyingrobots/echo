@@ -9,7 +9,7 @@ This document captures the interactive demos and performance milestones we want 
 **Goal:** Show two instances running locally in lockstep and prove graph hash equality every frame.
 
 - Two Echo instances (no network) consume identical input streams generated from a shared seed (deterministic RNG feeding input script).
-- Each frame serialises the world graph in canonical order (sorted node/edge IDs, component payload bytes) and hashes it with BLAKE3 to produce the “frame hash”.
+- Each frame serializes the world graph in canonical order (sorted node/edge IDs, component payload bytes) and hashes it with BLAKE3 to produce the “frame hash”.
 - Inspectors display the frame hashes side-by-side and flag divergence immediately. Success = 100% equality across a 10 000-frame run.
 - Determinism safeguards: freeze wall clock, mock OS timers, clamp floating-point math to deterministic fixed-point helpers, forbid nondeterministic APIs.
 - Output artifact: JSON trace (`frame`, `hash`, `inputs_consumed`) plus a screenshot/video for the showcase.

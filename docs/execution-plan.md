@@ -33,10 +33,31 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> Write the top priority for the current session and what “done” means.
+> 2025-10-28 — Devcontainer/toolchain alignment
 
-- **Focus**: Draft ECS storage implementation plan (archetype storage port to Rust).
-- **Definition of done**: Identify storage milestones, required data structures, and sequencing for integration with branch diff engine.
+- Single source of truth: `rust-toolchain.toml` (MSRV = 1.68.0).
+- Devcontainer must not override default toolchain; the feature installs Rust but selection is controlled by `rust-toolchain.toml`.
+- Post-create respects `rust-toolchain.toml` (no `rustup default stable`); installs MSRV (1.68.0) and optionally 1.90.0 without changing the default; adds rustfmt/clippy and wasm32 target.
+- CI should pin the toolchain explicitly (MSRV job on 1.68; avoid forcing `stable` overrides in workspace jobs).
+
+> 2025-10-28 — Pre-commit auto-format flag update
+
+- Renamed `AUTO_FMT` → `ECHO_AUTO_FMT` in `.githooks/pre-commit`.
+- README, AGENTS, and CONTRIBUTING updated to document hooks installation and the new flag.
+
+> 2025-10-28 — PR #8 (rmg-geom foundation) updates
+
+- Focus: compile + clippy pass for the new geometry crate baseline.
+- Changes in this branch:
+  - rmg-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, TemporalTransform, TemporalProxy}`.
+  - Removed premature `pub mod broad` (broad-phase lands in a separate PR) to fix E0583.
+  - Transform::to_mat4 now builds `T*R*S` using `Mat4::new` and `Quat::to_mat4` (no dependency on rmg-core helpers).
+  - Clippy: resolved similar_names in `Aabb::transformed`; relaxed `nursery`/`cargo` denies to keep scope tight.
+  - Merged latest `main` to inherit CI/toolchain updates.
+
+> 2025-10-28 — PR #7 (rmg-core engine spike)
+
+- Landed on main; see Decision Log for summary of changes and CI outcomes.
 
 ---
 

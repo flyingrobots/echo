@@ -39,6 +39,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Added `.devcontainer/post-create.sh` to install MSRV 1.68.0, add wasm target, and prime cargo cache.
 - Goal: align local environment with CI to reduce drift.
 
+> 2025-10-28 — Pre-commit auto-format flag update
+
+- Renamed `AUTO_FMT` → `ECHO_AUTO_FMT` in `.githooks/pre-commit`.
+- README, AGENTS, and CONTRIBUTING updated to document hooks installation and the new flag.
+
 > 2025-10-28 — PR #8 (rmg-geom foundation) updates
 
 - Focus: compile + clippy pass for the new geometry crate baseline.

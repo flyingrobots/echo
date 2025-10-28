@@ -28,3 +28,9 @@
 - Decision: Provide a reproducible local environment matching CI runners.
 - Details: VS Code devcontainer (Ubuntu 24.04) with Rust stable + MSRV toolchains, clippy/rustfmt, Node 20, gh CLI; post-create script installs 1.68.0 and wasm target.
 - Outcome: Faster feedback loops; easier reproduction of CI issues (clippy, rustdoc, Docs Guard).
+
+## 2025-10-28 — Pre-commit formatting flag renamed
+
+- Decision: Use an Echo-scoped env var for auto-format on commit.
+- Change: `AUTO_FMT` → `ECHO_AUTO_FMT` in `.githooks/pre-commit`.
+- Docs: README, AGENTS, CONTRIBUTING updated with hook install and usage.

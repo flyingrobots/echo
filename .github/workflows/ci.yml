@@ -16,9 +16,7 @@ jobs:
         with:
           submodules: false
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |

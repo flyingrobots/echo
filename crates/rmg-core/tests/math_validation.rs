@@ -11,9 +11,17 @@ use rmg_core::math::{self, Mat4, Prng, Quat, Vec3};
 const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
+#[allow(clippy::expect_fun_call)]
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
-    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES)
-        .unwrap_or_else(|err| panic!("failed to parse math fixtures at {FIXTURE_PATH}: {err}"));
+    let fixtures: MathFixtures = {
+        #[allow(clippy::expect_fun_call)]
+        {
+            serde_json::from_str(RAW_FIXTURES).expect(&format!(
+                "failed to parse math fixtures at {}",
+                FIXTURE_PATH
+            ))
+        }
+    };
     fixtures.validate();
     fixtures
 });
@@ -32,9 +40,11 @@ struct MathFixtures {
 impl MathFixtures {
     fn validate(&self) {
         fn ensure<T>(name: &str, slice: &[T]) {
-            if slice.is_empty() {
-                panic!("math fixtures set '{name}' must not be empty");
-            }
+            assert!(
+                !slice.is_empty(),
+                "math fixtures set '{name}' must not be empty (len={})",
+                slice.len()
+            );
         }
 
         ensure("scalars.clamp", &self.scalars.clamp);
@@ -296,6 +306,13 @@ fn scalar_fixtures_all_match() {
             &format!("scalars.rad_to_deg value={}", fix.value),
         );
     }
+}
+
+#[test]
+fn clamp_propagates_nan() {
+    let nan = f32::NAN;
+    let clamped = math::clamp(nan, -1.0, 1.0);
+    assert!(clamped.is_nan(), "clamp should propagate NaN");
 }
 
 #[test]

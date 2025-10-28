@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use js_sys::Uint8Array;
 use rmg_core::{
-    ApplyResult, Engine, MOTION_RULE_NAME, NodeId, NodeRecord, TxId, build_motion_demo_engine,
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id,
+    build_motion_demo_engine, decode_motion_payload, encode_motion_payload, make_node_id,
+    make_type_id, ApplyResult, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
 };
 use wasm_bindgen::prelude::*;
 
@@ -166,7 +166,7 @@ impl WasmEngine {
     #[wasm_bindgen]
     /// Begins a new transaction and returns its identifier.
     pub fn begin(&self) -> u64 {
-        self.inner.borrow_mut().begin().0
+        self.inner.borrow_mut().begin().value()
     }
 
     #[wasm_bindgen]
@@ -184,7 +184,7 @@ impl WasmEngine {
             None => return false,
         };
         let mut engine = self.inner.borrow_mut();
-        match engine.apply(TxId(tx_id), MOTION_RULE_NAME, &node_id) {
+        match engine.apply(TxId::from_raw(tx_id), MOTION_RULE_NAME, &node_id) {
             Ok(ApplyResult::Applied) => true,
             Ok(ApplyResult::NoMatch) => false,
             Err(_) => false,
@@ -198,7 +198,7 @@ impl WasmEngine {
             return None;
         }
         let mut engine = self.inner.borrow_mut();
-        let snapshot = engine.commit(TxId(tx_id)).ok()?;
+        let snapshot = engine.commit(TxId::from_raw(tx_id)).ok()?;
         Some(snapshot.hash.to_vec())
     }
 

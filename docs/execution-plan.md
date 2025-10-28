@@ -33,6 +33,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-28 — PR #13 (math polish) opened
+
+- Focus: canonicalize -0.0 in Mat4 trig constructors and add MulAssign ergonomics.
+- Outcome: Opened PR echo/core-math-canonical-zero with tests; gather feedback before merge.
+
 > 2025-10-28 — PR #7 finalize and land
 
 - Focus: close out review nits on engine/scheduler/footprint/demo; ensure CI/hook stability; keep scope tight.

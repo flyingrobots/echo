@@ -139,8 +139,7 @@ impl Footprint {
 /// Layout used by this helper:
 /// - bits 63..32: lower 32 bits of the node's first 8 bytes (LE) — a stable
 ///   per-node fingerprint, not reversible
-/// - bits 31..2: `port_id` (u30; must be < 2^30)
-/// - bit 1: reserved (0)
+/// - bits 31..1: `port_id` (u31; must be < 2^31)
 /// - bit 0: direction flag (1 = input, 0 = output)
 ///
 /// This is sufficient for tests and demos; production code may adopt a
@@ -151,9 +150,9 @@ pub fn pack_port_key(node: &NodeId, port_id: u32, dir_in: bool) -> PortKey {
     first8.copy_from_slice(&node.0[0..8]);
     let node_fingerprint = u64::from_le_bytes(first8) & 0xFFFF_FFFF;
     let dir_bit = u64::from(dir_in);
-    debug_assert!(port_id < (1 << 30), "port_id must fit in 30 bits");
-    let port30 = u64::from(port_id & 0x3FFF_FFFF);
-    (node_fingerprint << 32) | (port30 << 2) | dir_bit
+    debug_assert!(port_id < (1 << 31), "port_id must fit in 31 bits");
+    let port31 = u64::from(port_id & 0x7FFF_FFFF);
+    (node_fingerprint << 32) | (port31 << 1) | dir_bit
 }
 
 #[cfg(test)]
@@ -176,16 +175,16 @@ mod tests {
     }
 
     #[test]
-    fn pack_port_key_masks_port_id_to_u30() {
+    fn pack_port_key_masks_port_id_to_u31() {
         let a = NodeId(blake3::hash(b"node-a").into());
-        let hi = (1u32 << 30) - 1;
+        let hi = (1u32 << 31) - 1;
         let k_ok = pack_port_key(&a, hi, true);
         if !cfg!(debug_assertions) {
-            // Same node/dir; port_id above u30 must not alter higher fields.
+            // Same node/dir; port_id above u31 must not alter higher fields.
             let k_over = pack_port_key(&a, hi + 1, true);
             assert_eq!(
-                k_ok & !0b11,
-                k_over & !0b11,
+                k_ok & !0b1,
+                k_over & !0b1,
                 "overflow must not spill into fingerprint"
             );
         }

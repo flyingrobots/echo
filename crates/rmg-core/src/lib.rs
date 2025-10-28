@@ -55,8 +55,8 @@ pub use engine_impl::{ApplyResult, Engine, EngineError};
 /// Footprint utilities for MWMR independence checks.
 /// `pack_port_key(node, port_id, dir_in)` packs a 64‑bit key as:
 /// - upper 32 bits: low 32 bits of the `NodeId` (LE)
-/// - next 30 bits: `port_id` (must be < 2^30)
-/// - lowest 2 bits: direction flag (`1` = input, `0` = output)
+/// - next 31 bits: `port_id` (must be < 2^31)
+/// - lowest 1 bit: direction flag (`1` = input, `0` = output)
 /// Collisions are possible across nodes that share the same low 32‑bit
 /// fingerprint; choose ids/ports accordingly.
 pub use footprint::{pack_port_key, Footprint, PortKey};

@@ -115,7 +115,11 @@ impl Engine {
     /// Begins a new transaction and returns its identifier.
     #[must_use]
     pub fn begin(&mut self) -> TxId {
-        self.tx_counter += 1;
+        // Increment with wrap and ensure we never produce 0 (reserved invalid).
+        self.tx_counter = self.tx_counter.wrapping_add(1);
+        if self.tx_counter == 0 {
+            self.tx_counter = 1;
+        }
         self.live_txs.insert(self.tx_counter);
         TxId::from_raw(self.tx_counter)
     }
@@ -170,12 +174,10 @@ impl Engine {
 
     /// Executes all pending rewrites for the transaction and produces a snapshot.
     ///
-    /// # Behavior on internal corruption
-    /// Returns an error if internal invariants are violated (e.g., a reserved
-    /// rewrite references a missing rule).
-    ///
     /// # Errors
-    /// Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
+    /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
+    /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
+    ///   corrupted (e.g., a reserved rewrite references a missing rule).
     pub fn commit(&mut self, tx: TxId) -> Result<Snapshot, EngineError> {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);

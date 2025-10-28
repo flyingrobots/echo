@@ -13,10 +13,15 @@ static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
 #[allow(clippy::expect_fun_call)]
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
-    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES).expect(&format!(
-        "failed to parse math fixtures at {}",
-        FIXTURE_PATH
-    ));
+    let fixtures: MathFixtures = {
+        #[allow(clippy::expect_fun_call)]
+        {
+            serde_json::from_str(RAW_FIXTURES).expect(&format!(
+                "failed to parse math fixtures at {}",
+                FIXTURE_PATH
+            ))
+        }
+    };
     fixtures.validate();
     fixtures
 });

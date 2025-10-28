@@ -16,6 +16,9 @@ jobs:
         with:
           submodules: false
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          override: true
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -31,6 +34,10 @@ jobs:
         with:
           submodules: false
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy
+          override: true
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -46,6 +53,9 @@ jobs:
         with:
           submodules: false
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          override: true
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -110,6 +120,9 @@ jobs:
         with:
           submodules: false
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          override: true
       - uses: Swatinem/rust-cache@v2
       - name: rustdoc warnings gate
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps

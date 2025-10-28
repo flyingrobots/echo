@@ -12,6 +12,10 @@ pub struct Mat4 {
 
 impl Mat4 {
     /// Returns the identity matrix.
+    ///
+    /// The identity is the multiplicative neutral element for matrices:
+    /// `M * I = I * M = M`. Use it as a no‑op transform or as a starting
+    /// point for composing transforms.
     pub const fn identity() -> Self {
         Self {
             data: [
@@ -30,6 +34,12 @@ impl Mat4 {
     }
 
     /// Builds a non-uniform scale matrix.
+    ///
+    /// Invariants:
+    /// - Determinant is `sx * sy * sz`. Any zero component produces a
+    ///   degenerate (non-invertible) matrix.
+    /// - A negative component reflects about the corresponding axis; an odd
+    ///   number of negative components flips handedness.
     pub const fn scale(sx: f32, sy: f32, sz: f32) -> Self {
         Self {
             data: [
@@ -39,6 +49,10 @@ impl Mat4 {
     }
 
     /// Builds a rotation matrix around the X axis by `angle` radians.
+    ///
+    /// Right‑handed convention: positive angles rotate counter‑clockwise when
+    /// looking down the +X axis toward the origin. See
+    /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_x(angle: f32) -> Self {
         let (s, c) = angle.sin_cos();
         Self::new([
@@ -47,6 +61,10 @@ impl Mat4 {
     }
 
     /// Builds a rotation matrix around the Y axis by `angle` radians.
+    ///
+    /// Right‑handed convention: positive angles rotate counter‑clockwise when
+    /// looking down the +Y axis toward the origin. See
+    /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_y(angle: f32) -> Self {
         let (s, c) = angle.sin_cos();
         Self::new([
@@ -55,6 +73,10 @@ impl Mat4 {
     }
 
     /// Builds a rotation matrix around the Z axis by `angle` radians.
+    ///
+    /// Right‑handed convention: positive angles rotate counter‑clockwise when
+    /// looking down the +Z axis toward the origin. See
+    /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_z(angle: f32) -> Self {
         let (s, c) = angle.sin_cos();
         Self::new([
@@ -83,6 +105,11 @@ impl Mat4 {
     }
 
     /// Constructs a rotation matrix from a quaternion.
+    ///
+    /// Expects a unit (normalised) quaternion for a pure rotation. Passing an
+    /// unnormalised quaternion scales the resulting matrix. Component order is
+    /// `(x, y, z, w)` to match [`Quat`]. See [`Quat`] for construction and
+    /// normalisation helpers.
     pub fn from_quat(q: &Quat) -> Self {
         q.to_mat4()
     }

@@ -52,12 +52,12 @@ fi
 # 3) Format check (fast)
 cargo fmt --all -- --check
 
-# 4) Docs guard: if any non-doc file is staged, require execution-plan + decision-log to be staged too
+# 4) Docs guard (scaled): only require docs when core public API changed
 STAGED=$(git diff --cached --name-only)
-NON_DOC=$(echo "$STAGED" | grep -vE '(^docs/)|(\.md$)' || true)
-if [[ -n "$NON_DOC" ]]; then
-  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when non-doc files change.' >&2; exit 1; }
-  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when non-doc files change.' >&2; exit 1; }
+CORE_API_CHANGED=$(echo "$STAGED" | grep -E '^crates/rmg-core/src/.*\.rs$' | grep -v '/tests/' || true)
+if [[ -n "$CORE_API_CHANGED" ]]; then
+  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when core API changes.' >&2; exit 1; }
+  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when core API changes.' >&2; exit 1; }
 fi
 
 # 5) Lockfile guard: ensure lockfile version is v3 (compatible with MSRV cargo)

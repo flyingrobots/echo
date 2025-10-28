@@ -35,6 +35,15 @@ fn n_permutation_commute_n3_and_n4() {
                     payload: Some(encode_motion_payload([0.0, 0.0, 0.0], v)),
                 },
             );
+            // Connect entity to root so snapshot reachability includes it.
+            let edge = rmg_core::EdgeRecord {
+                id: rmg_core::make_edge_id(&format!("root-to-entity-{i}")),
+                from: root,
+                to: id,
+                ty: make_type_id("contains"),
+                payload: None,
+            };
+            store.insert_edge(root, edge);
             scopes.push(id);
         }
         let rule = rmg_core::motion_rule();

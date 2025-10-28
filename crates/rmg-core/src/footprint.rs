@@ -105,6 +105,8 @@ impl Footprint {
     ///
     /// Fast path checks the factor mask; then boundary ports; then edges and
     /// nodes. The check is symmetric but implemented with early exits.
+    /// Disjoint `factor_mask` values guarantee independence by construction
+    /// (the mask is a coarse superset of touched partitions).
     pub fn independent(&self, other: &Self) -> bool {
         if (self.factor_mask & other.factor_mask) == 0 {
             return true;
@@ -137,7 +139,8 @@ impl Footprint {
 /// Layout used by this helper:
 /// - bits 63..32: lower 32 bits of the node's first 8 bytes (LE) — a stable
 ///   per-node fingerprint, not reversible
-/// - bits 31..2: `port_id` (u30)
+/// - bits 31..2: `port_id` (u30; must be < 2^30)
+/// - bit 1: reserved (0)
 /// - bit 0: direction flag (1 = input, 0 = output)
 ///
 /// This is sufficient for tests and demos; production code may adopt a
@@ -148,7 +151,9 @@ pub fn pack_port_key(node: &NodeId, port_id: u32, dir_in: bool) -> PortKey {
     first8.copy_from_slice(&node.0[0..8]);
     let node_fingerprint = u64::from_le_bytes(first8) & 0xFFFF_FFFF;
     let dir_bit = u64::from(dir_in);
-    (node_fingerprint << 32) | (u64::from(port_id) << 2) | dir_bit
+    debug_assert!(port_id < (1 << 30), "port_id must fit in 30 bits");
+    let port30 = u64::from(port_id & 0x3FFF_FFFF);
+    (node_fingerprint << 32) | (port30 << 2) | dir_bit
 }
 
 #[cfg(test)]
@@ -168,5 +173,21 @@ mod tests {
         assert_ne!(k1, k4);
         // Stability
         assert_eq!(k1, pack_port_key(&a, 0, true));
+    }
+
+    #[test]
+    fn pack_port_key_masks_port_id_to_u30() {
+        let a = NodeId(blake3::hash(b"node-a").into());
+        let hi = (1u32 << 30) - 1;
+        let k_ok = pack_port_key(&a, hi, true);
+        if !cfg!(debug_assertions) {
+            // Same node/dir; port_id above u30 must not alter higher fields.
+            let k_over = pack_port_key(&a, hi + 1, true);
+            assert_eq!(
+                k_ok & !0b11,
+                k_over & !0b11,
+                "overflow must not spill into fingerprint"
+            );
+        }
     }
 }

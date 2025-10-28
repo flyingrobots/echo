@@ -1,24 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PINNED="${PINNED:-1.68.0}"
+
+for cmd in cargo rustup rg; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "[pre-push] missing dependency: $cmd. Install it and retry." >&2
+    exit 1
+  fi
+done
+
+echo "BunBun."
 
 if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
   exit 0
 fi
 
 echo "[pre-push] fmt"
-cargo fmt --all -- --check
+cargo +"$PINNED" fmt --all -- --check
 
 echo "[pre-push] clippy (workspace)"
-cargo clippy --all-targets -- -D warnings -D missing_docs
+cargo +"$PINNED" clippy --all-targets -- -D warnings -D missing_docs
 
 echo "[pre-push] tests (workspace)"
-cargo test --workspace
+cargo +"$PINNED" test --workspace
 
 # MSRV check for rmg-core
-PINNED="1.68.0"
-if rustup toolchain list | grep -q "$PINNED"; then
-  echo "[pre-push] MSRV check (rmg-core @ $PINNED)"
-  cargo +$PINNED check -p rmg-core --all-targets
+echo "[pre-push] MSRV check (rmg-core @ $PINNED)"
+if rustup run "$PINNED" cargo -V >/dev/null 2>&1; then
+  cargo +"$PINNED" check -p rmg-core --all-targets
 else
   echo "[pre-push] MSRV toolchain $PINNED not installed. Install via: rustup toolchain install $PINNED" >&2
   exit 1
@@ -26,13 +35,14 @@ fi
 
 # Rustdoc warnings guard (core API)
 echo "[pre-push] rustdoc warnings gate (rmg-core)"
-RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps
+RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p rmg-core --no-deps
 
 # Banned patterns
 echo "[pre-push] scanning banned patterns"
-if rg -n "#!\[allow\(missing_docs\)\]" crates | grep -v "crates/rmg-core/src/telemetry.rs" >/dev/null; then
+# Match any crate-level allow(...) that includes missing_docs; exclude telemetry.rs explicitly
+if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' --glob '!crates/rmg-core/src/telemetry.rs' crates >/dev/null; then
   echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs)." >&2
-  rg -n "#!\[allow\(missing_docs\)\]" crates | cat >&2 || true
+  rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' --glob '!crates/rmg-core/src/telemetry.rs' crates | cat >&2 || true
   exit 1
 fi
 if rg -n "\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then
@@ -42,4 +52,3 @@ if rg -n "\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then
 fi
 
 exit 0
-

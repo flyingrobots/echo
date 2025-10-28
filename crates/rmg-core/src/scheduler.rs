@@ -111,5 +111,6 @@ impl DeterministicScheduler {
             telemetry::summary(tx, reserved, conflict);
         }
         self.active.remove(&tx);
+        self.pending.remove(&tx);
     }
 }

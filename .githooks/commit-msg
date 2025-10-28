@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-FILE="$1"
+FILE="${1:-}"
+if [[ -z "$FILE" || ! -f "$FILE" ]]; then
+  echo "[commit-msg] Missing commit message file. Usage: commit-msg <path>" >&2
+  exit 1
+fi
 
 SUBJECT=$(head -n1 "$FILE")
 if [[ -z "${SUBJECT// /}" ]]; then
@@ -8,8 +12,8 @@ if [[ -z "${SUBJECT// /}" ]]; then
   exit 1
 fi
 
-# Discourage WIP commits.
-if echo "$SUBJECT" | grep -Ei '^\s*wip\b' >/dev/null; then
+# Discourage WIP commits (built-in regex; avoid spawning grep)
+if [[ "$SUBJECT" =~ ^[[:space:]]*[Ww][Ii][Pp]\b ]]; then
   echo "[commit-msg] Please avoid 'WIP' in commit subjects. Tell a short story instead." >&2
   exit 1
 fi
@@ -21,4 +25,3 @@ if (( LEN > 72 )); then
 fi
 
 exit 0
-

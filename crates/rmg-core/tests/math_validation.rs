@@ -8,14 +8,12 @@ use serde::Deserialize;
 
 use rmg_core::math::{self, Mat4, Prng, Quat, Vec3};
 
-#[allow(dead_code)]
 const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
-    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES).expect(
-        "failed to parse math fixtures at crates/rmg-core/tests/fixtures/math-fixtures.json",
-    );
+    let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES)
+        .expect(&format!("failed to parse math fixtures at {FIXTURE_PATH}"));
     fixtures.validate();
     fixtures
 });

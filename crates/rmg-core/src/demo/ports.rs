@@ -34,11 +34,11 @@ fn port_executor(store: &mut GraphStore, scope: &NodeId) {
 
 fn compute_port_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut n_write = IdSet::default();
+    let mut b_in = PortSet::default();
     if store.node(scope).is_some() {
         n_write.insert_node(scope);
+        b_in.insert(pack_port_key(scope, 0, true));
     }
-    let mut b_in = PortSet::default();
-    b_in.insert(pack_port_key(scope, 0, true));
     Footprint {
         n_read: IdSet::default(),
         n_write,
@@ -96,7 +96,11 @@ pub fn build_port_demo_engine() -> Engine {
             payload: None,
         },
     );
-    Engine::new(store, root_id)
+    let mut engine = Engine::new(store, root_id);
+    engine
+        .register_rule(port_rule())
+        .expect("port rule should register successfully in fresh engine");
+    engine
 }
 
 #[cfg(test)]

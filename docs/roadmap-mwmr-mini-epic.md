@@ -2,7 +2,6 @@
 
 Status: Active • Owner: rmg-core • Created: 2025-10-27
 
- 
 ## Outcomes
 - Enforce MWMR determinism via independence checks (footprints + ports + factor masks).
 - Keep the hot path zero‑overhead (compact u32 rule ids; domain‑separated family ids only at boundaries).
@@ -10,7 +9,6 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 ---
 
- 
 ## Phase 0.5 — Foundations (Done / In‑Progress)
 - [x] Footprint type with ports and factor mask (IdSet/PortSet; deterministic intersects)
 - [x] RewriteRule surface extended with `compute_footprint`, `factor_mask`, `ConflictPolicy`
@@ -20,7 +18,6 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 ---
 
- 
 ## Phase 1 — Reservation Gate & Compact IDs
 - [x] CompactRuleId(u32) and rule table mapping family_id → compact id (in Engine)
 - [x] DeterministicScheduler::reserve(tx, &mut PendingRewrite) → bool (active frontier per tx)
@@ -30,7 +27,6 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 ---
 
- 
 ## Phase 2 — Proof & Performance
 - [ ] Property test: N‑permutation commutation (N = 3..6 independent rewrites)
 - [ ] Reserve gate smoke tests (same PortKey ⇒ conflict; disjoint ports ⇒ reserve)
@@ -40,7 +36,6 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 ---
 
- 
 ## Phase 3 — Rule Identity & Hot‑Load
 - [x] build.rs generates const family id for `rule:motion/update` (domain‑separated)
 - [ ] Generalize generator (src/gen/rule_ids.rs) and runtime assert test to catch drift
@@ -57,7 +52,6 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 ---
 
- 
 ## Guardrails & Invariants
 - Deterministic planning key = (scope_hash, family_id); execution may be parallel, ordering stays stable.
 - Footprint independence order: factor_mask → ports → edges → nodes; fail fast on ports.
@@ -66,14 +60,12 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 ---
 
- 
 ## Telemetry (dev feature)
 - Events: `reserved`, `conflict` (ts_micros, tx_id, rule_id_short)
 - Counters per tick: conflict_rate, retry_count, reservation_latency_ms, epoch_flip_ms, bitmap_blocks_checked
 
 ---
 
- 
 ## Links
 - Spec: `docs/spec-mwmr-concurrency.md`
 - Tests: `crates/rmg-core/tests/footprint_independence_tests.rs`, `crates/rmg-core/tests/property_commute_tests.rs`

@@ -27,6 +27,10 @@ pub enum ConflictPolicy {
     /// Retry (re-match) against the latest state.
     Retry,
     /// Attempt a join using a rule-provided strategy.
+    ///
+    /// Requires the rule's [`join_fn`] to be `Some`; rules specifying `Join`
+    /// without providing a join function will be rejected at registration time
+    /// in future revisions.
     Join,
 }
 
@@ -60,7 +64,11 @@ pub struct RewriteRule {
     pub factor_mask: u64,
     /// Conflict resolution policy when independence fails.
     pub conflict_policy: ConflictPolicy,
-    /// Optional join function when `conflict_policy == Join`.
+    /// Join function required when `conflict_policy == ConflictPolicy::Join`.
+    ///
+    /// Invariant: If `conflict_policy` is `ConflictPolicy::Join`, this field
+    /// must be `Some`. Rules that violate this invariant are subject to being
+    /// rejected by [`Engine::register_rule`] in future revisions.
     pub join_fn: Option<JoinFn>,
 }
 

@@ -36,6 +36,9 @@ pub enum EngineError {
     /// Attempted to register a rule with a duplicate ID.
     #[error("duplicate rule id: {0:?}")]
     DuplicateRuleId(Hash),
+    /// Internal invariant violated (engine state corruption).
+    #[error("internal invariant violated: {0}")]
+    InternalCorruption(&'static str),
 }
 
 /// Core rewrite engine used by the spike.
@@ -113,7 +116,6 @@ impl Engine {
     /// # Errors
     /// Returns [`EngineError::UnknownTx`] if the transaction is invalid, or
     /// [`EngineError::UnknownRule`] if the named rule is not registered.
-    /// Queues a rewrite for execution if it matches the provided scope.
     ///
     /// # Panics
     /// Panics only if internal rule tables are corrupted (should not happen
@@ -178,11 +180,12 @@ impl Engine {
             }
         }
         for rewrite in reserved {
-            if let Some(rule) = self.rule_by_compact(rewrite.compact_rule) {
-                (rule.executor)(&mut self.store, &rewrite.scope);
-            } else {
-                debug_assert!(false, "missing rule for compact id during commit");
-            }
+            let Some(rule) = self.rule_by_compact(rewrite.compact_rule) else {
+                return Err(EngineError::InternalCorruption(
+                    "missing rule for compact id during commit",
+                ));
+            };
+            (rule.executor)(&mut self.store, &rewrite.scope);
         }
 
         let hash = compute_snapshot_hash(&self.store, &self.current_root);

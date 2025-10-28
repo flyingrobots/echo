@@ -1,4 +1,4 @@
-#![allow(missing_docs)]
+// Telemetry helpers for JSONL logging when the `telemetry` feature is enabled.
 
 #[cfg(feature = "telemetry")]
 use serde::Serialize;

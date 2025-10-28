@@ -5,9 +5,6 @@ use rmg_core::{decode_motion_payload, make_node_id, make_type_id, NodeRecord};
 fn reserve_gate_aborts_second_on_port_conflict() {
     // Engine with a single entity; register the port rule; apply it twice on same scope in one tx.
     let mut engine = rmg_core::demo::ports::build_port_demo_engine();
-    engine
-        .register_rule(rmg_core::demo::ports::port_rule())
-        .expect("register port rule");
 
     // Create an entity node under root that we’ll target.
     let entity = make_node_id("reserve-entity");

@@ -20,7 +20,7 @@
 
 ### Say what??
 
-**Echo is an ambitious, mind-bending, fundamentally different computational model for game engines and other interactive simulations.** The RMG is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
+**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The RMG is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
 
 Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
 
@@ -91,7 +91,7 @@ Same input graph + same rules = same output, always. This is huge for:
 
 ### Branching Timelines 
 
-> “All we have to decide is what to do with the time that is given us.” — _Gandalf, The Lord of the Rings_
+> “All we have to decide is what to do with the time that is given to us.” — _Gandalf, The Lord of the Rings_
 
 The Git metaphor is accurate. Fork reality, try something, merge back. This enables:
 

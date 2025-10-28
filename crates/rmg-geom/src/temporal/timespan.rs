@@ -12,13 +12,13 @@ use crate::types::{aabb::Aabb, transform::Transform};
 ///   shape scale) so that fat proxies are identical across peers/branches. The
 ///   policy and quantization will be recorded in the graph/spec.
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct TemporalTransform {
+pub struct Timespan {
     start: Transform,
     end: Transform,
 }
 
-impl TemporalTransform {
-    /// Creates a new `TemporalTransform` from start and end transforms.
+impl Timespan {
+    /// Creates a new `Timespan` from start and end transforms.
     #[must_use]
     pub const fn new(start: Transform, end: Transform) -> Self {
         Self { start, end }

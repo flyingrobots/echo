@@ -1,19 +1,19 @@
 use crate::temporal::tick::Tick;
 use crate::types::aabb::Aabb;
 
-/// Broad-phase proxy summarizing an entity’s motion window for a tick.
+/// Broad-phase proxy summarizing an entity’s swept position manifold over a tick.
 ///
 /// Stores a conservative fat AABB and the owning `entity` identifier (opaque
 /// to the geometry layer). The proxy is suitable for insertion into a broad-
 /// phase accelerator.
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub struct TemporalProxy {
+pub struct PositionProxy {
     entity: u64,
     tick: Tick,
     fat: Aabb,
 }
 
-impl TemporalProxy {
+impl PositionProxy {
     /// Creates a new proxy for `entity` at `tick` with precomputed `fat` AABB.
     #[must_use]
     pub const fn new(entity: u64, tick: Tick, fat: Aabb) -> Self {

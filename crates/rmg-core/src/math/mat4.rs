@@ -188,5 +188,7 @@ impl core::ops::Mul<Mat4> for &Mat4 {
 }
 
 impl Default for Mat4 {
-    fn default() -> Self { Self::identity() }
+    fn default() -> Self {
+        Self::identity()
+    }
 }

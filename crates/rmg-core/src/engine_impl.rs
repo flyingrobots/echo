@@ -141,21 +141,17 @@ impl Engine {
             .compact_rule_ids
             .get(&rule.id)
             .expect("compact_rule_ids missing entry for a registered rule");
-        self.scheduler
-            .pending
-            .entry(tx)
-            .or_default()
-            .insert(
-                (scope_hash, rule.id),
-                PendingRewrite {
-                    rule_id: rule.id,
-                    compact_rule,
-                    scope_hash,
-                    scope: *scope,
-                    footprint,
-                    phase: RewritePhase::Matched,
-                },
-            );
+        self.scheduler.pending.entry(tx).or_default().insert(
+            (scope_hash, rule.id),
+            PendingRewrite {
+                rule_id: rule.id,
+                compact_rule,
+                scope_hash,
+                scope: *scope,
+                footprint,
+                phase: RewritePhase::Matched,
+            },
+        );
 
         Ok(ApplyResult::Applied)
     }

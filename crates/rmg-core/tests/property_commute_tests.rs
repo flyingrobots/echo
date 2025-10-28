@@ -13,14 +13,26 @@ fn independent_motion_rewrites_commute_on_distinct_nodes() {
     let b = make_node_id("entity-b");
 
     let mut store1 = GraphStore::default();
-    store1.insert_node(root, NodeRecord { ty: world_ty, payload: None });
+    store1.insert_node(
+        root,
+        NodeRecord {
+            ty: world_ty,
+            payload: None,
+        },
+    );
     store1.insert_node(
         a,
-        NodeRecord { ty: ent_ty, payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])) },
+        NodeRecord {
+            ty: ent_ty,
+            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+        },
     );
     store1.insert_node(
         b,
-        NodeRecord { ty: ent_ty, payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 1.0, 0.0])) },
+        NodeRecord {
+            ty: ent_ty,
+            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 1.0, 0.0])),
+        },
     );
     let mut store2 = store1.clone();
 

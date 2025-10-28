@@ -33,5 +33,8 @@ fn reserve_gate_aborts_second_on_port_conflict() {
         .as_ref()
         .and_then(decode_motion_payload)
         .expect("payload present");
-    assert!((pos[0] - 1.0).abs() < 1e-6, "expected exactly one reservation to succeed");
+    assert!(
+        (pos[0] - 1.0).abs() < 1e-6,
+        "expected exactly one reservation to succeed"
+    );
 }

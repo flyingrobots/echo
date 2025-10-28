@@ -12,7 +12,9 @@ use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 /// Public identifier for the port demo rule.
 pub const PORT_RULE_NAME: &str = "demo/port_nop";
 
-fn port_matcher(_: &GraphStore, _: &NodeId) -> bool { true }
+fn port_matcher(_: &GraphStore, _: &NodeId) -> bool {
+    true
+}
 
 fn port_executor(store: &mut GraphStore, scope: &NodeId) {
     if let Some(node) = store.node_mut(scope) {

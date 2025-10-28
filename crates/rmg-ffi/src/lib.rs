@@ -48,8 +48,7 @@ pub struct rmg_snapshot {
 /// # Safety
 /// The caller assumes ownership of the returned pointer and must release it
 /// via [`rmg_engine_free`] to avoid leaking memory.
-// Rust 2024 requires `#[unsafe(no_mangle)]` as `no_mangle` is an unsafe attribute.
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn rmg_engine_new() -> *mut RmgEngine {
     Box::into_raw(Box::new(RmgEngine {
         inner: build_motion_demo_engine(),
@@ -61,7 +60,7 @@ pub unsafe extern "C" fn rmg_engine_new() -> *mut RmgEngine {
 /// # Safety
 /// `engine` must be a pointer previously returned by [`rmg_engine_new`] that
 /// has not already been freed.
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn rmg_engine_free(engine: *mut RmgEngine) {
     if engine.is_null() {
         return;
@@ -76,7 +75,7 @@ pub unsafe extern "C" fn rmg_engine_free(engine: *mut RmgEngine) {
 /// # Safety
 /// `engine`, `label`, and `out_handle` must be valid pointers. `label` must
 /// reference a null-terminated UTF-8 string.
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
     engine: *mut RmgEngine,
     label: *const c_char,
@@ -120,7 +119,7 @@ pub unsafe extern "C" fn rmg_engine_spawn_motion_entity(
 ///
 /// # Safety
 /// `engine` must be a valid pointer created by [`rmg_engine_new`].
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
     if engine.is_null() {
         return rmg_tx_id { value: 0 };
@@ -134,7 +133,7 @@ pub unsafe extern "C" fn rmg_engine_begin(engine: *mut RmgEngine) -> rmg_tx_id {
 ///
 /// # Safety
 /// All pointers must be valid. `tx` must reference an active transaction.
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn rmg_engine_apply_motion(
     engine: *mut RmgEngine,
     tx: rmg_tx_id,
@@ -165,7 +164,7 @@ pub unsafe extern "C" fn rmg_engine_apply_motion(
 ///
 /// # Safety
 /// Pointers must be valid; `tx` must correspond to a live transaction.
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn rmg_engine_commit(
     engine: *mut RmgEngine,
     tx: rmg_tx_id,
@@ -190,7 +189,7 @@ pub unsafe extern "C" fn rmg_engine_commit(
 ///
 /// # Safety
 /// Pointers must be valid; output buffers must have length at least three.
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn rmg_engine_read_motion(
     engine: *mut RmgEngine,
     node_handle: *const rmg_node_id,

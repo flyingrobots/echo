@@ -50,6 +50,8 @@ mod tx;
 pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
 /// Rewrite engine and error types.
 pub use engine_impl::{ApplyResult, Engine, EngineError};
+/// Footprint utilities for MWMR independence checks.
+pub use footprint::{Footprint, PortKey};
 /// In-memory graph store used by the engine spike.
 pub use graph::GraphStore;
 /// Core identifier types and constructors for nodes, types, and edges.
@@ -64,5 +66,3 @@ pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use snapshot::Snapshot;
 /// Transaction identifier type.
 pub use tx::TxId;
-/// Footprint utilities for MWMR independence checks.
-pub use footprint::{Footprint, PortKey};

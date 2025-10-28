@@ -3,7 +3,6 @@ use rmg_core::{encode_motion_payload, make_node_id, make_type_id, GraphStore, No
 mod common;
 use common::snapshot_hash_of;
 
-
 #[test]
 fn n_permutation_commute_n3_and_n4() {
     for &n in &[3usize, 4usize] {
@@ -12,7 +11,13 @@ fn n_permutation_commute_n3_and_n4() {
         let world_ty = make_type_id("world");
         let ent_ty = make_type_id("entity");
         let mut store = GraphStore::default();
-        store.insert_node(root, NodeRecord { ty: world_ty, payload: None });
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: world_ty,
+                payload: None,
+            },
+        );
         let mut scopes = Vec::new();
         for i in 0..n {
             let id = make_node_id(&format!("entity-{i}"));
@@ -25,7 +30,10 @@ fn n_permutation_commute_n3_and_n4() {
             };
             store.insert_node(
                 id,
-                NodeRecord { ty: ent_ty, payload: Some(encode_motion_payload([0.0, 0.0, 0.0], v)) },
+                NodeRecord {
+                    ty: ent_ty,
+                    payload: Some(encode_motion_payload([0.0, 0.0, 0.0], v)),
+                },
             );
             scopes.push(id);
         }

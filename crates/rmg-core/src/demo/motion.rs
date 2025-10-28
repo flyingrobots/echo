@@ -130,6 +130,9 @@ mod tests {
         hasher.update(b"rule:");
         hasher.update(MOTION_RULE_NAME.as_bytes());
         let expected: Hash = hasher.finalize().into();
-        assert_eq!(MOTION_RULE_ID, expected, "MOTION_RULE_ID must equal blake3(\"rule:\" ++ MOTION_RULE_NAME)");
+        assert_eq!(
+            MOTION_RULE_ID, expected,
+            "MOTION_RULE_ID must equal blake3(\"rule:\" ++ MOTION_RULE_NAME)"
+        );
     }
 }

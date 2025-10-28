@@ -6,7 +6,6 @@ fn approx_eq(a: f32, b: f32) {
     assert!(diff <= 1e-6, "expected {b}, got {a} (diff {diff})");
 }
 
-
 #[test]
 fn vec3_normalize_degenerate_returns_zero() {
     let v = Vec3::new(1e-12, -1e-12, 0.0);

@@ -171,6 +171,23 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 - Use expressive commits (`subject` / `body` / optional `trailer`)—tell future us the *why*, not just the *what*.
 - Treat determinism as sacred: prefer Echo’s PRNG, avoid non-deterministic APIs without wrapping them.
   
+### Git Hooks
+
+Install the repo’s hooks so formatting and quick checks run before commits:
+
+```
+make hooks
+```
+
+- The pre-commit hook runs `cargo fmt --all -- --check` by default.
+- To auto-fix formatting on commit, opt in with `AUTO_FMT=1`:
+
+```
+AUTO_FMT=1 git commit -m "your message"
+```
+
+You can also export `AUTO_FMT=1` in your shell rc if you prefer auto-fix always.
+
 ### Development Principles
 
 1. **Tests First** – Write failing unit/integration/branch tests before new engine work.

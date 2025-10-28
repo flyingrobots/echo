@@ -13,7 +13,7 @@
 This crate provides:
 - Axis-aligned bounding boxes (`Aabb`).
 - Rigid transforms (`Transform`).
-- Temporal utilities (`Tick`, `TemporalTransform`, `TemporalProxy`).
+- Temporal utilities (`Tick`, `Timespan`, `SweepProxy`).
 - A minimal broad-phase trait and an AABB-based pairing structure.
 
 Design notes:

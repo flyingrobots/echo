@@ -49,7 +49,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Focus: compile + clippy pass for the new geometry crate baseline.
 - Changes in this branch:
-  - rmg-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, TemporalTransform, TemporalProxy}`.
+  - rmg-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, Timespan, SweepProxy}`.
   - Removed premature `pub mod broad` (broad-phase lands in a separate PR) to fix E0583.
   - Transform::to_mat4 now builds `T*R*S` using `Mat4::new` and `Quat::to_mat4` (no dependency on rmg-core helpers).
   - Clippy: resolved similar_names in `Aabb::transformed`; relaxed `nursery`/`cargo` denies to keep scope tight.

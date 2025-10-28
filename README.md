@@ -180,13 +180,13 @@ make hooks
 ```
 
 - The pre-commit hook runs `cargo fmt --all -- --check` by default.
-- To auto-fix formatting on commit, opt in with `AUTO_FMT=1`:
+- To auto-fix formatting on commit, opt in with `ECHO_AUTO_FMT=1`:
 
 ```
-AUTO_FMT=1 git commit -m "your message"
+ECHO_AUTO_FMT=1 git commit -m "your message"
 ```
 
-You can also export `AUTO_FMT=1` in your shell rc if you prefer auto-fix always.
+You can also export `ECHO_AUTO_FMT=1` in your shell rc if you prefer auto-fix always.
 
 ### Development Principles
 

@@ -50,8 +50,8 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 # 3) Format (auto-fix if opted in)
-if [[ "${AUTO_FMT:-0}" == "1" ]]; then
-  echo "pre-commit: AUTO_FMT=1 → running cargo fmt (auto-fix)"
+if [[ "${ECHO_AUTO_FMT:-0}" == "1" ]]; then
+  echo "pre-commit: ECHO_AUTO_FMT=1 → running cargo fmt (auto-fix)"
   cargo fmt --all
   # Re-stage any formatting changes
   git add -A

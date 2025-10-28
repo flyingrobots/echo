@@ -26,6 +26,12 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.
 - Run `cargo clippy --all-targets -- -D missing_docs` and `cargo test` before every PR; CI will expect a zero-warning, fully documented surface.
 
+### Git Hooks & Local CI
+- Install repo hooks once with `make hooks` (configures `core.hooksPath`).
+- Formatting: pre-commit runs `cargo fmt` (check by default). Set `ECHO_AUTO_FMT=1` to auto-fix and re-stage formatting on commit.
+- Toolchain: pre-commit verifies your active toolchain matches `rust-toolchain.toml`.
+- Docs Guard: when core API files change, the hook requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors the CI check).
+
 ## Git Real
 1. **NEVER** use `--force` with any git command. If you think you need it, stop and ask the human for help.
 2. **NEVER** use rebase. Embrace messy distributed history; plain merges capture the truth, rebases rewrite it.

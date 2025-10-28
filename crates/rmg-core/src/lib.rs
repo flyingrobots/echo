@@ -58,6 +58,7 @@ pub use engine_impl::{ApplyResult, Engine, EngineError};
 /// - bits 31..2: `port_id` (must be < 2^30)
 /// - bit 1: reserved (0)
 /// - bit 0: direction flag (`1` = input, `0` = output)
+///
 /// Collisions are possible across nodes that share the same low 32‑bit
 /// fingerprint; choose ids/ports accordingly.
 pub use footprint::{pack_port_key, Footprint, PortKey};

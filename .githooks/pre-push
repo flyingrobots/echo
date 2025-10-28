@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
+  exit 0
+fi
+
+echo "[pre-push] fmt"
+cargo fmt --all -- --check
+
+echo "[pre-push] clippy (workspace)"
+cargo clippy --all-targets -- -D warnings -D missing_docs
+
+echo "[pre-push] tests (workspace)"
+cargo test --workspace
+
+# MSRV check for rmg-core
+PINNED="1.68.0"
+if rustup toolchain list | grep -q "$PINNED"; then
+  echo "[pre-push] MSRV check (rmg-core @ $PINNED)"
+  cargo +$PINNED check -p rmg-core --all-targets
+else
+  echo "[pre-push] MSRV toolchain $PINNED not installed. Install via: rustup toolchain install $PINNED" >&2
+  exit 1
+fi
+
+# Rustdoc warnings guard (core API)
+echo "[pre-push] rustdoc warnings gate (rmg-core)"
+RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps
+
+# Banned patterns
+echo "[pre-push] scanning banned patterns"
+if rg -n "#!\[allow\(missing_docs\)\]" crates | grep -v "crates/rmg-core/src/telemetry.rs" >/dev/null; then
+  echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs)." >&2
+  rg -n "#!\[allow\(missing_docs\)\]" crates | cat >&2 || true
+  exit 1
+fi
+if rg -n "\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then
+  echo "pre-push: #[unsafe(no_mangle)] is invalid; use #[no_mangle]." >&2
+  rg -n "\#\[unsafe\(no_mangle\)\]" crates | cat >&2 || true
+  exit 1
+fi
+
+exit 0
+

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+FILE="$1"
+
+SUBJECT=$(head -n1 "$FILE")
+if [[ -z "${SUBJECT// /}" ]]; then
+  echo "[commit-msg] Empty subject line is not allowed." >&2
+  exit 1
+fi
+
+# Discourage WIP commits.
+if echo "$SUBJECT" | grep -Ei '^\s*wip\b' >/dev/null; then
+  echo "[commit-msg] Please avoid 'WIP' in commit subjects. Tell a short story instead." >&2
+  exit 1
+fi
+
+# Soft length guidance (warn only)
+LEN=${#SUBJECT}
+if (( LEN > 72 )); then
+  echo "[commit-msg] Note: subject exceeds 72 chars ($LEN). Consider wrapping for readability." >&2
+fi
+
+exit 0
+

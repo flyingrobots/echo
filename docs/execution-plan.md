@@ -33,6 +33,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-28 — PR #14 (geom merge train) opened
+
+- Focus: validate rmg-geom foundation + broad-phase AABB together before landing.
+- Outcome: Opened train branch echo/merge-train-geom-1 merging #8 → #9; gather feedback and CI before merge.
+
 > 2025-10-28 — PR #7 finalize and land
 
 - Focus: close out review nits on engine/scheduler/footprint/demo; ensure CI/hook stability; keep scope tight.

@@ -17,3 +17,9 @@
 | 2025-10-27 | PR #7 prep | Extracted math + engine spike into `rmg-core` (split-core-math-engine); added inline rustdoc on canonical snapshot hashing (node/edge order, payload encoding). | Land the isolated, reviewable portion now; keep larger geometry/broad‑phase work split for follow-ups. | After docs update, run fmt/clippy/tests; merge is a fast‑forward over `origin/main`. |
 | 2025-10-28 | PR #7 finalize | Reachability-only snapshot hashing; ports demo registers rule; guarded ports footprint; scheduler `finalize_tx()` clears `pending`; `PortKey` u30 mask; hooks+CI hardened (toolchain pin, rustdoc fixes). | Determinism + memory hygiene; remove test footguns; pass CI with stable toolchain while keeping rmg-core MSRV=1.68. | Merge PR #7 after green CI; queue MWMR Phase 2 perf tests + retry policy work. |
 | 2025-10-27 | MWMR reserve gate | Engine calls `scheduler.finalize_tx()` at commit; compact rule id used on execute path; per‑tx telemetry summary behind feature. | Enforce independence and clear active frontier deterministically; keep ordering stable with `(scope_hash, family_id)`. | Toolchain pinned to Rust 1.68; add design note for telemetry graph snapshot replay. |
+## 2025-10-28 — Geometry merge train (PR #14)
+
+- Decision: Use an integration branch to validate #8 (geom foundation) + #9 (broad-phase AABB) together.
+- Rationale: Surface cross-PR interactions early and avoid rebase/force push; adhere to merge-only policy.
+- Impact: New crate `rmg-geom` (AABB, Transform, TemporalTransform) and baseline broad-phase with tests. No public API breaks in core.
+- Next: If green, merge train PR; close individual PRs as merged-via-train.

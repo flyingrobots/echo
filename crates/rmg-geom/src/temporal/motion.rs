@@ -16,17 +16,25 @@ pub struct TemporalProxy {
 impl TemporalProxy {
     /// Creates a new proxy for `entity` at `tick` with precomputed `fat` AABB.
     #[must_use]
-    pub const fn new(entity: u64, tick: Tick, fat: Aabb) -> Self { Self { entity, tick, fat } }
+    pub const fn new(entity: u64, tick: Tick, fat: Aabb) -> Self {
+        Self { entity, tick, fat }
+    }
 
     /// Opaque entity identifier owning this proxy.
     #[must_use]
-    pub const fn entity(&self) -> u64 { self.entity }
+    pub const fn entity(&self) -> u64 {
+        self.entity
+    }
 
     /// Tick associated with the motion window.
     #[must_use]
-    pub const fn tick(&self) -> Tick { self.tick }
+    pub const fn tick(&self) -> Tick {
+        self.tick
+    }
 
     /// Conservative fat AABB for this proxy.
     #[must_use]
-    pub const fn fat(&self) -> Aabb { self.fat }
+    pub const fn fat(&self) -> Aabb {
+        self.fat
+    }
 }

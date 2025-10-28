@@ -30,17 +30,24 @@ impl Aabb {
     pub fn new(min: Vec3, max: Vec3) -> Self {
         let a = min.to_array();
         let b = max.to_array();
-        assert!(a[0] <= b[0] && a[1] <= b[1] && a[2] <= b[2], "invalid AABB: min > max");
+        assert!(
+            a[0] <= b[0] && a[1] <= b[1] && a[2] <= b[2],
+            "invalid AABB: min > max"
+        );
         Self { min, max }
     }
 
     /// Returns the minimum corner.
     #[must_use]
-    pub fn min(&self) -> Vec3 { self.min }
+    pub fn min(&self) -> Vec3 {
+        self.min
+    }
 
     /// Returns the maximum corner.
     #[must_use]
-    pub fn max(&self) -> Vec3 { self.max }
+    pub fn max(&self) -> Vec3 {
+        self.max
+    }
 
     /// Builds an AABB centered at `center` with half-extents `hx, hy, hz`.
     #[must_use]
@@ -85,7 +92,10 @@ impl Aabb {
     #[must_use]
     pub fn inflate(&self, m: f32) -> Self {
         let delta = Vec3::new(m, m, m);
-        Self { min: self.min.sub(&delta), max: self.max.add(&delta) }
+        Self {
+            min: self.min.sub(&delta),
+            max: self.max.add(&delta),
+        }
     }
 
     /// Computes the AABB that bounds this box after transformation by `mat`.
@@ -128,7 +138,10 @@ impl Aabb {
     /// Panics if `points` is empty.
     #[must_use]
     pub fn from_points(points: &[Vec3]) -> Self {
-        assert!(!points.is_empty(), "from_points requires at least one point");
+        assert!(
+            !points.is_empty(),
+            "from_points requires at least one point"
+        );
         let mut min = points[0];
         let mut max = points[0];
         for p in &points[1..] {

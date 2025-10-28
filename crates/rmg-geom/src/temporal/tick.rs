@@ -10,10 +10,13 @@ pub struct Tick {
 impl Tick {
     /// Creates a new tick with the given index.
     #[must_use]
-    pub const fn new(index: u64) -> Self { Self { index } }
+    pub const fn new(index: u64) -> Self {
+        Self { index }
+    }
 
     /// Returns the tick index.
     #[must_use]
-    pub const fn index(&self) -> u64 { self.index }
+    pub const fn index(&self) -> u64 {
+        self.index
+    }
 }
-

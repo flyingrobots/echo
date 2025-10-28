@@ -23,26 +23,40 @@ impl Transform {
     /// Identity transform (no translation, no rotation, unit scale).
     #[must_use]
     pub fn identity() -> Self {
-        Self { translation: Vec3::new(0.0, 0.0, 0.0), rotation: Quat::identity(), scale: Vec3::new(1.0, 1.0, 1.0) }
+        Self {
+            translation: Vec3::new(0.0, 0.0, 0.0),
+            rotation: Quat::identity(),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        }
     }
 
     /// Creates a transform from components.
     #[must_use]
     pub const fn new(translation: Vec3, rotation: Quat, scale: Vec3) -> Self {
-        Self { translation, rotation, scale }
+        Self {
+            translation,
+            rotation,
+            scale,
+        }
     }
 
     /// Translation component.
     #[must_use]
-    pub fn translation(&self) -> Vec3 { self.translation }
+    pub fn translation(&self) -> Vec3 {
+        self.translation
+    }
 
     /// Rotation component.
     #[must_use]
-    pub fn rotation(&self) -> Quat { self.rotation }
+    pub fn rotation(&self) -> Quat {
+        self.rotation
+    }
 
     /// Scale component.
     #[must_use]
-    pub fn scale(&self) -> Vec3 { self.scale }
+    pub fn scale(&self) -> Vec3 {
+        self.scale
+    }
 
     /// Returns the column-major `Mat4` corresponding to this transform.
     #[must_use]
@@ -52,19 +66,13 @@ impl Transform {
         let [tx, ty, tz] = self.translation.to_array();
         // Scale matrix
         let s = Mat4::new([
-            sx, 0.0, 0.0, 0.0,
-            0.0, sy, 0.0, 0.0,
-            0.0, 0.0, sz, 0.0,
-            0.0, 0.0, 0.0, 1.0,
+            sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, sz, 0.0, 0.0, 0.0, 0.0, 1.0,
         ]);
         // Rotation from quaternion (provided by rmg-core)
         let r = self.rotation.to_mat4();
         // Translation matrix (translation in last column)
         let t = Mat4::new([
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            tx,  ty,  tz,  1.0,
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, tx, ty, tz, 1.0,
         ]);
         t.multiply(&r).multiply(&s)
     }

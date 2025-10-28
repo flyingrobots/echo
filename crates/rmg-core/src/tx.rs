@@ -12,7 +12,7 @@
 /// - Zero (`TxId(0)`) is reserved as invalid. [`crate::Engine::begin`] never returns zero.
 /// - External callers using [`TxId::from_raw`] must not construct `TxId(0)` unless
 ///   they have a valid reason (e.g., sentinel in FFI); using invalid ids with engine
-///   operations returns [`EngineError::UnknownTx`].
+///   operations returns [`crate::engine_impl::EngineError::UnknownTx`].
 ///
 /// The `#[repr(transparent)]` attribute ensures FFI ABI compatibility: `TxId` has
 /// the same memory layout as `u64` across the FFI/Wasm boundary.

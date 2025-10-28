@@ -25,6 +25,13 @@ impl Mat4 {
     }
 
     /// Builds a translation matrix in meters.
+    ///
+    /// Constructs a 4×4 homogeneous translation matrix intended for
+    /// transforming points in world space (positioning objects). When using
+    /// [`Mat4::transform_point`], the translation is applied; when using
+    /// [`Mat4::transform_direction`], translation is ignored (only the upper‑left
+    /// 3×3 linear part is used). Matrices are column‑major and the bottom‑right
+    /// element is `1.0`.
     pub const fn translation(tx: f32, ty: f32, tz: f32) -> Self {
         Self {
             data: [
@@ -100,6 +107,11 @@ impl Mat4 {
     }
 
     /// Constructs a rotation matrix from an axis and angle in radians.
+    ///
+    /// The `axis` argument does not need to be pre‑normalised; it is
+    /// normalised internally. If a zero‑length axis is supplied, the identity
+    /// matrix is returned (behaviour delegated to
+    /// [`Quat::from_axis_angle`](crate::math::Quat::from_axis_angle)).
     pub fn rotation_axis_angle(axis: Vec3, angle: f32) -> Self {
         Self::from_quat(&Quat::from_axis_angle(axis, angle))
     }

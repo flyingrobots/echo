@@ -20,7 +20,8 @@ impl TxId {
     /// Constructs a `TxId` from a raw `u64` value.
     ///
     /// # Safety Note
-    /// Callers must not construct `TxId(0)`; zero is a reserved invalid value.
+    /// Callers must not construct `TxId(0)` as it is reserved as invalid.
+    /// Using an invalid `TxId` with engine operations results in undefined behavior.
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
         Self(value)

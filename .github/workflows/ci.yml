@@ -37,12 +37,15 @@ jobs:
         with:
           toolchain: stable
           components: clippy
-          override: true
+      - name: rustup override stable
+        run: rustup toolchain install stable && rustup override set stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
       - name: cargo clippy
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: cargo clippy --all-targets -- -D warnings -D missing_docs
 
   test:
@@ -55,12 +58,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
+      - name: rustup override stable
+        run: rustup toolchain install stable && rustup override set stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
       - name: cargo test
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: cargo test
       - name: PRNG golden regression (rmg-core)
         run: cargo test -p rmg-core --features golden_prng -- tests::next_int_golden_regression
@@ -122,7 +128,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
+      - name: rustup override stable
+        run: rustup toolchain install stable && rustup override set stable
       - uses: Swatinem/rust-cache@v2
       - name: rustdoc warnings gate
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps

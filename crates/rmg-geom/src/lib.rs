@@ -22,10 +22,10 @@ Design notes:
 - Rustdoc is treated as part of the contract; public items are documented.
 "]
 
-/// Foundational geometric types.
-pub mod types;
 /// Time-aware utilities for broad-phase and motion.
 pub mod temporal;
+/// Foundational geometric types.
+pub mod types;
 // Broad-phase will land in a follow-up PR.
 // pub mod broad;
 

@@ -94,6 +94,10 @@ impl Engine {
             return Err(EngineError::DuplicateRuleId(rule.id));
         }
         self.rules_by_id.insert(rule.id, rule.name);
+        debug_assert!(
+            self.compact_rule_ids.len() < u32::MAX as usize,
+            "too many rules to assign a compact id"
+        );
         #[allow(clippy::cast_possible_truncation)]
         let next = CompactRuleId(self.compact_rule_ids.len() as u32);
         let compact = *self.compact_rule_ids.entry(rule.id).or_insert(next);
@@ -136,19 +140,19 @@ impl Engine {
             return Ok(ApplyResult::NoMatch);
         }
 
-        let scope_hash = scope_hash(rule, scope);
+        let scope_fp = scope_hash(rule, scope);
         let footprint = (rule.compute_footprint)(&self.store, scope);
-        #[allow(clippy::expect_used)]
-        let compact_rule = *self
-            .compact_rule_ids
-            .get(&rule.id)
-            .expect("compact_rule_ids missing entry for a registered rule");
+        let Some(&compact_rule) = self.compact_rule_ids.get(&rule.id) else {
+            return Err(EngineError::InternalCorruption(
+                "missing compact rule id for a registered rule",
+            ));
+        };
         self.scheduler.pending.entry(tx).or_default().insert(
-            (scope_hash, rule.id),
+            (scope_fp, rule.id),
             PendingRewrite {
                 rule_id: rule.id,
                 compact_rule,
-                scope_hash,
+                scope_hash: scope_fp,
                 scope: *scope,
                 footprint,
                 phase: RewritePhase::Matched,
@@ -160,10 +164,9 @@ impl Engine {
 
     /// Executes all pending rewrites for the transaction and produces a snapshot.
     ///
-    /// # Panics
-    /// In debug builds, a debug assertion may trigger if internal invariants are
-    /// violated (e.g., a reserved rewrite references a missing rule). In release
-    /// builds, this condition returns an error instead of panicking.
+    /// # Behavior on internal corruption
+    /// Returns an error if internal invariants are violated (e.g., a reserved
+    /// rewrite references a missing rule).
     ///
     /// # Errors
     /// Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
@@ -179,7 +182,9 @@ impl Engine {
             }
         }
         for rewrite in reserved {
-            let Some(rule) = self.rule_by_compact(rewrite.compact_rule) else {
+            let id = rewrite.compact_rule;
+            let Some(rule) = self.rule_by_compact(id) else {
+                debug_assert!(false, "missing rule for compact id: {id:?}");
                 return Err(EngineError::InternalCorruption(
                     "missing rule for compact id during commit",
                 ));

@@ -26,7 +26,9 @@
     clippy::missing_const_for_fn,
     clippy::suboptimal_flops,
     clippy::redundant_pub_crate,
-    clippy::many_single_char_names
+    clippy::many_single_char_names,
+    clippy::module_name_repetitions,
+    clippy::use_self
 )]
 
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
@@ -51,6 +53,12 @@ pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
 /// Rewrite engine and error types.
 pub use engine_impl::{ApplyResult, Engine, EngineError};
 /// Footprint utilities for MWMR independence checks.
+/// `pack_port_key(node, port_id, dir_in)` packs a 64‑bit key as:
+/// - upper 32 bits: low 32 bits of the `NodeId` (LE)
+/// - next 30 bits: `port_id` (must be < 2^30)
+/// - lowest 2 bits: direction flag (`1` = input, `0` = output)
+/// Collisions are possible across nodes that share the same low 32‑bit
+/// fingerprint; choose ids/ports accordingly.
 pub use footprint::{pack_port_key, Footprint, PortKey};
 /// In-memory graph store used by the engine spike.
 pub use graph::GraphStore;

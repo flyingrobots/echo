@@ -172,3 +172,21 @@ impl core::ops::Mul<&Mat4> for &Mat4 {
         self.multiply(rhs)
     }
 }
+
+impl core::ops::Mul<&Mat4> for Mat4 {
+    type Output = Mat4;
+    fn mul(self, rhs: &Mat4) -> Self::Output {
+        self.multiply(rhs)
+    }
+}
+
+impl core::ops::Mul<Mat4> for &Mat4 {
+    type Output = Mat4;
+    fn mul(self, rhs: Mat4) -> Self::Output {
+        self.multiply(&rhs)
+    }
+}
+
+impl Default for Mat4 {
+    fn default() -> Self { Self::identity() }
+}

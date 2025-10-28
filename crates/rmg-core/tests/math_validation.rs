@@ -8,12 +8,15 @@ use serde::Deserialize;
 
 use rmg_core::math::{self, Mat4, Prng, Quat, Vec3};
 
+// Path is documented in repo; kept for developer reference.
+#[allow(dead_code)]
 const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
+    // Keep message simple to satisfy clippy while still informative.
     let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES)
-        .unwrap_or_else(|_| panic!("failed to parse math fixtures at {FIXTURE_PATH}"));
+        .expect("failed to parse math fixtures");
     fixtures.validate();
     fixtures
 });

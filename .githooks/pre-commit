@@ -49,8 +49,27 @@ if command -v rustup >/dev/null 2>&1; then
   fi
 fi
 
-# 3) Format check (fast)
-cargo fmt --all -- --check
+# 3) Format (auto-fix if opted in)
+_auto_fmt="${ECHO_AUTO_FMT:-1}"
+case "${_auto_fmt}" in
+  1|true|TRUE|yes|YES|on|ON)
+    echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → running cargo fmt (auto-fix)"
+    cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
+    # Re-stage only staged files that were reformatted
+    if STAGED=$(git diff --cached --name-only); then
+      if [[ -n "$STAGED" ]]; then
+        echo "$STAGED" | xargs -r git add --
+      fi
+    fi
+    ;;
+  0|false|FALSE|no|NO|off|OFF)
+    cargo fmt --all -- --check || { echo "pre-commit: cargo fmt check failed" >&2; exit 1; }
+    ;;
+  *)
+    # Unknown value → safest is check-only
+    cargo fmt --all -- --check || { echo "pre-commit: cargo fmt check failed" >&2; exit 1; }
+    ;;
+esac
 
 # 4) Docs guard (scaled): only require docs when core public API changed
 STAGED=$(git diff --cached --name-only)

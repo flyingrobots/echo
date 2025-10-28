@@ -28,7 +28,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 
 ### Git Hooks & Local CI
 - Install repo hooks once with `make hooks` (configures `core.hooksPath`).
-- Formatting: pre-commit runs `cargo fmt` (check by default). Set `ECHO_AUTO_FMT=1` to auto-fix and re-stage formatting on commit.
+- Formatting: pre-commit auto-fixes with `cargo fmt` by default. Set `ECHO_AUTO_FMT=0` to run check-only instead.
 - Toolchain: pre-commit verifies your active toolchain matches `rust-toolchain.toml`.
 - Docs Guard: when core API files change, the hook requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors the CI check).
 

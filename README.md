@@ -179,14 +179,14 @@ Install the repo’s hooks so formatting and quick checks run before commits:
 make hooks
 ```
 
-- The pre-commit hook runs `cargo fmt --all -- --check` by default.
-- To auto-fix formatting on commit, opt in with `ECHO_AUTO_FMT=1`:
+- The pre-commit hook auto-fixes formatting by default (runs `cargo fmt --all`).
+- To switch to check-only mode for a commit, set `ECHO_AUTO_FMT=0`:
 
 ```
-ECHO_AUTO_FMT=1 git commit -m "your message"
+ECHO_AUTO_FMT=0 git commit -m "your message"
 ```
 
-You can also export `ECHO_AUTO_FMT=1` in your shell rc if you prefer auto-fix always.
+You can also export `ECHO_AUTO_FMT=0` in your shell rc if you prefer check-only always.
 
 ### Development Principles
 

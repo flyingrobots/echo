@@ -60,7 +60,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ### Git Hooks (recommended)
 - Install repo hooks once: `make hooks` (configures `core.hooksPath` to `.githooks`).
 - Pre-commit runs:
-  - cargo fmt (check by default; auto-fix if `ECHO_AUTO_FMT=1` is set)
+  - cargo fmt (auto-fix by default; set `ECHO_AUTO_FMT=0` for check-only)
   - Toolchain pin verification (matches `rust-toolchain.toml`)
   - A minimal docs-guard: when core API files change, it requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors CI)
 - To auto-fix formatting on commit: `ECHO_AUTO_FMT=1 git commit -m "message"`

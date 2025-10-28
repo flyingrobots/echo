@@ -8,10 +8,14 @@
 ///
 /// # Invariants
 /// - The underlying `u64` may wrap at `u64::MAX` (wrapping is intentional).
+///   When wrapping occurs, the engine resumes at `1` (skipping zero).
 /// - Zero (`TxId(0)`) is reserved as invalid. [`crate::Engine::begin`] never returns zero.
 /// - External callers using [`TxId::from_raw`] must not construct `TxId(0)` unless
 ///   they have a valid reason (e.g., sentinel in FFI); using invalid ids with engine
-///   operations is unsupported and may be rejected.
+///   operations returns [`EngineError::UnknownTx`].
+///
+/// The `#[repr(transparent)]` attribute ensures FFI ABI compatibility: `TxId` has
+/// the same memory layout as `u64` across the FFI/Wasm boundary.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct TxId(u64);

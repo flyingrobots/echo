@@ -33,11 +33,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-10-28 — Devcontainer scaffolding
+> 2025-10-28 — Devcontainer/toolchain alignment
 
-- Added `.devcontainer/devcontainer.json` with Rust (stable 1.90 + clippy/rustfmt), Node 20, gh CLI, and persistent cargo/rustup caches.
-- Added `.devcontainer/post-create.sh` to install MSRV 1.68.0, add wasm target, and prime cargo cache.
-- Goal: align local environment with CI to reduce drift.
+- Single source of truth: `rust-toolchain.toml` (MSRV = 1.68.0).
+- Devcontainer must not override default toolchain; the feature installs Rust but selection is controlled by `rust-toolchain.toml`.
+- Post-create respects `rust-toolchain.toml` (no `rustup default stable`); installs MSRV (1.68.0) and optionally 1.90.0 without changing the default; adds rustfmt/clippy and wasm32 target.
+- CI should pin the toolchain explicitly (MSRV job on 1.68; avoid forcing `stable` overrides in workspace jobs).
 
 > 2025-10-28 — Pre-commit auto-format flag update
 

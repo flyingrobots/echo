@@ -22,7 +22,7 @@ pub struct Transform {
 impl Transform {
     /// Identity transform (no translation, no rotation, unit scale).
     #[must_use]
-    pub fn identity() -> Self {
+    pub const fn identity() -> Self {
         Self {
             translation: Vec3::new(0.0, 0.0, 0.0),
             rotation: Quat::identity(),

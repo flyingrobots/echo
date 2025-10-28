@@ -23,9 +23,9 @@ pub struct TxId(u64);
 impl TxId {
     /// Constructs a `TxId` from a raw `u64` value.
     ///
-    /// # Safety Note
-    /// Callers must not construct `TxId(0)` as it is reserved as invalid.
-    /// Using an invalid `TxId` with engine operations results in undefined behavior.
+    /// # Note on zero
+    /// Constructing `TxId(0)` is allowed, but engine operations treat it as
+    /// invalid and will return [`crate::engine_impl::EngineError::UnknownTx`].
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
         Self(value)

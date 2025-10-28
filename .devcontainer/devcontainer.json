@@ -7,7 +7,6 @@
       "installZsh": false
     },
     "ghcr.io/devcontainers/features/rust:1": {
-      "version": "1.90",
       "profile": "minimal",
       "components": ["rustfmt", "clippy"]
     },
@@ -36,4 +35,3 @@
   "overrideCommand": false,
   "postCreateCommand": "/bin/bash .devcontainer/post-create.sh"
 }
-

@@ -43,6 +43,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Footprint: `PortKey` bit layout doc + u30 masking with debug-assert; factor_mask invariant documented.
   - Hooks/CI: pinned pre-push toolchain, robust banned-pattern scan, adjusted docs-guard to core API; fixed rustdoc links.
   - MSRV: rmg-core stays at 1.68; workspace uses stable for wasm dependencies.
+  - Engine/tests: enforce `join_fn` invariant for `ConflictPolicy::Join`; remove `expect` panic in `apply()` corruption path; add NaN-propagation test for `clamp`; do not push yet (waiting for more feedback).
 
 > 2025-10-27 — Core math modularization (PR #5)
 

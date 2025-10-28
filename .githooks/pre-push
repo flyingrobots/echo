@@ -9,7 +9,7 @@ for cmd in cargo rustup rg; do
   fi
 done
 
-echo "BunBun."
+echo "🐰 BunBun 🐇"
 
 if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
   exit 0

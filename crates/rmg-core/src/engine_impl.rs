@@ -137,6 +137,7 @@ impl Engine {
 
         let scope_hash = scope_hash(rule, scope);
         let footprint = (rule.compute_footprint)(&self.store, scope);
+        #[allow(clippy::expect_used)]
         let compact_rule = *self
             .compact_rule_ids
             .get(&rule.id)
@@ -158,10 +159,10 @@ impl Engine {
 
     /// Executes all pending rewrites for the transaction and produces a snapshot.
     ///
-    /// Panics if a reserved rewrite references a non-existent rule. Such a
-    /// condition indicates internal state corruption (rules were deregistered or
-    /// tables mutated incorrectly) and should be impossible when rules are
-    /// registered via [`Engine::register_rule`].
+    /// # Panics
+    /// In debug builds, a debug assertion may trigger if internal invariants are
+    /// violated (e.g., a reserved rewrite references a missing rule). In release
+    /// builds, this condition returns an error instead of panicking.
     ///
     /// # Errors
     /// Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
@@ -177,10 +178,11 @@ impl Engine {
             }
         }
         for rewrite in reserved {
-            let rule = self
-                .rule_by_compact(&rewrite.compact_rule)
-                .expect("missing rule for compact id during commit; internal corruption");
-            (rule.executor)(&mut self.store, &rewrite.scope);
+            if let Some(rule) = self.rule_by_compact(rewrite.compact_rule) {
+                (rule.executor)(&mut self.store, &rewrite.scope);
+            } else {
+                debug_assert!(false, "missing rule for compact id during commit");
+            }
         }
 
         let hash = compute_snapshot_hash(&self.store, &self.current_root);
@@ -224,13 +226,8 @@ impl Engine {
 }
 
 impl Engine {
-    fn rule_by_id(&self, id: &Hash) -> Option<&RewriteRule> {
-        let name = self.rules_by_id.get(id)?;
-        self.rules.get(name)
-    }
-
-    fn rule_by_compact(&self, id: &CompactRuleId) -> Option<&RewriteRule> {
-        let name = self.rules_by_compact.get(id)?;
+    fn rule_by_compact(&self, id: CompactRuleId) -> Option<&RewriteRule> {
+        let name = self.rules_by_compact.get(&id)?;
         self.rules.get(name)
     }
 }

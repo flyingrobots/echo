@@ -2,7 +2,7 @@
 //! reservation gate and independence checks.
 
 use crate::engine_impl::Engine;
-use crate::footprint::{pack_port_key, Footprint, IdSet, PortKey, PortSet};
+use crate::footprint::{pack_port_key, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
 use crate::payload::{decode_motion_payload, encode_motion_payload};

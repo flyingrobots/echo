@@ -97,8 +97,10 @@ fn compute_motion_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
 /// Returns an [`Engine`] with the motion rule registered and an empty
 /// world‑root node.
 ///
+/// # Panics
 /// Panics if rule registration fails (should not happen in a fresh engine).
 #[must_use]
+#[allow(clippy::expect_used)]
 pub fn build_motion_demo_engine() -> Engine {
     let mut store = GraphStore::default();
     let root_id = make_node_id("world-root");

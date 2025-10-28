@@ -25,11 +25,13 @@ pub(crate) struct DeterministicScheduler {
 #[derive(Debug)]
 pub(crate) struct PendingRewrite {
     /// Identifier of the rule to execute.
+    #[cfg_attr(not(feature = "telemetry"), allow(dead_code))]
     pub rule_id: Hash,
     /// Compact in-process rule handle used on hot paths.
     #[allow(dead_code)]
     pub compact_rule: CompactRuleId,
     /// Scope hash used for deterministic ordering together with `rule_id`.
+    #[allow(dead_code)]
     pub scope_hash: Hash,
     /// Scope node supplied when `apply` was invoked.
     pub scope: NodeId,

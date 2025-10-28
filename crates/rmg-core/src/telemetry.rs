@@ -69,6 +69,12 @@ pub fn reserved(tx: TxId, rule: &Hash) {
     emit("reserved", tx, rule);
 }
 
+/// Emits a summary telemetry event with transaction statistics.
+///
+/// Logs the transaction id, reserved count, and conflict count as a JSON line
+/// to stdout when the `telemetry` feature is enabled. Called at transaction
+/// finalization. Best-effort: I/O errors are ignored and timestamps may fall
+/// back to 0 on clock errors.
 #[cfg(feature = "telemetry")]
 pub fn summary(tx: TxId, reserved_count: u64, conflict_count: u64) {
     use serde::Serialize;

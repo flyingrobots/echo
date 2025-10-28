@@ -22,7 +22,14 @@ pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     Bytes::from(buf)
 }
 
-/// Deserialises a canonical motion payload into (position, velocity) slices.
+/// Deserialises a canonical motion payload into `(position, velocity)` arrays.
+///
+/// Expects exactly 24 bytes laid out as six little-endian `f32` values in
+/// the order: position `[x, y, z]` followed by velocity `[vx, vy, vz]`.
+///
+/// Returns `None` if `bytes.len() != 24` or if any 4-byte chunk cannot be
+/// converted into an `f32` (invalid input). On success, returns two `[f32; 3]`
+/// arrays representing position and velocity respectively.
 pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     if bytes.len() != POSITION_VELOCITY_BYTES {
         return None;

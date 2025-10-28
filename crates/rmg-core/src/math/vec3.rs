@@ -41,7 +41,7 @@ impl Vec3 {
     }
 
     /// Returns the components as an array.
-    pub fn to_array(self) -> [f32; 3] {
+    pub const fn to_array(self) -> [f32; 3] {
         self.data
     }
 
@@ -129,6 +129,12 @@ impl Vec3 {
 impl From<[f32; 3]> for Vec3 {
     fn from(value: [f32; 3]) -> Self {
         Self { data: value }
+    }
+}
+
+impl From<Vec3> for [f32; 3] {
+    fn from(v: Vec3) -> Self {
+        v.to_array()
     }
 }
 

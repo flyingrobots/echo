@@ -10,7 +10,15 @@ use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 // Build-time generated canonical ids (domain-separated).
 include!(concat!(env!("OUT_DIR"), "/rule_ids.rs"));
 
-/// Public identifier for the built-in motion update rule.
+/// Rule name constant for the built-in motion update rule.
+///
+/// Pass this name to [`Engine::apply`] to execute the motion update rule,
+/// which advances an entity's position by its velocity. Operates on nodes
+/// whose payload is a valid 24-byte motion encoding (position + velocity as
+/// 6 × f32 little-endian).
+///
+/// Example usage (in tests):
+/// `engine.apply(MOTION_RULE_NAME, &entity_id)?;`
 pub const MOTION_RULE_NAME: &str = "motion/update";
 
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
@@ -104,9 +112,9 @@ pub fn build_motion_demo_engine() -> Engine {
     );
 
     let mut engine = Engine::new(store, root_id);
-    // Demo setup: ignore duplicate registration if caller builds multiple demo engines
-    // within the same process/tests.
-    let _ = engine.register_rule(motion_rule());
+    engine
+        .register_rule(motion_rule())
+        .expect("motion rule should register successfully in fresh engine");
     engine
 }
 

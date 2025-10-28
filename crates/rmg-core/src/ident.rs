@@ -23,16 +23,18 @@ pub struct TypeId(pub Hash);
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct EdgeId(pub Hash);
 
-/// Produces a stable type identifier derived from a label using BLAKE3.
+/// Produces a stable, domain‑separated type identifier (prefix `b"type:"`) using BLAKE3.
 pub fn make_type_id(label: &str) -> TypeId {
     let mut hasher = Hasher::new();
+    hasher.update(b"type:");
     hasher.update(label.as_bytes());
     TypeId(hasher.finalize().into())
 }
 
-/// Produces a stable node identifier derived from a label using BLAKE3.
+/// Produces a stable, domain‑separated node identifier (prefix `b"node:"`) using BLAKE3.
 pub fn make_node_id(label: &str) -> NodeId {
     let mut hasher = Hasher::new();
+    hasher.update(b"node:");
     hasher.update(label.as_bytes());
     NodeId(hasher.finalize().into())
 }
@@ -45,10 +47,26 @@ pub fn make_node_id(label: &str) -> NodeId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompactRuleId(pub u32);
 
-/// Produces a stable edge identifier derived from a label using BLAKE3.
-#[allow(dead_code)]
+/// Produces a stable, domain‑separated edge identifier (prefix `b"edge:"`) using BLAKE3.
 pub fn make_edge_id(label: &str) -> EdgeId {
     let mut hasher = Hasher::new();
+    hasher.update(b"edge:");
     hasher.update(label.as_bytes());
     EdgeId(hasher.finalize().into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn domain_separation_prevents_cross_type_collisions() {
+        let lbl = "foo";
+        let t = make_type_id(lbl).0;
+        let n = make_node_id(lbl).0;
+        let e = make_edge_id(lbl).0;
+        assert_ne!(t, n);
+        assert_ne!(t, e);
+        assert_ne!(n, e);
+    }
 }

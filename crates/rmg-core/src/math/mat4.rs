@@ -94,7 +94,7 @@ impl Mat4 {
     }
 
     /// Returns the matrix as a column-major array.
-    pub fn to_array(self) -> [f32; 16] {
+    pub const fn to_array(self) -> [f32; 16] {
         self.data
     }
 
@@ -163,5 +163,12 @@ impl core::ops::Mul for Mat4 {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         self.multiply(&rhs)
+    }
+}
+
+impl core::ops::Mul<&Mat4> for &Mat4 {
+    type Output = Mat4;
+    fn mul(self, rhs: &Mat4) -> Self::Output {
+        self.multiply(rhs)
     }
 }

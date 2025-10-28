@@ -3,8 +3,6 @@
 //! Ensures scalar, vector, matrix, quaternion, and PRNG behaviour stays
 //! consistent with the documented fixtures across platforms.
 
-// Intentionally allow `panic!` for fixture parse failures; keep scope narrow.
-#![allow(clippy::panic)]
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 
@@ -14,6 +12,7 @@ use rmg_core::math::{self, Mat4, Prng, Quat, Vec3};
 const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
+#[allow(clippy::panic)]
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
     let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES).expect(
         "failed to parse math fixtures at crates/rmg-core/tests/fixtures/math-fixtures.json",

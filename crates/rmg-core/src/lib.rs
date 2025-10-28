@@ -29,8 +29,10 @@
     clippy::many_single_char_names
 )]
 
+/// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
 pub mod math;
 
+/// Demo implementations showcasing engine capabilities (e.g., motion rule).
 pub mod demo;
 mod engine_impl;
 mod footprint;
@@ -44,13 +46,23 @@ mod snapshot;
 mod tx;
 
 // Re-exports for stable public API
+/// Demo helpers and constants for the motion rule.
 pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
+/// Rewrite engine and error types.
 pub use engine_impl::{ApplyResult, Engine, EngineError};
+/// In-memory graph store used by the engine spike.
 pub use graph::GraphStore;
+/// Core identifier types and constructors for nodes, types, and edges.
 pub use ident::{make_edge_id, make_node_id, make_type_id, EdgeId, Hash, NodeId, TypeId};
+/// Motion payload encoding/decoding helpers.
 pub use payload::{decode_motion_payload, encode_motion_payload};
+/// Graph node and edge record types.
 pub use record::{EdgeRecord, NodeRecord};
+/// Rule primitives for pattern/match/execute.
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
+/// Immutable deterministic snapshot.
 pub use snapshot::Snapshot;
+/// Transaction identifier type.
 pub use tx::TxId;
+/// Footprint utilities for MWMR independence checks.
 pub use footprint::{Footprint, PortKey};

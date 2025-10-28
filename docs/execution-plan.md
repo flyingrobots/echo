@@ -33,10 +33,32 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-28 — PR #7 finalize and land
+
+- Focus: close out review nits on engine/scheduler/footprint/demo; ensure CI/hook stability; keep scope tight.
+- Done:
+  - Snapshot hashes: reachable-only BFS; sorted edges by `EdgeId`.
+  - Scheduler: `finalize_tx()` clears `active` and `pending` to avoid leaks; reserve gate wired.
+  - Demo parity: `build_port_demo_engine()` registers its rule; ports footprint guards writes/ports on existing nodes.
+  - Footprint: `PortKey` bit layout documented (bits 31..2: port_id u30; bit 1: reserved; bit 0: dir) + u30 masking with debug-assert; factor_mask invariant documented.
+  - Hooks/CI: pinned pre-push toolchain, robust banned-pattern scan, adjusted docs-guard to core API; fixed rustdoc links.
+  - MSRV: rmg-core stays at 1.68; workspace uses stable for wasm dependencies.
+  - Engine/tests: enforce `join_fn` invariant for `ConflictPolicy::Join`; remove `expect` panic in `apply()` corruption path; add NaN-propagation test for `clamp`; do not push yet (waiting for more feedback).
+
 > 2025-10-27 — Core math modularization (PR #5)
 
 - **Focus**: Split `rmg-core` math into focused submodules (`vec3`, `mat4`, `quat`, `prng`).
 - **Definition of done**: CI passes; decision log updated; no behavior changes (pure refactor).
+
+> 2025-10-27 — PR #7 (echo/split-core-math-engine) merge prep
+
+- **Focus**: Land the extracted math + engine spike; add doc guard updates and preflight fmt/clippy/tests.
+- **Definition of done**: `docs/decision-log.md` + `docs/execution-plan.md` updated; `cargo fmt --check`, `cargo clippy -D warnings -D missing_docs`, and `cargo test` pass; branch is fast‑forward mergeable into `main`.
+
+> 2025-10-27 — MWMR reserve gate + telemetry wiring
+
+- **Focus**: Enforce `reserve()` gate (independence), add compact rule id execution path, and emit per‑tx telemetry summary; pin toolchain.
+- **Definition of done**: Scheduler `finalize_tx()` called by `Engine::commit`, compact‑id → rule lookup used on execute path, `rust-toolchain.toml` added and `rust-version = 1.68` set in crates; tests remain green.
 
 ---
 

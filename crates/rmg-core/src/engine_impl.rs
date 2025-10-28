@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::graph::GraphStore;
 use crate::ident::{CompactRuleId, Hash, NodeId};
 use crate::record::NodeRecord;
-use crate::rule::RewriteRule;
+use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase};
 use crate::snapshot::{compute_snapshot_hash, Snapshot};
 use crate::tx::TxId;
@@ -36,6 +36,9 @@ pub enum EngineError {
     /// Attempted to register a rule with a duplicate ID.
     #[error("duplicate rule id: {0:?}")]
     DuplicateRuleId(Hash),
+    /// Conflict policy Join requires a join function.
+    #[error("missing join function for ConflictPolicy::Join")]
+    MissingJoinFn,
     /// Internal invariant violated (engine state corruption).
     #[error("internal invariant violated: {0}")]
     InternalCorruption(&'static str),
@@ -92,6 +95,9 @@ impl Engine {
         }
         if self.rules_by_id.contains_key(&rule.id) {
             return Err(EngineError::DuplicateRuleId(rule.id));
+        }
+        if matches!(rule.conflict_policy, ConflictPolicy::Join) && rule.join_fn.is_none() {
+            return Err(EngineError::MissingJoinFn);
         }
         self.rules_by_id.insert(rule.id, rule.name);
         debug_assert!(

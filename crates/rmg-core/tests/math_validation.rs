@@ -8,15 +8,13 @@ use serde::Deserialize;
 
 use rmg_core::math::{self, Mat4, Prng, Quat, Vec3};
 
-// Path is documented in repo; kept for developer reference.
-#[allow(dead_code)]
 const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
+#[allow(clippy::expect_fun_call)]
 static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
-    // Keep message simple to satisfy clippy while still informative.
     let fixtures: MathFixtures = serde_json::from_str(RAW_FIXTURES)
-        .expect("failed to parse math fixtures");
+        .expect(&format!("failed to parse math fixtures at {}", FIXTURE_PATH));
     fixtures.validate();
     fixtures
 });
@@ -301,6 +299,13 @@ fn scalar_fixtures_all_match() {
             &format!("scalars.rad_to_deg value={}", fix.value),
         );
     }
+}
+
+#[test]
+fn clamp_propagates_nan() {
+    let nan = f32::NAN;
+    let clamped = math::clamp(nan, -1.0, 1.0);
+    assert!(clamped.is_nan(), "clamp should propagate NaN");
 }
 
 #[test]

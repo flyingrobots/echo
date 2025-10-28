@@ -49,8 +49,15 @@ if command -v rustup >/dev/null 2>&1; then
   fi
 fi
 
-# 3) Format check (fast)
-cargo fmt --all -- --check
+# 3) Format (auto-fix if opted in)
+if [[ "${ECHO_AUTO_FMT:-1}" == "1" ]]; then
+  echo "pre-commit: ECHO_AUTO_FMT=1 (default) → running cargo fmt (auto-fix)"
+  cargo fmt --all
+  # Re-stage any formatting changes
+  git add -A
+else
+  cargo fmt --all -- --check
+fi
 
 # 4) Docs guard (scaled): only require docs when core public API changed
 STAGED=$(git diff --cached --name-only)

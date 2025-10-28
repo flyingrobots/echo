@@ -171,6 +171,23 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 - Use expressive commits (`subject` / `body` / optional `trailer`)—tell future us the *why*, not just the *what*.
 - Treat determinism as sacred: prefer Echo’s PRNG, avoid non-deterministic APIs without wrapping them.
   
+### Git Hooks
+
+Install the repo’s hooks so formatting and quick checks run before commits:
+
+```
+make hooks
+```
+
+- The pre-commit hook auto-fixes formatting by default (runs `cargo fmt --all`).
+- To switch to check-only mode for a commit, set `ECHO_AUTO_FMT=0`:
+
+```
+ECHO_AUTO_FMT=0 git commit -m "your message"
+```
+
+You can also export `ECHO_AUTO_FMT=0` in your shell rc if you prefer check-only always.
+
 ### Development Principles
 
 1. **Tests First** – Write failing unit/integration/branch tests before new engine work.

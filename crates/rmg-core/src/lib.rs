@@ -51,7 +51,7 @@ pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
 /// Rewrite engine and error types.
 pub use engine_impl::{ApplyResult, Engine, EngineError};
 /// Footprint utilities for MWMR independence checks.
-pub use footprint::{Footprint, PortKey};
+pub use footprint::{pack_port_key, Footprint, PortKey};
 /// In-memory graph store used by the engine spike.
 pub use graph::GraphStore;
 /// Core identifier types and constructors for nodes, types, and edges.

@@ -44,8 +44,7 @@ pub enum EngineError {
 /// Core rewrite engine used by the spike.
 ///
 /// It owns a `GraphStore`, the registered rules, and the deterministic
-/// scheduler. Snapshot determinism is provided by
-/// [`compute_snapshot_hash`](crate::snapshot::compute_snapshot_hash): the hash
+/// scheduler. Snapshot determinism is provided by the snapshot hashing routine:
 /// includes the root id, all nodes in ascending `NodeId` order, and all
 /// outbound edges per node sorted by `EdgeId`. All length prefixes are 8-byte
 /// little-endian and ids are raw 32-byte values. Changing any of these rules is

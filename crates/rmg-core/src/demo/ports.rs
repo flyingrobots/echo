@@ -84,7 +84,11 @@ pub fn port_rule() -> RewriteRule {
 }
 
 /// Builds an engine with a world root for port-rule tests.
+///
+/// # Panics
+/// Panics if registering the port rule fails (should not occur in a fresh engine).
 #[must_use]
+#[allow(clippy::expect_used)]
 pub fn build_port_demo_engine() -> Engine {
     let mut store = GraphStore::default();
     let root_id = make_node_id("world-root-ports");

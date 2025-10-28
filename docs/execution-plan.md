@@ -33,6 +33,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-28 — PR #7 finalize and land
+
+- Focus: close out review nits on engine/scheduler/footprint/demo; ensure CI/hook stability; keep scope tight.
+- Done:
+  - Snapshot hashes: reachable-only BFS; sorted edges by `EdgeId`.
+  - Scheduler: `finalize_tx()` clears `active` and `pending` to avoid leaks; reserve gate wired.
+  - Demo parity: `build_port_demo_engine()` registers its rule; ports footprint guards writes/ports on existing nodes.
+  - Footprint: `PortKey` bit layout doc + u30 masking with debug-assert; factor_mask invariant documented.
+  - Hooks/CI: pinned pre-push toolchain, robust banned-pattern scan, adjusted docs-guard to core API; fixed rustdoc links.
+  - MSRV: rmg-core stays at 1.68; workspace uses stable for wasm dependencies.
+
 > 2025-10-27 — Core math modularization (PR #5)
 
 - **Focus**: Split `rmg-core` math into focused submodules (`vec3`, `mat4`, `quat`, `prng`).

@@ -23,3 +23,8 @@
 - Changes: Use `Quat::to_mat4` + `Mat4::new` in `Transform::to_mat4`; replace `Vec3::ZERO` with `Vec3::new(0,0,0)` for MSRV; rename variables to satisfy `similar_names`.
 - CI: Merged latest `main` to pick up stable-toolchain overrides for workspace clippy/test; crate-level clippy gates relaxed (drop `nursery`/`cargo`) to avoid workspace metadata lints.
 - Next: Land PR #9 for broad-phase on top; revisit clippy gates once workspace has uniform metadata.
+## 2025-10-28 — Devcontainer added
+
+- Decision: Provide a reproducible local environment matching CI runners.
+- Details: VS Code devcontainer (Ubuntu 24.04) with Rust stable + MSRV toolchains, clippy/rustfmt, Node 20, gh CLI; post-create script installs 1.68.0 and wasm target.
+- Outcome: Faster feedback loops; easier reproduction of CI issues (clippy, rustdoc, Docs Guard).

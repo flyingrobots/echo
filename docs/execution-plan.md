@@ -33,6 +33,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-28 — Devcontainer scaffolding
+
+- Added `.devcontainer/devcontainer.json` with Rust (stable 1.90 + clippy/rustfmt), Node 20, gh CLI, and persistent cargo/rustup caches.
+- Added `.devcontainer/post-create.sh` to install MSRV 1.68.0, add wasm target, and prime cargo cache.
+- Goal: align local environment with CI to reduce drift.
+
 > 2025-10-28 — PR #8 (rmg-geom foundation) updates
 
 - Focus: compile + clippy pass for the new geometry crate baseline.

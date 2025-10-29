@@ -47,6 +47,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - CI now includes `cargo audit` and `cargo-deny` jobs to catch vulnerable/deprecated dependencies early.
 - Rustdoc warnings gate covers rmg-core, rmg-geom, rmg-ffi, and rmg-wasm.
 - Devcontainer runs `make hooks` post-create to install repo hooks by default.
+- Note: switched audit action to `actions-rs/audit-check@v1` (the `rustsec/audit-check@v1.5.1` tag does not exist on GitHub Actions Marketplace).
 
 > 2025-10-29 — Snapshot commit spec
 

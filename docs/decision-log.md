@@ -110,6 +110,7 @@
 - Decision: Add `cargo audit` and `cargo-deny` to CI; expand rustdoc warnings gate to all public crates.
 - Rationale: Catch vulnerable/deprecated crates and doc regressions early; keep public surface clean.
 - Consequence: Faster failures on dependency or doc issues; small CI time increase.
+- Note: Use `actions-rs/audit-check@v1` for the audit step (the `rustsec/audit-check@v1.5.1` tag is not available).
 
 ## 2025-10-29 — Snapshot commit spec (v1)
 

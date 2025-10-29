@@ -75,3 +75,97 @@ fn rotations_do_not_produce_negative_zero() {
         }
     }
 }
+
+#[test]
+fn mat4_mul_assign_matches_operator_randomized() {
+    // Deterministic sampling to exercise a variety of transforms (local RNG to
+    // avoid depending on crate internals from an external test crate).
+    struct TestRng {
+        state: u64,
+    }
+    impl TestRng {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+        fn next_u64(&mut self) -> u64 {
+            // xorshift64*
+            let mut x = self.state;
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            self.state = x;
+            x.wrapping_mul(0x2545F4914F6CDD1D)
+        }
+        fn next_f32(&mut self) -> f32 {
+            let bits = ((self.next_u64() >> 41) as u32) | 0x3f80_0000;
+            f32::from_bits(bits) - 1.0 // [0,1)
+        }
+        fn next_int(&mut self, min: i32, max: i32) -> i32 {
+            assert!(min <= max);
+            let span = (max as i64 - min as i64 + 1) as u64;
+            let v = if span.is_power_of_two() {
+                self.next_u64() & (span - 1)
+            } else {
+                let bound = u64::MAX - u64::MAX % span;
+                loop {
+                    let c = self.next_u64();
+                    if c < bound {
+                        break c % span;
+                    }
+                }
+            };
+            (v as i64 + min as i64) as i32
+        }
+    }
+    let mut rng = TestRng::new(0x00C0_FFEE);
+
+    // Helper to pick a random basic transform
+    let rand_transform = |rng: &mut TestRng| -> Mat4 {
+        let choice = rng.next_int(0, 2);
+        match choice {
+            0 => {
+                // rotation around a random axis among X/Y/Z with angle in [-pi, pi]
+                let which = rng.next_int(0, 2);
+                let angle = (rng.next_f32() * 2.0 - 1.0) * core::f32::consts::PI;
+                match which {
+                    0 => Mat4::rotation_x(angle),
+                    1 => Mat4::rotation_y(angle),
+                    _ => Mat4::rotation_z(angle),
+                }
+            }
+            1 => {
+                // scale in [0.5, 2.0]
+                let sx = 0.5 + 1.5 * rng.next_f32();
+                let sy = 0.5 + 1.5 * rng.next_f32();
+                let sz = 0.5 + 1.5 * rng.next_f32();
+                Mat4::scale(sx, sy, sz)
+            }
+            _ => {
+                // translation in [-5, 5]
+                let tx = (rng.next_f32() * 10.0) - 5.0;
+                let ty = (rng.next_f32() * 10.0) - 5.0;
+                let tz = (rng.next_f32() * 10.0) - 5.0;
+                Mat4::translation(tx, ty, tz)
+            }
+        }
+    };
+
+    for _ in 0..16 {
+        let lhs = rand_transform(&mut rng);
+        let rhs = rand_transform(&mut rng);
+
+        // Owned rhs path
+        let mut a = lhs;
+        let expected_owned = (lhs * rhs).to_array();
+        a *= rhs;
+        approx_eq16(a.to_array(), expected_owned);
+
+        // Borrowed rhs path (new sample to avoid aliasing concerns)
+        let lhs2 = rand_transform(&mut rng);
+        let rhs2 = rand_transform(&mut rng);
+        let mut b = lhs2;
+        let expected_borrowed = (lhs2 * rhs2).to_array();
+        b *= &rhs2;
+        approx_eq16(b.to_array(), expected_borrowed);
+    }
+}

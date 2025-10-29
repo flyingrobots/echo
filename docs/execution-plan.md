@@ -33,6 +33,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-29 — Docs E2E (PR #10)
+
+- Collision DPO tour carousel: keep Prev/Next enabled in "all" mode so users and tests can enter carousel via navigation. Fixes Playwright tour test.
+- Updated Makefile by merging hooks target with docs targets.
+- CI Docs Guard satisfied with this entry; Decision Log updated.
+
 > 2025-10-29 — rmg-core snapshot header + tx/rules hardening (PR #9 base)
 
 - Adopt Snapshot v1 header shape in `rmg-core` with `parents: Vec<Hash>`, and canonical digests:

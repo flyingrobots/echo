@@ -69,7 +69,8 @@
       // Enable/disable edges. If at first slide and no previous rule, disable Prev.
       // If at last slide and no next rule, disable Next.
       if (mode === 'all') {
-        prev.disabled = true; next.disabled = true;
+        // Keep navigation enabled in 'all' mode so users/tests can enter carousel via Prev/Next.
+        prev.disabled = false; next.disabled = false;
       } else {
         const atFirst = idx === 0;
         const atLast = idx === slides.length - 1;

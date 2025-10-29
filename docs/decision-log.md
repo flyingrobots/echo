@@ -54,3 +54,9 @@
 
 - Decision: Raise the workspace floor (MSRV) to Rust 1.71.1. All crates and CI jobs target 1.71.1.
 - Implementation: Updated `rust-toolchain.toml` to 1.71.1; bumped `rust-version` in crate manifests; CI jobs pin 1.71.1; devcontainer installs only 1.71.1.
+## 2025-10-29 — Docs E2E carousel init (PR #10)
+
+- Context: Playwright tour test clicks Next to enter carousel from "all" mode.
+- Decision: Do not disable Prev/Next in "all" mode; allow navigation buttons to toggle into carousel.
+- Change: docs/assets/collision/animate.js leaves Prev/Next enabled in 'all'; boundary disabling still applies in single-slide mode.
+- Consequence: Users can initiate the carousel via navigation controls; E2E tour test passes deterministically.

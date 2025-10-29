@@ -48,10 +48,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-10-28 — Devcontainer/toolchain alignment
 
-- Single source of truth: `rust-toolchain.toml` (MSRV = 1.68.0).
-- Devcontainer must not override default toolchain; the feature installs Rust but selection is controlled by `rust-toolchain.toml`.
-- Post-create respects `rust-toolchain.toml` (no `rustup default stable`); installs MSRV (1.68.0) and optionally 1.90.0 without changing the default; adds rustfmt/clippy and wasm32 target.
-- CI should pin the toolchain explicitly (MSRV job on 1.68; avoid forcing `stable` overrides in workspace jobs).
+- Default toolchain via `rust-toolchain.toml`: 1.71.1.
+- MSRV retained for libraries (`rmg-core`, `rmg-geom`) at 1.68.0 via dedicated CI job.
+- Devcontainer must not override default; selection is controlled by `rust-toolchain.toml`.
+- Post-create installs both 1.71.1 (components + wasm32) and 1.68.0 without changing the default.
+- CI pins 1.71.1 for workspace jobs and adds an MSRV job (1.68.0) that builds and tests `rmg-core` and `rmg-geom`.
 
 > 2025-10-28 — Pre-commit auto-format flag update
 

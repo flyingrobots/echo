@@ -15,26 +15,25 @@ if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
   exit 0
 fi
 
-echo "[pre-push] fmt"
-cargo +"$PINNED" fmt --all -- --check
+echo "[pre-push] fmt (default toolchain)"
+cargo fmt --all -- --check
 
-echo "[pre-push] clippy (workspace)"
-cargo +"$PINNED" clippy --all-targets -- -D warnings -D missing_docs
+echo "[pre-push] clippy (workspace, default toolchain)"
+cargo clippy --all-targets -- -D warnings -D missing_docs
 
-echo "[pre-push] tests (workspace)"
-cargo +"$PINNED" test --workspace
+echo "[pre-push] tests (workspace, default toolchain)"
+cargo test --workspace
 
-# MSRV check for rmg-core
-echo "[pre-push] MSRV check (rmg-core @ $PINNED)"
-if rustup run "$PINNED" cargo -V >/dev/null 2>&1; then
-  cargo +"$PINNED" check -p rmg-core --all-targets
-else
+echo "[pre-push] MSRV checks (@ $PINNED) for core libraries"
+if ! rustup run "$PINNED" cargo -V >/dev/null 2>&1; then
   echo "[pre-push] MSRV toolchain $PINNED not installed. Install via: rustup toolchain install $PINNED" >&2
   exit 1
 fi
+cargo +"$PINNED" test -p rmg-core --all-targets
+cargo +"$PINNED" test -p rmg-geom --all-targets
 
 # Rustdoc warnings guard (core API)
-echo "[pre-push] rustdoc warnings gate (rmg-core)"
+echo "[pre-push] rustdoc warnings gate (rmg-core @ $PINNED)"
 RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p rmg-core --no-deps
 
 # Banned patterns

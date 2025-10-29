@@ -31,15 +31,23 @@ use crate::tx::TxId;
 /// Snapshot returned after a successful commit.
 ///
 /// The `hash` value is deterministic and reflects the entire canonicalised
-/// graph state (root + payloads).
+/// graph state plus commit metadata. Parents are explicit to support merges.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     /// Node identifier that serves as the root of the snapshot.
     pub root: NodeId,
-    /// Canonical hash derived from the entire graph state.
+    /// Canonical commit hash derived from state + metadata (see below).
     pub hash: Hash,
-    /// Optional parent snapshot hash (if one exists).
-    pub parent: Option<Hash>,
+    /// Parent snapshot hashes (empty for initial commit, 1 for linear history, 2+ for merges).
+    pub parents: Vec<Hash>,
+    /// Deterministic digest of the candidate ready set and its canonical ordering.
+    pub plan_digest: Hash,
+    /// Deterministic digest of Aion inputs/tie‑breaks used when choices affect structure.
+    pub decision_digest: Hash,
+    /// Deterministic digest of the ordered rewrites applied during this commit.
+    pub rewrites_digest: Hash,
+    /// Aion policy identifier (version pin for agency decisions).
+    pub policy_id: u32,
     /// Transaction identifier associated with the snapshot.
     pub tx: TxId,
 }
@@ -120,4 +128,34 @@ pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
         }
     }
     hasher.finalize().into()
+}
+
+/// Computes the canonical state root hash (graph only) using the same
+/// reachable‑only traversal as `compute_snapshot_hash`.
+pub(crate) fn compute_state_root(store: &GraphStore, root: &NodeId) -> Hash {
+    compute_snapshot_hash(store, root)
+}
+
+/// Computes the final commit hash from the state root and metadata digests.
+pub(crate) fn compute_commit_hash(
+    state_root: &Hash,
+    parents: &[Hash],
+    plan_digest: &Hash,
+    decision_digest: &Hash,
+    rewrites_digest: &Hash,
+) -> Hash {
+    let mut h = Hasher::new();
+    // Version tag for future evolution.
+    h.update(&1u16.to_le_bytes());
+    // Parents (length + raw bytes)
+    h.update(&(parents.len() as u64).to_le_bytes());
+    for p in parents {
+        h.update(p);
+    }
+    // State root and metadata digests
+    h.update(state_root);
+    h.update(plan_digest);
+    h.update(decision_digest);
+    h.update(rewrites_digest);
+    h.finalize().into()
 }

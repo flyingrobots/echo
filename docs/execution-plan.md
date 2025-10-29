@@ -33,6 +33,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-29 — rmg-core snapshot header + tx/rules hardening (PR #9 base)
+
+- Adopt Snapshot v1 header shape in `rmg-core` with `parents: Vec<Hash>`, and canonical digests:
+  - `state_root` (reachable‑only graph hashing)
+  - `plan_digest` (ready‑set ordering; empty = blake3(len=0))
+  - `decision_digest` (Aion; zero for now)
+  - `rewrites_digest` (applied rewrites; empty = blake3(len=0))
+- Make `Engine::snapshot()` emit a header‑shaped view that uses the same canonical empty digests so a no‑op commit equals a pre‑tx snapshot.
+- Enforce tx lifecycle: track `live_txs`, invalidate on commit, deny operations on closed/zero txs.
+- Register rules defensively: error on duplicate name or duplicate id; assign compact rule ids for execute path.
+- Scheduler remains crate‑private with explicit ordering invariant docs (ascending `(scope_hash, rule_id)`).
+- Tests tightened: velocity preservation, commit after `NoMatch` is a no‑op, relative tolerances for rotation, negative scalar multiplies.
+
 > 2025-10-28 — Devcontainer/toolchain alignment
 
 - Single source of truth: `rust-toolchain.toml` (MSRV = 1.68.0).

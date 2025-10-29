@@ -35,3 +35,17 @@
 - Decision: Use an Echo-scoped env var for auto-format on commit.
 - Change: `AUTO_FMT` → `ECHO_AUTO_FMT` in `.githooks/pre-commit`.
 - Docs: README, AGENTS, CONTRIBUTING updated with hook install and usage.
+
+## 2025-10-29 — Snapshot header v1 + tx/rule hardening (rmg-core)
+
+- Context: PR #9 base work on top of PR #8; integrate deterministic provenance into snapshots without changing reachable‑only state hashing.
+- Decision: Model snapshots as commit headers with explicit `parents` and metadata digests (`plan`, `decision`, `rewrites`). Keep `decision_digest = 0` until Aion/agency lands.
+- Changes:
+  - `Snapshot { parents: Vec<Hash>, plan_digest, decision_digest, rewrites_digest, policy_id }`.
+  - `Engine::commit()` computes `state_root`, canonical empty/non‑empty digests, and final commit hash.
+  - `Engine::snapshot()` produces a header‑shaped view with canonical empty digests so a no‑op commit equals a pre‑tx snapshot.
+  - Enforce tx lifecycle (`live_txs` set; deny ops on closed/zero tx); `begin()` is `#[must_use]` and wraps on `u64::MAX` skipping zero.
+  - Rule registration now rejects duplicate names and duplicate ids; assigns compact rule ids for execution hot path.
+  - Scheduler is crate‑private; ordering invariant documented (ascending `(scope_hash, rule_id)`).
+- Tests: Added/updated motion tests (velocity preserved; commit after `NoMatch` is a no‑op), math tests (relative tolerances; negative scalar multiplies; extra mul order).
+- Consequence: Deterministic provenance is now explicit; future Aion inputs can populate `decision_digest` without reworking the header. No behavior changes for state hashing.

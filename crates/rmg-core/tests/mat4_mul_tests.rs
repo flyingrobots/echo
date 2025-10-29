@@ -150,7 +150,7 @@ fn mat4_mul_assign_matches_operator_randomized() {
         }
     };
 
-    for _ in 0..16 {
+    for _ in 0..64 {
         let lhs = rand_transform(&mut rng);
         let rhs = rand_transform(&mut rng);
 
@@ -167,5 +167,13 @@ fn mat4_mul_assign_matches_operator_randomized() {
         let expected_borrowed = (lhs2 * rhs2).to_array();
         b *= &rhs2;
         approx_eq16(b.to_array(), expected_borrowed);
+
+        // Composite LHS path: compose two random transforms to probe deeper paths
+        let lhs_c = rand_transform(&mut rng) * rand_transform(&mut rng);
+        let rhs_c = rand_transform(&mut rng);
+        let mut c = lhs_c;
+        let expected_c = (lhs_c * rhs_c).to_array();
+        c *= rhs_c;
+        approx_eq16(c.to_array(), expected_c);
     }
 }

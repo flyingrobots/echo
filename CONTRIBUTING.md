@@ -24,8 +24,8 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 3. Review `AGENTS.md` for collaboration norms before touching runtime code.
 4. Optional: develop inside the devcontainer for toolchain parity with CI.
    - Open in VS Code → "Reopen in Container" (requires the Dev Containers extension).
-   - The container includes Rust stable + MSRV toolchains, clippy/rustfmt, Node, and gh.
-   - Post-create installs MSRV 1.68.0 and wasm target.
+- The container includes Rust 1.71.1 (via rust-toolchain.toml), clippy/rustfmt, Node, and gh.
+- Post-create installs toolchain 1.71.1 (no override); wasm32 target and components are added to 1.71.1.
 
 ## Branching & Workflow
 - Keep `main` pristine. Create feature branches like `echo/<feature>` or `timeline/<experiment>`.

@@ -13,7 +13,7 @@
 This crate provides:
 - Axis-aligned bounding boxes (`Aabb`).
 - Rigid transforms (`Transform`).
-- Temporal utilities (`Tick`, `TemporalTransform`, `TemporalProxy`).
+- Temporal utilities (`Tick`, `Timespan`, `SweepProxy`).
 - A minimal broad-phase trait and an AABB-based pairing structure.
 
 Design notes:
@@ -22,12 +22,12 @@ Design notes:
 - Rustdoc is treated as part of the contract; public items are documented.
 "]
 
+/// Broad-phase interfaces and a simple AABB-based implementation.
+pub mod broad;
 /// Time-aware utilities for broad-phase and motion.
 pub mod temporal;
 /// Foundational geometric types.
 pub mod types;
-// Broad-phase will land in a follow-up PR.
-// pub mod broad;
 
 pub use types::aabb::Aabb;
 pub use types::transform::Transform;

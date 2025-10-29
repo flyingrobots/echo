@@ -9,7 +9,7 @@ use crate::ident::{CompactRuleId, Hash, NodeId};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase};
-use crate::snapshot::{compute_snapshot_hash, Snapshot};
+use crate::snapshot::{compute_commit_hash, compute_state_root, Snapshot};
 use crate::tx::TxId;
 
 /// Result of calling [`Engine::apply`].
@@ -182,13 +182,37 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
+        // Drain pending to form the ready set and compute a plan digest over its canonical order.
+        let drained = self.scheduler.drain_for_tx(tx);
+        let plan_digest = {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(&(drained.len() as u64).to_le_bytes());
+            for pr in &drained {
+                hasher.update(&pr.scope_hash);
+                hasher.update(&pr.rule_id);
+            }
+            hasher.finalize().into()
+        };
+
         // Reserve phase: enforce independence against active frontier.
         let mut reserved: Vec<PendingRewrite> = Vec::new();
-        for mut rewrite in self.scheduler.drain_for_tx(tx) {
+        for mut rewrite in drained {
             if self.scheduler.reserve(tx, &mut rewrite) {
                 reserved.push(rewrite);
             }
         }
+        // Deterministic digest of the ordered rewrites we will apply.
+        let rewrites_digest = {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(&(reserved.len() as u64).to_le_bytes());
+            for r in &reserved {
+                hasher.update(&r.rule_id);
+                hasher.update(&r.scope_hash);
+                hasher.update(&(r.scope).0);
+            }
+            hasher.finalize().into()
+        };
+
         for rewrite in reserved {
             let id = rewrite.compact_rule;
             let Some(rule) = self.rule_by_compact(id) else {
@@ -200,11 +224,30 @@ impl Engine {
             (rule.executor)(&mut self.store, &rewrite.scope);
         }
 
-        let hash = compute_snapshot_hash(&self.store, &self.current_root);
+        let state_root = crate::snapshot::compute_state_root(&self.store, &self.current_root);
+        let parents: Vec<Hash> = self
+            .last_snapshot
+            .as_ref()
+            .map(|s| vec![s.hash])
+            .unwrap_or_default();
+        // Canonical empty digest (0-length list) for decisions until Aion lands.
+        let decision_digest: Hash = *crate::constants::DIGEST_LEN0_U64;
+        let hash = crate::snapshot::compute_commit_hash(
+            &state_root,
+            &parents,
+            &plan_digest,
+            &decision_digest,
+            &rewrites_digest,
+            0,
+        );
         let snapshot = Snapshot {
             root: self.current_root,
             hash,
-            parent: self.last_snapshot.as_ref().map(|s| s.hash),
+            parents,
+            plan_digest,
+            decision_digest,
+            rewrites_digest,
+            policy_id: 0,
             tx,
         };
         self.last_snapshot = Some(snapshot.clone());
@@ -217,11 +260,39 @@ impl Engine {
     /// Returns a snapshot for the current graph state without executing rewrites.
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
-        let hash = compute_snapshot_hash(&self.store, &self.current_root);
+        // Build a lightweight snapshot view of the current state using the
+        // same commit header shape but with zeroed metadata digests. This
+        // ensures callers see the same stable structure as real commits while
+        // making it clear that no rewrites were applied.
+        let state_root = compute_state_root(&self.store, &self.current_root);
+        let parents: Vec<Hash> = self
+            .last_snapshot
+            .as_ref()
+            .map(|s| vec![s.hash])
+            .unwrap_or_default();
+        // Canonical empty digests match commit() behaviour when no rewrites are pending.
+        let empty_digest: Hash = {
+            let mut h = blake3::Hasher::new();
+            h.update(&0u64.to_le_bytes());
+            h.finalize().into()
+        };
+        let decision_empty: Hash = *crate::constants::DIGEST_LEN0_U64;
+        let hash = compute_commit_hash(
+            &state_root,
+            &parents,
+            &empty_digest,
+            &decision_empty,
+            &empty_digest,
+            0,
+        );
         Snapshot {
             root: self.current_root,
             hash,
-            parent: self.last_snapshot.as_ref().map(|s| s.hash),
+            parents,
+            plan_digest: empty_digest,
+            decision_digest: decision_empty,
+            rewrites_digest: empty_digest,
+            policy_id: 0,
             tx: TxId::from_raw(self.tx_counter),
         }
     }

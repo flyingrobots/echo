@@ -33,12 +33,25 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-29 — rmg-core snapshot header + tx/rules hardening (PR #9 base)
+
+- Adopt Snapshot v1 header shape in `rmg-core` with `parents: Vec<Hash>`, and canonical digests:
+  - `state_root` (reachable‑only graph hashing)
+  - `plan_digest` (ready‑set ordering; empty = blake3(len=0))
+  - `decision_digest` (Aion; zero for now)
+  - `rewrites_digest` (applied rewrites; empty = blake3(len=0))
+- Make `Engine::snapshot()` emit a header‑shaped view that uses the same canonical empty digests so a no‑op commit equals a pre‑tx snapshot.
+- Enforce tx lifecycle: track `live_txs`, invalidate on commit, deny operations on closed/zero txs.
+- Register rules defensively: error on duplicate name or duplicate id; assign compact rule ids for execute path.
+- Scheduler remains crate‑private with explicit ordering invariant docs (ascending `(scope_hash, rule_id)`).
+- Tests tightened: velocity preservation, commit after `NoMatch` is a no‑op, relative tolerances for rotation, negative scalar multiplies.
+
 > 2025-10-28 — Devcontainer/toolchain alignment
 
-- Single source of truth: `rust-toolchain.toml` (MSRV = 1.68.0).
-- Devcontainer must not override default toolchain; the feature installs Rust but selection is controlled by `rust-toolchain.toml`.
-- Post-create respects `rust-toolchain.toml` (no `rustup default stable`); installs MSRV (1.68.0) and optionally 1.90.0 without changing the default; adds rustfmt/clippy and wasm32 target.
-- CI should pin the toolchain explicitly (MSRV job on 1.68; avoid forcing `stable` overrides in workspace jobs).
+- Toolchain floor via `rust-toolchain.toml`: 1.71.1 (workspace-wide).
+- Devcontainer must not override default; selection is controlled by `rust-toolchain.toml`.
+- Post-create installs 1.71.1 (adds rustfmt/clippy and wasm32 target).
+- CI pins 1.71.1 for all jobs (single matrix; no separate floor job).
 
 > 2025-10-28 — Pre-commit auto-format flag update
 
@@ -49,7 +62,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Focus: compile + clippy pass for the new geometry crate baseline.
 - Changes in this branch:
-  - rmg-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, TemporalTransform, TemporalProxy}`.
+  - rmg-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, Timespan, SweepProxy}`.
   - Removed premature `pub mod broad` (broad-phase lands in a separate PR) to fix E0583.
   - Transform::to_mat4 now builds `T*R*S` using `Mat4::new` and `Quat::to_mat4` (no dependency on rmg-core helpers).
   - Clippy: resolved similar_names in `Aabb::transformed`; relaxed `nursery`/`cargo` denies to keep scope tight.

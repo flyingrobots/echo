@@ -1,0 +1,19 @@
+flowchart LR
+  subgraph LHS
+    E[Collider(e)] --- T[Transform(e,n)]
+    V[Velocity(e)]
+    K[Tick(n)]
+    T -- at --> K
+    E -- produced_in --> K
+  end
+
+  subgraph RHS
+    E2[Collider(e)]:::KClass --- T2[Transform(e,n)]:::KClass
+    K2[Tick(n)]:::KClass
+    P((TemporalProxy(e,n))):::Add
+    E2 -- has_proxy --> P
+    P -- produced_in --> K2
+  end
+
+classDef KClass stroke:#ffd166,stroke-width:2;
+classDef Add stroke:#00c853,stroke-width:2,fill:#0d2a1a,color:#dfe7ff;

@@ -22,6 +22,10 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 1. Clone the repo and run `cargo check` to ensure the Rust workspace builds.
 2. Read `docs/architecture-outline.md` and `docs/execution-plan.md`.
 3. Review `AGENTS.md` for collaboration norms before touching runtime code.
+4. Optional: develop inside the devcontainer for toolchain parity with CI.
+   - Open in VS Code → "Reopen in Container" (requires the Dev Containers extension).
+- The container includes Rust 1.71.1 (via rust-toolchain.toml), clippy/rustfmt, Node, and gh.
+- Post-create installs toolchain 1.71.1 (no override); wasm32 target and components are added to 1.71.1.
 
 ## Branching & Workflow
 - Keep `main` pristine. Create feature branches like `echo/<feature>` or `timeline/<experiment>`.
@@ -52,6 +56,14 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - Lua scripts should remain deterministic (no uncontrolled globals, RNG via engine services).
 - TypeScript tooling (when active) lives in `reference/typescript/`; follow local lint configs when reactivated.
 - Avoid non-deterministic APIs (no wall-clock, no uncontrolled randomness). Use Echo’s deterministic services.
+
+### Git Hooks (recommended)
+- Install repo hooks once: `make hooks` (configures `core.hooksPath` to `.githooks`).
+- Pre-commit runs:
+  - cargo fmt (auto-fix by default; set `ECHO_AUTO_FMT=0` for check-only)
+  - Toolchain pin verification (matches `rust-toolchain.toml`)
+  - A minimal docs-guard: when core API files change, it requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors CI)
+- To auto-fix formatting on commit: `ECHO_AUTO_FMT=1 git commit -m "message"`
 
 ## Communication
 - Major updates should land in `docs/execution-plan.md` and `docs/decision-log.md`; rely on GitHub discussions or issues for longer-form proposals.

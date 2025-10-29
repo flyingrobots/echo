@@ -1,0 +1,37 @@
+{
+  "name": "echo-dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode",
+      "installZsh": false
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "profile": "minimal",
+      "components": ["rustfmt", "clippy"]
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "serayuzgur.crates",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb"
+      ]
+    }
+  },
+  "mounts": [
+    "source=devcontainer-cargo-cache,target=/usr/local/cargo,type=volume",
+    "source=devcontainer-rustup-cache,target=/usr/local/rustup,type=volume"
+  ],
+  "containerEnv": {
+    "CARGO_TERM_COLOR": "always"
+  },
+  "overrideCommand": false,
+  "postCreateCommand": "/bin/bash .devcontainer/post-create.sh"
+}

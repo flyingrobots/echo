@@ -1,53 +1,106 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Enforce coupling between PRNG algorithm/version and golden regression vector.
-
-PRNG_FILE="crates/rmg-core/src/math/prng.rs"
-
-# Only run if the PRNG file is staged
-if ! git diff --cached --name-only | grep -qx "$PRNG_FILE"; then
+if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
   exit 0
 fi
 
-DIFF=$(git diff --cached -- "$PRNG_FILE" || true)
-
-# Heuristics to detect algorithm changes: edits to these functions imply behavior change
-if echo "$DIFF" | grep -E '^(\+|-)\s*(fn\s+next_u64|fn\s+from_seed_u64|fn\s+from_seed\(|fn\s+next_int\()' >/dev/null; then
-  ALGO_CHANGED=1
-else
-  ALGO_CHANGED=0
+# 1) PRNG coupling guard (existing logic)
+PRNG_FILE="crates/rmg-core/src/math/prng.rs"
+if git diff --cached --name-only | grep -qx "$PRNG_FILE"; then
+  DIFF=$(git diff --cached -- "$PRNG_FILE" || true)
+  if echo "$DIFF" | grep -E '^(\+|-)\s*(fn\s+next_u64|fn\s+from_seed_u64|fn\s+from_seed\(|fn\s+next_int\()' >/dev/null; then
+    ALGO_CHANGED=1
+  else
+    ALGO_CHANGED=0
+  fi
+  if echo "$DIFF" | grep -E 'PRNG_ALGO_VERSION' >/dev/null; then
+    VERSION_CHANGED=1
+  else
+    VERSION_CHANGED=0
+  fi
+  if echo "$DIFF" | grep -E 'next_int_golden_regression|assert_eq!\(values,\s*vec!\[' >/dev/null; then
+    GOLDEN_CHANGED=1
+  else
+    GOLDEN_CHANGED=0
+  fi
+  FAIL=0
+  if [[ "$ALGO_CHANGED" -eq 1 && "$VERSION_CHANGED" -eq 0 ]]; then
+    echo "pre-commit: PRNG algorithm changed but PRNG_ALGO_VERSION was not bumped." >&2
+    FAIL=1
+  fi
+  if [[ "$VERSION_CHANGED" -eq 1 && "$GOLDEN_CHANGED" -eq 0 ]]; then
+    echo "pre-commit: PRNG_ALGO_VERSION bumped but golden regression vector was not updated." >&2
+    FAIL=1
+  fi
+  if [[ "$FAIL" -eq 1 ]]; then
+    echo "pre-commit: Refusing commit. Update algorithm version and golden regression together." >&2
+    exit 1
+  fi
 fi
 
-# Version bump present?
-if echo "$DIFF" | grep -E 'PRNG_ALGO_VERSION' >/dev/null; then
-  VERSION_CHANGED=1
-else
-  VERSION_CHANGED=0
+# 2) Enforce toolchain pin (matches rust-toolchain.toml)
+if command -v rustup >/dev/null 2>&1; then
+  PINNED=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
+  ACTIVE=$(rustup show active-toolchain 2>/dev/null | awk '{print $1}')
+  if [[ -n "$PINNED" && "$ACTIVE" != "$PINNED"* ]]; then
+    echo "pre-commit: Active toolchain '$ACTIVE' != pinned '$PINNED'. Run: rustup override set $PINNED" >&2
+    exit 1
+  fi
 fi
 
-# Golden regression vector updated?
-if echo "$DIFF" | grep -E 'next_int_golden_regression|assert_eq!\(values,\s*vec!\[' >/dev/null; then
-  GOLDEN_CHANGED=1
-else
-  GOLDEN_CHANGED=0
+# 3) Format (auto-fix if opted in)
+_auto_fmt="${ECHO_AUTO_FMT:-1}"
+case "${_auto_fmt}" in
+  1|true|TRUE|yes|YES|on|ON)
+    echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → running cargo fmt (auto-fix)"
+    cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
+    # Re-stage only staged files that were reformatted
+    if STAGED=$(git diff --cached --name-only); then
+      if [[ -n "$STAGED" ]]; then
+        echo "$STAGED" | xargs -r git add --
+      fi
+    fi
+    ;;
+  0|false|FALSE|no|NO|off|OFF)
+    cargo fmt --all -- --check || { echo "pre-commit: cargo fmt check failed" >&2; exit 1; }
+    ;;
+  *)
+    # Unknown value → safest is check-only
+    cargo fmt --all -- --check || { echo "pre-commit: cargo fmt check failed" >&2; exit 1; }
+    ;;
+esac
+
+# 4) Docs guard (scaled): only require docs when core public API changed
+STAGED=$(git diff --cached --name-only)
+CORE_API_CHANGED=$(echo "$STAGED" | grep -E '^crates/rmg-core/src/.*\.rs$' | grep -v '/tests/' || true)
+if [[ -n "$CORE_API_CHANGED" ]]; then
+  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when core API changes.' >&2; exit 1; }
+  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when core API changes.' >&2; exit 1; }
 fi
 
-FAIL=0
-if [[ "$ALGO_CHANGED" -eq 1 && "$VERSION_CHANGED" -eq 0 ]]; then
-  echo "pre-commit: PRNG algorithm changed but PRNG_ALGO_VERSION was not bumped." >&2
-  FAIL=1
+# 5) Lockfile guard: ensure lockfile version is v3 (current cargo format)
+if [[ -f Cargo.lock ]]; then
+  # Normalize detected lockfile version (strip quotes/CR/whitespace)
+  VER_LINE=$(grep -n '^version = ' Cargo.lock | head -n1 | awk -F'= ' '{print $2}' | tr -d '\r' | tr -d '"' | xargs)
+  if [[ "$VER_LINE" != "3" ]]; then
+    # Determine pinned toolchain (normalize), fallback to rust-toolchain.toml if unset
+    _PINNED_RAW="${PINNED:-}"
+    if [[ -z "$_PINNED_RAW" ]]; then
+      _PINNED_RAW=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
+    fi
+    PINNED_NORM=$(printf "%s" "$_PINNED_RAW" | tr -d '\r' | xargs)
+    echo "pre-commit: Cargo.lock must be lockfile format v3 (found '$VER_LINE')." >&2
+    echo "Run: cargo +${PINNED_NORM} generate-lockfile" >&2
+    exit 1
+  fi
 fi
 
-if [[ "$VERSION_CHANGED" -eq 1 && "$GOLDEN_CHANGED" -eq 0 ]]; then
-  echo "pre-commit: PRNG_ALGO_VERSION bumped but golden regression vector was not updated." >&2
-  FAIL=1
-fi
-
-if [[ "$FAIL" -eq 1 ]]; then
-  echo "pre-commit: Refusing commit. Update algorithm version and golden regression together." >&2
-  exit 1
-fi
+# 6) Targeted clippy + check for changed crates (fast-ish)
+CRATES=$(echo "$STAGED" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u)
+for c in $CRATES; do
+  cargo clippy -p "$c" --all-targets -- -D warnings -D missing_docs
+  cargo check -p "$c" --quiet
+done
 
 exit 0
-

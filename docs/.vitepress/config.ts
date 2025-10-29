@@ -25,3 +25,7 @@ export default defineConfig({
     }
   }
 })
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/main

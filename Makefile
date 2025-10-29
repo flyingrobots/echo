@@ -36,5 +36,5 @@ docs-build:
 
 # Build docs without installing dependencies (for CI caches)
 docs-ci:
-	@echo "[docs] CI build (no npm install)" 
+	@echo "[docs] CI build (no npm install)"
 	@npm run --silent docs:build

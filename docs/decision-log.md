@@ -39,7 +39,7 @@
 ## 2025-10-29 — Snapshot header v1 + tx/rule hardening (rmg-core)
 
 - Context: PR #9 base work on top of PR #8; integrate deterministic provenance into snapshots without changing reachable‑only state hashing.
-- Decision: Model snapshots as commit headers with explicit `parents` and metadata digests (`plan`, `decision`, `rewrites`). Keep `decision_digest = 0` until Aion/agency lands.
+- Decision: Model snapshots as commit headers with explicit `parents` and metadata digests (`plan`, `decision`, `rewrites`). Keep `decision_digest = blake3(len=0_u64)` (canonical empty list digest) until Aion/agency lands.
 - Changes:
   - `Snapshot { parents: Vec<Hash>, plan_digest, decision_digest, rewrites_digest, policy_id }`.
   - `Engine::commit()` computes `state_root`, canonical empty/non‑empty digests, and final commit hash.

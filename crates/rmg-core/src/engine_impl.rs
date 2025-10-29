@@ -230,13 +230,15 @@ impl Engine {
             .as_ref()
             .map(|s| vec![s.hash])
             .unwrap_or_default();
-        let decision_digest: Hash = [0u8; 32]; // No Aion decisions yet; placeholder zero digest.
+        // Canonical empty digest (0-length list) for decisions until Aion lands.
+        let decision_digest: Hash = *crate::constants::DIGEST_LEN0_U64;
         let hash = crate::snapshot::compute_commit_hash(
             &state_root,
             &parents,
             &plan_digest,
             &decision_digest,
             &rewrites_digest,
+            0,
         );
         let snapshot = Snapshot {
             root: self.current_root,
@@ -274,14 +276,14 @@ impl Engine {
             h.update(&0u64.to_le_bytes());
             h.finalize().into()
         };
-        let zero: Hash = [0u8; 32];
-        let hash = compute_commit_hash(&state_root, &parents, &empty_digest, &zero, &empty_digest);
+        let decision_empty: Hash = *crate::constants::DIGEST_LEN0_U64;
+        let hash = compute_commit_hash(&state_root, &parents, &empty_digest, &decision_empty, &empty_digest, 0);
         Snapshot {
             root: self.current_root,
             hash,
             parents,
             plan_digest: empty_digest,
-            decision_digest: zero,
+            decision_digest: decision_empty,
             rewrites_digest: empty_digest,
             policy_id: 0,
             tx: TxId::from_raw(self.tx_counter),

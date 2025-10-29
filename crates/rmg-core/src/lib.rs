@@ -37,6 +37,7 @@ pub mod math;
 /// Demo implementations showcasing engine capabilities (e.g., motion rule).
 pub mod demo;
 mod engine_impl;
+mod constants;
 mod footprint;
 mod graph;
 mod ident;
@@ -76,3 +77,5 @@ pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use snapshot::Snapshot;
 /// Transaction identifier type.
 pub use tx::TxId;
+/// Canonical digests (e.g., empty inputs, empty length-prefixed lists).
+pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64};

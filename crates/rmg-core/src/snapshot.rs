@@ -1,8 +1,9 @@
 //! Snapshot type and hash computation.
 //!
 //! Determinism contract
-//! - The snapshot hash is a BLAKE3 digest over a canonical byte stream that
-//!   encodes the entire reachable graph state for the current root.
+//! - The graph state hash (`state_root`) is a BLAKE3 digest over a canonical
+//!   byte stream that encodes the entire reachable graph state for the current
+//!   root.
 //! - Ordering is explicit and stable: nodes are visited in ascending `NodeId`
 //!   order (lexicographic over 32-byte ids). For each node, outbound edges are
 //!   sorted by ascending `EdgeId` before being encoded.
@@ -30,13 +31,14 @@ use crate::tx::TxId;
 
 /// Snapshot returned after a successful commit.
 ///
-/// The `hash` value is deterministic and reflects the entire canonicalised
-/// graph state plus commit metadata. Parents are explicit to support merges.
+/// The `hash` field is a deterministic commit hash (`commit_id`) computed from
+/// `state_root` (graph-only hash) and commit metadata (parents, digests,
+/// policy). Parents are explicit to support merges.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     /// Node identifier that serves as the root of the snapshot.
     pub root: NodeId,
-    /// Canonical commit hash derived from state + metadata (see below).
+    /// Canonical commit hash derived from state_root + metadata (see below).
     pub hash: Hash,
     /// Parent snapshot hashes (empty for initial commit, 1 for linear history, 2+ for merges).
     pub parents: Vec<Hash>,
@@ -143,6 +145,7 @@ pub(crate) fn compute_commit_hash(
     plan_digest: &Hash,
     decision_digest: &Hash,
     rewrites_digest: &Hash,
+    policy_id: u32,
 ) -> Hash {
     let mut h = Hasher::new();
     // Version tag for future evolution.
@@ -157,5 +160,6 @@ pub(crate) fn compute_commit_hash(
     h.update(plan_digest);
     h.update(decision_digest);
     h.update(rewrites_digest);
+    h.update(&policy_id.to_le_bytes());
     h.finalize().into()
 }

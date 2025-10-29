@@ -32,7 +32,6 @@ jobs:
           submodules: false
       - uses: dtolnay/rust-toolchain@1.71.1
         with:
-          toolchain: 1.71.1
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -49,8 +48,6 @@ jobs:
         with:
           submodules: false
       - uses: dtolnay/rust-toolchain@1.71.1
-        with:
-          toolchain: 1.71.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -101,8 +98,6 @@ jobs:
         with:
           submodules: false
       - uses: dtolnay/rust-toolchain@1.71.1
-        with:
-          toolchain: 1.71.1
       - uses: Swatinem/rust-cache@v2
       - name: rustdoc warnings gate
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps

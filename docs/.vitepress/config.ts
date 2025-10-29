@@ -5,8 +5,8 @@ export default defineConfig({
   description: 'Deterministic, multiverse-aware ECS',
   cleanUrls: true,
   ignoreDeadLinks: [
-    // Collison tour HTML is added in a separate PR
-    /collision-dpo-tour/
+    // Collision tour HTML is added in a separate PR
+    /^\/collision-dpo-tour\.html$/
   ],
   themeConfig: {
     nav: [

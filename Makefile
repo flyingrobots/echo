@@ -25,7 +25,7 @@ docs:
 	      wait $$server_pid ; \
 	      exit 0 ; \
 	    fi ; \
-	    sleep 0.25 ; \
+	    sleep 1 ; \
 	  done ; \
 	  echo "[docs] Timed out waiting for VitePress." ; \
 	  exit 1

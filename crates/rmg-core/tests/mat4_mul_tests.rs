@@ -26,16 +26,27 @@ fn mat4_mul_operator_matches_method() {
 
 #[test]
 fn mat4_mul_assign_variants_work() {
-    let s = Mat4::scale(2.0, 3.0, 4.0);
-    // Owned rhs
-    let mut a = Mat4::identity();
-    a *= s;
-    approx_eq16(a.to_array(), Mat4::scale(2.0, 3.0, 4.0).to_array());
-    // Borrowed rhs
-    let mut b = Mat4::identity();
-    let t = Mat4::translation(1.0, 2.0, 3.0);
-    b *= &t;
-    approx_eq16(b.to_array(), t.to_array());
+    use core::f32::consts::{FRAC_PI_3, FRAC_PI_4};
+    // Owned rhs: non-trivial left-hand (rotation) and right-hand (scale)
+    let lhs_rot_x = Mat4::rotation_x(FRAC_PI_4);
+    let rhs_scale = Mat4::scale(2.0, 3.0, 4.0);
+    let expected_owned = (lhs_rot_x * rhs_scale).to_array();
+    let lhs_before = lhs_rot_x.to_array();
+    let mut a = lhs_rot_x;
+    a *= rhs_scale;
+    // In-place result matches operator path and differs from original lhs
+    approx_eq16(a.to_array(), expected_owned);
+    assert_ne!(a.to_array(), lhs_before);
+
+    // Borrowed rhs: non-trivial left-hand (rotation) and right-hand (translation)
+    let lhs_rot_y = Mat4::rotation_y(FRAC_PI_3);
+    let rhs_trans = Mat4::translation(1.0, 2.0, 3.0);
+    let expected_borrowed = (lhs_rot_y * rhs_trans).to_array();
+    let lhs_b_before = lhs_rot_y.to_array();
+    let mut b = lhs_rot_y;
+    b *= &rhs_trans;
+    approx_eq16(b.to_array(), expected_borrowed);
+    assert_ne!(b.to_array(), lhs_b_before);
 }
 
 #[test]

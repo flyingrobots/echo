@@ -33,6 +33,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
+
+- Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.
+- Add test `fat_aabb_covers_mid_rotation_with_offset` to verify the fat box encloses the mid‑pose AABB.
+
 > 2025-10-29 — Hooks formatting gate (PR #12)
 
 - Pre-commit: add rustfmt check for staged Rust files (`cargo fmt --all -- --check`).

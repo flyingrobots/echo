@@ -43,3 +43,50 @@ fn broad_phase_pair_order_is_deterministic() {
     // Expected canonical order: (0,1), (0,3), (1,3)
     assert_eq!(pairs, vec![(0, 1), (0, 3), (1, 3)]);
 }
+
+#[test]
+fn fat_aabb_covers_mid_rotation_with_offset() {
+    use core::f32::consts::FRAC_PI_2;
+    // Local shape: rod from x=0..2 (center at (1,0,0)) with small thickness
+    let local =
+        Aabb::from_center_half_extents(rmg_core::math::Vec3::new(1.0, 0.0, 0.0), 1.0, 0.1, 0.1);
+
+    let t0 = Transform::new(
+        rmg_core::math::Vec3::new(0.0, 0.0, 0.0),
+        rmg_core::math::Quat::identity(),
+        rmg_core::math::Vec3::new(1.0, 1.0, 1.0),
+    );
+    let t1 = Transform::new(
+        rmg_core::math::Vec3::new(0.0, 0.0, 0.0),
+        rmg_core::math::Quat::from_axis_angle(rmg_core::math::Vec3::new(0.0, 0.0, 1.0), FRAC_PI_2),
+        rmg_core::math::Vec3::new(1.0, 1.0, 1.0),
+    );
+    let span = Timespan::new(t0, t1);
+
+    // Compute mid pose explicitly (45°); this can protrude beyond both endpoints.
+    let mid_rot = rmg_core::math::Quat::from_axis_angle(
+        rmg_core::math::Vec3::new(0.0, 0.0, 1.0),
+        FRAC_PI_2 * 0.5,
+    );
+    let mid = Transform::new(
+        rmg_core::math::Vec3::new(0.0, 0.0, 0.0),
+        mid_rot,
+        rmg_core::math::Vec3::new(1.0, 1.0, 1.0),
+    );
+    let mid_aabb = local.transformed(&mid.to_mat4());
+
+    let fat = span.fat_aabb(&local);
+    let fmin = fat.min().to_array();
+    let fmax = fat.max().to_array();
+    let mmin = mid_aabb.min().to_array();
+    let mmax = mid_aabb.max().to_array();
+
+    assert!(
+        fmin[0] <= mmin[0] && fmin[1] <= mmin[1] && fmin[2] <= mmin[2],
+        "fat min must enclose mid min: fat={fmin:?} mid={mmin:?}"
+    );
+    assert!(
+        fmax[0] >= mmax[0] && fmax[1] >= mmax[1] && fmax[2] >= mmax[2],
+        "fat max must enclose mid max: fat={fmax:?} mid={mmax:?}"
+    );
+}

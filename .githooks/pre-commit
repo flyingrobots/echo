@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
 if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
   exit 0
 fi
@@ -49,8 +50,27 @@ if command -v rustup >/dev/null 2>&1; then
   fi
 fi
 
-# 3) Format check (fast)
-cargo fmt --all -- --check
+# 3) Format (auto-fix if opted in)
+_auto_fmt="${ECHO_AUTO_FMT:-1}"
+case "${_auto_fmt}" in
+  1|true|TRUE|yes|YES|on|ON)
+    echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → running cargo fmt (auto-fix)"
+    cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
+    # Re-stage only staged files that were reformatted
+    if STAGED=$(git diff --cached --name-only); then
+      if [[ -n "$STAGED" ]]; then
+        echo "$STAGED" | xargs -r git add --
+      fi
+    fi
+    ;;
+  0|false|FALSE|no|NO|off|OFF)
+    cargo fmt --all -- --check || { echo "pre-commit: cargo fmt check failed" >&2; exit 1; }
+    ;;
+  *)
+    # Unknown value → safest is check-only
+    cargo fmt --all -- --check || { echo "pre-commit: cargo fmt check failed" >&2; exit 1; }
+    ;;
+esac
 
 # 4) Docs guard (scaled): only require docs when core public API changed
 STAGED=$(git diff --cached --name-only)
@@ -60,12 +80,19 @@ if [[ -n "$CORE_API_CHANGED" ]]; then
   echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when core API changes.' >&2; exit 1; }
 fi
 
-# 5) Lockfile guard: ensure lockfile version is v3 (compatible with MSRV cargo)
+# 5) Lockfile guard: ensure lockfile version is v3 (current cargo format)
 if [[ -f Cargo.lock ]]; then
-  VER_LINE=$(grep -n '^version = ' Cargo.lock | head -n1 | awk -F'= ' '{print $2}')
-  if [[ "$VER_LINE" != "3" && "$VER_LINE" != "3\r" ]]; then
-    echo "pre-commit: Cargo.lock must be generated with Cargo 1.68 (lockfile v3)." >&2
-    echo "Run: cargo +1.68.0 generate-lockfile" >&2
+  # Normalize detected lockfile version (strip quotes/CR/whitespace)
+  VER_LINE=$(grep -n '^version = ' Cargo.lock | head -n1 | awk -F'= ' '{print $2}' | tr -d '\r' | tr -d '"' | xargs)
+  if [[ "$VER_LINE" != "3" ]]; then
+    # Determine pinned toolchain (normalize), fallback to rust-toolchain.toml if unset
+    _PINNED_RAW="${PINNED:-}"
+    if [[ -z "$_PINNED_RAW" ]]; then
+      _PINNED_RAW=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
+    fi
+    PINNED_NORM=$(printf "%s" "$_PINNED_RAW" | tr -d '\r' | xargs)
+    echo "pre-commit: Cargo.lock must be lockfile format v3 (found '$VER_LINE')." >&2
+    echo "Run: cargo +${PINNED_NORM} generate-lockfile" >&2
     exit 1
   fi
 fi

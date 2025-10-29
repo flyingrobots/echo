@@ -1,5 +1,4 @@
 use crate::types::aabb::Aabb;
-use core::cmp::Ordering;
 use std::collections::BTreeMap;
 
 /// Broad-phase interface for inserting proxies and querying overlapping pairs.
@@ -49,7 +48,11 @@ pub struct AabbTree {
 impl AabbTree {
     /// Creates an empty tree.
     #[must_use]
-    pub fn new() -> Self { Self { items: BTreeMap::new() } }
+    pub fn new() -> Self {
+        Self {
+            items: BTreeMap::new(),
+        }
+    }
 }
 
 impl BroadPhase for AabbTree {
@@ -72,10 +75,6 @@ impl BroadPhase for AabbTree {
                 }
             }
         }
-        out.sort_unstable_by(|x, y| match x.0.cmp(&y.0) {
-            Ordering::Equal => x.1.cmp(&y.1),
-            o => o,
-        });
         out
     }
 }

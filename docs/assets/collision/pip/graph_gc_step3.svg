@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect width="320" height="200" fill="#0b1020"/>
+  <rect x="12" y="12" width="296" height="176" fill="#101732" stroke="#2a3c72" rx="6"/>
+  <text x="20" y="48" fill="#dfe7ff" font-size="12">Ephemeral cleared</text>
+</svg>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240" viewBox="0 0 640 240">
+  <defs>
+    <style>
+      :root { --bg:#0b1020; --panel:#121a33; --text:#dfe7ff; --muted:#9fb0d6; --edge:#6aa0ff; --k:#ffd166; --added:#00c853; --removed:#ff5252; --scope:#ffa600; }
+      .panel { fill: var(--panel); rx: 8px; }
+      .title { fill: var(--text); font-weight: 600; font-size: 16px; }
+      .caption { fill: var(--muted); font-size: 12px; }
+      .node rect { fill:#182347; stroke:#3356a6; stroke-width:1.2; rx:6px; }
+      .node.interfaceK rect { fill:#2b2746; stroke:var(--k); stroke-width:2; }
+      .node.added rect { fill:#0d2a1a; stroke:var(--added); stroke-width:2; }
+      .node.removed rect { fill:#2a0d0d; stroke:var(--removed); stroke-width:2; }
+      .node text { fill:var(--text); font-size:12px; }
+      .edge line, .edge path { stroke:var(--edge); stroke-width:1.6; fill:none; }
+      .edge.added line, .edge.added path { stroke:var(--added); stroke-width:2; }
+      .edge.removed line, .edge.removed path { stroke:var(--removed); stroke-width:2; }
+      .edge text { fill:var(--muted); font-size:11px; }
+      .scope rect { fill:none; stroke:var(--scope); stroke-width:2; stroke-dasharray:6 4; rx:8px; }
+      .label { fill:var(--text); font-size:13px; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="640" height="240" fill="var(--bg)"/>
+  <text class="title" x="20" y="28">NarrowPhaseCCD — Step 2: Interface K</text>
+  <g class="node interfaceK" transform="translate(40,100)"><rect width="220" height="44"/><text x="8" y="26">PotentialPair(a,b,n)</text></g>
+  <g class="scope"><rect x="28" y="88" width="260" height="80"/></g>
+</svg>

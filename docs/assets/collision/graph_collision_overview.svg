@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640">
+  <defs>
+    <style>
+      :root { --bg:#0b1020; --panel:#121a33; --text:#dfe7ff; --muted:#9fb0d6; --edge:#6aa0ff; --k:#ffd166; --added:#00c853; --event:#a78bfa; }
+      .title { fill: var(--text); font-weight: 700; font-size: 18px; }
+      .cap { fill: var(--muted); font-size: 12px; }
+      .node rect, .node ellipse { fill:#182347; stroke:#3356a6; stroke-width:1.4; rx:8px; }
+      .node text { fill: var(--text); font-size: 12px; }
+      .edge path, .edge line { stroke: var(--edge); stroke-width: 1.6; fill: none; }
+      .edge text { fill: var(--muted); font-size: 11px; }
+      .tick rect { fill:#1a233f; stroke:#3e5fb5; }
+      .proxy rect { stroke: var(--k); }
+      .pair rect { stroke: var(--added); }
+      .contact rect { stroke: var(--added); }
+      .toi rect { stroke: var(--added); stroke-dasharray: 6 4; }
+      .event ellipse { stroke: var(--event); fill:#241a4b; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#6aa0ff" />
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1120" height="640" fill="var(--bg)"/>
+  <text class="title" x="24" y="28">Collision Subgraph — Typed Nodes and Edges (Tick n)</text>
+  <text class="cap" x="24" y="46">Everything is a graph: entities/components, time‑aware proxies, pairs, contacts, TOI, and events are nodes linked by typed edges.</text>
+
+  <!-- Tick -->
+  <g class="node tick" transform="translate(520,64)">
+    <rect width="80" height="28"/>
+    <text x="12" y="18">Tick(n)</text>
+  </g>
+
+  <!-- Entities -->
+  <g class="node" transform="translate(120,110)">
+    <rect width="120" height="32"/>
+    <text x="10" y="20">Entity A</text>
+  </g>
+  <g class="node" transform="translate(880,110)">
+    <rect width="120" height="32"/>
+    <text x="10" y="20">Entity B</text>
+  </g>
+
+  <!-- Components A -->
+  <g class="node" transform="translate(60,170)">
+    <rect width="140" height="32"/>
+    <text x="10" y="20">Transform(A,n)</text>
+  </g>
+  <g class="node" transform="translate(220,170)">
+    <rect width="100" height="32"/>
+    <text x="10" y="20">Collider(A)</text>
+  </g>
+
+  <!-- Components B -->
+  <g class="node" transform="translate(820,170)">
+    <rect width="140" height="32"/>
+    <text x="10" y="20">Transform(B,n)</text>
+  </g>
+  <g class="node" transform="translate(980,170)">
+    <rect width="100" height="32"/>
+    <text x="10" y="20">Collider(B)</text>
+  </g>
+
+  <!-- Temporal Proxies -->
+  <g class="node proxy" transform="translate(200,280)">
+    <rect width="170" height="36"/>
+    <text x="10" y="22">TemporalProxy(A,n)</text>
+  </g>
+  <g class="node proxy" transform="translate(740,280)">
+    <rect width="170" height="36"/>
+    <text x="10" y="22">TemporalProxy(B,n)</text>
+  </g>
+
+  <!-- Potential Pair -->
+  <g class="node pair" transform="translate(460,340)">
+    <rect width="200" height="42"/>
+    <text x="10" y="26">PotentialPair(A,B,n)</text>
+  </g>
+
+  <!-- Contact + TOI -->
+  <g class="node contact" transform="translate(470,420)">
+    <rect width="180" height="40"/>
+    <text x="10" y="26">Contact(pair,n)</text>
+  </g>
+  <g class="node toi" transform="translate(690,420)">
+    <rect width="120" height="40"/>
+    <text x="10" y="26">Toi(pair,n)</text>
+  </g>
+
+  <!-- Event -->
+  <g class="node event" transform="translate(520,510)">
+    <ellipse cx="80" cy="22" rx="80" ry="22"/>
+    <text x="18" y="26">ContactEvent(kind,n)</text>
+  </g>
+
+  <!-- Edges: has_component -->
+  <g class="edge"><path d="M180,142 L130,170" marker-end="url(#arrow)"/><text x="130" y="152">has_component</text></g>
+  <g class="edge"><path d="M180,142 L260,170" marker-end="url(#arrow)"/></g>
+  <g class="edge"><path d="M940,142 L880,170" marker-end="url(#arrow)"/></g>
+  <g class="edge"><path d="M940,142 L1030,170" marker-end="url(#arrow)"/></g>
+
+  <!-- Edges: produced_in to Tick -->
+  <g class="edge"><path d="M130,186 C 220,140, 500,120, 560,106" marker-end="url(#arrow)"/><text x="300" y="128">produced_in</text></g>
+  <g class="edge"><path d="M880,186 C 800,140, 620,120, 560,106" marker-end="url(#arrow)"/></g>
+
+  <!-- Edges: has_proxy -->
+  <g class="edge"><path d="M270,202 C 280,234, 285,250, 285,280" marker-end="url(#arrow)"/><text x="286" y="244">has_proxy</text></g>
+  <!-- Collider(B) -> TemporalProxy(B,n) with orthogonal elbow to avoid overlaps -->
+  <g class="edge">
+    <path d="M1030,202 L 1030,262 L 1015,280" marker-end="url(#arrow)"/>
+    <text x="1036" y="240">has_proxy</text>
+  </g>
+
+  <!-- Pair links -->
+  <g class="edge"><path d="M370,298 C 420,310, 450,324, 460,361" marker-end="url(#arrow)"/><text x="398" y="326">pair_of</text></g>
+  <g class="edge"><path d="M740,298 C 690,310, 660,324, 660,361" marker-end="url(#arrow)"/></g>
+
+  <!-- Contact_of + Toi -->
+  <g class="edge"><path d="M560,382 L 560,420" marker-end="url(#arrow)"/><text x="566" y="402">contact_of</text></g>
+  <g class="edge"><path d="M640,382 C 680,400, 720,410, 750,420" marker-end="url(#arrow)"/><text x="690" y="400">toi_of</text></g>
+
+  <!-- Event_of -->
+  <g class="edge"><path d="M560,460 C 600,484, 600,496, 600,510" marker-end="url(#arrow)"/><text x="608" y="492">event_of</text></g>
+
+  <!-- Produced_in for derived artifacts -->
+  <g class="edge"><path d="M300,298 C 420,250, 520,140, 560,106" marker-end="url(#arrow)"/></g>
+  <g class="edge"><path d="M860,298 C 740,250, 600,140, 560,106" marker-end="url(#arrow)"/></g>
+  <g class="edge"><path d="M660,340 C 640,310, 620,140, 560,106" marker-end="url(#arrow)"/></g>
+  <g class="edge"><path d="M560,420 C 560,200, 560,140, 560,106" marker-end="url(#arrow)"/></g>
+  <g class="edge"><path d="M750,420 C 740,260, 600,140, 560,106" marker-end="url(#arrow)"/></g>
+  <g class="edge"><path d="M600,510 C 600,160, 580,140, 560,106" marker-end="url(#arrow)"/></g>
+
+</svg>

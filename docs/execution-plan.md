@@ -48,11 +48,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-10-28 — Devcontainer/toolchain alignment
 
-- Default toolchain via `rust-toolchain.toml`: 1.71.1.
-- MSRV retained for libraries (`rmg-core`, `rmg-geom`) at 1.68.0 via dedicated CI job.
+- Toolchain floor via `rust-toolchain.toml`: 1.71.1 (workspace-wide).
 - Devcontainer must not override default; selection is controlled by `rust-toolchain.toml`.
-- Post-create installs both 1.71.1 (components + wasm32) and 1.68.0 without changing the default.
-- CI pins 1.71.1 for workspace jobs and adds an MSRV job (1.68.0) that builds and tests `rmg-core` and `rmg-geom`.
+- Post-create installs 1.71.1 (adds rustfmt/clippy and wasm32 target).
+- CI pins 1.71.1 for all jobs; an additional floor job on 1.71.1 validates `rmg-core` and `rmg-geom` explicitly.
 
 > 2025-10-28 — Pre-commit auto-format flag update
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-PINNED="${PINNED:-1.68.0}"
+PINNED="${PINNED:-1.71.1}"
 
 for cmd in cargo rustup rg; do
   if ! command -v "$cmd" >/dev/null 2>&1; then

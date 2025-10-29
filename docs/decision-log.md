@@ -50,8 +50,7 @@
 - Tests: Added/updated motion tests (velocity preserved; commit after `NoMatch` is a no‑op), math tests (relative tolerances; negative scalar multiplies; extra mul order).
 - Consequence: Deterministic provenance is now explicit; future Aion inputs can populate `decision_digest` without reworking the header. No behavior changes for state hashing.
 
-## 2025-10-29 — Toolchain strategy: default 1.71.1 + MSRV job
+## 2025-10-29 — Toolchain strategy: floor raised to 1.71.1
 
-- Decision: Make Rust 1.71.1 the default toolchain (via `rust-toolchain.toml`) for the workspace to unblock `rmg-wasm` (wasm-bindgen/bumpalo).
-- MSRV: Keep library MSRV at 1.68.0; CI adds a dedicated MSRV job that builds/tests `rmg-core` and `rmg-geom` on 1.68.0.
-- Implementation: Updated `rust-toolchain.toml`, CI workflow to pin 1.71.1 for workspace jobs and add an MSRV matrix entry; devcontainer installs both toolchains without overriding defaults.
+- Decision: Raise the workspace floor (MSRV) to Rust 1.71.1. All crates and CI jobs target 1.71.1.
+- Implementation: Updated `rust-toolchain.toml` to 1.71.1; bumped `rust-version` in crate manifests; CI jobs pin 1.71.1; devcontainer installs only 1.71.1.

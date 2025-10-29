@@ -93,13 +93,13 @@ jobs:
           }
 
   msrv:
-    name: MSRV (core+geom @ 1.68)
+    name: Floor (core+geom @ 1.71.1)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      - uses: dtolnay/rust-toolchain@1.68.0
+      - uses: dtolnay/rust-toolchain@1.71.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |

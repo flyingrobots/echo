@@ -27,27 +27,44 @@ echo "[pre-push] tests (workspace, default toolchain)"
 cargo test --workspace
 
 echo "[pre-push] Testing against MSRV ${MSRV} (core libraries)"
-if ! rustup run "$MSRV" cargo -V >/dev/null 2>&1; then
-  echo "[pre-push] MSRV toolchain ${MSRV} not installed. Install via: rustup toolchain install ${MSRV}" >&2
-  exit 1
-fi
-# Only run MSRV tests for crates that declare rust-version <= MSRV; skip otherwise.
-msrv_ok() {
-  local crate="$1"
-  local rv
-  rv=$(awk -F '"' '/^rust-version/ {print $2}' "crates/${crate}/Cargo.toml" 2>/dev/null || echo "")
-  if [[ -z "$rv" ]]; then
+# If any participating crate declares a rust-version greater than MSRV, skip MSRV checks entirely.
+CORE_RV=$(awk -F '"' '/^rust-version/ {print $2}' crates/rmg-core/Cargo.toml 2>/dev/null || echo "")
+GEOM_RV=$(awk -F '"' '/^rust-version/ {print $2}' crates/rmg-geom/Cargo.toml 2>/dev/null || echo "")
+if { [[ -n "$CORE_RV" ]] && printf '%s\n%s\n' "$MSRV" "$CORE_RV" | sort -V | tail -n1 | grep -qx "$CORE_RV" && [[ "$CORE_RV" != "$MSRV" ]]; } \
+   || { [[ -n "$GEOM_RV" ]] && printf '%s\n%s\n' "$MSRV" "$GEOM_RV" | sort -V | tail -n1 | grep -qx "$GEOM_RV" && [[ "$GEOM_RV" != "$MSRV" ]]; }; then
+  echo "[pre-push] Skipping MSRV block: one or more crates declare rust-version > ${MSRV} (core=${CORE_RV:-unset}, geom=${GEOM_RV:-unset})"
+else
+  if ! rustup run "$MSRV" cargo -V >/dev/null 2>&1; then
+    echo "[pre-push] MSRV toolchain ${MSRV} not installed. Install via: rustup toolchain install ${MSRV}" >&2
+    exit 1
+  fi
+  # Only run MSRV tests for crates that declare rust-version <= MSRV; skip otherwise.
+  msrv_ok() {
+    local crate="$1"
+    local rv
+    rv=$(awk -F '"' '/^rust-version/ {print $2}' "crates/${crate}/Cargo.toml" 2>/dev/null || echo "")
+    if [[ -z "$rv" ]]; then
+      return 0
+    fi
+    # If declared rust-version is greater than MSRV, skip.
+    if printf '%s\n%s\n' "$MSRV" "$rv" | sort -V | tail -n1 | grep -qx "$rv" && [[ "$rv" != "$MSRV" ]]; then
+      echo "[pre-push] Skipping MSRV test for ${crate} (rust-version ${rv} > MSRV ${MSRV})"
+      return 1
+    fi
+    # If crate depends on workspace rmg-core whose rust-version exceeds MSRV, skip as well
+    if grep -qE '^rmg-core\s*=\s*\{[^}]*path\s*=\s*"\.\./rmg-core"' "crates/${crate}/Cargo.toml" 2>/dev/null; then
+      local core_rv
+      core_rv=$(awk -F '"' '/^rust-version/ {print $2}' "crates/rmg-core/Cargo.toml" 2>/dev/null || echo "")
+      if [[ -n "$core_rv" ]] && printf '%s\n%s\n' "$MSRV" "$core_rv" | sort -V | tail -n1 | grep -qx "$core_rv" && [[ "$core_rv" != "$MSRV" ]]; then
+        echo "[pre-push] Skipping MSRV test for ${crate} (depends on rmg-core ${core_rv} > MSRV ${MSRV})"
+        return 1
+      fi
+    fi
     return 0
-  fi
-  # If declared rust-version is greater than MSRV, skip.
-  if printf '%s\n%s\n' "$MSRV" "$rv" | sort -V | tail -n1 | grep -qx "$rv" && [[ "$rv" != "$MSRV" ]]; then
-    echo "[pre-push] Skipping MSRV test for ${crate} (rust-version ${rv} > MSRV ${MSRV})"
-    return 1
-  fi
-  return 0
-}
-if msrv_ok rmg-core; then cargo +"$MSRV" test -p rmg-core --all-targets; fi
-if msrv_ok rmg-geom; then cargo +"$MSRV" test -p rmg-geom --all-targets; fi
+  }
+  if msrv_ok rmg-core; then cargo +"$MSRV" test -p rmg-core --all-targets; fi
+  if msrv_ok rmg-geom; then cargo +"$MSRV" test -p rmg-geom --all-targets; fi
+fi
 
 # Rustdoc warnings guard (public crates)
 echo "[pre-push] rustdoc warnings gate (rmg-core @ $PINNED)"

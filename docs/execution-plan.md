@@ -38,6 +38,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.
 - Add test `fat_aabb_covers_mid_rotation_with_offset` to verify the fat box encloses the mid‑pose AABB.
 
+> 2025-10-29 — Pre-commit format policy
+
+- Change auto-format behavior: when `cargo fmt` would modify files, the hook now applies formatting then aborts the commit with guidance to review and restage. This preserves partial-staging semantics and avoids accidentally staging unrelated hunks.
+
 > 2025-10-28 — PR #13 (math polish) opened
 
 - Focus: canonicalize -0.0 in Mat4 trig constructors and add MulAssign ergonomics.

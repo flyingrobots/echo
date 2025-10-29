@@ -97,7 +97,10 @@ Use Cases
 - Prioritize expensive folds (render/physics budgets) without affecting correctness.
 - Log decisions so replay is identical across peers.
 
-## Operations (safe moves)
+
+## Operations
+
+ (safe moves)
 
 - Fork branch (Kairos): split branch at commit C; new branch’s first parent is C.
 - Merge branches (Kairos): new commit with parents [L, R]; MWMR + domain joins + Aion bias (deterministic), decision logged.

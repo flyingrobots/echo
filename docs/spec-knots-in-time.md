@@ -58,6 +58,7 @@ Both are read‑only folds over commits; they do not change physics or rewrite s
 
 ---
 
+
 ## Kinematics: Where Knots Touch Physics
 
 We keep physics a **fold** over the graph and combine it with Chronos Timespans to obtain deterministic swept bounds.
@@ -66,12 +67,13 @@ We keep physics a **fold** over the graph and combine it with Chronos Timespans 
 2) Geometry fold: local shape → world AABB at `start` and at `end`
 3) Swept AABB (conservative swept volume proxy)
    - Pure translation by `d`: exact swept volume = Minkowski sum `K ⊕ segment[0,d]`; swept AABB equals hull of start/end world AABBs
-   - With rotation: use conservative hull of start/end world AABBs (determinstic and fast); refine later if needed
+   - With rotation: use conservative hull of start/end world AABBs (deterministic and fast); refine later if needed
 4) Kairos::swept: build `SweptVolumeProxy { entity, tick, fat: Aabb }` and insert into broad‑phase (pairs in canonical order)
 
 This is orthogonal to knot diagrams; the latter lives in the state graph as its own domain with its own rewrites and invariants.
 
 ---
+
 
 ## Determinism & Identity (No “Teleporting” States)
 

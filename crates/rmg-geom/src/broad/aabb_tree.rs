@@ -76,10 +76,6 @@ impl BroadPhase for AabbTree {
                 }
             }
         }
-        out.sort_unstable_by(|x, y| match x.0.cmp(&y.0) {
-            Ordering::Equal => x.1.cmp(&y.1),
-            o => o,
-        });
         out
     }
 }

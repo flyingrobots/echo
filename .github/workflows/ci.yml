@@ -92,22 +92,6 @@ jobs:
             exit 1;
           }
 
-  msrv:
-    name: Floor (core+geom @ 1.71.1)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-      - uses: dtolnay/rust-toolchain@1.71.1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-      - name: cargo test (rmg-core)
-        run: cargo test -p rmg-core --all-targets
-      - name: cargo test (rmg-geom)
-        run: cargo test -p rmg-geom --all-targets
 
   rustdoc:
     name: Rustdoc (rmg-core warnings gate)

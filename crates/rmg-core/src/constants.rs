@@ -17,4 +17,3 @@ pub static DIGEST_LEN0_U64: Lazy<Hash> = Lazy::new(|| {
     h.update(&0u64.to_le_bytes());
     h.finalize().into()
 });
-

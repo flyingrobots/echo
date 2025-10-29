@@ -34,10 +34,10 @@
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
 pub mod math;
 
+mod constants;
 /// Demo implementations showcasing engine capabilities (e.g., motion rule).
 pub mod demo;
 mod engine_impl;
-mod constants;
 mod footprint;
 mod graph;
 mod ident;
@@ -49,6 +49,8 @@ mod snapshot;
 mod tx;
 
 // Re-exports for stable public API
+/// Canonical digests (e.g., empty inputs, empty length-prefixed lists).
+pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64};
 /// Demo helpers and constants for the motion rule.
 pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
 /// Rewrite engine and error types.
@@ -77,5 +79,3 @@ pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use snapshot::Snapshot;
 /// Transaction identifier type.
 pub use tx::TxId;
-/// Canonical digests (e.g., empty inputs, empty length-prefixed lists).
-pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64};

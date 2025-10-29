@@ -277,7 +277,14 @@ impl Engine {
             h.finalize().into()
         };
         let decision_empty: Hash = *crate::constants::DIGEST_LEN0_U64;
-        let hash = compute_commit_hash(&state_root, &parents, &empty_digest, &decision_empty, &empty_digest, 0);
+        let hash = compute_commit_hash(
+            &state_root,
+            &parents,
+            &empty_digest,
+            &decision_empty,
+            &empty_digest,
+            0,
+        );
         Snapshot {
             root: self.current_root,
             hash,

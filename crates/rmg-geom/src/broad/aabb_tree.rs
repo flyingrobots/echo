@@ -1,5 +1,4 @@
 use crate::types::aabb::Aabb;
-use core::cmp::Ordering;
 use std::collections::BTreeMap;
 
 /// Broad-phase interface for inserting proxies and querying overlapping pairs.

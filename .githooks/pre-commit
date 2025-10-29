@@ -2,54 +2,46 @@
 set -euo pipefail
 
 # Enforce coupling between PRNG algorithm/version and golden regression vector.
-
 PRNG_FILE="crates/rmg-core/src/math/prng.rs"
+if git diff --cached --name-only | grep -qx "$PRNG_FILE"; then
+  DIFF=$(git diff --cached -- "$PRNG_FILE" || true)
+  # Heuristics to detect algorithm changes: edits to these functions imply behavior change
+  if echo "$DIFF" | grep -E '^(\+|-)\s*(fn\s+next_u64|fn\s+from_seed_u64|fn\s+from_seed\(|fn\s+next_int\()' >/dev/null; then
+    ALGO_CHANGED=1
+  else
+    ALGO_CHANGED=0
+  fi
 
-# Only run if the PRNG file is staged
-if ! git diff --cached --name-only | grep -qx "$PRNG_FILE"; then
-  exit 0
+  # Version bump present?
+  if echo "$DIFF" | grep -E 'PRNG_ALGO_VERSION' >/dev/null; then
+    VERSION_CHANGED=1
+  else
+    VERSION_CHANGED=0
+  fi
+
+  # Golden regression vector updated?
+  if echo "$DIFF" | grep -E 'next_int_golden_regression|assert_eq!\(values,\s*vec!\[' >/dev/null; then
+    GOLDEN_CHANGED=1
+  else
+    GOLDEN_CHANGED=0
+  fi
+
+  FAIL=0
+  if [[ "$ALGO_CHANGED" -eq 1 && "$VERSION_CHANGED" -eq 0 ]]; then
+    echo "pre-commit: PRNG algorithm changed but PRNG_ALGO_VERSION was not bumped." >&2
+    FAIL=1
+  fi
+
+  if [[ "$VERSION_CHANGED" -eq 1 && "$GOLDEN_CHANGED" -eq 0 ]]; then
+    echo "pre-commit: PRNG_ALGO_VERSION bumped but golden regression vector was not updated." >&2
+    FAIL=1
+  fi
+
+  if [[ "$FAIL" -eq 1 ]]; then
+    echo "pre-commit: Refusing commit. Update algorithm version and golden regression together." >&2
+    exit 1
+  fi
 fi
-
-DIFF=$(git diff --cached -- "$PRNG_FILE" || true)
-
-# Heuristics to detect algorithm changes: edits to these functions imply behavior change
-if echo "$DIFF" | grep -E '^(\+|-)\s*(fn\s+next_u64|fn\s+from_seed_u64|fn\s+from_seed\(|fn\s+next_int\()' >/dev/null; then
-  ALGO_CHANGED=1
-else
-  ALGO_CHANGED=0
-fi
-
-# Version bump present?
-if echo "$DIFF" | grep -E 'PRNG_ALGO_VERSION' >/dev/null; then
-  VERSION_CHANGED=1
-else
-  VERSION_CHANGED=0
-fi
-
-# Golden regression vector updated?
-if echo "$DIFF" | grep -E 'next_int_golden_regression|assert_eq!\(values,\s*vec!\[' >/dev/null; then
-  GOLDEN_CHANGED=1
-else
-  GOLDEN_CHANGED=0
-fi
-
-FAIL=0
-if [[ "$ALGO_CHANGED" -eq 1 && "$VERSION_CHANGED" -eq 0 ]]; then
-  echo "pre-commit: PRNG algorithm changed but PRNG_ALGO_VERSION was not bumped." >&2
-  FAIL=1
-fi
-
-if [[ "$VERSION_CHANGED" -eq 1 && "$GOLDEN_CHANGED" -eq 0 ]]; then
-  echo "pre-commit: PRNG_ALGO_VERSION bumped but golden regression vector was not updated." >&2
-  FAIL=1
-fi
-
-if [[ "$FAIL" -eq 1 ]]; then
-  echo "pre-commit: Refusing commit. Update algorithm version and golden regression together." >&2
-  exit 1
-fi
-
-exit 0
 
 # Format gate: run rustfmt check if Rust files are staged
 if git diff --cached --name-only | grep -E '\.rs$' >/dev/null; then

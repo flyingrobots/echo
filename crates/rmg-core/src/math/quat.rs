@@ -16,8 +16,13 @@ impl Quat {
     /// In debug builds this asserts that all components are finite; in release
     /// builds construction is unchecked. Prefer [`Quat::from_axis_angle`] for
     /// axis/angle construction when possible.
-    pub const fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
+    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
         debug_assert!(x.is_finite() && y.is_finite() && z.is_finite() && w.is_finite());
+        Self { data: [x, y, z, w] }
+    }
+
+    /// Const constructor without debug checks for use in other const fns.
+    pub const fn new_unchecked(x: f32, y: f32, z: f32, w: f32) -> Self {
         Self { data: [x, y, z, w] }
     }
 
@@ -125,7 +130,7 @@ impl Quat {
     /// Represents no rotation (the multiplicative identity for quaternion
     /// multiplication).
     pub const fn identity() -> Self {
-        Self::new(0.0, 0.0, 0.0, 1.0)
+        Self::new_unchecked(0.0, 0.0, 0.0, 1.0)
     }
 
     /// Converts the quaternion to a 4×4 rotation matrix in column‑major order.

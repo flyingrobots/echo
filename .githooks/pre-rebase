@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+echo "[pre-rebase] Rebase is disallowed for this repository. Use merge instead." >&2
+exit 1
+

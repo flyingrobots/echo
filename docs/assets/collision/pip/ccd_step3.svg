@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect x="0" y="0" width="320" height="200" fill="#0b1020"/>
+  <rect x="8" y="8" width="304" height="184" fill="#101732" stroke="#2a3c72" rx="6"/>
+  <circle cx="60" cy="120" r="10" fill="#6aa0ff" fill-opacity="0.6"/>
+  <rect x="210" y="96" width="48" height="48" fill="#ff8a65"/>
+  <line x1="60" y1="120" x2="210" y2="120" stroke="#9fb0d6" stroke-width="2" stroke-dasharray="4 3"/>
+  <circle cx="210" cy="120" r="4" fill="#00c853"/>
+  <line x1="210" y1="120" x2="210" y2="100" stroke="#00c853"/>
+  <text x="16" y="28" fill="#dfe7ff" font-size="12">Impact at s ≈ TOI; contact normal</text>
+</svg>

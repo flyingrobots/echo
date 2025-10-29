@@ -1,4 +1,4 @@
-use crate::math::Vec3;
+use crate::math::{Quat, Vec3};
 
 /// Column-major 4×4 matrix matching Echo’s deterministic math layout.
 ///
@@ -11,6 +11,120 @@ pub struct Mat4 {
 }
 
 impl Mat4 {
+    /// Returns the identity matrix.
+    ///
+    /// The identity is the multiplicative neutral element for matrices:
+    /// `M * I = I * M = M`. Use it as a no‑op transform or as a starting
+    /// point for composing transforms.
+    pub const fn identity() -> Self {
+        Self {
+            data: [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+        }
+    }
+
+    /// Builds a translation matrix in meters.
+    ///
+    /// Constructs a 4×4 homogeneous translation matrix intended for
+    /// transforming points in world space (positioning objects). When using
+    /// [`Mat4::transform_point`], the translation is applied; when using
+    /// [`Mat4::transform_direction`], translation is ignored (only the upper‑left
+    /// 3×3 linear part is used). Matrices are column‑major and the bottom‑right
+    /// element is `1.0`.
+    pub const fn translation(tx: f32, ty: f32, tz: f32) -> Self {
+        Self {
+            data: [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, tx, ty, tz, 1.0,
+            ],
+        }
+    }
+
+    /// Builds a non-uniform scale matrix.
+    ///
+    /// Invariants:
+    /// - Determinant is `sx * sy * sz`. Any zero component produces a
+    ///   degenerate (non-invertible) matrix.
+    /// - A negative component reflects about the corresponding axis; an odd
+    ///   number of negative components flips handedness.
+    pub const fn scale(sx: f32, sy: f32, sz: f32) -> Self {
+        Self {
+            data: [
+                sx, 0.0, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 0.0, sz, 0.0, 0.0, 0.0, 0.0, 1.0,
+            ],
+        }
+    }
+
+    /// Builds a rotation matrix around the X axis by `angle` radians.
+    ///
+    /// Right‑handed convention: positive angles rotate counter‑clockwise when
+    /// looking down the +X axis toward the origin. See
+    /// [`Mat4::rotation_from_euler`] for the full convention.
+    pub fn rotation_x(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new([
+            1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ])
+    }
+
+    /// Builds a rotation matrix around the Y axis by `angle` radians.
+    ///
+    /// Right‑handed convention: positive angles rotate counter‑clockwise when
+    /// looking down the +Y axis toward the origin. See
+    /// [`Mat4::rotation_from_euler`] for the full convention.
+    pub fn rotation_y(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new([
+            c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ])
+    }
+
+    /// Builds a rotation matrix around the Z axis by `angle` radians.
+    ///
+    /// Right‑handed convention: positive angles rotate counter‑clockwise when
+    /// looking down the +Z axis toward the origin. See
+    /// [`Mat4::rotation_from_euler`] for the full convention.
+    pub fn rotation_z(angle: f32) -> Self {
+        let (s, c) = angle.sin_cos();
+        Self::new([
+            c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ])
+    }
+
+    /// Builds a rotation matrix from Euler angles in radians.
+    ///
+    /// Convention and order:
+    /// - Constructs `R = R_y(yaw) * R_x(pitch) * R_z(roll)`.
+    /// - Matrix multiplication in the code is performed left-to-right in this
+    ///   same order, so the rightmost rotation (`R_z`) is applied first when
+    ///   transforming a vector.
+    /// - Matrices are intended for column vectors with transforms of the form
+    ///   `M * v` (column-major storage; no implicit transpose).
+    pub fn rotation_from_euler(yaw: f32, pitch: f32, roll: f32) -> Self {
+        Self::rotation_y(yaw)
+            .multiply(&Self::rotation_x(pitch))
+            .multiply(&Self::rotation_z(roll))
+    }
+
+    /// Constructs a rotation matrix from an axis and angle in radians.
+    ///
+    /// The `axis` argument does not need to be pre‑normalised; it is
+    /// normalised internally. If a zero‑length axis is supplied, the identity
+    /// matrix is returned (behaviour delegated to
+    /// [`Quat::from_axis_angle`](crate::math::Quat::from_axis_angle)).
+    pub fn rotation_axis_angle(axis: Vec3, angle: f32) -> Self {
+        Self::from_quat(&Quat::from_axis_angle(axis, angle))
+    }
+
+    /// Constructs a rotation matrix from a quaternion.
+    ///
+    /// Expects a unit (normalised) quaternion for a pure rotation. Passing an
+    /// unnormalised quaternion scales the resulting matrix. Component order is
+    /// `(x, y, z, w)` to match [`Quat`]. See [`Quat`] for construction and
+    /// normalisation helpers.
+    pub fn from_quat(q: &Quat) -> Self {
+        q.to_mat4()
+    }
     /// Creates a matrix from column-major array data.
     ///
     /// Callers must supply 16 finite values already laid out column-major.
@@ -19,7 +133,7 @@ impl Mat4 {
     }
 
     /// Returns the matrix as a column-major array.
-    pub fn to_array(self) -> [f32; 16] {
+    pub const fn to_array(self) -> [f32; 16] {
         self.data
     }
 
@@ -30,7 +144,7 @@ impl Mat4 {
     /// Multiplies the matrix with another matrix (`self * rhs`).
     ///
     /// Multiplication follows column-major semantics (`self` on the left,
-    /// [`rhs`] on the right) to mirror GPU-style transforms.
+    /// rhs on the right) to mirror GPU-style transforms.
     pub fn multiply(&self, rhs: &Self) -> Self {
         let mut out = [0.0; 16];
         for row in 0..4 {
@@ -81,5 +195,39 @@ impl Mat4 {
 impl From<[f32; 16]> for Mat4 {
     fn from(value: [f32; 16]) -> Self {
         Self { data: value }
+    }
+}
+
+impl core::ops::Mul for Mat4 {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        self.multiply(&rhs)
+    }
+}
+
+impl core::ops::Mul<&Mat4> for &Mat4 {
+    type Output = Mat4;
+    fn mul(self, rhs: &Mat4) -> Self::Output {
+        self.multiply(rhs)
+    }
+}
+
+impl core::ops::Mul<&Mat4> for Mat4 {
+    type Output = Mat4;
+    fn mul(self, rhs: &Mat4) -> Self::Output {
+        self.multiply(rhs)
+    }
+}
+
+impl core::ops::Mul<Mat4> for &Mat4 {
+    type Output = Mat4;
+    fn mul(self, rhs: Mat4) -> Self::Output {
+        self.multiply(&rhs)
+    }
+}
+
+impl Default for Mat4 {
+    fn default() -> Self {
+        Self::identity()
     }
 }

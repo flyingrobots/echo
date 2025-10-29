@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.71.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -30,7 +30,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.71.1
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -45,13 +47,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.71.1
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             .
-      - name: cargo test
-        run: cargo test
+      - name: cargo test (workspace)
+        run: cargo test --workspace
       - name: PRNG golden regression (rmg-core)
         run: cargo test -p rmg-core --features golden_prng -- tests::next_int_golden_regression
 
@@ -86,3 +88,16 @@ jobs:
             echo 'docs/decision-log.md must be updated when non-doc files change.';
             exit 1;
           }
+
+
+  rustdoc:
+    name: Rustdoc (rmg-core warnings gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.71.1
+      - uses: Swatinem/rust-cache@v2
+      - name: rustdoc warnings gate
+        run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps

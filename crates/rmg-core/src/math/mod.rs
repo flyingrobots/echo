@@ -37,7 +37,7 @@ pub const EPSILON: f32 = 1e-6;
 /// ensure inputs are finite if deterministic behavior is required.
 pub fn clamp(value: f32, min: f32, max: f32) -> f32 {
     assert!(min <= max, "invalid clamp range: {min} > {max}");
-    value.max(min).min(max)
+    value.clamp(min, max)
 }
 
 /// Converts degrees to radians with float32 precision.

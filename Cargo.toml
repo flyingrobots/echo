@@ -3,7 +3,8 @@ members = [
     "crates/rmg-core",
     "crates/rmg-ffi",
     "crates/rmg-wasm",
-    "crates/rmg-cli"
+    "crates/rmg-cli",
+    "crates/rmg-geom"
 ]
 resolver = "2"
 

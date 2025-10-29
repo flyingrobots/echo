@@ -3,7 +3,12 @@ SHELL := /bin/bash
 # Default docs port; override with: make docs PORT=5180
 PORT ?= 5173
 
-.PHONY: docs docs-build docs-ci
+.PHONY: hooks docs docs-build docs-ci
+
+hooks:
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/* 2>/dev/null || true
+	@echo "[hooks] Installed git hooks from .githooks (core.hooksPath)"
 
 # Start VitePress dev server and open the browser automatically.
 docs:
@@ -32,6 +37,5 @@ docs-build:
 
 # Build docs without installing dependencies (for CI caches)
 docs-ci:
-	@echo "[docs] CI build (no npm install)" 
+	@echo "[docs] CI build (no npm install)"
 	@npm run --silent docs:build
-

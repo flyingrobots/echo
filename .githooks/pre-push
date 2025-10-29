@@ -38,10 +38,14 @@ RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p rmg-core --no-deps
 
 # Banned patterns
 echo "[pre-push] scanning banned patterns"
-# Match any crate-level allow(...) that includes missing_docs; exclude telemetry.rs explicitly
-if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' --glob '!crates/rmg-core/src/telemetry.rs' crates >/dev/null; then
+# Forbid crate-level allow(missing_docs) in library source files, but allow in tests and build scripts
+if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
+  crates \
+  --glob 'crates/**/src/**/*.rs' \
+  --glob '!**/telemetry.rs' \
+  --glob '!**/tests/**' >/dev/null; then
   echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs)." >&2
-  rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' --glob '!crates/rmg-core/src/telemetry.rs' crates | cat >&2 || true
+  rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' crates --glob 'crates/**/src/**/*.rs' --glob '!**/telemetry.rs' --glob '!**/tests/**' | cat >&2 || true
   exit 1
 fi
 if rg -n "\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then

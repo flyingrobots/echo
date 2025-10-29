@@ -51,8 +51,15 @@ fn mat4_mul_assign_variants_work() {
 
 #[test]
 fn rotations_do_not_produce_negative_zero() {
+    // We target angles that should produce exact zeros in rotation matrices:
+    // multiples of π/2 yield sin/cos values in { -1, 0, 1 }, which is where
+    // -0.0 might accidentally appear if we don't canonicalize zeros. We also
+    // include a couple of intermediate angles as a sanity check (these should
+    // not introduce exact zeros but must also not yield -0.0 anywhere).
     let angles = [
         0.0,
+        core::f32::consts::FRAC_PI_6,
+        core::f32::consts::FRAC_PI_3,
         core::f32::consts::FRAC_PI_2,
         core::f32::consts::PI,
         3.0 * core::f32::consts::FRAC_PI_2,
@@ -60,16 +67,20 @@ fn rotations_do_not_produce_negative_zero() {
     ];
     let neg_zero = (-0.0f32).to_bits();
     for &a in &angles {
-        for m in [
-            Mat4::rotation_x(a),
-            Mat4::rotation_y(a),
-            Mat4::rotation_z(a),
-        ] {
-            for &e in m.to_array().iter() {
+        let axes = [
+            ("X", Mat4::rotation_x(a)),
+            ("Y", Mat4::rotation_y(a)),
+            ("Z", Mat4::rotation_z(a)),
+        ];
+        for (axis, m) in axes {
+            for (idx, &e) in m.to_array().iter().enumerate() {
                 assert_ne!(
                     e.to_bits(),
                     neg_zero,
-                    "found -0.0 in rotation matrix for angle {a}"
+                    "found -0.0 in rotation_{} matrix at element [{}] for angle {}",
+                    axis,
+                    idx,
+                    a
                 );
             }
         }

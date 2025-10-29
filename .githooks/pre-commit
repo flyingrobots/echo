@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+
 if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
   exit 0
 fi

@@ -14,6 +14,7 @@
 | 2025-10-26 | EPI bundle | Adopt entropy, plugin, inspector, runtime config specs (Phase 0.75) | Close causality & extensibility gap | Phase 1 implementation backlog defined |
 | 2025-10-26 | RMG + Confluence | Adopt RMG v2 (typed DPOi engine) and Confluence synchronization as core architecture | Unify runtime/persistence/tooling on deterministic rewrites | Launch Rust workspace (rmg-core/ffi/wasm/cli), port ECS rules, set up Confluence networking |
 | 2025-10-27 | Core math split | Split `rmg-core` math into focused submodules (`vec3`, `mat4`, `quat`, `prng`) replacing monolithic `math.rs`. | Improves readability, testability, and aligns with strict linting. | Update imports; no behavior changes intended; follow-up determinism docs in snapshot hashing. |
+
 | 2025-10-27 | PR #7 prep | Extracted math + engine spike into `rmg-core` (split-core-math-engine); added inline rustdoc on canonical snapshot hashing (node/edge order, payload encoding). | Land the isolated, reviewable portion now; keep larger geometry/broad‑phase work split for follow-ups. | After docs update, run fmt/clippy/tests; merge is a fast‑forward over `origin/main`. |
 | 2025-10-28 | PR #7 merged | Reachability-only snapshot hashing; ports demo registers rule; guarded ports footprint; scheduler `finalize_tx()` clears `pending`; `PortKey` u30 mask; hooks+CI hardened (toolchain pin, rustdoc fixes). | Determinism + memory hygiene; remove test footguns; pass CI with stable toolchain while keeping rmg-core MSRV=1.68. | Queued follow-ups: #13 (Mat4 canonical zero + MulAssign), #14 (geom train), #15 (devcontainer). |
 | 2025-10-27 | MWMR reserve gate | Engine calls `scheduler.finalize_tx()` at commit; compact rule id used on execute path; per‑tx telemetry summary behind feature. | Enforce independence and clear active frontier deterministically; keep ordering stable with `(scope_hash, family_id)`. | Toolchain pinned to Rust 1.68; add design note for telemetry graph snapshot replay. |
@@ -61,6 +62,13 @@
 - Change: docs/assets/collision/animate.js leaves Prev/Next enabled in 'all'; boundary disabling still applies in single-slide mode.
 - Consequence: Users can initiate the carousel via navigation controls; E2E tour test passes deterministically.
 
+## 2025-10-29 — Docs E2E carousel init (PR #10)
+
+- Context: Playwright tour test clicks Next to enter carousel from "all" mode.
+- Decision: Do not disable Prev/Next in "all" mode; allow navigation buttons to toggle into carousel.
+- Change: docs/assets/collision/animate.js leaves Prev/Next enabled in 'all'; boundary disabling still applies in single-slide mode.
+- Consequence: Users can initiate the carousel via navigation controls; E2E tour test passes deterministically.
+
 ## 2025-10-29 — Docs make open (PR #11)
 
 - Context: Make dev docs open automatically; fix routing and dead-link noise.
@@ -69,3 +77,10 @@
   - Convert tour/spec links to root‑relative paths to work site‑wide under VitePress routing.
   - Make the dev server polling loop portable (`sleep 1`).
 - Consequence: Docs dev flow is consistent across environments; CI Docs Guard happy; links resolve from any page.
+
+## 2025-10-29 — Hooks formatting gate (PR #12)
+
+- Context: Enforce consistent formatting before commit; avoid CI/docs drift when non-doc files change.
+- Decision: Pre-commit runs `cargo fmt --all -- --check` whenever staged Rust files are detected. Retain the PRNG coupling guard but remove the unconditional early exit so formatting still runs when the PRNG file isn’t staged.
+- EditorConfig: normalize line endings (LF), ensure final newline, trim trailing whitespace, set 2-space indent for JS/TS/JSON and 4-space for Rust.
+- Consequence: Developers get immediate feedback on formatting; cleaner diffs and fewer CI round-trips.

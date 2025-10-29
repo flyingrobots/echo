@@ -33,6 +33,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-29 — Hooks formatting gate (PR #12)
+
+- Pre-commit: add rustfmt check for staged Rust files (`cargo fmt --all -- --check`).
+- Keep PRNG coupling guard, but avoid early exit so formatting still runs when PRNG file isn't staged.
+- .editorconfig: unify whitespace rules (LF, trailing newline, 2-space for JS/TS, 4-space for Rust).
+
 > 2025-10-29 — Docs make open (PR #11)
 
 - VitePress dev: keep auto-open; polling loop uses portable `sleep 1`.

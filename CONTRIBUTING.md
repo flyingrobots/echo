@@ -65,6 +65,17 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
   - A minimal docs-guard: when core API files change, it requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors CI)
 - To auto-fix formatting on commit: `ECHO_AUTO_FMT=1 git commit -m "message"`
 
+#### Partial Staging & rustfmt
+- rustfmt formats entire files, not only staged hunks. To preserve index integrity, our pre-commit hook now aborts the commit if running `cargo fmt` would change any files. It first checks with `cargo fmt --check`, and if changes are needed it applies them and exits with a helpful message.
+- Workflow when this happens:
+  1) Review formatting changes: `git status` and `git diff`.
+  2) Restage intentionally formatted files (e.g., `git add -A` or `git add -p`).
+  3) Commit again.
+- Tips:
+  - If you need to keep a partial-staged commit, do two commits: first commit the formatter-only changes, then commit your code changes.
+  - You can switch to check-only with `ECHO_AUTO_FMT=0` (commit will still fail on formatting issues, but nothing is auto-applied).
+  - Avoid `SKIP_HOOKS=1` unless you’ve coordinated; CI will fail on formatting anyway.
+
 ## Communication
 - Major updates should land in `docs/execution-plan.md` and `docs/decision-log.md`; rely on GitHub discussions or issues for longer-form proposals.
 - Respect the temporal theme—leave the codebase cleaner for the next timeline traveler.

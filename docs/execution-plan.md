@@ -51,7 +51,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Toolchain floor via `rust-toolchain.toml`: 1.71.1 (workspace-wide).
 - Devcontainer must not override default; selection is controlled by `rust-toolchain.toml`.
 - Post-create installs 1.71.1 (adds rustfmt/clippy and wasm32 target).
-- CI pins 1.71.1 for all jobs; an additional floor job on 1.71.1 validates `rmg-core` and `rmg-geom` explicitly.
+- CI pins 1.71.1 for all jobs (single matrix; no separate floor job).
 
 > 2025-10-28 — Pre-commit auto-format flag update
 

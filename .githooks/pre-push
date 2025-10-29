@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PINNED="${PINNED:-1.71.1}"
-# Separate MSRV for library checks (override with MSRV env)
-MSRV="${MSRV:-1.68.0}"
+# MSRV floor for library checks (override with MSRV env)
+MSRV="${MSRV:-1.71.1}"
 
 for cmd in cargo rustup rg; do
   if ! command -v "$cmd" >/dev/null 2>&1; then

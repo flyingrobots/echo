@@ -1,0 +1,17 @@
+flowchart LR
+  subgraph LHS
+    PA((TemporalProxy(a,n))):::KClass
+    PB((TemporalProxy(b,n))):::KClass
+    PA -- overlaps --> PB
+  end
+
+  subgraph RHS
+    PA2((TemporalProxy(a,n))):::KClass
+    PB2((TemporalProxy(b,n))):::KClass
+    PP[[PotentialPair(a,b,n)]]:::Add
+    PA2 -- pair_of --> PP
+    PB2 -- pair_of --> PP
+  end
+
+classDef KClass stroke:#ffd166,stroke-width:2;
+classDef Add stroke:#00c853,stroke-width:2,fill:#0d2a1a,color:#dfe7ff;

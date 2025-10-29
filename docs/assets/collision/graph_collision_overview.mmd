@@ -1,0 +1,48 @@
+flowchart TB
+  Tick[(Tick n)]
+  subgraph Entities
+    EA[Entity A]
+    EB[Entity B]
+  end
+  TA[Transform(A,n)]
+  CA[Collider(A)]
+  TB[Transform(B,n)]
+  CB[Collider(B)]
+  TPA[[TemporalProxy(A,n)]]
+  TPB[[TemporalProxy(B,n)]]
+  PP{{PotentialPair(A,B,n)}}
+  C((Contact(pair,n)))
+  TOI((Toi(pair,n)))
+  E((ContactEvent(kind,n)))
+
+  EA --> TA
+  EA --> CA
+  EB --> TB
+  EB --> CB
+
+  TA -- produced_in --> Tick
+  TB -- produced_in --> Tick
+
+  TA -. has_proxy .-> TPA
+  TB -. has_proxy .-> TPB
+  TPA -- pair_of --> PP
+  TPB -- pair_of --> PP
+  PP -- contact_of --> C
+  PP -. toi_of .-> TOI
+  C -- event_of --> E
+
+  TPA -- produced_in --> Tick
+  TPB -- produced_in --> Tick
+  PP -- produced_in --> Tick
+  C -- produced_in --> Tick
+  TOI -- produced_in --> Tick
+  E -- produced_in --> Tick
+
+classDef tick fill:#1a233f,stroke:#3e5fb5,color:#dfe7ff;
+classDef proxy stroke:#ffd166,color:#dfe7ff;
+classDef pair stroke:#00c853,color:#dfe7ff;
+classDef event fill:#241a4b,stroke:#a78bfa,color:#dfe7ff;
+class Tick tick;
+class TPA,TPB proxy;
+class PP pair;
+class E event;

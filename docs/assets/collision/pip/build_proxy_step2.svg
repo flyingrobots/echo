@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect x="0" y="0" width="320" height="200" fill="#0b1020"/>
+  <rect x="8" y="8" width="304" height="184" fill="#101732" stroke="#ffd166" rx="6"/>
+  <circle cx="80" cy="110" r="14" fill="#6aa0ff"/>
+  <text x="16" y="28" fill="#dfe7ff" font-size="12">Interface K — e@Tick n preserved</text>
+</svg>

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360">
+  <defs>
+    <style>
+      :root { --bg:#0b1020; --panel:#121a33; --text:#dfe7ff; --muted:#9fb0d6; --edge:#6aa0ff; --k:#ffd166; --added:#00c853; --removed:#ff5252; --scope:#ffa600; }
+      .panel { fill: var(--panel); rx: 8px; }
+      .title { fill: var(--text); font-weight: 600; font-size: 16px; }
+      .caption { fill: var(--muted); font-size: 12px; }
+      .node rect { fill:#182347; stroke:#3356a6; stroke-width:1.2; rx:6px; }
+      .node.interfaceK rect { fill:#2b2746; stroke:var(--k); stroke-width:2; }
+      .node.added rect { fill:#0d2a1a; stroke:var(--added); stroke-width:2; }
+      .node.removed rect { fill:#2a0d0d; stroke:var(--removed); stroke-width:2; }
+      .node text { fill:var(--text); font-size:12px; }
+      .edge line, .edge path { stroke:var(--edge); stroke-width:1.6; fill:none; }
+      .edge.added line, .edge.added path { stroke:var(--added); stroke-width:2; }
+      .edge.removed line, .edge.removed path { stroke:var(--removed); stroke-width:2; }
+      .edge text { fill:var(--muted); font-size:11px; }
+      .scope rect { fill:none; stroke:var(--scope); stroke-width:2; stroke-dasharray:6 4; rx:8px; }
+      .label { fill:var(--text); font-size:13px; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="960" height="360" fill="var(--bg)"/>
+  <text class="title" x="24" y="28">DPO: GC Ephemeral (timeline_flush)</text>
+  <text class="caption" x="24" y="46">LHS: Temporal artifacts older than retention and unreferenced; RHS: delete deterministically</text>
+
+  <rect class="panel" x="24" y="64" width="408" height="264"/>
+  <text class="label" x="36" y="86">LHS</text>
+  <rect class="panel" x="528" y="64" width="408" height="264"/>
+  <text class="label" x="540" y="86">RHS</text>
+
+  <g class="node" transform="translate(56,140)"><rect width="160" height="44"/><text x="8" y="26">TemporalProxy(e,n-2)</text></g>
+  <g class="node" transform="translate(56,206)"><rect width="170" height="44"/><text x="8" y="26">PotentialPair(a,b,n-2)</text></g>
+  <g class="node" transform="translate(240,174)"><rect width="140" height="44"/><text x="8" y="26">Toi(pair,n-2)</text></g>
+
+  <g class="node removed pulse-remove" transform="translate(560,160)"><rect width="260" height="44"/><text x="8" y="26">(deleted ephemeral nodes)</text></g>
+
+  <g class="scope"><rect x="44" y="120" width="372" height="160"/></g>
+  <g class="scope"><rect x="548" y="120" width="372" height="160"/></g>
+</svg>

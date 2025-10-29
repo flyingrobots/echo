@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect x="0" y="0" width="320" height="200" fill="#0b1020"/>
+  <rect x="8" y="8" width="304" height="184" fill="#101732" stroke="#2a3c72" rx="6"/>
+  <rect x="90" y="90" width="40" height="32" fill="#6aa0ff"/>
+  <rect x="130" y="90" width="40" height="32" fill="#ff8a65"/>
+  <rect x="200" y="90" width="40" height="32" fill="#6aa0ff" fill-opacity="0.4"/>
+  <rect x="240" y="90" width="40" height="32" fill="#ff8a65" fill-opacity="0.4"/>
+  <text x="16" y="28" fill="#dfe7ff" font-size="12">Contacts at n and n−1 (compare)</text>
+</svg>

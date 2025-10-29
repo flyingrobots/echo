@@ -54,13 +54,13 @@ fi
 _auto_fmt="${ECHO_AUTO_FMT:-1}"
 case "${_auto_fmt}" in
   1|true|TRUE|yes|YES|on|ON)
-    echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → running cargo fmt (auto-fix)"
-    cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
-    # Re-stage only staged files that were reformatted
-    if STAGED=$(git diff --cached --name-only); then
-      if [[ -n "$STAGED" ]]; then
-        echo "$STAGED" | xargs -r git add --
-      fi
+    echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → checking format"
+    if ! cargo fmt --all -- --check; then
+      echo "pre-commit: running cargo fmt to apply changes" >&2
+      cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
+      echo "pre-commit: rustfmt updated files. Aborting commit to preserve index integrity (partial staging safe)." >&2
+      echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
+      exit 1
     fi
     ;;
   0|false|FALSE|no|NO|off|OFF)

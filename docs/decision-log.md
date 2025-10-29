@@ -60,3 +60,12 @@
 - Decision: Do not disable Prev/Next in "all" mode; allow navigation buttons to toggle into carousel.
 - Change: docs/assets/collision/animate.js leaves Prev/Next enabled in 'all'; boundary disabling still applies in single-slide mode.
 - Consequence: Users can initiate the carousel via navigation controls; E2E tour test passes deterministically.
+
+## 2025-10-29 — Docs make open (PR #11)
+
+- Context: Make dev docs open automatically; fix routing and dead-link noise.
+- Decisions:
+  - Use a precise dead-link ignore for `/collision-dpo-tour.html` (exact regex) until the page is always present.
+  - Convert tour/spec links to root‑relative paths to work site‑wide under VitePress routing.
+  - Make the dev server polling loop portable (`sleep 1`).
+- Consequence: Docs dev flow is consistent across environments; CI Docs Guard happy; links resolve from any page.

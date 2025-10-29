@@ -4,7 +4,6 @@ SHELL := /bin/bash
 PORT ?= 5173
 
 .PHONY: hooks docs docs-build docs-ci
-
 hooks:
 	@git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
@@ -26,7 +25,7 @@ docs:
 	      wait $$server_pid ; \
 	      exit 0 ; \
 	    fi ; \
-	    sleep 0.25 ; \
+	    sleep 1 ; \
 	  done ; \
 	  echo "[docs] Timed out waiting for VitePress." ; \
 	  exit 1

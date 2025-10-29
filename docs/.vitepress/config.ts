@@ -4,6 +4,10 @@ export default defineConfig({
   title: 'Echo',
   description: 'Deterministic, multiverse-aware ECS',
   cleanUrls: true,
+  ignoreDeadLinks: [
+    // Collision tour HTML is added in a separate PR
+    /^\/collision-dpo-tour\.html$/
+  ],
   themeConfig: {
     nav: [
       { text: 'Home', link: '/' },
@@ -21,4 +25,7 @@ export default defineConfig({
     }
   }
 })
+<<<<<<< HEAD
+=======
 
+>>>>>>> origin/main

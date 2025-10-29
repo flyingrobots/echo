@@ -33,6 +33,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-29 — Docs make open (PR #11)
+
+- VitePress dev: keep auto-open; polling loop uses portable `sleep 1`.
+- Fix links and dead-link ignore: root-relative URLs; precise regex for `/collision-dpo-tour.html`; corrected comment typo.
+
 > 2025-10-29 — Docs E2E (PR #10)
 
 - Collision DPO tour carousel: keep Prev/Next enabled in "all" mode so users and tests can enter carousel via navigation. Fixes Playwright tour test.

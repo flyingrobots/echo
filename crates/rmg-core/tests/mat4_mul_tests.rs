@@ -55,7 +55,11 @@ fn rotations_do_not_produce_negative_zero() {
             Mat4::rotation_z(a),
         ] {
             for &e in m.to_array().iter() {
-                assert_ne!(e.to_bits(), neg_zero, "found -0.0 in rotation matrix for angle {a}");
+                assert_ne!(
+                    e.to_bits(),
+                    neg_zero,
+                    "found -0.0 in rotation matrix for angle {a}"
+                );
             }
         }
     }

@@ -84,3 +84,10 @@
 - Decision: Pre-commit runs `cargo fmt --all -- --check` whenever staged Rust files are detected. Retain the PRNG coupling guard but remove the unconditional early exit so formatting still runs when the PRNG file isn’t staged.
 - EditorConfig: normalize line endings (LF), ensure final newline, trim trailing whitespace, set 2-space indent for JS/TS/JSON and 4-space for Rust.
 - Consequence: Developers get immediate feedback on formatting; cleaner diffs and fewer CI round-trips.
+
+## 2025-10-29 — Geom fat AABB bounds mid-rotation
+
+- Context: Broad-phase must not miss overlaps when a shape rotates about an off‑centre pivot; union of endpoint AABBs can under‑approximate mid‑tick extents.
+- Decision: `Timespan::fat_aabb` now unions AABBs at start, mid (t=0.5 via nlerp for rotation, lerp for translation/scale), and end. Sampling count is fixed (3) for determinism.
+- Change: Implement midpoint sampling in `crates/rmg-geom/src/temporal/timespan.rs`; add test `fat_aabb_covers_mid_rotation_with_offset` to ensure mid‑pose is enclosed.
+- Consequence: Deterministic and more conservative broad‑phase bounds for typical rotation cases without introducing policy/config surface yet; future work may expose a configurable sampling policy.

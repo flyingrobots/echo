@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect x="0" y="0" width="320" height="200" fill="#0b1020"/>
+  <rect x="12" y="12" width="296" height="176" fill="#101732" stroke="#2a3c72" rx="6"/>
+  <rect x="20" y="50" width="110" height="26" fill="#182347" stroke="#3356a6" rx="6"/>
+  <text x="26" y="67" fill="#dfe7ff" font-size="12">Transform(A,n)</text>
+  <rect x="20" y="84" width="92" height="26" fill="#182347" stroke="#3356a6" rx="6"/>
+  <text x="26" y="101" fill="#dfe7ff" font-size="12">Collider(A)</text>
+  <rect x="200" y="20" width="72" height="24" fill="#1a233f" stroke="#3e5fb5" rx="6"/>
+  <text x="208" y="36" fill="#dfe7ff" font-size="12">Tick(n)</text>
+  <path d="M 75 50 C 110 40 190 30 200 30" stroke="#6aa0ff" stroke-width="1.6" fill="none"/>
+  <path d="M 75 110 C 110 90 190 40 200 30" stroke="#6aa0ff" stroke-width="1.6" fill="none"/>
+  <text x="130" y="44" fill="#9fb0d6" font-size="11">produced_in</text>
+</svg>

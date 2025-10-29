@@ -33,37 +33,71 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
+
+- Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.
+- Add test `fat_aabb_covers_mid_rotation_with_offset` to verify the fat box encloses the mid‑pose AABB.
+
 > 2025-10-28 — PR #13 (math polish) opened
 
 - Focus: canonicalize -0.0 in Mat4 trig constructors and add MulAssign ergonomics.
 - Outcome: Opened PR echo/core-math-canonical-zero with tests; gather feedback before merge.
 
-> 2025-10-28 — PR #7 finalize and land
+> 2025-10-29 — Hooks formatting gate (PR #12)
 
-- Focus: close out review nits on engine/scheduler/footprint/demo; ensure CI/hook stability; keep scope tight.
-- Done:
-  - Snapshot hashes: reachable-only BFS; sorted edges by `EdgeId`.
-  - Scheduler: `finalize_tx()` clears `active` and `pending` to avoid leaks; reserve gate wired.
-  - Demo parity: `build_port_demo_engine()` registers its rule; ports footprint guards writes/ports on existing nodes.
-  - Footprint: `PortKey` bit layout documented (bits 31..2: port_id u30; bit 1: reserved; bit 0: dir) + u30 masking with debug-assert; factor_mask invariant documented.
-  - Hooks/CI: pinned pre-push toolchain, robust banned-pattern scan, adjusted docs-guard to core API; fixed rustdoc links.
-  - MSRV: rmg-core stays at 1.68; workspace uses stable for wasm dependencies.
-  - Engine/tests: enforce `join_fn` invariant for `ConflictPolicy::Join`; remove `expect` panic in `apply()` corruption path; add NaN-propagation test for `clamp`; do not push yet (waiting for more feedback).
+- Pre-commit: add rustfmt check for staged Rust files (`cargo fmt --all -- --check`).
+- Keep PRNG coupling guard, but avoid early exit so formatting still runs when PRNG file isn't staged.
+- .editorconfig: unify whitespace rules (LF, trailing newline, 2-space for JS/TS, 4-space for Rust).
 
-> 2025-10-27 — Core math modularization (PR #5)
+> 2025-10-29 — Docs make open (PR #11)
 
-- **Focus**: Split `rmg-core` math into focused submodules (`vec3`, `mat4`, `quat`, `prng`).
-- **Definition of done**: CI passes; decision log updated; no behavior changes (pure refactor).
+- VitePress dev: keep auto-open; polling loop uses portable `sleep 1`.
+- Fix links and dead-link ignore: root-relative URLs; precise regex for `/collision-dpo-tour.html`; corrected comment typo.
 
-> 2025-10-27 — PR #7 (echo/split-core-math-engine) merge prep
+> 2025-10-29 — Docs E2E (PR #10)
 
-- **Focus**: Land the extracted math + engine spike; add doc guard updates and preflight fmt/clippy/tests.
-- **Definition of done**: `docs/decision-log.md` + `docs/execution-plan.md` updated; `cargo fmt --check`, `cargo clippy -D warnings -D missing_docs`, and `cargo test` pass; branch is fast‑forward mergeable into `main`.
+- Collision DPO tour carousel: keep Prev/Next enabled in "all" mode so users and tests can enter carousel via navigation. Fixes Playwright tour test.
+- Updated Makefile by merging hooks target with docs targets.
+- CI Docs Guard satisfied with this entry; Decision Log updated.
 
-> 2025-10-27 — MWMR reserve gate + telemetry wiring
+> 2025-10-29 — rmg-core snapshot header + tx/rules hardening (PR #9 base)
 
-- **Focus**: Enforce `reserve()` gate (independence), add compact rule id execution path, and emit per‑tx telemetry summary; pin toolchain.
-- **Definition of done**: Scheduler `finalize_tx()` called by `Engine::commit`, compact‑id → rule lookup used on execute path, `rust-toolchain.toml` added and `rust-version = 1.68` set in crates; tests remain green.
+- Adopt Snapshot v1 header shape in `rmg-core` with `parents: Vec<Hash>`, and canonical digests:
+  - `state_root` (reachable‑only graph hashing)
+  - `plan_digest` (ready‑set ordering; empty = blake3(len=0))
+  - `decision_digest` (Aion; zero for now)
+  - `rewrites_digest` (applied rewrites; empty = blake3(len=0))
+- Make `Engine::snapshot()` emit a header‑shaped view that uses the same canonical empty digests so a no‑op commit equals a pre‑tx snapshot.
+- Enforce tx lifecycle: track `live_txs`, invalidate on commit, deny operations on closed/zero txs.
+- Register rules defensively: error on duplicate name or duplicate id; assign compact rule ids for execute path.
+- Scheduler remains crate‑private with explicit ordering invariant docs (ascending `(scope_hash, rule_id)`).
+- Tests tightened: velocity preservation, commit after `NoMatch` is a no‑op, relative tolerances for rotation, negative scalar multiplies.
+
+> 2025-10-28 — Devcontainer/toolchain alignment
+
+- Toolchain floor via `rust-toolchain.toml`: 1.71.1 (workspace-wide).
+- Devcontainer must not override default; selection is controlled by `rust-toolchain.toml`.
+- Post-create installs 1.71.1 (adds rustfmt/clippy and wasm32 target).
+- CI pins 1.71.1 for all jobs (single matrix; no separate floor job).
+
+> 2025-10-28 — Pre-commit auto-format flag update
+
+- Renamed `AUTO_FMT` → `ECHO_AUTO_FMT` in `.githooks/pre-commit`.
+- README, AGENTS, and CONTRIBUTING updated to document hooks installation and the new flag.
+
+> 2025-10-28 — PR #8 (rmg-geom foundation) updates
+
+- Focus: compile + clippy pass for the new geometry crate baseline.
+- Changes in this branch:
+  - rmg-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, Timespan, SweepProxy}`.
+  - Removed premature `pub mod broad` (broad-phase lands in a separate PR) to fix E0583.
+  - Transform::to_mat4 now builds `T*R*S` using `Mat4::new` and `Quat::to_mat4` (no dependency on rmg-core helpers).
+  - Clippy: resolved similar_names in `Aabb::transformed`; relaxed `nursery`/`cargo` denies to keep scope tight.
+  - Merged latest `main` to inherit CI/toolchain updates.
+
+> 2025-10-28 — PR #7 (rmg-core engine spike)
+
+- Landed on main; see Decision Log for summary of changes and CI outcomes.
 
 ---
 

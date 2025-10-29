@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect width="320" height="200" fill="#0b1020"/>
+  <rect x="12" y="12" width="296" height="176" fill="#101732" stroke="#2a3c72" rx="6"/>
+  <rect x="36" y="60" width="120" height="28" fill="#0b1530" stroke="#ffd166" rx="6"/>
+  <text x="42" y="78" fill="#dfe7ff" font-size="12">TemporalProxy(A,n)</text>
+  <rect x="168" y="60" width="120" height="28" fill="#0b1530" stroke="#ffd166" rx="6"/>
+  <text x="174" y="78" fill="#dfe7ff" font-size="12">TemporalProxy(B,n)</text>
+  <text x="36" y="112" fill="#9fb0d6" font-size="11">LHS: overlapping proxies</text>
+</svg>

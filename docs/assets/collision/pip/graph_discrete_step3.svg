@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect width="320" height="200" fill="#0b1020"/>
+  <rect x="12" y="12" width="296" height="176" fill="#101732" stroke="#2a3c72" rx="6"/>
+  <rect x="86" y="40" width="140" height="28" fill="#0d2a1a" stroke="#00c853" rx="6"/>
+  <text x="92" y="58" fill="#dfe7ff" font-size="12">PotentialPair(A,B,n)</text>
+  <rect x="100" y="100" width="120" height="26" fill="#0d2a1a" stroke="#00c853" rx="6"/>
+  <text x="106" y="118" fill="#dfe7ff" font-size="12">Contact(pair,n)</text>
+  <path d="M 150 68 L 160 100" stroke="#6aa0ff" stroke-width="1.6" fill="none"/>
+  <text x="162" y="86" fill="#9fb0d6" font-size="11">contact_of</text>
+</svg>

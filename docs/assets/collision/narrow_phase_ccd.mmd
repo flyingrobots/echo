@@ -1,0 +1,15 @@
+flowchart LR
+  subgraph LHS
+    PP[[PotentialPair(a,b,n)]]:::KClass
+    PP -- policy(ccd) --> CCD[/run CCD/]
+  end
+  subgraph RHS
+    PP2[[PotentialPair(a,b,n)]]:::KClass
+    TOI((Toi(pair,n))):::Add
+    C((Contact(pair,n))):::Add
+    TOI -- toi_s --> C
+    C -- contact_of --> PP2
+  end
+
+classDef KClass stroke:#ffd166,stroke-width:2;
+classDef Add stroke:#00c853,stroke-width:2,fill:#0d2a1a,color:#dfe7ff;

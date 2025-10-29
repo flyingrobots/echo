@@ -6,7 +6,8 @@ This crate produces a C-callable library for embedding Echo’s core in other ru
 
 ## Platforms and Toolchain
 
-- Rust: 1.68 (pinned via `rust-toolchain.toml`)
+- Default Rust toolchain: 1.71.1 (via repository `rust-toolchain.toml`).
+- MSRV for core libraries: 1.68.0 (CI enforces compatibility for `rmg-core` and `rmg-geom`).
 - Targets: macOS (aarch64/x86_64), Linux (x86_64). Windows support is planned.
 
 ## Building

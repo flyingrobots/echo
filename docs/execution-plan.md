@@ -42,6 +42,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Change auto-format behavior: when `cargo fmt` would modify files, the hook now applies formatting then aborts the commit with guidance to review and restage. This preserves partial-staging semantics and avoids accidentally staging unrelated hunks.
 
+> 2025-10-29 — CI/security hardening
+
+- CI now includes `cargo audit` and `cargo-deny` jobs to catch vulnerable/deprecated dependencies early.
+- Rustdoc warnings gate covers rmg-core, rmg-geom, rmg-ffi, and rmg-wasm.
+- Devcontainer runs `make hooks` post-create to install repo hooks by default.
+
+> 2025-10-29 — Snapshot commit spec
+
+- Added `docs/spec-merkle-commit.md` defining `state_root` vs `commit_id` encoding and invariants.
+- Linked the spec from `crates/rmg-core/src/snapshot.rs` and README.
+
 > 2025-10-28 — PR #13 (math polish) opened
 
 - Focus: canonicalize -0.0 in Mat4 trig constructors and add MulAssign ergonomics.

@@ -104,3 +104,15 @@
 - Decision: When `ECHO_AUTO_FMT=1` (default), the pre-commit hook first checks formatting. If changes are needed, it runs `cargo fmt` to update files, then aborts the commit. This preserves index integrity for partially staged files and prevents unintended staging of unrelated hunks.
 - Rationale: `rustfmt` formats entire files; auto-restaging could silently defeat partial staging. Aborting makes the workflow explicit: review, restage, retry.
 - Consequence: One extra commit attempt in cases where formatting is needed, but safer staging semantics and fewer surprises. Message includes guidance (`git add -p` or `git add -A`).
+
+## 2025-10-29 — CI + Security hardening
+
+- Decision: Add `cargo audit` and `cargo-deny` to CI; expand rustdoc warnings gate to all public crates.
+- Rationale: Catch vulnerable/deprecated crates and doc regressions early; keep public surface clean.
+- Consequence: Faster failures on dependency or doc issues; small CI time increase.
+
+## 2025-10-29 — Snapshot commit spec (v1)
+
+- Decision: Introduce `docs/spec-merkle-commit.md` describing `state_root` vs `commit_id` encodings and invariants.
+- Rationale: Make provenance explicit and discoverable; align code comments with a durable spec.
+- Changes: Linked spec from `crates/rmg-core/src/snapshot.rs` and README.

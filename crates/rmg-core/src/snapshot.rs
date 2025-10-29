@@ -1,5 +1,9 @@
 //! Snapshot type and hash computation.
 //!
+//! See the high-level spec in `docs/spec-merkle-commit.md` for precise
+//! definitions of `state_root` (graph-only hash) and `commit hash` (aka
+//! `commit_id`: `state_root` + metadata + parents).
+//!
 //! Determinism contract
 //! - The graph state hash (`state_root`) is a BLAKE3 digest over a canonical
 //!   byte stream that encodes the entire reachable graph state for the current

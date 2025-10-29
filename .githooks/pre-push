@@ -67,10 +67,12 @@ else
 fi
 
 # Rustdoc warnings guard (public crates)
-echo "[pre-push] rustdoc warnings gate (rmg-core @ $PINNED)"
-RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p rmg-core --no-deps
-echo "[pre-push] rustdoc warnings gate (rmg-geom @ $PINNED)"
-RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p rmg-geom --no-deps
+for krate in rmg-core rmg-geom rmg-ffi rmg-wasm; do
+  if [ -f "crates/${krate}/Cargo.toml" ]; then
+    echo "[pre-push] rustdoc warnings gate (${krate} @ $PINNED)"
+    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${krate}" --no-deps
+  fi
+done
 
 # Banned patterns
 echo "[pre-push] scanning banned patterns"

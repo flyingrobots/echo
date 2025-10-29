@@ -91,7 +91,7 @@ jobs:
 
 
   rustdoc:
-    name: Rustdoc (rmg-core warnings gate)
+    name: Rustdoc (warnings gate)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,5 +99,35 @@ jobs:
           submodules: false
       - uses: dtolnay/rust-toolchain@1.71.1
       - uses: Swatinem/rust-cache@v2
-      - name: rustdoc warnings gate
+      - name: rustdoc warnings gate (rmg-core)
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps
+      - name: rustdoc warnings gate (rmg-geom)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-geom --no-deps
+      - name: rustdoc warnings gate (rmg-ffi)
+        run: |
+          if [ -f crates/rmg-ffi/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-ffi --no-deps; fi
+      - name: rustdoc warnings gate (rmg-wasm)
+        run: |
+          if [ -f crates/rmg-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-wasm --no-deps; fi
+
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.71.1
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo audit
+        uses: rustsec/audit-check@v1.5.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  deny:
+    name: Dependency Policy (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.71.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v1

@@ -74,7 +74,11 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - Tips:
   - If you need to keep a partial-staged commit, do two commits: first commit the formatter-only changes, then commit your code changes.
   - You can switch to check-only with `ECHO_AUTO_FMT=0` (commit will still fail on formatting issues, but nothing is auto-applied).
-- Do not bypass hooks. The repo always runs fmt, clippy, tests, and rustdoc on the stable toolchain before push.
+- Do not bypass hooks. The repo runs fmt, clippy, tests, and rustdoc on the pinned toolchain before push.
+- Toolchain: pinned to Rust 1.90.0. Ensure your local override matches:
+
+  - rustup toolchain install 1.90.0
+  - rustup override set 1.90.0
 - When any Rust code changes (.rs anywhere), update both `docs/execution-plan.md` and `docs/decision-log.md` with intent and a brief rationale. The hook enforces this.
 
 ## Communication

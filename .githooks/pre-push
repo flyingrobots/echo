@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-PINNED="${PINNED:-stable}"
+# Resolve the pinned toolchain from rust-toolchain.toml, fallback to explicit env or a sane default
+PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
+PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
 
 for cmd in cargo rustup rg; do
   if ! command -v "$cmd" >/dev/null 2>&1; then

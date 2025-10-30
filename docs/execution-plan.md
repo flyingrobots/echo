@@ -117,6 +117,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Landed on main; see Decision Log for summary of changes and CI outcomes.
 
+> 2025-10-30 — rmg-core determinism tests and API hardening
+
+- **Focus**: Address PR feedback for the split-core-math-engine branch. Add tests for snapshot reachability, tx lifecycle, scheduler drain order, and duplicate rule registration. Harden API docs and FFI (TxId repr, const ctors).
+- **Definition of done**: `cargo test -p rmg-core` passes; clippy clean for rmg-core with strict gates; no workspace pushes yet (hold for more feedback).
+
 ---
 
 ## Immediate Backlog

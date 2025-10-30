@@ -42,7 +42,7 @@ use crate::tx::TxId;
 pub struct Snapshot {
     /// Node identifier that serves as the root of the snapshot.
     pub root: NodeId,
-    /// Canonical commit hash derived from state_root + metadata (see below).
+    /// Canonical commit hash derived from `state_root` + metadata (see below).
     pub hash: Hash,
     /// Parent snapshot hashes (empty for initial commit, 1 for linear history, 2+ for merges).
     pub parents: Vec<Hash>,

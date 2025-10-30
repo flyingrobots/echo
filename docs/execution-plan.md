@@ -127,6 +127,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - **Focus**: Simplify CI by standardizing on `@stable` toolchain (fmt, clippy, tests, audit). Remove MSRV job; developers default to stable via `rust-toolchain.toml`.
 - **Definition of done**: CI workflows updated; Security Audit uses latest cargo-audit on stable; docs updated.
 
+> 2025-10-30 — Minor rustdoc/lint cleanups (rmg-core)
+
+- **Focus**: Address clippy::doc_markdown warning by clarifying Snapshot docs (`state_root` backticks).
+- **Definition of done**: Lints pass under pedantic; no behavior changes.
+
 ---
 
 ## Immediate Backlog

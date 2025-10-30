@@ -48,7 +48,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Rustdoc warnings gate covers rmg-core, rmg-geom, rmg-ffi, and rmg-wasm.
 - Devcontainer runs `make hooks` post-create to install repo hooks by default.
 - Note: switched audit action to `rustsec/audit-check@v1` (previous attempt to pin a non-existent tag failed).
- - Added `deny.toml` with an explicit permissive-license allowlist (Apache-2.0, MIT, BSD-2/3, CC0-1.0, MIT-0, Unlicense, Unicode-3.0, BSL-1.0, Apache-2.0 WITH LLVM-exception) to align cargo-deny with our dependency set.
+- Added `deny.toml` with an explicit permissive-license allowlist (Apache-2.0, MIT, BSD-2/3, CC0-1.0, MIT-0, Unlicense, Unicode-3.0, BSL-1.0, Apache-2.0 WITH LLVM-exception) to align cargo-deny with our dependency set.
+ - Audit job runs on Rust 1.75.0 to satisfy `cargo-audit` MSRV; workspace MSRV remains 1.71.1.
 
 > 2025-10-29 — Snapshot commit spec
 

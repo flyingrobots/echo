@@ -115,6 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.75.0
       - name: cargo audit (rustsec)
         uses: rustsec/audit-check@v1
         with:

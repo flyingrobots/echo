@@ -113,6 +113,7 @@
 - Notes:
   - Use `rustsec/audit-check@v1` for the audit step; avoid pinning to non-existent tags.
   - Add `deny.toml` with an explicit license allowlist to prevent false positives on permissive licenses (Apache-2.0, MIT, BSD-2/3, CC0-1.0, MIT-0, Unlicense, Unicode-3.0, BSL-1.0, Apache-2.0 WITH LLVM-exception).
+  - Run the audit job on Rust 1.75.0 to meet `cargo-audit` MSRV; this does not change the workspace MSRV (1.71.1).
 
 ## 2025-10-29 — Snapshot commit spec (v1)
 

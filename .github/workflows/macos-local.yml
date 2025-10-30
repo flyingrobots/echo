@@ -1,0 +1,24 @@
+name: CI (macOS — manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-macos:
+    name: Tests (macOS local only)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings -D missing_docs
+      - name: cargo test (workspace)
+        run: cargo test --workspace

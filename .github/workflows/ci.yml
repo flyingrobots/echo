@@ -57,6 +57,25 @@ jobs:
       - name: PRNG golden regression (rmg-core)
         run: cargo test -p rmg-core --features golden_prng -- tests::next_int_golden_regression
 
+  test-musl:
+    name: Tests (musl)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo test (rmg-core, musl)
+        run: cargo test -p rmg-core --target x86_64-unknown-linux-musl
+
   docs:
     name: Docs Guard
     runs-on: ubuntu-latest

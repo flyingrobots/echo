@@ -59,6 +59,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Enhanced `.github/ISSUE_TEMPLATE/bug.yml` with optional fields for `Stack Trace / Error Logs` and `Version / Commit` to improve first‑pass triage quality.
 
+> 2025-10-30 — Bug template wording consistency
+
+- Standardized description capitalization in bug template to imperative form ("Provide …") for consistency with existing fields.
+
+> 2025-10-30 — PR-03: proptest seed pinning (tests-only)
+
+- Added `proptest` as a dev‑dependency in `rmg-core` and a single example test `proptest_seed_pinning.rs` that pins a deterministic RNG seed and validates the motion rule under generated inputs. This demonstrates how to reproduce failures via a fixed seed across CI and local runs (no runtime changes).
+
+> 2025-10-30 — PR-04: CI matrix (glibc + musl; macOS manual)
+
+- CI: Added a musl job (`Tests (musl)`) that installs `musl-tools`, adds target `x86_64-unknown-linux-musl`, and runs `cargo test -p rmg-core --target x86_64-unknown-linux-musl`.
+- CI: Added a separate macOS workflow (`CI (macOS — manual)`) triggered via `workflow_dispatch` to run fmt/clippy/tests on `macos-latest` when needed, avoiding default macOS runner costs.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

@@ -33,12 +33,12 @@ body:
     id: stack_trace
     attributes:
       label: Stack Trace / Error Logs
-      description: paste full stack trace or logs
+      description: Provide full stack trace or logs
   - type: input
     id: version
     attributes:
       label: Version / Commit
-      description: git SHA or package version
+      description: Provide git SHA or package version
   - type: checkboxes
     id: env
     attributes:

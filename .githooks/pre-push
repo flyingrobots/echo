@@ -67,12 +67,33 @@ else
 fi
 
 # Rustdoc warnings guard (public crates)
-for krate in rmg-core rmg-geom rmg-ffi rmg-wasm; do
+required_crates=(rmg-core rmg-geom)
+optional_crates=(rmg-ffi rmg-wasm)
+missing_required=0
+
+for krate in "${required_crates[@]}"; do
   if [ -f "crates/${krate}/Cargo.toml" ]; then
     echo "[pre-push] rustdoc warnings gate (${krate} @ $PINNED)"
     RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${krate}" --no-deps
+  else
+    echo "[pre-push] ERROR: required crate missing: crates/${krate}/Cargo.toml" >&2
+    missing_required=1
   fi
 done
+
+for krate in "${optional_crates[@]}"; do
+  if [ -f "crates/${krate}/Cargo.toml" ]; then
+    echo "[pre-push] rustdoc warnings gate (${krate} @ $PINNED)"
+    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${krate}" --no-deps
+  else
+    echo "[pre-push] skipping ${krate}: missing crates/${krate}/Cargo.toml"
+  fi
+done
+
+if [ "$missing_required" -ne 0 ]; then
+  echo "[pre-push] One or more required crates are missing; aborting push." >&2
+  exit 1
+fi
 
 # Banned patterns
 echo "[pre-push] scanning banned patterns"

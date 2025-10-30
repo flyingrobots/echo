@@ -40,7 +40,7 @@ Hash: blake3(encode(header)) → commit_id.
 
 ## 3. Invariants and Notes
 
-- Any change to ordering, lengths, or endianness is a breaking change and invalidates previous hashes.
+- Any change to ordering, lengths, or endianness breaks all prior hashes.
 - The commit_id is stable across identical states and provenance, independent of runtime.
 - The canonical empty digest is blake3 of zero bytes; use this for empty plan/rewrites until populated.
 

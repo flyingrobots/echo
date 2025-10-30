@@ -110,7 +110,9 @@
 - Decision: Add `cargo audit` and `cargo-deny` to CI; expand rustdoc warnings gate to all public crates.
 - Rationale: Catch vulnerable/deprecated crates and doc regressions early; keep public surface clean.
 - Consequence: Faster failures on dependency or doc issues; small CI time increase.
-- Note: Use `rustsec/audit-check@v1` for the audit step; avoid pinning to non-existent tags.
+- Notes:
+  - Use `rustsec/audit-check@v1` for the audit step; avoid pinning to non-existent tags.
+  - Add `deny.toml` with an explicit license allowlist to prevent false positives on permissive licenses (Apache-2.0, MIT, BSD-2/3, CC0-1.0, MIT-0, Unlicense, Unicode-3.0, BSL-1.0, Apache-2.0 WITH LLVM-exception).
 
 ## 2025-10-29 — Snapshot commit spec (v1)
 

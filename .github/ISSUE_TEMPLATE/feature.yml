@@ -1,0 +1,23 @@
+name: Feature
+description: Propose a new feature (umbrella)
+title: "feat: <short description>"
+labels: [feature]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the feature at a high level. Keep implementation details minimal; child tasks will capture the steps.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal / Scope
+      description: Boundaries, non-goals, and acceptance criteria
+  - type: textarea
+    id: links
+    attributes:
+      label: Related Docs/Issues/PRs
+

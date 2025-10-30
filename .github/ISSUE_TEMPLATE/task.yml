@@ -1,0 +1,24 @@
+name: Task
+description: Small, bite-sized task (1–3 hours, max 5 per feature)
+title: "task: <short description>"
+labels: [task]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tasks should be specific and testable. Link to the parent feature issue in the description.
+  - type: input
+    id: parent
+    attributes:
+      label: Parent Feature Issue
+      placeholder: e.g., #22
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: Concrete steps to complete this task
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+

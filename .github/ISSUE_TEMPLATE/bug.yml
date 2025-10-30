@@ -1,0 +1,41 @@
+name: Bug Report
+description: Report a runtime or tooling bug
+title: "bug: <short description>"
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please include clear steps to reproduce and expected vs actual behavior.
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: Subsystem impacted (runtime, ffi, wasm, geom, cli, docs)
+      placeholder: e.g., runtime/snapshot
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce
+      description: Provide a minimal reproduction (code, commands, inputs)
+      placeholder: |
+        1. ...
+        2. ...
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+  - type: checkboxes
+    id: env
+    attributes:
+      label: Environment
+      options:
+        - label: Linux (glibc)
+        - label: Linux (musl)
+        - label: macOS (local)
+        - label: Other
+

@@ -1,0 +1,33 @@
+title: "RFC: <title>"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to propose a change. Keep it concise and focused.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph overview of the proposal
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / Problem Statement
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed Design
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+  - type: textarea
+    id: impact
+    attributes:
+      label: Risks / Impact
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Rollout Plan
+

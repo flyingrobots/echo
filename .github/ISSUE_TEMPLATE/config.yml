@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: RFC (open a discussion)
+    url: https://github.com/flyingrobots/echo/discussions/new?category=ideas
+    about: Propose an RFC via Discussions (Ideas category)
+

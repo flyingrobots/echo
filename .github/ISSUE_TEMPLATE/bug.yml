@@ -38,4 +38,3 @@ body:
         - label: Linux (musl)
         - label: macOS (local)
         - label: Other
-

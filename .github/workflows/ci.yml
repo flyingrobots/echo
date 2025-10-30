@@ -73,6 +73,8 @@ jobs:
         with:
           workspaces: |
             .
+      # Intentionally test only rmg-core under MUSL; rmg-wasm targets wasm32
+      # (wasm-bindgen/js-sys) and rmg-ffi has separate cross-compilation concerns.
       - name: cargo test (rmg-core, musl)
         run: cargo test -p rmg-core --target x86_64-unknown-linux-musl
 

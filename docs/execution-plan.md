@@ -122,6 +122,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - **Focus**: Address PR feedback for the split-core-math-engine branch. Add tests for snapshot reachability, tx lifecycle, scheduler drain order, and duplicate rule registration. Harden API docs and FFI (TxId repr, const ctors).
 - **Definition of done**: `cargo test -p rmg-core` passes; clippy clean for rmg-core with strict gates; no workspace pushes yet (hold for more feedback).
 
+> 2025-10-30 — CI toolchain policy: use stable everywhere
+
+- **Focus**: Simplify CI by standardizing on `@stable` toolchain (fmt, clippy, tests, audit). Remove MSRV job; developers default to stable via `rust-toolchain.toml`.
+- **Definition of done**: CI workflows updated; Security Audit uses latest cargo-audit on stable; docs updated.
+
 ---
 
 ## Immediate Backlog

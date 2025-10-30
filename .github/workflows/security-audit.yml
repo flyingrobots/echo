@@ -10,15 +10,14 @@ on:
 
 jobs:
   audit:
-    name: Cargo Audit (pinned)
+    name: Cargo Audit (stable)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false
-      # Use a modern-enough toolchain to install cargo-audit 0.21.1
-      - uses: dtolnay/rust-toolchain@1.75.0
-      - name: Install cargo-audit 0.21.1
-        run: cargo +1.75.0 install cargo-audit --locked --version 0.21.1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit (latest)
+        run: cargo install cargo-audit --locked
       - name: Run cargo audit
-        run: cargo +1.75.0 audit
+        run: cargo audit

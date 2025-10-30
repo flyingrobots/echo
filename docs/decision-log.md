@@ -124,3 +124,6 @@
 - Rationale: Make provenance explicit and discoverable; align code comments with a durable spec.
 - Changes: Linked spec from `crates/rmg-core/src/snapshot.rs` and README.
  
+=======
+| 2025-10-30 | CI toolchain simplification | Standardize on Rust `@stable` across CI (fmt, clippy, tests, security audit); remove MSRV job; set `rust-toolchain.toml` to `stable`. | Reduce toolchain drift and recurring audit/MSRV mismatches. | Future MSRV tracking can move to release notes when needed. |
+>>>>>>> 1c457bb (toolchain: use @stable everywhere)

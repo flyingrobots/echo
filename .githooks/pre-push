@@ -11,10 +11,6 @@ done
 
 echo "🐰 BunBun 🐇"
 
-if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
-  echo "[pre-push] SKIP_HOOKS is not allowed. Remove it and re-run." >&2
-  exit 1
-fi
 
 echo "[pre-push] fmt (stable)"
 cargo fmt --all -- --check

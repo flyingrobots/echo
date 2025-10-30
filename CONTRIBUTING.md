@@ -74,7 +74,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - Tips:
   - If you need to keep a partial-staged commit, do two commits: first commit the formatter-only changes, then commit your code changes.
   - You can switch to check-only with `ECHO_AUTO_FMT=0` (commit will still fail on formatting issues, but nothing is auto-applied).
-  - Avoid `SKIP_HOOKS=1` unless you’ve coordinated; CI will fail on formatting anyway.
+- Do not bypass hooks. The repo always runs fmt, clippy, tests, and rustdoc on the stable toolchain before push.
 
 ## Communication
 - Major updates should land in `docs/execution-plan.md` and `docs/decision-log.md`; rely on GitHub discussions or issues for longer-form proposals.

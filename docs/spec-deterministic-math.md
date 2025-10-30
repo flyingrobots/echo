@@ -26,7 +26,7 @@ Echo’s math module underpins every deterministic system: physics proxies, anim
 - Useful for deterministic networking or hardware without stable float operations.
 - Bridges through helper functions: `fixed.fromFloat`, `fixed.toFloat`, `fixed.mul`, `fixed.div`.
 
-Mode chosen at engine init; math module provides factory returning mode-specific implementations.
+Mode chosen at engine init; math module provides factory returning mode-specific implementations. The Rust runtime already exposes the float32 primitives in `rmg_core::math`, so FFI/WASM adapters can reuse a single source of truth while TypeScript bindings converge on the same fixtures.
 
 ---
 
@@ -45,20 +45,24 @@ type VecLike = Float32Array | number[];
 - Methods: `create`, `clone`, `set`, `add`, `sub`, `scale`, `dot`, `length`, `normalize`, `lerp`, `equals`.
 - All mutating functions accept `out` parameter for in-place updates to reduce allocations.
 - Deterministic clamps: every operation ends with `fround` (float mode) or `fixed` operations.
+- Rust parity: `rmg_core::math::Vec3` currently implements add/sub/scale/dot/cross/length/normalize; `Vec2`/`Vec4` remain TODO.
 
 ### Mat3 / Mat4
 - Column-major storage (`Float32Array(9)` / `Float32Array(16)`).
 - Methods: `identity`, `fromRotation`, `fromTranslation`, `multiply`, `invert`, `transformVec`.
 - Deterministic inversion: use well-defined algorithm with guard against singular matrices (records failure and returns identity or throws based on config).
+- Rust parity: `rmg_core::math::Mat4` exposes `multiply` and `transform_point`; identity/fromRotation/invert are pending.
 
 ### Quat
 - Represented as `[x, y, z, w]`.
 - Functions: `identity`, `fromAxisAngle`, `multiply`, `slerp`, `normalize`, `toMat4`.
 - `slerp` uses deterministic interpolation with clamped range.
+- Rust parity: `rmg_core::math::Quat` implements identity/fromAxisAngle/multiply/normalize/to_mat4; `slerp` remains TBD.
 
 ### Transform
 - Struct bundling position (Vec3), rotation (Quat), scale (Vec3).
 - Helper for constructing Mat4; ensures consistent order of operations.
+- Rust parity: transform helpers are still tracked for Phase 1 (not implemented yet).
 
 ### Bounds / AABB
 - Useful for physics collision; stores min/max Vec3.
@@ -84,6 +88,7 @@ interface PRNG {
 - `state` serializable for replay.
 - `jump` used for branch forking: clone generator with deterministic offset.
 - `seed` derived from combination of world seed + branch ID + optional subsystem tag.
+- Rust parity: `rmg_core::math::Prng` implements seeding, `next_f32`, and `next_int`; state/jump APIs are follow-up work.
 
 ### Deterministic Hashing
 - Provide `hash64` function (e.g., SplitMix64) for converting strings/IDs into seeds.

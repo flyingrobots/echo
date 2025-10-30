@@ -63,6 +63,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Standardized description capitalization in bug template to imperative form ("Provide …") for consistency with existing fields.
 
+> 2025-10-30 — PR-03: proptest seed pinning (tests-only)
+
+- Added `proptest` as a dev‑dependency in `rmg-core` and a single example test `proptest_seed_pinning.rs` that pins a deterministic RNG seed and validates the motion rule under generated inputs. This demonstrates how to reproduce failures via a fixed seed across CI and local runs (no runtime changes).
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

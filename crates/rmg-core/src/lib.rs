@@ -30,6 +30,9 @@
     clippy::module_name_repetitions,
     clippy::use_self
 )]
+// Permit intentional name repetition for public API clarity (e.g., FooFoo types) and
+// functions named after their module for discoverability (e.g., `motion_rule`).
+#![allow(clippy::module_name_repetitions)]
 
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
 pub mod math;

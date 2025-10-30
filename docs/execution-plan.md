@@ -39,6 +39,27 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: tests-only; no runtime changes.
 - Links: PR-01 and tracking issue are associated for visibility.
 
+> 2025-10-30 — Templates + Project board (PR: templates)
+
+- Added GitHub templates (Bug, Feature, Task), PR template, and RFC discussion template.
+- Configured Echo Project (Projects v2) Status options to include Blocked/Ready/Done.
+- YAML lint nits fixed (no trailing blank lines; quoted placeholders).
+
+> 2025-10-30 — Templates PR cleanup (scope hygiene)
+
+- Cleaned branch `echo/pr-templates-and-project` to keep "one thing" policy: restored unrelated files to match `origin/main` so this PR only contains templates and the minimal Docs Guard notes.
+- Verified YAML lint feedback: removed trailing blank lines and quoted the `#22` placeholder in Task template.
+- Updated `docs/execution-plan.md` and `docs/decision-log.md` to satisfy Docs Guard for non-doc file changes.
+
+> 2025-10-30 — Deterministic math spec (MD022)
+
+- On branch `echo/docs-math-harness-notes`, fixed Markdown lint MD022 by inserting a blank line after subheadings (e.g., `### Mat3 / Mat4`, `### Quat`, `### Vec2 / Vec3 / Vec4`). No content changes.
+
+> 2025-10-30 — Bug template triage fields
+
+- Enhanced `.github/ISSUE_TEMPLATE/bug.yml` with optional fields for `Stack Trace / Error Logs` and `Version / Commit` to improve first‑pass triage quality.
+
+
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 
 - Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.

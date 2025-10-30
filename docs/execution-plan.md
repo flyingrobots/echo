@@ -72,6 +72,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - CI: Added a musl job (`Tests (musl)`) that installs `musl-tools`, adds target `x86_64-unknown-linux-musl`, and runs `cargo test -p rmg-core --target x86_64-unknown-linux-musl`.
 - CI: Added a separate macOS workflow (`CI (macOS — manual)`) triggered via `workflow_dispatch` to run fmt/clippy/tests on `macos-latest` when needed, avoiding default macOS runner costs.
 
+> 2025-10-30 — PR-05: docs rollup (echo-total.md)
+
+- Added `scripts/gen-echo-total.sh` to generate `docs/echo-total.md` by concatenating top‑level docs in a stable order (priority: docs-index, architecture outline, execution plan, decision log; then others alphabetically). The rollup carries file banners and a generated timestamp.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

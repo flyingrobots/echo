@@ -1,10 +1,11 @@
 #![allow(missing_docs)]
+use bytes::Bytes;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 
 use rmg_core::{
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
-    GraphStore, NodeRecord, MOTION_RULE_NAME,
+    build_motion_demo_engine, decode_motion_payload, encode_motion_payload, make_node_id,
+    make_type_id, ApplyResult, Engine, NodeRecord, MOTION_RULE_NAME,
 };
 
 static RAW: &str = include_str!("fixtures/motion-fixtures.json");
@@ -28,45 +29,85 @@ static FIXTURES: Lazy<MotionFixtures> =
 #[test]
 fn motion_golden_fixtures_apply_as_expected() {
     let entity_ty = make_type_id("entity");
+    let mut engine: Engine = build_motion_demo_engine();
+
     for case in &FIXTURES.cases {
         let ent = make_node_id(&case.label);
-        // Create a fresh engine and insert entity with payload
-        let mut store = GraphStore::default();
         let payload = encode_motion_payload(case.pos, case.vel);
-        store.insert_node(
+        engine.insert_node(
             ent,
             NodeRecord {
                 ty: entity_ty,
                 payload: Some(payload),
             },
         );
-        let mut engine = Engine::new(store, ent);
-        engine
-            .register_rule(rmg_core::motion_rule())
-            .expect("register motion rule");
 
         let tx = engine.begin();
-        let res = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");
+        let res = engine
+            .apply(tx, MOTION_RULE_NAME, &ent)
+            .unwrap_or_else(|_| panic!("apply motion rule failed for case: {}", case.label));
         assert!(matches!(res, ApplyResult::Applied));
         engine.commit(tx).expect("commit");
 
-        // Verify payload bytes decode to expected values
         let node = engine.node(&ent).expect("node exists");
         let (pos, vel) =
             decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
-        for i in 0..3 {
+        for (i, v) in vel.iter().enumerate() {
             assert_eq!(
-                vel[i].to_bits(),
+                v.to_bits(),
                 case.vel[i].to_bits(),
-                "vel component {}",
-                i
+                "[{}] velocity[{}] mismatch: got {:?}, expected {:?}",
+                case.label,
+                i,
+                v,
+                case.vel[i]
             );
+        }
+        for (i, p) in pos.iter().enumerate() {
             assert_eq!(
-                pos[i].to_bits(),
+                p.to_bits(),
                 case.expected_pos[i].to_bits(),
-                "pos component {}",
-                i
+                "[{}] position[{}] mismatch: got {:?}, expected {:?}",
+                case.label,
+                i,
+                p,
+                case.expected_pos[i]
             );
         }
     }
+}
+
+#[test]
+fn motion_apply_no_payload_returns_nomatch() {
+    let entity_ty = make_type_id("entity");
+    let ent = make_node_id("no-payload");
+    let mut engine = build_motion_demo_engine();
+    engine.insert_node(
+        ent,
+        NodeRecord {
+            ty: entity_ty,
+            payload: None,
+        },
+    );
+    let tx = engine.begin();
+    let res = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");
+    assert!(matches!(res, ApplyResult::NoMatch));
+}
+
+#[test]
+fn motion_apply_invalid_payload_size_returns_nomatch() {
+    let entity_ty = make_type_id("entity");
+    let ent = make_node_id("bad-payload");
+    let mut engine = build_motion_demo_engine();
+    let bad = Bytes::from(vec![0u8; 10]);
+    engine.insert_node(
+        ent,
+        NodeRecord {
+            ty: entity_ty,
+            payload: Some(bad),
+        },
+    );
+    let tx = engine.begin();
+    let res = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");
+    assert!(matches!(res, ApplyResult::NoMatch));
 }

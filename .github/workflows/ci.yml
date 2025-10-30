@@ -115,10 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.71.1
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo audit (actions-rs)
-        uses: actions-rs/audit-check@v1
+      - name: cargo audit (rustsec)
+        uses: rustsec/audit-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 

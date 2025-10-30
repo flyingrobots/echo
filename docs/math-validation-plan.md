@@ -42,9 +42,10 @@ Goal: ensure Echo’s math module produces identical results across environments
 ---
 
 ## Tooling
-- Use Vitest with snapshot-style comparisons for key operations.
+- Rust harness (in `rmg-core/tests/math_validation.rs`) validates scalar/vector/matrix/quaternion + PRNG behaviour against JSON fixtures.
+- Provide deterministic reference values generated offline (e.g., via high-precision Python or Rust) stored in fixtures.
+- Next step: mirror the fixtures in Vitest with snapshot-style comparisons for the TypeScript layer.
 - For cross-environment checks, add Playwright-driven tests that run the same suite in headless Chromium/WebKit (call into math module via bundled script).
-- Provide deterministic reference values generated offline (e.g., via high-precision Python script) stored in fixtures.
 - Fixed-point tests compare against integer expectations.
 
 ---
@@ -57,8 +58,9 @@ Goal: ensure Echo’s math module produces identical results across environments
 ---
 
 ## Tasks
-- [ ] Generate reference fixtures (JSON) for vector/matrix/quaternion cases.
-- [ ] Implement Vitest suites covering scalar, vector, matrix, quaternion, transform, PRNG.
+- [x] Generate reference fixtures (JSON) for scalar/vector/matrix/quaternion/PRNG cases.
+- [x] Implement Rust-based validation suite (`cargo test -p rmg-core --test math_validation`).
+- [ ] Mirror fixtures in Vitest to cover the TypeScript bindings (float32 mode).
 - [ ] Integrate Playwright smoke tests for browser verification.
 - [ ] Add CI job running math tests across environments.
 - [ ] Document any environment-specific deviations in decision log.

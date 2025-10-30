@@ -24,6 +24,14 @@
 
 Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
 
+## Snapshot Hashes
+
+Echo records two hashes during a commit:
+- `state_root`: deterministic hash of the reachable graph state under the current root.
+- `commit hash` (commit_id): hash of a canonical header including `state_root`, parents, and deterministic digests for plan/decisions/rewrites.
+
+See `docs/spec-merkle-commit.md` for the precise encoding and invariants.
+
 Echo is fundamentally **built different**.
 
 RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation.

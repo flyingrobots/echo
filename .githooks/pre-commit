@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
-  exit 0
-fi
-
 # 1) PRNG coupling guard (existing logic)
 PRNG_FILE="crates/rmg-core/src/math/prng.rs"
 if git diff --cached --name-only | grep -qx "$PRNG_FILE"; then
@@ -54,13 +49,13 @@ fi
 _auto_fmt="${ECHO_AUTO_FMT:-1}"
 case "${_auto_fmt}" in
   1|true|TRUE|yes|YES|on|ON)
-    echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → running cargo fmt (auto-fix)"
-    cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
-    # Re-stage only staged files that were reformatted
-    if STAGED=$(git diff --cached --name-only); then
-      if [[ -n "$STAGED" ]]; then
-        echo "$STAGED" | xargs -r git add --
-      fi
+    echo "pre-commit: ECHO_AUTO_FMT=${_auto_fmt} → checking format"
+    if ! cargo fmt --all -- --check; then
+      echo "pre-commit: running cargo fmt to apply changes" >&2
+      cargo fmt --all || { echo "pre-commit: cargo fmt failed" >&2; exit 1; }
+      echo "pre-commit: rustfmt updated files. Aborting commit to preserve index integrity (partial staging safe)." >&2
+      echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
+      exit 1
     fi
     ;;
   0|false|FALSE|no|NO|off|OFF)
@@ -72,12 +67,12 @@ case "${_auto_fmt}" in
     ;;
 esac
 
-# 4) Docs guard (scaled): only require docs when core public API changed
+# 4) Docs guard: require docs updates on any Rust changes
 STAGED=$(git diff --cached --name-only)
-CORE_API_CHANGED=$(echo "$STAGED" | grep -E '^crates/rmg-core/src/.*\.rs$' | grep -v '/tests/' || true)
-if [[ -n "$CORE_API_CHANGED" ]]; then
-  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when core API changes.' >&2; exit 1; }
-  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when core API changes.' >&2; exit 1; }
+RUST_CHANGED=$(echo "$STAGED" | grep -E '\\.rs$' || true)
+if [[ -n "$RUST_CHANGED" ]]; then
+  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when Rust files change.' >&2; exit 1; }
+  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when Rust files change.' >&2; exit 1; }
 fi
 
 # 5) Lockfile guard: ensure lockfile version is v3 (current cargo format)

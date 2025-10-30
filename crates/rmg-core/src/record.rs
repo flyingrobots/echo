@@ -7,6 +7,11 @@ use crate::ident::{EdgeId, NodeId, TypeId};
 ///
 /// The optional `payload` carries domain-specific bytes (component data,
 /// attachments, etc) and is interpreted by higher layers.
+///
+/// Invariants
+/// - `ty` must be a valid type identifier in the current schema.
+/// - The node identifier is not embedded here; the store supplies it externally.
+/// - `payload` encoding is caller-defined and opaque to the store.
 #[derive(Clone, Debug)]
 pub struct NodeRecord {
     /// Type identifier describing the node.
@@ -16,6 +21,12 @@ pub struct NodeRecord {
 }
 
 /// Materialised record for a single edge stored in the graph.
+///
+/// Invariants
+/// - `from` and `to` reference existing nodes in the same store.
+/// - `id` is stable across runs for the same logical edge.
+/// - `ty` must be a valid edge type in the current schema.
+/// - `payload` encoding is caller-defined and opaque to the store.
 #[derive(Clone, Debug)]
 pub struct EdgeRecord {
     /// Stable identifier for the edge.

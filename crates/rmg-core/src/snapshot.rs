@@ -1,5 +1,9 @@
 //! Snapshot type and hash computation.
 //!
+//! See the high-level spec in `docs/spec-merkle-commit.md` for precise
+//! definitions of `state_root` (graph-only hash) and `commit hash` (aka
+//! `commit_id`: `state_root` + metadata + parents).
+//!
 //! Determinism contract
 //! - The graph state hash (`state_root`) is a BLAKE3 digest over a canonical
 //!   byte stream that encodes the entire reachable graph state for the current
@@ -38,7 +42,7 @@ use crate::tx::TxId;
 pub struct Snapshot {
     /// Node identifier that serves as the root of the snapshot.
     pub root: NodeId,
-    /// Canonical commit hash derived from state_root + metadata (see below).
+    /// Canonical commit hash derived from `state_root` + metadata (see below).
     pub hash: Hash,
     /// Parent snapshot hashes (empty for initial commit, 1 for linear history, 2+ for merges).
     pub parents: Vec<Hash>,

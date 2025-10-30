@@ -114,3 +114,46 @@ impl DeterministicScheduler {
         self.pending.remove(&tx);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ident::{make_node_id, Hash};
+
+    fn h(byte: u8) -> Hash {
+        let mut out = [0u8; 32];
+        out[0] = byte;
+        out
+    }
+
+    #[test]
+    fn drain_for_tx_returns_deterministic_order() {
+        let tx = TxId::from_raw(1);
+        let scope = make_node_id("s");
+        let mut sched = DeterministicScheduler::default();
+        let mut map: BTreeMap<(Hash, Hash), PendingRewrite> = BTreeMap::new();
+
+        // Insert out of lexicographic order: keys (2,1), (1,2), (1,1)
+        for (scope_h, rule_h) in &[(h(2), h(1)), (h(1), h(2)), (h(1), h(1))] {
+            map.insert(
+                (*scope_h, *rule_h),
+                PendingRewrite {
+                    rule_id: *rule_h,
+                    compact_rule: CompactRuleId(0),
+                    scope_hash: *scope_h,
+                    scope,
+                    footprint: Footprint::default(),
+                    phase: RewritePhase::Matched,
+                },
+            );
+        }
+        sched.pending.insert(tx, map);
+
+        let drained = sched.drain_for_tx(tx);
+        let keys: Vec<(u8, u8)> = drained
+            .iter()
+            .map(|pr| (pr.scope_hash[0], pr.rule_id[0]))
+            .collect();
+        assert_eq!(keys, vec![(1, 1), (1, 2), (2, 1)]);
+    }
+}

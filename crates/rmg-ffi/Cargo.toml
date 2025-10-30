@@ -14,4 +14,4 @@ categories = ["external-ffi-bindings", "game-engines"]
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-rmg-core = { path = "../rmg-core" }
+rmg-core = { workspace = true }

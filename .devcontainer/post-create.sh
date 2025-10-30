@@ -17,3 +17,7 @@ echo "[devcontainer] Priming cargo registry cache (optional)..."
 cargo fetch || true
 
 echo "[devcontainer] Done. Run 'cargo test -p rmg-core' or 'make ci-local' to validate."
+if [ -f Makefile ]; then
+  echo "[devcontainer] Installing git hooks (make hooks)"
+  make hooks || true
+fi

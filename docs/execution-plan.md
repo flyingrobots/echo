@@ -38,6 +38,29 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.
 - Add test `fat_aabb_covers_mid_rotation_with_offset` to verify the fat box encloses the mid‑pose AABB.
 
+> 2025-10-29 — Pre-commit format policy
+
+- Change auto-format behavior: when `cargo fmt` would modify files, the hook now applies formatting then aborts the commit with guidance to review and restage. This preserves partial-staging semantics and avoids accidentally staging unrelated hunks.
+
+> 2025-10-29 — CI/security hardening
+
+- CI now includes `cargo audit` and `cargo-deny` jobs to catch vulnerable/deprecated dependencies early.
+- Rustdoc warnings gate covers rmg-core, rmg-geom, rmg-ffi, and rmg-wasm.
+- Devcontainer runs `make hooks` post-create to install repo hooks by default.
+- Note: switched audit action to `rustsec/audit-check@v1` (previous attempt to pin a non-existent tag failed).
+- Added `deny.toml` with an explicit permissive-license allowlist (Apache-2.0, MIT, BSD-2/3, CC0-1.0, MIT-0, Unlicense, Unicode-3.0, BSL-1.0, Apache-2.0 WITH LLVM-exception) to align cargo-deny with our dependency set.
+ - Audit job runs `cargo audit` on Rust 1.75.0 (explicit `RUSTUP_TOOLCHAIN=1.75.0`) to satisfy tool MSRV; workspace MSRV remains 1.71.1.
+
+> 2025-10-29 — Snapshot commit spec
+
+- Added `docs/spec-merkle-commit.md` defining `state_root` vs `commit_id` encoding and invariants.
+- Linked the spec from `crates/rmg-core/src/snapshot.rs` and README.
+
+> 2025-10-28 — PR #13 (math polish) opened
+
+- Focus: canonicalize -0.0 in Mat4 trig constructors and add MulAssign ergonomics.
+- Outcome: Opened PR echo/core-math-canonical-zero with tests; gather feedback before merge.
+
 > 2025-10-29 — Hooks formatting gate (PR #12)
 
 - Pre-commit: add rustfmt check for staged Rust files (`cargo fmt --all -- --check`).
@@ -93,6 +116,26 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-10-28 — PR #7 (rmg-core engine spike)
 
 - Landed on main; see Decision Log for summary of changes and CI outcomes.
+
+> 2025-10-30 — rmg-core determinism tests and API hardening
+
+- **Focus**: Address PR feedback for the split-core-math-engine branch. Add tests for snapshot reachability, tx lifecycle, scheduler drain order, and duplicate rule registration. Harden API docs and FFI (TxId repr, const ctors).
+- **Definition of done**: `cargo test -p rmg-core` passes; clippy clean for rmg-core with strict gates; no workspace pushes yet (hold for more feedback).
+
+> 2025-10-30 — CI toolchain policy: use stable everywhere
+
+- **Focus**: Simplify CI by standardizing on `@stable` toolchain (fmt, clippy, tests, audit). Remove MSRV job; developers default to stable via `rust-toolchain.toml`.
+- **Definition of done**: CI workflows updated; Security Audit uses latest cargo-audit on stable; docs updated.
+
+> 2025-10-30 — Minor rustdoc/lint cleanups (rmg-core)
+
+- **Focus**: Address clippy::doc_markdown warning by clarifying Snapshot docs (`state_root` backticks).
+- **Definition of done**: Lints pass under pedantic; no behavior changes.
+
+> 2025-10-30 — Spec + lint hygiene (core)
+
+- **Focus**: Remove duplicate clippy allow in `crates/rmg-core/src/lib.rs`; clarify `docs/spec-merkle-commit.md` (edge_count may be 0; explicit empty digests; genesis parents).
+- **Definition of done**: Docs updated; clippy clean.
 
 ---
 

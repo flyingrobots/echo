@@ -61,9 +61,12 @@ impl Mat4 {
     /// looking down the +X axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_x(angle: f32) -> Self {
-        let (s, c) = angle.sin_cos();
+        let (s_raw, c_raw) = angle.sin_cos();
+        let s = if s_raw == 0.0 { 0.0 } else { s_raw };
+        let c = if c_raw == 0.0 { 0.0 } else { c_raw };
+        let ns = if s == 0.0 { 0.0 } else { -s };
         Self::new([
-            1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0,
+            1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, ns, c, 0.0, 0.0, 0.0, 0.0, 1.0,
         ])
     }
 
@@ -73,9 +76,12 @@ impl Mat4 {
     /// looking down the +Y axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_y(angle: f32) -> Self {
-        let (s, c) = angle.sin_cos();
+        let (s_raw, c_raw) = angle.sin_cos();
+        let s = if s_raw == 0.0 { 0.0 } else { s_raw };
+        let c = if c_raw == 0.0 { 0.0 } else { c_raw };
+        let ns = if s == 0.0 { 0.0 } else { -s };
         Self::new([
-            c, 0.0, -s, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
+            c, 0.0, ns, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
         ])
     }
 
@@ -85,9 +91,12 @@ impl Mat4 {
     /// looking down the +Z axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_z(angle: f32) -> Self {
-        let (s, c) = angle.sin_cos();
+        let (s_raw, c_raw) = angle.sin_cos();
+        let s = if s_raw == 0.0 { 0.0 } else { s_raw };
+        let c = if c_raw == 0.0 { 0.0 } else { c_raw };
+        let ns = if s == 0.0 { 0.0 } else { -s };
         Self::new([
-            c, s, 0.0, 0.0, -s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+            c, s, 0.0, 0.0, ns, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ])
     }
 
@@ -144,7 +153,7 @@ impl Mat4 {
     /// Multiplies the matrix with another matrix (`self * rhs`).
     ///
     /// Multiplication follows column-major semantics (`self` on the left,
-    /// rhs on the right) to mirror GPU-style transforms.
+    /// `rhs` on the right) to mirror GPU-style transforms.
     pub fn multiply(&self, rhs: &Self) -> Self {
         let mut out = [0.0; 16];
         for row in 0..4 {
@@ -229,5 +238,17 @@ impl core::ops::Mul<Mat4> for &Mat4 {
 impl Default for Mat4 {
     fn default() -> Self {
         Self::identity()
+    }
+}
+
+impl core::ops::MulAssign<Mat4> for Mat4 {
+    fn mul_assign(&mut self, rhs: Mat4) {
+        *self = self.multiply(&rhs);
+    }
+}
+
+impl core::ops::MulAssign<&Mat4> for Mat4 {
+    fn mul_assign(&mut self, rhs: &Mat4) {
+        *self = self.multiply(rhs);
     }
 }

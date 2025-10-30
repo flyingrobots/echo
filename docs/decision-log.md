@@ -14,10 +14,23 @@
 | 2025-10-26 | EPI bundle | Adopt entropy, plugin, inspector, runtime config specs (Phase 0.75) | Close causality & extensibility gap | Phase 1 implementation backlog defined |
 | 2025-10-26 | RMG + Confluence | Adopt RMG v2 (typed DPOi engine) and Confluence synchronization as core architecture | Unify runtime/persistence/tooling on deterministic rewrites | Launch Rust workspace (rmg-core/ffi/wasm/cli), port ECS rules, set up Confluence networking |
 | 2025-10-27 | Core math split | Split `rmg-core` math into focused submodules (`vec3`, `mat4`, `quat`, `prng`) replacing monolithic `math.rs`. | Improves readability, testability, and aligns with strict linting. | Update imports; no behavior changes intended; follow-up determinism docs in snapshot hashing. |
-
 | 2025-10-27 | PR #7 prep | Extracted math + engine spike into `rmg-core` (split-core-math-engine); added inline rustdoc on canonical snapshot hashing (node/edge order, payload encoding). | Land the isolated, reviewable portion now; keep larger geometry/broad‑phase work split for follow-ups. | After docs update, run fmt/clippy/tests; merge is a fast‑forward over `origin/main`. |
+
+## Recent Decisions (2025-10-28 onward)
+
+The following entries use a heading + bullets format for richer context.
+| 2025-10-30 | rmg-core determinism hardening | Added reachability-only snapshot hashing; closed tx lifecycle; duplicate rule detection; deterministic scheduler drain order; expanded motion payload docs; tests for duplicate rule name/id and no‑op commit. | Locks determinism contract and surfaces API invariants; prepares PR #7 for a safe merge train. | Clippy clean for rmg-core; workspace push withheld pending further feedback. |
 | 2025-10-28 | PR #7 merged | Reachability-only snapshot hashing; ports demo registers rule; guarded ports footprint; scheduler `finalize_tx()` clears `pending`; `PortKey` u30 mask; hooks+CI hardened (toolchain pin, rustdoc fixes). | Determinism + memory hygiene; remove test footguns; pass CI with stable toolchain while keeping rmg-core MSRV=1.68. | Queued follow-ups: #13 (Mat4 canonical zero + MulAssign), #14 (geom train), #15 (devcontainer). |
 | 2025-10-27 | MWMR reserve gate | Engine calls `scheduler.finalize_tx()` at commit; compact rule id used on execute path; per‑tx telemetry summary behind feature. | Enforce independence and clear active frontier deterministically; keep ordering stable with `(scope_hash, family_id)`. | Toolchain pinned to Rust 1.68; add design note for telemetry graph snapshot replay. |
+ 
+
+## 2025-10-28 — Mat4 canonical zero + MulAssign (PR #13)
+
+- Decision: Normalize -0.0 from trig constructors in Mat4 and add MulAssign for in-place multiplication.
+- Rationale: Avoid bitwise drift in snapshot/matrix comparisons across platforms; improve ergonomics in hot loops.
+- Impact: No API breaks. New tests assert no -0.0 in rotation matrices at key angles; added `MulAssign` for owned/&rhs.
+- Next: Review feedback; if accepted, apply same canonicalization policy to other math where applicable.
+ 
 ## 2025-10-28 — Geometry merge train (PR #14)
 
 - Decision: Use an integration branch to validate #8 (geom foundation) + #9 (broad-phase AABB) together.
@@ -91,3 +104,29 @@
 - Decision: `Timespan::fat_aabb` now unions AABBs at start, mid (t=0.5 via nlerp for rotation, lerp for translation/scale), and end. Sampling count is fixed (3) for determinism.
 - Change: Implement midpoint sampling in `crates/rmg-geom/src/temporal/timespan.rs`; add test `fat_aabb_covers_mid_rotation_with_offset` to ensure mid‑pose is enclosed.
 - Consequence: Deterministic and more conservative broad‑phase bounds for typical rotation cases without introducing policy/config surface yet; future work may expose a configurable sampling policy.
+
+## 2025-10-29 — Pre-commit auto-format policy
+
+- Decision: When `ECHO_AUTO_FMT=1` (default), the pre-commit hook first checks formatting. If changes are needed, it runs `cargo fmt` to update files, then aborts the commit. This preserves index integrity for partially staged files and prevents unintended staging of unrelated hunks.
+- Rationale: `rustfmt` formats entire files; auto-restaging could silently defeat partial staging. Aborting makes the workflow explicit: review, restage, retry.
+- Consequence: One extra commit attempt in cases where formatting is needed, but safer staging semantics and fewer surprises. Message includes guidance (`git add -p` or `git add -A`).
+
+## 2025-10-29 — CI + Security hardening
+
+- Decision: Add `cargo audit` and `cargo-deny` to CI; expand rustdoc warnings gate to all public crates.
+- Rationale: Catch vulnerable/deprecated crates and doc regressions early; keep public surface clean.
+- Consequence: Faster failures on dependency or doc issues; small CI time increase.
+- Notes:
+  - Use `rustsec/audit-check@v1` for the audit step; avoid pinning to non-existent tags.
+  - Add `deny.toml` with an explicit license allowlist to prevent false positives on permissive licenses (Apache-2.0, MIT, BSD-2/3, CC0-1.0, MIT-0, Unlicense, Unicode-3.0, BSL-1.0, Apache-2.0 WITH LLVM-exception).
+  - Run cargo-audit on Rust 1.75.0 (via `RUSTUP_TOOLCHAIN=1.75.0`) to meet its MSRV; this does not change the workspace MSRV (1.71.1).
+
+## 2025-10-29 — Snapshot commit spec (v1)
+
+- Decision: Introduce `docs/spec-merkle-commit.md` describing `state_root` vs `commit_id` encodings and invariants.
+- Rationale: Make provenance explicit and discoverable; align code comments with a durable spec.
+- Changes: Linked spec from `crates/rmg-core/src/snapshot.rs` and README.
+ 
+| 2025-10-30 | CI toolchain simplification | Standardize on Rust `@stable` across CI (fmt, clippy, tests, security audit); remove MSRV job; set `rust-toolchain.toml` to `stable`. | Reduce toolchain drift and recurring audit/MSRV mismatches. | Future MSRV tracking can move to release notes when needed. |
+| 2025-10-30 | Rustdoc pedantic cleanup | Snapshot docs clarify `state_root` with code formatting to satisfy `clippy::doc_markdown`. | Keep strict lint gates green; no behavior change. | None. |
+| 2025-10-30 | Spec + lint hygiene | Removed duplicate `clippy::module_name_repetitions` allow in `rmg-core/src/lib.rs`. Clarified `docs/spec-merkle-commit.md`: `edge_count` is u64 LE and may be 0; genesis commits have length=0 parents; “empty digest” explicitly defined as `blake3(b"")`; v1 mandates empty `decision_digest` until Aion lands. | Codifies intent; prevents ambiguity for implementers. | No code behavior changes; spec is clearer. |

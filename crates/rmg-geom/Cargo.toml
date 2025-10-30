@@ -2,6 +2,7 @@
 name = "rmg-geom"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.71.1"
 description = "Echo geometry primitives: AABB, transforms, temporal proxies, and broad-phase scaffolding"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
@@ -10,6 +11,6 @@ keywords = ["echo", "geometry", "aabb", "broad-phase"]
 categories = ["game-engines", "data-structures"]
 
 [dependencies]
-rmg-core = { path = "../rmg-core" }
+rmg-core = { workspace = true }
 
 [dev-dependencies]

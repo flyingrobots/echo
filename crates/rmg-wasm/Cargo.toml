@@ -18,7 +18,7 @@ default = []
 console-panic = ["console_error_panic_hook"]
 
 [dependencies]
-rmg-core = { path = "../rmg-core" }
+rmg-core = { workspace = true }
 wasm-bindgen = "0.2.104"
 js-sys = "0.3.81"
 console_error_panic_hook = { version = "0.1.7", optional = true }

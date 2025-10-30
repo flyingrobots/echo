@@ -8,13 +8,26 @@ Use this checklist when modifying hashing- or snapshot-related code. The goal is
 
 - Domain separation and inputs
   - [ ] For typed IDs (node/type/edge), use explicit prefixes (`b"node:", b"type:", b"edge:"`).
-  - [ ] For rule IDs, use `b"rule:" ++ name` (see build.rs).
-  - [ ] For commit header digests, include exactly the fields defined in docs/spec-merkle-commit.md in the documented order.
+  - [ ] For rule IDs, construct by hashing the ASCII name with the `b"rule:"` domain prefix:
+        `hasher.update(b"rule:"); hasher.update(name.as_bytes()); let id: [u8;32] = hasher.finalize().into();`
+        Reference: crates/rmg-core/build.rs (motion rule family id generation).
+  - [ ] For commit header digests (commit_id), include exactly these fields in this order:
+        1) `version: u16 = 1`
+        2) `parents: Vec<Hash>` encoded as length (u64 LE) then each 32‑byte parent hash
+        3) `state_root: [u8;32]`
+        4) `plan_digest: [u8;32]`
+        5) `decision_digest: [u8;32]`
+        6) `rewrites_digest: [u8;32]`
+        7) `policy_id: u32`
+        See docs/spec-merkle-commit.md for the canonical spec.
 
 - Byte order and encoding
   - [ ] All length prefixes are u64 little-endian; IDs are raw 32 bytes.
-  - [ ] Node/edge ordering: nodes by ascending NodeId; edges by ascending EdgeId per source.
-  - [ ] Reachability-only traversal: include only nodes and edges reachable from the root.
+  - [ ] Deterministic reachability and ordering:
+        • Compute the reachable set from the designated root using a deterministic traversal (Echo uses BFS) while tracking a visited set to avoid cycles/duplicates.
+        • Include an edge only if both endpoints are in the reachable set.
+        • Hash nodes in ascending NodeId order; for each source, hash outgoing edges sorted by ascending EdgeId.
+        Note: traversal determines inclusion; ordering is defined by sorted IDs, not traversal order.
 
 - Snapshot invariants
   - [ ] Root ID is included first in the snapshot stream.
@@ -33,3 +46,16 @@ Use this checklist when modifying hashing- or snapshot-related code. The goal is
 
 - Tooling
   - [ ] Consider adding a one-off verification script for historical snapshots during migrations.
+
+## Verification and enforcement
+
+- Unit tests (templates)
+  - [ ] Golden snapshot fixture: serialize a tiny graph and assert the commit header byte layout (field order, endianness) and hash match expected values.
+  - [ ] Reachability tests: assert that unreachable nodes/edges do not affect the hash, and that edges to unreachable targets are excluded (see crates/rmg-core/tests/snapshot_reachability_tests.rs).
+  - [ ] Ordering tests: create nodes/edges in shuffled order and assert that the computed hash matches the sorted‑order baseline.
+
+- Assertion helpers (optional)
+  - [ ] Add test‑only helpers/macros to validate u64 LE length prefixes, field sequences, and ID sizes at encode time.
+
+- Integration guidance
+  - [ ] On format changes, regenerate golden fixtures and add a migration note in docs/decision-log.md. Verify that historical snapshots continue to verify or are migrated with a one‑off script.

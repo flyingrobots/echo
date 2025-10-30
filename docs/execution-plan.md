@@ -55,6 +55,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - On branch `echo/docs-math-harness-notes`, fixed Markdown lint MD022 by inserting a blank line after subheadings (e.g., `### Mat3 / Mat4`, `### Quat`, `### Vec2 / Vec3 / Vec4`). No content changes.
 
+> 2025-10-30 — Bug template triage fields
+
+- Enhanced `.github/ISSUE_TEMPLATE/bug.yml` with optional fields for `Stack Trace / Error Logs` and `Version / Commit` to improve first‑pass triage quality.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

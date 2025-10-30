@@ -33,6 +33,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-10-30 — PR-01: Golden motion fixtures (tests-only)
+
+- Add JSON golden fixtures and a minimal harness for the motion rule under `crates/rmg-core/tests/`.
+- Scope: tests-only; no runtime changes.
+- Links: PR-01 and tracking issue are associated for visibility.
+
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 
 - Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.

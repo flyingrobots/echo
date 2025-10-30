@@ -1,0 +1,8 @@
+{
+  "cases": [
+    { "label": "motion-fixture-1", "pos": [1.0, 2.0, 3.0], "vel": [0.5, -1.0, 0.25], "expected_pos": [1.5, 1.0, 3.25] },
+    { "label": "motion-fixture-2", "pos": [10.0, -2.0, 3.5], "vel": [0.125, 2.0, -1.5], "expected_pos": [10.125, 0.0, 2.0] },
+    { "label": "motion-fixture-3", "pos": [0.0, 0.0, 0.0], "vel": [0.0, 0.0, 0.0], "expected_pos": [0.0, 0.0, 0.0] }
+  ]
+}
+

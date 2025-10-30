@@ -59,6 +59,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Enhanced `.github/ISSUE_TEMPLATE/bug.yml` with optional fields for `Stack Trace / Error Logs` and `Version / Commit` to improve first‑pass triage quality.
 
+> 2025-10-30 — Bug template wording consistency
+
+- Standardized description capitalization in bug template to imperative form ("Provide …") for consistency with existing fields.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

@@ -67,12 +67,12 @@ case "${_auto_fmt}" in
     ;;
 esac
 
-# 4) Docs guard (scaled): only require docs when core public API changed
+# 4) Docs guard: require docs updates on any Rust changes
 STAGED=$(git diff --cached --name-only)
-CORE_API_CHANGED=$(echo "$STAGED" | grep -E '^crates/rmg-core/src/.*\.rs$' | grep -v '/tests/' || true)
-if [[ -n "$CORE_API_CHANGED" ]]; then
-  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when core API changes.' >&2; exit 1; }
-  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when core API changes.' >&2; exit 1; }
+RUST_CHANGED=$(echo "$STAGED" | grep -E '\\.rs$' || true)
+if [[ -n "$RUST_CHANGED" ]]; then
+  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when Rust files change.' >&2; exit 1; }
+  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when Rust files change.' >&2; exit 1; }
 fi
 
 # 5) Lockfile guard: ensure lockfile version is v3 (current cargo format)

@@ -116,10 +116,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.75.0
-      - name: cargo audit (rustsec)
-        uses: rustsec/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cargo-audit (1.75 toolchain)
+        env:
+          RUSTUP_TOOLCHAIN: 1.75.0
+        run: cargo install cargo-audit --locked
+      - name: Run cargo audit
+        env:
+          RUSTUP_TOOLCHAIN: 1.75.0
+        run: cargo audit --deny warnings
 
   deny:
     name: Dependency Policy (cargo-deny)

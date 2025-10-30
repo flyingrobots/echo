@@ -18,8 +18,8 @@ use crate::ident::{EdgeId, Hash, NodeId};
 /// conflicts on boundary interfaces. The engine only requires stable equality
 /// and ordering; it does not rely on a specific bit layout.
 ///
-/// For demos/tests, use [`pack_port_key`] to derive a deterministic 64‑bit key
-/// from a [`NodeId`], a `port_id`, and a direction flag.
+/// For demos/tests, use [`pack_port_key`](crate::footprint::pack_port_key) to derive a
+/// deterministic 64‑bit key from a [`NodeId`], a `port_id`, and a direction flag.
 pub type PortKey = u64;
 
 /// Simple ordered set of 256‑bit ids based on `BTreeSet` for deterministic

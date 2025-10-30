@@ -153,7 +153,7 @@ impl Mat4 {
     /// Multiplies the matrix with another matrix (`self * rhs`).
     ///
     /// Multiplication follows column-major semantics (`self` on the left,
-    /// rhs on the right) to mirror GPU-style transforms.
+    /// `rhs` on the right) to mirror GPU-style transforms.
     pub fn multiply(&self, rhs: &Self) -> Self {
         let mut out = [0.0; 16];
         for row in 0..4 {

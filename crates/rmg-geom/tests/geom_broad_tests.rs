@@ -1,3 +1,6 @@
+#![allow(missing_docs)]
+//! Integration tests for rmg-geom broad-phase (AABB tree).
+
 use rmg_core::math::{Quat, Vec3};
 use rmg_geom::broad::aabb_tree::{AabbTree, BroadPhase};
 use rmg_geom::temporal::timespan::Timespan;

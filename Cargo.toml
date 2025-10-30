@@ -8,6 +8,9 @@ members = [
 ]
 resolver = "2"
 
+[workspace.dependencies]
+rmg-core = { version = "0.1.0", path = "crates/rmg-core" }
+
 [profile.release]
 opt-level = "s"
 lto = true

@@ -11,6 +11,6 @@ keywords = ["echo", "geometry", "aabb", "broad-phase"]
 categories = ["game-engines", "data-structures"]
 
 [dependencies]
-rmg-core = { path = "../rmg-core" }
+rmg-core = { workspace = true }
 
 [dev-dependencies]

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-
 if [[ "${SKIP_HOOKS:-}" == 1 ]]; then
-  exit 0
+  echo "[pre-commit] SKIP_HOOKS is not allowed. Remove it and re-run." >&2
+  exit 1
 fi
 
 # 1) PRNG coupling guard (existing logic)

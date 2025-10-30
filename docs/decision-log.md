@@ -126,3 +126,4 @@
  
 | 2025-10-30 | CI toolchain simplification | Standardize on Rust `@stable` across CI (fmt, clippy, tests, security audit); remove MSRV job; set `rust-toolchain.toml` to `stable`. | Reduce toolchain drift and recurring audit/MSRV mismatches. | Future MSRV tracking can move to release notes when needed. |
 | 2025-10-30 | Rustdoc pedantic cleanup | Snapshot docs clarify `state_root` with code formatting to satisfy `clippy::doc_markdown`. | Keep strict lint gates green; no behavior change. | None. |
+| 2025-10-30 | Spec + lint hygiene | Removed duplicate `clippy::module_name_repetitions` allow in `rmg-core/src/lib.rs`. Clarified `docs/spec-merkle-commit.md`: `edge_count` is u64 LE and may be 0; genesis commits have length=0 parents; “empty digest” explicitly defined as `blake3(b"")`; v1 mandates empty `decision_digest` until Aion lands. | Codifies intent; prevents ambiguity for implementers. | No code behavior changes; spec is clearer. |

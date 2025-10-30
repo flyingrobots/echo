@@ -132,6 +132,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - **Focus**: Address clippy::doc_markdown warning by clarifying Snapshot docs (`state_root` backticks).
 - **Definition of done**: Lints pass under pedantic; no behavior changes.
 
+> 2025-10-30 — Spec + lint hygiene (core)
+
+- **Focus**: Remove duplicate clippy allow in `crates/rmg-core/src/lib.rs`; clarify `docs/spec-merkle-commit.md` (edge_count may be 0; explicit empty digests; genesis parents).
+- **Definition of done**: Docs updated; clippy clean.
+
 ---
 
 ## Immediate Backlog

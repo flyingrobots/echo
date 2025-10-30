@@ -20,6 +20,8 @@ Encoding (little-endian where applicable):
   - node_id (32), node.ty (32), payload_len (u64 LE), payload bytes.
 - For each source (in order):
   - from_id (32), edge_count (u64 LE) of included edges.
+    - edge_count is a 64-bit little-endian integer and may be 0 when a source
+      node has no outbound edges included by reachability/ordering rules.
   - For each edge (in order):
     - edge.id (32), edge.ty (32), edge.to (32), payload_len (u64 LE), payload bytes.
 
@@ -29,10 +31,13 @@ Hash: blake3(encoding) → 32-byte digest.
 
 Header fields (v1):
 - version: u16 = 1
-- parents: Vec<Hash> (length u64 LE, then each 32-byte hash)
+- parents: Vec<Hash> (length u64 LE, then each 32-byte hash). Genesis commits
+  have zero parents (length = 0).
 - state_root: 32 bytes (from section 1)
-- plan_digest: 32 bytes (canonical digest of ready-set ordering; empty list = blake3 of zero bytes)
-- decision_digest: 32 bytes (Aion/agency inputs; currently may be canonical empty until Aion lands)
+- plan_digest: 32 bytes (canonical digest of ready-set ordering; empty list = the
+  BLAKE3 hash of a zero-length byte sequence, i.e., blake3(b""))
+- decision_digest: 32 bytes (Aion/agency inputs; v1 uses the empty digest until
+  Aion integration)
 - rewrites_digest: 32 bytes (ordered rewrites applied)
 - policy_id: u32 (version pin for Aion policy)
 
@@ -42,7 +47,8 @@ Hash: blake3(encode(header)) → commit_id.
 
 - Any change to ordering, lengths, or endianness breaks all prior hashes.
 - The commit_id is stable across identical states and provenance, independent of runtime.
-- The canonical empty digest is blake3 of zero bytes; use this for empty plan/rewrites until populated.
+- The canonical empty digest is the BLAKE3 hash of a zero-length byte sequence
+  (blake3(b"")); use this for empty plan/rewrites/decisions until populated.
 
 ## 4. Future Evolution
 

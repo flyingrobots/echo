@@ -39,6 +39,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: tests-only; no runtime changes.
 - Links: PR-01 and tracking issue are associated for visibility.
 
+> 2025-10-30 — Templates + Project board (PR: templates)
+
+- Added GitHub templates (Bug, Feature, Task), PR template, and RFC discussion template.
+- Configured Echo Project (Projects v2) Status options to include Blocked/Ready/Done.
+- YAML lint nits fixed (no trailing blank lines; quoted placeholders).
+
+
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 
 - Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.

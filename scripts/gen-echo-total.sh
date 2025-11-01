@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Bash 4+ is required for associative arrays used in this script.
+if [[ -z "${BASH_VERSINFO:-}" || ${BASH_VERSINFO[0]} -lt 4 ]]; then
+  echo "gen-echo-total.sh requires bash>=4 (macOS: brew install bash)" >&2
+  exit 2
+fi
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DOCS_DIR="$ROOT_DIR/docs"
 OUT_FILE="$DOCS_DIR/echo-total.md"
@@ -38,7 +44,7 @@ declare -A seen
     printf '\n\n# File: %s\n\n' "$base"
     cat "$f"
     printf '\n\n---\n'
-  done < <(find "$DOCS_DIR" -maxdepth 1 -type f -name "*.md" -print0 | sort -z)
+  done < <(find "$DOCS_DIR" -maxdepth 1 -type f -name "*.md" -print0 | LC_ALL=C sort -z)
 } > "$OUT_FILE"
 
 echo "Wrote $OUT_FILE"

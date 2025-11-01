@@ -332,6 +332,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Added a short CI Tips section to README covering how to trigger the manual macOS workflow and reproduce CI locally (fmt, clippy, tests, rustdoc, audit, deny).
 
+> 2025-11-01 — Rollup automation: pre-commit + subdirs
+
+- Pre-commit now regenerates `docs/echo-total.md` automatically when any Markdown under `docs/**` changes (excluding the rollup itself) and aborts the commit if the rollup changed, prompting the author to review and stage it. This keeps the rollup in sync before CI while preserving partial staging.
+- The rollup generator now includes Markdown in subdirectories (e.g., `docs/guide/…`) with deterministic ordering (`LC_ALL=C` sort) and a stable header (no timestamp/SHA) to avoid CI churn.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 
@@ -563,6 +568,7 @@ The following entries use a heading + bullets format for richer context.
 | 2025-10-30 | Docs tooling (PR-08) | Add `make echo-total` target and README docs section for rollup | Makes rollup refresh one command; improves contributor experience | Small tooling quality-of-life |
 | 2025-10-30 | BLAKE3 header tests (PR-09) | Add unit tests to verify commit header encoding order/endianness and hash equivalence | Codifies checklist guarantees in tests; prevents regressions | Tests-only; no runtime impact |
 | 2025-10-30 | README CI tips (PR-10) | Document manual macOS workflow and how to reproduce CI locally | Lowers barriers to contributor validation | Docs-only |
+| 2025-11-01 | Rollup automation (PR-10) | Pre-commit regenerates `docs/echo-total.md` when top-level docs change; aborts to preserve index until staged | Keeps rollup in sync pre-CI and reduces churn | Developer experience improvement |
 | 2025-10-28 | PR #7 merged | Reachability-only snapshot hashing; ports demo registers rule; guarded ports footprint; scheduler `finalize_tx()` clears `pending`; `PortKey` u30 mask; hooks+CI hardened (toolchain pin, rustdoc fixes). | Determinism + memory hygiene; remove test footguns; pass CI with stable toolchain while keeping rmg-core MSRV=1.68. | Queued follow-ups: #13 (Mat4 canonical zero + MulAssign), #14 (geom train), #15 (devcontainer). |
 | 2025-10-27 | MWMR reserve gate | Engine calls `scheduler.finalize_tx()` at commit; compact rule id used on execute path; per‑tx telemetry summary behind feature. | Enforce independence and clear active frontier deterministically; keep ordering stable with `(scope_hash, family_id)`. | Toolchain pinned to Rust 1.68; add design note for telemetry graph snapshot replay. |
  
@@ -674,6 +680,12 @@ The following entries use a heading + bullets format for richer context.
 | 2025-10-30 | Rustdoc pedantic cleanup | Snapshot docs clarify `state_root` with code formatting to satisfy `clippy::doc_markdown`. | Keep strict lint gates green; no behavior change. | None. |
 | 2025-10-30 | Spec + lint hygiene | Removed duplicate `clippy::module_name_repetitions` allow in `rmg-core/src/lib.rs`. Clarified `docs/spec-merkle-commit.md`: `edge_count` is u64 LE and may be 0; genesis commits have length=0 parents; “empty digest” explicitly defined as `blake3(b"")`; v1 mandates empty `decision_digest` until Aion lands. | Codifies intent; prevents ambiguity for implementers. | No code behavior changes; spec is clearer. |
 | 2025-10-30 | Templates & Project | Added issue/PR/RFC templates and configured Echo Project (Status: Blocked/Ready/Done); fixed YAML lint nits | Streamlines review process and Kanban tracking | No runtime impact; CI docs guard satisfied |
+
+## 2025-11-01 — Docs rollup automation (pre-commit + subdirs)
+
+- Context: CI rollup check fails if `docs/echo-total.md` drifts; authors asked to trigger the rollup automatically on local commits and include subdirectories.
+- Decision: Pre-commit now regenerates the rollup whenever any `docs/**/*.md` file changes (excluding the rollup) and aborts the commit if the rollup changed, prompting review/staging. The generator now includes Markdown files in subdirectories (e.g., `docs/guide/…`) and uses a locale-stable sort (`LC_ALL=C`) with a static header to avoid non-deterministic diffs.
+- Consequence: Fewer CI round-trips on docs-only changes; deterministic rollup; preserved index semantics for partial staging.
 
 
 ---
@@ -1218,6 +1230,25 @@ sequenceDiagram
 - **Interactive Sequencer**: Play back the sequence diagram with tooltips showing Codex queue sizes.
 
 Once the architecture crystallizes, we’ll wire these into a future documentation viewer/playground that live-updates from this Markdown.
+
+
+---
+
+
+# File: guide/collision-tour.md
+
+---
+title: Collision DPO Tour
+---
+
+# Collision DPO Tour
+
+The interactive tour illustrates how Echo models collision and CCD as DPO graph rewrites.
+
+- Launch the tour: [docs/collision-dpo-tour.html](/collision-dpo-tour.html)
+- Assets live under `docs/assets/collision/`.
+
+Tip: Toggle the World/Graph tabs in the picture-in-picture panel and use the Prev/Next buttons to step through each rule.
 
 
 ---

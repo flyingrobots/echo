@@ -99,4 +99,28 @@ for c in $CRATES; do
   cargo check -p "$c" --quiet
 done
 
+# 7) Docs rollup: regenerate echo-total.md when any docs/**/*.md changed
+DOCS_CHANGED=$(echo "$STAGED" | grep -E '^docs/.*\.md$' || true)
+if [[ -n "$DOCS_CHANGED" ]]; then
+  # Exclude the rollup itself from the trigger set
+  TRIGGER=$(echo "$DOCS_CHANGED" | grep -v '^docs/echo-total.md$' || true)
+  if [[ -n "$TRIGGER" ]]; then
+    if [[ ! -x scripts/gen-echo-total.sh ]]; then
+      echo "pre-commit: scripts/gen-echo-total.sh not found or not executable" >&2
+      exit 1
+    fi
+    echo "pre-commit: regenerating docs/echo-total.md due to Markdown changes"
+    if ! ./scripts/gen-echo-total.sh; then
+      echo "pre-commit: rollup generation failed" >&2
+      exit 1
+    fi
+    # If rollup changed, abort to preserve index and ask author to review + stage
+    if ! git diff --quiet -- docs/echo-total.md; then
+      echo "pre-commit: docs/echo-total.md updated. Aborting commit to preserve index." >&2
+      echo "Hint: review changes, then 'git add docs/echo-total.md' and commit again (or run 'make echo-total')." >&2
+      exit 1
+    fi
+  fi
+fi
+
 exit 0

@@ -1,4 +1,10 @@
 #![allow(missing_docs)]
+//! Negative/edge-case tests for the motion rule.
+//!
+//! These tests document behavior when payloads contain non-finite values
+//! (NaN/Infinity) and when payload length is invalid. The runtime does not
+//! sanitize non-finite inputs; NaN propagates and Infinity is preserved. An
+//! invalid payload size results in `ApplyResult::NoMatch` at the apply boundary.
 use bytes::Bytes;
 use rmg_core::{
     decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
@@ -6,7 +12,7 @@ use rmg_core::{
 };
 
 #[test]
-fn motion_apply_with_nan_propagates_nan_but_still_applies() {
+fn motion_nan_propagates_and_rule_applies() {
     let ent = make_node_id("nan-case");
     let ty = make_type_id("entity");
     let pos = [f32::NAN, 0.0, 1.0];
@@ -36,12 +42,12 @@ fn motion_apply_with_nan_propagates_nan_but_still_applies() {
         decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
 
     // NaN arithmetic propagates; check using is_nan rather than bitwise.
-    assert!(new_pos[0].is_nan());
-    assert!(new_pos[1].is_nan());
+    assert!(new_pos[0].is_nan(), "pos.x should be NaN after update");
+    assert!(new_pos[1].is_nan(), "pos.y should be NaN after update");
     assert_eq!(new_pos[2].to_bits(), (1.0f32 + 2.0f32).to_bits());
 
     // Velocity preserved; NaN stays NaN; finite components equal bitwise.
-    assert!(new_vel[1].is_nan());
+    assert!(new_vel[1].is_nan(), "vel.y should remain NaN");
     assert_eq!(new_vel[0].to_bits(), 0.0f32.to_bits());
     assert_eq!(new_vel[2].to_bits(), 2.0f32.to_bits());
 }

@@ -19,7 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           if ! git diff --quiet -- docs/echo-total.md; then
-            echo "docs/echo-total.md is out of date. Run scripts/gen-echo-total.sh and commit the result." >&2
+            echo "docs/echo-total.md is out of date. Run 'make echo-total' (or scripts/gen-echo-total.sh) and commit the result." >&2
             git --no-pager diff -- docs/echo-total.md || true
             exit 1
           fi

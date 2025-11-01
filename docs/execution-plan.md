@@ -82,6 +82,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Script portability: replaced echo with `printf` (and a plain `echo '---'`) to emit real newlines in `scripts/gen-echo-total.sh`; removed non-portable `\n` echo usage.
 - Synced with `origin/main` via merge (no rebase/force).
 
+> 2025-10-30 — PR-06: Motion negative tests (opened)
+
+- Added tests in `rmg-core` covering NaN/Infinity propagation and invalid payload size returning `NoMatch`. Tests-only; documents expected behavior; no runtime changes.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

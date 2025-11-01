@@ -168,63 +168,6 @@ pub(crate) fn compute_commit_hash(
     h.finalize().into()
 }
 
-#[cfg(test)]
-mod header_tests {
-    use super::*;
-
-    fn build_header_bytes(
-        state_root: &Hash,
-        parents: &[Hash],
-        plan_digest: &Hash,
-        decision_digest: &Hash,
-        rewrites_digest: &Hash,
-        policy_id: u32,
-    ) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(2 + 8 + parents.len() * 32 + 32 * 4 + 4);
-        buf.extend_from_slice(&1u16.to_le_bytes());
-        buf.extend_from_slice(&(parents.len() as u64).to_le_bytes());
-        for p in parents {
-            buf.extend_from_slice(p);
-        }
-        buf.extend_from_slice(state_root);
-        buf.extend_from_slice(plan_digest);
-        buf.extend_from_slice(decision_digest);
-        buf.extend_from_slice(rewrites_digest);
-        buf.extend_from_slice(&policy_id.to_le_bytes());
-        buf
-    }
-
-    #[test]
-    fn header_hash_matches_manual_bytes() {
-        let zero = [0u8; 32];
-        // Distinct parents so ordering matters
-        let p1: Hash = blake3::hash(b"parent-1").into();
-        let p2: Hash = blake3::hash(b"parent-2").into();
-        let parents = vec![p1, p2];
-        let bytes = build_header_bytes(&zero, &parents, &zero, &zero, &zero, 42);
-
-        // Manual: hash the header bytes directly
-        let manual: Hash = blake3::hash(&bytes).into();
-
-        // Function under test
-        let via_fn = compute_commit_hash(&zero, &parents, &zero, &zero, &zero, 42);
-
-        assert_eq!(
-            manual, via_fn,
-            "commit hash must equal blake3(header bytes)"
-        );
-        // Spot-check little-endian version and parents length
-        assert_eq!(&bytes[0..2], &[1u8, 0u8], "u16 version tag is LE=1");
-        assert_eq!(&bytes[2..10], &2u64.to_le_bytes(), "parents length is LE=2");
-    }
-
-    #[test]
-    fn parent_order_affects_hash() {
-        let z = [0u8; 32];
-        let p1: Hash = blake3::hash(b"A").into();
-        let p2: Hash = blake3::hash(b"B").into();
-        let h_ab = compute_commit_hash(&z, &[p1, p2], &z, &z, &z, 0);
-        let h_ba = compute_commit_hash(&z, &[p2, p1], &z, &z, &z, 0);
-        assert_ne!(h_ab, h_ba, "parent ordering must be reflected in the hash");
-    }
-}
+// Tests for commit header encoding and hashing live under PR-09
+// (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
+// to keep PR-10 scope to README/docs/CI and avoid duplicate content.

@@ -152,3 +152,9 @@ The following entries use a heading + bullets format for richer context.
 - Context: CI rollup check fails if `docs/echo-total.md` drifts; authors asked to trigger the rollup automatically on local commits and include subdirectories.
 - Decision: Pre-commit now regenerates the rollup whenever any `docs/**/*.md` file changes (excluding the rollup) and aborts the commit if the rollup changed, prompting review/staging. The generator now includes Markdown files in subdirectories (e.g., `docs/guide/…`) and uses a locale-stable sort (`LC_ALL=C`) with a static header to avoid non-deterministic diffs.
 - Consequence: Fewer CI round-trips on docs-only changes; deterministic rollup; preserved index semantics for partial staging.
+
+## 2025-11-01 — PR-10 scope hygiene (tests split)
+
+- Context: PR‑10 (README/CI/docs) accidentally included commit header tests in `snapshot.rs`, overlapping with PR‑09 (tests‑only).
+- Decision: Remove the test module from PR‑10 to keep it strictly docs/CI/tooling; keep all BLAKE3 commit header tests in PR‑09 (`echo/pr-09-blake3-header-tests`).
+- Consequence: Clear PR boundaries; no runtime behavior change in PR‑10.

@@ -110,6 +110,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Pre-commit now regenerates `docs/echo-total.md` automatically when any Markdown under `docs/**` changes (excluding the rollup itself) and aborts the commit if the rollup changed, prompting the author to review and stage it. This keeps the rollup in sync before CI while preserving partial staging.
 - The rollup generator now includes Markdown in subdirectories (e.g., `docs/guide/…`) with deterministic ordering (`LC_ALL=C` sort) and a stable header (no timestamp/SHA) to avoid CI churn.
 
+> 2025-11-01 — PR-10 scope hygiene
+
+- Removed commit‑header tests from `crates/rmg-core/src/snapshot.rs` on this branch to keep PR‑10 strictly docs/CI/tooling. Those tests live in PR‑09 (`echo/pr-09-blake3-header-tests`). No runtime changes here.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

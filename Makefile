@@ -3,7 +3,7 @@ SHELL := /bin/bash
 # Default docs port; override with: make docs PORT=5180
 PORT ?= 5173
 
-.PHONY: hooks docs docs-build docs-ci
+.PHONY: hooks docs docs-build docs-ci echo-total
 hooks:
 	@git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
@@ -38,3 +38,8 @@ docs-build:
 docs-ci:
 	@echo "[docs] CI build (no npm install)"
 	@npm run --silent docs:build
+
+# Generate docs/echo-total.md rollup
+echo-total:
+	@chmod +x scripts/gen-echo-total.sh
+	@./scripts/gen-echo-total.sh

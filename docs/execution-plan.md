@@ -90,6 +90,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Added workflow `.github/workflows/echo-total-check.yml` that regenerates `docs/echo-total.md` and fails the PR if the file differs, prompting authors to update the rollup. Keeps the single-file doc in sync.
 
+> 2025-10-30 — PR-08: Makefile target + README note (docs tooling)
+
+- Added `make echo-total` target to run the rollup generator. README now documents `docs` commands and the rollup target.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

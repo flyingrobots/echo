@@ -165,6 +165,12 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 - Peek at [`docs/legacy-excavation.md`](docs/legacy-excavation.md) to see which ideas survived the archaeological roast.
 - Track active work in [`docs/execution-plan.md`](docs/execution-plan.md); update it every session.
 
+### Docs
+
+- Dev server: `make docs` (opens browser; uses `PORT` env var, default 5173)
+- Static build: `make docs-build`
+- Single-file rollup: `make echo-total` (generates `docs/echo-total.md` from top‑level docs; commit the result if it changes)
+
 ---
 
 ## Contributing

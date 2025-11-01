@@ -86,6 +86,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Added tests in `rmg-core` covering NaN/Infinity propagation and invalid payload size returning `NoMatch`. Tests-only; documents expected behavior; no runtime changes.
 
+> 2025-10-30 — PR-07: echo-total rollup check (CI)
+
+- Added workflow `.github/workflows/echo-total-check.yml` that regenerates `docs/echo-total.md` and fails the PR if the file differs, prompting authors to update the rollup. Keeps the single-file doc in sync.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

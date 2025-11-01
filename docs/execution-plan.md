@@ -99,7 +99,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Added unit tests under `rmg-core` (in `snapshot.rs`) that:
   - Build canonical commit header bytes and assert `compute_commit_hash` equals `blake3(header)`.
   - Spot-check LE encoding (version u16 = 1, parents length as u64 LE).
-  - Assert that reversing parent order changes the hash. No runtime changes.
+- Assert that reversing parent order changes the hash. No runtime changes.
+
+> 2025-10-30 — PR-10: README (macOS manual + local CI tips)
+
+- Added a short CI Tips section to README covering how to trigger the manual macOS workflow and reproduce CI locally (fmt, clippy, tests, rustdoc, audit, deny).
 
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)

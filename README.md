@@ -171,6 +171,17 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 - Static build: `make docs-build`
 - Single-file rollup: `make echo-total` (generates `docs/echo-total.md` from top‑level docs; commit the result if it changes)
 
+### CI Tips
+
+- Manual macOS run: trigger the "CI (macOS — manual)" workflow from the Actions tab to run fmt/clippy/tests on macOS on demand.
+- Reproduce CI locally:
+  - Format: `cargo fmt --all -- --check`
+  - Clippy: `cargo clippy --all-targets -- -D warnings -D missing_docs`
+  - Tests: `cargo test --workspace`
+  - Rustdoc (warnings as errors): `RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps` (repeat for other crates)
+  - Security: `cargo install cargo-audit --locked && cargo audit --deny warnings`
+  - Dependency policy: `cargo deny check` (requires `cargo-deny`)
+
 ---
 
 ## Contributing

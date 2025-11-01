@@ -321,6 +321,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Added `make echo-total` target to run the rollup generator. README now documents `docs` commands and the rollup target.
 
+> 2025-10-30 — PR-09: BLAKE3 header tests (tests-only)
+
+- Added unit tests under `rmg-core` (in `snapshot.rs`) that:
+  - Build canonical commit header bytes and assert `compute_commit_hash` equals `blake3(header)`.
+  - Spot-check LE encoding (version u16 = 1, parents length as u64 LE).
+- Assert that reversing parent order changes the hash. No runtime changes.
+
+> 2025-10-30 — PR-10: README (macOS manual + local CI tips)
+
+- Added a short CI Tips section to README covering how to trigger the manual macOS workflow and reproduce CI locally (fmt, clippy, tests, rustdoc, audit, deny).
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 
@@ -550,6 +561,8 @@ The following entries use a heading + bullets format for richer context.
 | 2025-10-30 | Motion negative tests (PR-06) | Add tests documenting NaN/Infinity propagation and invalid payload size NoMatch in motion rule | Clarify expected behavior without changing runtime; improves determinism docs via tests | Tests-only; no runtime impact |
 | 2025-10-30 | Docs rollup check (PR-07) | Add CI workflow to verify `docs/echo-total.md` is regenerated | Prevents drift between source docs and the rollup | Fails PR with guidance if rollup is stale |
 | 2025-10-30 | Docs tooling (PR-08) | Add `make echo-total` target and README docs section for rollup | Makes rollup refresh one command; improves contributor experience | Small tooling quality-of-life |
+| 2025-10-30 | BLAKE3 header tests (PR-09) | Add unit tests to verify commit header encoding order/endianness and hash equivalence | Codifies checklist guarantees in tests; prevents regressions | Tests-only; no runtime impact |
+| 2025-10-30 | README CI tips (PR-10) | Document manual macOS workflow and how to reproduce CI locally | Lowers barriers to contributor validation | Docs-only |
 | 2025-10-28 | PR #7 merged | Reachability-only snapshot hashing; ports demo registers rule; guarded ports footprint; scheduler `finalize_tx()` clears `pending`; `PortKey` u30 mask; hooks+CI hardened (toolchain pin, rustdoc fixes). | Determinism + memory hygiene; remove test footguns; pass CI with stable toolchain while keeping rmg-core MSRV=1.68. | Queued follow-ups: #13 (Mat4 canonical zero + MulAssign), #14 (geom train), #15 (devcontainer). |
 | 2025-10-27 | MWMR reserve gate | Engine calls `scheduler.finalize_tx()` at commit; compact rule id used on execute path; per‑tx telemetry summary behind feature. | Enforce independence and clear active frontier deterministically; keep ordering stable with `(scope_hash, family_id)`. | Toolchain pinned to Rust 1.68; add design note for telemetry graph snapshot replay. |
  

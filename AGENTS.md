@@ -26,6 +26,15 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.
 - Run `cargo clippy --all-targets -- -D missing_docs` and `cargo test` before every PR; CI will expect a zero-warning, fully documented surface.
 
+### PRs & Issues (Linkage Policy)
+- Every PR must be tied to a GitHub Issue.
+  - If no suitable issue exists, open one before you open the PR.
+  - Use explicit closing keywords in the PR body: include a line like `Closes #<issue-number>` so the issue auto‑closes on merge.
+  - Keep PRs single‑purpose: 1 PR = 1 thing. Avoid bundling unrelated changes.
+- Branch naming: prefer `echo/<short-feature-name>` or `timeline/<experiment>` and include the issue number in the PR title.
+- Docs Guard: when a PR touches non‑doc code, update `docs/execution-plan.md` and `docs/decision-log.md` in the same PR.
+- Project hygiene: assign the PR’s linked issue to the correct Milestone and Board column (Blocked/Ready/Done) as part of the PR.
+
 ### Git Hooks & Local CI
 - Install repo hooks once with `make hooks` (configures `core.hooksPath`).
 - Formatting: pre-commit auto-fixes with `cargo fmt` by default. Set `ECHO_AUTO_FMT=0` to run check-only instead.

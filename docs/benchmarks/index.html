@@ -77,12 +77,22 @@
       ];
       const INPUTS = [10, 100, 1000];
       const params = new URLSearchParams(location.search);
-      const ROOT = params.get('root') ?? '../../';
+      // Default to '/' assuming a server at repo root. Override via ?root=../../ if needed.
+      const ROOT = params.get('root') ?? '/';
 
       async function loadEstimate(group, n) {
-        const path = `${ROOT}target/criterion/${group}/${n}/new/estimates.json`;
+        const basePath = `${ROOT}target/criterion/${group}/${n}`;
+        const newPath = `${basePath}/new/estimates.json`;
+        const baseAlt = `${basePath}/base/estimates.json`;
         try {
-          const res = await fetch(path);
+          let res = await fetch(newPath);
+          let path = newPath;
+          if (!res.ok) {
+            // Fall back to baseline if no `new` exists.
+            const alt = await fetch(baseAlt);
+            if (!alt.ok) throw new Error(`${res.status} ${res.statusText}`);
+            res = alt; path = baseAlt;
+          }
           if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
           const data = await res.json();
           // Criterion 0.5 uses lowercase keys like { mean: { point_estimate, confidence_interval: { lower_bound, upper_bound } } }
@@ -92,7 +102,7 @@
           if (typeof mean !== 'number') throw new Error('missing mean.point_estimate');
           return { ok: true, path, mean, lb, ub };
         } catch (err) {
-          return { ok: false, path, error: String(err) };
+          return { ok: false, path: newPath, error: String(err) };
         }
       }
 
@@ -235,7 +245,12 @@
         const miss = d3.select('#missing');
         miss.selectAll('*').remove();
         if (missing.length) {
-          miss.append('div').html(`Some results were not found. Run <code>cargo bench -p rmg-benches</code> first.`);
+          miss.append('div').html(
+            `Some results were not found. Ensure you:<br>` +
+            `1) Serve repo root (e.g., run <code>make bench-serve</code> from the repo root),<br>` +
+            `2) Run <code>cargo bench -p rmg-benches</code> to generate <code>target/criterion</code> results,<br>` +
+            `3) If serving from a different base, pass <code>?root=../../</code> or the correct base.`
+          );
           const ul = miss.append('ul');
           ul.selectAll('li')
             .data(missing)

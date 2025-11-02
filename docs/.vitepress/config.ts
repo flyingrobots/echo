@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Echo',
-  description: 'Deterministic, multiverse-aware ECS',
+  description: 'Real-Time, Deterministic, Recursive Meta-Graph Simulation Engine',
   cleanUrls: true,
   ignoreDeadLinks: [
     // Collision tour HTML is added in a separate PR
@@ -25,7 +25,3 @@ export default defineConfig({
     }
   }
 })
-<<<<<<< HEAD
-=======
-
->>>>>>> origin/main

@@ -32,32 +32,54 @@ fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
 }
 
 fn bench_motion_apply(c: &mut Criterion) {
-    let mut group = c.benchmark_group("motion_apply");
-    // Stabilize measurements: fixed warmup and sample size.
-    group.sample_size(50);
-    group.warm_up_time(Duration::from_secs(3));
+    // Bench 1: Build-only — measures engine construction + inserts.
+    let mut build_group = c.benchmark_group("motion_build_only");
+    build_group.sample_size(50);
+    build_group.warm_up_time(Duration::from_secs(3));
+    build_group.measurement_time(Duration::from_secs(6));
+    build_group.noise_threshold(0.02);
     for &n in &[1usize, 10, 100, 1_000] {
-        group.throughput(Throughput::Elements(n as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+        build_group.throughput(Throughput::Elements(n as u64));
+        build_group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            // Measure just the build; keep work observable via black_box.
+            b.iter(|| {
+                let (engine, ids) = build_engine_with_n_entities(n);
+                // Optional quick sanity on the first entity to keep side effects visible.
+                let node = engine.node(&ids[0]).expect("node exists");
+                let decoded =
+                    decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
+                debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
+                debug_assert!(decoded.1.iter().all(|v| v.is_finite()));
+                black_box(engine);
+                black_box(ids);
+                black_box(decoded);
+            })
+        });
+    }
+    build_group.finish();
+
+    // Bench 2: Apply+Commit — measure only the rewrite/commit path.
+    let mut apply_group = c.benchmark_group("motion_apply_commit");
+    apply_group.sample_size(50);
+    apply_group.warm_up_time(Duration::from_secs(3));
+    apply_group.measurement_time(Duration::from_secs(6));
+    apply_group.noise_threshold(0.02);
+    for &n in &[1usize, 10, 100, 1_000] {
+        apply_group.throughput(Throughput::Elements(n as u64));
+        apply_group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            // Build a fresh engine/ids in setup (not timed), measure only the apply/commit work.
             b.iter_batched(
-                || {
-                    let (engine, ids) = build_engine_with_n_entities(n);
-                    (engine, ids)
-                },
+                || build_engine_with_n_entities(n),
                 |(mut engine, ids)| {
-                    // Apply motion once to each entity.
                     let tx = engine.begin();
                     for id in &ids {
                         let res = engine.apply(tx, MOTION_RULE_NAME, id).expect("apply");
-                        // Avoid penalizing release runs.
                         debug_assert!(matches!(res, ApplyResult::Applied | ApplyResult::NoMatch));
                     }
                     engine.commit(tx).expect("commit");
 
-                    // Decode and validate the first entity's payload to keep work observable,
-                    // then black_box to prevent the optimizer from eliminating it.
-                    let first = ids[0];
-                    let node = engine.node(&first).expect("node exists");
+                    // Decode and validate the first entity's payload and black_box the result.
+                    let node = engine.node(&ids[0]).expect("node exists");
                     let decoded = decode_motion_payload(node.payload.as_ref().expect("payload"))
                         .expect("decode");
                     debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
@@ -68,7 +90,7 @@ fn bench_motion_apply(c: &mut Criterion) {
             )
         });
     }
-    group.finish();
+    apply_group.finish();
 }
 
 criterion_group!(benches, bench_motion_apply);

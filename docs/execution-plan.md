@@ -33,6 +33,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-02 — PR-11 hotfix-deterministic-rollup-check
+
+- Switch to `echo/hotfix-deterministic-rollup-check`, fetch and merge `origin/main` (merge commit; no rebase).
+- Fix CI cargo-deny failures:
+  - Add `license = "Apache-2.0"` to `crates/rmg-benches/Cargo.toml`.
+  - Ensure no wildcard dependency remains in benches (use workspace path dep for `rmg-core`).
+- Modernize `deny.toml` (remove deprecated `copyleft` and `unlicensed` keys per cargo-deny PR #611); enforcement still via explicit allowlist.
+
 > 2025-10-30 — PR-01: Golden motion fixtures (tests-only)
 
 - Add JSON golden fixtures and a minimal harness for the motion rule under `crates/rmg-core/tests/`.

@@ -38,6 +38,12 @@ RMG provides atomic, in-place edits of recursive meta-graphs with deterministic 
 
 It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
 
+## Developer: Running Benchmarks
+
+- Command: `cargo bench -p rmg-benches`
+- Purpose: Runs Criterion micro-benchmarks for the benches crate (`crates/rmg-benches`).
+- Location: see `crates/rmg-benches/` for sources and configuration.
+
 ### Core Principles
 
 | Principle                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |

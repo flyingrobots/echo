@@ -33,6 +33,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-02 — PR-12: Sync with main + benches metadata
+
+- Target: `echo/pr-12-snapshot-bench` (PR #113).
+- Merged `origin/main` into the branch (merge commit, no rebase) to clear GitHub conflict status.
+- Resolved `crates/rmg-benches/Cargo.toml` conflict by keeping:
+  - `license = "Apache-2.0"` and `blake3 = "1"` in dev-dependencies.
+  - Version-pinned path dep: `rmg-core = { version = "0.1.0", path = "../rmg-core" }`.
+  - Bench entries: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
+- Benches code present/updated: `crates/rmg-benches/benches/snapshot_hash.rs`, `crates/rmg-benches/benches/scheduler_drain.rs`.
+- Scope: benches + metadata only; no runtime changes. Hooks (fmt, clippy, tests, rustdoc) were green locally before push.
+
 > 2025-11-02 — PR-11 hotfix-deterministic-rollup-check
 
 - Switch to `echo/hotfix-deterministic-rollup-check`, fetch and merge `origin/main` (merge commit; no rebase).

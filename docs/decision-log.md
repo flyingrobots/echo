@@ -190,3 +190,14 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Keep CI quiet and align with current cargo-deny schema without weakening enforcement.
 - Consequence: Same effective policy, no deprecation warnings; future license exceptions remain possible via standard cargo-deny mechanisms.
 - CI Note: Use `cargo-deny >= 0.14.21` in CI (workflow/container) to avoid schema drift and deprecation surprises. Pin the action/image or the downloaded binary version accordingly.
+
+## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
+
+- Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).
+- Decision: Merge `origin/main` into the branch (merge commit; no rebase) and resolve the conflict in `crates/rmg-benches/Cargo.toml`.
+- Resolution kept:
+  - `license = "Apache-2.0"`, `blake3 = "1"` in dev-dependencies.
+  - `rmg-core = { version = "0.1.0", path = "../rmg-core" }` (version-pinned path dep per cargo-deny bans).
+  - Bench targets: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
+- Rationale: Preserve history with a merge, align benches metadata with workspace policy, and clear PR conflict status.
+- Consequence: Branch synced with `main`; local hooks (fmt, clippy, tests, rustdoc) passed; CI Docs Guard satisfied via this log and execution-plan update.

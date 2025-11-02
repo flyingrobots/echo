@@ -17,6 +17,7 @@ fn build_chain_engine(n: usize) -> Engine {
     );
     // Insert N nodes and connect them in a chain so all are reachable.
     let entity_ty = make_type_id("entity");
+    let link_ty = make_type_id("link");
     let mut prev = root;
     for i in 0..n {
         let id = make_node_id(&format!("ent-{}", i));
@@ -27,14 +28,14 @@ fn build_chain_engine(n: usize) -> Engine {
                 payload: None,
             },
         );
-        let edge_id = make_edge_id(&format!("e-{}-{}", i.saturating_sub(1), i));
+        let edge_id = make_edge_id(&format!("e-{}-{}", i, i + 1));
         store.insert_edge(
             prev,
             EdgeRecord {
                 id: edge_id,
                 from: prev,
                 to: id,
-                ty: make_type_id("link"),
+                ty: link_ty,
                 payload: None,
             },
         );

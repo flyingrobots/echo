@@ -260,6 +260,43 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-02 — PR-12: benches updates (CI docs guard)
+
+- Dependency policy: pin `blake3` in `rmg-benches` to `1.8.2` (no wildcard).
+- snapshot_hash bench: precompute `link` type id once; fix edge labels to `e-i-(i+1)`.
+- scheduler_drain bench: builder returns `Vec<NodeId>` to avoid re-hashing labels; bench loop uses the precomputed ids.
+- Regenerated `docs/echo-total.md` to reflect these changes.
+
+> 2025-11-02 — PR-12: benches polish (constants + docs)
+
+- snapshot_hash: extract all magic strings to constants; clearer edge ids using `<from>-to-<to>` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
+- scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
+- blake3 minor pin: set `blake3 = "1.8"` (semver-compatible); benches don't require an exact patch.
+
+> 2025-11-02 — PR-12: benches README
+
+- Added `crates/rmg-benches/benches/README.md` documenting how to run and interpret
+  benchmarks, report locations, and optional flamegraph usage.
+- Linked it from the main `README.md`.
+
+> 2025-11-02 — PR-12: benches polish and rollup refresh
+
+- Pin `blake3` in benches to `1.8.2` to satisfy cargo-deny wildcard policy.
+- snapshot_hash bench: precompute `link` type id and fix edge labels to `e-i-(i+1)`.
+- scheduler_drain bench: return `Vec<NodeId>` from builder and avoid re-hashing node ids in the apply loop.
+- Regenerated `docs/echo-total.md` after doc updates.
+
+> 2025-11-02 — PR-12: Sync with main + benches metadata
+
+- Target: `echo/pr-12-snapshot-bench` (PR #113).
+- Merged `origin/main` into the branch (merge commit, no rebase) to clear GitHub conflict status.
+- Resolved `crates/rmg-benches/Cargo.toml` conflict by keeping:
+  - `license = "Apache-2.0"` and `blake3 = "1"` in dev-dependencies.
+  - Version-pinned path dep: `rmg-core = { version = "0.1.0", path = "../rmg-core" }`.
+  - Bench entries: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
+- Benches code present/updated: `crates/rmg-benches/benches/snapshot_hash.rs`, `crates/rmg-benches/benches/scheduler_drain.rs`.
+- Scope: benches + metadata only; no runtime changes. Hooks (fmt, clippy, tests, rustdoc) were green locally before push.
+
 > 2025-11-02 — PR-11 hotfix-deterministic-rollup-check
 
 - Switch to `echo/hotfix-deterministic-rollup-check`, fetch and merge `origin/main` (merge commit; no rebase).
@@ -747,6 +784,41 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Keep CI quiet and align with current cargo-deny schema without weakening enforcement.
 - Consequence: Same effective policy, no deprecation warnings; future license exceptions remain possible via standard cargo-deny mechanisms.
 - CI Note: Use `cargo-deny >= 0.14.21` in CI (workflow/container) to avoid schema drift and deprecation surprises. Pin the action/image or the downloaded binary version accordingly.
+
+## 2025-11-02 — PR-12: benches pin + micro-optimizations
+
+- Context: CI cargo-deny flagged wildcard policy and benches had minor inefficiencies.
+- Decision:
+  - Pin `blake3` in `crates/rmg-benches/Cargo.toml` to `1.8.2` (no wildcard).
+  - `snapshot_hash`: compute `link` type id once; label edges as `e-i-(i+1)` (no `e-0-0`).
+  - `scheduler_drain`: builder returns `Vec<NodeId>`; `apply` loop uses precomputed ids to avoid re-hashing.
+- Rationale: Keep dependency policy strict and make benches reflect best practices (no redundant hashing or id recomputation).
+- Consequence: Cleaner dependency audit and slightly leaner bench setup without affecting runtime code.
+
+## 2025-11-02 — PR-12: benches constants + documentation
+
+- Context: Pedantic review flagged magic strings, ambiguous labels, and unclear throughput semantics in benches.
+- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; replace exact blake3 patch pin with minor pin `1.8` and document rationale.
+- Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
+- Consequence: Benches read as executable docs; CI docs guard updated accordingly.
+
+## 2025-11-02 — PR-12: benches README + main link
+
+- Context: Missing documentation for how to run/interpret Criterion benches.
+- Decision: Add `crates/rmg-benches/benches/README.md` and link from the top-level `README.md`.
+- Rationale: Improve discoverability and ensure new contributors can reproduce measurements.
+- Consequence: Docs Guard satisfied; single-source guidance for bench usage and outputs.
+
+## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
+
+- Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).
+- Decision: Merge `origin/main` into the branch (merge commit; no rebase) and resolve the conflict in `crates/rmg-benches/Cargo.toml`.
+- Resolution kept:
+  - `license = "Apache-2.0"`, `blake3 = "1"` in dev-dependencies.
+  - `rmg-core = { version = "0.1.0", path = "../rmg-core" }` (version-pinned path dep per cargo-deny bans).
+  - Bench targets: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
+- Rationale: Preserve history with a merge, align benches metadata with workspace policy, and clear PR conflict status.
+- Consequence: Branch synced with `main`; local hooks (fmt, clippy, tests, rustdoc) passed; CI Docs Guard satisfied via this log and execution-plan update.
 
 
 ---
@@ -1539,7 +1611,8 @@ Goal: ensure Echo’s math module produces identical results across environments
 ---
 
 ## Tooling
-- Rust harness (in `rmg-core/tests/math_validation.rs`) validates scalar/vector/matrix/quaternion + PRNG behaviour against JSON fixtures.
+
+- Rust harness (in `rmg-core/tests/math_validation.rs`) validates scalar/vector/matrix/quaternion + PRNG behavior against JSON fixtures.
 - Provide deterministic reference values generated offline (e.g., via high-precision Python or Rust) stored in fixtures.
 - Next step: mirror the fixtures in Vitest with snapshot-style comparisons for the TypeScript layer.
 - For cross-environment checks, add Playwright-driven tests that run the same suite in headless Chromium/WebKit (call into math module via bundled script).
@@ -1548,6 +1621,7 @@ Goal: ensure Echo’s math module produces identical results across environments
 ---
 
 ## Tolerances
+
 - Float32 comparisons use epsilon `1e-6`.
 - Trig functions might require looser tolerance `1e-5` depending on environment (document deviations).
 - Fixed-point exact equality expected (integer comparisons).
@@ -1555,6 +1629,7 @@ Goal: ensure Echo’s math module produces identical results across environments
 ---
 
 ## Tasks
+
 - [x] Generate reference fixtures (JSON) for scalar/vector/matrix/quaternion/PRNG cases.
 - [x] Implement Rust-based validation suite (`cargo test -p rmg-core --test math_validation`).
 - [ ] Mirror fixtures in Vitest to cover the TypeScript bindings (float32 mode).
@@ -1565,6 +1640,7 @@ Goal: ensure Echo’s math module produces identical results across environments
 ---
 
 ## Open Questions
+
 - Should we bundle deterministic trig lookup tables for browsers with inconsistent `Math.sin/cos`?
 - How to expose failure info to designers (e.g., CLI command to run math diagnostics)?
 - Do we need wasm acceleration for fixed-point operations (profile results first)?

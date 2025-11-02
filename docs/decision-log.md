@@ -190,3 +190,38 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Keep CI quiet and align with current cargo-deny schema without weakening enforcement.
 - Consequence: Same effective policy, no deprecation warnings; future license exceptions remain possible via standard cargo-deny mechanisms.
 - CI Note: Use `cargo-deny >= 0.14.21` in CI (workflow/container) to avoid schema drift and deprecation surprises. Pin the action/image or the downloaded binary version accordingly.
+
+## 2025-11-02 — PR-12: benches pin + micro-optimizations
+
+- Context: CI cargo-deny flagged wildcard policy and benches had minor inefficiencies.
+- Decision:
+  - Pin `blake3` in `crates/rmg-benches/Cargo.toml` to `1.8.2` (no wildcard).
+  - `snapshot_hash`: compute `link` type id once; label edges as `e-i-(i+1)` (no `e-0-0`).
+  - `scheduler_drain`: builder returns `Vec<NodeId>`; `apply` loop uses precomputed ids to avoid re-hashing.
+- Rationale: Keep dependency policy strict and make benches reflect best practices (no redundant hashing or id recomputation).
+- Consequence: Cleaner dependency audit and slightly leaner bench setup without affecting runtime code.
+
+## 2025-11-02 — PR-12: benches constants + documentation
+
+- Context: Pedantic review flagged magic strings, ambiguous labels, and unclear throughput semantics in benches.
+- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; replace exact blake3 patch pin with minor pin `1.8` and document rationale.
+- Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
+- Consequence: Benches read as executable docs; CI docs guard updated accordingly.
+
+## 2025-11-02 — PR-12: benches README + main link
+
+- Context: Missing documentation for how to run/interpret Criterion benches.
+- Decision: Add `crates/rmg-benches/benches/README.md` and link from the top-level `README.md`.
+- Rationale: Improve discoverability and ensure new contributors can reproduce measurements.
+- Consequence: Docs Guard satisfied; single-source guidance for bench usage and outputs.
+
+## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
+
+- Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).
+- Decision: Merge `origin/main` into the branch (merge commit; no rebase) and resolve the conflict in `crates/rmg-benches/Cargo.toml`.
+- Resolution kept:
+  - `license = "Apache-2.0"`, `blake3 = "1"` in dev-dependencies.
+  - `rmg-core = { version = "0.1.0", path = "../rmg-core" }` (version-pinned path dep per cargo-deny bans).
+  - Bench targets: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
+- Rationale: Preserve history with a merge, align benches metadata with workspace policy, and clear PR conflict status.
+- Consequence: Branch synced with `main`; local hooks (fmt, clippy, tests, rustdoc) passed; CI Docs Guard satisfied via this log and execution-plan update.

@@ -42,7 +42,7 @@ It’s the core of the Echo engine: runtime, assets, networking, and tools all o
 
 - Command: `cargo bench -p rmg-benches`
 - Purpose: Runs Criterion micro-benchmarks for the benches crate (`crates/rmg-benches`).
-- Location: see `crates/rmg-benches/` for sources and configuration.
+- Docs: see `crates/rmg-benches/benches/README.md` for details, tips, and report paths.
 
 ### Core Principles
 

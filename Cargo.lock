@@ -500,6 +500,7 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 name = "rmg-benches"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "criterion",
  "rmg-core",
 ]

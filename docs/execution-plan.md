@@ -39,7 +39,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Fix CI cargo-deny failures:
   - Add `license = "Apache-2.0"` to `crates/rmg-benches/Cargo.toml`.
   - Ensure no wildcard dependency remains in benches (use workspace path dep for `rmg-core`).
-- Keep `deny.toml` policy intact; handle deprecation warnings in a later sweep.
+- Modernize `deny.toml` (remove deprecated `copyleft` and `unlicensed` keys per cargo-deny PR #611); enforcement still via explicit allowlist.
 
 > 2025-10-30 — PR-01: Golden motion fixtures (tests-only)
 

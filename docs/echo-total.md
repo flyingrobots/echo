@@ -266,7 +266,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Fix CI cargo-deny failures:
   - Add `license = "Apache-2.0"` to `crates/rmg-benches/Cargo.toml`.
   - Ensure no wildcard dependency remains in benches (use workspace path dep for `rmg-core`).
-- Keep `deny.toml` policy intact; handle deprecation warnings in a later sweep.
+- Modernize `deny.toml` (remove deprecated `copyleft` and `unlicensed` keys per cargo-deny PR #611); enforcement still via explicit allowlist.
 
 > 2025-10-30 — PR-01: Golden motion fixtures (tests-only)
 
@@ -739,6 +739,13 @@ The following entries use a heading + bullets format for richer context.
 - Decision: Add `license = "Apache-2.0"` to `crates/rmg-benches/Cargo.toml` and ensure `rmg-core` is referenced via a path dev-dependency (no wildcard).
 - Rationale: Keep workspace policy consistent with other crates (Apache-2.0) and satisfy bans (wildcards = deny) and licenses checks.
 - Consequence: `cargo-deny` bans/licenses should pass; remaining warnings are deprecations in `deny.toml` to be addressed in a later sweep.
+
+## 2025-11-02 — cargo-deny modernization
+
+- Context: CI emitted deprecation warnings for `copyleft` and `unlicensed` keys in `deny.toml` (cargo-deny PR #611).
+- Decision: Remove deprecated keys; rely on the explicit permissive `allow = [...]` list to exclude copyleft licenses; ensure all workspace crates declare a license (benches fixed earlier).
+- Rationale: Keep CI quiet and align with current cargo-deny schema without weakening enforcement.
+- Consequence: Same effective policy, no deprecation warnings; future license exceptions remain possible via standard cargo-deny mechanisms.
 
 
 ---

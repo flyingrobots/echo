@@ -16,11 +16,13 @@ allow = [
     "Unlicense",
 ]
 
-# Disallow copyleft by default; we do not expect GPL-family in the runtime.
-copyleft = "deny"
-
-# Treat unknown or missing license as a failure.
-unlicensed = "deny"
+# Modernized for cargo-deny >=0.14.21 (PR #611):
+# - Removed deprecated keys `copyleft` and `unlicensed`.
+#   Copyleft licenses remain effectively denied by virtue of the explicit
+#   `allow = [...]` list above.
+#   Crates missing a license will be flagged by cargo-deny as issues; our
+#   workspace crates all declare licenses, so no explicit `unlicensed` policy
+#   is required here.
 
 # Confidence threshold for license text detection (default 0.8)
 confidence-threshold = 0.8
@@ -33,4 +35,3 @@ wildcards = "deny"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-

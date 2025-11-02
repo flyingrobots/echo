@@ -208,6 +208,13 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
 - Consequence: Benches read as executable docs; CI docs guard updated accordingly.
 
+## 2025-11-02 — PR-12: benches README + main link
+
+- Context: Missing documentation for how to run/interpret Criterion benches.
+- Decision: Add `crates/rmg-benches/benches/README.md` and link from the top-level `README.md`.
+- Rationale: Improve discoverability and ensure new contributors can reproduce measurements.
+- Consequence: Docs Guard satisfied; single-source guidance for bench usage and outputs.
+
 ## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
 
 - Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).

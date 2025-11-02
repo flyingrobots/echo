@@ -46,6 +46,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
 - blake3 minor pin: set `blake3 = "1.8"` (semver-compatible); benches don't require an exact patch.
 
+> 2025-11-02 — PR-12: benches README
+
+- Added `crates/rmg-benches/benches/README.md` documenting how to run and interpret
+  benchmarks, report locations, and optional flamegraph usage.
+- Linked it from the main `README.md`.
+
 > 2025-11-02 — PR-12: benches polish and rollup refresh
 
 - Pin `blake3` in benches to `1.8.2` to satisfy cargo-deny wildcard policy.

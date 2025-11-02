@@ -273,6 +273,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
 - blake3 minor pin: set `blake3 = "1.8"` (semver-compatible); benches don't require an exact patch.
 
+> 2025-11-02 — PR-12: benches README
+
+- Added `crates/rmg-benches/benches/README.md` documenting how to run and interpret
+  benchmarks, report locations, and optional flamegraph usage.
+- Linked it from the main `README.md`.
+
 > 2025-11-02 — PR-12: benches polish and rollup refresh
 
 - Pin `blake3` in benches to `1.8.2` to satisfy cargo-deny wildcard policy.
@@ -795,6 +801,13 @@ The following entries use a heading + bullets format for richer context.
 - Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; replace exact blake3 patch pin with minor pin `1.8` and document rationale.
 - Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
 - Consequence: Benches read as executable docs; CI docs guard updated accordingly.
+
+## 2025-11-02 — PR-12: benches README + main link
+
+- Context: Missing documentation for how to run/interpret Criterion benches.
+- Decision: Add `crates/rmg-benches/benches/README.md` and link from the top-level `README.md`.
+- Rationale: Improve discoverability and ensure new contributors can reproduce measurements.
+- Consequence: Docs Guard satisfied; single-source guidance for bench usage and outputs.
 
 ## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
 

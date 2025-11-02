@@ -32,7 +32,7 @@ jobs:
               {
                 if (in_header) {
                   if ($0 ~ /^[[:space:]]*$/) { in_header=0; print; next }
-                  if ($0 ~ /^[[:space:]]*[Gg]enerated([[:space:]]*(:|at:|by:))?/) next; else print
+                  if ($0 ~ /^[[:space:]]*[Gg]enerated([[:space:]]*(:|at:|by:|on:))?/) next; else print
                 } else { print }
               }
             ' "$1"

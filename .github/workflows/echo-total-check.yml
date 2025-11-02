@@ -18,8 +18,16 @@ jobs:
       - name: Fail if echo-total.md changed
         run: |
           set -euo pipefail
-          if ! git diff --quiet -- docs/echo-total.md; then
+          tmp=$(mktemp -d)
+          # Save the committed rollup from HEAD and the just-regenerated one
+          git show HEAD:docs/echo-total.md > "$tmp/before.md" || true
+          cp docs/echo-total.md "$tmp/after.md"
+          # Normalize known non-deterministic headers if they appear in older branches
+          # (e.g., lines beginning with 'Generated:').
+          sed -E '/^Generated:/d' "$tmp/before.md" > "$tmp/before.norm" || true
+          sed -E '/^Generated:/d' "$tmp/after.md"  > "$tmp/after.norm"  || true
+          if ! diff -u "$tmp/before.norm" "$tmp/after.norm" >/dev/null; then
             echo "docs/echo-total.md is out of date. Run 'make echo-total' (or scripts/gen-echo-total.sh) and commit the result." >&2
-            git --no-pager diff -- docs/echo-total.md || true
+            diff -u "$tmp/before.norm" "$tmp/after.norm" || true
             exit 1
           fi

@@ -158,3 +158,9 @@ The following entries use a heading + bullets format for richer context.
 - Context: PR‑10 (README/CI/docs) accidentally included commit header tests in `snapshot.rs`, overlapping with PR‑09 (tests‑only).
 - Decision: Remove the test module from PR‑10 to keep it strictly docs/CI/tooling; keep all BLAKE3 commit header tests in PR‑09 (`echo/pr-09-blake3-header-tests`).
 - Consequence: Clear PR boundaries; no runtime behavior change in PR‑10.
+
+## 2025-11-02 — Hotfix: CI docs rollup determinism
+
+- Context: CI rollup job failed on branches where `scripts/gen-echo-total.sh` previously wrote a timestamp header, causing `git diff` to always differ.
+- Decision: Update `.github/workflows/echo-total-check.yml` to normalize out `Generated:` lines before diffing, making the check deterministic across old/new rollup formats.
+- Consequence: No more false failures; contributors still run `make echo-total` locally when docs change.

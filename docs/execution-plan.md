@@ -302,3 +302,6 @@ Populate with concrete tasks in priority order. When you start one, move it to �
 - When finishing a milestone, snapshot the diagrams and link them in the memorial for posterity.
 
 Remember: every entry here shrinks temporal drift between Codices. Leave breadcrumbs; keep Echo’s spine alive. 🌀
+> 2025-11-02 — Hotfix: deterministic rollup check (CI)
+
+- Made CI rollup check robust against legacy non-deterministic headers by normalizing out lines starting with `Generated:` before comparing. Current generator emits a stable header, but this guards older branches and avoids false negatives.

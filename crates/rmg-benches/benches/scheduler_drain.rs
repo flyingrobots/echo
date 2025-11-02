@@ -2,8 +2,8 @@
 use blake3::Hasher;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use rmg_core::{
-    make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, Hash, NodeRecord,
-    PatternGraph, RewriteRule,
+    make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, Hash, NodeId,
+    NodeRecord, PatternGraph, RewriteRule,
 };
 
 fn bench_noop_rule() -> RewriteRule {
@@ -35,7 +35,7 @@ fn bench_noop_rule() -> RewriteRule {
     }
 }
 
-fn build_engine_with_entities(n: usize) -> (Engine, Vec<String>) {
+fn build_engine_with_entities(n: usize) -> (Engine, Vec<NodeId>) {
     let mut engine = rmg_core::build_motion_demo_engine();
     // Register a no-op rule to isolate scheduler overhead from executor work.
     engine
@@ -43,14 +43,14 @@ fn build_engine_with_entities(n: usize) -> (Engine, Vec<String>) {
         .expect("register noop rule");
 
     let ty = make_type_id("entity");
-    let mut labels = Vec::with_capacity(n);
+    let mut ids = Vec::with_capacity(n);
     for i in 0..n {
         let label = format!("sched-ent-{}", i);
         let id = make_node_id(&label);
         engine.insert_node(id, NodeRecord { ty, payload: None });
-        labels.push(label);
+        ids.push(id);
     }
-    (engine, labels)
+    (engine, ids)
 }
 
 fn bench_scheduler_drain(c: &mut Criterion) {
@@ -60,12 +60,11 @@ fn bench_scheduler_drain(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             b.iter_batched(
                 || build_engine_with_entities(n),
-                |(mut engine, labels)| {
+                |(mut engine, ids)| {
                     // Apply the no-op rule to all entities, then commit.
                     let tx = engine.begin();
-                    for label in &labels {
-                        let id = make_node_id(label);
-                        let res = engine.apply(tx, "bench/noop", &id).expect("apply");
+                    for id in &ids {
+                        let res = engine.apply(tx, "bench/noop", id).expect("apply");
                         assert!(matches!(res, ApplyResult::Applied));
                     }
                     let _snap = engine.commit(tx).expect("commit");

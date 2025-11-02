@@ -7,6 +7,7 @@ publish = false
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
 rmg-core = { path = "../rmg-core" }
+blake3 = "1"
 
 [[bench]]
 name = "motion_throughput"
@@ -14,4 +15,8 @@ harness = false
 
 [[bench]]
 name = "snapshot_hash"
+harness = false
+
+[[bench]]
+name = "scheduler_drain"
 harness = false

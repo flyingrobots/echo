@@ -201,6 +201,13 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Keep dependency policy strict and make benches reflect best practices (no redundant hashing or id recomputation).
 - Consequence: Cleaner dependency audit and slightly leaner bench setup without affecting runtime code.
 
+## 2025-11-02 — PR-12: benches constants + documentation
+
+- Context: Pedantic review flagged magic strings, ambiguous labels, and unclear throughput semantics in benches.
+- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; replace exact blake3 patch pin with minor pin `1.8` and document rationale.
+- Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
+- Consequence: Benches read as executable docs; CI docs guard updated accordingly.
+
 ## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
 
 - Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).

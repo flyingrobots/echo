@@ -267,6 +267,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - scheduler_drain bench: builder returns `Vec<NodeId>` to avoid re-hashing labels; bench loop uses the precomputed ids.
 - Regenerated `docs/echo-total.md` to reflect these changes.
 
+> 2025-11-02 — PR-12: benches polish (constants + docs)
+
+- snapshot_hash: extract all magic strings to constants; clearer edge ids using `<from>-to-<to>` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
+- scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
+- blake3 minor pin: set `blake3 = "1.8"` (semver-compatible); benches don't require an exact patch.
+
 > 2025-11-02 — PR-12: benches polish and rollup refresh
 
 - Pin `blake3` in benches to `1.8.2` to satisfy cargo-deny wildcard policy.
@@ -782,6 +788,13 @@ The following entries use a heading + bullets format for richer context.
   - `scheduler_drain`: builder returns `Vec<NodeId>`; `apply` loop uses precomputed ids to avoid re-hashing.
 - Rationale: Keep dependency policy strict and make benches reflect best practices (no redundant hashing or id recomputation).
 - Consequence: Cleaner dependency audit and slightly leaner bench setup without affecting runtime code.
+
+## 2025-11-02 — PR-12: benches constants + documentation
+
+- Context: Pedantic review flagged magic strings, ambiguous labels, and unclear throughput semantics in benches.
+- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; replace exact blake3 patch pin with minor pin `1.8` and document rationale.
+- Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
+- Consequence: Benches read as executable docs; CI docs guard updated accordingly.
 
 ## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
 

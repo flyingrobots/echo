@@ -12,3 +12,6 @@ rmg-core = { path = "../rmg-core" }
 name = "motion_throughput"
 harness = false
 
+[[bench]]
+name = "snapshot_hash"
+harness = false

@@ -6,32 +6,32 @@ This roadmap reconciles our current plan with GitHub milestones, issues, and the
 
 ## Milestones
 
-- M1 – Golden Tests
+- M1 – Golden Tests (Target: CI gates operational; bit‑exact vectors validated)
   - Bit‑exact golden vectors for state_root/commit_id (genesis, merge, empty)
   - Math kernel goldens (rotation/multiply/sin/cos)
   - CI matrix: macOS + Ubuntu (glibc) + Alpine (musl)
-- M2.0 – Scalar Foundation
-  - Scalar trait; F32Scalar deterministic wrappers; DFix64 Q32.32
-  - Deterministic transcendentals (LUT + refinement); tables checked‑in
+- M2.0 – Scalar Foundation (Target: det_fixed & det_float lanes green across OSes)
+  - Scalar trait; F32Scalar deterministic wrappers; DFix64 Q32.32 (fixed‑point 32.32 format)
+  - Deterministic transcendentals (LUT = lookup table + refinement); tables checked‑in
   - Motion rule → Scalar; v2 payload (6×i64 Q32.32), dual decode v1/v2
-- M2.1 – Lattice Joins
-  - Lattice trait; scheduler fold order
-  - Exemplar lattices: tags union, cap/max
+- M2.1 – Lattice Joins (Target: replay‑invariant merges under ACI properties)
+  - Lattice trait; scheduler fold order (canonical)
+  - Exemplar lattices: tags union, cap/max (join keys documented)
   - ACI property + replay determinism tests
-- M2.2 – Playground Slice
+- M2.2 – Playground Slice (Target: demo + CLI show identical hashes under permutations)
   - Minimal WASM demo; CLI run/diff showing replay‑identical hashes
-- M2.5 – Accumulator Joins
+- M2.5 – Accumulator Joins (Target: delta‑style joins pass ACI/replay tests)
   - Delta‑style joins; deterministic rounding/saturation; ACI + replay
-- M3 – Sweep‑and‑Prune v1
+- M3 – Sweep‑and‑Prune v1 (Target: deterministic broad‑phase replaces O(n²) baseline)
   - Integerized endpoints; stable tie‑breakers; ordering/stability property tests
-- M4 – Determinism Proof & Publish 0.1
+- M4 – Determinism Proof & Publish 0.1 (Target: cross‑OS proof + 0.1 release)
   - Prove determinism across OSes; finalize docs; publish rmg‑core/geom 0.1
 
 ---
 
 ## Issue Table (live snapshot)
 
-Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used.
+Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used. Refresh cadence: update weekly or before each planning cycle.
 
 | Issue Name | # | Milestone | Priority | Estimate | Blocked By | Blocking | Parent | Children | Remarks |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |

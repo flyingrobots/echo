@@ -9,7 +9,7 @@ license = "Apache-2.0"
 criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
 # Pin version alongside path to satisfy cargo-deny wildcard bans
 rmg-core = { version = "0.1.0", path = "../rmg-core" }
-blake3 = "1"
+blake3 = "1.8.2"
 
 [[bench]]
 name = "motion_throughput"

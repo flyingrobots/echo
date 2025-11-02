@@ -31,7 +31,7 @@ This roadmap reconciles our current plan with GitHub milestones, issues, and the
 
 ## Issue Table (live snapshot)
 
-Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Parent/children and block relationships reflect Project metadata (text fields for now).
+Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used.
 
 | Issue Name | # | Milestone | Priority | Estimate | Blocked By | Blocking | Parent | Children | Remarks |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |

@@ -723,7 +723,7 @@ The following entries use a heading + bullets format for richer context.
 
 # Echo Issues Matrix (Active Plan)
 
-This table mirrors the current state of active issues in Project 9 with our plan-aligned milestones and relationships. Use this as a quick reference; the Project board remains the live system of record for status.
+This table mirrors the current state of active issues in Project 9 with our plan-aligned milestones and relationships. Native GitHub dependencies represent "blocked by"/"blocking"; we no longer use custom text fields for these. The Project board remains the live system of record for status.
 
 | Issue Name | Issue # | Milestone | Priority | Estimate | Blocked By | Blocking | Parent | Children | Remarks |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -782,7 +782,7 @@ This roadmap reconciles our current plan with GitHub milestones, issues, and the
 
 ## Issue Table (live snapshot)
 
-Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Parent/children and block relationships reflect Project metadata (text fields for now).
+Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used.
 
 | Issue Name | # | Milestone | Priority | Estimate | Blocked By | Blocking | Parent | Children | Remarks |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |

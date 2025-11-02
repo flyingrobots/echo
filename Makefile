@@ -64,11 +64,10 @@ bench-open:
 	@open "http://localhost:8000/docs/benchmarks/"
 
 bench-report: vendor-d3
-	@echo "Running benches (rmg-benches)..."
-	cargo bench -p rmg-benches
-	@echo "Starting local server and opening dashboard..."
-	@(
-	  python3 -m http.server 8000 >/dev/null 2>&1 & echo $$! > target/bench_http.pid
-	)
-	@sleep 1
-	@open "http://localhost:8000/docs/benchmarks/"
+    @echo "Running benches (rmg-benches)..."
+    cargo bench -p rmg-benches
+    @echo "Starting local server and opening dashboard..."
+    @mkdir -p target
+    @/bin/sh -c 'python3 -m http.server 8000 >/dev/null 2>&1 & echo $$! > target/bench_http.pid'
+    @sleep 1
+    @open "http://localhost:8000/docs/benchmarks/"

@@ -53,7 +53,23 @@
       <div id="missing" class="warn"></div>
     </main>
 
-    <script src="https://unpkg.com/d3@7"></script>
+    <script>
+      // Prefer locally vendored D3; fall back to CDN if missing.
+      (function () {
+        function load(src, ok, fail) {
+          var s = document.createElement('script');
+          s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s);
+        }
+        function start() { if (typeof d3 !== 'undefined') { window.__D3_READY__ = true; run(); } }
+        // Try local vendor first
+        load('vendor/d3.v7.min.js', start, function () {
+          // Fallback to CDN as a last resort
+          load('https://unpkg.com/d3@7', start, function () {
+            document.getElementById('missing').textContent = 'Failed to load D3. Run `make vendor-d3` or `make bench-report`.';
+          });
+        });
+      })();
+    </script>
     <script>
       const GROUPS = [
         { key: 'snapshot_hash', label: 'Snapshot Hash', color: getComputedStyle(document.documentElement).getPropertyValue('--accent-a').trim() || '#7aa2f7' },
@@ -87,7 +103,7 @@
         return `${(ns/1e9).toFixed(2)} s`;
       }
 
-      async function main() {
+      async function run() {
         const results = [];
         const missing = [];
         for (const g of GROUPS) {
@@ -228,8 +244,7 @@
         }
       }
 
-      main();
+      // `run()` is invoked after D3 loads in the loader above.
     </script>
   </body>
   </html>
-

@@ -43,3 +43,32 @@ docs-ci:
 echo-total:
 	@chmod +x scripts/gen-echo-total.sh
 	@./scripts/gen-echo-total.sh
+# Benchmarks and reports
+.PHONY: bench-report vendor-d3 bench-serve bench-open
+
+vendor-d3:
+	@mkdir -p docs/benchmarks/vendor
+	@if [ ! -f docs/benchmarks/vendor/d3.v7.min.js ]; then \
+	  echo "Downloading D3 v7 to docs/benchmarks/vendor..."; \
+	  curl -fsSL https://unpkg.com/d3@7/dist/d3.min.js -o docs/benchmarks/vendor/d3.v7.min.js; \
+	  echo "D3 saved to docs/benchmarks/vendor/d3.v7.min.js"; \
+	else \
+	  echo "D3 already present (docs/benchmarks/vendor/d3.v7.min.js)"; \
+	fi
+
+bench-serve:
+	@echo "Serving repo at http://localhost:8000 (Ctrl+C to stop)"
+	@python3 -m http.server 8000
+
+bench-open:
+	@open "http://localhost:8000/docs/benchmarks/"
+
+bench-report: vendor-d3
+	@echo "Running benches (rmg-benches)..."
+	cargo bench -p rmg-benches
+	@echo "Starting local server and opening dashboard..."
+	@(
+	  python3 -m http.server 8000 >/dev/null 2>&1 & echo $$! > target/bench_http.pid
+	)
+	@sleep 1
+	@open "http://localhost:8000/docs/benchmarks/"

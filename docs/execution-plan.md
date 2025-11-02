@@ -33,6 +33,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-02 — PR-12: benches updates (CI docs guard)
+
+- Dependency policy: pin `blake3` in `rmg-benches` to `1.8.2` (no wildcard).
+- snapshot_hash bench: precompute `link` type id once; fix edge labels to `e-i-(i+1)`.
+- scheduler_drain bench: builder returns `Vec<NodeId>` to avoid re-hashing labels; bench loop uses the precomputed ids.
+- Regenerated `docs/echo-total.md` to reflect these changes.
+
 > 2025-11-02 — PR-12: benches polish and rollup refresh
 
 - Pin `blake3` in benches to `1.8.2` to satisfy cargo-deny wildcard policy.

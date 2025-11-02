@@ -191,6 +191,16 @@ The following entries use a heading + bullets format for richer context.
 - Consequence: Same effective policy, no deprecation warnings; future license exceptions remain possible via standard cargo-deny mechanisms.
 - CI Note: Use `cargo-deny >= 0.14.21` in CI (workflow/container) to avoid schema drift and deprecation surprises. Pin the action/image or the downloaded binary version accordingly.
 
+## 2025-11-02 — PR-12: benches pin + micro-optimizations
+
+- Context: CI cargo-deny flagged wildcard policy and benches had minor inefficiencies.
+- Decision:
+  - Pin `blake3` in `crates/rmg-benches/Cargo.toml` to `1.8.2` (no wildcard).
+  - `snapshot_hash`: compute `link` type id once; label edges as `e-i-(i+1)` (no `e-0-0`).
+  - `scheduler_drain`: builder returns `Vec<NodeId>`; `apply` loop uses precomputed ids to avoid re-hashing.
+- Rationale: Keep dependency policy strict and make benches reflect best practices (no redundant hashing or id recomputation).
+- Consequence: Cleaner dependency audit and slightly leaner bench setup without affecting runtime code.
+
 ## 2025-11-02 — PR-12: Sync with main + merge conflict resolution
 
 - Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).

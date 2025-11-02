@@ -167,3 +167,7 @@ pub(crate) fn compute_commit_hash(
     h.update(&policy_id.to_le_bytes());
     h.finalize().into()
 }
+
+// Tests for commit header encoding and hashing live under PR-09
+// (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
+// to keep PR-10 scope to README/docs/CI and avoid duplicate content.

@@ -94,6 +94,26 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Added `make echo-total` target to run the rollup generator. README now documents `docs` commands and the rollup target.
 
+> 2025-10-30 — PR-09: BLAKE3 header tests (tests-only)
+
+- Added unit tests under `rmg-core` (in `snapshot.rs`) that:
+  - Build canonical commit header bytes and assert `compute_commit_hash` equals `blake3(header)`.
+  - Spot-check LE encoding (version u16 = 1, parents length as u64 LE).
+- Assert that reversing parent order changes the hash. No runtime changes.
+
+> 2025-10-30 — PR-10: README (macOS manual + local CI tips)
+
+- Added a short CI Tips section to README covering how to trigger the manual macOS workflow and reproduce CI locally (fmt, clippy, tests, rustdoc, audit, deny).
+
+> 2025-11-01 — Rollup automation: pre-commit + subdirs
+
+- Pre-commit now regenerates `docs/echo-total.md` automatically when any Markdown under `docs/**` changes (excluding the rollup itself) and aborts the commit if the rollup changed, prompting the author to review and stage it. This keeps the rollup in sync before CI while preserving partial staging.
+- The rollup generator now includes Markdown in subdirectories (e.g., `docs/guide/…`) with deterministic ordering (`LC_ALL=C` sort) and a stable header (no timestamp/SHA) to avoid CI churn.
+
+> 2025-11-01 — PR-10 scope hygiene
+
+- Removed commit‑header tests from `crates/rmg-core/src/snapshot.rs` on this branch to keep PR‑10 strictly docs/CI/tooling. Those tests live in PR‑09 (`echo/pr-09-blake3-header-tests`). No runtime changes here.
+
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 

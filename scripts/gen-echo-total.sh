@@ -36,15 +36,20 @@ declare -A seen
     fi
   done
 
-  # Then all other Markdown files at top-level docs/, alphabetically
+  # Then all other Markdown files under docs/ (including subdirectories),
+  # alphabetically by path for deterministic diffs.
   while IFS= read -r -d '' f; do
     [[ ${seen["$f"]+x} ]] && continue
-    base="$(basename "$f")"
-    [[ "$base" == "echo-total.md" ]] && continue
-    printf '\n\n# File: %s\n\n' "$base"
+    rel="${f#"$DOCS_DIR/"}"
+    # Exclude the rollup itself
+    [[ "$rel" == "echo-total.md" ]] && continue
+    # Skip VitePress config and static assets directories
+    [[ "$rel" == .vitepress/* ]] && continue
+    [[ "$rel" == assets/* ]] && continue
+    printf '\n\n# File: %s\n\n' "$rel"
     cat "$f"
     printf '\n\n---\n'
-  done < <(find "$DOCS_DIR" -maxdepth 1 -type f -name "*.md" -print0 | LC_ALL=C sort -z)
+  done < <(find "$DOCS_DIR" -type f -name "*.md" -print0 | LC_ALL=C sort -z)
 } > "$OUT_FILE"
 
 echo "Wrote $OUT_FILE"

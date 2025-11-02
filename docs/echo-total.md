@@ -260,9 +260,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-02 — PR-12: pre-feedback review (PR #113)
+
+- Familiarize with repo layout, specs, and recent commits.
+- Verify branch state: `echo/pr-12-snapshot-bench` at `c44c827` (merged `origin/main` at `0430c47` earlier; no conflicts).
+- Skimmed benches (`snapshot_hash`, `scheduler_drain`) and docs rollups; scope remains benches/docs only, no runtime changes.
+- Next: receive reviewer feedback for PR #113 and iterate.
+
 > 2025-11-02 — PR-12: benches updates (CI docs guard)
 
-- Dependency policy: pin `blake3` in `rmg-benches` to `1.8.2` (no wildcard).
+- Dependency policy: pin `blake3` in `rmg-benches` to exact patch `=1.8.2` with
+  `default-features = false, features = ["std"]` (no rayon; deterministic, lean).
 - snapshot_hash bench: precompute `link` type id once; fix edge labels to `e-i-(i+1)`.
 - scheduler_drain bench: builder returns `Vec<NodeId>` to avoid re-hashing labels; bench loop uses the precomputed ids.
 - Regenerated `docs/echo-total.md` to reflect these changes.
@@ -271,7 +279,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - snapshot_hash: extract all magic strings to constants; clearer edge ids using `<from>-to-<to>` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
 - scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
-- blake3 minor pin: set `blake3 = "1.8"` (semver-compatible); benches don't require an exact patch.
+- blake3 policy: keep exact patch `=1.8.2` and disable default features to avoid
+  rayon/parallel hashing in benches.
 
 > 2025-11-02 — PR-12: benches README
 
@@ -281,7 +290,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-11-02 — PR-12: benches polish and rollup refresh
 
-- Pin `blake3` in benches to `1.8.2` to satisfy cargo-deny wildcard policy.
+- Pin `blake3` in benches to `=1.8.2` and disable defaults to satisfy cargo-deny
+  wildcard bans while keeping benches single-threaded.
 - snapshot_hash bench: precompute `link` type id and fix edge labels to `e-i-(i+1)`.
 - scheduler_drain bench: return `Vec<NodeId>` from builder and avoid re-hashing node ids in the apply loop.
 - Regenerated `docs/echo-total.md` after doc updates.
@@ -291,7 +301,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Target: `echo/pr-12-snapshot-bench` (PR #113).
 - Merged `origin/main` into the branch (merge commit, no rebase) to clear GitHub conflict status.
 - Resolved `crates/rmg-benches/Cargo.toml` conflict by keeping:
-  - `license = "Apache-2.0"` and `blake3 = "1"` in dev-dependencies.
+  - `license = "Apache-2.0"` and `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }` in dev-dependencies.
   - Version-pinned path dep: `rmg-core = { version = "0.1.0", path = "../rmg-core" }`.
   - Bench entries: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
 - Benches code present/updated: `crates/rmg-benches/benches/snapshot_hash.rs`, `crates/rmg-benches/benches/scheduler_drain.rs`.
@@ -789,17 +799,21 @@ The following entries use a heading + bullets format for richer context.
 
 - Context: CI cargo-deny flagged wildcard policy and benches had minor inefficiencies.
 - Decision:
-  - Pin `blake3` in `crates/rmg-benches/Cargo.toml` to `1.8.2` (no wildcard).
+  - Pin `blake3` in `crates/rmg-benches/Cargo.toml` to exact patch `=1.8.2` and
+    disable default features (`default-features = false, features = ["std"]`) to
+    avoid rayon/parallelism in microbenches.
   - `snapshot_hash`: compute `link` type id once; label edges as `e-i-(i+1)` (no `e-0-0`).
   - `scheduler_drain`: builder returns `Vec<NodeId>`; `apply` loop uses precomputed ids to avoid re-hashing.
-- Rationale: Keep dependency policy strict and make benches reflect best practices (no redundant hashing or id recomputation).
-- Consequence: Cleaner dependency audit and slightly leaner bench setup without affecting runtime code.
+- Rationale: Enforce deterministic, single-threaded hashing in benches and satisfy
+  cargo-deny wildcard bans; reduce noise from dependency updates.
+- Consequence: Cleaner dependency audit and slightly leaner bench setup without
+  affecting runtime code.
 
 ## 2025-11-02 — PR-12: benches constants + documentation
 
 - Context: Pedantic review flagged magic strings, ambiguous labels, and unclear throughput semantics in benches.
-- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; replace exact blake3 patch pin with minor pin `1.8` and document rationale.
-- Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
+- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; retain blake3 exact patch pin `=1.8.2` with trimmed features to stay consistent with CI policy.
+- Rationale: Improve maintainability and readability while keeping dependency policy coherent and deterministic.
 - Consequence: Benches read as executable docs; CI docs guard updated accordingly.
 
 ## 2025-11-02 — PR-12: benches README + main link
@@ -814,7 +828,7 @@ The following entries use a heading + bullets format for richer context.
 - Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).
 - Decision: Merge `origin/main` into the branch (merge commit; no rebase) and resolve the conflict in `crates/rmg-benches/Cargo.toml`.
 - Resolution kept:
-  - `license = "Apache-2.0"`, `blake3 = "1"` in dev-dependencies.
+  - `license = "Apache-2.0"`, `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }` in dev-dependencies.
   - `rmg-core = { version = "0.1.0", path = "../rmg-core" }` (version-pinned path dep per cargo-deny bans).
   - Bench targets: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
 - Rationale: Preserve history with a merge, align benches metadata with workspace policy, and clear PR conflict status.

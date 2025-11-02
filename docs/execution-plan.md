@@ -33,9 +33,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-02 — PR-12: pre-feedback review (PR #113)
+
+- Familiarize with repo layout, specs, and recent commits.
+- Verify branch state: `echo/pr-12-snapshot-bench` at `c44c827` (merged `origin/main` at `0430c47` earlier; no conflicts).
+- Skimmed benches (`snapshot_hash`, `scheduler_drain`) and docs rollups; scope remains benches/docs only, no runtime changes.
+- Next: receive reviewer feedback for PR #113 and iterate.
+
 > 2025-11-02 — PR-12: benches updates (CI docs guard)
 
-- Dependency policy: pin `blake3` in `rmg-benches` to `1.8.2` (no wildcard).
+- Dependency policy: pin `blake3` in `rmg-benches` to exact patch `=1.8.2` with
+  `default-features = false, features = ["std"]` (no rayon; deterministic, lean).
 - snapshot_hash bench: precompute `link` type id once; fix edge labels to `e-i-(i+1)`.
 - scheduler_drain bench: builder returns `Vec<NodeId>` to avoid re-hashing labels; bench loop uses the precomputed ids.
 - Regenerated `docs/echo-total.md` to reflect these changes.
@@ -44,7 +52,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - snapshot_hash: extract all magic strings to constants; clearer edge ids using `<from>-to-<to>` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
 - scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
-- blake3 minor pin: set `blake3 = "1.8"` (semver-compatible); benches don't require an exact patch.
+- blake3 policy: keep exact patch `=1.8.2` and disable default features to avoid
+  rayon/parallel hashing in benches.
 
 > 2025-11-02 — PR-12: benches README
 
@@ -54,7 +63,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-11-02 — PR-12: benches polish and rollup refresh
 
-- Pin `blake3` in benches to `1.8.2` to satisfy cargo-deny wildcard policy.
+- Pin `blake3` in benches to `=1.8.2` and disable defaults to satisfy cargo-deny
+  wildcard bans while keeping benches single-threaded.
 - snapshot_hash bench: precompute `link` type id and fix edge labels to `e-i-(i+1)`.
 - scheduler_drain bench: return `Vec<NodeId>` from builder and avoid re-hashing node ids in the apply loop.
 - Regenerated `docs/echo-total.md` after doc updates.
@@ -64,7 +74,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Target: `echo/pr-12-snapshot-bench` (PR #113).
 - Merged `origin/main` into the branch (merge commit, no rebase) to clear GitHub conflict status.
 - Resolved `crates/rmg-benches/Cargo.toml` conflict by keeping:
-  - `license = "Apache-2.0"` and `blake3 = "1"` in dev-dependencies.
+  - `license = "Apache-2.0"` and `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }` in dev-dependencies.
   - Version-pinned path dep: `rmg-core = { version = "0.1.0", path = "../rmg-core" }`.
   - Bench entries: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
 - Benches code present/updated: `crates/rmg-benches/benches/snapshot_hash.rs`, `crates/rmg-benches/benches/scheduler_drain.rs`.

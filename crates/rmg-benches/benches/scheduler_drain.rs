@@ -15,6 +15,7 @@ use rmg_core::{
     make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, Hash, NodeId,
     NodeRecord, PatternGraph, RewriteRule,
 };
+use std::time::Duration;
 
 // Bench constants to avoid magic strings.
 const BENCH_NOOP_RULE_NAME: &str = "bench/noop";
@@ -70,6 +71,11 @@ fn build_engine_with_entities(n: usize) -> (Engine, Vec<NodeId>) {
 
 fn bench_scheduler_drain(c: &mut Criterion) {
     let mut group = c.benchmark_group("scheduler_drain");
+    // Stabilize CI runs: explicit warmup/measurement and sample size.
+    group
+        .warm_up_time(Duration::from_secs(3))
+        .measurement_time(Duration::from_secs(10))
+        .sample_size(60);
     for &n in &[10usize, 100, 1_000] {
         // Throughput: number of rule applications in this run (n entities).
         group.throughput(Throughput::Elements(n as u64));
@@ -80,13 +86,11 @@ fn bench_scheduler_drain(c: &mut Criterion) {
                     // Apply the no-op rule to all entities, then commit.
                     let tx = engine.begin();
                     for id in &ids {
-                        let res = engine
-                            .apply(tx, BENCH_NOOP_RULE_NAME, id)
-                            .expect("Failed to apply noop bench rule");
+                        let res = engine.apply(tx, BENCH_NOOP_RULE_NAME, id).unwrap();
                         // Avoid affecting timing; check only in debug builds.
                         debug_assert!(matches!(res, ApplyResult::Applied));
                     }
-                    let snap = engine.commit(tx).expect("Failed to commit benchmark tx");
+                    let snap = engine.commit(tx).unwrap();
                     // Ensure the commit work is not optimized away.
                     criterion::black_box(snap);
                 },

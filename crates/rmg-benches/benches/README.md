@@ -48,7 +48,9 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
 ## Environment Notes
 
 - Toolchain: `stable` Rust (see `rust-toolchain.toml`).
-- Dependency policy: avoid wildcards; benches use a minor pin for `blake3`.
+- Dependency policy: avoid wildcards; benches use an exact patch pin for `blake3`
+  with trimmed features to avoid incidental parallelism:
+  `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }`.
 - Repro: keep your machine under minimal background load; prefer `--quiet` and 
   close other apps.
 
@@ -62,4 +64,3 @@ cargo flamegraph -p rmg-benches --bench snapshot_hash -- --sample-size 50
 ```
 
 These tools are not required for CI and are optional for local analysis.
-

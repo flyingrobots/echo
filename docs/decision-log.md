@@ -195,17 +195,21 @@ The following entries use a heading + bullets format for richer context.
 
 - Context: CI cargo-deny flagged wildcard policy and benches had minor inefficiencies.
 - Decision:
-  - Pin `blake3` in `crates/rmg-benches/Cargo.toml` to `1.8.2` (no wildcard).
+  - Pin `blake3` in `crates/rmg-benches/Cargo.toml` to exact patch `=1.8.2` and
+    disable default features (`default-features = false, features = ["std"]`) to
+    avoid rayon/parallelism in microbenches.
   - `snapshot_hash`: compute `link` type id once; label edges as `e-i-(i+1)` (no `e-0-0`).
   - `scheduler_drain`: builder returns `Vec<NodeId>`; `apply` loop uses precomputed ids to avoid re-hashing.
-- Rationale: Keep dependency policy strict and make benches reflect best practices (no redundant hashing or id recomputation).
-- Consequence: Cleaner dependency audit and slightly leaner bench setup without affecting runtime code.
+- Rationale: Enforce deterministic, single-threaded hashing in benches and satisfy
+  cargo-deny wildcard bans; reduce noise from dependency updates.
+- Consequence: Cleaner dependency audit and slightly leaner bench setup without
+  affecting runtime code.
 
 ## 2025-11-02 — PR-12: benches constants + documentation
 
 - Context: Pedantic review flagged magic strings, ambiguous labels, and unclear throughput semantics in benches.
-- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; replace exact blake3 patch pin with minor pin `1.8` and document rationale.
-- Rationale: Improve maintainability and readability of performance documentation while keeping timings representative.
+- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; retain blake3 exact patch pin `=1.8.2` with trimmed features to stay consistent with CI policy.
+- Rationale: Improve maintainability and readability while keeping dependency policy coherent and deterministic.
 - Consequence: Benches read as executable docs; CI docs guard updated accordingly.
 
 ## 2025-11-02 — PR-12: benches README + main link
@@ -220,7 +224,7 @@ The following entries use a heading + bullets format for richer context.
 - Context: GitHub continued to show a merge conflict on PR #113 (`echo/pr-12-snapshot-bench`).
 - Decision: Merge `origin/main` into the branch (merge commit; no rebase) and resolve the conflict in `crates/rmg-benches/Cargo.toml`.
 - Resolution kept:
-  - `license = "Apache-2.0"`, `blake3 = "1"` in dev-dependencies.
+  - `license = "Apache-2.0"`, `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }` in dev-dependencies.
   - `rmg-core = { version = "0.1.0", path = "../rmg-core" }` (version-pinned path dep per cargo-deny bans).
   - Bench targets: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
 - Rationale: Preserve history with a merge, align benches metadata with workspace policy, and clear PR conflict status.

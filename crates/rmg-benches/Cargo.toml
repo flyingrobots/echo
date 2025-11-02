@@ -1,0 +1,15 @@
+[package]
+name = "rmg-benches"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+# Pin version alongside path to satisfy cargo-deny wildcard bans
+rmg-core = { version = "0.1.0", path = "../rmg-core" }
+
+[[bench]]
+name = "motion_throughput"
+harness = false

@@ -4,7 +4,8 @@ members = [
     "crates/rmg-ffi",
     "crates/rmg-wasm",
     "crates/rmg-cli",
-    "crates/rmg-geom"
+    "crates/rmg-geom",
+    "crates/rmg-benches"
 ]
 resolver = "2"
 
@@ -16,3 +17,12 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
+
+[profile.bench]
+# Derive from release but optimize for throughput and faster builds
+opt-level = 3
+lto = false
+codegen-units = 16
+debug = true
+panic = "abort"
+strip = false

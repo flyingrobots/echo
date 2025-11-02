@@ -189,3 +189,4 @@ The following entries use a heading + bullets format for richer context.
 - Decision: Remove deprecated keys; rely on the explicit permissive `allow = [...]` list to exclude copyleft licenses; ensure all workspace crates declare a license (benches fixed earlier).
 - Rationale: Keep CI quiet and align with current cargo-deny schema without weakening enforcement.
 - Consequence: Same effective policy, no deprecation warnings; future license exceptions remain possible via standard cargo-deny mechanisms.
+- CI Note: Use `cargo-deny >= 0.14.21` in CI (workflow/container) to avoid schema drift and deprecation surprises. Pin the action/image or the downloaded binary version accordingly.

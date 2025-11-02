@@ -4,7 +4,8 @@ members = [
     "crates/rmg-ffi",
     "crates/rmg-wasm",
     "crates/rmg-cli",
-    "crates/rmg-geom"
+    "crates/rmg-geom",
+    "crates/rmg-benches"
 ]
 resolver = "2"
 

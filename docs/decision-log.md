@@ -147,6 +147,12 @@ The following entries use a heading + bullets format for richer context.
 | 2025-10-30 | Spec + lint hygiene | Removed duplicate `clippy::module_name_repetitions` allow in `rmg-core/src/lib.rs`. Clarified `docs/spec-merkle-commit.md`: `edge_count` is u64 LE and may be 0; genesis commits have length=0 parents; “empty digest” explicitly defined as `blake3(b"")`; v1 mandates empty `decision_digest` until Aion lands. | Codifies intent; prevents ambiguity for implementers. | No code behavior changes; spec is clearer. |
 | 2025-10-30 | Templates & Project | Added issue/PR/RFC templates and configured Echo Project (Status: Blocked/Ready/Done); fixed YAML lint nits | Streamlines review process and Kanban tracking | No runtime impact; CI docs guard satisfied |
 
+## 2025-11-02 — M1: benches crate skeleton (PR-11)
+
+- Decision: Add `crates/rmg-benches` with a minimal Criterion harness and a motion-throughput benchmark using public `rmg-core` APIs.
+- Rationale: Establish a place for performance microbenches; keep PR small and focused before adding JSON artifacts/regression gates in follow-ups.
+- Consequence: Benches run locally via `cargo bench -p rmg-benches`; no runtime changes.
+
 ## 2025-11-01 — Docs rollup automation (pre-commit + subdirs)
 
 - Context: CI rollup check fails if `docs/echo-total.md` drifts; authors asked to trigger the rollup automatically on local commits and include subdirectories.

@@ -1,13 +1,31 @@
 #![allow(missing_docs)]
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+//! Benchmark: snapshot hash over a linear chain graph
+//!
+//! Builds a chain of `n` entities reachable from a single root node and
+//! measures the cost of computing the snapshot (state_root) hash over the
+//! reachable subgraph. Sizes (10, 100, 1000) provide an order-of-magnitude
+//! progression to observe scaling trends without long runtimes.
+//!
+//! Throughput "elements" are the number of nodes in the reachable set
+//! (n entities + 1 root).
+//!
+//! TODO(PR-14/15): Persist JSON artifacts and add a regression gate.
+use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, Engine, GraphStore, NodeRecord,
 };
 
+// String constants to avoid magic literals drifting silently.
+const ROOT_ID_STR: &str = "root";
+const WORLD_TYPE_STR: &str = "world";
+const ENTITY_TYPE_STR: &str = "entity";
+const LINK_TYPE_STR: &str = "link";
+const ENT_LABEL_PREFIX: &str = "ent-";
+
 fn build_chain_engine(n: usize) -> Engine {
     let mut store = GraphStore::default();
-    let root = make_node_id("root");
-    let world = make_type_id("world");
+    let root = make_node_id(ROOT_ID_STR);
+    let world = make_type_id(WORLD_TYPE_STR);
     store.insert_node(
         root,
         NodeRecord {
@@ -16,11 +34,12 @@ fn build_chain_engine(n: usize) -> Engine {
         },
     );
     // Insert N nodes and connect them in a chain so all are reachable.
-    let entity_ty = make_type_id("entity");
-    let link_ty = make_type_id("link");
-    let mut prev = root;
+    let entity_ty = make_type_id(ENTITY_TYPE_STR);
+    let link_ty = make_type_id(LINK_TYPE_STR);
+    let mut chain_tail = root;
     for i in 0..n {
-        let id = make_node_id(&format!("ent-{}", i));
+        let to_label = format!("{}{}", ENT_LABEL_PREFIX, i);
+        let id = make_node_id(&to_label);
         store.insert_node(
             id,
             NodeRecord {
@@ -28,18 +47,24 @@ fn build_chain_engine(n: usize) -> Engine {
                 payload: None,
             },
         );
-        let edge_id = make_edge_id(&format!("e-{}-{}", i, i + 1));
+        // Human-friendly edge id: <from>-to-<to>.
+        let from_label = if i == 0 {
+            ROOT_ID_STR.to_string()
+        } else {
+            format!("{}{}", ENT_LABEL_PREFIX, i - 1)
+        };
+        let edge_id = make_edge_id(&format!("edge-{}-to-{}", from_label, to_label));
         store.insert_edge(
-            prev,
+            chain_tail,
             EdgeRecord {
                 id: edge_id,
-                from: prev,
+                from: chain_tail,
                 to: id,
                 ty: link_ty,
                 payload: None,
             },
         );
-        prev = id;
+        chain_tail = id;
     }
     Engine::new(store, root)
 }
@@ -47,15 +72,18 @@ fn build_chain_engine(n: usize) -> Engine {
 fn bench_snapshot_hash(c: &mut Criterion) {
     let mut group = c.benchmark_group("snapshot_hash");
     for &n in &[10usize, 100, 1_000] {
-        let engine = build_chain_engine(n);
-        // Throughput: number of nodes included in the reachable set.
-        group.throughput(Throughput::Elements(n as u64 + 1)); // +1 for root
-        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &_n| {
-            b.iter(|| {
-                // Hash the reachable graph (engine.snapshot performs state_root hashing).
-                let snap = engine.snapshot();
-                criterion::black_box(snap.hash);
-            })
+        // Throughput: total nodes in reachable set (n entities + 1 root).
+        group.throughput(Throughput::Elements(n as u64 + 1));
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
+            // Build engine in setup (not timed) and measure only hashing.
+            b.iter_batched(
+                || build_chain_engine(n),
+                |engine| {
+                    let snap = engine.snapshot();
+                    criterion::black_box(snap.hash);
+                },
+                BatchSize::SmallInput,
+            )
         });
     }
     group.finish();

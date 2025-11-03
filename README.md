@@ -40,8 +40,10 @@ It’s the core of the Echo engine: runtime, assets, networking, and tools all o
 
 ## Developer: Running Benchmarks
 
-- Command: `cargo bench -p rmg-benches`
-- Purpose: Runs Criterion micro-benchmarks for the benches crate (`crates/rmg-benches`).
+- Command (live dashboard): `make bench-report`
+  - Runs `cargo bench -p rmg-benches`, starts a local server, and opens the dashboard at `http://localhost:8000/docs/benchmarks/`.
+- Command (offline static file): `make bench-bake`
+  - Runs benches and bakes `docs/benchmarks/report-inline.html` with results injected so it works over `file://` (no server required).
 - Docs: see `crates/rmg-benches/benches/README.md` for details, tips, and report paths.
 
 ### Core Principles

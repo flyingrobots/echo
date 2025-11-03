@@ -38,6 +38,12 @@ cargo bench -p rmg-benches --bench scheduler_drain
 
 Criterion HTML reports are written under `target/criterion/<group>/report/index.html`.
 
+### Charts & Reports
+
+- Live server + dashboard: `make bench-report` opens `http://localhost:8000/docs/benchmarks/`.
+- Offline static report (no server): `make bench-bake` writes `docs/benchmarks/report-inline.html` with results injected.
+  - Open the file directly (Finder or `open docs/benchmarks/report-inline.html`).
+
 ## Interpreting Results
 
 - Use the throughput value to sanity‑check the scale of work per iteration.

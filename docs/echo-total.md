@@ -296,6 +296,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - scheduler_drain bench: return `Vec<NodeId>` from builder and avoid re-hashing node ids in the apply loop.
 - Regenerated `docs/echo-total.md` after doc updates.
 
+> 2025-11-02 — Benches DX: offline report + server fix
+
+- Fix `Makefile` `bench-report` recipe to keep the background HTTP server alive using `nohup`; add `bench-status` and `bench-stop` helpers.
+- Add offline path: `scripts/bench_bake.py` injects Criterion results into `docs/benchmarks/index.html` to produce `docs/benchmarks/report-inline.html` that works over `file://`.
+- Update dashboard to prefer inline data when present (skips fetch). Update READMEs with `make bench-bake` instructions.
+  - Improve `bench-report`: add `BENCH_PORT` var, kill stale server, wait-for-ready loop with curl before opening the browser; update `bench-serve/bench-open/bench-status` to honor `BENCH_PORT`.
+
 > 2025-11-02 — PR-12: Sync with main + benches metadata
 
 - Target: `echo/pr-12-snapshot-bench` (PR #113).
@@ -833,6 +840,16 @@ The following entries use a heading + bullets format for richer context.
   - Bench targets: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
 - Rationale: Preserve history with a merge, align benches metadata with workspace policy, and clear PR conflict status.
 - Consequence: Branch synced with `main`; local hooks (fmt, clippy, tests, rustdoc) passed; CI Docs Guard satisfied via this log and execution-plan update.
+
+## 2025-11-02 — Benches DX: offline report + server reliability
+
+- Context: `make bench-report` started a background HTTP server that sometimes exited immediately; opening the dashboard via `file://` failed because the page fetched JSON from `target/criterion` which browsers block over `file://`.
+- Decision:
+  - Add `nohup` to the `bench-report` server spawn and provide `bench-status`/`bench-stop` make targets.
+  - Add `scripts/bench_bake.py` and `make bench-bake` to generate `docs/benchmarks/report-inline.html` with Criterion results injected as `window.__CRITERION_DATA__`.
+  - Teach `docs/benchmarks/index.html` to prefer inline data when present, skipping network fetches.
+- Rationale: Remove friction for local perf reviews and allow sharing a single HTML artifact with no server.
+- Consequence: Two paths now exist—live server dashboard and an offline baked report. Documentation updated in main README and benches README. `bench-report` now waits for server readiness and supports `BENCH_PORT`.
 
 
 ---

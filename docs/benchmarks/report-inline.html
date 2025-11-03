@@ -43,21 +43,8 @@
     <header class="row">
       <h1>Echo Benchmarks</h1>
       <p>Visualizes Criterion results for <code>snapshot_hash</code> and <code>scheduler_drain</code> across inputs (10, 100, 1000).</p>
-      <p>
-        <strong>Recommended (no server):</strong> run <code>make bench-bake</code> to generate
-        <code>docs/benchmarks/report-inline.html</code>, then open it directly. To update, re‑run
-        <code>make bench-bake</code> and refresh the page.
-      </p>
-      <p>
-        <strong>Optional live view:</strong> <code>make bench-report</code> runs benches, starts a
-        local server, and opens <code>http://localhost:8000/docs/benchmarks/</code>.
-      </p>
-      <p class="footer">
-        Technical note: this page fetches <code>target/criterion/&lt;group&gt;/&lt;input&gt;/new/estimates.json</code>.
-        Browsers block those fetches over <code>file://</code>, which is why the baked
-        <code>report-inline.html</code> exists and works offline.
-      </p>
-      <div id="fileBanner" style="display:none;"></div>
+      <p>Run benches then serve this folder: <code>cargo bench -p rmg-benches</code>, then <code>python3 -m http.server 8000</code> and open <code>http://localhost:8000/docs/benchmarks/</code>.</p>
+      <p class="footer">Tip: If your server root differs, pass a custom root via query (e.g., <code>?root=../../</code>). This page fetches <code>target/criterion/&lt;group&gt;/&lt;input&gt;/new/estimates.json</code>.</p>
     </header>
     <main class="row panel">
       <div id="chart"></div>
@@ -84,22 +71,10 @@
       })();
     </script>
     <script>
-      // Show a friendly hint if opened via file:// without inline data
-      (function () {
-        if (location.protocol === 'file:' && !Array.isArray(window.__CRITERION_DATA__)) {
-          var el = document.getElementById('fileBanner');
-          if (el) {
-            el.style.display = 'block';
-            el.style.background = '#1a2431';
-            el.style.borderLeft = '4px solid var(--warn)';
-            el.style.padding = '10px 12px';
-            el.style.borderRadius = '6px';
-            el.style.margin = '8px 0';
-            el.innerHTML = 'Opened via <code>file://</code>. Use <code>make bench-bake</code> and open <code>docs/benchmarks/report-inline.html</code>, or start a local server with <code>make bench-report</code>.';
-          }
-        }
-      })();
-
+window.__CRITERION_DATA__ = [{"group":"snapshot_hash","n":10,"mean":4837.438795888755,"lb":4819.859923185501,"ub":4858.651174069954},{"group":"snapshot_hash","n":100,"mean":55472.89244575311,"lb":53173.49394982847,"ub":58202.76157900323},{"group":"snapshot_hash","n":1000,"mean":715501.897295852,"lb":702710.128115935,"ub":731424.066852313},{"group":"scheduler_drain","n":10,"mean":7340.013232559425,"lb":7297.169866782543,"ub":7388.260497627366},{"group":"scheduler_drain","n":100,"mean":84045.26120685157,"lb":82057.30958225021,"ub":86342.76257850583},{"group":"scheduler_drain","n":1000,"mean":1440282.009857916,"lb":1412304.5837774277,"ub":1476565.1167609675}];
+window.__CRITERION_MISSING__ = [];
+</script>
+<script>
       const GROUPS = [
         { key: 'snapshot_hash', label: 'Snapshot Hash', color: getComputedStyle(document.documentElement).getPropertyValue('--accent-a').trim() || '#7aa2f7' },
         { key: 'scheduler_drain', label: 'Scheduler Drain', color: getComputedStyle(document.documentElement).getPropertyValue('--accent-b').trim() || '#9ece6a' },

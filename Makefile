@@ -2,6 +2,7 @@ SHELL := /bin/bash
 
 # Default docs port; override with: make docs PORT=5180
 PORT ?= 5173
+BENCH_PORT ?= 8000
 
 .PHONY: hooks docs docs-build docs-ci echo-total
 hooks:
@@ -57,17 +58,61 @@ vendor-d3:
 	fi
 
 bench-serve:
-	@echo "Serving repo at http://localhost:8000 (Ctrl+C to stop)"
-	@python3 -m http.server 8000
+	@echo "Serving repo at http://localhost:$(BENCH_PORT) (Ctrl+C to stop)"
+	@python3 -m http.server $(BENCH_PORT)
 
 bench-open:
-	@open "http://localhost:8000/docs/benchmarks/"
+	@open "http://localhost:$(BENCH_PORT)/docs/benchmarks/"
 
 bench-report: vendor-d3
-    @echo "Running benches (rmg-benches)..."
-    cargo bench -p rmg-benches
-    @echo "Starting local server and opening dashboard..."
-    @mkdir -p target
-    @/bin/sh -c 'python3 -m http.server 8000 >/dev/null 2>&1 & echo $$! > target/bench_http.pid'
-    @sleep 1
-    @open "http://localhost:8000/docs/benchmarks/"
+	@echo "Running benches (rmg-benches)..."
+	cargo bench -p rmg-benches
+	@echo "Starting local server on :$(BENCH_PORT) and opening dashboard..."
+	@mkdir -p target
+	@if [ -f target/bench_http.pid ] && ps -p $$(cat target/bench_http.pid) >/dev/null 2>&1; then \
+	  echo "[bench] Stopping previous server (pid $$(cat target/bench_http.pid))"; \
+	  kill $$(cat target/bench_http.pid) >/dev/null 2>&1 || true; \
+	  rm -f target/bench_http.pid; \
+	fi
+	@/bin/sh -c 'nohup python3 -m http.server $(BENCH_PORT) >/dev/null 2>&1 & echo $$! > target/bench_http.pid'
+	@echo "[bench] Waiting for server to become ready..."
+	@for i in {1..80}; do \
+	  if curl -sSf "http://localhost:$(BENCH_PORT)/" >/dev/null ; then \
+	    echo "[bench] Server is up at http://localhost:$(BENCH_PORT)/" ; \
+	    break ; \
+	  fi ; \
+	  sleep 0.25 ; \
+	done
+	@open "http://localhost:$(BENCH_PORT)/docs/benchmarks/"
+
+.PHONY: bench-status bench-stop
+
+bench-status:
+	@if [ -f target/bench_http.pid ] && ps -p $$(cat target/bench_http.pid) >/dev/null 2>&1; then \
+	  echo "[bench] Server running (pid $$(cat target/bench_http.pid)) at http://localhost:$(BENCH_PORT)"; \
+	else \
+	  echo "[bench] Server not running"; \
+	fi
+
+bench-stop:
+	@if [ -f target/bench_http.pid ]; then \
+	  kill $$(cat target/bench_http.pid) >/dev/null 2>&1 || true; \
+	  rm -f target/bench_http.pid; \
+	  echo "[bench] Server stopped"; \
+	else \
+	  echo "[bench] No PID file at target/bench_http.pid"; \
+	fi
+
+.PHONY: bench-bake bench-open-inline
+
+# Bake a standalone HTML with inline data that works over file://
+bench-bake: vendor-d3
+	@echo "Running benches (rmg-benches)..."
+	cargo bench -p rmg-benches
+	@echo "Baking inline report..."
+	@python3 scripts/bench_bake.py --out docs/benchmarks/report-inline.html
+	@echo "Opening inline report..."
+	@open docs/benchmarks/report-inline.html
+
+bench-open-inline:
+	@open docs/benchmarks/report-inline.html

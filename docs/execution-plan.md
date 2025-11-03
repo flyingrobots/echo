@@ -69,6 +69,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - scheduler_drain bench: return `Vec<NodeId>` from builder and avoid re-hashing node ids in the apply loop.
 - Regenerated `docs/echo-total.md` after doc updates.
 
+> 2025-11-02 — Benches DX: offline report + server fix
+
+- Fix `Makefile` `bench-report` recipe to keep the background HTTP server alive using `nohup`; add `bench-status` and `bench-stop` helpers.
+- Add offline path: `scripts/bench_bake.py` injects Criterion results into `docs/benchmarks/index.html` to produce `docs/benchmarks/report-inline.html` that works over `file://`.
+- Update dashboard to prefer inline data when present (skips fetch). Update READMEs with `make bench-bake` instructions.
+  - Improve `bench-report`: add `BENCH_PORT` var, kill stale server, wait-for-ready loop with curl before opening the browser; update `bench-serve/bench-open/bench-status` to honor `BENCH_PORT`.
+
 > 2025-11-02 — PR-12: Sync with main + benches metadata
 
 - Target: `echo/pr-12-snapshot-bench` (PR #113).

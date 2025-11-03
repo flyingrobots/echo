@@ -33,6 +33,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-03 — Issue #115: Scalar trait scaffold
+
+- Added `rmg-core::math::scalar::Scalar` trait declaring deterministic scalar operations.
+- Arithmetic is required via operator supertraits: `Add/Sub/Mul/Div/Neg` with `Output = Self` for ergonomic `+ - * / -` use in generics.
+- Explicit APIs included: `zero`, `one`, `sin`, `cos`, `sin_cos` (default), `from_f32`, `to_f32`.
+- No implementations yet (F32Scalar/DFix64 follow); no canonicalization or LUTs in this change.
+- Exported via `rmg-core::math::Scalar` for consumers.
+
 > 2025-11-02 — PR-12: benches updates (CI docs guard)
 
 - Dependency policy: pin `blake3` in `rmg-benches` to `1.8.2` (no wildcard).

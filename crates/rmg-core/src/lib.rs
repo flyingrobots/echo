@@ -49,6 +49,7 @@ mod rule;
 mod scheduler;
 mod snapshot;
 mod tx;
+pub mod math{scalar};
 
 // Re-exports for stable public API
 /// Canonical digests (e.g., empty inputs, empty length-prefixed lists).
@@ -81,3 +82,4 @@ pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use snapshot::Snapshot;
 /// Transaction identifier type.
 pub use tx::TxId;
+

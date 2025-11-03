@@ -260,6 +260,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-03 — Issue #115: Scalar trait scaffold
+
+- Added `rmg-core::math::scalar::Scalar` trait declaring deterministic scalar operations.
+- Arithmetic is required via operator supertraits: `Add/Sub/Mul/Div/Neg` with `Output = Self` for ergonomic `+ - * / -` use in generics.
+- Explicit APIs included: `zero`, `one`, `sin`, `cos`, `sin_cos` (default), `from_f32`, `to_f32`.
+- No implementations yet (F32Scalar/DFix64 follow); no canonicalization or LUTs in this change.
+- Exported via `rmg-core::math::Scalar` for consumers.
+
 > 2025-11-02 — PR-12: benches updates (CI docs guard)
 
 - Dependency policy: pin `blake3` in `rmg-benches` to `1.8.2` (no wildcard).
@@ -598,6 +606,7 @@ Remember: every entry here shrinks temporal drift between Codices. Leave breadcr
 
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
+| 2025-11-03 | Scalar foundation | Add `rmg-core::math::Scalar` trait (operator supertraits + sin/cos) | Arithmetic via `Add/Sub/Mul/Div/Neg` supertraits for ergonomic `+ - * /`; `sin/cos` methods declared; canonicalization/LUTs deferred | Unblocks F32Scalar and DFix64 implementations; math code can target a stable trait |
 | 2025-10-23 | Repo reset | Adopt pnpm + TS skeleton | Monorepo scaffolding for Echo | Phase 0 tasks established |
 | 2025-10-24 | Branch tree spec | Integrate roaring bitmaps and chunk epochs | Deterministic merges & diffs | Snapshot policy updated |
 | 2025-10-24 | Codex’s Baby spec | Event envelopes, temporal bridge integration | Align with causality layer | Security envelopes + inspector updates |

@@ -13,10 +13,12 @@
 //! (Recursively, in the Metaverse)
 ```
 
-<img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="500" align="right" />
+## **tl;dr:**
 
+> Echo is a recursive metagraph (RMG) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
+> It’s built so every change can branch, merge, and replay perfectly.
 
-> _Echo is a recursive metagraph (RMG) simulation engine that executes and rewrites typed graphs deterministically across branching timelines and merges them through confluence._
+<img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="400" align="right" />
 
 ### Say what??
 
@@ -24,19 +26,11 @@
 
 Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
 
-## Snapshot Hashes
-
-Echo records two hashes during a commit:
-- `state_root`: deterministic hash of the reachable graph state under the current root.
-- `commit hash` (commit_id): hash of a canonical header including `state_root`, parents, and deterministic digests for plan/decisions/rewrites.
-
-See `docs/spec-merkle-commit.md` for the precise encoding and invariants.
-
 Echo is fundamentally **built different**.
 
-RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation.
+RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation. It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
 
-It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
+Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect replay, and Git-like branching for game states.
 
 ## Developer: Running Benchmarks
 
@@ -62,20 +56,13 @@ It’s the core of the Echo engine: runtime, assets, networking, and tools all o
 
 ---
 
-## **tl;dr:**
+### What's Echo?
 
-> ECHO is a game engine that treats _everything_—code, data, and time itself—as one big living graph.
-> It’s built so every change can branch, merge, and replay perfectly.
-
----
-
-### The short pitch
-
-ECHO runs on something called an **RMG (Recursive Meta-Graph)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
+Echo runs on something called an **RMG (Recursive Meta-Graph)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
 
 Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
 
-### Why this is cool
+### Why Echo's Cool
 
 - **Deterministic:** same inputs = same world every time.
 - **Branching:** you can fork reality, change it, and merge it back without chaos.
@@ -92,7 +79,7 @@ You can pause time, fork a copy of reality, try out a new idea, and merge the ti
 
 ## Advantages
 
-> *"Things are only impossible until they're not."* — Jean-Luc Picard
+> _"Things are only impossible until they're not." — Jean-Luc Picard_
 
 Can your game engine do...
 
@@ -107,7 +94,7 @@ Same input graph + same rules = same output, always. This is huge for:
 
 ### Branching Timelines 
 
-> “All we have to decide is what to do with the time that is given to us.” — _Gandalf, The Lord of the Rings_
+> _“All we have to decide is what to do with the time that is given to us.” — Gandalf, The Lord of the Rings_
 
 The Git metaphor is accurate. Fork reality, try something, merge back. This enables:
 
@@ -134,61 +121,176 @@ Rules are graphs. Systems are graphs. The whole runtime is a graph. This gives y
 
 ---
 
+| Principle | Vision | Implementation |
+| :--- | :--- | :--- |
+| **Determinism (The "Replay")** | Same input graph + same rules = same output graph. Always. This is huge for networked multiplayer (no desync), perfect replays, and reproducible bug testing. | Achieved via an $O(n)$ deterministic scheduler. Pending graph rewrites are sorted using a stable radix sort (not a comparison-based sort) based on their scope, rule ID, and nonce. Combined with a deterministic math module (Vec3, Quat, PRNG), this ensures identical inputs always produce identical execution order and final state. |
+| **Branching & Confluence (The "Time Travel")** | Fork reality, try something, and merge it back like a Git branch. Independent, non-conflicting changes converge to the same canonical state, guaranteed. | The engine's Timeline Tree (modeling Chronos, Kairos, and Aion) allows for branching realities. The engine's core transaction model (begin, apply, commit) and footprint-based independence checks (MWMR) allow for safe, parallel execution and deterministic, conflict-free merges. |
+| **Snapshot Isolation (The "Commit")** | Snapshots are emitted from the live graph; append-only history is optional. This enables save/load, time-travel debugging, and collaborative editing. | Each commit produces two Merkle hashes derived from 256-bit BLAKE3: <ul><li><code>state_root</code>: deterministic hash of the reachable graph state under the current root.</li><li><code>commit hash</code> (commit_id): hash of a canonical header including <code>state_root</code>, parents, and deterministic digests for plan/decisions/rewrites.</li></ul> See <code>docs/spec-merkle-commit.md</code> for the precise encoding and invariants. |
+| **Everything-is-a-Graph (The "Substrate")** | Nodes, edges, systems, assets, and even rewrite rules are all graphs. Graphs can contain subgraphs recursively. | The engine operates on typed, directed graphs. All identifiers (NodeId, TypeId, EdgeId) are domain-separated BLAKE3 hashes. Rewrite Rules are defined with a matcher, executor, and compute_footprint function, allowing the engine to deterministically transform the graph. |
+| **Hexagonal Architecture (The "Ports")** | A core engine that is pure logic, completely decoupled from the outside world (rendering, input, networking). | Echo uses a Ports & Adapters design. The core engine (rmg-core) knows nothing of pixels, sockets, or key presses. It exposes narrow interfaces ("Ports") that external crates ("Adapters") implement. This allows swapping renderers (e.g., WebGPU, SDL) or physics engines without changing the core simulation logic. |
+
+---
+
+## Architecture
+
+> _“Roads? Where we’re going, we don’t need roads.” — Doc Brown, Back to the Future_
+
+Echo is a Rust workspace organized into a multi-crate setup. The core engine is pure, dependency-free Rust (#![no_std] capable) with I/O isolated to adapter crates.
+
+```bash
+echo/
+├── crates/
+│   ├── rmg-core/        (Core engine: RMG, scheduler, transaction model, snapshotting)
+│   ├── rmg-geom/        (Geometry primitives: AABB, transforms, broad-phase)
+│   ├── rmg-benches/     (Criterion microbenchmarks: snapshot_hash, scheduler_drain)
+│   ├── rmg-wasm/        (WebAssembly bindings for tools and web)
+│   ├── rmg-ffi/         (C ABI for Lua/host integration)
+│   └── rmg-cli/         (Command-line interface, demos launcher)
+├── docs/                (Comprehensive specifications and diagrams)
+└── scripts/             (Build automation, benchmarking)
+```
+
+### Core Architectural Layers
+
+1. ECS (Entity-Component-System): Type-safe components with archetype-based storage
+2. Scheduler: Deterministic DAG ordering via O(n) radix sort
+3. Event Bus: Command buffering for deterministic event handling
+4. Timeline Tree: Branching/merging with temporal mechanics (Chronos, Kairos, Aion)
+5. Ports & Adapters: Renderer, Input, Physics, Networking, Audio, Persistence
+6. Deterministic Math: Vec3, Mat4, Quat, PRNG with reproducible operations
+
+### Key Technical Concepts
+
+#### Recursive Meta Graph Core
+
+The engine operates on typed, directed graphs:
+
+- Nodes = typed entities with component data
+- Edges = typed relationships between nodes
+- Rules = deterministic transformations that match patterns and rewrite subgraphs
+
+All identifiers are 256-bit BLAKE3 hashes with domain separation:
+
+```rust
+pub type Hash = [u8; 32];
+pub struct NodeId(pub Hash);   // Entities
+pub struct TypeId(pub Hash);   // Type descriptors
+pub struct EdgeId(pub Hash);   // Relationships
+```
+
+#### Deterministic Rewriting
+
+Each tick follows a transaction model:
+
+1. begin()         → Create new transaction
+2. apply(tx, rule) → Enqueue pending rewrites
+3. commit(tx)      → Execute in deterministic order, emit snapshot
+
+#### $O(n)$ Deterministic Scheduler
+
+Rewrites are ordered using stable radix sort (not comparison-based):  
+
+- Order: (`scope_hash`, `rule_id`, `nonce`) lexicographically
+- Time: $O(n)$ with 20 passes of 16-bit radix digits
+
+This ensures identical initial state + rules = identical execution order and final snapshot.
+
+#### Snapshot Hashing (Merkle Commits)
+
+Two hashes per commit:
+
+- `state_root`: BLAKE3 of canonical graph encoding (sorted nodes/edges)
+- `commit_id`: BLAKE3 of commit header (`state_root` + parent + plan + decisions + rewrites)
+
+### Footprints & Independence (MWMR)
+
+For parallel rewriting:
+
+```rust
+struct Footprint {
+  n_read, n_write: IdSet,     // Node reads/writes
+  e_read, e_write: IdSet,     // Edge reads/writes
+  b_in, b_out: PortSet,       // Boundary ports
+  factor_mask: u64,           // Spatial partitioning hint
+}
+```
+
+Disjoint footprints = independent rewrites = safe parallel execution.
+
+### Component Interaction
+
+#### `rmg-core` (`crates/rmg-core/src/`)
+
+- `engine_impl.rs`: Transaction lifecycle, rewrite application
+- `scheduler.rs`: $O(n)$ radix drain, conflict detection
+- `graph.rs`: BTreeMap-based node/edge storage
+- `snapshot.rs`: State root and commit ID computation
+- `rule.rs`: Rewrite rule definitions with pattern matching
+- `footprint.rs`: Independence checks for concurrent execution
+- `math/`: Deterministic Vec3, Mat4, Quat, PRNG
+
+## Execution Flow
+
+```c
+loop {
+  let tx = engine.begin();
+
+  // Application phase
+  for rule in rules_to_apply {
+      engine.apply(tx, rule, &scope)?;
+  }
+
+  // Deterministic execution
+  let snapshot = engine.commit(tx)?;
+
+  // Emit to networking, tools, etc.
+  publish_snapshot(snapshot);
+}
+```
+
+## Design Principles
+
+1. Determinism as Foundation: Every operation must produce identical results given identical input
+2. Snapshot Isolation: State captured as immutable graph hashes (not event logs)
+3. Hexagonal Architecture: Core never touches I/O directly; all flows through ports
+4. Dependency Injection: Services wired at bootstrap for hot-reload support
+5. Property-Based Testing: Extensive use of proptest for mathematical invariants
+
 ## Current Status
 
-Echo is in **active development**. We're currently:
+Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 
-- ✅ Formal proofs of confluence (tick-level determinism proven)
-- ✅ [C implementation](http://github.com/meta-graph/core) of independence checks and footprint calculus
-- ✅ 200-iteration property tests validating commutativity
-- 🚧 Performance optimization (subgraph matching, spatial indexing)
-- 🚧 Rust rewrite of core runtime
-- ❌ Lua scripting integration (not started)
-- ❌ Rendering backend (not started)
+✅ Completed:
+- Formal confluence proofs (tick-level determinism proven)
+- Rust core runtime with transaction model
+- 200+ property tests validating commutativity
+- Benchmark infrastructure with D3 dashboard
 
----
+🚧 In Progress:
+- Performance optimization (subgraph matching, spatial indexing)
+- Temporal mechanics integration
 
-### The Math Checks Out
+## Key Files to Explore
 
-The mathematical properties of RMGs offer:
+### Documentation
 
-- **Folds (catamorphisms)**: there is a guaranteed, one-true way to “walk” the graph.
-  - That’s how rendering, physics, and serialization all stay consistent: they’re just different folds over the same data.
-- **Double-Pushout (DPO) rewriting**: a safe, proven way to modify graphs.
-  - Instead of ad-hoc mutation, every change is a rewrite rule with an explicit match and replacement, so the engine can reason about merges, rollbacks, and conflicts.
-- **Confluence** – when two people or two threads make compatible edits, they deterministically converge to the same state.
-  - That’s the key to multiplayer sync, time-travel debugging, and collaborative editing.
+- `README.md` — Project vision
+- `docs/architecture-outline.md` — Full system design
+- `docs/spec-rmg-core.md` — RMG Core spec v2
+- `docs/spec-merkle-commit.md` — Snapshot hashing spec
+- `docs/spec-scheduler.md` — Deterministic scheduler design
 
-There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Let's just say that the RMG is weird, and **extremely powerful.**
+### Core Implementation
 
----
+- `crates/rmg-core/src/engine_impl.rs` — Engine core
+- `crates/rmg-core/src/scheduler.rs` — O(n) scheduler
+- `crates/rmg-core/src/snapshot.rs` — Merkle hashing
+- `crates/rmg-core/src/demo/motion.rs` — Example rewrite rule
 
-### Learning the Vision
+### Tests & Benchmarks:
 
-> *“Roads? Where we’re going, we don’t need roads.” — Doc Brown, Back to the Future*
-
-- Read [`docs/architecture-outline.md`](docs/architecture-outline.md) for the full spec (storage, scheduler, ports, timelines).
-- Explore [`docs/diagrams.md`](docs/diagrams.md) for Mermaid visuals of system constellations and the Chronos loop.
-- Honor Caverns with [`docs/memorial.md`](docs/memorial.md)—we carry the torch forward.
-- Peek at [`docs/legacy-excavation.md`](docs/legacy-excavation.md) to see which ideas survived the archaeological roast.
-- Track active work in [`docs/execution-plan.md`](docs/execution-plan.md); update it every session.
-
-### Docs
-
-- Dev server: `make docs` (opens browser; uses `PORT` env var, default 5173)
-- Static build: `make docs-build`
-- Single-file rollup: `make echo-total` (generates `docs/echo-total.md` from top‑level docs; commit the result if it changes)
-
-### CI Tips
-
-- Manual macOS run: trigger the "CI (macOS — manual)" workflow from the Actions tab to run fmt/clippy/tests on macOS on demand.
-- Reproduce CI locally:
-  - Format: `cargo fmt --all -- --check`
-  - Clippy: `cargo clippy --all-targets -- -D warnings -D missing_docs`
-  - Tests: `cargo test --workspace`
-  - Rustdoc (warnings as errors): `RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps` (repeat for other crates)
-  - Security: `cargo install cargo-audit --locked && cargo audit --deny warnings`
-  - Dependency policy: `cargo deny check` (requires `cargo-deny`)
+- `crates/rmg-core/tests/permutation_commute_tests.rs` — Determinism proofs
+- `crates/rmg-benches/benches/snapshot_hash.rs` — Hashing throughput
 
 ---
 
@@ -201,8 +303,8 @@ There's a ton of other advanced reasons why it's cool, but that's nerd stuff. Le
 
 - Start each task by verifying a clean git state and branching (`echo/<feature>` recommended).
 - Tests go in `packages/echo-core/test/` (fixtures in `test/fixtures/`). End-to-end scenarios will eventually live under `apps/playground`.
-- Use expressive commits (`subject` / `body` / optional `trailer`)—tell future us the *why*, not just the *what*.
-- Treat determinism as sacred: prefer Echo’s PRNG, avoid non-deterministic APIs without wrapping them.
+- Use expressive commits (`subject` / `body` / optional `trailer`). Tell future us the *why*, not just the *what*.
+- Treat determinism as sacred: use Echo’s PRNG, avoid non-deterministic APIs without wrapping them.
   
 ### Git Hooks
 
@@ -211,15 +313,6 @@ Install the repo’s hooks so formatting and quick checks run before commits:
 ```
 make hooks
 ```
-
-- The pre-commit hook auto-fixes formatting by default (runs `cargo fmt --all`).
-- To switch to check-only mode for a commit, set `ECHO_AUTO_FMT=0`:
-
-```
-ECHO_AUTO_FMT=0 git commit -m "your message"
-```
-
-You can also export `ECHO_AUTO_FMT=0` in your shell rc if you prefer check-only always.
 
 ### Development Principles
 
@@ -230,12 +323,12 @@ You can also export `ECHO_AUTO_FMT=0` in your shell rc if you prefer check-only 
 
 ### Roadmap Highlights
 
-- [x] **Phase 0** – Finalize specs and design.
-- [ ] **Phase 1** – Ship Echo Core MVP with tests and headless harness.
-- [ ] **Phase 2 “Double-Jump”** – Deliver reference render/input adapters and the playground.
-- [ ] **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.
+✅ **Phase 0** – Finalize specs and design.  
+⏳ **Phase 1** – Ship Echo Core MVP with tests and headless harness.  
+☑️ **Phase 2** – Deliver reference render/input adapters and **the playground**.  
+☑️ **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.  
 
-Chrononauts welcome. Strap in, branch responsibly, and leave the timeline cleaner than you found it.
+**Chrononauts welcome.** Strap in, branch responsibly, and leave the timeline cleaner than you found it.
 
 ---
 

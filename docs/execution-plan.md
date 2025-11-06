@@ -46,12 +46,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Expected behavior: identical drain order and semantics; minor memory increase for counts on 64‑bit.
 - Next: run full workspace Clippy + tests, then commit.
 
-> 2025-11-02 — PR-12: pre-feedback review (PR #113)
+> 2025-11-03 — Issue #115: Scalar trait scaffold
 
-- Familiarize with repo layout, specs, and recent commits.
-- Verify branch state: `echo/pr-12-snapshot-bench` at `c44c827` (merged `origin/main` at `0430c47` earlier; no conflicts).
-- Skimmed benches (`snapshot_hash`, `scheduler_drain`) and docs rollups; scope remains benches/docs only, no runtime changes.
-- Next: receive reviewer feedback for PR #113 and iterate.
+- Added `rmg-core::math::scalar::Scalar` trait declaring deterministic scalar operations.
+- Arithmetic is required via operator supertraits: `Add/Sub/Mul/Div/Neg` with `Output = Self` for ergonomic `+ - * / -` use in generics.
+- Explicit APIs included: `zero`, `one`, `sin`, `cos`, `sin_cos` (default), `from_f32`, `to_f32`.
+- No implementations yet (F32Scalar/DFix64 follow); no canonicalization or LUTs in this change.
+- Exported via `rmg-core::math::Scalar` for consumers.
 
 > 2025-11-02 — PR-12: benches updates (CI docs guard)
 

@@ -8,6 +8,7 @@ use std::f32::consts::TAU;
 mod mat4;
 mod prng;
 mod quat;
+mod scalar;
 mod vec3;
 
 #[doc(inline)]
@@ -16,6 +17,8 @@ pub use mat4::Mat4;
 pub use prng::Prng;
 #[doc(inline)]
 pub use quat::Quat;
+#[doc(inline)]
+pub use scalar::Scalar;
 #[doc(inline)]
 pub use vec3::Vec3;
 

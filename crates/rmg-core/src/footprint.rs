@@ -68,6 +68,10 @@ impl PortSet {
     pub fn insert(&mut self, key: PortKey) {
         let _ = self.0.insert(key);
     }
+    /// Returns an iterator over the port keys in the set.
+    pub fn iter(&self) -> impl Iterator<Item = &PortKey> {
+        self.0.iter()
+    }
     /// Returns true if any element is shared with `other`.
     pub fn intersects(&self, other: &Self) -> bool {
         let mut a = self.0.iter();

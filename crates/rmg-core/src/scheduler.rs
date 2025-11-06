@@ -21,7 +21,7 @@ use crate::tx::TxId;
 #[derive(Debug, Default)]
 pub(crate) struct DeterministicScheduler {
     /// Pending rewrites per transaction, stored for O(1) enqueue and O(n) drain.
-    pub(crate) pending: HashMap<TxId, PendingTx<PendingRewrite>>,
+    pending: HashMap<TxId, PendingTx<PendingRewrite>>,
     /// Generation-stamped conflict sets for O(1) independence checks.
     pub(crate) active: HashMap<TxId, GenSet<NodeId>>,
     #[cfg(feature = "telemetry")]
@@ -138,7 +138,7 @@ struct RewriteThin {
 
 /// Pending transaction queue with O(1) enqueue and O(n) deterministic drain.
 #[derive(Debug)]
-pub(crate) struct PendingTx<P> {
+struct PendingTx<P> {
     next_nonce: u32,
     /// Last-wins dedupe on (`scope_hash`, `compact_rule`).
     index: FxHashMap<([u8; 32], u32), usize>,
@@ -148,9 +148,9 @@ pub(crate) struct PendingTx<P> {
     fat: Vec<Option<P>>,
     /// Scratch buffer for radix passes (reused).
     scratch: Vec<RewriteThin>,
-    /// Counting array for 16-bit radix (65536 buckets, reused). Uses `usize`
-    /// to avoid truncation and casts during prefix-sum scatter.
-    counts16: Vec<usize>,
+    /// Counting array for 16-bit radix (65536 buckets, reused). `u32` keeps
+    /// bandwidth/cache lower while remaining ample for batch sizes we handle.
+    counts16: Vec<u32>,
 }
 
 impl<P> Default for PendingTx<P> {
@@ -205,7 +205,7 @@ impl<P> PendingTx<P> {
 
         // Lazy allocation of 16-bit histogram (65536 buckets).
         if self.counts16.is_empty() {
-            self.counts16 = vec![0usize; 1 << 16];
+            self.counts16 = vec![0u32; 1 << 16];
         }
 
         let mut flip = false;
@@ -226,7 +226,7 @@ impl<P> PendingTx<P> {
             }
 
             // Prefix sums
-            let mut sum: usize = 0;
+            let mut sum: u32 = 0;
             for c in counts.iter_mut() {
                 let t = *c;
                 *c = sum;
@@ -236,9 +236,10 @@ impl<P> PendingTx<P> {
             // Stable scatter
             for r in src {
                 let b = bucket16(r, pass) as usize;
-                let idx = counts[b];
+                let idx_u32 = counts[b];
+                counts[b] = idx_u32.wrapping_add(1);
+                let idx = idx_u32 as usize; // widening u32→usize (safe on 32/64-bit)
                 dst[idx] = *r;
-                counts[b] = idx + 1;
             }
 
             flip = !flip;
@@ -264,14 +265,18 @@ impl<P> PendingTx<P> {
         let n = self.thin.len();
         let mut out = Vec::with_capacity(n);
         for r in self.thin.drain(..) {
-            let payload_opt = self.fat[r.handle].take();
-            // Invariant: every thin handle points to a live payload. Avoid
-            // panicking on release builds; assert in debug to surface issues.
-            if let Some(p) = payload_opt {
-                out.push(p);
-            } else {
-                debug_assert!(false, "payload must exist");
-            }
+            // Invariant: each thin handle must point to a live payload.
+            // If not, fail loudly to preserve determinism.
+            let p = self.fat.get_mut(r.handle).map_or_else(
+                || unreachable!("BUG: handle out of range {}", r.handle),
+                |slot| {
+                    slot.take().map_or_else(
+                        || unreachable!("BUG: missing payload at handle {}", r.handle),
+                        |p| p,
+                    )
+                },
+            );
+            out.push(p);
         }
         self.index.clear();
         self.fat.clear();

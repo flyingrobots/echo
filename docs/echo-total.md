@@ -260,16 +260,16 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-11-06 — Unblock commit: rmg-core scheduler Clippy fixes
+> 2025-11-06 — Unblock commit: rmg-core scheduler Clippy fixes (follow-up)
 
 - Goal: make pre-commit Clippy pass without `--no-verify`, preserving determinism.
 - Scope: `crates/rmg-core/src/scheduler.rs` only; no API surface changes intended.
 - Changes:
   - Fix doc lint: backticks for `scope_hash`, `rule_id`, `nonce`, `scope_be32`, `compact_rule`, `pair_idx_be`.
-  - Privacy: mark `PendingTx<P>` as `pub(crate)` to match `DeterministicScheduler::pending` visibility.
+  - Privacy: make `DeterministicScheduler::pending` private and keep `PendingTx<P>` private (no wider surface).
   - Pedantic lints: replace `if let/else` with `.map_or_else`, invert `if !flip` branch, iterate directly over slices, and avoid casts.
-  - Safety: remove `expect()` on payload drain; use `debug_assert!` + skip in release to avoid panicking; document invariant.
-  - Numerical: store radix `counts16` as `Vec<usize>` and `RewriteThin.handle` as `usize` to eliminate truncation casts.
+  - Safety: fail fast in drain: replace `expect()` with `unreachable!(...)` via safe `get_mut(...).and_then(take)` to crash loudly on invariant break; no silent drops.
+  - Numerical: keep `RewriteThin.handle` as `usize`; restore radix `counts16` to `Vec<u32>` to retain lower bandwidth/footprint while staying lint‑clean.
 - Expected behavior: identical drain order and semantics; minor memory increase for counts on 64‑bit.
 - Next: run full workspace Clippy + tests, then commit.
 
@@ -643,7 +643,7 @@ Remember: every entry here shrinks temporal drift between Codices. Leave breadcr
 ## Recent Decisions (2025-10-28 onward)
 
 The following entries use a heading + bullets format for richer context.
-| 2025-11-06 | rmg-core scheduler Clippy cleanup | Make pre-commit pass without `--no-verify`: fix `doc_markdown`, `similar_names`, `if_not_else`, `option_if_let_else`, `explicit_iter_loop`; change `RewriteThin.handle` to `usize`; change radix `counts16` to `Vec<usize>`; remove `expect()` panic in drain (use `debug_assert!` + skip); mark `PendingTx<P>` as `pub(crate)`. | Preserve determinism and ordering while satisfying strict `clippy::pedantic` and `-D warnings`. Avoid truncation casts and private interface exposure. | Slight memory increase for radix counts on 64‑bit; no functional change intended; pre-commit unblocked.
+| 2025-11-06 | rmg-core scheduler Clippy cleanup | Make pre-commit pass without `--no-verify`: fix `doc_markdown`, `similar_names`, `if_not_else`, `option_if_let_else`, `explicit_iter_loop`; change `RewriteThin.handle` to `usize`; keep radix `counts16` as `Vec<u32>` (low bandwidth) with safe prefix-sum/scatter; fail fast in drain with `unreachable!` instead of `expect()` or silent drop; make `pending` field private (keep `PendingTx` private). | Preserve determinism and ordering while satisfying strict `clippy::pedantic` and `-D warnings`. Avoid truncation casts and private interface exposure. | Determinism preserved; panic on invariant violation; histogram remains 256 KiB on 64‑bit; pre-commit unblocked.
 | 2025-10-30 | rmg-core determinism hardening | Added reachability-only snapshot hashing; closed tx lifecycle; duplicate rule detection; deterministic scheduler drain order; expanded motion payload docs; tests for duplicate rule name/id and no‑op commit. | Locks determinism contract and surfaces API invariants; prepares PR #7 for a safe merge train. | Clippy clean for rmg-core; workspace push withheld pending further feedback. |
 | 2025-10-30 | Tests | Add golden motion fixtures (JSON) + minimal harness validating motion rule bytes/values | Establishes deterministic test baseline for motion; supports future benches and tooling | No runtime impact; PR-01 linked to umbrella and milestone |
 | 2025-10-30 | Templates PR scope | Clean `echo/pr-templates-and-project` to contain only templates + docs notes; remove unrelated files pulled in by merge; fix YAML lint (trailing blanks; quote placeholder) | Keep PRs reviewable and single-purpose; satisfy CI Docs Guard | Easier review; no runtime impact |

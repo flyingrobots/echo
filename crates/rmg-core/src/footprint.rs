@@ -37,6 +37,10 @@ impl IdSet {
     pub fn insert_edge(&mut self, id: &EdgeId) {
         self.0.insert(id.0);
     }
+    /// Returns an iterator over the identifiers in the set.
+    pub fn iter(&self) -> impl Iterator<Item = &Hash> {
+        self.0.iter()
+    }
     /// Returns true if any element is shared with `other`.
     pub fn intersects(&self, other: &Self) -> bool {
         // Early‑exit by zipping ordered sets.

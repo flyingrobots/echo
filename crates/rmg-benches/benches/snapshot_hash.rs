@@ -77,7 +77,7 @@ fn bench_snapshot_hash(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(3))
         .measurement_time(Duration::from_secs(10))
         .sample_size(80);
-    for &n in &[10usize, 100, 1_000] {
+    for &n in &[10usize, 100, 1_000, 3_000, 10_000, 30_000] {
         // Throughput: total nodes in reachable set (n entities + 1 root).
         group.throughput(Throughput::Elements(n as u64 + 1));
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {

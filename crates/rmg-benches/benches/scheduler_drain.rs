@@ -76,9 +76,11 @@ fn bench_scheduler_drain(c: &mut Criterion) {
         .warm_up_time(Duration::from_secs(3))
         .measurement_time(Duration::from_secs(10))
         .sample_size(60);
-    for &n in &[10usize, 100, 1_000] {
+    for &n in &[10usize, 100, 1_000, 3_000, 10_000, 30_000] {
         // Throughput: number of rule applications in this run (n entities).
         group.throughput(Throughput::Elements(n as u64));
+
+        // Full apply+commit cycle (original benchmark)
         group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             b.iter_batched(
                 || build_engine_with_entities(n),
@@ -92,6 +94,43 @@ fn bench_scheduler_drain(c: &mut Criterion) {
                     }
                     let snap = engine.commit(tx).unwrap();
                     // Ensure the commit work is not optimized away.
+                    criterion::black_box(snap);
+                },
+                BatchSize::PerIteration,
+            )
+        });
+
+        // Enqueue phase only (apply without commit)
+        group.bench_function(BenchmarkId::new("enqueue", n), |b| {
+            b.iter_batched(
+                || build_engine_with_entities(n),
+                |(mut engine, ids)| {
+                    let tx = engine.begin();
+                    for id in &ids {
+                        let res = engine.apply(tx, BENCH_NOOP_RULE_NAME, id).unwrap();
+                        debug_assert!(matches!(res, ApplyResult::Applied));
+                    }
+                    criterion::black_box(tx);
+                },
+                BatchSize::PerIteration,
+            )
+        });
+
+        // Drain phase only (commit with pre-enqueued rewrites)
+        group.bench_function(BenchmarkId::new("drain", n), |b| {
+            b.iter_batched(
+                || {
+                    let (mut engine, ids) = build_engine_with_entities(n);
+                    let tx = engine.begin();
+                    // Pre-enqueue all rewrites (not timed)
+                    for id in &ids {
+                        let _ = engine.apply(tx, BENCH_NOOP_RULE_NAME, id).unwrap();
+                    }
+                    (engine, tx)
+                },
+                |(mut engine, tx)| {
+                    // Only measure the commit (drain + execute)
+                    let snap = engine.commit(tx).unwrap();
                     criterion::black_box(snap);
                 },
                 BatchSize::PerIteration,

@@ -33,6 +33,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-06 — Unblock commit: rmg-core scheduler Clippy fixes
+
+- Goal: make pre-commit Clippy pass without `--no-verify`, preserving determinism.
+- Scope: `crates/rmg-core/src/scheduler.rs` only; no API surface changes intended.
+- Changes:
+  - Fix doc lint: backticks for `scope_hash`, `rule_id`, `nonce`, `scope_be32`, `compact_rule`, `pair_idx_be`.
+  - Privacy: mark `PendingTx<P>` as `pub(crate)` to match `DeterministicScheduler::pending` visibility.
+  - Pedantic lints: replace `if let/else` with `.map_or_else`, invert `if !flip` branch, iterate directly over slices, and avoid casts.
+  - Safety: remove `expect()` on payload drain; use `debug_assert!` + skip in release to avoid panicking; document invariant.
+  - Numerical: store radix `counts16` as `Vec<usize>` and `RewriteThin.handle` as `usize` to eliminate truncation casts.
+- Expected behavior: identical drain order and semantics; minor memory increase for counts on 64‑bit.
+- Next: run full workspace Clippy + tests, then commit.
+
 > 2025-11-02 — PR-12: pre-feedback review (PR #113)
 
 - Familiarize with repo layout, specs, and recent commits.

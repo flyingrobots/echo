@@ -25,8 +25,10 @@ DEFAULT_OUT = ROOT / "docs" / "benchmarks" / "report-inline.html"
 GROUPS = [
     ("snapshot_hash", "Snapshot Hash"),
     ("scheduler_drain", "Scheduler Drain"),
+    ("scheduler_drain/enqueue", "Scheduler Enqueue"),
+    ("scheduler_drain/drain", "Scheduler Drain Phase"),
 ]
-INPUTS = [10, 100, 1000]
+INPUTS = [10, 100, 1000, 3000, 10000, 30000]
 
 
 def load_estimate(group: str, n: int):

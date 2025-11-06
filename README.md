@@ -28,9 +28,10 @@ Most game engines are object-oriented state machines. Unity, Unreal, Godot all m
 
 Echo is fundamentally **built different**.
 
-RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation.
+RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation. It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
 
-It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
+Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect
+replay, and Git-like branching for game states.
 
 ### Core Principles
 
@@ -283,9 +284,6 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 
 - `crates/rmg-core/tests/permutation_commute_tests.rs` — Determinism proofs
 - `crates/rmg-benches/benches/snapshot_hash.rs` — Hashing throughput
-
-Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting—enabling time-travel debugging, perfect
-replay, and Git-like branching for game states.
 
 ---
 

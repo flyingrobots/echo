@@ -157,8 +157,8 @@ impl Engine {
                 "missing compact rule id for a registered rule",
             ));
         };
-        self.scheduler.pending.entry(tx).or_default().insert(
-            (scope_fp, rule.id),
+        self.scheduler.enqueue(
+            tx,
             PendingRewrite {
                 rule_id: rule.id,
                 compact_rule,

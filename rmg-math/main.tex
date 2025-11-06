@@ -1,0 +1,36 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{mathtools}
+\usepackage{sty/rmg-macros}
+\input{aux/rmg-diagrams.tex}
+
+\title{Recursive Metagraphs (RMG): DPOI Semantics, Confluence, Hypergraph Embedding, and Rulial Distance}
+\author{James Ross • RMG Core • Project "Echo"}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We formalize the execution model of Recursive Metagraphs (RMG) using Double-Pushout with Interfaces (DPOI) in the adhesive category of typed open graphs.
+We prove \emph{tick-level confluence} (deterministic batches) and \emph{two-plane commutation} (attachments-first is correct), and give conditions for \emph{global confluence} via critical pairs.
+We provide a faithful incidence encoding of typed open hypergraphs into our setting, preserving DPO steps and lifting multiway derivations, and define a task- and resource-aware \emph{rulial distance} as an MDL-based pseudometric over observers.
+\end{abstract}
+
+\tableofcontents
+
+\section{Notation and Setting}
+Typed open graphs $\OGraphT$ (cospans of monos) form an adhesive category. Rules are linear spans $(L\leftarrow K\to R)$; matches are boundary-preserving monos satisfying gluing. RMG states $(G;\alpha,\beta)$ carry attachments in the fibers over nodes and edges; publishing is two-plane: attachments then skeleton.
+
+\input{chapters/confluence.tex}
+\input{chapters/embedding.tex}
+\input{chapters/rulial-distance.tex}
+\input{chapters/appendix-scheduler.tex}
+
+% References
+\nocite{Ehrig2006FAGT,LackSobocinski2004Adhesive,LackSobocinski2006Adhesive,EhrigLowe1997DPO,vanOostrom1994Decreasing,Fong2015DecoratedCospans,HabelPlump2002Relabelling}
+\bibliographystyle{alpha}
+\bibliography{refs}
+
+\end{document}

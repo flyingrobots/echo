@@ -38,6 +38,12 @@ cargo bench -p rmg-benches --bench scheduler_drain
 
 Criterion HTML reports are written under `target/criterion/<group>/report/index.html`.
 
+### Charts & Reports
+
+- Live server + dashboard: `make bench-report` opens `http://localhost:8000/docs/benchmarks/`.
+- Offline static report (no server): `make bench-bake` writes `docs/benchmarks/report-inline.html` with results injected.
+  - Open the file directly (Finder or `open docs/benchmarks/report-inline.html`).
+
 ## Interpreting Results
 
 - Use the throughput value to sanity‑check the scale of work per iteration.
@@ -48,7 +54,9 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
 ## Environment Notes
 
 - Toolchain: `stable` Rust (see `rust-toolchain.toml`).
-- Dependency policy: avoid wildcards; benches use a minor pin for `blake3`.
+- Dependency policy: avoid wildcards; benches use an exact patch pin for `blake3`
+  with trimmed features to avoid incidental parallelism:
+  `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }`.
 - Repro: keep your machine under minimal background load; prefer `--quiet` and 
   close other apps.
 
@@ -62,4 +70,3 @@ cargo flamegraph -p rmg-benches --bench snapshot_hash -- --sample-size 50
 ```
 
 These tools are not required for CI and are optional for local analysis.
-

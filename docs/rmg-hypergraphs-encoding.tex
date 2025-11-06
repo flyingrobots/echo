@@ -1,0 +1,38 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{microtype,mathtools}
+\usepackage{rmg-macros}
+\input{rmg-diagrams.tex}
+
+\title{Typed Open Hypergraphs Embed Faithfully into Typed Open-Graph DPOI}
+\author{RMG Core Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Categories}
+Let $T_V$ be vertex types and $\Sigma=\{(s,\mathrm{ar}(s))\}$ hyperedge signatures.
+$\HypT$ is the category of typed directed hypergraphs; $\OHypT$ is open hypergraphs (cospans of monos). $\OGraphT$ is typed open graphs (adhesive).
+
+\section{Incidence encoding}
+Define $T^\star:=T_V \sqcup \{E_s\}_{s\in\Sigma}\sqcup \{P_{s,i}\}_{s\in\Sigma,1\le i\le \mathrm{ar}(s)}$.
+For $H\in\OHypT$, build $J(H)\in\OGraphT$ with a node for each $v\in V$ (typed in $T_V$), an \emph{edge-node} $v_e$ of type $E_{s(e)}$ for each hyperedge $e$, and a \emph{port-edge} for each incidence $(e,i)\mapsto v$. Boundaries map identically. This extends to a functor $J:\OHypT\to\OGraphT$.
+
+\begin{proposition}[Full \& faithful on monos]
+$J$ is full/faithful on monomorphisms: a mono of hypergraphs corresponds uniquely to a mono of incidence-respecting images, and vice versa.
+\end{proposition}
+
+\begin{proposition}[Creates pushouts along monos]
+For a span of monos $H_1\leftarrow K \to H_2$ in $\OHypT$, the pushout exists and $J(H_1+_K H_2)\iso J(H_1)+_{J(K)}J(H_2)$ in $\OGraphT$.
+\end{proposition}
+
+\begin{theorem}[DPO preservation/reflection]
+For any DPOI rule $p$ and match $m$ in $\OHypT$, the DPO step $H\To_p H'$ exists iff the DPOI step $J(H)\To_{J(p)} J(H')$ exists in $\OGraphT$, and the results correspond up to iso.
+\end{theorem}
+
+\section{Derivations and multiway}
+The functor $J$ lifts to a homomorphism of derivation bicategories $J_\star:\mathrm{Der}(\OHypT)\to\mathrm{Der}(\OGraphT)$ that is locally full/faithful. Thus causal/branchial constructions transport functorially into RMG.
+
+\paragraph{Conclusion.} Hypergraph rewriting embeds into RMG's DPOI calculus, adding typed interfaces, composition laws, deterministic concurrency, and two-plane atomic publishing.
+\end{document}

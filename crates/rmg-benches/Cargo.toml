@@ -10,8 +10,8 @@ description = "Microbenchmarks for Echo (rmg-core): snapshot hashing and schedul
 criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
 # Pin version alongside path to satisfy cargo-deny wildcard bans
 rmg-core = { version = "0.1.0", path = "../rmg-core" }
-# Minor-pin for semver compatibility; benches do not rely on a specific patch.
-blake3 = "1.8"
+# Exact pin and trimmed features to avoid rayon/parallelism in benches.
+blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }
 
 [[bench]]
 name = "motion_throughput"

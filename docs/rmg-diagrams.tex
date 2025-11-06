@@ -1,0 +1,13 @@
+% rmg-diagrams.tex — tikz-cd helpers for DPO squares
+\usepackage{tikz-cd}
+\tikzcdset{row sep/normal=large, column sep/normal=large}
+
+% Double-pushout template:
+% \DPO{K}{L}{R}{D}{G}{H}
+\newcommand{\DPO}[6]{%
+\begin{tikzcd}
+#1 \arrow[r, hook] \arrow[d, hook] & #2 \arrow[d, hook] & \qquad
+#1 \arrow[r, hook] \arrow[d, hook] & #3 \arrow[d, hook] \\
+#4 \arrow[r, hook] & #5 & \qquad #4 \arrow[r, hook] & #6
+\end{tikzcd}%
+}

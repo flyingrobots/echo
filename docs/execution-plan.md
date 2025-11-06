@@ -38,11 +38,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Goal: make pre-commit Clippy pass without `--no-verify`, preserving determinism.
 - Scope: `crates/rmg-core/src/scheduler.rs` only; no API surface changes intended.
 - Changes:
-  - Fix doc lint: backticks for `scope_hash`, `rule_id`, `nonce`, `scope_be32`, `compact_rule`, `pair_idx_be`.
-  - Privacy: make `DeterministicScheduler::pending` private and keep `PendingTx<P>` private (no wider surface).
-  - Pedantic lints: replace `if let/else` with `.map_or_else`, invert `if !flip` branch, iterate directly over slices, and avoid casts.
-  - Safety: fail fast in drain: replace `expect()` with `unreachable!(...)` via safe `get_mut(...).and_then(take)` to crash loudly on invariant break; no silent drops.
-  - Numerical: keep `RewriteThin.handle` as `usize`; restore radix `counts16` to `Vec<u32>` to retain lower bandwidth/footprint while staying lint‑clean.
+  - Doc lint: add backticks in `scheduler.rs` docs for `b_in`/`b_out` and `GenSet(s)`.
+  - Reserve refactor: split `DeterministicScheduler::reserve` into `has_conflict`, `mark_all`, `on_conflict`, `on_reserved` (fix `too_many_lines`).
+  - Tests hygiene: move inner `pack_port` helper above statements (`items_after_statements`), remove `println!`, avoid `unwrap()`/`panic!`, use captured format args.
+  - Numeric idioms: replace boolean→int and lossless casts with `u64::from(...)` / `u32::from(...)`.
+  - Benches: drop unused imports in `reserve_scaling.rs` to avoid workspace clippy failures when checking all targets.
 - Expected behavior: identical drain order and semantics; minor memory increase for counts on 64‑bit.
 - Next: run full workspace Clippy + tests, then commit.
 

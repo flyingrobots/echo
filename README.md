@@ -15,7 +15,7 @@
 
 ## **tl;dr:**
 
-> _Echo is a recursive metagraph (RMG) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
+> Echo is a recursive metagraph (RMG) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
 > It’s built so every change can branch, merge, and replay perfectly.
 
 <img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="400" align="right" />

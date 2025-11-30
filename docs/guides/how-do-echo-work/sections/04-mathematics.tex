@@ -1,0 +1,55 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+\section{Deterministic Mathematics}
+
+The cornerstone of Echo's reliability is its deterministic math module. Standard IEEE 754 floating-point arithmetic is famously non-deterministic across different architectures and compiler optimizations.
+
+\subsection{The Hazards of Hardware Floats}
+
+\begin{itemize}
+    \item \textbf{NaN Payloads:} The bit pattern of `NaN` (Not a Number) is not fully specified. `0.0 / 0.0` might produce different bits on x86 vs ARM.
+    \item \textbf{Signed Zero:} `-0.0` and `+0.0` compare equal but hash differently.
+    \item \textbf{FMA (Fused Multiply-Add):} Some CPUs combine multiply and add into one step, changing rounding results.
+    \item \textbf{Transcendental Functions:} `sin()`, `cos()`, `pow()` are often implemented in libc or hardware microcode, with varying precision.
+\end{itemize}
+
+\subsection{Echo's Solution: \texttt{F32Scalar}}
+
+Echo wraps primitive types in a strict wrapper, `F32Scalar`, enforcing the following policies:
+
+\begin{enumerate}
+    \item \textbf{Canonical Zero:} The constructor maps `-0.0` to `+0.0`.
+    \item \textbf{Canonical NaN:} All NaN values are collapsed to a single "Positive Quiet NaN" bit pattern (`0x7fc00000`).
+    \item \textbf{Software Transcendentals:} Functions like `sin` and `cos` use a custom, deterministic approximation (e.g., a high-precision LUT or Taylor series implemented in software) rather than calling the hardware/OS instruction.
+\end{enumerate}
+
+\begin{lstlisting}[language=Rust, caption=Simplified F32Scalar Logic]
+pub struct F32Scalar(f32);
+
+impl F32Scalar {
+    pub fn new(val: f32) -> Self {
+        if val.is_nan() {
+            // Canonical NaN
+            F32Scalar(f32::from_bits(0x7fc00000))
+        } else if val == 0.0 && val.is_sign_negative() {
+            // Canonical Zero
+            F32Scalar(0.0)
+        } else {
+            F32Scalar(val)
+        }
+    }
+}
+\end{lstlisting}
+
+\subsection{Geometric Types}
+
+Built on top of `F32Scalar` are the standard geometric types:
+\begin{itemize}
+    \item \texttt{Vec2}, \texttt{Vec3}, \texttt{Vec4}
+    \item \texttt{Mat3}, \texttt{Mat4} (Column-major)
+    \item \texttt{Quat} (Quaternions for rotation)
+\end{itemize}
+
+These types ensure that vector operations (dot product, cross product, matrix multiplication) propagate determinism.
+
+\subsection{Fixed Point Option}
+For environments where floating-point hardware is completely unreliable or missing, Echo supports a `DFix64` (Deterministic Fixed Point) backend. This uses `i64` to represent decimal numbers (e.g., 32 bits for integer, 32 bits for fraction).

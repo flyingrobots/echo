@@ -1,0 +1,46 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+\documentclass[a4paper,12pt]{book}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{shapes, arrows, positioning, calc, matrix, backgrounds}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\geometry{margin=1in}
+
+\title{How Echo Works\ \large A Deep Dive into the Deterministic, Multiverse-Aware Engine}
+\author{James Ross & The Echo Contributors}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\chapter{Introduction}
+\input{sections/01-what-is-echo}
+
+\chapter{High-Level Architecture}
+\input{sections/02-high-level-architecture}
+
+\chapter{Echo vs. The World}
+\input{sections/03-comparisons}
+
+\chapter{Deterministic Mathematics}
+\input{sections/04-mathematics}
+
+\chapter{The Game Loop}
+\input{sections/05-game-loop}
+
+\end{document}
+

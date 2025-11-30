@@ -1,0 +1,69 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+\section{The Game Loop}
+
+Echo's game loop is a rigid, phase-based pipeline designed to ensure causality and data consistency.
+
+\subsection{The Loop Phases}
+
+\begin{tikzpicture}[
+    node distance=1cm,
+    phase/.style={rectangle, draw=black, fill=orange!10, thick, minimum width=3cm, align=center},
+    arrow/.style={->, thick, >=stealth}
+]
+
+\node[phase] (pre) {1. Pre-Update \\ (Input Assimilation)};
+\node[phase, below=of pre] (update) {2. Update \\ (Graph Rewriting)};
+\node[phase, below=of update] (post) {3. Post-Update \\ (Cleanup)};
+\node[phase, below=of post] (render) {4. Render Prep \\ (FramePacket Gen)};
+\node[phase, below=of render] (flush) {5. Timeline Flush \\ (Commit / Persist)};
+
+\draw[arrow] (pre) -- (update);
+\draw[arrow] (update) -- (post);
+\draw[arrow] (post) -- (render);
+\draw[arrow] (render) -- (flush);
+\draw[arrow] (flush.east) -- ++(1,0) |- (pre.east);
+
+\end{tikzpicture}
+
+\begin{enumerate}
+    \item \textbf{Pre-Update:}
+        \begin{itemize}
+            \item Inputs from the `InputPort` are polled and injected into the `InputComponent`.
+            \item `Codex's Baby` (Event Bus) flushes pending external events.
+        \end{itemize}
+    \item \textbf{Update (The Core):}
+        \begin{itemize}
+            \item The Scheduler executes Systems.
+            \item Physics simulation steps (if sub-stepping is enabled).
+            \item Game logic runs.
+        \end{itemize}
+    \item \textbf{Post-Update:}
+        \begin{itemize}
+            \item Late-frame logic (e.g., camera smoothing).
+            \item Entity despawning cleanup.
+        \end{itemize}
+    \item \textbf{Render Prep:}
+        \begin{itemize}
+            \item Systems read the state and produce a `FramePacket`.
+            \item No state mutation is allowed here.
+        \end{itemize}
+    \item \textbf{Timeline Flush:}
+        \begin{itemize}
+            \item The diffs for the frame are finalized.
+            \item The "State Root" hash is computed.
+            \item The frame is committed to the Timeline (Chronos).
+        \end{itemize}
+\end{enumerate}
+
+\subsection{Graph Rewriting (The Scheduler)}
+
+Inside the \textbf{Update} phase, Echo does not just "loop over arrays." It performs \textbf{Graph Rewriting}.
+
+\begin{enumerate}
+    \item \textbf{Matching:} Systems query the graph for patterns (e.g., "Entity with Position and Velocity").
+    \item \textbf{Reserving:} The Scheduler identifies which matches are independent (don't touch the same data).
+    \item \textbf{Execution:} Independent matches are processed. They produce a "Rewrite" (a list of changes).
+    \item \textbf{Application:} The Rewrites are applied to the graph state.
+\end{enumerate}
+
+This "Reserve-Execute-Apply" cycle ensures that even in a parallel execution environment, the result is deterministic. If two systems try to modify the same entity, the Scheduler detects the conflict and orders them deterministically based on a topological sort of the System Graph.

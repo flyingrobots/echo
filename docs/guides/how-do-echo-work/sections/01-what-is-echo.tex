@@ -1,0 +1,32 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+\section{What is Echo?}
+
+Echo is a \textbf{deterministic, multiverse-aware Entity Component System (ECS)} engine. Unlike traditional game engines that prioritize visual fidelity or editor convenience, Echo prioritizes \textbf{determinism}, \textbf{state preservation}, and \textbf{simulation integrity}.
+
+It is built on the concept of a "Rulial Multi-Graph" (RMG), where the entire game state is a graph, and updates are deterministic graph rewrites. This allows for features that are practically impossible in standard engines:
+
+\begin{itemize}
+    \item \textbf{Perfect Determinism:} Given the same initial state and inputs, the simulation will evolve identically on any machine (x86, ARM, WASM).
+    \item \textbf{Time Travel:} The ability to rollback the simulation to any previous tick, branch time into alternative realities, and merge them back.
+    \item \textbf{Renderer Agnosticism:} Echo does not care how it is drawn. It emits a `FramePacket`, which can be consumed by WebGL, WebGPU, a terminal UI, or a headless server.
+\end{itemize}
+
+\subsection{Core Philosophy}
+
+Echo was born from the "Caverns" project and operates under a set of strict cultural principles:
+
+\begin{enumerate}
+    \item \textbf{Just Ship, But Test:} Rigorous automated testing is not optional.
+    \item \textbf{Hexagonal Domain Boundary:} The core simulation never touches the DOM, WebGL, or system timers directly. Everything is mediated through Ports and Adapters.
+    \item \textbf{Predictable Loop:} A fixed time-step simulation is the default.
+\end{enumerate}
+
+\subsection{Who is Echo For?}
+
+Echo is designed for complex simulations where state consistency is paramount:
+\begin{itemize}
+    \item \textbf{RTS Games:} Where thousands of units must remain in sync across a network.
+    \item \textbf{Fighting Games:} Where rollback netcode (GGPO-style) is a requirement, not a feature.
+    \item \textbf{Scientific Simulations:} Where reproducibility is critical.
+    \item \textbf{Collaborative Tools:} Where multiple users edit a shared state (using the branching/merging capabilities).
+\end{itemize}

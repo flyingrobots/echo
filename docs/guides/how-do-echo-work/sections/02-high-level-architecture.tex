@@ -1,0 +1,76 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+\section{High-Level Architecture}
+
+Echo follows a strict \textbf{Hexagonal Architecture} (or Ports and Adapters pattern). The core domain logic sits in the center, isolated from the outside world.
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+        node distance=1.5cm,
+        core/.style={circle, draw=black, fill=blue!10, thick, minimum size=3cm},
+        port/.style={rectangle, draw=black, fill=green!10, thick, minimum width=2cm, minimum height=1cm},
+        adapter/.style={rectangle, draw=black!60, dashed, minimum width=2cm, minimum height=1cm},
+        arrow/.style={->, thick}
+    ]
+
+    % Core
+    \node[core] (engine) {Echo Core (ECS)};
+
+    % Ports
+    \node[port, above=of engine] (input) {Input Port};
+    \node[port, below=of engine] (render) {Render Port};
+    \node[port, left=of engine] (net) {Network Port};
+    \node[port, right=of engine] (phys) {Physics Port};
+
+    % Adapters
+    \node[adapter, above=0.5cm of input] (keyboard) {Keyboard/Mouse};
+    \node[adapter, below=0.5cm of render] (webgl) {WebGL / WebGPU};
+    \node[adapter, left=0.5cm of net] (webrtc) {WebRTC / UDP};
+    \node[adapter, right=0.5cm of phys] (rapier) {Rapier / Box2D};
+
+    % Connections
+    \draw[arrow] (input) -- (engine);
+    \draw[arrow] (engine) -- (render);
+    \draw[arrow] (net) <-> (engine);
+    \draw[arrow] (phys) <-> (engine);
+
+    \draw[arrow, dashed] (keyboard) -- (input);
+    \draw[arrow, dashed] (engine) -- (webgl); % Indirectly via port
+    \draw[arrow, dashed] (render) -- (webgl);
+
+    \end{tikzpicture}
+    \caption{Echo's Hexagonal Architecture}
+    \label{fig:hex-arch}
+\end{figure}
+
+\subsection{Domain Layers}
+
+The architecture is stratified into clear layers:
+
+\begin{enumerate}
+    \item \textbf{Core ECS:} The heart of the engine.
+        \begin{itemize}
+            \item \textbf{Entities:} Numerical IDs managed by a high-watermark allocator.
+            \item \textbf{Components:} Data buckets. Storage is archetype-based (chunks sized for CPU cache lines) with Copy-on-Write (COW) support for branching.
+            \item \textbf{Systems:} Pure functions that transform data.
+        \end{itemize}
+    \item \textbf{World & Scene Management:} Handles the lifecycle of entities and the "Scene Graph".
+    \item \textbf{Time & Simulation (Timecube):} Manages the temporal axes:
+        \begin{itemize}
+            \item \textbf{Chronos:} The monotonic tick counter (Sequence).
+            \item \textbf{Kairos:} The branch identifier (Possibility).
+            \item \textbf{Aion:} The narrative weight/entropy (Significance).
+        \end{itemize}
+    \item \textbf{Codex's Baby (Event Bus):} A deterministic event bus used for communication between systems and for bridging the gap between the Core and the Ports.
+\end{enumerate}
+
+\subsection{Ports & Adapters}
+
+Echo does not define \textit{how} things happen, only \textit{that} they happen.
+
+\begin{itemize}
+    \item \textbf{Renderer Port:} Receives a `FramePacket` containing generic draw commands (mesh refs, transforms). Adapters (e.g., PixiJS, wgpu) translate this to GPU calls.
+    \item \textbf{Input Port:} Aggregates input into snapshots. The domain polls this once per frame.
+    \item \textbf{Physics Port:} Dual-write system. ECS components store the "desired" state; the Physics Port (via an adapter like Rapier) advances the simulation and syncs the authoritative transform back.
+    \item \textbf{Networking Port:} Handles replication. Thanks to determinism, it can use state-snapshots or input-replication (GGPO).
+\end{itemize}

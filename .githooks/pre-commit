@@ -125,8 +125,8 @@ if [[ -n "$DOCS_CHANGED" ]]; then
 fi
 
 # 8) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR MIND-UCAL-1.0)
-if [[ -x scripts/check_spdx.sh ]]; then
-  scripts/check_spdx.sh || exit 1
+if [[ -x scripts/ensure_spdx.sh ]]; then
+  scripts/ensure_spdx.sh || exit 1
 fi
 
 exit 0

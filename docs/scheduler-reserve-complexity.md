@@ -2,11 +2,11 @@
 
 ## Current Implementation (GenSet-based)
 
-### Code Structure (scheduler.rs:117-245)
+### Code Structure (scheduler.rs)
 
 ```
 reserve(tx, pending_rewrite):
-  Phase 1: Conflict Detection (lines 124-214)
+  Phase 1: Conflict Detection
     for node in n_write:           // |n_write| iterations
       if nodes_written.contains() OR nodes_read.contains():  // O(1) each
         return false
@@ -31,7 +31,7 @@ reserve(tx, pending_rewrite):
       if ports.contains():         // O(1)
         return false
 
-  Phase 2: Marking (lines 216-234)
+  Phase 2: Marking
     for node in n_write: mark()    // |n_write| × O(1)
     for node in n_read: mark()     // |n_read| × O(1)
     for edge in e_write: mark()    // |e_write| × O(1)
@@ -59,20 +59,18 @@ reserve(tx, pending_rewrite):
 
 ### Important Notes
 
-1. **Hash Table Complexity:**
-   - GenSet uses `FxHashMap` which is O(1) average case
-   - Worst case with pathological hash collisions: O(log n) or O(n)
-   - In practice with good hashing: **O(1) amortized**
+1. **Hash Table Complexity / Assumptions:**
+   - GenSet uses `FxHashMap` which is O(1) average case.
+   - Worst case with pathological hash collisions: O(log n) or O(n).
+   - Assumes no adversarial inputs targeting collisions; production should evaluate collision-resistant hashers (aHash/SipHash) and/or adversarial benchmarks before release.
 
 2. **Early Exit Optimization:**
    - Phase 1 returns immediately on first conflict
    - Best case (early conflict): O(1)
    - Worst case (no conflict or late conflict): O(m)
 
-3. **Counting the Loops:**
-   - **10 for loops total** (6 in Phase 1, 4 in Phase 2... wait, let me recount)
-   - Actually: **12 for loops** (6 in Phase 1 checking, 6 in Phase 2 marking)
-   - But each processes a different subset of footprint
+3. **Counting the Loops:** 12 total (6 conflict checks, 6 marks), each over disjoint footprint subsets.
+4. **Follow-up:** Add adversarial-collision benchmarks and evaluate collision-resistant hashers before claiming worst-case O(1) in production.
 
 ## Previous Implementation (Vec<Footprint>-based)
 

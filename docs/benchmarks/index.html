@@ -77,23 +77,6 @@
         });
       })();
     </script>
-    <script>
-      // Show a friendly hint if opened via file:// without inline data
-      (function () {
-        if (location.protocol === 'file:' && !Array.isArray(window.__CRITERION_DATA__)) {
-          var el = document.getElementById('fileBanner');
-          if (el) {
-            el.style.display = 'block';
-            el.style.background = '#1a2431';
-            el.style.borderLeft = '4px solid var(--warn)';
-            el.style.padding = '10px 12px';
-            el.style.borderRadius = '6px';
-            el.style.margin = '8px 0';
-            el.innerHTML = 'Opened via <code>file://</code>. Use <code>make bench-bake</code> and open <code>docs/benchmarks/report-inline.html</code>, or start a local server with <code>make bench-report</code>.';
-          }
-        }
-      })();
-
       const GROUPS = [
         { key: 'snapshot_hash', label: 'Snapshot Hash', color: '#bb9af7', dash: null },          // purple
         { key: 'scheduler_drain', label: 'Scheduler Drain (Total)', color: '#9ece6a', dash: null }, // green
@@ -110,15 +93,17 @@
         const newPath = `${basePath}/new/estimates.json`;
         const baseAlt = `${basePath}/base/estimates.json`;
         try {
-          let res = await fetch(newPath);
+          const primary = await fetch(newPath);
+          let res = primary;
           let path = newPath;
-          if (!res.ok) {
-            // Fall back to baseline if no `new` exists.
+          if (!primary.ok) {
             const alt = await fetch(baseAlt);
-            if (!alt.ok) throw new Error(`${res.status} ${res.statusText}`);
-            res = alt; path = baseAlt;
+            if (alt.ok) {
+              res = alt; path = baseAlt;
+            } else {
+              throw new Error(`new: ${primary.status} ${primary.statusText}; base: ${alt.status} ${alt.statusText}`);
+            }
           }
-          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
           const data = await res.json();
           // Criterion 0.5 uses lowercase keys like { mean: { point_estimate, confidence_interval: { lower_bound, upper_bound } } }
           const mean = (data.mean?.point_estimate ?? data.Mean?.point_estimate);

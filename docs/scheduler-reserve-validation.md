@@ -155,29 +155,23 @@ GenSet uses `FxHashMap`:
 | 100 | 244.2 | 55.5× |
 
 **Analysis:**
-- Roughly **linear scaling** with footprint size
-- Not quadratic (which would show 100² = 10,000× for m=100)
-- If it were O(k×m) with k=100, the m=100 case would be ~100× slower than m=1, not 56×
-- Superlinear growth (56× vs 100×) likely due to:
-  - Hash table resizing overhead
-  - Cache effects with larger working sets
-  - Allocation costs
+- Scaling appears closer to linear in m, but single-run, noisy timing is insufficient to prove complexity class.
+- O(k×m) with k fixed at 100 would predict ~100× slower at m=100 vs m=1; observed ~56× suggests overhead/caches dominate and variance is high.
+- Next step: re-run with Criterion (multiple samples, CI-stable), include error bars, and isolate reserve() from rebuild/setup costs.
 
 ### Theoretical vs Empirical
 
-**Claimed:** "10-100x faster"
+**Claimed:** "10–100x faster" (theoretical)
 
-**Reality:**
-- **Theoretical speedup** for k=100, m=20: ~100×
-- **Empirical measurement needed** to compare old vs new directly
-- Current test shows **O(m) scaling confirmed**
-- Independence from k is proven by design
+**Reality so far:**
+- This test suggests roughly linear-ish scaling in m but is too noisy to confirm complexity or speedup magnitude.
+- No direct measurement against the previous Vec<Footprint> baseline yet.
+- Independence from k is by algorithm design, not directly benchmarked here.
 
 **Honest Assessment:**
-- ✅ O(m) complexity confirmed empirically
-- ✅ Independence from k proven by algorithm
-- ⚠️  "10-100x" claim is extrapolated, not measured against old code
-- ✅ For k=100, speedup should be ~100× in the limit
+- ⚠️ Complexity class not proven; data is suggestive only.
+- ⚠️ “10–100x faster” remains unvalidated until baseline comparisons are benchmarked.
+- ✅ Algorithmic path to k-independence is sound; needs empirical confirmation.
 
 ---
 
@@ -223,6 +217,6 @@ GenSet uses `FxHashMap`:
 ✅ **12 for-loops:** Counted and documented
 ⚠️  **"10-100x faster":** Extrapolated from theory, not benchmarked
 
-**Recommendation:** The implementation is correct and has good complexity. The performance claim is theoretically sound but should be validated with actual benchmarks comparing old vs new before being stated as fact.
+**Recommendation:** Merge only after either (a) removing the “10–100x faster” claim from PR title/description, or (b) providing benchmark evidence against the previous implementation. Include the caution above in the PR description/commit message. Add a checklist item to block release until baseline vs. new benchmarks are captured with error bars.
 
 **Good enough for merge?** Yes, with caveats in commit message about theoretical vs measured performance.

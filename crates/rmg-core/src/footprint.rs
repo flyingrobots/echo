@@ -72,6 +72,10 @@ impl PortSet {
     pub fn iter(&self) -> impl Iterator<Item = &PortKey> {
         self.0.iter()
     }
+    /// Alias for iterating keys; provided for call sites that prefer explicit naming.
+    pub fn keys(&self) -> impl Iterator<Item = &PortKey> {
+        self.0.iter()
+    }
     /// Returns true if any element is shared with `other`.
     pub fn intersects(&self, other: &Self) -> bool {
         let mut a = self.0.iter();

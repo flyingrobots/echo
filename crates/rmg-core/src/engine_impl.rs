@@ -8,7 +8,7 @@ use crate::graph::GraphStore;
 use crate::ident::{CompactRuleId, Hash, NodeId};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
-use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase};
+use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
 use crate::snapshot::{compute_commit_hash, compute_state_root, Snapshot};
 use crate::tx::TxId;
 
@@ -69,13 +69,18 @@ pub struct Engine {
 impl Engine {
     /// Constructs a new engine with the supplied backing store and root node id.
     pub fn new(store: GraphStore, root: NodeId) -> Self {
+        Self::with_scheduler(store, root, SchedulerKind::Radix)
+    }
+
+    /// Constructs a new engine with an explicit scheduler kind (radix vs. legacy).
+    pub fn with_scheduler(store: GraphStore, root: NodeId, kind: SchedulerKind) -> Self {
         Self {
             store,
             rules: HashMap::new(),
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::default(),
+            scheduler: DeterministicScheduler::new(kind),
             tx_counter: 0,
             live_txs: HashSet::new(),
             current_root: root,

@@ -61,8 +61,16 @@ bench-serve:
 	@echo "Serving repo at http://localhost:$(BENCH_PORT) (Ctrl+C to stop)"
 	@python3 -m http.server $(BENCH_PORT)
 
+OPEN := $(shell if command -v open >/dev/null 2>&1; then echo open; \
+	elif command -v xdg-open >/dev/null 2>&1; then echo xdg-open; \
+	elif command -v powershell.exe >/dev/null 2>&1; then echo powershell.exe; fi)
+
 bench-open:
-	@open "http://localhost:$(BENCH_PORT)/docs/benchmarks/"
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) "http://localhost:$(BENCH_PORT)/docs/benchmarks/" >/dev/null 2>&1 || echo "Open URL: http://localhost:$(BENCH_PORT)/docs/benchmarks/" ; \
+	else \
+	  echo "Open URL: http://localhost:$(BENCH_PORT)/docs/benchmarks/" ; \
+	fi
 
 bench-report: vendor-d3
 	@echo "Running benches (rmg-benches)..."
@@ -83,7 +91,11 @@ bench-report: vendor-d3
 	  fi ; \
 	  sleep 0.25 ; \
 	done
-	@open "http://localhost:$(BENCH_PORT)/docs/benchmarks/"
+	@if [ -n "$(OPEN)" ]; then \
+	  $(OPEN) "http://localhost:$(BENCH_PORT)/docs/benchmarks/" >/dev/null 2>&1 || echo "Open URL: http://localhost:$(BENCH_PORT)/docs/benchmarks/" ; \
+	else \
+	  echo "Open URL: http://localhost:$(BENCH_PORT)/docs/benchmarks/" ; \
+	fi
 
 .PHONY: bench-status bench-stop
 

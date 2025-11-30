@@ -1,5 +1,10 @@
 \RequirePackage{tikz-cd}
 \tikzcdset{row sep=large, column sep=large}
+% \DPO{K}{L}{R}{D}{G}{H} renders two adjacent pushout squares:
+%   L \leftarrow K \rightarrow R
+%   \downarrow    \downarrow    \downarrow
+%   G \leftarrow D \rightarrow H
+% Used to illustrate double-pushout rewrites; parameters are (K,L,R,D,G,H).
 \newcommand{\DPO}[6]{%
 \begin{center}
 \begin{tikzcd}[ampersand replacement=\&]

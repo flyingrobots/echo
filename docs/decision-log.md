@@ -243,3 +243,28 @@ The following entries use a heading + bullets format for richer context.
   - Teach `docs/benchmarks/index.html` to prefer inline data when present, skipping network fetches.
 - Rationale: Remove friction for local perf reviews and allow sharing a single HTML artifact with no server.
 - Consequence: Two paths now exist—live server dashboard and an offline baked report. Documentation updated in main README and benches README. `bench-report` now waits for server readiness and supports `BENCH_PORT`.
+## 2025-11-30 — PR #121 CodeRabbit batch fixes (scheduler/bench/misc)
+
+- Context: Address first review batch for `perf/scheduler` (PR #121) covering radix drain, benches, and tooling hygiene.
+- Decisions:
+  - Removed placeholder `crates/rmg-benches/benches/reserve_scaling.rs` (never ran meaningful work; duplicated hash helper).
+  - Added `PortSet::keys()` and switched scheduler boundary-port conflict/mark loops to use it, clarifying traversal API.
+  - Bumped `rustc-hash` to `2.1.1` for latest fixes/perf; updated `Cargo.lock`.
+  - Relaxed benches `blake3` pin to `~1.8.2` with explicit rationale to allow patch security fixes while keeping rayon disabled.
+  - Cleaned bench dashboards: removed dead `fileBanner` script blocks, fixed fetch fallback logic, and added vendor/.gitignore guard.
+  - Hardened `rmg-math/build.sh` with bash shebang and `set -euo pipefail`.
+- Rationale: Clean CI noise, make API usage explicit for ports, keep hashing dep current, and ensure math build fails fast.
+- Consequence: Bench suite sheds a no-op target; scheduler code compiles against explicit port iteration; dependency audit reflects new rustc-hash and bench pin policy; dashboard JS is consistent; math build is safer. Docs guard satisfied via this log and execution-plan update.
+
+## 2025-12-01 — PR #121 follow-ups (portability, collision bench stub, doc clarifications)
+
+- Context: Second batch of CodeRabbit feedback for scheduler/bench docs.
+- Decisions:
+  - Makefile: portable opener detection (open/xdg-open/powershell) for `bench-open`/`bench-report`.
+  - Added `scheduler_adversarial` Criterion bench exercising FxHashMap under forced collisions vs random keys; added `rustc-hash` to benches dev-deps.
+  - Introduced pluggable scheduler selection (`SchedulerKind`: Radix vs Legacy) with Radix default; Legacy path retains BTreeMap drain + Vec<Footprint> independence for apples-to-apples comparisons.
+  - Added sandbox helpers (`EchoConfig`, `build_engine`, `run_pair_determinism`) for spinning up isolated Echo instances and per-step Radix vs Legacy determinism checks.
+  - Documentation clarifications: collision-risk assumption and follow-up note in `docs/scheduler-reserve-complexity.md`; softened reserve validation claims and merge gating for the “10–100x” claim in `docs/scheduler-reserve-validation.md`; fixed radix note fences and `RewriteThin.handle` doc to `usize`.
+  - rmg-math: documented \DPO macro parameters; fixed `rmg-rulial-distance.tex` date to be deterministic.
+  - scripts/bench_bake.py: executable bit, narrower exception handling, f-string output.
+- Consequence: Bench portability and collision stress coverage improved; sandbox enables A/B determinism tests; docs no longer overclaim; LaTeX artifacts become reproducible. Remaining follow-ups: adversarial hasher evaluation, markdown lint sweep, IdSet/PortSet IntoIterator ergonomics.

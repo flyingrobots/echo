@@ -503,6 +503,7 @@ dependencies = [
  "blake3",
  "criterion",
  "rmg-core",
+ "rustc-hash",
 ]
 
 [[package]]

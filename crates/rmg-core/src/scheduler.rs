@@ -7,7 +7,7 @@
 //! - Byte-lexicographic order over full 32-byte scope hash preserved exactly.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use rustc_hash::FxHashMap;
 
@@ -46,7 +46,7 @@ impl ActiveFootprints {
 
 /// Deterministic scheduler with O(n) radix-based drain.
 #[derive(Debug, Default)]
-pub(crate) struct DeterministicScheduler {
+pub(crate) struct RadixScheduler {
     /// Pending rewrites per transaction, stored for O(1) enqueue and O(n) drain.
     pending: HashMap<TxId, PendingTx<PendingRewrite>>,
     /// Active footprints per transaction for O(m) independence checking via `GenSets`.
@@ -90,7 +90,7 @@ pub(crate) enum RewritePhase {
     Aborted,
 }
 
-impl DeterministicScheduler {
+impl RadixScheduler {
     /// Enqueues a rewrite with last-wins semantics on (`scope_hash`, `compact_rule`).
     pub(crate) fn enqueue(&mut self, tx: TxId, rewrite: PendingRewrite) {
         let txq = self.pending.entry(tx).or_default();
@@ -194,12 +194,12 @@ impl DeterministicScheduler {
         }
 
         // Boundary ports: any intersection conflicts (b_in and b_out combined)
-        for port_key in pr.footprint.b_in.iter() {
+        for port_key in pr.footprint.b_in.keys() {
             if active.ports.contains(*port_key) {
                 return true;
             }
         }
-        for port_key in pr.footprint.b_out.iter() {
+        for port_key in pr.footprint.b_out.keys() {
             if active.ports.contains(*port_key) {
                 return true;
             }
@@ -224,10 +224,10 @@ impl DeterministicScheduler {
         for edge_hash in pr.footprint.e_read.iter() {
             active.edges_read.mark(EdgeId(*edge_hash));
         }
-        for port_key in pr.footprint.b_in.iter() {
+        for port_key in pr.footprint.b_in.keys() {
             active.ports.mark(*port_key);
         }
-        for port_key in pr.footprint.b_out.iter() {
+        for port_key in pr.footprint.b_out.keys() {
             active.ports.mark(*port_key);
         }
     }
@@ -514,6 +514,137 @@ impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
     }
 }
 
+// ============================================================================
+// Legacy scheduler (BTreeMap drain + Vec<Footprint> independence)
+// ============================================================================
+
+#[derive(Debug, Default)]
+pub(crate) struct LegacyScheduler {
+    pending: HashMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
+    active: HashMap<TxId, Vec<Footprint>>,
+    #[cfg(feature = "telemetry")]
+    counters: HashMap<TxId, (u64, u64)>, // (reserved, conflict)
+}
+
+impl LegacyScheduler {
+    #[inline]
+    pub(crate) fn enqueue(&mut self, tx: TxId, rewrite: PendingRewrite) {
+        let entry = self.pending.entry(tx).or_default();
+        entry.insert((rewrite.scope_hash, rewrite.rule_id), rewrite);
+    }
+
+    pub(crate) fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
+        self.pending
+            .remove(&tx)
+            .map(|map| map.into_values().collect())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
+        let frontier = self.active.entry(tx).or_default();
+        for fp in frontier.iter() {
+            if !pr.footprint.independent(fp) {
+                pr.phase = RewritePhase::Aborted;
+                #[cfg(feature = "telemetry")]
+                {
+                    let entry = self.counters.entry(tx).or_default();
+                    entry.1 += 1;
+                }
+                #[cfg(feature = "telemetry")]
+                telemetry::conflict(tx, &pr.rule_id);
+                return false;
+            }
+        }
+        pr.phase = RewritePhase::Reserved;
+        frontier.push(pr.footprint.clone());
+        #[cfg(feature = "telemetry")]
+        {
+            let entry = self.counters.entry(tx).or_default();
+            entry.0 += 1;
+        }
+        #[cfg(feature = "telemetry")]
+        telemetry::reserved(tx, &pr.rule_id);
+        true
+    }
+
+    pub(crate) fn finalize_tx(&mut self, tx: TxId) {
+        #[cfg(feature = "telemetry")]
+        if let Some((reserved, conflict)) = self.counters.remove(&tx) {
+            telemetry::summary(tx, reserved, conflict);
+        }
+        self.active.remove(&tx);
+        self.pending.remove(&tx);
+    }
+}
+
+// ============================================================================
+// Scheduler wrapper (swap between radix and legacy)
+// ============================================================================
+
+/// Selects which deterministic scheduler implementation to use.
+#[derive(Debug, Clone, Copy)]
+pub enum SchedulerKind {
+    /// Radix-based pending queue with O(n) drain and GenSet independence checks (default).
+    Radix,
+    /// Legacy BTreeMap + Vec<Footprint> implementation for comparisons.
+    Legacy,
+}
+
+#[derive(Debug)]
+pub(crate) struct DeterministicScheduler {
+    inner: SchedulerImpl,
+}
+
+#[derive(Debug)]
+enum SchedulerImpl {
+    Radix(RadixScheduler),
+    Legacy(LegacyScheduler),
+}
+
+impl Default for DeterministicScheduler {
+    fn default() -> Self {
+        Self::new(SchedulerKind::Radix)
+    }
+}
+
+impl DeterministicScheduler {
+    pub(crate) fn new(kind: SchedulerKind) -> Self {
+        let inner = match kind {
+            SchedulerKind::Radix => SchedulerImpl::Radix(RadixScheduler::default()),
+            SchedulerKind::Legacy => SchedulerImpl::Legacy(LegacyScheduler::default()),
+        };
+        Self { inner }
+    }
+
+    pub(crate) fn enqueue(&mut self, tx: TxId, rewrite: PendingRewrite) {
+        match &mut self.inner {
+            SchedulerImpl::Radix(s) => s.enqueue(tx, rewrite),
+            SchedulerImpl::Legacy(s) => s.enqueue(tx, rewrite),
+        }
+    }
+
+    pub(crate) fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
+        match &mut self.inner {
+            SchedulerImpl::Radix(s) => s.drain_for_tx(tx),
+            SchedulerImpl::Legacy(s) => s.drain_for_tx(tx),
+        }
+    }
+
+    pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
+        match &mut self.inner {
+            SchedulerImpl::Radix(s) => s.reserve(tx, pr),
+            SchedulerImpl::Legacy(s) => s.reserve(tx, pr),
+        }
+    }
+
+    pub(crate) fn finalize_tx(&mut self, tx: TxId) {
+        match &mut self.inner {
+            SchedulerImpl::Radix(s) => s.finalize_tx(tx),
+            SchedulerImpl::Legacy(s) => s.finalize_tx(tx),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,7 +674,7 @@ mod tests {
     fn drain_for_tx_returns_deterministic_order() {
         let tx = TxId::from_raw(1);
         let scope = make_node_id("s");
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
 
         // Insert out of lexicographic order: (2,1), (1,2), (1,1)
         for (scope_h, rule_id) in &[(h(2), 1), (h(1), 2), (h(1), 1)] {
@@ -574,7 +705,7 @@ mod tests {
     fn last_wins_dedupe() {
         let tx = TxId::from_raw(1);
         let scope = make_node_id("s");
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
         let scope_h = h(5);
 
         // Insert same (scope, rule) twice
@@ -625,7 +756,7 @@ mod tests {
         use crate::ident::make_node_id;
 
         let tx = TxId::from_raw(1);
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
         let shared_node = make_node_id("shared");
 
         // First rewrite writes to a node
@@ -677,7 +808,7 @@ mod tests {
         use crate::ident::make_edge_id;
 
         let tx = TxId::from_raw(1);
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
         let shared_edge = make_edge_id("shared");
 
         // First rewrite writes to an edge
@@ -729,7 +860,7 @@ mod tests {
         use crate::ident::make_edge_id;
 
         let tx = TxId::from_raw(1);
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
         let shared_edge = make_edge_id("shared");
 
         // First rewrite writes to an edge
@@ -779,7 +910,7 @@ mod tests {
     #[test]
     fn reserve_should_detect_port_conflict() {
         let tx = TxId::from_raw(1);
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
         let node = make_node_id("port_node");
 
         // First rewrite touches a boundary input port
@@ -833,7 +964,7 @@ mod tests {
         // If marking were non-atomic, subsequent checks would see partial marks.
 
         let tx = TxId::from_raw(1);
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
 
         // First rewrite: writes node A
         let mut rewrite1 = PendingRewrite {
@@ -904,7 +1035,7 @@ mod tests {
 
         fn run_reserve_sequence() -> Vec<bool> {
             let tx = TxId::from_raw(1);
-            let mut sched = DeterministicScheduler::default();
+            let mut sched = RadixScheduler::default();
             let mut results = Vec::new();
 
             // Rewrite 1: writes A
@@ -999,7 +1130,7 @@ mod tests {
         use std::time::Instant;
 
         let tx = TxId::from_raw(1);
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
 
         // Reserve k=100 independent rewrites first
         for i in 0u8..100u8 {
@@ -1057,7 +1188,7 @@ mod tests {
 
             // Clean up for next iteration (finalize and re-init)
             sched.finalize_tx(tx);
-            sched = DeterministicScheduler::default();
+            sched = RadixScheduler::default();
             // Re-reserve the 100 prior rewrites
             for i in 0u8..100u8 {
                 let mut r = PendingRewrite {
@@ -1094,7 +1225,7 @@ mod tests {
     #[test]
     fn reserve_allows_independent_rewrites() {
         let tx = TxId::from_raw(1);
-        let mut sched = DeterministicScheduler::default();
+        let mut sched = RadixScheduler::default();
 
         // Two rewrites with completely disjoint footprints
         let mut rewrite1 = PendingRewrite {

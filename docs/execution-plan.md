@@ -33,6 +33,20 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-30 — PR #121 feedback (perf/scheduler)
+
+- Goal: triage and address CodeRabbit review feedback on scheduler radix drain/footprint changes; ensure determinism and docs guard stay green.
+- Scope: `crates/rmg-core/src/scheduler.rs`, related engine wiring, and any doc/bench fallout; keep PendingTx private and fail-fast drain semantics intact.
+- Plan: classify feedback (P0–P3), implement required fixes on `perf/scheduler`, update Decision Log + docs guard, run `cargo clippy --all-targets` and relevant tests.
+- Added: pluggable scheduler kind (Radix default, Legacy BTreeMap option) via `SchedulerKind`; legacy path kept for side-by-side comparisons.
+- Risks: regress deterministic ordering or footprint conflict semantics; ensure histogram O(n) performance and radix counts remain u32 without overflow.
+
+> 2025-12-01 — Sandbox harness for deterministic A/B tests
+
+- Goal: enable spawning isolated Echo instances (Engine + GraphStore) from configs to compare schedulers and determinism.
+- Scope: `rmg-core::sandbox` with `EchoConfig`, `build_engine`, `run_pair_determinism`; public `SchedulerKind` (Radix/Legacy).
+- Behavior: seed + rules provided as factories per instance; synchronous per-step determinism check helper; threaded runs left to callers.
+
 > 2025-11-06 — Unblock commit: rmg-core scheduler Clippy fixes (follow-up)
 
 - Goal: make pre-commit Clippy pass without `--no-verify`, preserving determinism.

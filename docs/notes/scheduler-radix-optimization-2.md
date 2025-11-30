@@ -45,7 +45,7 @@ Player inputs become **candidate rewrites**. Thanks to **confluence** (category-
 
 ```text
 (world, inputs) → world′
-````
+```
 
 No prediction. No rollback. No arbitration. If two machines disagree, a **hash mismatch at frame N+1** is an immediate, precise alarm.
 
@@ -186,7 +186,7 @@ struct RewriteThin {
     scope_be32: [u8; 32], // 256-bit scope
     rule_id:    u32,
     nonce:      u32,
-    handle:     u32,      // index into fat payload vec
+    handle:     usize,    // index into fat payload vec; usize to avoid truncation
 }
 
 struct PendingTx<P> {
@@ -329,7 +329,7 @@ When you can execute **30,000 deterministic rewrites per frame** and still hit *
 
 ## Code References
 
-- **Implementation**: crates/rmg-core/src/scheduler.rs:142-277
+- **Implementation**: crates/rmg-core/src/scheduler.rs (see `radix_sort`, `drain_in_order`)
 - **Benchmarks**: crates/rmg-benches/benches/scheduler_drain.rs
 - **Dashboard**: docs/benchmarks/report-inline.html
 - **PR**: pending on branch repo/tidy

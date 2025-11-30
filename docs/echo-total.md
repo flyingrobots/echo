@@ -260,6 +260,20 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-30 — PR #121 feedback (perf/scheduler)
+
+- Goal: triage and address CodeRabbit review feedback on scheduler radix drain/footprint changes; ensure determinism and docs guard stay green.
+- Scope: `crates/rmg-core/src/scheduler.rs`, related engine wiring, and any doc/bench fallout; keep PendingTx private and fail-fast drain semantics intact.
+- Plan: classify feedback (P0–P3), implement required fixes on `perf/scheduler`, update Decision Log + docs guard, run `cargo clippy --all-targets` and relevant tests.
+- Added: pluggable scheduler kind (Radix default, Legacy BTreeMap option) via `SchedulerKind`; legacy path kept for side-by-side comparisons.
+- Risks: regress deterministic ordering or footprint conflict semantics; ensure histogram O(n) performance and radix counts remain u32 without overflow.
+
+> 2025-12-01 — Sandbox harness for deterministic A/B tests
+
+- Goal: enable spawning isolated Echo instances (Engine + GraphStore) from configs to compare schedulers and determinism.
+- Scope: `rmg-core::sandbox` with `EchoConfig`, `build_engine`, `run_pair_determinism`; public `SchedulerKind` (Radix/Legacy).
+- Behavior: seed + rules provided as factories per instance; synchronous per-step determinism check helper; threaded runs left to callers.
+
 > 2025-11-06 — Unblock commit: rmg-core scheduler Clippy fixes (follow-up)
 
 - Goal: make pre-commit Clippy pass without `--no-verify`, preserving determinism.
@@ -869,6 +883,31 @@ The following entries use a heading + bullets format for richer context.
   - Teach `docs/benchmarks/index.html` to prefer inline data when present, skipping network fetches.
 - Rationale: Remove friction for local perf reviews and allow sharing a single HTML artifact with no server.
 - Consequence: Two paths now exist—live server dashboard and an offline baked report. Documentation updated in main README and benches README. `bench-report` now waits for server readiness and supports `BENCH_PORT`.
+## 2025-11-30 — PR #121 CodeRabbit batch fixes (scheduler/bench/misc)
+
+- Context: Address first review batch for `perf/scheduler` (PR #121) covering radix drain, benches, and tooling hygiene.
+- Decisions:
+  - Removed placeholder `crates/rmg-benches/benches/reserve_scaling.rs` (never ran meaningful work; duplicated hash helper).
+  - Added `PortSet::keys()` and switched scheduler boundary-port conflict/mark loops to use it, clarifying traversal API.
+  - Bumped `rustc-hash` to `2.1.1` for latest fixes/perf; updated `Cargo.lock`.
+  - Relaxed benches `blake3` pin to `~1.8.2` with explicit rationale to allow patch security fixes while keeping rayon disabled.
+  - Cleaned bench dashboards: removed dead `fileBanner` script blocks, fixed fetch fallback logic, and added vendor/.gitignore guard.
+  - Hardened `rmg-math/build.sh` with bash shebang and `set -euo pipefail`.
+- Rationale: Clean CI noise, make API usage explicit for ports, keep hashing dep current, and ensure math build fails fast.
+- Consequence: Bench suite sheds a no-op target; scheduler code compiles against explicit port iteration; dependency audit reflects new rustc-hash and bench pin policy; dashboard JS is consistent; math build is safer. Docs guard satisfied via this log and execution-plan update.
+
+## 2025-12-01 — PR #121 follow-ups (portability, collision bench stub, doc clarifications)
+
+- Context: Second batch of CodeRabbit feedback for scheduler/bench docs.
+- Decisions:
+  - Makefile: portable opener detection (open/xdg-open/powershell) for `bench-open`/`bench-report`.
+  - Added `scheduler_adversarial` Criterion bench exercising FxHashMap under forced collisions vs random keys; added `rustc-hash` to benches dev-deps.
+  - Introduced pluggable scheduler selection (`SchedulerKind`: Radix vs Legacy) with Radix default; Legacy path retains BTreeMap drain + Vec<Footprint> independence for apples-to-apples comparisons.
+  - Added sandbox helpers (`EchoConfig`, `build_engine`, `run_pair_determinism`) for spinning up isolated Echo instances and per-step Radix vs Legacy determinism checks.
+  - Documentation clarifications: collision-risk assumption and follow-up note in `docs/scheduler-reserve-complexity.md`; softened reserve validation claims and merge gating for the “10–100x” claim in `docs/scheduler-reserve-validation.md`; fixed radix note fences and `RewriteThin.handle` doc to `usize`.
+  - rmg-math: documented \DPO macro parameters; fixed `rmg-rulial-distance.tex` date to be deterministic.
+  - scripts/bench_bake.py: executable bit, narrower exception handling, f-string output.
+- Consequence: Bench portability and collision stress coverage improved; sandbox enables A/B determinism tests; docs no longer overclaim; LaTeX artifacts become reproducible. Remaining follow-ups: adversarial hasher evaluation, markdown lint sweep, IdSet/PortSet IntoIterator ergonomics.
 
 
 ---
@@ -2635,7 +2674,7 @@ Player inputs become **candidate rewrites**. Thanks to **confluence** (category-
 
 ```text
 (world, inputs) → world′
-````
+```
 
 No prediction. No rollback. No arbitration. If two machines disagree, a **hash mismatch at frame N+1** is an immediate, precise alarm.
 
@@ -2776,7 +2815,7 @@ struct RewriteThin {
     scope_be32: [u8; 32], // 256-bit scope
     rule_id:    u32,
     nonce:      u32,
-    handle:     u32,      // index into fat payload vec
+    handle:     usize,    // index into fat payload vec; usize to avoid truncation
 }
 
 struct PendingTx<P> {
@@ -2919,7 +2958,7 @@ When you can execute **30,000 deterministic rewrites per frame** and still hit *
 
 ## Code References
 
-- **Implementation**: crates/rmg-core/src/scheduler.rs:142-277
+- **Implementation**: crates/rmg-core/src/scheduler.rs (see `radix_sort`, `drain_in_order`)
 - **Benchmarks**: crates/rmg-benches/benches/scheduler_drain.rs
 - **Dashboard**: docs/benchmarks/report-inline.html
 - **PR**: pending on branch repo/tidy
@@ -3378,6 +3417,55 @@ The graph is a straight line. The future is deterministic. **And Echo is how we 
 ---
 
 *Want to learn more? Check out the [Echo documentation](../../) or join the discussion on [GitHub](https://github.com/flyingrobots/echo).*
+
+
+---
+
+
+# File: notes/xtask-wizard.md
+
+# xtask “workday wizard” — concept note
+
+Goal: a human-friendly `cargo xtask` (or `just`/`make` alias) that walks a contributor through starting and ending a work session, with automation hooks for branches, PRs, issues, and planning.
+
+## Core flow
+
+### Start session
+- Prompt for intent/issue: pick from open GitHub issues (via gh CLI) or free text → writes to `docs/execution-plan.md` Today’s Intent and opens a draft entry in `docs/decision-log.md`.
+- Branch helper: suggest branch name (`echo/<issue>-<slug>`), create and checkout if approved.
+- Env checks: toolchain match, hooks installed (`make hooks`), `cargo fmt -- --check`/`clippy` optional preflight.
+
+### During session
+- Task DAG helper: load tasks from issue body / local `tasks.yaml`; compute simple priority/topo order (dependencies, P1/P0 tags).
+- Bench/test shortcuts: menu to run common commands (clippy, cargo test -p rmg-core, bench targets).
+- Docs guard assist: if runtime code touched, remind to update execution-plan + decision-log; offer to append templated entries.
+
+### End session
+- Summarize changes: gather `git status`, staged/untracked hints; prompt for decision-log entry (Context/Decision/Rationale/Consequence).
+- PR prep: prompt for PR title/body template (with issue closing keywords); optionally run `git commit` and `gh pr create`.
+- Issue hygiene: assign milestone/board/labels via gh CLI; auto-link PR to issue.
+- Optional: regenerate `docs/echo-total.md` if docs touched.
+
+## Nice-to-haves
+- Determinism check shortcut: run twin-engine sandbox determinism A/B (radix vs legacy) and summarize.
+- Planner math: simple critical path/priority scoring across tasks.yaml; suggest next task when current is blocked.
+- Cache hints: detect heavy commands run recently, skip/confirm rerun.
+- Telemetry: write a small JSON session record for later blog/mining (start/end time, commands run, tests status).
+
+## Tech sketch
+- Implement under `xtask` crate in workspace; expose `cargo xtask wizard`.
+- Use `dialoguer`/`inquire` for prompts; `serde_yaml/json` for tasks; `gh` CLI for GitHub ops (fallback to no-op if missing).
+- Config file (`.echo/xtask.toml`) for defaults (branch prefix, issue labels, PR template path).
+
+## Open questions
+- How much is automated vs. suggested (avoid surprising commits)?
+- Should Docs Guard be enforced via wizard or still via hooks?
+- Where to store per-session summaries (keep in git via decision-log or external log)?
+
+## Next steps
+- Prototype a minimal “start session” + “end session” flow with `gh` optional.
+- Add a `tasks.yaml` example and priority/topo helper.
+- Wire into make/just: `make wizard` → `cargo xtask wizard`.
 
 
 ---
@@ -4263,11 +4351,11 @@ Objective: validate the scheduler design under realistic workloads before full i
 
 ## Current Implementation (GenSet-based)
 
-### Code Structure (scheduler.rs:117-245)
+### Code Structure (scheduler.rs)
 
 ```
 reserve(tx, pending_rewrite):
-  Phase 1: Conflict Detection (lines 124-214)
+  Phase 1: Conflict Detection
     for node in n_write:           // |n_write| iterations
       if nodes_written.contains() OR nodes_read.contains():  // O(1) each
         return false
@@ -4292,7 +4380,7 @@ reserve(tx, pending_rewrite):
       if ports.contains():         // O(1)
         return false
 
-  Phase 2: Marking (lines 216-234)
+  Phase 2: Marking
     for node in n_write: mark()    // |n_write| × O(1)
     for node in n_read: mark()     // |n_read| × O(1)
     for edge in e_write: mark()    // |e_write| × O(1)
@@ -4320,20 +4408,18 @@ reserve(tx, pending_rewrite):
 
 ### Important Notes
 
-1. **Hash Table Complexity:**
-   - GenSet uses `FxHashMap` which is O(1) average case
-   - Worst case with pathological hash collisions: O(log n) or O(n)
-   - In practice with good hashing: **O(1) amortized**
+1. **Hash Table Complexity / Assumptions:**
+   - GenSet uses `FxHashMap` which is O(1) average case.
+   - Worst case with pathological hash collisions: O(log n) or O(n).
+   - Assumes no adversarial inputs targeting collisions; production should evaluate collision-resistant hashers (aHash/SipHash) and/or adversarial benchmarks before release.
 
 2. **Early Exit Optimization:**
    - Phase 1 returns immediately on first conflict
    - Best case (early conflict): O(1)
    - Worst case (no conflict or late conflict): O(m)
 
-3. **Counting the Loops:**
-   - **10 for loops total** (6 in Phase 1, 4 in Phase 2... wait, let me recount)
-   - Actually: **12 for loops** (6 in Phase 1 checking, 6 in Phase 2 marking)
-   - But each processes a different subset of footprint
+3. **Counting the Loops:** 12 total (6 conflict checks, 6 marks), each over disjoint footprint subsets.
+4. **Follow-up:** Add adversarial-collision benchmarks and evaluate collision-resistant hashers before claiming worst-case O(1) in production.
 
 ## Previous Implementation (Vec<Footprint>-based)
 
@@ -4580,29 +4666,23 @@ GenSet uses `FxHashMap`:
 | 100 | 244.2 | 55.5× |
 
 **Analysis:**
-- Roughly **linear scaling** with footprint size
-- Not quadratic (which would show 100² = 10,000× for m=100)
-- If it were O(k×m) with k=100, the m=100 case would be ~100× slower than m=1, not 56×
-- Superlinear growth (56× vs 100×) likely due to:
-  - Hash table resizing overhead
-  - Cache effects with larger working sets
-  - Allocation costs
+- Scaling appears closer to linear in m, but single-run, noisy timing is insufficient to prove complexity class.
+- O(k×m) with k fixed at 100 would predict ~100× slower at m=100 vs m=1; observed ~56× suggests overhead/caches dominate and variance is high.
+- Next step: re-run with Criterion (multiple samples, CI-stable), include error bars, and isolate reserve() from rebuild/setup costs.
 
 ### Theoretical vs Empirical
 
-**Claimed:** "10-100x faster"
+**Claimed:** "10–100x faster" (theoretical)
 
-**Reality:**
-- **Theoretical speedup** for k=100, m=20: ~100×
-- **Empirical measurement needed** to compare old vs new directly
-- Current test shows **O(m) scaling confirmed**
-- Independence from k is proven by design
+**Reality so far:**
+- This test suggests roughly linear-ish scaling in m but is too noisy to confirm complexity or speedup magnitude.
+- No direct measurement against the previous Vec<Footprint> baseline yet.
+- Independence from k is by algorithm design, not directly benchmarked here.
 
 **Honest Assessment:**
-- ✅ O(m) complexity confirmed empirically
-- ✅ Independence from k proven by algorithm
-- ⚠️  "10-100x" claim is extrapolated, not measured against old code
-- ✅ For k=100, speedup should be ~100× in the limit
+- ⚠️ Complexity class not proven; data is suggestive only.
+- ⚠️ “10–100x faster” remains unvalidated until baseline comparisons are benchmarked.
+- ✅ Algorithmic path to k-independence is sound; needs empirical confirmation.
 
 ---
 
@@ -4648,7 +4728,7 @@ GenSet uses `FxHashMap`:
 ✅ **12 for-loops:** Counted and documented
 ⚠️  **"10-100x faster":** Extrapolated from theory, not benchmarked
 
-**Recommendation:** The implementation is correct and has good complexity. The performance claim is theoretically sound but should be validated with actual benchmarks comparing old vs new before being stated as fact.
+**Recommendation:** Merge only after either (a) removing the “10–100x faster” claim from PR title/description, or (b) providing benchmark evidence against the previous implementation. Include the caution above in the PR description/commit message. Add a checklist item to block release until baseline vs. new benchmarks are captured with error bars.
 
 **Good enough for merge?** Yes, with caveats in commit message about theoretical vs measured performance.
 

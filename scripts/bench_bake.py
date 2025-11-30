@@ -56,7 +56,11 @@ def load_estimate(group: str, n: int):
                     .get("upper_bound")
                 )
                 if mean is None:
-                    raise ValueError("missing mean.point_estimate")
+                    return {
+                        "ok": False,
+                        "path": str(p.relative_to(ROOT)),
+                        "error": "missing mean.point_estimate",
+                    }
                 return {
                     "ok": True,
                     "path": str(p.relative_to(ROOT)),
@@ -64,7 +68,7 @@ def load_estimate(group: str, n: int):
                     "lb": float(lb) if lb is not None else None,
                     "ub": float(ub) if ub is not None else None,
                 }
-            except Exception as e:
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
                 return {
                     "ok": False,
                     "path": str(p.relative_to(ROOT)),
@@ -78,13 +82,13 @@ def load_estimate(group: str, n: int):
 
 
 def build_inline_script(results, missing) -> str:
+    data_json = json.dumps(results, separators=(",", ":"))
+    missing_json = json.dumps(missing, separators=(",", ":"))
     return (
-        "<script>\n"
-        + "window.__CRITERION_DATA__ = "
-        + json.dumps(results, separators=(",", ":"))
-        + ";\nwindow.__CRITERION_MISSING__ = "
-        + json.dumps(missing, separators=(",", ":"))
-        + ";\n</script>\n"
+        f"<script>\n"
+        f"window.__CRITERION_DATA__ = {data_json};\n"
+        f"window.__CRITERION_MISSING__ = {missing_json};\n"
+        f"</script>\n"
     )
 
 
@@ -134,4 +138,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

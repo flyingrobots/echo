@@ -1,0 +1,6 @@
+# Prevent accidental commits of vendored assets; .gitkeep remains tracked.
+*.js
+*.js.map
+*.css
+*.css.map
+!.gitkeep

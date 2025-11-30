@@ -1,24 +1,25 @@
 #![allow(missing_docs)]
-pub use rmg_core::math::scalar::F32Scalar;
+use rmg_core::math::scalar::F32Scalar;
+use rmg_core::math::Scalar;
 
 #[test]
 fn test_f32_basics() {
     // constants
-    let zero = F32Scalar::zero();
-    let one = F32Scalar::one();
-    assert_eq!(zero.0, 0.0);
-    assert_eq!(one.0, 1.0);
+    let zero = F32Scalar::ZERO;
+    let one = F32Scalar::ONE;
+    assert_eq!(zero.value, 0.0);
+    assert_eq!(one.value, 1.0);
 
     // basic math
-    let a = F32Scalar(5.0);
-    let b = F32Scalar(2.0);
+    let a = F32Scalar::new(5.0);
+    let b = F32Scalar::new(2.0);
+    assert_eq!((a + b).value, 7.0);
+    assert_eq!((a - b).value, 3.0);
 
-    assert_eq!((a + b), 7.0);
-    assert_eq!((a - b), 3.0);
-    assert_eq!((a * b), 10.0);
-    assert_eq!((a / b), 2.5);
+    assert_eq!((a * b).value, 10.0);
+    assert_eq!((a / b).value, 2.5);
 
-    let angle = F32Scalar(std::f32::consts::PI);
-    assert_eq!(angle.sin().0, angle.0.sin());
-    assert_eq!(angle.cos().0, angle.0.cos());
+    let angle = F32Scalar::new(std::f32::consts::PI);
+    assert_eq!(angle.sin().value, angle.value.sin());
+    assert_eq!(angle.cos().value, angle.value.cos());
 }

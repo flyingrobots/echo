@@ -1,0 +1,30 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# LaTeX build artifacts
+*.aux
+*.log
+*.toc
+*.lof
+*.lot
+*.fls
+*.synctex.gz
+*.xdv
+*.ps
+*.dvi
+*.out
+*.nav
+*.snm
+*.vrb
+*.fdb_latexmk
+*.fls
+_minted*
+*.run.xml
+*.bbl
+*.blg
+*.idx
+*.ind
+*.ilg
+*.gz
+*.lbx
+
+# Output PDF
+main.pdf

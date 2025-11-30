@@ -8,7 +8,7 @@ use std::f32::consts::TAU;
 mod mat4;
 mod prng;
 mod quat;
-mod scalar;
+pub mod scalar;
 mod vec3;
 
 #[doc(inline)]

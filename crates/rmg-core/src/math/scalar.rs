@@ -82,3 +82,88 @@ pub trait Scalar:
     /// even) and ensure platform-stable results.
     fn to_f32(self) -> f32;
 }
+
+/// Deterministic f32 value
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct F32Scalar {
+    /// The wrapped f32 value
+    pub value: f32,
+}
+
+impl F32Scalar {
+    /// Nil value
+    pub const ZERO: Self = Self::new(0.0);
+
+    /// Identity value
+    pub const ONE: Self = Self::new(1.0);
+
+    /// Constructs a `F32Scalar` with the specified value `num`
+    pub const fn new(num: f32) -> Self {
+        Self { value: num }
+    }
+}
+
+impl Scalar for F32Scalar {
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    fn one() -> Self {
+        Self::ONE
+    }
+
+    fn sin(self) -> Self {
+        Self::new(self.value.sin())
+    }
+
+    fn cos(self) -> Self {
+        Self::new(self.value.cos())
+    }
+
+    fn sin_cos(self) -> (Self, Self) {
+        (Self::new(self.value.sin()), Self::new(self.value.cos()))
+    }
+
+    fn from_f32(value: f32) -> Self {
+        Self::new(value)
+    }
+
+    fn to_f32(self) -> f32 {
+        self.value
+    }
+}
+
+impl Add for F32Scalar {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self::new(self.value + rhs.value)
+    }
+}
+
+impl Sub for F32Scalar {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self::new(self.value - rhs.value)
+    }
+}
+
+impl Mul for F32Scalar {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self {
+        Self::new(self.value * rhs.value)
+    }
+}
+
+impl Div for F32Scalar {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self {
+        Self::new(self.value / rhs.value)
+    }
+}
+
+impl Neg for F32Scalar {
+    type Output = Self;
+    fn neg(self) -> Self {
+        Self::new(-self.value)
+    }
+}

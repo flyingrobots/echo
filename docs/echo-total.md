@@ -297,8 +297,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Goal: Ensure bit-level deterministic handling of zero for `F32Scalar` and implement necessary traits for comprehensive numerical behavior.
 - Scope: `crates/rmg-core/src/math/scalar.rs` and `crates/rmg-core/tests/math_scalar_tests.rs`.
-- Changes: `F32Scalar` canonicalizes `-0.0` to `+0.0` on construction, `value` field made private, and `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Display` traits implemented.
-- Added: Tests for zero canonicalization and trait behavior.
+- Changes:
+    - `F32Scalar` canonicalizes `-0.0` to `+0.0` on construction.
+    - `value` field made private.
+    - `PartialEq` implemented via `Ord` (total_cmp) to ensure `NaN == NaN` (reflexivity).
+    - `Eq`, `PartialOrd`, `Ord`, `Display` traits implemented.
+- Added: Tests for zero canonicalization, trait behavior, and NaN reflexivity.
 - Risks: Introducing unexpected performance overhead or subtly breaking existing math operations; mitigated by unit tests and focused changes.
 
 > 2025-11-29 – Finish off `F32Scalar` implementation
@@ -664,6 +668,7 @@ Remember: every entry here shrinks temporal drift between Codices. Leave breadcr
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
 | 2025-11-29 | LICENSE | Add SPDX headers to all files | LEGAL PROTECTION 🛡️✨ |
+| 2025-11-30 | `F32Scalar` NaN reflexivity | Update `PartialEq` implementation to use `total_cmp` (via `Ord`) instead of `f32::eq`. | Ensures `Eq` reflexivity holds even for NaN (`NaN == NaN`), consistent with `Ord`. Prevents violations of the `Eq` contract in collections. | `F32Scalar` now behaves as a totally ordered type; NaN values are considered equal to themselves and comparable. |
 | 2025-11-30 | `F32Scalar` canonicalization | Enforce bitwise determinism by canonicalizing `-0.0` to `+0.0` for all `F32Scalar` instances; implement `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Display`. Make `value` field private. | Essential for bit-perfect cross-platform determinism in math operations and comparisons, especially for hashing and serialization. Prevents accidental introduction of `-0.0` by direct field access. | Guarantees consistent numerical behavior for `F32Scalar`; all public API methods and constructors now ensure canonical zero. |
 | 2025-11-29 | `F32Scalar` | Add `rmg-core::math::scalar::F32Scalar` type | Now we have it. |
 | 2025-11-03 | Scalar foundation | Add `rmg-core::math::Scalar` trait (operator supertraits + sin/cos) | Arithmetic via `Add/Sub/Mul/Div/Neg` supertraits for ergonomic `+ - * /`; `sin/cos` methods declared; canonicalization/LUTs deferred | Unblocks F32Scalar and DFix64 implementations; math code can target a stable trait |

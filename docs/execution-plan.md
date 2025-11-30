@@ -66,8 +66,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Goal: Ensure bit-level deterministic handling of zero for `F32Scalar` and implement necessary traits for comprehensive numerical behavior.
 - Scope: `crates/rmg-core/src/math/scalar.rs` and `crates/rmg-core/tests/math_scalar_tests.rs`.
-- Changes: `F32Scalar` canonicalizes `-0.0` to `+0.0` on construction, `value` field made private, and `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Display` traits implemented.
-- Added: Tests for zero canonicalization and trait behavior.
+- Changes:
+    - `F32Scalar` canonicalizes `-0.0` to `+0.0` on construction.
+    - `value` field made private.
+    - `PartialEq` implemented via `Ord` (total_cmp) to ensure `NaN == NaN` (reflexivity).
+    - `Eq`, `PartialOrd`, `Ord`, `Display` traits implemented.
+- Added: Tests for zero canonicalization, trait behavior, and NaN reflexivity.
 - Risks: Introducing unexpected performance overhead or subtly breaking existing math operations; mitigated by unit tests and focused changes.
 
 > 2025-11-29 – Finish off `F32Scalar` implementation

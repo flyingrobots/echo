@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Lightweight sandbox utilities for spinning up isolated Echo instances (Engine + `GraphStore`)
 //! with configurable scheduler and seeds for determinism tests and A/B comparisons.
 

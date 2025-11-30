@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Codex’s Baby Specification (Phase 0.5)
 
 Codex’s Baby (CB) is Echo’s deterministic event bus. It orchestrates simulation events, cross-branch messaging, and inspector telemetry while respecting causality, security, and the determinism invariants defined in Phase 0.5.

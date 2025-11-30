@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # RMG Demo Roadmap (Phase 1 Targets)
 
 This document captures the interactive demos and performance milestones we want to hit as we implement the Rust-based RMG runtime. Each demo proves a key property of Echo’s deterministic multiverse architecture.

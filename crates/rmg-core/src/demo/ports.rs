@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Demo rule that reserves a boundary input port, used to exercise the
 //! reservation gate and independence checks.
-
 use crate::engine_impl::Engine;
 use crate::footprint::{pack_port_key, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;

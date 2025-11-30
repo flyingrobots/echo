@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 name: Task
 description: Small, bite-sized task (1–3 hours, max 5 per feature)
 title: "task: <short description>"

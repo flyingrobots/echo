@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 /// Stateful `xoroshiro128+` pseudo-random number generator for deterministic timelines.
 ///
 /// * Not cryptographically secure; use only for gameplay/state simulation.

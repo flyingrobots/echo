@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 // Telemetry helpers for JSONL logging when the `telemetry` feature is enabled.
 
 #[cfg(feature = "telemetry")]

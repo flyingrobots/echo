@@ -7,6 +7,8 @@
 
 # File: docs-index.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Documentation Index
 
 | Document | Purpose |
@@ -57,6 +59,8 @@
 
 # File: architecture-outline.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Architecture Specification (Draft)
 
 ## Vision
@@ -225,6 +229,8 @@
 
 # File: execution-plan.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Execution Plan (Living Document)
 
 This is Codex’s working map for building Echo. Update it relentlessly—each session, checkpoint what moved, what’s blocked, and what future-Codex must know.
@@ -641,12 +647,15 @@ Remember: every entry here shrinks temporal drift between Codices. Leave breadcr
 
 # File: decision-log.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Decision Log
 
 *Demo outcomes should prefix the Decision column with `Demo <number> — …` to keep entries searchable.*
 
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
+| 2025-11-29 | LICENSE | Add SPDX headers to all files | LEGAL PROTECTION 🛡️✨ |
 | 2025-11-29 | `F32Scalar` | Add `rmg-core::math::scalar::F32Scalar` type | Now we have it. |
 | 2025-11-03 | Scalar foundation | Add `rmg-core::math::Scalar` trait (operator supertraits + sin/cos) | Arithmetic via `Add/Sub/Mul/Div/Neg` supertraits for ergonomic `+ - * /`; `sin/cos` methods declared; canonicalization/LUTs deferred | Unblocks F32Scalar and DFix64 implementations; math code can target a stable trait |
 | 2025-10-23 | Repo reset | Adopt pnpm + TS skeleton | Monorepo scaffolding for Echo | Phase 0 tasks established |
@@ -919,6 +928,8 @@ The following entries use a heading + bullets format for richer context.
 
 # File: BENCHMARK_GUIDE.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # How to Add Benchmarks to Echo
 
 This guide covers Echo's gold standard for benchmarking: **Criterion + JSON artifacts + D3.js dashboard integration**.
@@ -1324,6 +1335,8 @@ Before considering your benchmark "done":
 
 # File: ISSUES_MATRIX.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Issues Matrix (Active Plan)
 
 This table mirrors the current state of active issues in Project 9 with our plan-aligned milestones and relationships. Native GitHub dependencies represent "blocked by"/"blocking"; we no longer use custom text fields for these. The Project board remains the live system of record for status.
@@ -1352,6 +1365,8 @@ Backlog issues are labeled `backlog` and kept visible in the Project; they will 
 
 # File: ROADMAP.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Roadmap (Milestones + Issue Map)
 
 This roadmap reconciles our current plan with GitHub milestones, issues, and the Project board (Project 9). It is the single source of truth for “what’s next”.
@@ -1436,6 +1451,8 @@ Maintainers: keep this file in sync when re‑prioritizing or moving issues betw
 
 # File: benchmarks/RESERVE_BENCHMARK.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Reserve Independence Benchmark
 
 ## Overview
@@ -1580,6 +1597,8 @@ See TODO in `crates/rmg-benches/benches/scheduler_drain.rs:11` for tracking.
 
 # File: branch-merge-playbook.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Branch Merge Conflict Playbook
 
 Merging timelines is where Echo’s temporal sandbox shines. This playbook defines how we detect, surface, and resolve conflicts when combining branch diffs.
@@ -1674,6 +1693,8 @@ interface MergeConflict {
 
 # File: code-map.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Code Map
 
 > Quick index from concepts → code, with the most relevant specs.
@@ -1738,6 +1759,8 @@ interface MergeConflict {
 
 # File: codex-implementation-checklist.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Codex's Baby Implementation Checklist
 
 A step-by-step guide for turning the event bus spec into working code.
@@ -1806,6 +1829,8 @@ A step-by-step guide for turning the event bus spec into working code.
 
 # File: codex-instrumentation.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Codex’s Baby Instrumentation Plan
 
 This document defines the telemetry, logging, and debugging hooks for Codex’s Baby. Instrumentation must be deterministic-friendly and cheap enough for production builds, with richer introspection available in development.
@@ -1904,6 +1929,8 @@ interface CodexInstrumentationOptions {
 
 # File: determinism-invariants.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Determinism Invariants
 
 Echo guarantees the following invariants. Any violation aborts the tick deterministically and emits an error node for replay analysis.
@@ -1924,6 +1951,8 @@ These invariants guide both implementation and test suites.
 
 # File: diagrams.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Diagram Vault
 
 This folder sketches Echo’s moving parts using Mermaid. Each diagram matches the architecture spec and will eventually power an animated viewer (GSAP + SVG) once we export the Mermaid graphs.
@@ -2124,6 +2153,8 @@ Once the architecture crystallizes, we’ll wire these into a future documentati
 
 # File: guide/collision-tour.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 ---
 title: Collision DPO Tour
 ---
@@ -2143,6 +2174,8 @@ Tip: Toggle the World/Graph tabs in the picture-in-picture panel and use the Pre
 
 # File: hash-graph.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Hash Graph Overview
 
 Echo uses content-addressed hashing to provide provenance and deterministic replay. This document maps how hashes relate across subsystems.
@@ -2192,6 +2225,8 @@ These hashes ensure each phase of the simulation can be verified independently a
 
 # File: index.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 ---
 title: Echo Docs
 ---
@@ -2209,6 +2244,8 @@ Deterministic, multiverse-aware ECS.
 
 # File: math-validation-plan.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Deterministic Math Validation Plan
 
 Goal: ensure Echo’s math module produces identical results across environments (Node, browsers, potential native wrappers) in both float32 and fixed-point modes.
@@ -2293,6 +2330,8 @@ Goal: ensure Echo’s math module produces identical results across environments
 
 # File: notes/scheduler-optimization-followups.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler Optimization Follow-up Tasks
 
 This document contains prompts for future work addressing gaps identified during the scheduler radix optimization session.
@@ -2631,6 +2670,8 @@ The guiding principle: **"Ship what works for real use cases, iterate if profili
 
 # File: notes/scheduler-radix-optimization-2.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # From $O(n \log n)$ to $O(n)$: Optimizing Echo’s Deterministic Scheduler
 **Tags:** performance, algorithms, optimization, radix-sort
 
@@ -2977,6 +3018,8 @@ _Curious? Dive into the Echo docs or join the conversation on [GitHub](https://g
 
 # File: notes/scheduler-radix-optimization.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # From $O(n log n)$ to $O(n)$: Optimizing Echo's Deterministic Scheduler
 
 **Tags:** performance, algorithms, optimization, radix-sort
@@ -3428,6 +3471,8 @@ The graph is a straight line. The future is deterministic. **And Echo is how we 
 
 # File: notes/xtask-wizard.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # xtask “workday wizard” — concept note
 
 Goal: a human-friendly `cargo xtask` (or `just`/`make` alias) that walks a contributor through starting and ending a work session, with automation hooks for branches, PRs, issues, and planning.
@@ -3477,6 +3522,8 @@ Goal: a human-friendly `cargo xtask` (or `just`/`make` alias) that walks a contr
 
 # File: phase1-plan.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Phase 1 – Core Ignition Plan
 
 Goal: deliver a deterministic Rust implementation of RMG powering the Echo runtime, with tangible demos at each milestone. This plan outlines task chains, dependencies, and expected demonstrations.
@@ -3598,6 +3645,8 @@ Phase 1 completes when Demo 6 (Live Coding) runs atop the Rust RMG runtime with 
 
 # File: release-criteria.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Release Criteria — Phase 0.5 → Phase 1
 
 Checklist for closing Phase 0.5 and starting Phase 1 implementation.
@@ -3624,6 +3673,8 @@ Once all items checked, open Phase 1 milestone and migrate outstanding tasks to 
 
 # File: rmg-demo-roadmap.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # RMG Demo Roadmap (Phase 1 Targets)
 
 This document captures the interactive demos and performance milestones we want to hit as we implement the Rust-based RMG runtime. Each demo proves a key property of Echo’s deterministic multiverse architecture.
@@ -3712,6 +3763,8 @@ This document captures the interactive demos and performance milestones we want 
 
 # File: rmg-math-claims.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # The Claim
 
 There is a faithful, structure‑preserving embedding of typed hypergraph rewriting (the WPP substrate) into typed open‑graph DPOI rewriting (RMG). This gives you a compositional, algebraic handle on “the space of computations” that the Ruliad gestures at. And you can actually compile and reason about it.
@@ -3957,6 +4010,8 @@ So “rulial distance” is not poetry: with translators as compiled RMG rule pa
 
 # File: rmg-runtime-architecture.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # RMG Runtime Architecture (Phase 1 Blueprint)
 
 This document captures the consensus that emerged for Echo’s Phase 1 implementation: the entire runtime, assets, and tooling operate on top of the Recursive Meta Graph (RMG) engine. Every concept—worlds, systems, entities, components, assets, pipelines—is a graph node. The engine executes deterministic DPO rewrite rules over that graph each tick, emitting snapshots for replay, networking, and tooling.
@@ -4044,6 +4099,8 @@ This loop—the recursive execution of graph rewrite rules—is the heart of Ech
 
 # File: roadmap-mwmr-mini-epic.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # MWMR Concurrency Mini‑Epic Roadmap (Footprints, Reserve Gate, Telemetry)
 
 Status: Active • Owner: rmg-core • Created: 2025-10-27
@@ -4141,6 +4198,8 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 # File: runtime-diagnostics-plan.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Runtime Diagnostics Plan (Phase 0.5)
 
 Outlines logging, tracing, crash recovery, and inspector data streams for Echo runtime.
@@ -4203,6 +4262,8 @@ This plan provides consistent observability without compromising determinism.
 
 # File: rust-lua-ts-division.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Language & Responsibility Map (Phase 1)
 
 Echo’s runtime stack is intentionally stratified. Rust owns the deterministic graph engine; Lua sits on top for gameplay scripting; TypeScript powers the tooling layer via WebAssembly bindings. This document captures what lives where as we enter Phase 1 (Core Ignition).
@@ -4286,6 +4347,8 @@ This division keeps determinism and performance anchored in Rust while giving de
 
 # File: scheduler-benchmarks.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler Benchmark Plan (Phase 0)
 
 Objective: validate the scheduler design under realistic workloads before full implementation. These notes outline benchmark scenarios, metrics, and tooling.
@@ -4351,6 +4414,8 @@ Objective: validate the scheduler design under realistic workloads before full i
 
 # File: scheduler-reserve-complexity.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler `reserve()` Time Complexity Analysis
 
 ## Current Implementation (GenSet-based)
@@ -4513,6 +4578,8 @@ The claim of "10-100x faster" is **extrapolated from complexity analysis**, not 
 
 # File: scheduler-reserve-validation.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler `reserve()` Implementation Validation
 
 This document provides **empirical proof** for claims about the scheduler's reserve() implementation.
@@ -4742,6 +4809,8 @@ GenSet uses `FxHashMap`:
 
 # File: spec-branch-tree.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Branch Tree Persistence Specification (Phase 0)
 
 Echo’s temporal sandbox relies on a persistent simulation tree to support branching, rewinding, and merging. This document defines the data model, hashing, diff encoding, and algorithms that guarantee determinism while enabling rich tooling.
@@ -5141,6 +5210,8 @@ All mutating operations route through Codex’s Baby; determinism invariants enf
 
 # File: spec-capabilities-and-security.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Capabilities & Security Specification (Phase 0.5)
 
 Defines capability tokens, signer policies, and deterministic security faults for Echo subsystems.
@@ -5248,6 +5319,8 @@ This specification ensures capability checks and signatures align with determini
 
 # File: spec-codex-baby.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Codex’s Baby Specification (Phase 0.5)
 
 Codex’s Baby (CB) is Echo’s deterministic event bus. It orchestrates simulation events, cross-branch messaging, and inspector telemetry while respecting causality, security, and the determinism invariants defined in Phase 0.5.
@@ -5482,6 +5555,8 @@ Adhering to this spec aligns Codex’s Baby with the causality layer and determi
 
 # File: spec-concurrency-and-authoring.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Concurrency & Authoring Specification (Phase 0.75)
 
 Clarifies Echo’s deterministic concurrency model and how Lua/Rust developers author gameplay systems at Unity-scale without sacrificing replay guarantees.
@@ -5564,6 +5639,8 @@ This specification ensures large-scale authoring remains deterministic while exp
 
 # File: spec-deterministic-math.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Deterministic Math Module Specification (Phase 0)
 
 Echo’s math module underpins every deterministic system: physics proxies, animation, AI, and branch reconciliation. This spec defines the numeric modes, core types, API surface, and PRNG strategy.
@@ -5759,6 +5836,8 @@ Future work: add unit tests validating cross-environment determinism, micro-benc
 
 # File: spec-ecs-storage.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo ECS Storage Blueprint (Phase 0)
 
 This document specifies the data layout and algorithms for Echo’s entity/component storage. It complements the high-level architecture outline and will guide the first implementation pass in `@echo/core`.
@@ -5917,6 +5996,8 @@ Document updates should flow into implementation tickets and tests (see executio
 
 # File: spec-editor-and-inspector.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Inspector & Editor Protocol Specification (Phase 0.75)
 
 Unifies Echo’s inspector data streams, transport contracts, and extension hooks for tooling.
@@ -6007,6 +6088,8 @@ This protocol standardizes inspector communications for Echo editors, debuggers,
 
 # File: spec-entropy-and-paradox.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Entropy & Paradox Specification (Phase 0.75)
 
 Defines the entropy model, paradox lifecycle, and observer APIs that turn temporal instability into first-class simulation data.
@@ -6121,6 +6204,8 @@ This spec centralizes entropy management, ensuring causal violations are tracked
 
 # File: spec-knots-in-time.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Knots In (and Over) Graphs — Time Knots for Echo
 
 This memo captures two complementary ways to bring knot theory into Echo’s deterministic rewrite engine, and how that interacts with kinematics.
@@ -6249,6 +6334,8 @@ This is why our conservative swept bound is deterministic and exact for pure tra
 
 # File: spec-merkle-commit.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Snapshot Commit Spec (v1)
 
 This document precisely defines the two hashes produced by the engine when recording state and provenance.
@@ -6312,6 +6399,8 @@ Hash: blake3(encode(header)) → commit_id.
 
 # File: spec-mwmr-concurrency.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # RMG MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
 
 Status: Draft • Date: 2025-10-27 • Owner: rmg-core
@@ -6435,6 +6524,8 @@ References: confluence skeleton v5, RMG math confluence, offset-graph arena note
 
 # File: spec-networking.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Networking Specification (Phase 0.75)
 
 Defines Echo’s deterministic networking model based on event replication, rollback, and branch merges.
@@ -6522,6 +6613,9 @@ This spec maintains Echo’s deterministic guarantees across multiplayer scenari
 
 # File: spec-plugin-system.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Plugin System Specification (Phase 0.75)
 
 Defines how plugins extend Echo while preserving determinism and security.
@@ -6601,6 +6695,9 @@ This spec enables safely extensible Echo deployments without compromising determ
 
 
 # File: spec-rmg-confluence.md
+
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # RMG Confluence Specification (Phase 0.75)
 
@@ -6694,6 +6791,8 @@ The Confluence turns Echo’s deterministic worlds into a distributed multiverse
 
 # File: spec-rmg-core.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Recursive Meta Graph (RMG) Core Specification v2
 
 ## 1. Purpose
@@ -6839,6 +6938,8 @@ const graph = await rmg.snapshot();
 
 # File: spec-runtime-config.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Runtime Configuration Specification (Phase 0.75)
 
 Details deterministic configuration schema, load order, and hashing for Echo.
@@ -6910,6 +7011,8 @@ This spec ensures configuration is deterministic, auditable, and reproducible ac
 
 # File: spec-scheduler.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Scheduler Specification (Phase 0)
 
 This document defines the scheduling engine that coordinates systems, branching timelines, and Codex’s Baby across the fixed-timestep loop. It supplements the architecture outline and will guide the first implementation in `@echo/core`.
@@ -7134,6 +7237,8 @@ Document updates feed into implementation tasks (`execution-plan` backlog). Once
 
 # File: spec-serialization-protocol.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Serialization Protocol Specification (Phase 0.5)
 
 Defines the canonical encoding for Echo’s snapshots, diffs, events, and block manifests. Ensures identical bytes across platforms and supports content-addressed storage.
@@ -7280,6 +7385,8 @@ This protocol underpins snapshots, diffs, events, and inspector feeds, enabling 
 
 # File: spec-temporal-bridge.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Temporal Bridge Specification (Phase 0.5)
 
 The Temporal Bridge (TB) is the service that moves events between branches in Echo’s timeline tree. It guarantees deterministic delivery, retro-branch creation, paradox prevention, and entropy bookkeeping.
@@ -7423,6 +7530,8 @@ The Temporal Bridge spec links Codex’s Baby and the branch tree, enforcing cau
 
 # File: spec-timecube.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # TimeCube: Chronos × Kairos × Aion
 
 Purpose
@@ -7562,6 +7671,8 @@ Step 4 — Optional Narrow‑phase Prep
 
 # File: spec-world-api.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # World API Specification (Phase 0.5)
 
 Defines the public façade for interacting with Echo. External modules use this API while internals remain swappable.
@@ -7659,6 +7770,8 @@ This façade shields external consumers from internal architectural shifts while
 
 # File: telemetry-graph-replay.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Telemetry: Graph Snapshot for Repro/Replay (Design Note)
 
 Status: Draft • Scope: rmg-core (dev-only feature)
@@ -7730,6 +7843,8 @@ When a conflict or unexpected outcome occurs during a transaction, logs with cou
 
 # File: testing-and-replay-plan.md
 
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Testing & Replay Plan (Phase 0.5)
 
 Defines how Echo proves determinism end-to-end: automated tests, replay tooling, and golden datasets.

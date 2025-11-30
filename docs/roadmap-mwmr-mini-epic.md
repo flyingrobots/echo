@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # MWMR Concurrency Mini‑Epic Roadmap (Footprints, Reserve Gate, Telemetry)
 
 Status: Active • Owner: rmg-core • Created: 2025-10-27

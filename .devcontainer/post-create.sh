@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 echo "[devcontainer] Installing default toolchain (1.71.1 via rust-toolchain.toml)..."

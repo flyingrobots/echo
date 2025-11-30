@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Temporal types and helpers used for tick-based motion and broad-phase.
 
 #[doc = "Broad-phase proxy carrying entity id, tick, and fat AABB."]

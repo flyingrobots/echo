@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Focused tests for math convenience constructors to boost coverage
 //! and ensure expected semantics for identity/translation/scale and
 //! vector basis constants.

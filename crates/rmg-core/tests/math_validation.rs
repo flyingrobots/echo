@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Deterministic math validation harness for the motion rewrite spike.
 //!
 //! Ensures scalar, vector, matrix, quaternion, and PRNG behaviour stays

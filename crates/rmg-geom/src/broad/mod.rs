@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Broad-phase interfaces and a minimal reference implementation.
 //!
 //! Determinism contract (applies to all implementations used here):

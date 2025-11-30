@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Snapshot Commit Spec (v1)
 
 This document precisely defines the two hashes produced by the engine when recording state and provenance.

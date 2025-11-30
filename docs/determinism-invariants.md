@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Determinism Invariants
 
 Echo guarantees the following invariants. Any violation aborts the tick deterministically and emits an error node for replay analysis.

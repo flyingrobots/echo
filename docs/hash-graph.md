@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Hash Graph Overview
 
 Echo uses content-addressed hashing to provide provenance and deterministic replay. This document maps how hashes relate across subsystems.

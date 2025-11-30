@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 /// Discrete simulation tick in Chronos time.
 ///
 /// The engine advances in integer ticks with a fixed `dt` per branch. This

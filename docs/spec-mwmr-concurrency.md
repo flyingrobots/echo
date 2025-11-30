@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # RMG MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
 
 Status: Draft • Date: 2025-10-27 • Owner: rmg-core

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Demo motion rule: advances position by velocity stored in payload.
 
 use crate::engine_impl::Engine;

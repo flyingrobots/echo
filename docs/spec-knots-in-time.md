@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Knots In (and Over) Graphs — Time Knots for Echo
 
 This memo captures two complementary ways to bring knot theory into Echo’s deterministic rewrite engine, and how that interacts with kinematics.

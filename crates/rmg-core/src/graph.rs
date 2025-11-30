@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Minimal in-memory graph store used by the rewrite executor and tests.
 use std::collections::BTreeMap;
 

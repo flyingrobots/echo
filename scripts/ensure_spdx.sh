@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 set -euo pipefail
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
@@ -14,7 +15,7 @@ is_dual(){
 }
 skip(){
   case "$1" in
-    target/*|node_modules/*|vendor/*|docs/benchmarks/vendor/*|*.png|*.svg|*.pdf|*.wasm|*.woff*|*.map|*.ico) return 0;;
+    */echo-total.md|target/*|node_modules/*|vendor/*|docs/benchmarks/vendor/*|*.png|*.svg|*.pdf|*.wasm|*.woff*|*.map|*.ico) return 0;;
     *) return 1;;
   esac
 }

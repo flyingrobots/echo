@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Snapshot type and hash computation.
 //!
 //! See the high-level spec in `docs/spec-merkle-commit.md` for precise

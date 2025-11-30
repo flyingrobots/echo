@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Branch Merge Conflict Playbook
 
 Merging timelines is where Echo’s temporal sandbox shines. This playbook defines how we detect, surface, and resolve conflicts when combining branch diffs.

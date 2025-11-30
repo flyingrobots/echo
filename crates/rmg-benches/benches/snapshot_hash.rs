@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(missing_docs)]
 //! Benchmark: snapshot hash over a linear chain graph
 //!

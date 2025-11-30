@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! C-compatible bindings for the motion rewrite spike.
 //!
 //! This module exposes a minimal ABI that higher-level languages (Lua, Python,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Deterministic math helpers covering scalar utilities, linear algebra
 //! primitives, quaternions, and timeline-friendly pseudo-random numbers.
 //!

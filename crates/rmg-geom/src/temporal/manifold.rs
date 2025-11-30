@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 use crate::temporal::tick::Tick;
 use crate::types::aabb::Aabb;
 

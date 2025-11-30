@@ -1,4 +1,4 @@
-SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 # Echo
 
 ```rust
@@ -335,13 +335,16 @@ make hooks
 
 ## License
 
-Licensing split:
+**Licensing split:**
 
-- Code (all source/build/tooling): Apache 2.0 — see `LICENSE-APACHE`
-- Theory / math / docs corpus: [Apache 2.0](./LICENSE-APACHE) OR [MIND-UCAL v1.0](./LICENSE-MIND-UCAL) — canonical text: https://github.com/UniversalCharter/mind-ucal/blob/v1.0/LICENSE
+- Code (all source/build/tooling): [Apache 2.0](./LICENSE-APACHE)
+- Theory / math / docs corpus: [Apache 2.0](./LICENSE-APACHE) OR [MIND-UCAL v1.0](./LICENSE-MIND-UCAL)
 
 If you do not wish to use MIND-UCAL, you may freely use all theory, math, and
 documentation under Apache 2.0 alone. No part of this repository requires
 adopting MIND-UCAL.
 
-See `LICENSE` for the summary and `NOTICE` for attribution.
+See [`LICENSE`](./LICENSE) for the summary and [`NOTICE`](./NOTICE) for attribution.
+
+© 2025 James Ross 
+Ω [FLYING•ROBOTS](https://github.com/flyingrobots)

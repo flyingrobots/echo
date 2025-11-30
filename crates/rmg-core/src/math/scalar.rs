@@ -112,7 +112,7 @@ impl F32Scalar {
 
 impl PartialEq for F32Scalar {
     fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
+        self.cmp(other) == Ordering::Equal
     }
 }
 

@@ -10,21 +10,21 @@ fn test_f32_basics() {
     // constants
     let zero = F32Scalar::ZERO;
     let one = F32Scalar::ONE;
-    assert_eq!(zero.value, 0.0);
-    assert_eq!(one.value, 1.0);
+    assert_eq!(zero.to_f32(), 0.0);
+    assert_eq!(one.to_f32(), 1.0);
 
     // basic math
     let a = F32Scalar::new(5.0);
     let b = F32Scalar::new(2.0);
-    assert_eq!((a + b).value, 7.0);
-    assert_eq!((a - b).value, 3.0);
+    assert_eq!((a + b).to_f32(), 7.0);
+    assert_eq!((a - b).to_f32(), 3.0);
 
-    assert_eq!((a * b).value, 10.0);
-    assert_eq!((a / b).value, 2.5);
+    assert_eq!((a * b).to_f32(), 10.0);
+    assert_eq!((a / b).to_f32(), 2.5);
 
     let angle = F32Scalar::new(std::f32::consts::PI);
-    assert_eq!(angle.sin().value, angle.value.sin());
-    assert_eq!(angle.cos().value, angle.value.cos());
+    assert_eq!(angle.sin().to_f32(), angle.to_f32().sin());
+    assert_eq!(angle.cos().to_f32(), angle.to_f32().cos());
 }
 
 #[test]

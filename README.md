@@ -1,3 +1,4 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 # Echo
 
 ```rust
@@ -338,5 +339,9 @@ Licensing split:
 
 - Code (all source/build/tooling): Apache 2.0 — see `LICENSE-APACHE`
 - Theory / math / docs corpus: Apache 2.0 OR MIND-UCAL v1.0 — see `LICENSE-MIND-UCAL`
+
+If you do not wish to use MIND-UCAL, you may freely use all theory, math, and
+documentation under Apache 2.0 alone. No part of this repository requires
+adopting MIND-UCAL.
 
 See `LICENSE` for the summary and `NOTICE` for attribution.

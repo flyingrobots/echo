@@ -55,3 +55,16 @@ fn test_f32_traits() {
                       // So z == nz and z.cmp(nz) == Equal.
     assert_eq!(z.cmp(&nz), std::cmp::Ordering::Equal);
 }
+
+#[test]
+fn test_f32_nan_reflexivity() {
+    let nan = F32Scalar::new(f32::NAN);
+
+    // Eq requires reflexivity: x == x must be true.
+    // Standard f32 is not Eq because NaN != NaN.
+    // Since we claim F32Scalar: Eq, we MUST guarantee nan == nan.
+    assert_eq!(nan, nan);
+
+    // Also ensure cmp is consistent with eq
+    assert_eq!(nan.cmp(&nan), std::cmp::Ordering::Equal);
+}

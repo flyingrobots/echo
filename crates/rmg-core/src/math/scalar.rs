@@ -104,7 +104,7 @@ impl F32Scalar {
 
     /// Constructs a `F32Scalar` with the specified value `num`
     pub const fn new(num: f32) -> Self {
-        Self { value: num }
+        Self { value: num + 0.0 }
     }
 }
 

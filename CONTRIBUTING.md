@@ -1,16 +1,22 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Contributing to Echo
 
 Welcome, chrononaut! Echo thrives when timelines collaborate. Please read this guide before diving in.
 
 ## Table of Contents
-- [Project Philosophy](#project-philosophy)
-- [Getting Started](#getting-started)
-- [Branching & Workflow](#branching--workflow)
-- [Testing Expectations](#testing-expectations)
-- [Documentation & Telemetry](#documentation--telemetry)
-- [Submitting Changes](#submitting-changes)
-- [Code Style](#code-style)
-- [Communication](#communication)
+- [Contributing to Echo](#contributing-to-echo)
+  - [Table of Contents](#table-of-contents)
+  - [Project Philosophy](#project-philosophy)
+  - [Getting Started](#getting-started)
+  - [Branching \& Workflow](#branching--workflow)
+  - [Testing Expectations](#testing-expectations)
+  - [Documentation \& Telemetry](#documentation--telemetry)
+  - [Submitting Changes](#submitting-changes)
+  - [Code Style](#code-style)
+    - [Git Hooks (recommended)](#git-hooks-recommended)
+      - [Partial Staging \& rustfmt](#partial-staging--rustfmt)
+  - [Communication](#communication)
 
 ## Project Philosophy
 Echo is a deterministic, renderer-agnostic engine. We prioritize:

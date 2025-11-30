@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(missing_docs)]
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};

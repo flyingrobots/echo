@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # xtask “workday wizard” — concept note
 
 Goal: a human-friendly `cargo xtask` (or `just`/`make` alias) that walks a contributor through starting and ending a work session, with automation hooks for branches, PRs, issues, and planning.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(missing_docs)]
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use rmg_core::{

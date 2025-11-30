@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 #![allow(missing_docs)]
 //! Negative/edge-case tests for the motion rule.
 //!

@@ -1,9 +1,12 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Decision Log
 
 *Demo outcomes should prefix the Decision column with `Demo <number> — …` to keep entries searchable.*
 
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
+| 2025-11-29 | LICENSE | Add SPDX headers to all files | LEGAL PROTECTION 🛡️✨ |
 | 2025-11-29 | `F32Scalar` | Add `rmg-core::math::scalar::F32Scalar` type | Now we have it. |
 | 2025-11-03 | Scalar foundation | Add `rmg-core::math::Scalar` trait (operator supertraits + sin/cos) | Arithmetic via `Add/Sub/Mul/Div/Neg` supertraits for ergonomic `+ - * /`; `sin/cos` methods declared; canonicalization/LUTs deferred | Unblocks F32Scalar and DFix64 implementations; math code can target a stable trait |
 | 2025-10-23 | Repo reset | Adopt pnpm + TS skeleton | Monorepo scaffolding for Echo | Phase 0 tasks established |

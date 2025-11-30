@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Scheduler Specification (Phase 0)
 
 This document defines the scheduling engine that coordinates systems, branching timelines, and Codex’s Baby across the fixed-timestep loop. It supplements the architecture outline and will guide the first implementation in `@echo/core`.

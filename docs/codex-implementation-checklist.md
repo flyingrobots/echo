@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Codex's Baby Implementation Checklist
 
 A step-by-step guide for turning the event bus spec into working code.

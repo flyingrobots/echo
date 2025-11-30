@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Core rewrite engine implementation.
 use std::collections::{HashMap, HashSet};
 

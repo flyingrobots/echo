@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # RMG Runtime Architecture (Phase 1 Blueprint)
 
 This document captures the consensus that emerged for Echo’s Phase 1 implementation: the entire runtime, assets, and tooling operate on top of the Recursive Meta Graph (RMG) engine. Every concept—worlds, systems, entities, components, assets, pipelines—is a graph node. The engine executes deterministic DPO rewrite rules over that graph each tick, emitting snapshots for replay, networking, and tooling.

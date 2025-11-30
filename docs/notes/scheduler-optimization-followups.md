@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler Optimization Follow-up Tasks
 
 This document contains prompts for future work addressing gaps identified during the scheduler radix optimization session.

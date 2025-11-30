@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Footprints and independence checks for MWMR scheduling.
 //!
 //! A footprint summarises the read/write sets of a pending rewrite over nodes,

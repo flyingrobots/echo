@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # The Claim
 
 There is a faithful, structure‑preserving embedding of typed hypergraph rewriting (the WPP substrate) into typed open‑graph DPOI rewriting (RMG). This gives you a compositional, algebraic handle on “the space of computations” that the Ruliad gestures at. And you can actually compile and reason about it.

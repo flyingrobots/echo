@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 # Resolve the pinned toolchain from rust-toolchain.toml, fallback to explicit env or a sane default
 PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")

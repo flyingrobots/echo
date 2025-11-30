@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 name: Bug Report
 description: Report a runtime or tooling bug
 title: "bug: <short description>"

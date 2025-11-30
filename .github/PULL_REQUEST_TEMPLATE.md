@@ -1,3 +1,4 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 Title: <type(scope): short summary>
 
 Summary

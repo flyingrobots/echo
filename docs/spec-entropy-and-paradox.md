@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Entropy & Paradox Specification (Phase 0.75)
 
 Defines the entropy model, paradox lifecycle, and observer APIs that turn temporal instability into first-class simulation data.

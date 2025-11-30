@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Core geometry types used by the engine (transform, AABB).
 //!
 //! Determinism notes:

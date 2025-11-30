@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Diagram Vault
 
 This folder sketches Echo’s moving parts using Mermaid. Each diagram matches the architecture spec and will eventually power an animated viewer (GSAP + SVG) once we export the Mermaid graphs.

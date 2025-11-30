@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Rewrite rule definitions.
 use crate::footprint::Footprint;
 use crate::graph::GraphStore;

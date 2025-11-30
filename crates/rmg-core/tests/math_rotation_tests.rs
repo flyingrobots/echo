@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 #![allow(missing_docs)]
 use core::f32::consts::FRAC_PI_2;
 use rmg_core::math::{Mat4, Vec3};

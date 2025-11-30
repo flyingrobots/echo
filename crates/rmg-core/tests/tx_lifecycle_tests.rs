@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 #![allow(missing_docs)]
 use rmg_core::{
     encode_motion_payload, make_node_id, make_type_id, EngineError, GraphStore, NodeRecord,

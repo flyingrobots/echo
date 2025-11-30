@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # RMG Confluence Specification (Phase 0.75)
 
 The Confluence is the global DAG formed by interconnected RMG graphs. It defines how local stores project into a shared graph, how graph deltas propagate, and how conflicts resolve deterministically.

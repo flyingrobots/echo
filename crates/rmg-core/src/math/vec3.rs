@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 use crate::math::EPSILON;
 
 /// Deterministic 3D vector used throughout the engine.

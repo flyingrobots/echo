@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! rmg-core: typed deterministic graph rewriting engine.
 //!
 //! The current implementation executes queued rewrites deterministically via the

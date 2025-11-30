@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! wasm-bindgen bindings that expose the motion rewrite spike to tooling.
 //!
 //! The exported `WasmEngine` mirrors the C ABI surface so browser clients can

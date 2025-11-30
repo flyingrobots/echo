@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # From $O(n log n)$ to $O(n)$: Optimizing Echo's Deterministic Scheduler
 
 **Tags:** performance, algorithms, optimization, radix-sort

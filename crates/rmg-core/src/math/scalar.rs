@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Deterministic scalar arithmetic abstraction for Echo math.
 //!
 //! This trait provides a minimal, platform-stable surface for numeric code in

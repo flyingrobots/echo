@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Echo CLI entrypoint.
 //!
 //! Provides developer-facing commands for working with Echo projects. *Planned*

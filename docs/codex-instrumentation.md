@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Codex’s Baby Instrumentation Plan
 
 This document defines the telemetry, logging, and debugging hooks for Codex’s Baby. Instrumentation must be deterministic-friendly and cheap enough for production builds, with richer introspection available in development.

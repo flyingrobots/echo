@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Runtime Diagnostics Plan (Phase 0.5)
 
 Outlines logging, tracing, crash recovery, and inspector data streams for Echo runtime.

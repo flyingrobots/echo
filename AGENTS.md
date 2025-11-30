@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Agent Briefing
 
 Welcome to the **Echo** project. This file captures expectations for any LLM agent (and future-human collaborator) who touches the repo.

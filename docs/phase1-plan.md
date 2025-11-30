@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Phase 1 – Core Ignition Plan
 
 Goal: deliver a deterministic Rust implementation of RMG powering the Echo runtime, with tangible demos at each milestone. This plan outlines task chains, dependencies, and expected demonstrations.

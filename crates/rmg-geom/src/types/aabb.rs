@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 use rmg_core::math::{Mat4, Vec3};
 
 /// Axis-aligned bounding box in world coordinates.

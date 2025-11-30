@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
 //! Transaction identifier types.
 
 /// Thin wrapper around a transaction identifier.

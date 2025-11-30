@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 set -euo pipefail
 
 # Bash 4+ is required for associative arrays used in this script.

@@ -1,8 +1,2 @@
-Echo Engine
-Copyright (c) 2025 Echo Contributors
-
-This project includes third-party libraries. See individual package licenses in
-`docs/` or within dependency directories as they are added.
-
-Echo draws inspiration from the Caverns prototype (2013). Historical artifacts
-are preserved under `docs/legacy/`.
+Echo — Copyright © 2025 James Ross
+Licensed under Apache 2.0 or MIND-UCAL (see LICENSE, LICENSE-APACHE, LICENSE-MIND-UCAL).

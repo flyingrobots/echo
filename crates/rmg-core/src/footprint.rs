@@ -37,6 +37,10 @@ impl IdSet {
     pub fn insert_edge(&mut self, id: &EdgeId) {
         self.0.insert(id.0);
     }
+    /// Returns an iterator over the identifiers in the set.
+    pub fn iter(&self) -> impl Iterator<Item = &Hash> {
+        self.0.iter()
+    }
     /// Returns true if any element is shared with `other`.
     pub fn intersects(&self, other: &Self) -> bool {
         // Early‑exit by zipping ordered sets.
@@ -63,6 +67,14 @@ impl PortSet {
     /// Inserts a port key.
     pub fn insert(&mut self, key: PortKey) {
         let _ = self.0.insert(key);
+    }
+    /// Returns an iterator over the port keys in the set.
+    pub fn iter(&self) -> impl Iterator<Item = &PortKey> {
+        self.0.iter()
+    }
+    /// Alias for iterating keys; provided for call sites that prefer explicit naming.
+    pub fn keys(&self) -> impl Iterator<Item = &PortKey> {
+        self.0.iter()
     }
     /// Returns true if any element is shared with `other`.
     pub fn intersects(&self, other: &Self) -> bool {

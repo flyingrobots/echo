@@ -1,3 +1,4 @@
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 # Echo
 
 ```rust
@@ -30,8 +31,15 @@ Echo is fundamentally **built different**.
 
 RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation. It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
 
-Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect
-replay, and Git-like branching for game states.
+Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect replay, and Git-like branching for game states.
+
+## Developer: Running Benchmarks
+
+- Command (live dashboard): `make bench-report`
+  - Runs `cargo bench -p rmg-benches`, starts a local server, and opens the dashboard at `http://localhost:8000/docs/benchmarks/`.
+- Command (offline static file): `make bench-bake`
+  - Runs benches and bakes `docs/benchmarks/report-inline.html` with results injected so it works over `file://` (no server required).
+- Docs: see `crates/rmg-benches/benches/README.md` for details, tips, and report paths.
 
 ### Core Principles
 
@@ -327,4 +335,13 @@ make hooks
 
 ## License
 
-MIT • © J. Kirby Ross • [flyingrobots](http://github.com/flyingrobots)
+Licensing split:
+
+- Code (all source/build/tooling): Apache 2.0 — see `LICENSE-APACHE`
+- Theory / math / docs corpus: Apache 2.0 OR MIND-UCAL v1.0 — see `LICENSE-MIND-UCAL`
+
+If you do not wish to use MIND-UCAL, you may freely use all theory, math, and
+documentation under Apache 2.0 alone. No part of this repository requires
+adopting MIND-UCAL.
+
+See `LICENSE` for the summary and `NOTICE` for attribution.

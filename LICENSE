@@ -1,21 +1,20 @@
-MIT License
+SPDX-License-Identifier: Apache-2.0
+This project is dual-licensed. Different parts of the repository are covered
+by different license options, as follows:
 
-Copyright (c) 2025 Echo Contributors
+1. Code (all source, build scripts, tooling, binaries)
+   - Licensed under the Apache License, Version 2.0 only.
+   - See `LICENSE-APACHE` or https://www.apache.org/licenses/LICENSE-2.0
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+2. Theory / math / documentation corpus (e.g., `docs/`, `rmg-math/`, papers/notes)
+   - Dual-licensed under:
+       (a) Apache License, Version 2.0, OR
+       (b) MIND-UCAL License v1.0
+   - See `LICENSE-APACHE` and `LICENSE-MIND-UCAL` (canonical text in ../universal-charter/MIND-UCAL/LICENSE).
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+You may use the theory / math / documentation under EITHER Apache-2.0 OR
+MIND-UCAL v1.0, at your option. If you do not wish to use MIND-UCAL, you may
+use all such materials under Apache-2.0 alone. No portion of this repository
+requires adopting MIND-UCAL.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Unless required by applicable law or agreed to in writing, material is provided on an “AS IS” BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.

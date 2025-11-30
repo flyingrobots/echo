@@ -46,6 +46,7 @@ mod ident;
 mod payload;
 mod record;
 mod rule;
+mod sandbox;
 mod scheduler;
 mod snapshot;
 mod tx;
@@ -77,6 +78,10 @@ pub use payload::{decode_motion_payload, encode_motion_payload};
 pub use record::{EdgeRecord, NodeRecord};
 /// Rule primitives for pattern/match/execute.
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
+/// Sandbox helpers for constructing and comparing isolated Echo instances.
+pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
+/// Scheduler selection (Radix vs Legacy) for sandbox/engine builders.
+pub use scheduler::SchedulerKind;
 /// Immutable deterministic snapshot.
 pub use snapshot::Snapshot;
 /// Transaction identifier type.

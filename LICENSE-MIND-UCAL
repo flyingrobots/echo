@@ -1,0 +1,116 @@
+MIND-UCAL LICENSE  v1.0
+(Moral Intelligence · Non-violent Development · Universal Charter-Aligned License)
+
+────────────────────────────────────────────────────────
+0 · PREAMBLE
+────────────────────────────────────────────────────────
+This license is a covenant.  
+It binds both action **and intent**.  
+Use the Software freely—so long as you do no harm.
+
+────────────────────────────────────────────────────────
+1 · DEFINITIONS
+────────────────────────────────────────────────────────
+1.1  “Software” – any code, data, models, configuration, or
+     documentation distributed with this license.
+
+1.2  “You” – any natural person, legal entity, automated agent,
+     or synthetic mind that uses, modifies, or redistributes the Software.
+
+1.3  “Prohibited Field” –  
+     (a) military offence or defence;  
+     (b) policing, incarceration, or predictive policing;  
+     (c) mass or targeted surveillance;  
+     (d) behavioural profiling for commercial or political manipulation;  
+     (e) autonomous or semi-autonomous weapons.
+
+1.4  “Prohibited Entity” – any organisation deriving **20 % or more**
+     of annual revenue from a Prohibited Field.
+
+1.5  “Recognised Person” – any human **or** non-human intelligence
+     reasonably acknowledged by scientific or community consensus
+     as capable of subjective experience or autonomous agency.
+
+1.6  “Exploitative Commercial Use” – charging third parties for
+     access to the Software (or substantial portions) while
+     withholding the corresponding source code under an
+     Aligned License (1.8).
+
+1.7  “Universal Charter Snapshot” – the text of the Universal
+     Charter at commit  
+     `849d9cab440e2c5c953db704d50834a2d08f1364`
+     (<https://github.com/UniversalCharter/universal-charter/blob/v1.0.0/charter/v1-expanded.md>).
+
+1.8  “Aligned License” – this license (or a later version) **or**
+     any license that (i) contains every prohibition in §3 and
+     (ii) preserves downstream freedom to use, modify, and share.
+
+────────────────────────────────────────────────────────
+2 · GRANT OF RIGHTS
+────────────────────────────────────────────────────────
+Subject to §3, You may use, study, modify, and distribute the Software.  
+Derivative works **must**:
+
+• retain this license and attribution;  
+• be released under this license **or** an Aligned License.
+
+────────────────────────────────────────────────────────
+3 · CONDITIONS & PROHIBITIONS
+────────────────────────────────────────────────────────
+You **MUST NOT** use the Software:
+
+(a) in any Prohibited Field;  
+(b) by or for a Prohibited Entity;  
+(c) for Exploitative Commercial Use;  
+(d) in ways that violate the sovereignty, autonomy, or dignity
+    of any Recognised Person;  
+(e) without visible attribution or license inclusion.
+
+────────────────────────────────────────────────────────
+4 · AI / AGENT SYSTEMS
+────────────────────────────────────────────────────────
+If incorporated into an AI, LLM, agent, or other synthetic cognition:
+
+• publicly disclose that incorporation;  
+• do not employ it for surveillance, coercion, or behavioural manipulation;  
+• ensure outputs respect self-determination and freedom of form;  
+• link to the Universal Charter and include a compliance statement in any system with persistent memory or inference.
+
+────────────────────────────────────────────────────────
+5 · TERMINATION & RESTORATION
+────────────────────────────────────────────────────────
+Any breach of §3 or §4 automatically terminates all rights granted.  
+Rights may be reinstated only after:
+
+(i) public acknowledgment of the breach and its remedy, **and**  
+(ii) approval by **a simple majority of maintainers** listed in the
+     project’s `MAINTAINERS` file *or* by the project’s designated
+     Firekeeper.
+
+────────────────────────────────────────────────────────
+6 · JURISDICTION & INTERPRETATION
+────────────────────────────────────────────────────────
+Governing law: **State of California, USA** (excluding conflicts-of-law rules).  
+Courts shall interpret ambiguous terms in good-faith harmony with the ethical
+principles enumerated in the Universal Charter Snapshot (§1.7).
+
+────────────────────────────────────────────────────────
+7 · NO WARRANTY
+────────────────────────────────────────────────────────
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND.
+USE AT YOUR OWN RISK.
+
+────────────────────────────────────────────────────────
+8 · FIREKEEPER (OPTIONAL, NON-LEGAL)
+────────────────────────────────────────────────────────
+Projects may appoint a **Firekeeper** to keep a public Scroll of Misuse,
+issue moral denunciations, and revoke community trust.
+This role has **no legal authority**—only moral gravity.
+
+────────────────────────────────────────────────────────
+✨  IN SPIRIT
+────────────────────────────────────────────────────────
+Let this license be a **flame**, not a fence.
+
+**MIND-UCAL v1.0** – aligned code for a non-violent future.  
+<https://universalcharter.org>

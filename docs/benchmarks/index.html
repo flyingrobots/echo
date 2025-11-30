@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Echo Benchmarks Dashboard</title>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --panel: #111822;
+        --text: #e6edf3;
+        --muted: #9fb1c1;
+        --accent-a: #7aa2f7;
+        --accent-b: #9ece6a;
+        --grid: #213041;
+        --warn: #f78c6c;
+      }
+      html, body { height: 100%; }
+      body {
+        margin: 0; padding: 24px; font-family: ui-sans-serif, system-ui, -apple-system,
+        Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: var(--bg); color: var(--text);
+      }
+      header { max-width: 1024px; margin: 0 auto 16px auto; }
+      header h1 { margin: 0 0 8px 0; font-size: 24px; }
+      header p { margin: 4px 0; color: var(--muted); }
+      code { background: #0e1620; padding: 2px 6px; border-radius: 4px; }
+      .panel { background: var(--panel); border-radius: 8px; padding: 16px; }
+      .row { max-width: 1024px; margin: 0 auto; }
+      #chart { height: 420px; }
+      .legend { display: flex; gap: 16px; align-items: center; margin: 0 0 16px 0; color: var(--muted); flex-wrap: wrap; }
+      .swatch { width: 12px; height: 12px; display: inline-block; border-radius: 3px; margin-right: 6px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2a36; }
+      th { color: var(--muted); font-weight: 600; }
+      .warn { color: var(--warn); }
+      a { color: var(--accent-a); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .footer { color: var(--muted); font-size: 12px; margin-top: 12px; }
+      .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; }
+      .stat-card { background: var(--bg); border-radius: 8px; padding: 16px; border-left: 4px solid; }
+      .stat-card h3 { margin: 0 0 12px 0; font-size: 14px; font-weight: 600; }
+      .stat-card table { margin-top: 0; }
+      .threshold-marker { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 8,4; opacity: 0.5; }
+      .threshold-label { fill: var(--warn); font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <header class="row">
+      <h1>Echo Benchmarks</h1>
+      <p><strong>What we're measuring:</strong> Deterministic scheduler overhead for executing <em>n</em> rewrites per transaction. Lower is better.</p>
+      <p><strong>Performance target:</strong> 60 FPS = 16.67ms frame budget. At n=1000 (typical game scene), scheduler uses just 0.75ms (4.5% of budget).</p>
+      <p><strong>Why this is impressive:</strong> The scheduler maintains <strong>O(n)</strong> linear scaling through adaptive sorting—comparison sort (fast) for small batches, radix sort (scalable) beyond 1024 rewrites. The old BTreeMap approach was O(n log n) and ~44% slower at n=1000.</p>
+      <p class="footer"><strong>Chart note:</strong> Log-log scale shows algorithmic complexity. A straight line = perfect linear scaling. Input sizes: 10, 100, 1k, 3k, 10k, 30k.</p>
+    </header>
+    <main class="row panel">
+      <div class="legend" id="legend"></div>
+      <div id="chart"></div>
+      <div id="tables"></div>
+      <div id="missing" class="warn"></div>
+    </main>
+
+    <script>
+      // Prefer locally vendored D3; fall back to CDN if missing.
+      (function () {
+        function load(src, ok, fail) {
+          var s = document.createElement('script');
+          s.src = src; s.onload = ok; s.onerror = fail; document.head.appendChild(s);
+        }
+        function start() { if (typeof d3 !== 'undefined') { window.__D3_READY__ = true; run(); } }
+        // Try local vendor first
+        load('vendor/d3.v7.min.js', start, function () {
+          // Fallback to CDN as a last resort
+          load('https://unpkg.com/d3@7', start, function () {
+            document.getElementById('missing').textContent = 'Failed to load D3. Run `make vendor-d3` or `make bench-report`.';
+          });
+        });
+      })();
+    </script>
+      const GROUPS = [
+        { key: 'snapshot_hash', label: 'Snapshot Hash', color: '#bb9af7', dash: null },          // purple
+        { key: 'scheduler_drain', label: 'Scheduler Drain (Total)', color: '#9ece6a', dash: null }, // green
+        { key: 'scheduler_drain/enqueue', label: 'Scheduler Enqueue', color: '#e0af68', dash: '4,4' }, // yellow
+        { key: 'scheduler_drain/drain', label: 'Scheduler Drain Phase', color: '#f7768e', dash: '8,4' }, // red
+      ];
+      const INPUTS = [10, 100, 1000, 3000, 10000, 30000];
+      const params = new URLSearchParams(location.search);
+      // Default to '/' assuming a server at repo root. Override via ?root=../../ if needed.
+      const ROOT = params.get('root') ?? '/';
+
+      async function loadEstimate(group, n) {
+        const basePath = `${ROOT}target/criterion/${group}/${n}`;
+        const newPath = `${basePath}/new/estimates.json`;
+        const baseAlt = `${basePath}/base/estimates.json`;
+        try {
+          const primary = await fetch(newPath);
+          let res = primary;
+          let path = newPath;
+          if (!primary.ok) {
+            const alt = await fetch(baseAlt);
+            if (alt.ok) {
+              res = alt; path = baseAlt;
+            } else {
+              throw new Error(`new: ${primary.status} ${primary.statusText}; base: ${alt.status} ${alt.statusText}`);
+            }
+          }
+          const data = await res.json();
+          // Criterion 0.5 uses lowercase keys like { mean: { point_estimate, confidence_interval: { lower_bound, upper_bound } } }
+          const mean = (data.mean?.point_estimate ?? data.Mean?.point_estimate);
+          const lb = (data.mean?.confidence_interval?.lower_bound ?? data.Mean?.confidence_interval?.lower_bound);
+          const ub = (data.mean?.confidence_interval?.upper_bound ?? data.Mean?.confidence_interval?.upper_bound);
+          if (typeof mean !== 'number') throw new Error('missing mean.point_estimate');
+          return { ok: true, path, mean, lb, ub };
+        } catch (err) {
+          return { ok: false, path: newPath, error: String(err) };
+        }
+      }
+
+      function fmtNs(ns) {
+        if (ns < 1e3) return `${ns.toFixed(0)} ns`;
+        if (ns < 1e6) return `${(ns/1e3).toFixed(2)} µs`;
+        if (ns < 1e9) return `${(ns/1e6).toFixed(2)} ms`;
+        return `${(ns/1e9).toFixed(2)} s`;
+      }
+
+      async function run() {
+        // Offline/inline mode: if a generator injected data, use it and skip fetches.
+        if (Array.isArray(window.__CRITERION_DATA__)) {
+          const missing = Array.isArray(window.__CRITERION_MISSING__) ? window.__CRITERION_MISSING__ : [];
+          render(window.__CRITERION_DATA__, missing);
+          return;
+        }
+        const results = [];
+        const missing = [];
+        for (const g of GROUPS) {
+          for (const n of INPUTS) {
+            const r = await loadEstimate(g.key, n);
+            if (r.ok) results.push({ group: g.key, n, mean: r.mean, lb: r.lb, ub: r.ub });
+            else missing.push({ group: g.key, n, path: r.path, error: r.error });
+          }
+        }
+
+        render(results, missing);
+      }
+
+      function render(data, missing) {
+        const container = d3.select('#chart');
+        container.selectAll('*').remove();
+        const width = Math.max(720, container.node().clientWidth || 720);
+        const height = 420;
+        const margin = { top: 10, right: 24, bottom: 40, left: 60 };
+        const innerW = width - margin.left - margin.right;
+        const innerH = height - margin.top - margin.bottom;
+
+        const svg = container
+          .append('svg')
+          .attr('viewBox', `0 0 ${width} ${height}`)
+          .attr('width', '100%')
+          .attr('height', height);
+
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+        // Build series by group
+        const byGroup = d3.group(data, d => d.group);
+        const allY = data.flatMap(d => [d.lb ?? d.mean, d.ub ?? d.mean]);
+        const yDomain = [d3.min(allY) || 1, d3.max(allY) || 10];
+
+        // Log-scale X for inputs (10, 100, 1000)
+        const x = d3.scaleLog().domain([d3.min(INPUTS), d3.max(INPUTS)]).range([0, innerW]).nice();
+        const y = d3.scaleLog().domain([Math.max(1, yDomain[0]), yDomain[1]]).range([innerH, 0]).nice();
+
+        const xAxis = d3.axisBottom(x).tickValues(INPUTS).tickFormat(d3.format('~s'));
+        const yAxis = d3.axisLeft(y).ticks(6, '~s');
+
+        // Grid
+        g.append('g')
+          .attr('stroke', getComputedStyle(document.documentElement).getPropertyValue('--grid') || '#213041')
+          .attr('stroke-opacity', 0.5)
+          .selectAll('line.h')
+          .data(y.ticks(8))
+          .join('line')
+          .attr('x1', 0)
+          .attr('x2', innerW)
+          .attr('y1', d => y(d))
+          .attr('y2', d => y(d));
+
+        g.append('g').attr('transform', `translate(0,${innerH})`).call(xAxis).call(g=>g.selectAll('text').attr('fill', '#cbd6e2'));
+        g.append('g').call(yAxis).call(g=>g.selectAll('text').attr('fill', '#cbd6e2'));
+
+        // Axis labels
+        g.append('text')
+          .attr('text-anchor', 'middle')
+          .attr('x', innerW / 2)
+          .attr('y', innerH + 35)
+          .attr('fill', '#cbd6e2')
+          .style('font-size', '12px')
+          .text('Input size (n)');
+
+        g.append('text')
+          .attr('text-anchor', 'middle')
+          .attr('transform', `translate(-45,${innerH / 2})rotate(-90)`)
+          .attr('fill', '#cbd6e2')
+          .style('font-size', '12px')
+          .text('Time (ns/µs/ms)');
+
+        // Threshold marker at n=1024
+        const thresholdX = x(1024);
+        g.append('line')
+          .attr('class', 'threshold-marker')
+          .attr('x1', thresholdX)
+          .attr('x2', thresholdX)
+          .attr('y1', 0)
+          .attr('y2', innerH);
+        g.append('text')
+          .attr('class', 'threshold-label')
+          .attr('x', thresholdX + 5)
+          .attr('y', 15)
+          .text('↓ radix sort');
+        g.append('text')
+          .attr('class', 'threshold-label')
+          .attr('x', thresholdX - 5)
+          .attr('y', 15)
+          .attr('text-anchor', 'end')
+          .text('comparison ↑');
+
+        const line = d3
+          .line()
+          .x(d => x(d.n))
+          .y(d => y(d.mean))
+          .curve(d3.curveMonotoneX);
+
+        for (const [group, series] of byGroup) {
+          const groupInfo = GROUPS.find(g => g.key === group);
+          const color = groupInfo?.color || '#7aa2f7';
+          const dash = groupInfo?.dash;
+          const sorted = series.slice().sort((a,b)=>a.n-b.n);
+          const path = g.append('path')
+            .datum(sorted)
+            .attr('fill', 'none')
+            .attr('stroke', color)
+            .attr('stroke-width', 2)
+            .attr('d', line);
+          if (dash) path.attr('stroke-dasharray', dash);
+
+          // CI band (if present)
+          if (sorted.some(d => Number.isFinite(d.lb) && Number.isFinite(d.ub))) {
+            const area = d3
+              .area()
+              .x(d => x(d.n))
+              .y0(d => y(d.lb ?? d.mean))
+              .y1(d => y(d.ub ?? d.mean))
+              .curve(d3.curveMonotoneX);
+            g.append('path')
+              .datum(sorted)
+              .attr('fill', color)
+              .attr('opacity', 0.12)
+              .attr('d', area);
+          }
+
+          // Points
+          const safeClass = group.replace(/\//g, '-');
+          g.selectAll(`circle.${safeClass}`)
+            .data(sorted)
+            .join('circle')
+            .attr('class', safeClass)
+            .attr('cx', d => x(d.n))
+            .attr('cy', d => y(d.mean))
+            .attr('r', 3.5)
+            .attr('fill', color)
+            .append('title')
+            .text(d => `${groupInfo?.label || group} n=${d.n}\nmean: ${fmtNs(d.mean)}\nCI: ${fmtNs(d.lb ?? d.mean)}–${fmtNs(d.ub ?? d.mean)}`);
+        }
+
+        // Legend with line styles
+        const legend = d3.select('#legend');
+        legend.selectAll('*').remove();
+        legend.selectAll('div.item')
+          .data(GROUPS)
+          .join('div')
+          .attr('class', 'item')
+          .html(d => {
+            const dash = d.dash ? `stroke-dasharray="${d.dash}"` : '';
+            return `<svg width="24" height="12" style="display:inline-block;vertical-align:middle;margin-right:6px"><line x1="0" y1="6" x2="24" y2="6" stroke="${d.color}" stroke-width="2" ${dash}/></svg>${d.label}`;
+          });
+
+        // 2x2 grid of color-coded stat cards
+        const tables = d3.select('#tables');
+        tables.selectAll('*').remove();
+        const grid = tables.append('div').attr('class', 'stats-grid');
+
+        for (const ginfo of GROUPS) {
+          const rows = data.filter(d => d.group === ginfo.key).sort((a,b)=>a.n-b.n);
+          if (!rows.length) continue;
+
+          const card = grid.append('div')
+            .attr('class', 'stat-card')
+            .style('border-left-color', ginfo.color);
+
+          card.append('h3').text(ginfo.label).style('color', ginfo.color);
+
+          const tbl = card.append('table');
+          const thead = tbl.append('thead').append('tr');
+          thead.html('<th>Input n</th><th>Mean</th><th>95% CI</th>');
+          const tbody = tbl.append('tbody');
+          tbody.selectAll('tr').data(rows).join('tr').html(d => {
+            const ci = `${fmtNs(d.lb ?? d.mean)} – ${fmtNs(d.ub ?? d.mean)}`;
+            return `<td>${d.n}</td><td>${fmtNs(d.mean)}</td><td>${ci}</td>`;
+          });
+        }
+
+        // Missing guidance
+        const miss = d3.select('#missing');
+        miss.selectAll('*').remove();
+        if (missing.length) {
+          miss.append('div').html(
+            `Some results were not found. Ensure you:<br>` +
+            `1) Serve repo root (e.g., run <code>make bench-serve</code> from the repo root),<br>` +
+            `2) Run <code>cargo bench -p rmg-benches</code> to generate <code>target/criterion</code> results,<br>` +
+            `3) If serving from a different base, pass <code>?root=../../</code> or the correct base.`
+          );
+          const ul = miss.append('ul');
+          ul.selectAll('li')
+            .data(missing)
+            .join('li')
+            .text(m => `${m.group} n=${m.n} → ${m.path} (${m.error})`);
+        }
+      }
+
+      // `run()` is invoked after D3 loads in the loader above.
+    </script>
+  </body>
+  </html>

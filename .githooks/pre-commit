@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 # 1) PRNG coupling guard (existing logic)
@@ -121,6 +122,11 @@ if [[ -n "$DOCS_CHANGED" ]]; then
       exit 1
     fi
   fi
+fi
+
+# 8) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR MIND-UCAL-1.0)
+if [[ -x scripts/ensure_spdx.sh ]]; then
+  scripts/ensure_spdx.sh || exit 1
 fi
 
 exit 0

@@ -1347,6 +1347,82 @@ Before considering your benchmark "done":
 ---
 
 
+# File: DETERMINISTIC_MATH.md
+
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+//! Deterministic math hazards and mitigation strategies.
+//!
+//! This document outlines the specific challenges of cross-platform deterministic floating-point
+//! arithmetic (IEEE 754) and the strategies used in Echo to mitigate them.
+
+# Deterministic Math Hazards
+
+Achieving bit-perfect determinism across disparate hardware architectures (x86_64, AArch64, WASM32)
+is difficult due to loosely defined behaviors in the IEEE 754 specification. While basic arithmetic
+is largely standardized, "freaky numbers" (NaN, Subnormals, Signed Zero) introduce divergence.
+
+## 1. NaN Payloads
+**The Hazard:** IEEE 754 standardizes that `0.0 / 0.0` produces `NaN`, but it does *not* mandate
+the exact bit pattern of that `NaN`.
+*   **Sign Bit:** Some FPUs produce positive NaN, others negative.
+*   **Payload Bits:** The mantissa can contain arbitrary diagnostic information ("payload").
+*   **Signaling vs Quiet:** Operations might quiet a signaling NaN (sNaN -> qNaN) differently.
+
+**Impact:** If a simulation produces a NaN, the exact bits may differ between a player on Mac (ARM)
+and a player on Windows (x86). Hashing this state (`blake3(mem)`) will result in a fork (desync).
+
+**Mitigation:**
+*   **Canonicalization:** All NaNs must be clamped to a single canonical bit pattern (e.g., `0x7fc00000`)
+    at the boundary of the deterministic simulation (input/output) and potentially after every operation.
+*   **Avoidance:** Ideally, gameplay logic should never produce NaN.
+
+## 2. Subnormal Numbers (Denormals)
+**The Hazard:** Subnormal numbers are very small numbers close to zero (e.g., `1e-40`).
+*   **Hardware Diversity:** Some CPUs (or modes like DAZ/FTZ on x86) flush these to zero for performance.
+    Others (WASM, modern ARM) compute them precisely.
+*   **The Fork:** A calculation `1e-40 + 0.0` yields `1e-40` on Machine A and `0.0` on Machine B.
+    This tiny difference butterfly-effects into a major desync.
+
+**Mitigation:**
+*   **Software Flush-to-Zero:** The `F32Scalar` wrapper should detect subnormals and force them to
+    `0.0` (with proper sign canonicalization) to ensure consistent behavior regardless of CPU flags.
+
+## 3. Signed Zero
+**The Hazard:** IEEE 754 distinguishes `+0.0` and `-0.0`.
+*   **Arithmetic:** `-1.0 * 0.0 = -0.0`. `(-0.0) + (-0.0) = -0.0`.
+*   **Comparison:** `+0.0 == -0.0` is true.
+*   **Hashing:** `hash(+0.0) != hash(-0.0)`.
+*   **Impact:** If logic relies on bits (hashing) or strict ordering (`total_cmp`), `-0.0` is a distinct
+    value.
+
+**Mitigation:**
+*   **Canonicalization:** `F32Scalar` converts `-0.0` to `+0.0` on construction.
+
+## 4. Fused Multiply-Add (FMA)
+**The Hazard:** `a * b + c` can be computed as two ops (round intermediate) or one FMA op (single round).
+*   **Result:** The least significant bit often differs.
+*   **Compiler:** Rust/LLVM might optimize `mul` + `add` into `fma` depending on target features.
+
+**Mitigation:**
+*   **Strict Ops:** Rely on `rmg-core` wrappers which enforce distinct operations.
+*   **Compiler Flags:** Ensure builds do not aggressively fuse ops unless explicitly safe.
+
+## 5. Transmutation & Zerocopy
+**The Hazard:** Casting raw bytes to `f32` (`zerocopy::FromBytes`) bypasses constructor logic.
+*   **Attack Vector:** A network packet contains non-canonical bytes (e.g., `-0.0` or weird `NaN`).
+    If interpreted directly as `F32Scalar`, the invariant is violated.
+
+**Mitigation:**
+*   **Validation:** `FromBytes` implementations must validate or canonicalize data.
+*   **Opaque Types:** Prefer opaque serialization that routes through `new()`.
+
+
+---
+
+
 # File: ISSUES_MATRIX.md
 
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
@@ -1458,6 +1534,68 @@ In parallel (when ready): seed M2.0 – Scalar Foundation umbrella and child iss
 ---
 
 Maintainers: keep this file in sync when re‑prioritizing or moving issues between milestones. This roadmap complements the Project board, which carries Priority/Estimate fields and live status.
+
+
+---
+
+
+# File: SPEC_DETERMINISTIC_MATH.md
+
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+//! Math Determinism Specification & Policy.
+//!
+//! Defines the strict policies Echo enforces to guarantee bit-perfect determinism across all
+//! supported platforms. This spec takes precedence over hardware defaults.
+
+# Policy: Strictly Deterministic Math
+
+All math within the simulation loop (`rmg-core`) must adhere to these rules.
+
+## 1. Floating Point (f32)
+
+We wrap `f32` in `F32Scalar` to enforce these invariants.
+
+| Feature | Policy | Implementation Strategy |
+| :--- | :--- | :--- |
+| **Signed Zero** | **Strict (+0.0)** | `new()` maps `-0.0` to `+0.0`. |
+| **NaN Payloads** | **Strict (Canonical)** | All `NaN` values are mapped to `0x7fc00000` (Positive Quiet NaN). |
+| **Subnormals** | **Flush-to-Zero** | Inputs with biased exponent `0` are flushed to `+0.0`. |
+| **Rounding** | **Ties-to-Even** | Standard IEEE 754 default (Rust default). |
+| **Transcendental** | **Software / LUT** | `sin`/`cos` must use software approximation (e.g., `fdlibm` port or LUT), never hardware instructions which vary by uLP. |
+
+### Reflexivity Note
+Implementations of `Eq` for floating-point types **must** be reflexive.
+*   `NaN == NaN` must be **TRUE**.
+*   Use `total_cmp` or check `is_nan()`.
+*   This prevents logic errors in collections (`HashSet`, `BTreeMap`) which rely on `x == x`.
+
+## 2. Zerocopy & Serialization
+
+*   **No Direct Casts:** `F32Scalar` must **not** implement `zerocopy::FromBytes` blindly. Raw bytes could contain non-canonical values (`-0.0`, `sNaN`).
+*   **Deserialize:** Must route through `F32Scalar::new()` or a validator that applies canonicalization.
+*   **Serialize:** Safe to dump bytes *if* the value is already canonical.
+
+## 3. Audit Findings (2025-11-30)
+
+An audit of `rmg-core` identified the following risks:
+
+*   **Hardware Transcendentals:** `F32Scalar::sin/cos` currently delegate to `f32::sin/cos`. **Risk:** High. These vary across libc/hardware implementations.
+    *   *Action:* Replace with deterministic software implementation (Issue #115).
+*   **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
+    *   *Risk:* Subnormal handling (DAZ/FTZ) depends on CPU flags.
+    *   *Action:* `F32Scalar::new` (result wrapper) needs to explicitly flush subnormals.
+*   **NaN Propagation:** `f32` ops produce hardware-specific NaN payloads.
+    *   *Action:* `F32Scalar::new` must sanitize NaNs.
+
+## 4. Implementation Checklist
+
+- [x] Canonicalize `-0.0` to `+0.0` (PR #123).
+- [ ] Canonicalize `NaN` payloads (Planned).
+- [ ] Flush subnormals to `+0.0` (Planned).
+- [ ] Replace `sin`/`cos` with deterministic approximation (Planned).
 
 
 ---
@@ -7777,6 +7915,44 @@ api.emit("update", {
 ---
 
 This façade shields external consumers from internal architectural shifts while enforcing Echo’s determinism invariants.
+
+
+---
+
+
+# File: tasks/issue-canonical-f32.md
+
+SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# Title: feat(rmg-core): Implement strict determinism for F32Scalar (NaNs, Subnormals)
+
+## Summary
+Upgrade `F32Scalar` to enforce strict bit-level determinism across all platforms by handling "freaky numbers" (NaN payloads and subnormals) in software. Currently, `F32Scalar` only canonicalizes `-0.0`.
+
+## Problem
+IEEE 754 floating point behavior varies across architectures (x86, ARM, WASM):
+1.  **NaN Payloads:** `0.0/0.0` produces different bit patterns on different CPUs.
+2.  **Subnormals:** Some environments flush subnormals to zero (FTZ/DAZ), others do not.
+3.  **Serialization:** Raw deserialization can bypass invariants if not carefully guarded (fixed in `scalar.rs`, but needs verifying).
+
+This divergence breaks the determinism guarantee required for Echo's simulation loop.
+
+## Requirements (Strict Policy)
+Modify `F32Scalar::new(f32)` to apply the following transformations:
+
+1.  **NaN Canonicalization:** If `input.is_nan()`, replace it with a single canonical quiet NaN value (e.g., `0x7fc00000`).
+2.  **Subnormal Flushing:** If `input` is subnormal (exponent is 0 but mantissa is non-zero), replace it with `+0.0` (preserving sign canonicalization).
+3.  **Signed Zero:** Continue to map `-0.0` to `+0.0`.
+
+## Test Plan
+Enable the commented-out tests in `crates/rmg-core/tests/determinism_policy_tests.rs`:
+*   `test_policy_nan_canonicalization`: Verify positive/negative/signaling/payload NaNs all map to the canonical bits.
+*   `test_policy_subnormal_flushing`: Verify small/large/negative subnormals map to `+0.0`.
+*   `test_policy_serialization_guard`: Verify deserializing `-0.0` results in `+0.0`.
+
+## Definition of Done
+*   `F32Scalar::new` implements the full sanitization logic.
+*   All tests in `determinism_policy_tests.rs` are uncommented and passing.
+*   Benchmarks confirm acceptable overhead.
 
 
 ---

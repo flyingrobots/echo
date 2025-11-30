@@ -92,7 +92,32 @@ pub trait Scalar:
 #[derive(Debug, Copy, Clone)]
 pub struct F32Scalar {
     /// The wrapped f32 value
+    ///
+    /// # Invariant
+    /// This field is private to enforce canonicalization via `new()`.
+    /// It must NEVER contain `-0.0`, non-canonical NaNs, or subnormals (future).
     value: f32,
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for F32Scalar {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.value.serialize(serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for F32Scalar {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let v = f32::deserialize(deserializer)?;
+        Ok(Self::new(v))
+    }
 }
 
 impl F32Scalar {

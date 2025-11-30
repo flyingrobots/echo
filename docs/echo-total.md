@@ -260,6 +260,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-11-29 – Finish off `F32Scalar` implementation
+
+- Added `rmg-core::math::scalar::F32Scalar` type.
+
 > 2025-11-03 — Issue #115: Scalar trait scaffold
 
 - Added `rmg-core::math::scalar::Scalar` trait declaring deterministic scalar operations.

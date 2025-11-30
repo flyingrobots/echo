@@ -346,5 +346,5 @@ adopting MIND-UCAL.
 
 See [`LICENSE`](./LICENSE) for the summary and [`NOTICE`](./NOTICE) for attribution.
 
-© 2025 James Ross 
+© 2025 James Ross   
 Ω [FLYING•ROBOTS](https://github.com/flyingrobots)

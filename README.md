@@ -334,4 +334,9 @@ make hooks
 
 ## License
 
-MIT • © J. Kirby Ross • [flyingrobots](http://github.com/flyingrobots)
+This project is dual-licensed; you may choose either license:
+
+- Apache 2.0 — see `LICENSE-APACHE`
+- MIND-UCAL v1.0 — see `LICENSE-MIND-UCAL`
+
+See `LICENSE` for a concise summary and `NOTICE` for attribution.

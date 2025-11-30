@@ -1,11 +1,10 @@
-This project is dual-licensed; you may use it under either license, at your option:
+Licensing summary
 
-1. Apache License, Version 2.0  
-   - See `LICENSE-APACHE`  
-   - Or: https://www.apache.org/licenses/LICENSE-2.0
+- Code (all source, build scripts, tooling, binaries): Apache License 2.0 only.  
+  See `LICENSE-APACHE` or https://www.apache.org/licenses/LICENSE-2.0
 
-2. MIND-UCAL License v1.0  
-   - See `LICENSE-MIND-UCAL`  
-   - Or: ../universal-charter/MIND-UCAL/LICENSE (canonical text)
+- Theory / math / docs corpus (e.g., `docs/`, `rmg-math/`, papers/notes): dual-licensed  
+  under Apache 2.0 OR MIND-UCAL v1.0, at your option.  
+  See `LICENSE-APACHE` and `LICENSE-MIND-UCAL` (canonical text in ../universal-charter/MIND-UCAL/LICENSE).
 
-Unless required by applicable law or agreed to in writing, software is distributed on an “AS IS” BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied.
+Unless required by applicable law or agreed to in writing, material is provided on an “AS IS” BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.

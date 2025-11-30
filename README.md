@@ -334,9 +334,9 @@ make hooks
 
 ## License
 
-This project is dual-licensed; you may choose either license:
+Licensing split:
 
-- Apache 2.0 — see `LICENSE-APACHE`
-- MIND-UCAL v1.0 — see `LICENSE-MIND-UCAL`
+- Code (all source/build/tooling): Apache 2.0 — see `LICENSE-APACHE`
+- Theory / math / docs corpus: Apache 2.0 OR MIND-UCAL v1.0 — see `LICENSE-MIND-UCAL`
 
-See `LICENSE` for a concise summary and `NOTICE` for attribution.
+See `LICENSE` for the summary and `NOTICE` for attribution.

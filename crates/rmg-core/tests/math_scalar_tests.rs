@@ -42,13 +42,16 @@ fn test_f32_canonicalization() {
 
 #[test]
 fn test_f32_traits() {
-    let _z = F32Scalar::new(0.0);
-    let _nz = F32Scalar::new(-0.0);
+    let z = F32Scalar::new(0.0);
+    let nz = F32Scalar::new(-0.0);
 
     // Test Display (this will fail to compile until Display is implemented)
-    // assert_eq!(format!("{}", z), "0.0");
+    assert_eq!(format!("{}", z), "0");
 
     // Test Eq/Ord (this will fail to compile until traits are implemented)
-    // assert!(z <= nz);
-    // assert_eq!(z.cmp(&nz), std::cmp::Ordering::Equal);
+    assert!(z >= nz); // 0.0 >= -0.0 is True if 0.0 > -0.0.
+                      // But we want them to be Equal.
+                      // The canonicalization goal is that -0.0 BECOMES +0.0.
+                      // So z == nz and z.cmp(nz) == Equal.
+    assert_eq!(z.cmp(&nz), std::cmp::Ordering::Equal);
 }

@@ -14,8 +14,8 @@
 //! - Core transcendentals: sin, cos (angles in radians).
 //!
 //! Out of scope for this commit:
-//! - Canonicalization of `-0.0` to `+0.0` and subnormal flushing (to be handled
-//!   by concrete float wrappers in a follow-up task).
+//! - Subnormal flushing (to be handled by concrete float wrappers in a
+//!   follow-up task).
 //! - Lookup-table or polynomial-backed trig implementations (tracked separately;
 //!   this trait only declares the API).
 //! - Concrete backends: `F32Scalar` and `DFix64` will implement this trait in
@@ -102,7 +102,9 @@ impl F32Scalar {
     /// Identity value
     pub const ONE: Self = Self::new(1.0);
 
-    /// Constructs a `F32Scalar` with the specified value `num`
+    /// Constructs a `F32Scalar` with the specified value `num`.
+    ///
+    /// Canonicalizes `-0.0` to `+0.0` to ensure deterministic zero handling.
     pub const fn new(num: f32) -> Self {
         Self { value: num + 0.0 }
     }

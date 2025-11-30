@@ -92,7 +92,7 @@ pub trait Scalar:
 #[derive(Debug, Copy, Clone)]
 pub struct F32Scalar {
     /// The wrapped f32 value
-    pub value: f32,
+    value: f32,
 }
 
 impl F32Scalar {

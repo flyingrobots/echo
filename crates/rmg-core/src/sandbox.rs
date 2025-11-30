@@ -1,4 +1,4 @@
-//! Lightweight sandbox utilities for spinning up isolated Echo instances (Engine + GraphStore)
+//! Lightweight sandbox utilities for spinning up isolated Echo instances (Engine + `GraphStore`)
 //! with configurable scheduler and seeds for determinism tests and A/B comparisons.
 
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use crate::rule::RewriteRule;
 use crate::scheduler::SchedulerKind;
 use crate::snapshot::Snapshot;
 
-/// Describes how to construct an isolated Echo (Engine + GraphStore).
+/// Describes how to construct an isolated Echo (Engine + `GraphStore`).
 ///
 /// Seed and rules are provided as factories so that each instance receives a fresh graph
 /// and rule table without sharing state.
@@ -22,7 +22,7 @@ pub struct EchoConfig {
     pub threaded: bool,
     /// Human label for reports/benchmarks.
     pub label: String,
-    /// Factory producing a fresh (GraphStore, root NodeId).
+    /// Factory producing a fresh (`GraphStore`, root `NodeId`).
     pub seed: Arc<dyn Fn() -> (GraphStore, NodeId) + Send + Sync>,
     /// Factory producing the rewrite rules to register.
     pub rules: Arc<dyn Fn() -> Vec<RewriteRule> + Send + Sync>,
@@ -70,7 +70,7 @@ pub enum DeterminismError {
     },
 }
 
-/// Build a fresh Engine from an EchoConfig.
+/// Build a fresh Engine from an `EchoConfig`.
 pub fn build_engine(cfg: &EchoConfig) -> Engine {
     let (store, root) = (cfg.seed)();
     let mut eng = Engine::with_scheduler(store, root, cfg.scheduler);
@@ -85,6 +85,10 @@ pub fn build_engine(cfg: &EchoConfig) -> Engine {
 ///
 /// This runs synchronously (same thread) to remove scheduling noise. For threaded runs,
 /// callers can spawn threads and use this function's logic for final comparison.
+///
+/// # Errors
+/// Returns `DeterminismError::SnapshotMismatch` when the two Echo instances
+/// produce different snapshot hashes at the same step.
 pub fn run_pair_determinism<F>(
     cfg_a: &EchoConfig,
     cfg_b: &EchoConfig,

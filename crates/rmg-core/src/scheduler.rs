@@ -584,9 +584,9 @@ impl LegacyScheduler {
 /// Selects which deterministic scheduler implementation to use.
 #[derive(Debug, Clone, Copy)]
 pub enum SchedulerKind {
-    /// Radix-based pending queue with O(n) drain and GenSet independence checks (default).
+    /// Radix-based pending queue with O(n) drain and `GenSet` independence checks (default).
     Radix,
-    /// Legacy BTreeMap + Vec<Footprint> implementation for comparisons.
+    /// Legacy `BTreeMap` + Vec<Footprint> implementation for comparisons.
     Legacy,
 }
 

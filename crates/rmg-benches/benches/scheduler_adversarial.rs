@@ -37,11 +37,11 @@ fn bench_fxhash_collision(c: &mut Criterion) {
 
 fn bench_fxhash_random(c: &mut Criterion) {
     let mut group = c.benchmark_group("scheduler_adversarial/random");
-    let mut rng = rand::thread_rng();
     for &n in &[1_000u64, 5_000, 10_000] {
         group.bench_function(format!("insert_and_probe/{n}"), |b| {
             b.iter_batched(
                 || {
+                    let mut rng = rand::thread_rng();
                     let mut map: FxHashMap<u64, u64> = FxHashMap::default();
                     for _ in 0..n {
                         let k = rng.gen::<u64>();
@@ -50,6 +50,7 @@ fn bench_fxhash_random(c: &mut Criterion) {
                     map
                 },
                 |mut map| {
+                    let mut rng = rand::thread_rng();
                     let k = rng.gen::<u64>();
                     let _ = map.get(&k);
                     map.insert(k, k);

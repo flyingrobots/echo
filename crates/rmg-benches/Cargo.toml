@@ -13,6 +13,7 @@ rmg-core = { version = "0.1.0", path = "../rmg-core" }
 # Patch-level pin for reproducibility while allowing security fixes; keep defaults off to avoid rayon/parallelism.
 blake3 = { version = "~1.8.2", default-features = false, features = ["std"] }
 rustc-hash = "2.1.1"
+rand = "0.8"
 
 [[bench]]
 name = "motion_throughput"

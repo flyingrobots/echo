@@ -10,19 +10,48 @@ fn test_f32_basics() {
     // constants
     let zero = F32Scalar::ZERO;
     let one = F32Scalar::ONE;
-    assert_eq!(zero.value, 0.0);
-    assert_eq!(one.value, 1.0);
+    assert_eq!(zero.to_f32(), 0.0);
+    assert_eq!(one.to_f32(), 1.0);
 
     // basic math
     let a = F32Scalar::new(5.0);
     let b = F32Scalar::new(2.0);
-    assert_eq!((a + b).value, 7.0);
-    assert_eq!((a - b).value, 3.0);
+    assert_eq!((a + b).to_f32(), 7.0);
+    assert_eq!((a - b).to_f32(), 3.0);
 
-    assert_eq!((a * b).value, 10.0);
-    assert_eq!((a / b).value, 2.5);
+    assert_eq!((a * b).to_f32(), 10.0);
+    assert_eq!((a / b).to_f32(), 2.5);
 
     let angle = F32Scalar::new(std::f32::consts::PI);
-    assert_eq!(angle.sin().value, angle.value.sin());
-    assert_eq!(angle.cos().value, angle.value.cos());
+    assert_eq!(angle.sin().to_f32(), angle.to_f32().sin());
+    assert_eq!(angle.cos().to_f32(), angle.to_f32().cos());
+}
+
+#[test]
+fn test_f32_canonicalization() {
+    let z = F32Scalar::new(0.0);
+    let nz = F32Scalar::new(-0.0);
+
+    // IEEE 754 equality: -0.0 == 0.0
+    assert_eq!(z, nz);
+
+    // Internal representation MUST be identical (canonicalized)
+    // This will fail until we implement canonicalization in `new` or constructors
+    assert_eq!(z.to_f32().to_bits(), nz.to_f32().to_bits());
+}
+
+#[test]
+fn test_f32_traits() {
+    let z = F32Scalar::new(0.0);
+    let nz = F32Scalar::new(-0.0);
+
+    // Test Display (this will fail to compile until Display is implemented)
+    assert_eq!(format!("{}", z), "0");
+
+    // Test Eq/Ord (this will fail to compile until traits are implemented)
+    assert!(z >= nz); // 0.0 >= -0.0 is True if 0.0 > -0.0.
+                      // But we want them to be Equal.
+                      // The canonicalization goal is that -0.0 BECOMES +0.0.
+                      // So z == nz and z.cmp(nz) == Equal.
+    assert_eq!(z.cmp(&nz), std::cmp::Ordering::Equal);
 }

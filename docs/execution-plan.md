@@ -62,6 +62,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Expected behavior: identical drain order and semantics; minor memory increase for counts on 64‑bit.
 - Next: run full workspace Clippy + tests, then commit.
   - CI follow-up: add `PortSet::iter()` (additive API) to satisfy scheduler iteration on GH runners.
+> 2025-11-30 – F32Scalar canonicalization and trait implementations
+
+- Goal: Ensure bit-level deterministic handling of zero for `F32Scalar` and implement necessary traits for comprehensive numerical behavior.
+- Scope: `crates/rmg-core/src/math/scalar.rs` and `crates/rmg-core/tests/math_scalar_tests.rs`.
+- Changes: `F32Scalar` canonicalizes `-0.0` to `+0.0` on construction, `value` field made private, and `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Display` traits implemented.
+- Added: Tests for zero canonicalization and trait behavior.
+- Risks: Introducing unexpected performance overhead or subtly breaking existing math operations; mitigated by unit tests and focused changes.
+
 > 2025-11-29 – Finish off `F32Scalar` implementation
 
 - Added `rmg-core::math::scalar::F32Scalar` type.

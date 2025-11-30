@@ -7,6 +7,7 @@
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
 | 2025-11-29 | LICENSE | Add SPDX headers to all files | LEGAL PROTECTION 🛡️✨ |
+| 2025-11-30 | `F32Scalar` canonicalization | Enforce bitwise determinism by canonicalizing `-0.0` to `+0.0` for all `F32Scalar` instances; implement `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Display`. Make `value` field private. | Essential for bit-perfect cross-platform determinism in math operations and comparisons, especially for hashing and serialization. Prevents accidental introduction of `-0.0` by direct field access. | Guarantees consistent numerical behavior for `F32Scalar`; all public API methods and constructors now ensure canonical zero. |
 | 2025-11-29 | `F32Scalar` | Add `rmg-core::math::scalar::F32Scalar` type | Now we have it. |
 | 2025-11-03 | Scalar foundation | Add `rmg-core::math::Scalar` trait (operator supertraits + sin/cos) | Arithmetic via `Add/Sub/Mul/Div/Neg` supertraits for ergonomic `+ - * /`; `sin/cos` methods declared; canonicalization/LUTs deferred | Unblocks F32Scalar and DFix64 implementations; math code can target a stable trait |
 | 2025-10-23 | Repo reset | Adopt pnpm + TS skeleton | Monorepo scaffolding for Echo | Phase 0 tasks established |

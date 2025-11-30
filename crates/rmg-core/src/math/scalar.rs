@@ -14,8 +14,8 @@
 //! - Core transcendentals: sin, cos (angles in radians).
 //!
 //! Out of scope for this commit:
-//! - Canonicalization of `-0.0` to `+0.0` and subnormal flushing (to be handled
-//!   by concrete float wrappers in a follow-up task).
+//! - Subnormal flushing (to be handled by concrete float wrappers in a
+//!   follow-up task).
 //! - Lookup-table or polynomial-backed trig implementations (tracked separately;
 //!   this trait only declares the API).
 //! - Concrete backends: `F32Scalar` and `DFix64` will implement this trait in
@@ -30,6 +30,8 @@
 //!   consistent across platforms for identical inputs (e.g., via LUT/polynomial
 //!   in later work).
 
+use core::cmp::Ordering;
+use core::fmt;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
 /// Deterministic scalar arithmetic and basic transcendentals.
@@ -87,10 +89,10 @@ pub trait Scalar:
 }
 
 /// Deterministic f32 value
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub struct F32Scalar {
     /// The wrapped f32 value
-    pub value: f32,
+    value: f32,
 }
 
 impl F32Scalar {
@@ -100,9 +102,37 @@ impl F32Scalar {
     /// Identity value
     pub const ONE: Self = Self::new(1.0);
 
-    /// Constructs a `F32Scalar` with the specified value `num`
+    /// Constructs a `F32Scalar` with the specified value `num`.
+    ///
+    /// Canonicalizes `-0.0` to `+0.0` to ensure deterministic zero handling.
     pub const fn new(num: f32) -> Self {
-        Self { value: num }
+        Self { value: num + 0.0 }
+    }
+}
+
+impl PartialEq for F32Scalar {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for F32Scalar {}
+
+impl PartialOrd for F32Scalar {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for F32Scalar {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.total_cmp(&other.value)
+    }
+}
+
+impl fmt::Display for F32Scalar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.value)
     }
 }
 

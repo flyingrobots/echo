@@ -30,6 +30,8 @@
 //!   consistent across platforms for identical inputs (e.g., via LUT/polynomial
 //!   in later work).
 
+use core::cmp::Ordering;
+use core::fmt;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
 /// Deterministic scalar arithmetic and basic transcendentals.
@@ -87,7 +89,7 @@ pub trait Scalar:
 }
 
 /// Deterministic f32 value
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone)]
 pub struct F32Scalar {
     /// The wrapped f32 value
     pub value: f32,
@@ -103,6 +105,32 @@ impl F32Scalar {
     /// Constructs a `F32Scalar` with the specified value `num`
     pub const fn new(num: f32) -> Self {
         Self { value: num }
+    }
+}
+
+impl PartialEq for F32Scalar {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl Eq for F32Scalar {}
+
+impl PartialOrd for F32Scalar {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for F32Scalar {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.total_cmp(&other.value)
+    }
+}
+
+impl fmt::Display for F32Scalar {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.value)
     }
 }
 

@@ -43,36 +43,35 @@ should_skip() {
   [[ ! -f "$f" ]] && return 0
   
   case "$f" in
-    target/*|node_modules/*|vendor/*|docs/benchmarks/vendor/*|dist/*|.cache/*) return 0 ;;
-    .git/*|.idea/*|.vscode/*|.DS_Store) return 0 ;;
-    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.svg|*.ico|*.pdf|*.woff|*.woff2|*.ttf|*.eot|*.map) return 0 ;;
-    *.lock|package-lock.json|yarn.lock|Cargo.lock) return 0 ;;
-    LICENSE*|NOTICE|COPYING|*.license) return 0 ;;
-    docs/echo-total.md) return 0 ;;
-    *.json) return 0 ;;
-  esac
-  return 1
-}
-
-is_source_code() {
-  local f="$1"
-  case "$f" in
-    *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-get_comment_style() {
-  local f="$1"
-  case "$f" in
-    *.rs|*.js|*.ts|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) echo "slash" ;;
-    *.sh|*.bash|*.py|*.rb|*.pl|*.yaml|*.yml|*.toml|*.dockerfile|Dockerfile|Makefile|*.gitignore|*.editorconfig|*.conf|*.ini) echo "hash" ;;
-    *.tex|*.sty|*.cls) echo "percent" ;;
-    *.md|*.html|*.xml) echo "xml" ;;
-    *) echo "unknown" ;;
-  esac
-}
-
+        target/*|node_modules/*|vendor/*|docs/benchmarks/vendor/*|dist/*|.cache/*) return 0 ;;
+        .git/*|.idea/*|.vscode/*|.DS_Store) return 0 ;;
+        *.png|*.jpg|*.jpeg|*.gif|*.webp|*.svg|*.ico|*.pdf|*.woff|*.woff2|*.ttf|*.eot|*.map) return 0 ;;
+        *.lock|package-lock.json|yarn.lock|Cargo.lock) return 0 ;;
+        LICENSE*|NOTICE|COPYING|*.license|*/LICENSE*|*/NOTICE|*/COPYING|*/*.license) return 0 ;;
+        docs/echo-total.md) return 0 ;;
+        *.json) return 0 ;; 
+      esac
+      return 1
+    }
+    
+    is_source_code() {
+      local f="$1"
+      case "$f" in
+        *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) return 0 ;; 
+        *) return 1 ;; 
+      esac
+    }
+    
+    get_comment_style() {
+      local f="$1"
+      case "$f" in
+        *.rs|*.js|*.ts|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) echo "slash" ;; 
+        *.sh|*.bash|*.py|*.rb|*.pl|*.yaml|*.yml|*.toml|*.dockerfile|Dockerfile|*/Dockerfile|Makefile|*/Makefile|*.gitignore|*.editorconfig|*.conf|*.ini) echo "hash" ;; 
+        *.tex|*.sty|*.cls) echo "percent" ;; 
+        *.md|*.html|*.xml) echo "xml" ;; 
+        *) echo "unknown" ;; 
+      esac
+    }
 get_header_content() {
   local f="$1"
   local style="$2"

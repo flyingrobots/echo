@@ -35,6 +35,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-01 — Fix cargo panic warning in bench profile (COMPLETED)
+
+- Goal: Silence the `warning: panic setting is ignored for bench profile` message during `cargo test`.
+- Scope: `Cargo.toml`.
+- Changes: Removed `panic = "abort"` from `[profile.bench]`.
+- Status: Completed; warning no longer appears.
+
 > 2025-12-01 — Fix “How Echo Works” LaTeX build (non-interactive PDF)
 
 - Goal: unblock `docs/guides/how-do-echo-work` PDF generation without interactive TeX prompts.

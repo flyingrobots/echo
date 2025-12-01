@@ -18,7 +18,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) CHECK_MODE=1; shift ;;
     --all) ALL_MODE=1; shift ;;
-    *) break ;; 
+    *) break ;;
   esac
 done
 
@@ -49,7 +49,7 @@ should_skip() {
     *.lock|package-lock.json|yarn.lock|Cargo.lock) return 0 ;;
     LICENSE*|NOTICE|COPYING|*.license) return 0 ;;
     docs/echo-total.md) return 0 ;;
-    *.json) return 0 ;; 
+    *.json) return 0 ;;
   esac
   return 1
 }
@@ -57,19 +57,19 @@ should_skip() {
 is_source_code() {
   local f="$1"
   case "$f" in
-    *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) return 0 ;; 
-    *) return 1 ;; 
+    *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
 get_comment_style() {
   local f="$1"
   case "$f" in
-    *.rs|*.js|*.ts|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) echo "slash" ;; 
-    *.sh|*.bash|*.py|*.rb|*.pl|*.yaml|*.yml|*.toml|*.dockerfile|Dockerfile|Makefile|*.gitignore|*.editorconfig|*.conf|*.ini) echo "hash" ;; 
-    *.tex|*.sty|*.cls) echo "percent" ;; 
-    *.md|*.html|*.xml) echo "xml" ;; 
-    *) echo "unknown" ;; 
+    *.rs|*.js|*.ts|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) echo "slash" ;;
+    *.sh|*.bash|*.py|*.rb|*.pl|*.yaml|*.yml|*.toml|*.dockerfile|Dockerfile|Makefile|*.gitignore|*.editorconfig|*.conf|*.ini) echo "hash" ;;
+    *.tex|*.sty|*.cls) echo "percent" ;;
+    *.md|*.html|*.xml) echo "xml" ;;
+    *) echo "unknown" ;;
   esac
 }
 
@@ -100,16 +100,68 @@ get_header_content() {
   esac
 }
 
-has_header() {
+check_valid_header() {
   local f="$1"
-  local style="$2"
+  local expected="$2"
+  
+  # Read first few lines
+  local head_content
+  head_content=$(head -n 10 "$f")
+
+  # Check if the *exact expected block* is present in the header.
+  # We treat the multi-line string $expected as a fixed string search.
+  # Because grepping a multi-line string is tricky, we check line by line or use grep -F.
+  # Simplification: Check if the first line of expected is in the file, 
+  # AND it matches the comment style.
+  
+  # Actually, we can just check if the exact expected string appears in the head.
+  # Using awk or python would be safer for multi-line, but let's use grep -F.
+  if echo "$head_content" | grep -Fq "$expected"; then
+      return 0
+  fi
+  return 1
+}
+
+has_malformed_header() {
+  local f="$1"
+  # Check if the "raw" license ID exists but maybe not commented correctly
+  # or incorrect license type.
   local head_content
   head_content=$(head -n 10 "$f")
   
-  if [[ "$head_content" == *"$CODE_LICENSE"* ]] || [[ "$head_content" == *"$DUAL_LICENSE"* ]]; then
-    return 0
+  if echo "$head_content" | grep -Fq "SPDX-License-Identifier"; then
+      return 0
+  fi
+  if echo "$head_content" | grep -Fq "James Ross"; then
+      return 0
   fi
   return 1
+}
+
+strip_existing_headers() {
+  local f="$1"
+  local temp_file
+  temp_file=$(mktemp)
+  
+  # Use AWK to filter out lines in the first 15 lines that match SPDX/Copyright patterns.
+  # This effectively removes "bad" headers or "wrong license" headers.
+  # We preserve shebangs because they typically don't match the pattern.
+  
+  awk ' 
+    BEGIN { in_header = 1; count = 0 }
+    { 
+      count++;
+      if (count <= 15) {
+        if ($0 ~ /SPDX-License-Identifier/ || $0 ~ /James Ross .* FLYING/) {
+          next
+        }
+      }
+      print
+    }
+  ' "$f" > "$temp_file"
+  
+  cat "$temp_file" > "$f"
+  rm "$temp_file"
 }
 
 insert_header() {
@@ -146,18 +198,24 @@ process_file() {
   style=$(get_comment_style "$f")
   if [[ "$style" == "unknown" ]]; then return; fi
   
-  local header_text
-  header_text=$(get_header_content "$f" "$style")
+  local expected_header
+  expected_header=$(get_header_content "$f" "$style")
   
-  if ! has_header "$f" "$style"; then
-    if [[ "$CHECK_MODE" -eq 1 ]]; then
-      echo "[FAIL] Missing SPDX header: $f"
-      FAILED_COUNT=$((FAILED_COUNT + 1))
-    else
-      insert_header "$f" "$header_text"
-      echo "[FIXED] Inserted header: $f"
-      MODIFIED_COUNT=$((MODIFIED_COUNT + 1))
-    fi
+  if check_valid_header "$f" "$expected_header"; then
+    return 0
+  fi
+
+  if [[ "$CHECK_MODE" -eq 1 ]]; then
+    echo "[FAIL] Incorrect or missing SPDX header: $f"
+    FAILED_COUNT=$((FAILED_COUNT + 1))
+  else
+    # Repair mode:
+    # 1. Strip any existing (malformed/wrong) header lines from top
+    strip_existing_headers "$f"
+    # 2. Insert correct header
+    insert_header "$f" "$expected_header"
+    echo "[FIXED] Repaired header: $f"
+    MODIFIED_COUNT=$((MODIFIED_COUNT + 1))
   fi
 }
 
@@ -191,13 +249,14 @@ done
 if [[ "$CHECK_MODE" -eq 1 ]]; then
   if [[ "$FAILED_COUNT" -gt 0 ]]; then
     echo "-------------------------------------------------------"
-    echo "SPDX Check Failed: $FAILED_COUNT files missing headers."
+    echo "SPDX Check Failed: $FAILED_COUNT files have missing or incorrect headers."
+    echo "Run './scripts/ensure_spdx.sh' (without --check) to auto-repair."
     exit 1
   fi
 else
   if [[ "$MODIFIED_COUNT" -gt 0 ]]; then
     echo "-------------------------------------------------------"
-    echo "Inserted SPDX headers in $MODIFIED_COUNT files."
+    echo "Repaired SPDX headers in $MODIFIED_COUNT files."
     echo "Please review and stage these changes."
     exit 1
   fi

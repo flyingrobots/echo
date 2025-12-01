@@ -35,6 +35,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-01 — LaTeX skeleton + booklets + onboarding/glossary (COMPLETED)
+
+- Goal: scaffold reusable LaTeX parts (master + per-shelf booklets), wire logos, and seed onboarding + glossary content for Orientation.
+- Scope: `docs/book/echo` (preamble, title/legal pages, parts/booklets, Makefile) and new Orientation chapters.
+- Status: completed; master + booklets build, onboarding/glossary live.
+
+> 2025-12-01 — Set canonical package manager to pnpm in `package.json`
+
+- Goal: declare pnpm as the repo’s package manager via the `packageManager` field.
+- Scope: `package.json` only.
+- Status: completed; set to `pnpm@10.23.0` to match local toolchain.
+
 > 2025-12-01 — Fix cargo panic warning in bench profile (COMPLETED)
 
 - Goal: Silence the `warning: panic setting is ignored for bench profile` message during `cargo test`.

@@ -1,0 +1,38 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{ECS Storage Layout}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[>=stealth, node distance=1.2cm]
+        \tikzstyle{archetype}=[rectangle, draw, rounded corners, fill=gray!10, inner sep=6pt]
+        \tikzstyle{column}=[rectangle, draw, minimum height=1cm, minimum width=1.5cm, fill=white]
+        \node[archetype] (a0) {Archetype A (Position, Velocity)};
+        \node[column, below=0.5cm of a0, xshift=-1.5cm] (posA) {pos[]};
+        \node[column, below=0.5cm of a0, xshift=1.5cm] (velA) {vel[]};
+
+        \node[archetype, right=3.5cm of a0] (a1) {Archetype B (Position, Health)};
+        \node[column, below=0.5cm of a1, xshift=-1.5cm] (posB) {pos[]};
+        \node[column, below=0.5cm of a1, xshift=1.5cm] (hpB) {hp[]};
+
+        \draw[->, thick] (posA) -- node[above]{move entity (add Health)} (posB);
+        \draw[->, thick] (velA) -- (hpB);
+
+        \node[rectangle, draw, fill=gray!20, below=1.6cm of posA, minimum width=4.5cm, align=left] (dirty) {Dirty index\newline entity ids changed};
+        \draw[dashed] (dirty) -- (posA);
+        \draw[dashed] (dirty) -- (posB);
+
+        \node[rectangle, draw, rounded corners, fill=gray!10, right=4cm of a1, align=left] (sparse) {Sparse maps\newline entity \textrightarrow row};
+        \draw[->] (sparse) -- (posA);
+        \draw[->] (sparse) -- (posB);
+    \end{tikzpicture}
+    \caption{Archetypes store columnar component arrays; moving entities rewrites sparse maps and bumps the dirty index for deterministic diffs.}
+\end{figure}
+
+Notes:
+\begin{itemize}
+    \item Archetypes are columnar; moves are deterministic rewrites, not lazy copies.
+    \item Dirty index tracks touched entities for fast diffing and replay.
+    \item Sparse maps give O(1) entity\,$\rightarrow$ row lookup; kept in sync on every move.
+\end{itemize}

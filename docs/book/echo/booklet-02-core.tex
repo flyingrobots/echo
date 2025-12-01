@@ -2,17 +2,9 @@
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 \documentclass[a4paper,12pt]{book}
 \input{preamble}
-
-% Book-wide metadata
-\renewcommand{\BookTitle}{ECHO}
-\renewcommand{\BookSubtitle}{Master Volume}
+\renewcommand{\BookSubtitle}{Core Concepts}
 \renewcommand{\BookVersion}{v0.1-draft}
-\renewcommand{\BookDate}{\today}
 \renewcommand{\BookCommit}{HEAD}
-
-\title{\BookTitle: \BookSubtitle}
-\author{\BookAuthors}
-
 \begin{document}
 \frontmatter
 \input{titlepage}
@@ -20,13 +12,7 @@
 \input{foreword}
 \tableofcontents
 \mainmatter
-
-\include{parts/part-01-orientation}
 \include{parts/part-02-core-concepts}
-\include{parts/part-03-math}
-\include{parts/part-04-ops}
-
 \appendix
 \input{legal-appendix}
-
 \end{document}

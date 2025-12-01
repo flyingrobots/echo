@@ -1,0 +1,41 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Onboarding Roadmap (First 30–60 Minutes)}
+
+\section{Get the Toolchain}
+\begin{itemize}
+    \item Install Rust per \texttt{rust-toolchain.toml} (workspace MSRV).
+    \item Install Node $\geq$ 18 and \texttt{pnpm} (see \texttt{packageManager} in \texttt{package.json}).
+    \item Run \texttt{make hooks} once to enable repo checks.
+\end{itemize}
+
+\section{Clone, Smoke Test, and Guard Rails}
+\begin{itemize}
+    \item \textbf{Clone}: \texttt{git clone} and \texttt{pnpm install} (docs) / \texttt{cargo fetch} (Rust).
+    \item \textbf{Docs dev}: \texttt{pnpm docs:dev} to confirm VitePress works.
+    \item \textbf{Rust sanity}: \texttt{cargo test -p rmg-core -- --list} to ensure toolchain is healthy.
+    \item \textbf{Hooks}: verify pre-commit runs (fmt/clippy/docs guard) by committing a no-op change locally.
+\end{itemize}
+
+\section{Read This First}
+\begin{enumerate}
+    \item \textbf{Orientation}: \texttt{architecture-outline.md} (why Echo exists).
+    \item \textbf{Determinism contract}: skim \texttt{determinism-invariants.md} for guarantees.
+    \item \textbf{Branching model}: \texttt{branch-merge-playbook.md} (merge-only; no rebases/force pushes).
+    \item \textbf{Work map}: \texttt{execution-plan.md} to see current intent and milestones.
+\end{enumerate}
+
+\section{Do One Hands-On Task}
+\begin{itemize}
+    \item Run a focused test: \texttt{cargo test radix\_drain --package rmg-core}.
+    \item Explore a doc: open \texttt{docs/collision-dpo-tour.html} to see visuals.
+    \item Record what you learned in \texttt{decision-log.md} if you touch code/docs.
+\end{itemize}
+
+\section{Next Hour: Choose Your Track}
+\begin{itemize}
+    \item \textbf{Runtime}: read Scheduler + Storage specs, then run scheduler benchmarks.
+    \item \textbf{Docs/Math}: read deterministic math specs; reproduce a figure in TikZ.
+    \item \textbf{Ops}: rehearse the merge playbook and run Docs Guard locally.
+\end{itemize}

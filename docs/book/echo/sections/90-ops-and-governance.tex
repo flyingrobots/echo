@@ -1,0 +1,26 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Ops and Governance (Starter)}
+
+Echo favors merge-only history, deterministic builds, and documented intent.
+
+\section{Working Agreements}
+\begin{itemize}
+    \item No rebases or force pushes; use the branch merge playbook.
+    \item Keep \texttt{execution-plan.md} and \texttt{decision-log.md} in sync with any runtime change.
+    \item Run \texttt{cargo clippy --all-targets} and \texttt{cargo test} before PRs; Docs Guard expects updated metadata.
+\end{itemize}
+
+\section{CI / Docs Guard}
+\begin{itemize}
+    \item Hooks run fmt, clippy, docs guard, and SPDX checks.
+    \item GitHub Actions enforce SPDX headers and LaTeX docs builds.
+\end{itemize}
+
+\section{Next Additions}
+\begin{itemize}
+    \item Determinism incident runbook.
+    \item Branch merge decision tree (with TikZ diagram).
+    \item Telemetry/diagnostics quickstart.
+\end{itemize}

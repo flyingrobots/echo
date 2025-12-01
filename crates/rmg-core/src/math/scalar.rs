@@ -136,6 +136,10 @@ impl F32Scalar {
             Self {
                 value: f32::from_bits(0x7fc0_0000),
             }
+        } else if num.is_subnormal() {
+            Self {
+                value: f32::from_bits(0),
+            }
         } else {
             // Canonicalize -0.0 to +0.0
             Self { value: num + 0.0 }

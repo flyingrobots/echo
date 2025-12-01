@@ -7,6 +7,7 @@
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
 | 2025-11-29 | LICENSE | Add SPDX headers to all files | LEGAL PROTECTION 🛡️✨ |
+| 2025-11-30 | `F32Scalar` | Canonicalize subnormal values to zero | Now, they're zero. |
 | 2025-12-01 | `Cargo.toml` bench profile | Remove `panic = "abort"` from `[profile.bench]`. | Silence cargo warning as this setting is ignored for bench profiles; rely on release profile inheritance or default behavior. | Cleaner build output; no behavior change for benches (which default to unwind or abort based on target/inheritance). |
 | 2025-11-30 | `F32Scalar` NaN reflexivity | Update `PartialEq` implementation to use `total_cmp` (via `Ord`) instead of `f32::eq`. | Ensures `Eq` reflexivity holds even for NaN (`NaN == NaN`), consistent with `Ord`. Prevents violations of the `Eq` contract in collections. | `F32Scalar` now behaves as a totally ordered type; NaN values are considered equal to themselves and comparable. |
 | 2025-11-30 | `F32Scalar` NaN canonicalization | Canonicalize all NaNs to `0x7fc00000` in `F32Scalar::new`. Update MSRV to 1.83.0 for `const` `is_nan`/`from_bits`. | Guarantees bit-level determinism for all float values including error states. Unifies representation across platforms. MSRV bump enables safe, readable `const` implementation. | All NaNs are now bitwise identical; `const fn` constructors remain available; `rmg-core` requires Rust 1.83.0+. |

@@ -48,7 +48,6 @@ fn test_policy_nan_canonicalization() {
     );
 }
 
-/*
 #[test]
 fn test_policy_subnormal_flushing() {
     // Smallest positive subnormal: 1 bit set in mantissa, 0 exponent
@@ -60,15 +59,41 @@ fn test_policy_subnormal_flushing() {
     let s2 = F32Scalar::new(large_sub);
 
     // Must be flushed to positive zero
-    assert_eq!(s1.to_f32().to_bits(), 0, "Small subnormal not flushed to +0.0");
-    assert_eq!(s2.to_f32().to_bits(), 0, "Large subnormal not flushed to +0.0");
+    assert_eq!(
+        s1.to_f32().to_bits(),
+        0,
+        "Small subnormal not flushed to +0.0"
+    );
+    assert_eq!(
+        s2.to_f32().to_bits(),
+        0,
+        "Large subnormal not flushed to +0.0"
+    );
+    assert_eq!(
+        s1.to_f32().to_bits(),
+        F32Scalar::ZERO.to_f32().to_bits(),
+        "Small subnormal is not equal to ZERO"
+    );
+    assert_eq!(
+        s2.to_f32().to_bits(),
+        F32Scalar::ZERO.to_f32().to_bits(),
+        "Large subnormal is not equal to ZERO"
+    );
 
     // Verify negative subnormals go to +0.0 too (since -0.0 -> +0.0)
     let neg_sub = f32::from_bits(0x80000001);
     let s3 = F32Scalar::new(neg_sub);
-    assert_eq!(s3.to_f32().to_bits(), 0, "Negative subnormal not flushed to +0.0");
+    assert_eq!(
+        s3.to_f32().to_bits(),
+        0,
+        "Negative subnormal not flushed to +0.0"
+    );
+    assert_eq!(
+        s3.to_f32().to_bits(),
+        F32Scalar::ZERO.to_f32().to_bits(),
+        "Negative subnormal is not equal to ZERO"
+    );
 }
-*/
 
 #[test]
 #[cfg(feature = "serde")]

@@ -8,18 +8,22 @@ Echo differs significantly from general-purpose engines like Unity, Unreal, or G
 
 \begin{table}[h]
     \centering
-    \begin{tabular}{@{}lccc@{}}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.0cm}
+                    >{\raggedright\arraybackslash}p{3.4cm}
+                    >{\raggedright\arraybackslash}p{3.4cm}
+                    >{\raggedright\arraybackslash}p{3.0cm}@{}}
         \toprule
-        Feature & Echo & Unity/Unreal & Godot \\ \midrule
-        \textbf{Architecture} & Pure ECS (Hexagonal) & GameObject / Actor & Node Tree \\
-        \textbf{Determinism} & \textbf{Core Design Constraint} & Best Effort / Add-on & Best Effort \\
-        \textbf{State Model} & Immutable / COW Snapshots & Mutable In-Place & Mutable In-Place \\
-        \textbf{Netcode} & Native Rollback/Replay & State Sync (mostly) & RPC / State Sync \\
-        \textbf{Branching} & Native (Multiverse) & Impossible/Custom & Impossible \\
-        \textbf{Math} & Fixed/Canonical Float & Hardware Float & Hardware Float \\
-        \textbf{Rendering} & Decoupled (Port) & Tightly Coupled & Tightly Coupled \\ \bottomrule
+        \textbf{Feature} & \textbf{Echo} & \textbf{Unity/Unreal} & \textbf{Godot} \\ \midrule
+        Architecture & Pure ECS (hexagonal ports/adapters) & GameObject / Actor & Node Tree \\
+        Determinism & \textbf{Core constraint}; radix or legacy scheduler, stable order & Best effort / plug-in & Best effort \\
+        State Model & Immutable + COW snapshots & Mutable in-place & Mutable in-place \\
+        Netcode & Native rollback/replay (input or state sync) & State sync (mostly) & RPC / state sync \\
+        Branching & Native multiverse timelines & Custom / atypical & Not supported \\
+        Math & Canonical zero float wrapper; fixed-point planned & Hardware float & Hardware float \\
+        Rendering & Decoupled port; adapters pick GPU/OS & Tightly coupled & Tightly coupled \\ \bottomrule
     \end{tabular}
-    \caption{Comparison of Core Features}
+    \caption{Comparison of core behaviors (emphasis on determinism and branching).}
     \label{tab:comparison}
 \end{table}
 

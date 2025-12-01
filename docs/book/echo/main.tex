@@ -1,0 +1,76 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\documentclass[a4paper,12pt]{book}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{shapes, arrows, positioning, calc, matrix, backgrounds}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{hyperref}
+
+% Minimal Rust syntax highlighting for listings
+\lstdefinelanguage{Rust}{
+    keywords={pub,fn,let,mut,struct,enum,impl,for,while,loop,match,if,else,Self,self,where,crate,super,mod,use,as,trait,const,static,ref,move,async,await,dyn,return},
+    keywordstyle=\color{blue}\bfseries,
+    ndkeywords={u8,u16,u32,u64,usize,i8,i16,i32,i64,isize,f32,f64,bool,str,String,Vec,Option,Result},
+    ndkeywordstyle=\color{teal}\bfseries,
+    identifierstyle=\color{black},
+    sensitive=true,
+    comment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    commentstyle=\color{gray}\ttfamily,
+    stringstyle=\color{orange}\ttfamily,
+    morestring=[b]{"}
+}
+\lstset{
+    basicstyle=\ttfamily\small,
+    numbers=left,
+    numberstyle=\tiny,
+    stepnumber=1,
+    numbersep=5pt,
+    showstringspaces=false,
+    tabsize=4,
+    breaklines=true,
+    frame=single
+}
+
+\setlength{\emergencystretch}{1.5em} % reduce overfull hboxes in narrow columns
+
+\geometry{margin=1in}
+
+\title{How Echo Works\ \large A Deep Dive into the Deterministic, Multiverse-Aware Engine}
+\author{James Ross \& The Echo Contributors}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+
+\chapter{Introduction}
+\input{sections/01-what-is-echo}
+
+\chapter{High-Level Architecture}
+\input{sections/02-high-level-architecture}
+
+\chapter{Echo vs. The World}
+\input{sections/03-comparisons}
+
+\chapter{Deterministic Mathematics}
+\input{sections/04-mathematics}
+
+\chapter{The Game Loop}
+\input{sections/05-game-loop}
+
+% License appendix (non-numbered)
+\input{legal-appendix}
+
+\end{document}

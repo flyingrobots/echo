@@ -20,7 +20,6 @@ Goal: a human-friendly `cargo xtask` (or `just`/`make` alias) that walks a contr
 - Summarize changes: gather `git status`, staged/untracked hints; prompt for decision-log entry (Context/Decision/Rationale/Consequence).
 - PR prep: prompt for PR title/body template (with issue closing keywords); optionally run `git commit` and `gh pr create`.
 - Issue hygiene: assign milestone/board/labels via gh CLI; auto-link PR to issue.
-- Optional: regenerate `docs/echo-total.md` if docs touched.
 
 ## Nice-to-haves
 - Determinism check shortcut: run twin-engine sandbox determinism A/B (radix vs legacy) and summarize.

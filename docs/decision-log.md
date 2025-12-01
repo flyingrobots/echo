@@ -26,6 +26,9 @@
 ## Recent Decisions (2025-10-28 onward)
 
 The following entries use a heading + bullets format for richer context.
+| 2025-12-01 | `docs/guides/how-do-echo-work` PDF build | Escaped bare `&` tokens, fixed TikZ bidirectional arrows, added a minimal Rust listing language, and made the LaTeX Makefile run in non-interactive `-halt-on-error` mode (three passes). | Prevents TikZ parse failures and listings errors, avoids TeX prompting in CI/automation, and keeps code samples readable. | `make` in `docs/guides/how-do-echo-work` now produces `main.pdf` without interaction; remaining output is cosmetic overfull hbox warnings. |
+| 2025-12-01 | `docs/guides/how-do-echo-work` accuracy + visuals | Synced guide content to current code: clarified scheduler kinds (Radix/Legacy), footprint conflicts, sandbox determinism helper, and `F32Scalar` behavior (canonical zero only; NaNs passthrough for now). Added timeline tree TikZ, resized hex diagram, refreshed comparison table, and Rust listings. Removed layout warnings. | Keep the guide truthful to rmg-core as implemented; improves reader clarity and CI reliability. | `main.pdf` builds non-interactively; visuals/tables reflect actual APIs and invariants; remaining determinism work (LUT sin/cos, NaN canonicalization) is called out as future work. |
+| 2025-12-01 | SPDX appendix + CI check | Added `legal-appendix.tex` with dual-license explainer and included it in the guide. Introduced `spdx-header-check.yml` workflow that runs `scripts/check_spdx.sh --check --all` to enforce SPDX headers. | Ensures licensing terms are visible in the book and keeps automated enforcement in CI. | New appendix renders in PDF; workflow will fail PRs missing SPDX headers. |
 | 2025-11-06 | rmg-core scheduler Clippy cleanup | Make pre-commit pass without `--no-verify`: fix `doc_markdown`, `similar_names`, `if_not_else`, `option_if_let_else`, `explicit_iter_loop`; change `RewriteThin.handle` to `usize`; keep radix `counts16` as `Vec<u32>` (low bandwidth) with safe prefix-sum/scatter; fail fast in drain with `unreachable!` instead of `expect()` or silent drop; make `pending` field private (keep `PendingTx` private). | Preserve determinism and ordering while satisfying strict `clippy::pedantic` and `-D warnings`. Avoid truncation casts and private interface exposure. | Determinism preserved; panic on invariant violation; histogram remains 256 KiB on 64‑bit; pre-commit unblocked.
 | 2025-11-06 | rmg-core test + benches lint fixes | Clean up `clippy::pedantic` failures blocking commit: (1) add backticks to doc comments for `b_in`/`b_out` and `GenSet(s)`; (2) refactor `DeterministicScheduler::reserve` into helpers to satisfy `too_many_lines`; (3) move inner test function `pack_port` above statements to satisfy `items_after_statements`; (4) remove `println!` and avoid `unwrap()`/`panic!` in tests; (5) use captured format args and `u64::from(...)`/`u32::from(...)` idioms; (6) fix `rmg-benches/benches/reserve_scaling.rs` imports (drop unused `CompactRuleId` et al.) and silence placeholder warnings. | Align tests/benches with workspace lint policy while preserving behavior; ensure CI and pre-commit hooks pass uniformly. | Clippy clean on lib + tests; benches compile; commit hook no longer blocks.
 | 2025-11-06 | CI fix | Expose `PortSet::iter()` (no behavior change) to satisfy scheduler iteration in CI. | Unblocks Clippy/build on GH; purely additive API. | CI gates resume.
@@ -37,14 +40,9 @@ The following entries use a heading + bullets format for richer context.
 | 2025-10-30 | Bug template wording | Standardize bug template descriptions to imperative capitalization ("Provide …") | Consistent style and clearer prompts | Improved reporter guidance |
 | 2025-10-30 | Proptest seed pinning | Add dev‑dep `proptest` and a pinned‑seed property test for motion rule (`proptest_seed_pinning.rs`) | Establish deterministic, reproducible property tests and document seed‑pinning pattern | Tests‑only; no runtime impact |
 | 2025-10-30 | CI matrix | Add musl tests job (rmg-core; x86_64-unknown-linux-musl) and a manual macOS workflow for local runs | Cover glibc + musl in CI while keeping macOS optional to control costs | Determinism coverage improves; CI footprint remains lean |
-| 2025-10-30 | Docs rollup | Add generator script and `docs/echo-total.md` rollup of all top‑level docs | Single-file reference for reviewers and readers; preserves source of truth in individual docs | Keep rollup refreshed via script when docs change |
-| 2025-10-30 | Docs rollup review (PR-05) | Add MUSL job intent comment (rmg-core only) and fix generator script to use portable newlines (`printf`/`echo`) | Clarify CI intent and ensure rollup emits correct formatting | Merged `main` into branch (no rebase/force) |
 | 2025-10-30 | Motion negative tests (PR-06) | Add tests documenting NaN/Infinity propagation and invalid payload size NoMatch in motion rule | Clarify expected behavior without changing runtime; improves determinism docs via tests | Tests-only; no runtime impact |
-| 2025-10-30 | Docs rollup check (PR-07) | Add CI workflow to verify `docs/echo-total.md` is regenerated | Prevents drift between source docs and the rollup | Fails PR with guidance if rollup is stale |
-| 2025-10-30 | Docs tooling (PR-08) | Add `make echo-total` target and README docs section for rollup | Makes rollup refresh one command; improves contributor experience | Small tooling quality-of-life |
 | 2025-10-30 | BLAKE3 header tests (PR-09) | Add unit tests to verify commit header encoding order/endianness and hash equivalence | Codifies checklist guarantees in tests; prevents regressions | Tests-only; no runtime impact |
 | 2025-10-30 | README CI tips (PR-10) | Document manual macOS workflow and how to reproduce CI locally | Lowers barriers to contributor validation | Docs-only |
-| 2025-11-01 | Rollup automation (PR-10) | Pre-commit regenerates `docs/echo-total.md` when top-level docs change; aborts to preserve index until staged | Keeps rollup in sync pre-CI and reduces churn | Developer experience improvement |
 | 2025-10-28 | PR #7 merged | Reachability-only snapshot hashing; ports demo registers rule; guarded ports footprint; scheduler `finalize_tx()` clears `pending`; `PortKey` u30 mask; hooks+CI hardened (toolchain pin, rustdoc fixes). | Determinism + memory hygiene; remove test footguns; pass CI with stable toolchain while keeping rmg-core MSRV=1.68. | Queued follow-ups: #13 (Mat4 canonical zero + MulAssign), #14 (geom train), #15 (devcontainer). |
 | 2025-10-27 | MWMR reserve gate | Engine calls `scheduler.finalize_tx()` at commit; compact rule id used on execute path; per‑tx telemetry summary behind feature. | Enforce independence and clear active frontier deterministically; keep ordering stable with `(scope_hash, family_id)`. | Toolchain pinned to Rust 1.68; add design note for telemetry graph snapshot replay. |
  
@@ -163,28 +161,12 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Establish a place for performance microbenches; keep PR small and focused before adding JSON artifacts/regression gates in follow-ups.
 - Consequence: Benches run locally via `cargo bench -p rmg-benches`; no runtime changes.
 
-## 2025-11-01 — Docs rollup automation (pre-commit + subdirs)
-
-- Context: CI rollup check fails if `docs/echo-total.md` drifts; authors asked to trigger the rollup automatically on local commits and include subdirectories.
-- Decision: Pre-commit now regenerates the rollup whenever any `docs/**/*.md` file changes (excluding the rollup) and aborts the commit if the rollup changed, prompting review/staging. The generator now includes Markdown files in subdirectories (e.g., `docs/guide/…`) and uses a locale-stable sort (`LC_ALL=C`) with a static header to avoid non-deterministic diffs.
-- Consequence: Fewer CI round-trips on docs-only changes; deterministic rollup; preserved index semantics for partial staging.
-
 ## 2025-11-01 — PR-10 scope hygiene (tests split)
 
 - Context: PR‑10 (README/CI/docs) accidentally included commit header tests in `snapshot.rs`, overlapping with PR‑09 (tests‑only).
 - Decision: Remove the test module from PR‑10 to keep it strictly docs/CI/tooling; keep all BLAKE3 commit header tests in PR‑09 (`echo/pr-09-blake3-header-tests`).
 - Consequence: Clear PR boundaries; no runtime behavior change in PR‑10.
 
-## 2025-11-02 — Hotfix: CI docs rollup determinism
-
-- Context: CI rollup job failed on branches where `scripts/gen-echo-total.sh` previously wrote a timestamp header, causing `git diff` to always differ.
-- Decision: Update `.github/workflows/echo-total-check.yml` to normalize out `Generated:` lines before diffing, making the check deterministic across old/new rollup formats.
-- Consequence: No more false failures; contributors still run `make echo-total` locally when docs change.
-
-## 2025-11-02 — Hotfix follow-up: tighter normalization + annotations
-
-- Decision: Limit normalization to the header region only and accept case/whitespace/legacy variants (`Generated:`, `generated at:`, `Generated by:`). Emit a GitHub Actions `::error` annotation targeting `docs/echo-total.md` when differences remain to improve diagnostics.
-- Consequence: Clearer CI failures; minimal, targeted normalization avoids masking content issues.
 
 ## 2025-11-02 — CI hotfix: cargo-deny (benches)
 

@@ -13,30 +13,31 @@ The cornerstone of Echo's reliability is its deterministic math module. Standard
     \item \textbf{Transcendental Functions:} `sin()`, `cos()`, `pow()` are often implemented in libc or hardware microcode, with varying precision.
 \end{itemize}
 
-\subsection{Echo's Solution: \texttt{F32Scalar}}
+\subsection{Echo's Current Float Wrapper: \texttt{F32Scalar}}
 
-Echo wraps primitive types in a strict wrapper, `F32Scalar`, enforcing the following policies:
+Echo wraps `f32` in a strict type, `F32Scalar`, with the policies implemented today:
 
 \begin{enumerate}
-    \item \textbf{Canonical Zero:} The constructor maps `-0.0` to `+0.0`.
-    \item \textbf{Canonical NaN:} All NaN values are collapsed to a single "Positive Quiet NaN" bit pattern (`0x7fc00000`).
-    \item \textbf{Software Transcendentals:} Functions like `sin` and `cos` use a custom, deterministic approximation (e.g., a high-precision LUT or Taylor series implemented in software) rather than calling the hardware/OS instruction.
+    \item \textbf{Canonical Zero:} The constructor maps `-0.0` to `+0.0` (see Listing \ref{lst:f32scalar}).
+    \item \textbf{NaN passthrough (for now):} NaNs are preserved as-is; canonical NaN collapsing is a planned follow-up.
+    \item \textbf{Transcendentals:} `sin`/`cos` currently call `f32::sin`/`f32::cos`. Deterministic LUT or polynomial replacements are planned to remove platform variance.
 \end{enumerate}
 
-\begin{lstlisting}[language=Rust, caption=Simplified F32Scalar Logic]
-pub struct F32Scalar(f32);
+\begin{lstlisting}[language=Rust, caption=F32Scalar canonicalizes -0.0 and derives ordering, label=lst:f32scalar]
+#[derive(Debug, Copy, Clone)]
+pub struct F32Scalar {
+    value: f32, // invariant: never stores -0.0
+}
 
 impl F32Scalar {
-    pub fn new(val: f32) -> Self {
-        if val.is_nan() {
-            // Canonical NaN
-            F32Scalar(f32::from_bits(0x7fc00000))
-        } else if val == 0.0 && val.is_sign_negative() {
-            // Canonical Zero
-            F32Scalar(0.0)
-        } else {
-            F32Scalar(val)
-        }
+    pub const fn new(num: f32) -> Self {
+        Self { value: num + 0.0 } // -0.0 -> +0.0
+    }
+}
+
+impl Ord for F32Scalar {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.value.total_cmp(&other.value)
     }
 }
 \end{lstlisting}

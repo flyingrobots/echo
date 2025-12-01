@@ -35,6 +35,24 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-01 — Fix “How Echo Works” LaTeX build (non-interactive PDF)
+
+- Goal: unblock `docs/guides/how-do-echo-work` PDF generation without interactive TeX prompts.
+- Scope: tidy TikZ arrows/ampersands, add Rust listing language, harden LaTeX Makefile to fail fast.
+- Plan: clean artifacts, adjust TeX sources, re-run `make` until `main.pdf` builds cleanly.
+
+> 2025-12-01 — Book accuracy + visuals refresh
+
+- Goal: align the “How Echo Works” guide with the current code (scheduler kinds, sandbox, math invariants) and add clearer visuals/tables.
+- Scope: scan `rmg-core` for scheduler, sandbox, and math implementations; update prose, tables, and TikZ diagrams; remove layout warnings.
+- Status: completed; PDF now builds cleanly with updated figures and code snippets.
+
+> 2025-12-01 — License appendix + SPDX CI
+
+- Goal: add a LaTeX license appendix and wire CI to enforce SPDX headers.
+- Scope: new `legal-appendix.tex` included in the guide; GitHub Action `spdx-header-check.yml` runs `scripts/check_spdx.sh --check --all`.
+- Status: added appendix and workflow.
+
 > 2025-11-30 — PR #121 feedback (perf/scheduler)
 
 - Goal: triage and address CodeRabbit review feedback on scheduler radix drain/footprint changes; ensure determinism and docs guard stay green.
@@ -92,7 +110,6 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   `default-features = false, features = ["std"]` (no rayon; deterministic, lean).
 - snapshot_hash bench: precompute `link` type id once; fix edge labels to `e-i-(i+1)`.
 - scheduler_drain bench: builder returns `Vec<NodeId>` to avoid re-hashing labels; bench loop uses the precomputed ids.
-- Regenerated `docs/echo-total.md` to reflect these changes.
 
 > 2025-11-02 — PR-12: benches polish (constants + docs)
 
@@ -113,7 +130,6 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   wildcard bans while keeping benches single-threaded.
 - snapshot_hash bench: precompute `link` type id and fix edge labels to `e-i-(i+1)`.
 - scheduler_drain bench: return `Vec<NodeId>` from builder and avoid re-hashing node ids in the apply loop.
-- Regenerated `docs/echo-total.md` after doc updates.
 
 > 2025-11-02 — Benches DX: offline report + server fix
 
@@ -159,6 +175,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Verified YAML lint feedback: removed trailing blank lines and quoted the `#22` placeholder in Task template.
 - Updated `docs/execution-plan.md` and `docs/decision-log.md` to satisfy Docs Guard for non-doc file changes.
 
+> 2025-12-01 — Docs rollup retired
+
+- Cleaned SPDX checker skip list now that the rollup no longer exists.
+
 > 2025-10-30 — Deterministic math spec (MD022)
 
 - On branch `echo/docs-math-harness-notes`, fixed Markdown lint MD022 by inserting a blank line after subheadings (e.g., `### Mat3 / Mat4`, `### Quat`, `### Vec2 / Vec3 / Vec4`). No content changes.
@@ -180,27 +200,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - CI: Added a musl job (`Tests (musl)`) that installs `musl-tools`, adds target `x86_64-unknown-linux-musl`, and runs `cargo test -p rmg-core --target x86_64-unknown-linux-musl`.
 - CI: Added a separate macOS workflow (`CI (macOS — manual)`) triggered via `workflow_dispatch` to run fmt/clippy/tests on `macos-latest` when needed, avoiding default macOS runner costs.
 
-> 2025-10-30 — PR-05: docs rollup (echo-total.md)
-
-- Added `scripts/gen-echo-total.sh` to generate `docs/echo-total.md` by concatenating top‑level docs in a stable order (priority: docs-index, architecture outline, execution plan, decision log; then others alphabetically). The rollup carries file banners and a generated timestamp.
-
-> 2025-10-30 — PR-05 review fixes
-
-- CI: In `ci.yml`, documented why the MUSL job tests only `rmg-core` (wasm/FFI intentional exclusions).
-- Script portability: replaced echo with `printf` (and a plain `echo '---'`) to emit real newlines in `scripts/gen-echo-total.sh`; removed non-portable `\n` echo usage.
-- Synced with `origin/main` via merge (no rebase/force).
-
 > 2025-10-30 — PR-06: Motion negative tests (opened)
 
 - Added tests in `rmg-core` covering NaN/Infinity propagation and invalid payload size returning `NoMatch`. Tests-only; documents expected behavior; no runtime changes.
-
-> 2025-10-30 — PR-07: echo-total rollup check (CI)
-
-- Added workflow `.github/workflows/echo-total-check.yml` that regenerates `docs/echo-total.md` and fails the PR if the file differs, prompting authors to update the rollup. Keeps the single-file doc in sync.
-
-> 2025-10-30 — PR-08: Makefile target + README note (docs tooling)
-
-- Added `make echo-total` target to run the rollup generator. README now documents `docs` commands and the rollup target.
 
 > 2025-10-30 — PR-09: BLAKE3 header tests (tests-only)
 
@@ -212,11 +214,6 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-10-30 — PR-10: README (macOS manual + local CI tips)
 
 - Added a short CI Tips section to README covering how to trigger the manual macOS workflow and reproduce CI locally (fmt, clippy, tests, rustdoc, audit, deny).
-
-> 2025-11-01 — Rollup automation: pre-commit + subdirs
-
-- Pre-commit now regenerates `docs/echo-total.md` automatically when any Markdown under `docs/**` changes (excluding the rollup itself) and aborts the commit if the rollup changed, prompting the author to review and stage it. This keeps the rollup in sync before CI while preserving partial staging.
-- The rollup generator now includes Markdown in subdirectories (e.g., `docs/guide/…`) with deterministic ordering (`LC_ALL=C` sort) and a stable header (no timestamp/SHA) to avoid CI churn.
 
 > 2025-11-01 — PR-10 scope hygiene
 
@@ -416,7 +413,6 @@ Remember: every entry here shrinks temporal drift between Codices. Leave breadcr
 
 > 2025-11-02 — Hotfix follow-up: tighter normalization + annotation
 
-- CI normalization now only removes `Generated` header lines in the top-of-file header block (from start to first blank line) and tolerates whitespace/case variants and legacy forms like `Generated:`, `generated at:`, `Generated by:`. Added a GitHub Actions annotation on failure to point directly at `docs/echo-total.md`.
 > 2025-11-02 — PR-11: benches crate skeleton (M1)
 
 - Add `crates/rmg-benches` with Criterion harness and a minimal motion-throughput benchmark that exercises public `rmg-core` APIs.

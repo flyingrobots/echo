@@ -12,9 +12,9 @@ all: $(PDF_FILE)
 
 $(PDF_FILE): $(TEX_FILE)
 	@echo "Building LaTeX document..."
-	$(LATEX_ENGINE) -shell-escape $(TEX_FILE)
-	$(LATEX_ENGINE) -shell-escape $(TEX_FILE)
-	$(LATEX_ENGINE) -shell-escape $(TEX_FILE)
+	$(LATEX_ENGINE) -interaction=nonstopmode -halt-on-error -file-line-error -shell-escape $(TEX_FILE)
+	$(LATEX_ENGINE) -interaction=nonstopmode -halt-on-error -file-line-error -shell-escape $(TEX_FILE)
+	$(LATEX_ENGINE) -interaction=nonstopmode -halt-on-error -file-line-error -shell-escape $(TEX_FILE)
 	@echo "LaTeX build complete: $(PDF_FILE)"
 
 clean:

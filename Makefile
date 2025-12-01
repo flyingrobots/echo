@@ -7,7 +7,7 @@ SHELL := /bin/bash
 PORT ?= 5173
 BENCH_PORT ?= 8000
 
-.PHONY: hooks docs docs-build docs-ci echo-total
+.PHONY: hooks docs docs-build docs-ci
 hooks:
 	@git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
@@ -42,11 +42,6 @@ docs-build:
 docs-ci:
 	@echo "[docs] CI build (no npm install)"
 	@npm run --silent docs:build
-
-# Generate docs/echo-total.md rollup
-echo-total:
-	@chmod +x scripts/gen-echo-total.sh
-	@./scripts/gen-echo-total.sh
 # Benchmarks and reports
 .PHONY: bench-report vendor-d3 bench-serve bench-open
 

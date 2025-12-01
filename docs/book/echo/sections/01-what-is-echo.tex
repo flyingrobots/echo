@@ -9,7 +9,7 @@ It is built on the concept of a "Rulial Multi-Graph" (RMG), where the entire gam
 \begin{itemize}
     \item \textbf{Perfect Determinism:} Given the same initial state and inputs, the simulation will evolve identically on any machine (x86, ARM, WASM).
     \item \textbf{Time Travel:} The ability to rollback the simulation to any previous tick, branch time into alternative realities, and merge them back.
-    \item \textbf{Renderer Agnosticism:} Echo does not care how it is drawn. It emits a `FramePacket`, which can be consumed by WebGL, WebGPU, a terminal UI, or a headless server.
+    \item \textbf{Renderer Agnosticism:} Echo does not care how it is drawn. It emits a `FramePacket`\\ (render-agnostic draw list) that adapters feed to WebGL/WebGPU, a terminal UI, or a headless server.
 \end{itemize}
 
 \subsection{Core Philosophy}

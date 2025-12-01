@@ -48,7 +48,6 @@ should_skip() {
         *.png|*.jpg|*.jpeg|*.gif|*.webp|*.svg|*.ico|*.pdf|*.woff|*.woff2|*.ttf|*.eot|*.map) return 0 ;;
         *.lock|package-lock.json|yarn.lock|Cargo.lock) return 0 ;;
         LICENSE*|NOTICE|COPYING|*.license|*/LICENSE*|*/NOTICE|*/COPYING|*/*.license) return 0 ;;
-        docs/echo-total.md) return 0 ;;
         *.json) return 0 ;; 
       esac
       return 1

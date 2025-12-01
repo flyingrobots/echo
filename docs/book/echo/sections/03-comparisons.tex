@@ -1,0 +1,52 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\section{Echo vs. The World}
+
+Echo differs significantly from general-purpose engines like Unity, Unreal, or Godot. While those engines optimize for "getting something on screen fast" and providing a rich editor, Echo optimizes for **correctness under complex temporal manipulation**.
+
+\subsection{Feature Comparison Matrix}
+
+\begin{table}[h]
+    \centering
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{@{}>{\raggedright\arraybackslash}p{3.0cm}
+                    >{\raggedright\arraybackslash}p{3.4cm}
+                    >{\raggedright\arraybackslash}p{3.4cm}
+                    >{\raggedright\arraybackslash}p{3.0cm}@{}}
+        \toprule
+        \textbf{Feature} & \textbf{Echo} & \textbf{Unity/Unreal} & \textbf{Godot} \\ \midrule
+        Architecture & Pure ECS (hexagonal ports/adapters) & GameObject / Actor & Node Tree \\
+        Determinism & \textbf{Core constraint}; radix or legacy scheduler, stable order & Best effort / plug-in & Best effort \\
+        State Model & Immutable + COW snapshots & Mutable in-place & Mutable in-place \\
+        Netcode & Native rollback/replay (input or state sync) & State sync (mostly) & RPC / state sync \\
+        Branching & Native multiverse timelines & Custom / atypical & Not supported \\
+        Math & Canonical zero float wrapper; fixed-point planned & Hardware float & Hardware float \\
+        Rendering & Decoupled port; adapters pick GPU/OS & Tightly coupled & Tightly coupled \\ \bottomrule
+    \end{tabular}
+    \caption{Comparison of core behaviors (emphasis on determinism and branching).}
+    \label{tab:comparison}
+\end{table}
+
+\subsection{Key Differentiators}
+
+\subsubsection{1. Determinism as a Constraint}
+In Unity or Unreal, `float` math depends on the CPU architecture. A simulation running on an Intel chip might diverge from one on an ARM chip after a few thousand frames.
+Echo uses \texttt{F32Scalar} (canonicalized floats) or fixed-point math to ensure bit-perfect identity across all platforms. This enables:
+\begin{itemize}
+    \item \textbf{Replay Systems:} Store only inputs, replay the game exactly.
+    \item \textbf{Anti-Cheat:} Verify game logic on the server with zero tolerance for deviation.
+    \item \textbf{Desync Debugging:} If a bug happens, it happens exactly the same way every time.
+\end{itemize}
+
+\subsubsection{2. The Multiverse (Branching)}
+Traditional engines have one "World". To do a "prediction" (e.g., for netcode), they must serialize the whole world, step forward, and then deserialize it back (a slow process).
+Echo uses **Copy-on-Write (COW)** archetype storage. It can fork the world instantly.
+\begin{itemize}
+    \item \textbf{Main Timeline:} The "real" game.
+    \item \textbf{Speculative Branch:} Used by AI to "think ahead" or by netcode to predict movement.
+\end{itemize}
+These branches share memory for unchanged data, making branching extremely cheap.
+
+\subsubsection{3. Rulial Multi-Graph vs. Object Update}
+In typical engines, objects have an `Update()` function. Order of execution is often ill-defined or rigid.
+Echo uses a graph rewriting approach. Systems define rules. The Scheduler identifies independent subgraphs that can be updated in parallel (using MWMR - Multi-Writer Multi-Reader patterns) without race conditions, because the data dependency is explicit.

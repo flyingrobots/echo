@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+name: SPDX Header Check
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  spdx-only-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make SPDX check script executable
+        run: |
+          if [ -f "scripts/check_spdx.sh" ]; then
+            chmod +x scripts/check_spdx.sh
+          elif [ -f "check_spdx.sh" ]; then
+            chmod +x check_spdx.sh
+          fi
+
+      - name: Run SPDX check
+        run: |
+          if [ -f "scripts/check_spdx.sh" ]; then
+            scripts/check_spdx.sh --check --all
+          elif [ -f "check_spdx.sh" ]; then
+            ./check_spdx.sh --check --all
+          else
+            echo "::error::SPDX check script not found."
+            exit 1
+          fi

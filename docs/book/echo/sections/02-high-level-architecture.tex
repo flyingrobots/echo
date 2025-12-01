@@ -1,0 +1,131 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\section{High-Level Architecture}
+
+Echo follows a strict \textbf{Hexagonal Architecture} (or Ports and Adapters pattern). The core domain logic sits in the center, isolated from the outside world.
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+        scale=0.95,
+        every node/.style={transform shape},
+        node distance=1.4cm,
+        core/.style={circle, draw=black, fill=blue!10, thick, minimum size=2.6cm},
+        port/.style={rectangle, draw=black, fill=green!10, thick, minimum width=1.8cm, minimum height=0.9cm},
+        adapter/.style={rectangle, draw=black!60, dashed, minimum width=2.2cm, minimum height=0.9cm},
+        arrow/.style={->, thick}
+    ]
+
+    % Core
+    \node[core] (engine) {Echo Core / ECS};
+
+    % Ports
+    \node[port, above=of engine] (input) {Input Port};
+    \node[port, below=of engine] (render) {Render Port};
+    \node[port, left=of engine] (net) {Network Port};
+    \node[port, right=of engine] (phys) {Physics Port};
+
+    % Adapters
+    \node[adapter, above=0.5cm of input] (keyboard) {Keyboard / Mouse};
+    \node[adapter, below=0.5cm of render] (webgl) {WebGL / WebGPU};
+    \node[adapter, left=0.5cm of net] (webrtc) {WebRTC / UDP};
+    \node[adapter, right=0.5cm of phys] (rapier) {Rapier / Box2D};
+
+    % Connections
+    \draw[arrow] (input) -- (engine);
+    \draw[arrow] (engine) -- (render);
+    \draw[arrow,<->] (net) -- (engine);
+    \draw[arrow,<->] (phys) -- (engine);
+
+    \draw[arrow, dashed] (keyboard) -- (input);
+    \draw[arrow, dashed] (engine) -- (webgl); % Indirectly via port
+    \draw[arrow, dashed] (render) -- (webgl);
+
+    \end{tikzpicture}
+    \caption{Echo's Hexagonal Architecture}
+    \label{fig:hex-arch}
+\end{figure}
+
+\subsection{Domain Layers}
+
+The architecture is stratified into clear layers:
+
+\begin{enumerate}
+    \item \textbf{Core ECS:} The heart of the engine.
+        \begin{itemize}
+            \item \textbf{Entities:} Numerical IDs managed by a high-watermark allocator.
+            \item \textbf{Components:} Data buckets. Storage is archetype-based (chunks sized for CPU cache lines) with Copy-on-Write (COW) support for branching.
+            \item \textbf{Systems:} Pure functions that transform data.
+        \end{itemize}
+    \item \textbf{World \& Scene Management:} Handles the lifecycle of entities and the "Scene Graph".
+    \item \textbf{Time \& Simulation (Timecube):} Manages the temporal axes:
+        \begin{itemize}
+            \item \textbf{Chronos:} The monotonic tick counter (Sequence).
+            \item \textbf{Kairos:} The branch identifier (Possibility).
+            \item \textbf{Aion:} The narrative weight/entropy (Significance).
+        \end{itemize}
+    \item \textbf{Codex's Baby (Event Bus):} A deterministic event bus used for communication between systems and for bridging the gap between the Core and the Ports.
+\end{enumerate}
+
+\subsection{Ports \& Adapters}
+
+Echo does not define \textit{how} things happen, only \textit{that} they happen.
+
+\begin{itemize}
+    \item \textbf{Renderer Port:} Receives a `FramePacket` containing generic draw commands (mesh refs, transforms). Adapters (e.g., PixiJS, wgpu) translate this to GPU calls.
+    \item \textbf{Input Port:} Aggregates input into snapshots. The domain polls this once per frame.
+    \item \textbf{Physics Port:} Dual-write system. ECS components store the "desired" state; the Physics Port (via an adapter like Rapier) advances the simulation and syncs the authoritative transform back.
+    \item \textbf{Networking Port:} Handles replication. Thanks to determinism, it can use state-snapshots or input-replication (GGPO).
+\end{itemize}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[
+        >=stealth,
+        node/.style={circle, draw=black, fill=orange!12, minimum size=7mm},
+        label/.style={font=\small}
+    ]
+        % Mainline commits
+        \node[node] (m0) at (0,0) {};
+        \node[node] (m1) at (1.6,0) {};
+        \node[node] (m2) at (3.2,0) {};
+        \node[node] (m3) at (4.8,0) {};
+
+        \draw[->, thick] (m0) -- (m1) -- (m2) -- (m3);
+        \node[label, above=2mm of m0] {Main (Chronos)};
+
+        % Branch A
+        \node[node] (a1) at (2.4,1.2) {};
+        \node[node] (a2) at (3.8,1.2) {};
+        \draw[->, thick] (m1) -- (a1) -- (a2);
+        \node[label, above=2mm of a1] {Branch A (Kairos=17)};
+
+        % Branch B
+        \node[node] (b1) at (2.4,-1.2) {};
+        \node[node] (b2) at (3.8,-1.2) {};
+        \draw[->, thick] (m1) -- (b1) -- (b2);
+        \node[label, below=2mm of b1] {Branch B (Kairos=18)};
+
+        % Merge back
+        \draw[->, thick] (a2) -- (m3);
+        \draw[->, thick] (b2) -- (m3);
+
+        % Replay/checkpoint marker, pushed right to avoid overlaps
+        \node[rectangle, draw=black, rounded corners, fill=blue!10,
+              minimum width=3.2cm, minimum height=1.6cm,
+              align=center, inner sep=7pt] (chk) at (6.4,1.6) {Replay\\Checkpoint};
+        \draw[dashed, ->] (chk.west) to[bend left=12] (m3);
+        \node[label, below=3mm of chk] {(commit hash)};
+    \end{tikzpicture}
+    \caption{Git-style branching: Chronos is the main line, Kairos branches diverge and deterministically merge; checkpoints use snapshot hashes (Aion weighting optional).}
+    \label{fig:timeline-tree}
+\end{figure}
+
+\subsection{Deterministic Scheduler \& Sandbox}
+
+\begin{itemize}
+    \item \textbf{Scheduler kinds:} `SchedulerKind` lets the engine pick the default Radix scheduler (stable $O(n)$ LSD radix on \texttt{scope\_hash}, \texttt{rule\_id}, \texttt{nonce}) or a Legacy BTreeMap path for A/B runs.
+    \item \textbf{Footprint conflicts:} Independence checks use generation-stamped sets over node/edge read-write sets and boundary ports (MWMR). Any overlap conflicts and the rewrite aborts before execution.
+    \item \textbf{Sandbox A/B:} \texttt{EchoConfig} + \texttt{run\_pair\_determinism} build two isolated engines (different schedulers, seeds, or rule sets) and compare snapshot hashes step-by-step to prove determinism.
+    \item \textbf{Snapshots:} Each tick can emit a \texttt{Snapshot} with a 32-byte BLAKE3 hash used for comparison, replay, or merge validation.
+\end{itemize}

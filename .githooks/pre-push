@@ -72,10 +72,16 @@ if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
     --glob '!**/build.rs' | cat >&2 || true
   exit 1
 fi
-if rg -n "\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then
+if rg -n "\\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then
   echo "pre-push: #[unsafe(no_mangle)] is invalid; use #[no_mangle]." >&2
-  rg -n "\#\[unsafe\(no_mangle\)\]" crates | cat >&2 || true
+  rg -n "\\#\[unsafe\(no_mangle\)\]" crates | cat >&2 || true
   exit 1
+fi
+
+# SPDX Header Check
+echo "[pre-push] checking SPDX headers..."
+if [[ -x scripts/check_spdx.sh ]]; then
+  scripts/check_spdx.sh || { echo "[pre-push] SPDX check failed. Run ./scripts/ensure_spdx.sh --all to fix."; exit 1; }
 fi
 
 exit 0

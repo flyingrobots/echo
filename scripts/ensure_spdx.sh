@@ -102,25 +102,42 @@ get_header_content() {
 
 check_valid_header() {
   local f="$1"
-  local expected="$2"
+  local expected_header_block="$2" # This is a multi-line string like "# SPDX...\n# ©..."
   
-  # Read first few lines
-  local head_content
-  head_content=$(head -n 10 "$f")
+  local file_lines=()
+  # Read file line by line, handling newlines properly
+  while IFS= read -r line; do
+    file_lines+=("$line")
+  done < "$f"
 
-  # Check if the *exact expected block* is present in the header.
-  # We treat the multi-line string $expected as a fixed string search.
-  # Because grepping a multi-line string is tricky, we check line by line or use grep -F.
-  # Simplification: Check if the first line of expected is in the file, 
-  # AND it matches the comment style.
-  
-  # Actually, we can just check if the exact expected string appears in the head.
-  # Using awk or python would be safer for multi-line, but let's use grep -F.
-  if echo "$head_content" | grep -Fq "$expected"; then
-      return 0
+  local i=0
+  local first_line_in_file="${file_lines[0]:-}"
+
+  # Skip shebang/xml if present
+  if [[ "$first_line_in_file" =~ ^#! || "$first_line_in_file" =~ ^\<\?xml ]]; then
+      i=1
+  fi
+
+  # Extract the lines from expected_header_block
+  local expected_lines=()
+  # Use process substitution with IFS=$'\n' to split multi-line string into array elements
+  IFS=$'\n' read -r -d '' -a expected_lines <<< "$expected_header_block"
+
+  # Check if we have enough expected header lines (should be 2)
+  if [[ ${#expected_lines[@]} -ne 2 ]]; then
+    return 1 # Should not happen if get_header_content is correct.
+  fi
+
+  # Check if file has enough lines to compare the header
+  if [[ ${#file_lines[@]} -lt $((i + 1)) ]]; then return 1; fi # Not enough lines for header
+
+  # Compare line by line
+  if [[ "${file_lines[i]:-}" == "${expected_lines[0]}" && "${file_lines[i+1]:-}" == "${expected_lines[1]}" ]]; then
+      return 0 # Exact header found
   fi
   return 1
 }
+
 
 has_malformed_header() {
   local f="$1"
@@ -132,7 +149,7 @@ has_malformed_header() {
   if echo "$head_content" | grep -Fq "SPDX-License-Identifier"; then
       return 0
   fi
-  if echo "$head_content" | grep -Fq "James Ross"; then
+  if echo "$head_content" | grep -Fq "James Ross"; then # Looking for the copyright holder
       return 0
   fi
   return 1
@@ -147,16 +164,33 @@ strip_existing_headers() {
   # This effectively removes "bad" headers or "wrong license" headers.
   # We preserve shebangs because they typically don't match the pattern.
   
-  awk ' 
-    BEGIN { in_header = 1; count = 0 }
-    { 
-      count++;
-      if (count <= 15) {
-        if ($0 ~ /SPDX-License-Identifier/ || $0 ~ /James Ross .* FLYING/) {
-          next
+  awk '
+    BEGIN { header_block_active = 1; line_num = 0 }
+    {
+      line_num++;
+      if (header_block_active) {
+        # Once we pass line 15, we are out of the header block.
+        if (line_num > 15) { header_block_active = 0; }
+
+        # If it is not a SPDX/Copyright line, and it is not a shebang/xml declaration,
+        # then we are likely past the header block.
+        # This condition is crucial for `in_header_block` to become 0.
+        if (line_num > 1 && $0 !~ /^#!/ && $0 !~ /^\<\?xml/ && $0 !~ /SPDX-License-Identifier/ && $0 !~ /James Ross .* FLYING/) {
+          header_block_active = 0;
+        }
+
+        # If still in header block, and it IS a shebang/xml declaration, always print it and continue.
+        if (line_num == 1 && ($0 ~ /^#!/ || $0 ~ /^\<\?xml/)) {
+            print;
+            next;
+        }
+
+        # If it is a SPDX/Copyright line AND we are in the header block, skip it.
+        if (($0 ~ /SPDX-License-Identifier/ || $0 ~ /James Ross .* FLYING/) && header_block_active) {
+          next;
         }
       }
-      print
+      print; # Print all other lines not skipped.
     }
   ' "$f" > "$temp_file"
   
@@ -173,11 +207,12 @@ insert_header() {
   local first_line
   first_line=$(head -n 1 "$f" || true)
   
+  # Logic to insert header AFTER shebang/xml declaration if present
   if [[ "$first_line" =~ ^#! ]]; then
     echo "$first_line" > "$temp_file"
     echo "$header" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"
-  elif [[ "$first_line" =~ ^\<?xml ]]; then
+  elif [[ "$first_line" =~ ^\<\?xml ]]; then
     echo "$first_line" > "$temp_file"
     echo "$header" >> "$temp_file"
     tail -n +2 "$f" >> "$temp_file"
@@ -198,13 +233,14 @@ process_file() {
   style=$(get_comment_style "$f")
   if [[ "$style" == "unknown" ]]; then return; fi
   
-  local expected_header
-  expected_header=$(get_header_content "$f" "$style")
+  local expected_header_block
+  expected_header_block=$(get_header_content "$f" "$style")
   
-  if check_valid_header "$f" "$expected_header"; then
-    return 0
+  if check_valid_header "$f" "$expected_header_block"; then
+    return 0 # Header is already perfect, nothing to do.
   fi
 
+  # If we reach here, header is either missing or malformed/incorrect.
   if [[ "$CHECK_MODE" -eq 1 ]]; then
     echo "[FAIL] Incorrect or missing SPDX header: $f"
     FAILED_COUNT=$((FAILED_COUNT + 1))
@@ -213,7 +249,7 @@ process_file() {
     # 1. Strip any existing (malformed/wrong) header lines from top
     strip_existing_headers "$f"
     # 2. Insert correct header
-    insert_header "$f" "$expected_header"
+    insert_header "$f" "$expected_header_block"
     echo "[FIXED] Repaired header: $f"
     MODIFIED_COUNT=$((MODIFIED_COUNT + 1))
   fi

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 (function(){
   const els = Array.from(document.querySelectorAll('.fade-seed'));
   if (!('IntersectionObserver' in window)) {

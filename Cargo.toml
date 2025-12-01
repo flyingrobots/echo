@@ -26,5 +26,4 @@ opt-level = 3
 lto = false
 codegen-units = 16
 debug = true
-panic = "abort"
 strip = false

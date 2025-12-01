@@ -559,7 +559,6 @@ dependencies = [
  "blake3",
  "bytes",
  "hex",
- "once_cell",
  "proptest",
  "rustc-hash",
  "serde",

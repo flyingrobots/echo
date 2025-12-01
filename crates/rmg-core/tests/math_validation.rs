@@ -6,8 +6,8 @@
 //! Ensures scalar, vector, matrix, quaternion, and PRNG behaviour stays
 //! consistent with the documented fixtures across platforms.
 
-use once_cell::sync::Lazy;
 use serde::Deserialize;
+use std::sync::LazyLock;
 
 use rmg_core::math::{self, Mat4, Prng, Quat, Vec3};
 
@@ -15,7 +15,7 @@ const FIXTURE_PATH: &str = "crates/rmg-core/tests/fixtures/math-fixtures.json";
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
 #[allow(clippy::expect_fun_call)]
-static FIXTURES: Lazy<MathFixtures> = Lazy::new(|| {
+static FIXTURES: LazyLock<MathFixtures> = LazyLock::new(|| {
     let fixtures: MathFixtures = {
         #[allow(clippy::expect_fun_call)]
         {

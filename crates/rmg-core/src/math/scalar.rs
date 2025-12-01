@@ -131,7 +131,15 @@ impl F32Scalar {
     ///
     /// Canonicalizes `-0.0` to `+0.0` to ensure deterministic zero handling.
     pub const fn new(num: f32) -> Self {
-        Self { value: num + 0.0 }
+        if num.is_nan() {
+            // Canonical NaN: 0x7fc00000 (Positive Quiet NaN)
+            Self {
+                value: f32::from_bits(0x7fc0_0000),
+            }
+        } else {
+            // Canonicalize -0.0 to +0.0
+            Self { value: num + 0.0 }
+        }
     }
 }
 

@@ -42,6 +42,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Changes: Removed `panic = "abort"` from `[profile.bench]`.
 - Status: Completed; warning no longer appears.
 
+> 2025-11-30 – Handle subnormal f32 values in F32Scalar
+
+- Goal: Canonicalize subnormal f32 values to zero.
+- Scope: subnormals, F32Scalars.
+- Plan: Make 'em zero.
+
 > 2025-12-01 — Fix “How Echo Works” LaTeX build (non-interactive PDF)
 
 - Goal: unblock `docs/guides/how-do-echo-work` PDF generation without interactive TeX prompts.

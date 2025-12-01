@@ -1,4 +1,5 @@
-SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Title: feat(rmg-core): Implement strict determinism for F32Scalar (NaNs, Subnormals)
 
 ## Summary

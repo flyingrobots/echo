@@ -1349,9 +1349,8 @@ Before considering your benchmark "done":
 
 # File: DETERMINISTIC_MATH.md
 
-SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
-// SPDX-License-Identifier: Apache-2.0
-// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 //! Deterministic math hazards and mitigation strategies.
 //!
@@ -1541,9 +1540,8 @@ Maintainers: keep this file in sync when re‑prioritizing or moving issues betw
 
 # File: SPEC_DETERMINISTIC_MATH.md
 
-SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
-// SPDX-License-Identifier: Apache-2.0
-// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 //! Math Determinism Specification & Policy.
 //!
@@ -7922,7 +7920,8 @@ This façade shields external consumers from internal architectural shifts while
 
 # File: tasks/issue-canonical-f32.md
 
-SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Title: feat(rmg-core): Implement strict determinism for F32Scalar (NaNs, Subnormals)
 
 ## Summary

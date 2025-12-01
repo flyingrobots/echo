@@ -1,0 +1,69 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+% Shared preamble for Echo booklets and the master volume
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{shapes, arrows, positioning, calc, matrix, backgrounds}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{hyperref}
+
+% SVG logos are pre-converted to PDF (graphics/ECHO.pdf, graphics/ECHO_chunky.pdf)
+\newcommand{\EchoLogo}{graphics/ECHO.pdf}
+\newcommand{\EchoChunky}{graphics/ECHO_chunky.pdf}
+
+% Minimal Rust syntax highlighting for listings
+\lstdefinelanguage{Rust}{
+    keywords={pub,fn,let,mut,struct,enum,impl,for,while,loop,match,if,else,Self,self,where,crate,super,mod,use,as,trait,const,static,ref,move,async,await,dyn,return},
+    keywordstyle=\color{blue}\bfseries,
+    ndkeywords={u8,u16,u32,u64,usize,i8,i16,i32,i64,isize,f32,f64,bool,str,String,Vec,Option,Result},
+    ndkeywordstyle=\color{teal}\bfseries,
+    identifierstyle=\color{black},
+    sensitive=true,
+    comment=[l]{//},
+    morecomment=[s]{/*}{*/},
+    commentstyle=\color{gray}\ttfamily,
+    stringstyle=\color{orange}\ttfamily,
+    morestring=[b]{"}
+}
+\lstset{
+    basicstyle=\ttfamily\small,
+    numbers=left,
+    numberstyle=\tiny,
+    stepnumber=1,
+    numbersep=5pt,
+    showstringspaces=false,
+    tabsize=4,
+    breaklines=true,
+    frame=single
+}
+
+\geometry{margin=1in}
+\setlength{\emergencystretch}{1.5em}
+
+% Document metadata placeholders (set in each driver)
+\newcommand{\BookTitle}{ECHO}
+\newcommand{\BookSubtitle}{Draft}
+\newcommand{\BookVersion}{v0}
+\newcommand{\BookDate}{\today}
+\newcommand{\BookCommit}{HEAD}
+\newcommand{\BookAuthors}{James Ross \& Echo Contributors}
+
+\AtBeginDocument{%
+    \hypersetup{
+        colorlinks=true,
+        linkcolor=blue,
+        urlcolor=blue,
+        citecolor=blue,
+        pdftitle={\BookTitle: \BookSubtitle},
+        pdfauthor={\BookAuthors}
+    }
+}

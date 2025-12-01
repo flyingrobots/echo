@@ -1,0 +1,38 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Timeline Anatomy (Kairos Lens)}
+
+\begin{figure}[h]
+    \centering
+    \begin{tikzpicture}[>=stealth, node distance=1.7cm and 1.8cm]
+        \tikzstyle{commit}=[circle, draw, minimum size=8mm, inner sep=0pt]
+        \tikzstyle{branch}=[rectangle, rounded corners, draw, fill=gray!10, inner sep=2pt]
+        \node[branch] (main) {main};
+        \node[commit, right=1.8cm of main] (c1) {c1};
+        \node[commit, right=1.8cm of c1] (c2) {c2};
+        \node[branch, above=1.2cm of c1] (expA) {timeline/alpha};
+        \node[commit, right=1.8cm of expA] (a1) {a1};
+        \node[commit, right=1.8cm of a1] (a2) {a2};
+        \node[branch, below=1.2cm of c2] (expB) {timeline/beta};
+        \node[commit, right=1.8cm of expB] (b1) {b1};
+        \node[commit, right=1.8cm of b1] (b2) {b2};
+        \node[commit, right=2cm of c2] (m1) {merge};
+        \draw[->] (main) -- (c1);
+        \draw[->] (c1) -- (c2);
+        \draw[->] (c1) -- (expA);
+        \draw[->] (expA) -- (a1);
+        \draw[->] (a1) -- (a2);
+        \draw[->] (c2) -- (expB);
+        \draw[->] (expB) -- (b1);
+        \draw[->] (b1) -- (b2);
+        \draw[->, thick] (a2) -- (m1);
+        \draw[->, thick] (b2) -- (m1);
+        \draw[->, thick] (c2) -- (m1);
+        \node[below=0.6cm of m1] (guard) {paradox guard + deterministic merge};
+        \draw[dashed] (m1) -- (guard);
+    \end{tikzpicture}
+    \caption{Branching timelines converge through deterministic merge + paradox guard.}
+\end{figure}
+
+\textbf{Read this diagram as:} main spawns experimental timelines; each accumulates commits, then merges through the paradox guard. All merges are deterministic and recorded in the branch tree for replay.

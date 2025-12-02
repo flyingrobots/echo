@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! rmg-viewer: 3D RMG visualizer with lit meshes, egui overlay, WASD + FoV zoom.
+//! rmg-viewer: 3D RMG visualizer (wgpu 27, egui 0.33, winit 0.30 via egui-winit re-export).
 
 use anyhow::Result;
 use blake3::Hasher;
@@ -8,12 +8,14 @@ use bytemuck::{Pod, Zeroable};
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
 use egui_winit::winit::{
+    application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::{ElementState, Event, MouseScrollDelta, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event::{ElementState, MouseScrollDelta, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
     keyboard::KeyCode,
     window::{Window, WindowAttributes},
 };
+use egui_winit::winit; // module alias for type paths
 use egui_winit::State as EguiWinitState;
 use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
@@ -134,7 +136,7 @@ struct Camera {
     pitch: f32,
     ang_vel: Vec3,
     damping: f32,
-    fov_y: f32, // radians
+    fov_y: f32,
 }
 
 impl Default for Camera {
@@ -218,9 +220,7 @@ impl PerfStats {
     }
 }
 
-// ------------------------------------------------------------
-// GPU types
-// ------------------------------------------------------------
+// GPU types --------------------------------------------------
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -265,8 +265,8 @@ struct Pipelines {
     edge: wgpu::RenderPipeline,
 }
 
-struct Gpu<'a> {
-    surface: wgpu::Surface<'a>,
+struct Gpu {
+    surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -280,9 +280,10 @@ struct Gpu<'a> {
     pipelines: Pipelines,
 }
 
-impl<'a> Gpu<'a> {
-    async fn new(window: &'a Window) -> Result<Self> {
+impl Gpu {
+    async fn new(window: &'static Window) -> Result<Self> {
         let instance = wgpu::Instance::default();
+        // wgpu 27 keeps surface lifetime tied to window; leak window for 'static
         let surface = instance.create_surface(window)?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -297,8 +298,7 @@ impl<'a> Gpu<'a> {
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("rmg-viewer-device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults()
-                    .using_resolution(limits.clone()),
+                required_limits: wgpu::Limits::downlevel_defaults().using_resolution(limits.clone()),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::default(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
@@ -396,31 +396,11 @@ impl<'a> Gpu<'a> {
                         array_stride: std::mem::size_of::<Instance>() as u64,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &[
-                            wgpu::VertexAttribute {
-                                shader_location: 2,
-                                offset: 0,
-                                format: wgpu::VertexFormat::Float32x4,
-                            },
-                            wgpu::VertexAttribute {
-                                shader_location: 3,
-                                offset: 16,
-                                format: wgpu::VertexFormat::Float32x4,
-                            },
-                            wgpu::VertexAttribute {
-                                shader_location: 4,
-                                offset: 32,
-                                format: wgpu::VertexFormat::Float32x4,
-                            },
-                            wgpu::VertexAttribute {
-                                shader_location: 5,
-                                offset: 48,
-                                format: wgpu::VertexFormat::Float32x4,
-                            },
-                            wgpu::VertexAttribute {
-                                shader_location: 6,
-                                offset: 64,
-                                format: wgpu::VertexFormat::Float32x3,
-                            },
+                            wgpu::VertexAttribute { shader_location: 2, offset: 0, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 3, offset: 16, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 4, offset: 32, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 5, offset: 48, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 6, offset: 64, format: wgpu::VertexFormat::Float32x3 },
                         ],
                     },
                 ],
@@ -463,9 +443,9 @@ impl<'a> Gpu<'a> {
                     array_stride: std::mem::size_of::<EdgeInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &wgpu::vertex_attr_array![
-                        0=>Float32x3, // start
-                        1=>Float32x3, // end
-                        2=>Float32x3  // color
+                        0=>Float32x3,
+                        1=>Float32x3,
+                        2=>Float32x3
                     ],
                 }],
             },
@@ -646,7 +626,7 @@ fn hash_color(ty: &TypeId) -> [f32; 3] {
 }
 
 // ------------------------------------------------------------
-// Sample graph
+// Sample graph (placeholder until hooked to Echo pipeline)
 // ------------------------------------------------------------
 
 fn build_sample_graph() -> GraphStore {
@@ -734,366 +714,400 @@ fn build_sample_graph() -> GraphStore {
 }
 
 // ------------------------------------------------------------
+// ApplicationHandler
+// ------------------------------------------------------------
+
+struct App {
+    window: Option<&'static Window>,
+    gpu: Option<Gpu>,
+    egui_ctx: egui::Context,
+    egui_state: Option<EguiWinitState>,
+    egui_renderer: Option<egui_wgpu::Renderer>,
+    viewer: ViewerState,
+}
+
+impl App {
+    fn new() -> Self {
+        Self {
+            window: None,
+            gpu: None,
+            egui_ctx: egui::Context::default(),
+            egui_state: None,
+            egui_renderer: None,
+            viewer: ViewerState {
+                graph: RenderGraph::from_store(&build_sample_graph()),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let window = event_loop
+            .create_window(
+                WindowAttributes::default()
+                    .with_title("Echo RMG Viewer 3D")
+                    .with_visible(true),
+            )
+            .expect("window");
+        let window: &'static Window = Box::leak(Box::new(window));
+        self.window = Some(window);
+
+        let gpu = pollster::block_on(Gpu::new(window)).expect("gpu init");
+        let egui_state = EguiWinitState::new(
+            self.egui_ctx.clone(),
+            egui::ViewportId::ROOT,
+            event_loop,
+            None,
+            None,
+            None,
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &gpu.device,
+            gpu.config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
+        self.gpu = Some(gpu);
+        self.egui_state = Some(egui_state);
+        self.egui_renderer = Some(egui_renderer);
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        let Some(win) = self.window else { return };
+        if win.id() != window_id {
+            return;
+        }
+        let (Some(gpu), Some(egui_state)) = (&mut self.gpu, &mut self.egui_state) else {
+            return;
+        };
+
+        let egui_consumed = egui_state.on_window_event(win, &event).consumed;
+        if egui_consumed {
+            return;
+        }
+
+        match event {
+            WindowEvent::CloseRequested => {
+                std::process::exit(0);
+            }
+            WindowEvent::Resized(size) => gpu.resize(size),
+            WindowEvent::ScaleFactorChanged {
+                scale_factor: _,
+                mut inner_size_writer,
+            } => {
+                let size = win.inner_size();
+                let _ = inner_size_writer.request_inner_size(size);
+                gpu.resize(size);
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+                    match event.state {
+                        ElementState::Pressed => {
+                            self.viewer.keys.insert(code);
+                        }
+                        ElementState::Released => {
+                            self.viewer.keys.remove(&code);
+                        }
+                    }
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 50.0,
+                };
+                self.viewer.camera.zoom_fov(1.0 - y * 0.05);
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        let (Some(gpu), Some(egui_state), Some(egui_renderer), Some(win)) = (
+            &mut self.gpu,
+            &mut self.egui_state,
+            &mut self.egui_renderer,
+            self.window,
+        ) else {
+            return;
+        };
+
+        let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);
+        self.viewer.last_frame = Instant::now();
+
+        let speed = if self.viewer.keys.contains(&KeyCode::ShiftLeft)
+            || self.viewer.keys.contains(&KeyCode::ShiftRight)
+        {
+            420.0
+        } else {
+            160.0
+        };
+        let mut mv = Vec3::ZERO;
+        if self.viewer.keys.contains(&KeyCode::KeyW) {
+            mv.z -= speed * dt;
+        }
+        if self.viewer.keys.contains(&KeyCode::KeyS) {
+            mv.z += speed * dt;
+        }
+        if self.viewer.keys.contains(&KeyCode::KeyA) {
+            mv.x -= speed * dt;
+        }
+        if self.viewer.keys.contains(&KeyCode::KeyD) {
+            mv.x += speed * dt;
+        }
+        if self.viewer.keys.contains(&KeyCode::KeyQ) {
+            mv.y -= speed * dt;
+        }
+        if self.viewer.keys.contains(&KeyCode::KeyE) {
+            mv.y += speed * dt;
+        }
+        self.viewer.camera.move_relative(mv);
+
+        self.viewer.graph.step_layout(dt);
+
+        let delta = self.egui_ctx.input(|i| i.pointer.delta());
+        if self.egui_ctx.input(|i| i.pointer.primary_down()) && !self.egui_ctx.is_using_pointer() {
+            let d = glam::Vec2::new(delta.x, delta.y);
+            self.viewer.drag_accum += d;
+            self.viewer.camera.apply_mouse_impulse(d, self.viewer.drag_accum);
+        } else {
+            self.viewer.drag_accum = glam::Vec2::ZERO;
+        }
+        self.viewer.camera.update_rotation(dt);
+
+        let raw_input = egui_state.take_egui_input(win);
+        let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            egui::TopBottomPanel::top("top").show(ctx, |ui| {
+                ui.label("Echo RMG Viewer (3D)");
+                ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
+                ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
+                ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
+                ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
+                ui.label(format!(
+                    "Cam pos: ({:.1},{:.1},{:.1})",
+                    self.viewer.camera.pos.x, self.viewer.camera.pos.y, self.viewer.camera.pos.z
+                ));
+            });
+            egui::SidePanel::right("legend").show(ctx, |ui| {
+                ui.heading("Legend");
+                let mut seen = HashSet::new();
+                for n in &self.viewer.graph.nodes {
+                    if seen.insert(n.ty) {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(
+                                    (n.color[0] * 255.0) as u8,
+                                    (n.color[1] * 255.0) as u8,
+                                    (n.color[2] * 255.0) as u8,
+                                ),
+                                "⬤",
+                            );
+                            ui.label(format!("Type {}", hex::encode_upper(&n.ty.0[..4])));
+                        });
+                    }
+                }
+            });
+        });
+        egui_state.handle_platform_output(win, full_output.platform_output);
+
+        let aspect = gpu.config.width as f32 / gpu.config.height as f32;
+        let view_proj = self.viewer.camera.view_proj(aspect);
+        let globals = Globals {
+            view_proj: view_proj.to_cols_array_2d(),
+            light_dir: [0.2, 0.7, 0.6],
+            _pad: 0.0,
+        };
+        gpu.queue
+            .write_buffer(&gpu.globals_buf, 0, bytemuck::bytes_of(&globals));
+
+        let mut instances = Vec::with_capacity(self.viewer.graph.nodes.len());
+        for n in &self.viewer.graph.nodes {
+            let model = (Mat4::from_translation(n.pos) * Mat4::from_scale(Vec3::splat(7.0)))
+                .to_cols_array_2d();
+            instances.push(Instance {
+                model,
+                color: n.color,
+                _pad: 0.0,
+            });
+        }
+        gpu.queue
+            .write_buffer(&gpu.instance_buf, 0, bytemuck::cast_slice(&instances));
+
+        let mut edge_instances = Vec::with_capacity(self.viewer.graph.edges.len());
+        for (a, b) in &self.viewer.graph.edges {
+            let sa = self.viewer.graph.nodes[*a].pos;
+            let sb = self.viewer.graph.nodes[*b].pos;
+            let color = self.viewer.graph.nodes[*a].color;
+            edge_instances.push(EdgeInstance {
+                start: sa.to_array(),
+                end: sb.to_array(),
+                color,
+                _pad: 0.0,
+            });
+        }
+        gpu.queue
+            .write_buffer(&gpu.edge_buf, 0, bytemuck::cast_slice(&edge_instances));
+
+        let frame = match gpu.surface.get_current_texture() {
+            Ok(f) => f,
+            Err(wgpu::SurfaceError::Lost) => {
+                gpu.resize(PhysicalSize::new(gpu.config.width, gpu.config.height));
+                match gpu.surface.get_current_texture() {
+                    Ok(f) => f,
+                    Err(_) => return,
+                }
+            }
+            Err(wgpu::SurfaceError::OutOfMemory) => {
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("frame drop: {e:?}");
+                return;
+            }
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder =
+            gpu.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("main-encoder"),
+                });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("main-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.05,
+                            g: 0.06,
+                            b: 0.08,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: Some(0),
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &gpu.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            rpass.set_pipeline(&gpu.pipelines.edge);
+            rpass.set_bind_group(0, &gpu.bind_group, &[]);
+            rpass.set_vertex_buffer(
+                0,
+                gpu.edge_buf.slice(
+                    ..(edge_instances.len() as u64 * std::mem::size_of::<EdgeInstance>() as u64),
+                ),
+            );
+            rpass.draw(0..2, 0..edge_instances.len() as u32);
+
+            rpass.set_pipeline(&gpu.pipelines.node);
+            rpass.set_bind_group(0, &gpu.bind_group, &[]);
+            rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
+            rpass.set_vertex_buffer(
+                1,
+                gpu.instance_buf.slice(
+                    ..(instances.len() as u64 * std::mem::size_of::<Instance>() as u64),
+                ),
+            );
+            rpass.set_index_buffer(gpu.mesh_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+            rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..instances.len() as u32);
+        }
+
+        let cmd_main = encoder.finish();
+
+        let screen_desc = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [gpu.config.width, gpu.config.height],
+            pixels_per_point: win.scale_factor() as f32,
+        };
+        let paint_jobs = self
+            .egui_ctx
+            .tessellate(full_output.shapes, full_output.pixels_per_point);
+        let textures_delta = full_output.textures_delta;
+
+        let cmd_ui = {
+            let mut egui_encoder =
+                gpu.device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("egui-encoder"),
+                    });
+
+            for (id, delta) in textures_delta.set {
+                egui_renderer.update_texture(&gpu.device, &gpu.queue, id, &delta);
+            }
+            egui_renderer.update_buffers(
+                &gpu.device,
+                &gpu.queue,
+                &mut egui_encoder,
+                &paint_jobs,
+                &screen_desc,
+            );
+            {
+                let rpass = egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("egui"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: Some(0),
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                let mut rpass = rpass.forget_lifetime();
+                egui_renderer.render(&mut rpass, &paint_jobs, &screen_desc);
+                drop(rpass);
+            }
+            for id in textures_delta.free {
+                egui_renderer.free_texture(&id);
+            }
+
+            egui_encoder.finish()
+        };
+        gpu.queue.submit([cmd_main, cmd_ui]);
+        frame.present();
+
+        let frame_ms = self.viewer.last_frame.elapsed().as_secs_f32() * 1000.0;
+        self.viewer.perf.push(frame_ms);
+
+        win.request_redraw();
+    }
+}
+
+// ------------------------------------------------------------
 // Main
 // ------------------------------------------------------------
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_target(false)
-        .without_time()
-        .init();
-
-    let store = build_sample_graph();
-    let mut viewer = ViewerState {
-        graph: RenderGraph::from_store(&store),
-        ..Default::default()
-    };
-
+    tracing_subscriber::fmt().with_target(false).without_time().init();
     let event_loop = EventLoop::new()?;
-    let window =
-        event_loop.create_window(WindowAttributes::default().with_title("Echo RMG Viewer 3D"))?;
-    let window: &'static Window = Box::leak(Box::new(window));
-    let mut gpu = pollster::block_on(Gpu::new(window))?;
-
-    let egui_ctx = egui::Context::default();
-    let mut egui_state = EguiWinitState::new(
-        egui_ctx.clone(),
-        egui::ViewportId::ROOT,
-        &event_loop,
-        None,
-        None,
-        None,
-    );
-    let mut egui_renderer = egui_wgpu::Renderer::new(
-        &gpu.device,
-        gpu.config.format,
-        egui_wgpu::RendererOptions::default(),
-    );
-
-    event_loop.run(move |event, target| {
-        target.set_control_flow(ControlFlow::Poll);
-        match event {
-            Event::WindowEvent { window_id, event } if window_id == window.id() => {
-                if let WindowEvent::CloseRequested = event {
-                    target.exit();
-                    return;
-                }
-                match &event {
-                    WindowEvent::Resized(size) => gpu.resize(*size),
-                    WindowEvent::ScaleFactorChanged { .. } => {
-                        gpu.resize(window.inner_size());
-                    }
-                    WindowEvent::KeyboardInput { event, .. } => {
-                        if let egui_winit::winit::keyboard::PhysicalKey::Code(code) =
-                            event.physical_key
-                        {
-                            match event.state {
-                                ElementState::Pressed => {
-                                    viewer.keys.insert(code);
-                                }
-                                ElementState::Released => {
-                                    viewer.keys.remove(&code);
-                                }
-                            }
-                        }
-                    }
-                    WindowEvent::MouseWheel { delta, .. } => {
-                        let y = match delta {
-                            MouseScrollDelta::LineDelta(_, y) => *y,
-                            MouseScrollDelta::PixelDelta(p) => p.y as f32 / 50.0,
-                        };
-                        viewer.camera.zoom_fov(1.0 - y * 0.05);
-                    }
-                    _ => {}
-                }
-                if egui_state.on_window_event(window, &event).consumed {
-                    return;
-                }
-            }
-            Event::AboutToWait => {
-                let dt = viewer.last_frame.elapsed().as_secs_f32().min(0.05);
-                viewer.last_frame = Instant::now();
-
-                // movement
-                let speed = if viewer.keys.contains(&KeyCode::ShiftLeft)
-                    || viewer.keys.contains(&KeyCode::ShiftRight)
-                {
-                    420.0
-                } else {
-                    160.0
-                };
-                let mut mv = Vec3::ZERO;
-                if viewer.keys.contains(&KeyCode::KeyW) {
-                    mv.z -= speed * dt;
-                }
-                if viewer.keys.contains(&KeyCode::KeyS) {
-                    mv.z += speed * dt;
-                }
-                if viewer.keys.contains(&KeyCode::KeyA) {
-                    mv.x -= speed * dt;
-                }
-                if viewer.keys.contains(&KeyCode::KeyD) {
-                    mv.x += speed * dt;
-                }
-                if viewer.keys.contains(&KeyCode::KeyQ) {
-                    mv.y -= speed * dt;
-                }
-                if viewer.keys.contains(&KeyCode::KeyE) {
-                    mv.y += speed * dt;
-                }
-                viewer.camera.move_relative(mv);
-
-                // layout relax
-                viewer.graph.step_layout(dt);
-
-                // mouse drag -> rotation
-                let delta = egui_ctx.input(|i| i.pointer.delta());
-                if egui_ctx.input(|i| i.pointer.primary_down()) && !egui_ctx.is_using_pointer() {
-                    let d = glam::Vec2::new(delta.x, delta.y);
-                    viewer.drag_accum += d;
-                    viewer.camera.apply_mouse_impulse(d, viewer.drag_accum);
-                } else {
-                    viewer.drag_accum = glam::Vec2::ZERO;
-                }
-                viewer.camera.update_rotation(dt);
-
-                // egui frame
-                let raw_input = egui_state.take_egui_input(window);
-                let full_output = egui_ctx.run(raw_input, |ctx| {
-                    egui::TopBottomPanel::top("top").show(ctx, |ui| {
-                        ui.label("Echo RMG Viewer (3D)");
-                        ui.label(format!("FPS: {:.1}", viewer.perf.fps()));
-                        ui.label(format!("Nodes: {}", viewer.graph.nodes.len()));
-                        ui.label(format!("Edges: {}", viewer.graph.edges.len()));
-                        ui.label(format!("Depth~: {}", viewer.graph.max_depth));
-                        ui.label(format!(
-                            "Cam pos: ({:.1},{:.1},{:.1})",
-                            viewer.camera.pos.x, viewer.camera.pos.y, viewer.camera.pos.z
-                        ));
-                    });
-                    egui::SidePanel::right("legend").show(ctx, |ui| {
-                        ui.heading("Legend");
-                        let mut seen = HashSet::new();
-                        for n in &viewer.graph.nodes {
-                            if seen.insert(n.ty) {
-                                ui.horizontal(|ui| {
-                                    ui.colored_label(
-                                        egui::Color32::from_rgb(
-                                            (n.color[0] * 255.0) as u8,
-                                            (n.color[1] * 255.0) as u8,
-                                            (n.color[2] * 255.0) as u8,
-                                        ),
-                                        "⬤",
-                                    );
-                                    ui.label(format!("Type {}", hex::encode_upper(&n.ty.0[..4])));
-                                });
-                            }
-                        }
-                    });
-                });
-                egui_state.handle_platform_output(window, full_output.platform_output);
-
-                // prepare GPU data
-                let aspect = gpu.config.width as f32 / gpu.config.height as f32;
-                let view_proj = viewer.camera.view_proj(aspect);
-                let globals = Globals {
-                    view_proj: view_proj.to_cols_array_2d(),
-                    light_dir: [0.2, 0.7, 0.6],
-                    _pad: 0.0,
-                };
-                gpu.queue
-                    .write_buffer(&gpu.globals_buf, 0, bytemuck::bytes_of(&globals));
-
-                let mut instances = Vec::with_capacity(viewer.graph.nodes.len());
-                for n in &viewer.graph.nodes {
-                    let model = (Mat4::from_translation(n.pos)
-                        * Mat4::from_scale(Vec3::splat(7.0)))
-                    .to_cols_array_2d();
-                    instances.push(Instance {
-                        model,
-                        color: n.color,
-                        _pad: 0.0,
-                    });
-                }
-                gpu.queue
-                    .write_buffer(&gpu.instance_buf, 0, bytemuck::cast_slice(&instances));
-
-                let mut edge_instances = Vec::with_capacity(viewer.graph.edges.len());
-                for (a, b) in &viewer.graph.edges {
-                    let sa = viewer.graph.nodes[*a].pos;
-                    let sb = viewer.graph.nodes[*b].pos;
-                    let color = viewer.graph.nodes[*a].color;
-                    edge_instances.push(EdgeInstance {
-                        start: sa.to_array(),
-                        end: sb.to_array(),
-                        color,
-                        _pad: 0.0,
-                    });
-                }
-                gpu.queue
-                    .write_buffer(&gpu.edge_buf, 0, bytemuck::cast_slice(&edge_instances));
-
-                // acquire frame
-                let frame = match gpu.surface.get_current_texture() {
-                    Ok(f) => f,
-                    Err(wgpu::SurfaceError::Lost) => {
-                        gpu.resize(PhysicalSize::new(gpu.config.width, gpu.config.height));
-                        match gpu.surface.get_current_texture() {
-                            Ok(f) => f,
-                            Err(_) => return,
-                        }
-                    }
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        target.exit();
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("frame drop: {e:?}");
-                        return;
-                    }
-                };
-                let view = frame
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor::default());
-
-                let cmd_main = {
-                    let mut encoder = gpu
-                        .device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("main-encoder"),
-                        });
-
-                    {
-                        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("main-pass"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                                        r: 0.05,
-                                        g: 0.06,
-                                        b: 0.08,
-                                        a: 1.0,
-                                    }),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                                depth_slice: Some(0),
-                            })],
-                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: &gpu.depth,
-                                depth_ops: Some(wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(1.0),
-                                    store: wgpu::StoreOp::Store,
-                                }),
-                                stencil_ops: None,
-                            }),
-                            occlusion_query_set: None,
-                            timestamp_writes: None,
-                        });
-
-                        // edges
-                        rpass.set_pipeline(&gpu.pipelines.edge);
-                        rpass.set_bind_group(0, &gpu.bind_group, &[]);
-                        rpass.set_vertex_buffer(
-                            0,
-                            gpu.edge_buf.slice(
-                                ..(edge_instances.len() as u64
-                                    * std::mem::size_of::<EdgeInstance>() as u64),
-                            ),
-                        );
-                        rpass.draw(0..2, 0..edge_instances.len() as u32);
-
-                        // nodes
-                        rpass.set_pipeline(&gpu.pipelines.node);
-                        rpass.set_bind_group(0, &gpu.bind_group, &[]);
-                        rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
-                        rpass.set_vertex_buffer(
-                            1,
-                            gpu.instance_buf.slice(
-                                ..(instances.len() as u64 * std::mem::size_of::<Instance>() as u64),
-                            ),
-                        );
-                        rpass.set_index_buffer(
-                            gpu.mesh_sphere.ibuf.slice(..),
-                            wgpu::IndexFormat::Uint16,
-                        );
-                        rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..instances.len() as u32);
-                    }
-
-                    encoder.finish()
-                };
-
-                // egui overlay
-                let screen_desc = egui_wgpu::ScreenDescriptor {
-                    size_in_pixels: [gpu.config.width, gpu.config.height],
-                    pixels_per_point: window.scale_factor() as f32,
-                };
-                let paint_jobs =
-                    egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
-                let textures_delta = full_output.textures_delta;
-
-                let cmd_egui = {
-                    let mut egui_encoder =
-                        gpu.device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                                label: Some("egui-encoder"),
-                            });
-
-                    {
-                        for (id, delta) in textures_delta.set {
-                            egui_renderer.update_texture(&gpu.device, &gpu.queue, id, &delta);
-                        }
-                        egui_renderer.update_buffers(
-                            &gpu.device,
-                            &gpu.queue,
-                            &mut egui_encoder,
-                            &paint_jobs,
-                            &screen_desc,
-                        );
-                        {
-                            let mut rpass =
-                                egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: Some("egui"),
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &view,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Load,
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                        depth_slice: Some(0),
-                                    })],
-                                    depth_stencil_attachment: None,
-                                occlusion_query_set: None,
-                                timestamp_writes: None,
-                            });
-                            // Safety: egui_wgpu 0.33 expects a 'static render pass; we guarantee
-                            // the pass lives for this block only and is not retained.
-                            let rpass_ptr: *mut wgpu::RenderPass =
-                                &mut rpass as *mut wgpu::RenderPass;
-                            let rpass_static: &mut wgpu::RenderPass<'static> =
-                                unsafe { &mut *(rpass_ptr.cast()) };
-                            egui_renderer.render(rpass_static, &paint_jobs, &screen_desc);
-                        }
-                        for id in textures_delta.free {
-                            egui_renderer.free_texture(&id);
-                        }
-                    }
-                    egui_encoder.finish()
-                };
-
-                gpu.queue.submit([cmd_main, cmd_egui]);
-                frame.present();
-
-                let frame_ms = viewer.last_frame.elapsed().as_secs_f32() * 1000.0;
-                viewer.perf.push(frame_ms);
-
-                window.request_redraw();
-            }
-            _ => {}
-        }
-    })?;
-    #[allow(unreachable_code)]
+    let mut app = App::new();
+    event_loop.run_app(&mut app)?;
     Ok(())
 }

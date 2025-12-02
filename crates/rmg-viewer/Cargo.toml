@@ -18,14 +18,13 @@ egui = "0.33.2"
 egui-wgpu = "0.33.2"
 egui-winit = "0.33.2"
 egui_plot = "0.33.0"
-glam = "0.27"
+glam = "0.29"
 hex = "0.4"
 pollster = "0.3"
 rmg-core = { path = "../rmg-core" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
-wgpu = "0.19.4"
-winit = "0.29.15"
+wgpu = "27"
 
 [dev-dependencies]
 approx = "0.5"

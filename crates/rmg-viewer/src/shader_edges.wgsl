@@ -23,7 +23,12 @@ struct VsOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32, e: EdgeIn) -> VsOut {
-  let p = if vid == 0u { e.start } else { e.end };
+  var p: vec3<f32>;
+  if (vid == 0u) {
+    p = e.start;
+  } else {
+    p = e.end;
+  }
   var o: VsOut;
   o.pos = globals.view_proj * vec4<f32>(p, 1.0);
   o.color = e.color;

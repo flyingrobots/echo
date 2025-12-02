@@ -19,6 +19,16 @@ pub struct GraphStore {
 }
 
 impl GraphStore {
+    /// Iterate over all nodes (id, record) in deterministic order.
+    pub fn iter_nodes(&self) -> impl Iterator<Item = (&NodeId, &NodeRecord)> {
+        self.nodes.iter()
+    }
+
+    /// Iterate over all outbound edge lists per source node.
+    pub fn iter_edges(&self) -> impl Iterator<Item = (&NodeId, &Vec<EdgeRecord>)> {
+        self.edges_from.iter()
+    }
+
     /// Returns a shared reference to a node when it exists.
     pub fn node(&self, id: &NodeId) -> Option<&NodeRecord> {
         self.nodes.get(id)

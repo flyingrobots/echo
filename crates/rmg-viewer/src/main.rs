@@ -1,0 +1,1084 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! rmg-viewer: 3D RMG visualizer with lit meshes, egui overlay, WASD + FoV zoom.
+
+use anyhow::Result;
+use blake3::Hasher;
+use bytemuck::{Pod, Zeroable};
+use egui_wgpu::wgpu;
+use egui_wgpu::wgpu::util::DeviceExt;
+use egui_winit::winit::{
+    dpi::PhysicalSize,
+    event::{ElementState, Event, MouseScrollDelta, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    keyboard::KeyCode,
+    window::{Window, WindowAttributes},
+};
+use egui_winit::State as EguiWinitState;
+use glam::{Mat4, Quat, Vec3};
+use rmg_core::{
+    make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeId, NodeRecord, TypeId,
+};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::time::Instant;
+
+// ------------------------------------------------------------
+// Data
+// ------------------------------------------------------------
+
+struct ViewerState {
+    graph: RenderGraph,
+    camera: Camera,
+    perf: PerfStats,
+    last_frame: Instant,
+    drag_accum: glam::Vec2,
+    keys: HashSet<KeyCode>,
+}
+
+impl Default for ViewerState {
+    fn default() -> Self {
+        Self {
+            graph: RenderGraph::default(),
+            camera: Camera::default(),
+            perf: PerfStats::default(),
+            last_frame: Instant::now(),
+            drag_accum: glam::Vec2::ZERO,
+            keys: HashSet::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RenderNode {
+    ty: TypeId,
+    color: [f32; 3],
+    pos: Vec3,
+    vel: Vec3,
+}
+
+#[derive(Clone, Debug, Default)]
+struct RenderGraph {
+    nodes: Vec<RenderNode>,
+    edges: Vec<(usize, usize)>,
+    max_depth: usize,
+}
+
+impl RenderGraph {
+    fn from_store(store: &GraphStore) -> Self {
+        let mut nodes = Vec::new();
+        let mut id_to_idx = HashMap::new();
+        for (i, (id, node)) in store.iter_nodes().enumerate() {
+            id_to_idx.insert(*id, i);
+            nodes.push(RenderNode {
+                ty: node.ty,
+                color: hash_color(&node.ty),
+                pos: radial_pos(id),
+                vel: Vec3::ZERO,
+            });
+        }
+        let mut edges = Vec::new();
+        for (from, outs) in store.iter_edges() {
+            let Some(&a) = id_to_idx.get(from) else {
+                continue;
+            };
+            for e in outs {
+                if let Some(&b) = id_to_idx.get(&e.to) {
+                    edges.push((a, b));
+                }
+            }
+        }
+        let max_depth = compute_depth(&edges, nodes.len());
+        Self {
+            nodes,
+            edges,
+            max_depth,
+        }
+    }
+
+    fn step_layout(&mut self, dt: f32) {
+        let n = self.nodes.len();
+        if n == 0 {
+            return;
+        }
+        let mut forces = vec![Vec3::ZERO; n];
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let delta = self.nodes[i].pos - self.nodes[j].pos;
+                let dist2 = delta.length_squared().max(9.0);
+                let f = delta.normalize_or_zero() * (2400.0 / dist2);
+                forces[i] += f;
+                forces[j] -= f;
+            }
+        }
+        for &(a, b) in &self.edges {
+            let delta = self.nodes[b].pos - self.nodes[a].pos;
+            let dist = delta.length().max(1.0);
+            let dir = delta / dist;
+            let target = 140.0;
+            let f = dir * ((dist - target) * 0.08);
+            forces[a] += f;
+            forces[b] -= f;
+        }
+        for (i, node) in self.nodes.iter_mut().enumerate() {
+            node.vel += forces[i] * dt;
+            node.vel *= 0.9;
+            node.pos += node.vel * dt;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Camera {
+    pos: Vec3,
+    yaw: f32,
+    pitch: f32,
+    ang_vel: Vec3,
+    damping: f32,
+    fov_y: f32, // radians
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            pos: Vec3::new(0.0, 0.0, 520.0),
+            yaw: 0.0,
+            pitch: 0.0,
+            ang_vel: Vec3::ZERO,
+            damping: 6.0,
+            fov_y: 60f32.to_radians(),
+        }
+    }
+}
+
+impl Camera {
+    fn basis(&self) -> (Vec3, Vec3, Vec3) {
+        let rot = Quat::from_rotation_y(self.yaw) * Quat::from_rotation_x(self.pitch);
+        let forward = rot * -Vec3::Z;
+        let right = rot * Vec3::X;
+        let up = rot * Vec3::Y;
+        (forward, right, up)
+    }
+
+    fn view_proj(&self, aspect: f32) -> Mat4 {
+        let (f, _, u) = self.basis();
+        let view = Mat4::look_to_rh(self.pos, f, u);
+        let proj = Mat4::perspective_rh(self.fov_y, aspect, 0.1, 10_000.0);
+        proj * view
+    }
+
+    fn update_rotation(&mut self, dt: f32) {
+        self.yaw += self.ang_vel.y * dt;
+        self.pitch = (self.pitch + self.ang_vel.x * dt).clamp(-1.4, 1.4);
+        let decay = (-self.damping * dt).exp();
+        self.ang_vel *= decay;
+    }
+
+    fn apply_mouse_impulse(&mut self, delta: glam::Vec2, total: glam::Vec2) {
+        self.ang_vel.y -= delta.x * 0.006;
+        self.ang_vel.x += delta.y * 0.006;
+        if total.length() > 0.0 {
+            self.ang_vel.y -= total.x * 0.01;
+            self.ang_vel.x += total.y * 0.01;
+        }
+    }
+
+    fn move_relative(&mut self, dir: Vec3) {
+        let (f, r, u) = self.basis();
+        self.pos += f * dir.z + r * dir.x + u * dir.y;
+    }
+
+    fn zoom_fov(&mut self, factor: f32) {
+        let deg = (self.fov_y.to_degrees() * factor).clamp(10.0, 120.0);
+        self.fov_y = deg.to_radians();
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PerfStats {
+    frame_ms: VecDeque<f32>,
+    max_samples: usize,
+}
+impl Default for PerfStats {
+    fn default() -> Self {
+        Self {
+            frame_ms: VecDeque::with_capacity(400),
+            max_samples: 400,
+        }
+    }
+}
+impl PerfStats {
+    fn push(&mut self, frame: f32) {
+        if self.frame_ms.len() == self.max_samples {
+            self.frame_ms.pop_front();
+        }
+        self.frame_ms.push_back(frame);
+    }
+    fn fps(&self) -> f32 {
+        self.frame_ms.back().map(|ms| 1000.0 / ms).unwrap_or(0.0)
+    }
+}
+
+// ------------------------------------------------------------
+// GPU types
+// ------------------------------------------------------------
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Vertex {
+    pos: [f32; 3],
+    normal: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Instance {
+    model: [[f32; 4]; 4],
+    color: [f32; 3],
+    _pad: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct EdgeInstance {
+    start: [f32; 3],
+    end: [f32; 3],
+    color: [f32; 3],
+    _pad: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Globals {
+    view_proj: [[f32; 4]; 4],
+    light_dir: [f32; 3],
+    _pad: f32,
+}
+
+struct Mesh {
+    vbuf: wgpu::Buffer,
+    ibuf: wgpu::Buffer,
+    count: u32,
+}
+
+struct Pipelines {
+    node: wgpu::RenderPipeline,
+    edge: wgpu::RenderPipeline,
+}
+
+struct Gpu<'a> {
+    surface: wgpu::Surface<'a>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    max_tex: u32,
+    depth: wgpu::TextureView,
+    mesh_sphere: Mesh,
+    globals_buf: wgpu::Buffer,
+    instance_buf: wgpu::Buffer,
+    edge_buf: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    pipelines: Pipelines,
+}
+
+impl<'a> Gpu<'a> {
+    async fn new(window: &'a Window) -> Result<Self> {
+        let instance = wgpu::Instance::default();
+        let surface = instance.create_surface(window)?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("GPU adapter");
+        let limits = adapter.limits();
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("rmg-viewer-device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults()
+                        .using_resolution(limits.clone()),
+                    memory_hints: wgpu::MemoryHints::Performance,
+                    trace: None,
+                    experimental_features: wgpu::ExperimentalFeatures::empty(),
+                },
+                None,
+            )
+            .await?;
+
+        let size = window.inner_size();
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| f.is_srgb())
+            .unwrap_or(caps.formats[0]);
+        let max_dim = limits.max_texture_dimension_2d;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width.min(max_dim).max(1),
+            height: size.height.min(max_dim).max(1),
+            present_mode: caps.present_modes[0],
+            alpha_mode: caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: Some(2),
+        };
+        surface.configure(&device, &config);
+        let depth = create_depth(&device, config.width, config.height);
+
+        let mesh_sphere = unit_octahedron(&device);
+
+        let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("globals"),
+            size: std::mem::size_of::<Globals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let instance_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("instances"),
+            size: (std::mem::size_of::<Instance>() * 8192) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let edge_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("edges"),
+            size: (std::mem::size_of::<EdgeInstance>() * 16384) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("globals_layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("globals_bg"),
+            layout: &globals_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: globals_buf.as_entire_binding(),
+            }],
+        });
+
+        let shader_nodes = device.create_shader_module(wgpu::include_wgsl!("shader_nodes.wgsl"));
+        let shader_edges = device.create_shader_module(wgpu::include_wgsl!("shader_edges.wgsl"));
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[&globals_layout],
+            push_constant_ranges: &[],
+        });
+
+        let node = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("node_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_nodes,
+                entry_point: "vs_main",
+                compilation_options: Default::default(),
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Instance>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &[
+                            wgpu::VertexAttribute {
+                                shader_location: 2,
+                                offset: 0,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 3,
+                                offset: 16,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 4,
+                                offset: 32,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 5,
+                                offset: 48,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 6,
+                                offset: 64,
+                                format: wgpu::VertexFormat::Float32x3,
+                            },
+                        ],
+                    },
+                ],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_nodes,
+                entry_point: "fs_main",
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let edge = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("edge_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_edges,
+                entry_point: "vs_main",
+                compilation_options: Default::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<EdgeInstance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &wgpu::vertex_attr_array![
+                        0=>Float32x3, // start
+                        1=>Float32x3, // end
+                        2=>Float32x3  // color
+                    ],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_edges,
+                entry_point: "fs_main",
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            max_tex: max_dim,
+            depth,
+            mesh_sphere,
+            globals_buf,
+            instance_buf,
+            edge_buf,
+            bind_group,
+            pipelines: Pipelines { node, edge },
+        })
+    }
+
+    fn resize(&mut self, size: PhysicalSize<u32>) {
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        self.config.width = size.width.min(self.max_tex);
+        self.config.height = size.height.min(self.max_tex);
+        self.surface.configure(&self.device, &self.config);
+        self.depth = create_depth(&self.device, self.config.width, self.config.height);
+    }
+}
+
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
+
+fn create_depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView {
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("depth"),
+        size: wgpu::Extent3d {
+            width: w.max(1),
+            height: h.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    tex.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn unit_octahedron(device: &wgpu::Device) -> Mesh {
+    let verts: [Vertex; 6] = [
+        Vertex {
+            pos: [1.0, 0.0, 0.0],
+            normal: [1.0, 0.0, 0.0],
+        },
+        Vertex {
+            pos: [-1.0, 0.0, 0.0],
+            normal: [-1.0, 0.0, 0.0],
+        },
+        Vertex {
+            pos: [0.0, 1.0, 0.0],
+            normal: [0.0, 1.0, 0.0],
+        },
+        Vertex {
+            pos: [0.0, -1.0, 0.0],
+            normal: [0.0, -1.0, 0.0],
+        },
+        Vertex {
+            pos: [0.0, 0.0, 1.0],
+            normal: [0.0, 0.0, 1.0],
+        },
+        Vertex {
+            pos: [0.0, 0.0, -1.0],
+            normal: [0.0, 0.0, -1.0],
+        },
+    ];
+    let idx: [u16; 24] = [
+        0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5,
+    ];
+    let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("oct_vb"),
+        contents: bytemuck::cast_slice(&verts),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("oct_ib"),
+        contents: bytemuck::cast_slice(&idx),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+    Mesh {
+        vbuf,
+        ibuf,
+        count: idx.len() as u32,
+    }
+}
+
+fn radial_pos(id: &NodeId) -> Vec3 {
+    let mut h = Hasher::new();
+    h.update(&id.0);
+    let bytes = h.finalize();
+    let theta = u32::from_le_bytes(bytes.as_bytes()[0..4].try_into().unwrap()) as f32
+        / u32::MAX as f32
+        * std::f32::consts::TAU;
+    let phi = u32::from_le_bytes(bytes.as_bytes()[4..8].try_into().unwrap()) as f32
+        / u32::MAX as f32
+        * std::f32::consts::PI
+        - std::f32::consts::FRAC_PI_2;
+    let r = 200.0;
+    Vec3::new(
+        r * phi.cos() * theta.cos(),
+        r * phi.sin(),
+        r * phi.cos() * theta.sin(),
+    )
+}
+
+fn compute_depth(edges: &[(usize, usize)], n: usize) -> usize {
+    let mut adj = vec![Vec::new(); n];
+    for &(a, b) in edges {
+        if a < n && b < n {
+            adj[a].push(b);
+        }
+    }
+    let mut depth = vec![0usize; n];
+    let mut stack = vec![0usize];
+    let mut visited = vec![false; n];
+    while let Some(v) = stack.pop() {
+        visited[v] = true;
+        let d = depth[v] + 1;
+        for &m in &adj[v] {
+            depth[m] = depth[m].max(d);
+            if !visited[m] {
+                stack.push(m);
+            }
+        }
+    }
+    depth.into_iter().max().unwrap_or(0)
+}
+
+fn hash_color(ty: &TypeId) -> [f32; 3] {
+    let mut h = Hasher::new();
+    h.update(&ty.0);
+    let b = h.finalize();
+    [
+        b.as_bytes()[0] as f32 / 255.0,
+        b.as_bytes()[1] as f32 / 255.0,
+        b.as_bytes()[2] as f32 / 255.0,
+    ]
+}
+
+// ------------------------------------------------------------
+// Sample graph
+// ------------------------------------------------------------
+
+fn build_sample_graph() -> GraphStore {
+    let mut store = GraphStore::default();
+    let world_ty = make_type_id("world");
+    let region_ty = make_type_id("region");
+    let leaf_ty = make_type_id("leaf");
+    let worm_ty = make_type_id("wormhole");
+
+    let world = make_node_id("world");
+    store.insert_node(
+        world,
+        NodeRecord {
+            ty: world_ty,
+            payload: None,
+        },
+    );
+
+    for i in 0..8u8 {
+        let id = make_node_id(&format!("region-{i}"));
+        store.insert_node(
+            id,
+            NodeRecord {
+                ty: region_ty,
+                payload: None,
+            },
+        );
+        store.insert_edge(
+            world,
+            EdgeRecord {
+                id: make_edge_id(&format!("world-region-{i}")),
+                from: world,
+                to: id,
+                ty: region_ty,
+                payload: None,
+            },
+        );
+        for j in 0..3u8 {
+            let leaf = make_node_id(&format!("leaf-{i}-{j}"));
+            store.insert_node(
+                leaf,
+                NodeRecord {
+                    ty: leaf_ty,
+                    payload: None,
+                },
+            );
+            store.insert_edge(
+                id,
+                EdgeRecord {
+                    id: make_edge_id(&format!("edge-{i}-{j}")),
+                    from: id,
+                    to: leaf,
+                    ty: leaf_ty,
+                    payload: None,
+                },
+            );
+        }
+    }
+    for pair in [(0, 3), (2, 6), (5, 7)] {
+        let (a, b) = pair;
+        let a_id = make_node_id(&format!("region-{a}"));
+        let b_id = make_node_id(&format!("region-{b}"));
+        store.insert_edge(
+            a_id,
+            EdgeRecord {
+                id: make_edge_id(&format!("worm-{a}-{b}")),
+                from: a_id,
+                to: b_id,
+                ty: worm_ty,
+                payload: None,
+            },
+        );
+        store.insert_edge(
+            b_id,
+            EdgeRecord {
+                id: make_edge_id(&format!("worm-{b}-{a}")),
+                from: b_id,
+                to: a_id,
+                ty: worm_ty,
+                payload: None,
+            },
+        );
+    }
+    store
+}
+
+// ------------------------------------------------------------
+// Main
+// ------------------------------------------------------------
+
+fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .without_time()
+        .init();
+
+    let store = build_sample_graph();
+    let mut viewer = ViewerState {
+        graph: RenderGraph::from_store(&store),
+        ..Default::default()
+    };
+
+    let event_loop = EventLoop::new()?;
+    let window =
+        event_loop.create_window(WindowAttributes::default().with_title("Echo RMG Viewer 3D"))?;
+    let window: &'static Window = Box::leak(Box::new(window));
+    let mut gpu = pollster::block_on(Gpu::new(window))?;
+
+    let egui_ctx = egui::Context::default();
+    let mut egui_state = EguiWinitState::new(
+        egui_ctx.clone(),
+        egui::ViewportId::ROOT,
+        &event_loop,
+        None,
+        None,
+        None,
+    );
+    let mut egui_renderer = egui_wgpu::Renderer::new(
+        &gpu.device,
+        gpu.config.format,
+        egui_wgpu::RendererOptions::default(),
+    );
+
+    event_loop.run(move |event, target| {
+        target.set_control_flow(ControlFlow::Poll);
+        match event {
+            Event::WindowEvent { window_id, event } if window_id == window.id() => {
+                if let WindowEvent::CloseRequested = event {
+                    target.exit();
+                    return;
+                }
+                match &event {
+                    WindowEvent::Resized(size) => gpu.resize(*size),
+                    WindowEvent::ScaleFactorChanged {
+                        scale_factor: _,
+                        inner_size_writer,
+                    } => {
+                        let _ = inner_size_writer.request_inner_size(window.inner_size());
+                        gpu.resize(window.inner_size());
+                    }
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        if let egui_winit::winit::keyboard::PhysicalKey::Code(code) =
+                            event.physical_key
+                        {
+                            match event.state {
+                                ElementState::Pressed => {
+                                    viewer.keys.insert(code);
+                                }
+                                ElementState::Released => {
+                                    viewer.keys.remove(&code);
+                                }
+                            }
+                        }
+                    }
+                    WindowEvent::MouseWheel { delta, .. } => {
+                        let y = match delta {
+                            MouseScrollDelta::LineDelta(_, y) => *y,
+                            MouseScrollDelta::PixelDelta(p) => p.y as f32 / 50.0,
+                        };
+                        viewer.camera.zoom_fov(1.0 - y * 0.05);
+                    }
+                    _ => {}
+                }
+                if egui_state.on_window_event(window, &event).consumed {
+                    return;
+                }
+            }
+            Event::AboutToWait => {
+                let dt = viewer.last_frame.elapsed().as_secs_f32().min(0.05);
+                viewer.last_frame = Instant::now();
+
+                // movement
+                let speed = if viewer.keys.contains(&KeyCode::ShiftLeft)
+                    || viewer.keys.contains(&KeyCode::ShiftRight)
+                {
+                    420.0
+                } else {
+                    160.0
+                };
+                let mut mv = Vec3::ZERO;
+                if viewer.keys.contains(&KeyCode::KeyW) {
+                    mv.z -= speed * dt;
+                }
+                if viewer.keys.contains(&KeyCode::KeyS) {
+                    mv.z += speed * dt;
+                }
+                if viewer.keys.contains(&KeyCode::KeyA) {
+                    mv.x -= speed * dt;
+                }
+                if viewer.keys.contains(&KeyCode::KeyD) {
+                    mv.x += speed * dt;
+                }
+                if viewer.keys.contains(&KeyCode::KeyQ) {
+                    mv.y -= speed * dt;
+                }
+                if viewer.keys.contains(&KeyCode::KeyE) {
+                    mv.y += speed * dt;
+                }
+                viewer.camera.move_relative(mv);
+
+                // layout relax
+                viewer.graph.step_layout(dt);
+
+                // mouse drag -> rotation
+                let delta = egui_ctx.input(|i| i.pointer.delta());
+                if egui_ctx.input(|i| i.pointer.primary_down()) && !egui_ctx.is_using_pointer() {
+                    let d = glam::Vec2::new(delta.x, delta.y);
+                    viewer.drag_accum += d;
+                    viewer.camera.apply_mouse_impulse(d, viewer.drag_accum);
+                } else {
+                    viewer.drag_accum = glam::Vec2::ZERO;
+                }
+                viewer.camera.update_rotation(dt);
+
+                // egui frame
+                let raw_input = egui_state.take_egui_input(window);
+                let full_output = egui_ctx.run(raw_input, |ctx| {
+                    egui::TopBottomPanel::top("top").show(ctx, |ui| {
+                        ui.label("Echo RMG Viewer (3D)");
+                        ui.label(format!("FPS: {:.1}", viewer.perf.fps()));
+                        ui.label(format!("Nodes: {}", viewer.graph.nodes.len()));
+                        ui.label(format!("Edges: {}", viewer.graph.edges.len()));
+                        ui.label(format!("Depth~: {}", viewer.graph.max_depth));
+                        ui.label(format!(
+                            "Cam pos: ({:.1},{:.1},{:.1})",
+                            viewer.camera.pos.x, viewer.camera.pos.y, viewer.camera.pos.z
+                        ));
+                    });
+                    egui::SidePanel::right("legend").show(ctx, |ui| {
+                        ui.heading("Legend");
+                        let mut seen = HashSet::new();
+                        for n in &viewer.graph.nodes {
+                            if seen.insert(n.ty) {
+                                ui.horizontal(|ui| {
+                                    ui.colored_label(
+                                        egui::Color32::from_rgb(
+                                            (n.color[0] * 255.0) as u8,
+                                            (n.color[1] * 255.0) as u8,
+                                            (n.color[2] * 255.0) as u8,
+                                        ),
+                                        "⬤",
+                                    );
+                                    ui.label(format!("Type {}", hex::encode_upper(&n.ty.0[..4])));
+                                });
+                            }
+                        }
+                    });
+                });
+                egui_state.handle_platform_output(window, full_output.platform_output);
+
+                // prepare GPU data
+                let aspect = gpu.config.width as f32 / gpu.config.height as f32;
+                let view_proj = viewer.camera.view_proj(aspect);
+                let globals = Globals {
+                    view_proj: view_proj.to_cols_array_2d(),
+                    light_dir: [0.2, 0.7, 0.6],
+                    _pad: 0.0,
+                };
+                gpu.queue
+                    .write_buffer(&gpu.globals_buf, 0, bytemuck::bytes_of(&globals));
+
+                let mut instances = Vec::with_capacity(viewer.graph.nodes.len());
+                for n in &viewer.graph.nodes {
+                    let model = (Mat4::from_translation(n.pos)
+                        * Mat4::from_scale(Vec3::splat(7.0)))
+                    .to_cols_array_2d();
+                    instances.push(Instance {
+                        model,
+                        color: n.color,
+                        _pad: 0.0,
+                    });
+                }
+                gpu.queue
+                    .write_buffer(&gpu.instance_buf, 0, bytemuck::cast_slice(&instances));
+
+                let mut edge_instances = Vec::with_capacity(viewer.graph.edges.len());
+                for (a, b) in &viewer.graph.edges {
+                    let sa = viewer.graph.nodes[*a].pos;
+                    let sb = viewer.graph.nodes[*b].pos;
+                    let color = viewer.graph.nodes[*a].color;
+                    edge_instances.push(EdgeInstance {
+                        start: sa.to_array(),
+                        end: sb.to_array(),
+                        color,
+                        _pad: 0.0,
+                    });
+                }
+                gpu.queue
+                    .write_buffer(&gpu.edge_buf, 0, bytemuck::cast_slice(&edge_instances));
+
+                // acquire frame
+                let frame = match gpu.surface.get_current_texture() {
+                    Ok(f) => f,
+                    Err(wgpu::SurfaceError::Lost) => {
+                        gpu.resize(PhysicalSize::new(gpu.config.width, gpu.config.height));
+                        match gpu.surface.get_current_texture() {
+                            Ok(f) => f,
+                            Err(_) => return,
+                        }
+                    }
+                    Err(wgpu::SurfaceError::OutOfMemory) => {
+                        target.exit();
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("frame drop: {e:?}");
+                        return;
+                    }
+                };
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                let mut encoder =
+                    gpu.device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("main-encoder"),
+                        });
+
+                // render
+                {
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("main-pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.05,
+                                    g: 0.06,
+                                    b: 0.08,
+                                    a: 1.0,
+                                }),
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: Some(0),
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &gpu.depth,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+
+                    // edges
+                    rpass.set_pipeline(&gpu.pipelines.edge);
+                    rpass.set_bind_group(0, &gpu.bind_group, &[]);
+                    rpass.set_vertex_buffer(
+                        0,
+                        gpu.edge_buf.slice(
+                            ..(edge_instances.len() as u64
+                                * std::mem::size_of::<EdgeInstance>() as u64),
+                        ),
+                    );
+                    rpass.draw(0..2, 0..edge_instances.len() as u32);
+
+                    // nodes
+                    rpass.set_pipeline(&gpu.pipelines.node);
+                    rpass.set_bind_group(0, &gpu.bind_group, &[]);
+                    rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
+                    rpass.set_vertex_buffer(
+                        1,
+                        gpu.instance_buf.slice(
+                            ..(instances.len() as u64 * std::mem::size_of::<Instance>() as u64),
+                        ),
+                    );
+                    rpass.set_index_buffer(
+                        gpu.mesh_sphere.ibuf.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+                    rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..instances.len() as u32);
+                }
+
+                // egui overlay
+                let screen_desc = egui_wgpu::ScreenDescriptor {
+                    size_in_pixels: [gpu.config.width, gpu.config.height],
+                    pixels_per_point: window.scale_factor() as f32,
+                };
+                let paint_jobs =
+                    egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+                let textures_delta = full_output.textures_delta;
+                for (id, delta) in textures_delta.set {
+                    egui_renderer.update_texture(&gpu.device, &gpu.queue, id, &delta);
+                }
+                egui_renderer.update_buffers(
+                    &gpu.device,
+                    &gpu.queue,
+                    &mut encoder,
+                    &paint_jobs,
+                    &screen_desc,
+                );
+                {
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("egui"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: Some(0),
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+                    egui_renderer.render(&mut rpass, &paint_jobs, &screen_desc);
+                }
+                for id in textures_delta.free {
+                    egui_renderer.free_texture(&id);
+                }
+
+                gpu.queue.submit(Some(encoder.finish()));
+                frame.present();
+
+                let frame_ms = viewer.last_frame.elapsed().as_secs_f32() * 1000.0;
+                viewer.perf.push(frame_ms);
+
+                window.request_redraw();
+            }
+            _ => {}
+        }
+    })?;
+    #[allow(unreachable_code)]
+    Ok(())
+}

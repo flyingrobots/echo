@@ -1,0 +1,31 @@
+[package]
+name = "rmg-viewer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83.0"
+description = "Interactive renderer for Echo RMG snapshots (skeleton + regions + wormholes)."
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["rmg", "viewer", "graph", "echo"]
+categories = ["visualization", "game-engines", "data-structures"]
+
+[dependencies]
+anyhow = "1.0"
+blake3 = "1.5"
+bytemuck = { version = "1.16", features = ["derive"] }
+egui = "0.33.2"
+egui-wgpu = "0.33.2"
+egui-winit = "0.33.2"
+egui_plot = "0.33.0"
+glam = "0.27"
+hex = "0.4"
+pollster = "0.3"
+rmg-core = { path = "../rmg-core" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+wgpu = "0.19.4"
+winit = "0.29.15"
+
+[dev-dependencies]
+approx = "0.5"

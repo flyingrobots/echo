@@ -42,6 +42,10 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - Formatting: pre-commit auto-fixes with `cargo fmt` by default. Set `ECHO_AUTO_FMT=0` to run check-only instead.
 - Toolchain: pre-commit verifies your active toolchain matches `rust-toolchain.toml`.
 - Docs Guard: when core API files change, the hook requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors the CI check).
+- SPDX header policy (source): every source file must start with exactly:
+  - `// SPDX-License-Identifier: Apache-2.0`
+  - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
+  Use the repository scripts/hooks; do not add dual-license headers to code.
 
 ## Git Real
 1. **NEVER** use `--force` with any git command. If you think you need it, stop and ask the human for help.

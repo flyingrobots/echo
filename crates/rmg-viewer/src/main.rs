@@ -294,18 +294,15 @@ impl<'a> Gpu<'a> {
             .expect("GPU adapter");
         let limits = adapter.limits();
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("rmg-viewer-device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults()
-                        .using_resolution(limits.clone()),
-                    memory_hints: wgpu::MemoryHints::Performance,
-                    trace: None,
-                    experimental_features: wgpu::ExperimentalFeatures::empty(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("rmg-viewer-device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults()
+                    .using_resolution(limits.clone()),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            })
             .await?;
 
         let size = window.inner_size();
@@ -325,7 +322,7 @@ impl<'a> Gpu<'a> {
             present_mode: caps.present_modes[0],
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: Some(2),
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
         let depth = create_depth(&device, config.width, config.height);
@@ -387,7 +384,7 @@ impl<'a> Gpu<'a> {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader_nodes,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[
                     wgpu::VertexBufferLayout {
@@ -430,7 +427,7 @@ impl<'a> Gpu<'a> {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader_nodes,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
@@ -460,7 +457,7 @@ impl<'a> Gpu<'a> {
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader_edges,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<EdgeInstance>() as u64,
@@ -474,7 +471,7 @@ impl<'a> Gpu<'a> {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader_edges,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
@@ -783,11 +780,7 @@ fn main() -> Result<()> {
                 }
                 match &event {
                     WindowEvent::Resized(size) => gpu.resize(*size),
-                    WindowEvent::ScaleFactorChanged {
-                        scale_factor: _,
-                        inner_size_writer,
-                    } => {
-                        let _ = inner_size_writer.request_inner_size(window.inner_size());
+                    WindowEvent::ScaleFactorChanged { .. } => {
                         gpu.resize(window.inner_size());
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
@@ -963,70 +956,73 @@ fn main() -> Result<()> {
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor::default());
 
-                let mut encoder =
-                    gpu.device
+                let cmd_main = {
+                    let mut encoder = gpu
+                        .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("main-encoder"),
                         });
 
-                // render
-                {
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("main-pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: 0.05,
-                                    g: 0.06,
-                                    b: 0.08,
-                                    a: 1.0,
+                    {
+                        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("main-pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                                        r: 0.05,
+                                        g: 0.06,
+                                        b: 0.08,
+                                        a: 1.0,
+                                    }),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                                depth_slice: Some(0),
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &gpu.depth,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(1.0),
+                                    store: wgpu::StoreOp::Store,
                                 }),
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: Some(0),
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &gpu.depth,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: wgpu::StoreOp::Store,
+                                stencil_ops: None,
                             }),
-                            stencil_ops: None,
-                        }),
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
+                            occlusion_query_set: None,
+                            timestamp_writes: None,
+                        });
 
-                    // edges
-                    rpass.set_pipeline(&gpu.pipelines.edge);
-                    rpass.set_bind_group(0, &gpu.bind_group, &[]);
-                    rpass.set_vertex_buffer(
-                        0,
-                        gpu.edge_buf.slice(
-                            ..(edge_instances.len() as u64
-                                * std::mem::size_of::<EdgeInstance>() as u64),
-                        ),
-                    );
-                    rpass.draw(0..2, 0..edge_instances.len() as u32);
+                        // edges
+                        rpass.set_pipeline(&gpu.pipelines.edge);
+                        rpass.set_bind_group(0, &gpu.bind_group, &[]);
+                        rpass.set_vertex_buffer(
+                            0,
+                            gpu.edge_buf.slice(
+                                ..(edge_instances.len() as u64
+                                    * std::mem::size_of::<EdgeInstance>() as u64),
+                            ),
+                        );
+                        rpass.draw(0..2, 0..edge_instances.len() as u32);
 
-                    // nodes
-                    rpass.set_pipeline(&gpu.pipelines.node);
-                    rpass.set_bind_group(0, &gpu.bind_group, &[]);
-                    rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
-                    rpass.set_vertex_buffer(
-                        1,
-                        gpu.instance_buf.slice(
-                            ..(instances.len() as u64 * std::mem::size_of::<Instance>() as u64),
-                        ),
-                    );
-                    rpass.set_index_buffer(
-                        gpu.mesh_sphere.ibuf.slice(..),
-                        wgpu::IndexFormat::Uint16,
-                    );
-                    rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..instances.len() as u32);
-                }
+                        // nodes
+                        rpass.set_pipeline(&gpu.pipelines.node);
+                        rpass.set_bind_group(0, &gpu.bind_group, &[]);
+                        rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
+                        rpass.set_vertex_buffer(
+                            1,
+                            gpu.instance_buf.slice(
+                                ..(instances.len() as u64 * std::mem::size_of::<Instance>() as u64),
+                            ),
+                        );
+                        rpass.set_index_buffer(
+                            gpu.mesh_sphere.ibuf.slice(..),
+                            wgpu::IndexFormat::Uint16,
+                        );
+                        rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..instances.len() as u32);
+                    }
+
+                    encoder.finish()
+                };
 
                 // egui overlay
                 let screen_desc = egui_wgpu::ScreenDescriptor {
@@ -1036,39 +1032,58 @@ fn main() -> Result<()> {
                 let paint_jobs =
                     egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
                 let textures_delta = full_output.textures_delta;
-                for (id, delta) in textures_delta.set {
-                    egui_renderer.update_texture(&gpu.device, &gpu.queue, id, &delta);
-                }
-                egui_renderer.update_buffers(
-                    &gpu.device,
-                    &gpu.queue,
-                    &mut encoder,
-                    &paint_jobs,
-                    &screen_desc,
-                );
-                {
-                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("egui"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: Some(0),
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None,
-                    });
-                    egui_renderer.render(&mut rpass, &paint_jobs, &screen_desc);
-                }
-                for id in textures_delta.free {
-                    egui_renderer.free_texture(&id);
-                }
 
-                gpu.queue.submit(Some(encoder.finish()));
+                let cmd_egui = {
+                    let mut egui_encoder =
+                        gpu.device
+                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("egui-encoder"),
+                            });
+
+                    {
+                        for (id, delta) in textures_delta.set {
+                            egui_renderer.update_texture(&gpu.device, &gpu.queue, id, &delta);
+                        }
+                        egui_renderer.update_buffers(
+                            &gpu.device,
+                            &gpu.queue,
+                            &mut egui_encoder,
+                            &paint_jobs,
+                            &screen_desc,
+                        );
+                        {
+                            let mut rpass =
+                                egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: Some("egui"),
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                        view: &view,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Load,
+                                            store: wgpu::StoreOp::Store,
+                                        },
+                                        depth_slice: Some(0),
+                                    })],
+                                    depth_stencil_attachment: None,
+                                occlusion_query_set: None,
+                                timestamp_writes: None,
+                            });
+                            // Safety: egui_wgpu 0.33 expects a 'static render pass; we guarantee
+                            // the pass lives for this block only and is not retained.
+                            let rpass_ptr: *mut wgpu::RenderPass =
+                                &mut rpass as *mut wgpu::RenderPass;
+                            let rpass_static: &mut wgpu::RenderPass<'static> =
+                                unsafe { &mut *(rpass_ptr.cast()) };
+                            egui_renderer.render(rpass_static, &paint_jobs, &screen_desc);
+                        }
+                        for id in textures_delta.free {
+                            egui_renderer.free_texture(&id);
+                        }
+                    }
+                    egui_encoder.finish()
+                };
+
+                gpu.queue.submit([cmd_main, cmd_egui]);
                 frame.present();
 
                 let frame_ms = viewer.last_frame.elapsed().as_secs_f32() * 1000.0;

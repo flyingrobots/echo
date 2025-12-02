@@ -780,7 +780,7 @@ impl ApplicationHandler for App {
         &mut self,
         _event_loop: &ActiveEventLoop,
         window_id: winit::window::WindowId,
-        event: WindowEvent,
+        mut event: WindowEvent,
     ) {
         let Some(win) = self.window else { return };
         if win.id() != window_id {
@@ -790,19 +790,14 @@ impl ApplicationHandler for App {
             return;
         };
 
-        let egui_consumed = egui_state.on_window_event(win, &event).consumed;
-        if egui_consumed {
-            return;
-        }
-
-        match event {
+        match &mut event {
             WindowEvent::CloseRequested => {
                 std::process::exit(0);
             }
-            WindowEvent::Resized(size) => gpu.resize(size),
+            WindowEvent::Resized(size) => gpu.resize(*size),
             WindowEvent::ScaleFactorChanged {
                 scale_factor: _,
-                mut inner_size_writer,
+                inner_size_writer,
             } => {
                 let size = win.inner_size();
                 let _ = inner_size_writer.request_inner_size(size);
@@ -821,14 +816,17 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let y = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y,
+                let y: f32 = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => *y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 50.0,
                 };
                 self.viewer.camera.zoom_fov(1.0 - y * 0.05);
             }
             _ => {}
         }
+
+        // Always forward events to egui after we handled movement keys so releases clear our state.
+        let _ = egui_state.on_window_event(win, &event);
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {

@@ -327,6 +327,7 @@ struct Gpu {
     pmode_fast: wgpu::PresentMode,
     pmode_vsync: wgpu::PresentMode,
     sample_count: u32,
+    msaa_enabled: bool,
     max_tex: u32,
     msaa_view: Option<wgpu::TextureView>,
     depth: wgpu::TextureView,
@@ -628,6 +629,7 @@ impl Gpu {
             pmode_fast,
             pmode_vsync,
             sample_count,
+            msaa_enabled: sample_count > 1,
             max_tex: max_dim,
             msaa_view,
             depth,
@@ -652,14 +654,14 @@ impl Gpu {
             &self.device,
             self.config.width,
             self.config.height,
-            self.sample_count,
+            if self.msaa_enabled { self.sample_count } else { 1 },
         );
         self.msaa_view = create_msaa(
             &self.device,
             self.config.format,
             self.config.width,
             self.config.height,
-            self.sample_count,
+            if self.msaa_enabled { self.sample_count } else { 1 },
         );
     }
 
@@ -1261,29 +1263,30 @@ impl ApplicationHandler for App {
                 .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
                 .interactable(true)
                 .show(ctx, |ui| {
-                    hud_frame.show(ui, |ui| {
-                        ui.label("Echo RMG Viewer 3D");
-                        ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
-                        ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
-                        ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
-                        ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
-                        ui.label(format!(
-                            "Cam pos: ({:.1},{:.1},{:.1})",
-                            self.viewer.camera.pos.x,
-                            self.viewer.camera.pos.y,
-                            self.viewer.camera.pos.z
-                        ));
-                        ui.separator();
-                        ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
-                        ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
-                        ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
-                        ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
-                        ui.checkbox(&mut self.viewer.vsync, "VSync");
-                        ui.collapsing("Help / Controls", |ui| {
-                            ui.label("WASD/QE: move");
-                            ui.label("Left drag: look");
-                            ui.label("Right drag: spin graph");
-                            ui.label("Wheel: FoV zoom");
+            hud_frame.show(ui, |ui| {
+                ui.label("Echo RMG Viewer 3D");
+                ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
+                ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
+                ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
+                ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
+                ui.label(format!(
+                    "Cam pos: ({:.1},{:.1},{:.1})",
+                    self.viewer.camera.pos.x,
+                    self.viewer.camera.pos.y,
+                    self.viewer.camera.pos.z
+                ));
+                ui.separator();
+                ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
+                ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
+                ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
+                ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
+                ui.checkbox(&mut self.viewer.vsync, "VSync");
+                ui.checkbox(&mut gpu.msaa_enabled, "MSAA x4");
+                ui.collapsing("Help / Controls", |ui| {
+                    ui.label("WASD/QE: move");
+                    ui.label("Left drag: look");
+                    ui.label("Right drag: spin graph");
+                    ui.label("Wheel: FoV zoom");
                             ui.label("Toggles: debug sphere/arc, invert axes, vsync");
                         });
                     });
@@ -1346,6 +1349,26 @@ impl ApplicationHandler for App {
 
         if self.viewer.vsync != prev_vsync {
             gpu.set_vsync(self.viewer.vsync);
+        }
+        // Recreate MSAA targets if toggled
+        {
+            let desired_msaa = if gpu.msaa_enabled { gpu.sample_count } else { 1 };
+            let current_msaa = gpu.msaa_view.is_some().then_some(gpu.sample_count).unwrap_or(1);
+            if desired_msaa != current_msaa {
+                gpu.msaa_view = create_msaa(
+                    &gpu.device,
+                    gpu.config.format,
+                    gpu.config.width,
+                    gpu.config.height,
+                    desired_msaa,
+                );
+                gpu.depth = create_depth(
+                    &gpu.device,
+                    gpu.config.width,
+                    gpu.config.height,
+                    desired_msaa,
+                );
+            }
         }
 
         let globals = Globals {

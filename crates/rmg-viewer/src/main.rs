@@ -1148,40 +1148,60 @@ impl ApplicationHandler for App {
 
         let raw_input = egui_state.take_egui_input(win);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.label("Echo RMG Viewer (3D)");
-            ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
-            ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
-            ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
-            ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
-            ui.label(format!(
-                "Cam pos: ({:.1},{:.1},{:.1})",
-                self.viewer.camera.pos.x, self.viewer.camera.pos.y, self.viewer.camera.pos.z
-            ));
-            ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
-            ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
-            ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
-            ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
-        });
-            egui::SidePanel::right("legend").show(ctx, |ui| {
-                ui.heading("Legend");
-                let mut seen = HashSet::new();
-                for n in &self.viewer.graph.nodes {
-                    if seen.insert(n.ty) {
-                        ui.horizontal(|ui| {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(
-                                    (n.color[0] * 255.0) as u8,
-                                    (n.color[1] * 255.0) as u8,
-                                    (n.color[2] * 255.0) as u8,
-                                ),
-                                "⬤",
-                            );
-                            ui.label(format!("Type {}", hex::encode_upper(&n.ty.0[..4])));
-                        });
-                    }
-                }
-            });
+            // HUD overlay (transparent, non-blocking feel)
+            let hud_frame = egui::Frame::new()
+                .fill(egui::Color32::from_rgba_unmultiplied(15, 15, 20, 150))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
+                .inner_margin(egui::Margin::symmetric(8, 6));
+
+            egui::Area::new("hud_top_left".into())
+                .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
+                .interactable(true)
+                .show(ctx, |ui| {
+                    hud_frame.show(ui, |ui| {
+                        ui.label("Echo RMG Viewer 3D");
+                        ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
+                        ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
+                        ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
+                        ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
+                        ui.label(format!(
+                            "Cam pos: ({:.1},{:.1},{:.1})",
+                            self.viewer.camera.pos.x,
+                            self.viewer.camera.pos.y,
+                            self.viewer.camera.pos.z
+                        ));
+                        ui.separator();
+                        ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
+                        ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
+                        ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
+                        ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
+                    });
+                });
+
+            egui::Area::new("hud_legend".into())
+                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+                .interactable(true)
+                .show(ctx, |ui| {
+                    hud_frame.show(ui, |ui| {
+                        ui.heading("Legend");
+                        let mut seen = HashSet::new();
+                        for n in &self.viewer.graph.nodes {
+                            if seen.insert(n.ty) {
+                                ui.horizontal(|ui| {
+                                    ui.colored_label(
+                                        egui::Color32::from_rgb(
+                                            (n.color[0] * 255.0) as u8,
+                                            (n.color[1] * 255.0) as u8,
+                                            (n.color[2] * 255.0) as u8,
+                                        ),
+                                        "⬤",
+                                    );
+                                    ui.label(format!("Type {}", hex::encode_upper(&n.ty.0[..4])));
+                                });
+                            }
+                        }
+                    });
+                });
 
             if let Some((a, b)) = debug_arc_screen {
                 let stroke = egui::Stroke::new(4.0, egui::Color32::from_rgb(255, 50, 200));

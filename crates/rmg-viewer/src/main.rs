@@ -134,8 +134,6 @@ struct Camera {
     pos: Vec3,
     yaw: f32,
     pitch: f32,
-    ang_vel: Vec3,
-    damping: f32,
     fov_y: f32,
 }
 
@@ -145,8 +143,6 @@ impl Default for Camera {
             pos: Vec3::new(0.0, 0.0, 520.0),
             yaw: 0.0,
             pitch: 0.0,
-            ang_vel: Vec3::ZERO,
-            damping: 6.0,
             fov_y: 60f32.to_radians(),
         }
     }
@@ -168,20 +164,11 @@ impl Camera {
         proj * view
     }
 
-    fn update_rotation(&mut self, dt: f32) {
-        self.yaw += self.ang_vel.y * dt;
-        self.pitch = (self.pitch + self.ang_vel.x * dt).clamp(-1.4, 1.4);
-        let decay = (-self.damping * dt).exp();
-        self.ang_vel *= decay;
-    }
-
-    fn apply_mouse_impulse(&mut self, delta: glam::Vec2, total: glam::Vec2) {
-        self.ang_vel.y -= delta.x * 0.006;
-        self.ang_vel.x += delta.y * 0.006;
-        if total.length() > 0.0 {
-            self.ang_vel.y -= total.x * 0.01;
-            self.ang_vel.x += total.y * 0.01;
-        }
+    fn rotate_by_mouse(&mut self, delta: glam::Vec2) {
+        // Standard FPS-style mouse look
+        let sensitivity = 0.0025;
+        self.yaw -= delta.x * sensitivity;
+        self.pitch = (self.pitch + delta.y * sensitivity).clamp(-1.4, 1.4);
     }
 
     fn move_relative(&mut self, dir: Vec3) {
@@ -871,16 +858,12 @@ impl ApplicationHandler for App {
         self.viewer.camera.move_relative(mv);
 
         self.viewer.graph.step_layout(dt);
-
-        let delta = self.egui_ctx.input(|i| i.pointer.delta());
+        // Mouse look: adjust yaw/pitch directly when not over egui
         if self.egui_ctx.input(|i| i.pointer.primary_down()) && !self.egui_ctx.is_using_pointer() {
+            let delta = self.egui_ctx.input(|i| i.pointer.delta());
             let d = glam::Vec2::new(delta.x, delta.y);
-            self.viewer.drag_accum += d;
-            self.viewer.camera.apply_mouse_impulse(d, self.viewer.drag_accum);
-        } else {
-            self.viewer.drag_accum = glam::Vec2::ZERO;
+            self.viewer.camera.rotate_by_mouse(d);
         }
-        self.viewer.camera.update_rotation(dt);
 
         let raw_input = egui_state.take_egui_input(win);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {

@@ -185,8 +185,8 @@ impl Camera {
     fn rotate_by_mouse(&mut self, delta: glam::Vec2) {
         // Standard FPS-style mouse look
         let sensitivity = 0.0025;
-        self.yaw -= delta.x * sensitivity;
-        self.pitch = (self.pitch + delta.y * sensitivity).clamp(-1.4, 1.4);
+        self.yaw += delta.x * sensitivity;
+        self.pitch = (self.pitch - delta.y * sensitivity).clamp(-1.4, 1.4);
     }
 
     fn pick_ray(&self, ndc: glam::Vec2, aspect: f32) -> Vec3 {

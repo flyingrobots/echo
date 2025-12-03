@@ -354,13 +354,19 @@ impl Gpu {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
+        let present_mode = caps
+            .present_modes
+            .iter()
+            .copied()
+            .find(|m| matches!(m, wgpu::PresentMode::Immediate | wgpu::PresentMode::AutoNoVsync))
+            .unwrap_or(wgpu::PresentMode::Fifo);
         let max_dim = limits.max_texture_dimension_2d;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.min(max_dim).max(1),
             height: size.height.min(max_dim).max(1),
-            present_mode: caps.present_modes[0],
+            present_mode,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,

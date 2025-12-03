@@ -309,6 +309,7 @@ struct Gpu {
     max_tex: u32,
     depth: wgpu::TextureView,
     mesh_sphere: Mesh,
+    mesh_debug_sphere: Mesh,
     globals_buf: wgpu::Buffer,
     instance_buf: wgpu::Buffer,
     edge_buf: wgpu::Buffer,
@@ -364,6 +365,7 @@ impl Gpu {
         let depth = create_depth(&device, config.width, config.height);
 
         let mesh_sphere = unit_octahedron(&device);
+        let mesh_debug_sphere = unit_uv_sphere(&device, 24, 16);
 
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
@@ -520,6 +522,7 @@ impl Gpu {
             max_tex: max_dim,
             depth,
             mesh_sphere,
+            mesh_debug_sphere,
             globals_buf,
             instance_buf,
             edge_buf,
@@ -598,6 +601,53 @@ fn unit_octahedron(device: &wgpu::Device) -> Mesh {
     });
     let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("oct_ib"),
+        contents: bytemuck::cast_slice(&idx),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+    Mesh {
+        vbuf,
+        ibuf,
+        count: idx.len() as u32,
+    }
+}
+
+fn unit_uv_sphere(device: &wgpu::Device, segments: u32, rings: u32) -> Mesh {
+    let mut verts = Vec::new();
+    let mut idx = Vec::new();
+    for y in 0..=rings {
+        let v = y as f32 / rings as f32;
+        let theta = v * std::f32::consts::PI;
+        for x in 0..=segments {
+            let u = x as f32 / segments as f32;
+            let phi = u * std::f32::consts::TAU;
+            let nx = phi.sin() * theta.sin();
+            let ny = theta.cos();
+            let nz = phi.cos() * theta.sin();
+            verts.push(Vertex {
+                pos: [nx, ny, nz],
+                normal: [nx, ny, nz],
+            });
+        }
+    }
+    let stride = segments + 1;
+    for y in 0..rings {
+        for x in 0..segments {
+            let i0 = y * stride + x;
+            let i1 = i0 + 1;
+            let i2 = i0 + stride;
+            let i3 = i2 + 1;
+            idx.extend_from_slice(&[i0 as u16, i2 as u16, i1 as u16]);
+            idx.extend_from_slice(&[i1 as u16, i2 as u16, i3 as u16]);
+        }
+    }
+
+    let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("uv_sphere_vb"),
+        contents: bytemuck::cast_slice(&verts),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("uv_sphere_ib"),
         contents: bytemuck::cast_slice(&idx),
         usage: wgpu::BufferUsages::INDEX,
     });
@@ -1062,6 +1112,8 @@ impl ApplicationHandler for App {
                 _pad: 0.0,
             });
         }
+        let node_instance_count = instances.len() as u32;
+        let sphere_instance_offset = instances.len() as u32;
         if self.viewer.debug_show_sphere {
             let model = (graph_rot * Mat4::from_scale(Vec3::splat(radius)))
                 .to_cols_array_2d();
@@ -1165,6 +1217,7 @@ impl ApplicationHandler for App {
             );
             rpass.draw(0..2, 0..edge_instances.len() as u32);
 
+            // draw nodes
             rpass.set_pipeline(&gpu.pipelines.node);
             rpass.set_bind_group(0, &gpu.bind_group, &[]);
             rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
@@ -1175,7 +1228,16 @@ impl ApplicationHandler for App {
                 ),
             );
             rpass.set_index_buffer(gpu.mesh_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);
-            rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..instances.len() as u32);
+            rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..node_instance_count);
+
+            // debug sphere using higher-poly mesh
+            if self.viewer.debug_show_sphere {
+                let offset_bytes = sphere_instance_offset as u64 * std::mem::size_of::<Instance>() as u64;
+                rpass.set_vertex_buffer(0, gpu.mesh_debug_sphere.vbuf.slice(..));
+                rpass.set_vertex_buffer(1, gpu.instance_buf.slice(offset_bytes..));
+                rpass.set_index_buffer(gpu.mesh_debug_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+                rpass.draw_indexed(0..gpu.mesh_debug_sphere.count, 0, 0..1);
+            }
         }
 
         let cmd_main = encoder.finish();

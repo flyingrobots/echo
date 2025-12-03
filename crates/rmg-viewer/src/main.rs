@@ -24,6 +24,7 @@ use rmg_core::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::Instant;
 
 // ------------------------------------------------------------
@@ -48,12 +49,18 @@ struct ViewerState {
     debug_show_arc: bool,
     debug_invert_cam_x: bool,
     debug_invert_cam_y: bool,
-    watermark: bool,
+    show_watermark: bool,
+    watermark_bytes: Arc<[u8]>,
     vsync: bool,
 }
 
 impl Default for ViewerState {
     fn default() -> Self {
+        let svg = include_str!("../../../docs/assets/ECHO_chunky.svg");
+        let svg_no_stroke = svg
+            .replace("stroke=\"#ffffff\"", "stroke=\"none\"")
+            .replace("stroke=\"#FFF\"", "stroke=\"none\"");
+        let watermark_bytes: Arc<[u8]> = svg_no_stroke.into_bytes().into();
         Self {
             graph: RenderGraph::default(),
             camera: Camera::default(),
@@ -71,7 +78,8 @@ impl Default for ViewerState {
             debug_show_arc: false,
             debug_invert_cam_x: false,
             debug_invert_cam_y: false,
-            watermark: true,
+            show_watermark: true,
+            watermark_bytes,
             vsync: false,
         }
     }
@@ -1244,15 +1252,15 @@ impl ApplicationHandler for App {
                     });
                 });
 
-            if self.viewer.watermark {
-                let size = egui::vec2(140.0, 40.0);
+            if self.viewer.show_watermark {
+                let size = egui::vec2(280.0, 80.0);
                 let bytes = egui::ImageSource::Bytes {
                     uri: Cow::Borrowed("bytes://echo.svg"),
-                    bytes: egui::load::Bytes::from(include_bytes!(
-                        "../../../docs/assets/ECHO.svg"
-                    )),
+                    bytes: egui::load::Bytes::from(self.viewer.watermark_bytes.clone()),
                 };
-                let image = egui::Image::new(bytes).fit_to_exact_size(size);
+                let image = egui::Image::new(bytes)
+                    .fit_to_exact_size(size)
+                    .tint(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 64));
                 egui::Area::new("hud_watermark".into())
                     .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -12.0))
                     .interactable(false)

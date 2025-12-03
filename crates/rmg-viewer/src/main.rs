@@ -1052,6 +1052,40 @@ impl ApplicationHandler for App {
             self.viewer.camera.rotate_by_mouse(d);
         }
 
+        let aspect = gpu.config.width as f32 / gpu.config.height as f32;
+        let view_proj = self.viewer.camera.view_proj(aspect);
+
+        // Project debug arc line into screen space for egui overlay
+        let debug_arc_screen: Option<(egui::Pos2, egui::Pos2)> = if self.viewer.debug_show_arc {
+            if let (Some(a), Some(b)) = (self.viewer.arc_last_hit, self.viewer.arc_curr_hit) {
+                let proj = |p: Vec3| {
+                    let v = view_proj * p.extend(1.0);
+                    if v.w.abs() < 1e-5 {
+                        return None;
+                    }
+                    let ndc = v.truncate() / v.w;
+                    Some(ndc)
+                };
+                if let (Some(na), Some(nb)) = (proj(a), proj(b)) {
+                    let w = gpu.config.width as f32 / win.scale_factor() as f32;
+                    let h = gpu.config.height as f32 / win.scale_factor() as f32;
+                    let to_screen = |n: Vec3| {
+                        egui::Pos2 {
+                            x: (n.x * 0.5 + 0.5) * w,
+                            y: (-n.y * 0.5 + 0.5) * h,
+                        }
+                    };
+                    Some((to_screen(na), to_screen(nb)))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let raw_input = egui_state.take_egui_input(win);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
@@ -1086,11 +1120,18 @@ impl ApplicationHandler for App {
                     }
                 }
             });
+
+            if let Some((a, b)) = debug_arc_screen {
+                let stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 50, 200));
+                ctx.layer_painter(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new("debug_arc_line"),
+                ))
+                .line_segment([a, b], stroke);
+            }
         });
         egui_state.handle_platform_output(win, full_output.platform_output);
 
-        let aspect = gpu.config.width as f32 / gpu.config.height as f32;
-        let view_proj = self.viewer.camera.view_proj(aspect);
         let globals = Globals {
             view_proj: view_proj.to_cols_array_2d(),
             light_dir: [0.2, 0.7, 0.6],

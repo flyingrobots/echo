@@ -296,7 +296,7 @@ struct EdgeInstance {
     start: [f32; 3],
     end: [f32; 3],
     color: [f32; 3],
-    _pad: f32,
+    head: f32,
 }
 
 #[repr(C)]
@@ -324,7 +324,6 @@ struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    present_modes: Vec<wgpu::PresentMode>,
     pmode_fast: wgpu::PresentMode,
     pmode_vsync: wgpu::PresentMode,
     sample_count: u32,
@@ -386,6 +385,7 @@ impl Gpu {
             .find(|m| matches!(m, wgpu::PresentMode::Fifo))
             .unwrap_or(pmode_fast);
         let max_dim = limits.max_texture_dimension_2d;
+        let sample_count = 4;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -397,7 +397,14 @@ impl Gpu {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
-        let depth = create_depth(&device, config.width, config.height);
+        let depth = create_depth(&device, config.width, config.height, sample_count);
+        let msaa_view = create_msaa(
+            &device,
+            config.format,
+            config.width,
+            config.height,
+            sample_count,
+        );
 
         let mesh_sphere = unit_octahedron(&device);
         let mesh_debug_sphere = unit_uv_sphere(&device, 24, 16);
@@ -500,7 +507,10 @@ impl Gpu {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                ..Default::default()
+            },
             multiview: None,
             cache: None,
         });
@@ -554,7 +564,10 @@ impl Gpu {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                ..Default::default()
+            },
             multiview: None,
             cache: None,
         });
@@ -572,7 +585,8 @@ impl Gpu {
                     attributes: &wgpu::vertex_attr_array![
                         0=>Float32x3,
                         1=>Float32x3,
-                        2=>Float32x3
+                        2=>Float32x3,
+                        3=>Float32
                     ],
                 }],
             },
@@ -598,7 +612,10 @@ impl Gpu {
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: wgpu::MultisampleState {
+                count: sample_count,
+                ..Default::default()
+            },
             multiview: None,
             cache: None,
         });
@@ -608,12 +625,11 @@ impl Gpu {
             device,
             queue,
             config,
-            present_modes: caps.present_modes.clone(),
             pmode_fast,
             pmode_vsync,
-            sample_count: 1,
+            sample_count,
             max_tex: max_dim,
-            msaa_view: None,
+            msaa_view,
             depth,
             mesh_sphere,
             mesh_debug_sphere,
@@ -632,7 +648,19 @@ impl Gpu {
         self.config.width = size.width.min(self.max_tex);
         self.config.height = size.height.min(self.max_tex);
         self.surface.configure(&self.device, &self.config);
-        self.depth = create_depth(&self.device, self.config.width, self.config.height);
+        self.depth = create_depth(
+            &self.device,
+            self.config.width,
+            self.config.height,
+            self.sample_count,
+        );
+        self.msaa_view = create_msaa(
+            &self.device,
+            self.config.format,
+            self.config.width,
+            self.config.height,
+            self.sample_count,
+        );
     }
 
     fn set_vsync(&mut self, on: bool) {
@@ -648,7 +676,7 @@ impl Gpu {
 // Helpers
 // ------------------------------------------------------------
 
-fn create_depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView {
+fn create_depth(device: &wgpu::Device, w: u32, h: u32, sample_count: u32) -> wgpu::TextureView {
     let tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("depth"),
         size: wgpu::Extent3d {
@@ -657,13 +685,40 @@ fn create_depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView {
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: 1,
+        sample_count,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth32Float,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
     tex.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn create_msaa(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    w: u32,
+    h: u32,
+    sample_count: u32,
+) -> Option<wgpu::TextureView> {
+    if sample_count <= 1 {
+        return None;
+    }
+    let tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("msaa_color"),
+        size: wgpu::Extent3d {
+            width: w.max(1),
+            height: h.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    Some(tex.create_view(&wgpu::TextureViewDescriptor::default()))
 }
 
 fn unit_octahedron(device: &wgpu::Device) -> Mesh {
@@ -1224,6 +1279,13 @@ impl ApplicationHandler for App {
                         ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
                         ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
                         ui.checkbox(&mut self.viewer.vsync, "VSync");
+                        ui.collapsing("Help / Controls", |ui| {
+                            ui.label("WASD/QE: move");
+                            ui.label("Left drag: look");
+                            ui.label("Right drag: spin graph");
+                            ui.label("Wheel: FoV zoom");
+                            ui.label("Toggles: debug sphere/arc, invert axes, vsync");
+                        });
                     });
                 });
 
@@ -1324,11 +1386,12 @@ impl ApplicationHandler for App {
             let sa = self.viewer.graph_rot * self.viewer.graph.nodes[*a].pos;
             let sb = self.viewer.graph_rot * self.viewer.graph.nodes[*b].pos;
             let color = self.viewer.graph.nodes[*a].color;
+            let head = 7.0; // node radius to keep arrowheads off the sphere
             edge_instances.push(EdgeInstance {
                 start: sa.to_array(),
                 end: sb.to_array(),
                 color,
-                _pad: 0.0,
+                head,
             });
         }
         if self.viewer.debug_show_arc {
@@ -1337,7 +1400,7 @@ impl ApplicationHandler for App {
                     start: a.to_array(),
                     end: b.to_array(),
                     color: [1.0, 0.2, 0.8],
-                    _pad: 0.0,
+                    head: 0.0,
                 });
             }
         }
@@ -1364,6 +1427,11 @@ impl ApplicationHandler for App {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let (color_view, resolve_view) = if let Some(msaa) = &gpu.msaa_view {
+            (msaa, Some(&view))
+        } else {
+            (&view, None)
+        };
 
         let mut encoder =
             gpu.device
@@ -1375,8 +1443,8 @@ impl ApplicationHandler for App {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
+                    view: color_view,
+                    resolve_target: resolve_view,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.05,

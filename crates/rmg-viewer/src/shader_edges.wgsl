@@ -14,6 +14,7 @@ struct EdgeIn {
   @location(0) start: vec3<f32>,
   @location(1) end: vec3<f32>,
   @location(2) color: vec3<f32>,
+  @location(3) head: f32,
 };
 
 struct VsOut {
@@ -25,9 +26,10 @@ struct VsOut {
 fn vs_main(@builtin(vertex_index) vid: u32, e: EdgeIn) -> VsOut {
   var p: vec3<f32>;
   if (vid == 0u) {
-    p = e.start;
+    let dir = normalize(e.end - e.start);
+    p = e.start + dir * e.head;
   } else {
-    p = e.end;
+    p = e.end - dir * e.head;
   }
   var o: VsOut;
   o.pos = globals.view_proj * vec4<f32>(p, 1.0);

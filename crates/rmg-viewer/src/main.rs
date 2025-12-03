@@ -37,9 +37,13 @@ struct ViewerState {
     // Arcball spin state for right-drag spinning the graph itself
     arc_active: bool,
     arc_last: Option<glam::Vec3>,
+    arc_last_hit: Option<Vec3>,
+    arc_curr_hit: Option<Vec3>,
     graph_rot: glam::Quat,
     graph_ang_vel: glam::Vec3,
     graph_damping: f32,
+    debug_show_sphere: bool,
+    debug_show_arc: bool,
 }
 
 impl Default for ViewerState {
@@ -52,9 +56,13 @@ impl Default for ViewerState {
             keys: HashSet::new(),
             arc_active: false,
             arc_last: None,
+            arc_last_hit: None,
+            arc_curr_hit: None,
             graph_rot: Quat::IDENTITY,
             graph_ang_vel: Vec3::ZERO,
             graph_damping: 2.5,
+            debug_show_sphere: false,
+            debug_show_arc: false,
         }
     }
 }
@@ -880,10 +888,10 @@ impl ApplicationHandler for App {
         };
         let mut mv = Vec3::ZERO;
         if self.viewer.keys.contains(&KeyCode::KeyW) {
-            mv.z -= speed * dt;
+            mv.z += speed * dt;
         }
         if self.viewer.keys.contains(&KeyCode::KeyS) {
-            mv.z += speed * dt;
+            mv.z -= speed * dt;
         }
         if self.viewer.keys.contains(&KeyCode::KeyA) {
             mv.x -= speed * dt;
@@ -928,20 +936,41 @@ impl ApplicationHandler for App {
                 let c = oc.length_squared() - radius * radius;
                 let disc = b * b - c;
                 if disc >= 0.0 {
-                    let v = arcball_vec(ndc);
-                    self.viewer.arc_active = true;
-                    self.viewer.arc_last = Some(v);
+                    let t = -b - disc.sqrt();
+                    if t > 0.0 {
+                        let hit = oc + dir * t;
+                        let v = arcball_vec(ndc);
+                        self.viewer.arc_active = true;
+                        self.viewer.arc_last = Some(v);
+                        self.viewer.arc_last_hit = Some(hit);
+                        self.viewer.arc_curr_hit = Some(hit);
+                    }
                 }
             }
         } else if !pointer.secondary_down() {
             self.viewer.arc_active = false;
             self.viewer.arc_last = None;
+            self.viewer.arc_last_hit = None;
+            self.viewer.arc_curr_hit = None;
         }
 
         if self.viewer.arc_active {
             if let (Some(last), Some(pos)) = (self.viewer.arc_last, pointer.interact_pos()) {
                 let ndc = to_ndc(pos);
                 let curr = arcball_vec(ndc);
+                // update current hit point along the pick ray for debug
+                let dir = self.viewer.camera.pick_ray(ndc, aspect);
+                let oc = self.viewer.camera.pos;
+                let b = oc.dot(dir);
+                let c = oc.length_squared() - radius * radius;
+                let disc = b * b - c;
+                if disc >= 0.0 {
+                    let t = -b - disc.sqrt();
+                    if t > 0.0 {
+                        let hit = oc + dir * t;
+                        self.viewer.arc_curr_hit = Some(hit);
+                    }
+                }
                 if curr.length_squared() > 0.0 && last.length_squared() > 0.0 {
                     let axis = last.cross(curr);
                     let dot = last.dot(curr).clamp(-1.0, 1.0);
@@ -975,17 +1004,19 @@ impl ApplicationHandler for App {
 
         let raw_input = egui_state.take_egui_input(win);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            egui::TopBottomPanel::top("top").show(ctx, |ui| {
-                ui.label("Echo RMG Viewer (3D)");
-                ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
-                ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
-                ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
-                ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
-                ui.label(format!(
-                    "Cam pos: ({:.1},{:.1},{:.1})",
-                    self.viewer.camera.pos.x, self.viewer.camera.pos.y, self.viewer.camera.pos.z
-                ));
-            });
+        egui::TopBottomPanel::top("top").show(ctx, |ui| {
+            ui.label("Echo RMG Viewer (3D)");
+            ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
+            ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
+            ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
+            ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
+            ui.label(format!(
+                "Cam pos: ({:.1},{:.1},{:.1})",
+                self.viewer.camera.pos.x, self.viewer.camera.pos.y, self.viewer.camera.pos.z
+            ));
+            ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
+            ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
+        });
             egui::SidePanel::right("legend").show(ctx, |ui| {
                 ui.heading("Legend");
                 let mut seen = HashSet::new();
@@ -1020,7 +1051,7 @@ impl ApplicationHandler for App {
 
         let graph_rot = Mat4::from_quat(self.viewer.graph_rot);
 
-        let mut instances = Vec::with_capacity(self.viewer.graph.nodes.len());
+        let mut instances = Vec::with_capacity(self.viewer.graph.nodes.len() + 1);
         for n in &self.viewer.graph.nodes {
             let world_pos = self.viewer.graph_rot * n.pos;
             let model = (Mat4::from_translation(world_pos) * graph_rot * Mat4::from_scale(Vec3::splat(7.0)))
@@ -1031,10 +1062,19 @@ impl ApplicationHandler for App {
                 _pad: 0.0,
             });
         }
+        if self.viewer.debug_show_sphere {
+            let model = (graph_rot * Mat4::from_scale(Vec3::splat(radius)))
+                .to_cols_array_2d();
+            instances.push(Instance {
+                model,
+                color: [1.0, 0.9, 0.2],
+                _pad: 0.0,
+            });
+        }
         gpu.queue
             .write_buffer(&gpu.instance_buf, 0, bytemuck::cast_slice(&instances));
 
-        let mut edge_instances = Vec::with_capacity(self.viewer.graph.edges.len());
+        let mut edge_instances = Vec::with_capacity(self.viewer.graph.edges.len() + 2);
         for (a, b) in &self.viewer.graph.edges {
             let sa = self.viewer.graph_rot * self.viewer.graph.nodes[*a].pos;
             let sb = self.viewer.graph_rot * self.viewer.graph.nodes[*b].pos;
@@ -1045,6 +1085,16 @@ impl ApplicationHandler for App {
                 color,
                 _pad: 0.0,
             });
+        }
+        if self.viewer.debug_show_arc {
+            if let (Some(a), Some(b)) = (self.viewer.arc_last_hit, self.viewer.arc_curr_hit) {
+                edge_instances.push(EdgeInstance {
+                    start: a.to_array(),
+                    end: b.to_array(),
+                    color: [1.0, 0.2, 0.8],
+                    _pad: 0.0,
+                });
+            }
         }
         gpu.queue
             .write_buffer(&gpu.edge_buf, 0, bytemuck::cast_slice(&edge_instances));

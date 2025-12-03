@@ -24,9 +24,9 @@ struct VsOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32, e: EdgeIn) -> VsOut {
+  let dir = normalize(e.end - e.start);
   var p: vec3<f32>;
   if (vid == 0u) {
-    let dir = normalize(e.end - e.start);
     p = e.start + dir * e.head;
   } else {
     p = e.end - dir * e.head;

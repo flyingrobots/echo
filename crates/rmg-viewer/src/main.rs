@@ -1122,12 +1122,14 @@ impl ApplicationHandler for App {
             });
 
             if let Some((a, b)) = debug_arc_screen {
-                let stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 50, 200));
-                ctx.layer_painter(egui::LayerId::new(
+                let stroke = egui::Stroke::new(4.0, egui::Color32::from_rgb(255, 50, 200));
+                let painter = ctx.layer_painter(egui::LayerId::new(
                     egui::Order::Foreground,
                     egui::Id::new("debug_arc_line"),
-                ))
-                .line_segment([a, b], stroke);
+                ));
+                painter.line_segment([a, b], stroke);
+                painter.circle_filled(a, 6.0, egui::Color32::from_rgb(255, 200, 50));
+                painter.circle_filled(b, 6.0, egui::Color32::from_rgb(120, 200, 255));
             }
         });
         egui_state.handle_platform_output(win, full_output.platform_output);

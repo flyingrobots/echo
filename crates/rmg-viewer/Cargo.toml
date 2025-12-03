@@ -18,6 +18,7 @@ egui = "0.33.2"
 egui-wgpu = "0.33.2"
 egui-winit = "0.33.2"
 egui_plot = "0.33.0"
+egui_extras = { version = "0.33.2", features = ["image", "svg"] }
 glam = "0.29"
 hex = "0.4"
 pollster = "0.3"

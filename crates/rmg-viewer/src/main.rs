@@ -5,6 +5,7 @@
 use anyhow::Result;
 use blake3::Hasher;
 use bytemuck::{Pod, Zeroable};
+use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
 use egui_winit::winit::{
@@ -21,6 +22,7 @@ use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeId, NodeRecord, TypeId,
 };
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
@@ -46,6 +48,8 @@ struct ViewerState {
     debug_show_arc: bool,
     debug_invert_cam_x: bool,
     debug_invert_cam_y: bool,
+    watermark: bool,
+    vsync: bool,
 }
 
 impl Default for ViewerState {
@@ -67,6 +71,8 @@ impl Default for ViewerState {
             debug_show_arc: false,
             debug_invert_cam_x: false,
             debug_invert_cam_y: false,
+            watermark: true,
+            vsync: false,
         }
     }
 }
@@ -310,7 +316,12 @@ struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    present_modes: Vec<wgpu::PresentMode>,
+    pmode_fast: wgpu::PresentMode,
+    pmode_vsync: wgpu::PresentMode,
+    sample_count: u32,
     max_tex: u32,
+    msaa_view: Option<wgpu::TextureView>,
     depth: wgpu::TextureView,
     mesh_sphere: Mesh,
     mesh_debug_sphere: Mesh,
@@ -354,19 +365,25 @@ impl Gpu {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
-        let present_mode = caps
+        let pmode_fast = caps
             .present_modes
             .iter()
             .copied()
             .find(|m| matches!(m, wgpu::PresentMode::Immediate | wgpu::PresentMode::AutoNoVsync))
             .unwrap_or(wgpu::PresentMode::Fifo);
+        let pmode_vsync = caps
+            .present_modes
+            .iter()
+            .copied()
+            .find(|m| matches!(m, wgpu::PresentMode::Fifo))
+            .unwrap_or(pmode_fast);
         let max_dim = limits.max_texture_dimension_2d;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.min(max_dim).max(1),
             height: size.height.min(max_dim).max(1),
-            present_mode,
+            present_mode: pmode_fast,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -583,7 +600,12 @@ impl Gpu {
             device,
             queue,
             config,
+            present_modes: caps.present_modes.clone(),
+            pmode_fast,
+            pmode_vsync,
+            sample_count: 1,
             max_tex: max_dim,
+            msaa_view: None,
             depth,
             mesh_sphere,
             mesh_debug_sphere,
@@ -603,6 +625,14 @@ impl Gpu {
         self.config.height = size.height.min(self.max_tex);
         self.surface.configure(&self.device, &self.config);
         self.depth = create_depth(&self.device, self.config.width, self.config.height);
+    }
+
+    fn set_vsync(&mut self, on: bool) {
+        let mode = if on { self.pmode_vsync } else { self.pmode_fast };
+        if self.config.present_mode != mode {
+            self.config.present_mode = mode;
+            self.surface.configure(&self.device, &self.config);
+        }
     }
 }
 
@@ -878,10 +908,12 @@ struct App {
 
 impl App {
     fn new() -> Self {
+        let egui_ctx = egui::Context::default();
+        install_image_loaders(&egui_ctx);
         Self {
             window: None,
             gpu: None,
-            egui_ctx: egui::Context::default(),
+            egui_ctx,
             egui_state: None,
             egui_renderer: None,
             viewer: ViewerState {
@@ -1152,6 +1184,8 @@ impl ApplicationHandler for App {
             None
         };
 
+        let prev_vsync = self.viewer.vsync;
+
         let raw_input = egui_state.take_egui_input(win);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             // HUD overlay (transparent, non-blocking feel)
@@ -1181,6 +1215,7 @@ impl ApplicationHandler for App {
                         ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
                         ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
                         ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
+                        ui.checkbox(&mut self.viewer.vsync, "VSync");
                     });
                 });
 
@@ -1209,6 +1244,23 @@ impl ApplicationHandler for App {
                     });
                 });
 
+            if self.viewer.watermark {
+                let size = egui::vec2(140.0, 40.0);
+                let bytes = egui::ImageSource::Bytes {
+                    uri: Cow::Borrowed("bytes://echo.svg"),
+                    bytes: egui::load::Bytes::from(include_bytes!(
+                        "../../../docs/assets/ECHO.svg"
+                    )),
+                };
+                let image = egui::Image::new(bytes).fit_to_exact_size(size);
+                egui::Area::new("hud_watermark".into())
+                    .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -12.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        ui.add(image);
+                    });
+            }
+
             if let Some((a, b)) = debug_arc_screen {
                 let stroke = egui::Stroke::new(4.0, egui::Color32::from_rgb(255, 50, 200));
                 let painter = ctx.layer_painter(egui::LayerId::new(
@@ -1221,6 +1273,10 @@ impl ApplicationHandler for App {
             }
         });
         egui_state.handle_platform_output(win, full_output.platform_output);
+
+        if self.viewer.vsync != prev_vsync {
+            gpu.set_vsync(self.viewer.vsync);
+        }
 
         let globals = Globals {
             view_proj: view_proj.to_cols_array_2d(),

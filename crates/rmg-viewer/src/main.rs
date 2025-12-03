@@ -327,7 +327,6 @@ struct Gpu {
     pmode_fast: wgpu::PresentMode,
     pmode_vsync: wgpu::PresentMode,
     sample_count: u32,
-    msaa_enabled: bool,
     max_tex: u32,
     msaa_view: Option<wgpu::TextureView>,
     depth: wgpu::TextureView,
@@ -629,7 +628,6 @@ impl Gpu {
             pmode_fast,
             pmode_vsync,
             sample_count,
-            msaa_enabled: sample_count > 1,
             max_tex: max_dim,
             msaa_view,
             depth,
@@ -654,14 +652,14 @@ impl Gpu {
             &self.device,
             self.config.width,
             self.config.height,
-            if self.msaa_enabled { self.sample_count } else { 1 },
+            self.sample_count,
         );
         self.msaa_view = create_msaa(
             &self.device,
             self.config.format,
             self.config.width,
             self.config.height,
-            if self.msaa_enabled { self.sample_count } else { 1 },
+            self.sample_count,
         );
     }
 
@@ -1281,7 +1279,6 @@ impl ApplicationHandler for App {
                 ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
                 ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
                 ui.checkbox(&mut self.viewer.vsync, "VSync");
-                ui.checkbox(&mut gpu.msaa_enabled, "MSAA x4");
                 ui.collapsing("Help / Controls", |ui| {
                     ui.label("WASD/QE: move");
                     ui.label("Left drag: look");
@@ -1349,26 +1346,6 @@ impl ApplicationHandler for App {
 
         if self.viewer.vsync != prev_vsync {
             gpu.set_vsync(self.viewer.vsync);
-        }
-        // Recreate MSAA targets if toggled
-        {
-            let desired_msaa = if gpu.msaa_enabled { gpu.sample_count } else { 1 };
-            let current_msaa = gpu.msaa_view.is_some().then_some(gpu.sample_count).unwrap_or(1);
-            if desired_msaa != current_msaa {
-                gpu.msaa_view = create_msaa(
-                    &gpu.device,
-                    gpu.config.format,
-                    gpu.config.width,
-                    gpu.config.height,
-                    desired_msaa,
-                );
-                gpu.depth = create_depth(
-                    &gpu.device,
-                    gpu.config.width,
-                    gpu.config.height,
-                    desired_msaa,
-                );
-            }
         }
 
         let globals = Globals {

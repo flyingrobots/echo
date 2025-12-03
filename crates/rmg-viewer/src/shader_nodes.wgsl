@@ -17,13 +17,13 @@ struct VsIn {
   @location(3) m1: vec4<f32>,
   @location(4) m2: vec4<f32>,
   @location(5) m3: vec4<f32>,
-  @location(6) color: vec3<f32>,
+  @location(6) color: vec4<f32>,
 };
 
 struct VsOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) normal: vec3<f32>,
-  @location(1) color: vec3<f32>,
+  @location(1) color: vec4<f32>,
 };
 
 @vertex
@@ -43,6 +43,6 @@ fn fs_main(v: VsOut) -> @location(0) vec4<f32> {
   let n = normalize(v.normal);
   let l = normalize(-globals.light_dir);
   let diff = max(dot(n, l), 0.1);
-  let color = v.color * diff + 0.05;
-  return vec4<f32>(color, 1.0);
+  let color = v.color.rgb * diff + 0.05;
+  return vec4<f32>(color, v.color.a);
 }

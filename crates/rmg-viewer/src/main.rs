@@ -44,6 +44,8 @@ struct ViewerState {
     graph_damping: f32,
     debug_show_sphere: bool,
     debug_show_arc: bool,
+    debug_invert_cam_x: bool,
+    debug_invert_cam_y: bool,
 }
 
 impl Default for ViewerState {
@@ -63,6 +65,8 @@ impl Default for ViewerState {
             graph_damping: 2.5,
             debug_show_sphere: false,
             debug_show_arc: false,
+            debug_invert_cam_x: false,
+            debug_invert_cam_y: false,
         }
     }
 }
@@ -189,11 +193,11 @@ impl Camera {
         proj * view
     }
 
-    fn rotate_by_mouse(&mut self, delta: glam::Vec2) {
-        // Standard FPS-style mouse look
+    fn rotate_by_mouse(&mut self, delta: glam::Vec2, invert_x: bool, invert_y: bool) {
+        // Standard FPS-style mouse look with optional axis inversion
         let sensitivity = 0.0025;
-        let yaw_delta = delta.x * sensitivity;
-        let pitch_delta = (-delta.y) * sensitivity;
+        let yaw_delta = delta.x * sensitivity * if invert_x { -1.0 } else { 1.0 };
+        let pitch_delta = (-delta.y) * sensitivity * if invert_y { -1.0 } else { 1.0 };
 
         // yaw about global Y
         let yaw_q = Quat::from_axis_angle(Vec3::Y, yaw_delta);
@@ -269,8 +273,7 @@ struct Vertex {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Instance {
     model: [[f32; 4]; 4],
-    color: [f32; 3],
-    _pad: f32,
+    color: [f32; 4],
 }
 
 #[repr(C)]
@@ -298,6 +301,7 @@ struct Mesh {
 
 struct Pipelines {
     node: wgpu::RenderPipeline,
+    node_wire: wgpu::RenderPipeline,
     edge: wgpu::RenderPipeline,
 }
 
@@ -334,7 +338,7 @@ impl Gpu {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("rmg-viewer-device"),
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::POLYGON_MODE_LINE,
                 required_limits: wgpu::Limits::downlevel_defaults().using_resolution(limits.clone()),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::default(),
@@ -438,7 +442,7 @@ impl Gpu {
                             wgpu::VertexAttribute { shader_location: 3, offset: 16, format: wgpu::VertexFormat::Float32x4 },
                             wgpu::VertexAttribute { shader_location: 4, offset: 32, format: wgpu::VertexFormat::Float32x4 },
                             wgpu::VertexAttribute { shader_location: 5, offset: 48, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 6, offset: 64, format: wgpu::VertexFormat::Float32x3 },
+                            wgpu::VertexAttribute { shader_location: 6, offset: 64, format: wgpu::VertexFormat::Float32x4 },
                         ],
                     },
                 ],
@@ -462,6 +466,60 @@ impl Gpu {
                 format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let node_wire = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("node_wire_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_nodes,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Instance>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &[
+                            wgpu::VertexAttribute { shader_location: 2, offset: 0, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 3, offset: 16, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 4, offset: 32, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 5, offset: 48, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute { shader_location: 6, offset: 64, format: wgpu::VertexFormat::Float32x4 },
+                        ],
+                    },
+                ],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_nodes,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                polygon_mode: wgpu::PolygonMode::Line,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: Default::default(),
                 bias: Default::default(),
             }),
@@ -527,7 +585,7 @@ impl Gpu {
             instance_buf,
             edge_buf,
             bind_group,
-            pipelines: Pipelines { node, edge },
+            pipelines: Pipelines { node, node_wire, edge },
         })
     }
 
@@ -1049,7 +1107,9 @@ impl ApplicationHandler for App {
         if pointer.primary_down() && !self.egui_ctx.is_using_pointer() {
             let delta = self.egui_ctx.input(|i| i.pointer.delta());
             let d = glam::Vec2::new(delta.x, delta.y);
-            self.viewer.camera.rotate_by_mouse(d);
+            self.viewer
+                .camera
+                .rotate_by_mouse(d, self.viewer.debug_invert_cam_x, self.viewer.debug_invert_cam_y);
         }
 
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
@@ -1100,6 +1160,8 @@ impl ApplicationHandler for App {
             ));
             ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
             ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
+            ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
+            ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
         });
             egui::SidePanel::right("legend").show(ctx, |ui| {
                 ui.heading("Legend");
@@ -1151,8 +1213,7 @@ impl ApplicationHandler for App {
                 .to_cols_array_2d();
             instances.push(Instance {
                 model,
-                color: n.color,
-                _pad: 0.0,
+                color: [n.color[0], n.color[1], n.color[2], 1.0],
             });
         }
         let node_instance_count = instances.len() as u32;
@@ -1162,8 +1223,7 @@ impl ApplicationHandler for App {
                 .to_cols_array_2d();
             instances.push(Instance {
                 model,
-                color: [1.0, 0.9, 0.2],
-                _pad: 0.0,
+                color: [1.0, 0.9, 0.2, 0.3],
             });
         }
         gpu.queue
@@ -1276,6 +1336,12 @@ impl ApplicationHandler for App {
             // debug sphere using higher-poly mesh
             if self.viewer.debug_show_sphere {
                 let offset_bytes = sphere_instance_offset as u64 * std::mem::size_of::<Instance>() as u64;
+                rpass.set_vertex_buffer(0, gpu.mesh_debug_sphere.vbuf.slice(..));
+                rpass.set_vertex_buffer(1, gpu.instance_buf.slice(offset_bytes..));
+                rpass.set_index_buffer(gpu.mesh_debug_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+                rpass.draw_indexed(0..gpu.mesh_debug_sphere.count, 0, 0..1);
+                // wireframe overlay
+                rpass.set_pipeline(&gpu.pipelines.node_wire);
                 rpass.set_vertex_buffer(0, gpu.mesh_debug_sphere.vbuf.slice(..));
                 rpass.set_vertex_buffer(1, gpu.instance_buf.slice(offset_bytes..));
                 rpass.set_index_buffer(gpu.mesh_debug_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);

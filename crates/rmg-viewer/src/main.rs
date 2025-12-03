@@ -150,7 +150,7 @@ impl RenderGraph {
 #[derive(Clone, Copy, Debug)]
 struct Camera {
     pos: Vec3,
-    yaw: f32,
+    orientation: Quat,
     pitch: f32,
     fov_y: f32,
 }
@@ -159,7 +159,7 @@ impl Default for Camera {
     fn default() -> Self {
         Self {
             pos: Vec3::new(0.0, 0.0, 520.0),
-            yaw: 0.0,
+            orientation: Quat::IDENTITY,
             pitch: 0.0,
             fov_y: 60f32.to_radians(),
         }
@@ -168,10 +168,9 @@ impl Default for Camera {
 
 impl Camera {
     fn basis(&self) -> (Vec3, Vec3, Vec3) {
-        let rot = Quat::from_rotation_y(self.yaw) * Quat::from_rotation_x(self.pitch);
-        let forward = rot * -Vec3::Z;
-        let right = rot * Vec3::X;
-        let up = rot * Vec3::Y;
+        let forward = self.orientation * -Vec3::Z;
+        let right = self.orientation * Vec3::X;
+        let up = self.orientation * Vec3::Y;
         (forward, right, up)
     }
 
@@ -185,8 +184,24 @@ impl Camera {
     fn rotate_by_mouse(&mut self, delta: glam::Vec2) {
         // Standard FPS-style mouse look
         let sensitivity = 0.0025;
-        self.yaw += delta.x * sensitivity;
-        self.pitch = (self.pitch - delta.y * sensitivity).clamp(-1.4, 1.4);
+        let yaw_delta = delta.x * sensitivity;
+        let pitch_delta = (-delta.y) * sensitivity;
+
+        // yaw about global Y
+        let yaw_q = Quat::from_axis_angle(Vec3::Y, yaw_delta);
+        self.orientation = yaw_q * self.orientation;
+
+        // pitch about camera right, with clamp
+        let new_pitch = (self.pitch + pitch_delta).clamp(-1.4, 1.4);
+        let applied = new_pitch - self.pitch;
+        if applied.abs() > 1e-6 {
+            let right = self.orientation * Vec3::X;
+            let pitch_q = Quat::from_axis_angle(right, applied);
+            self.orientation = pitch_q * self.orientation;
+            self.pitch = new_pitch;
+        }
+
+        self.orientation = self.orientation.normalize();
     }
 
     fn pick_ray(&self, ndc: glam::Vec2, aspect: f32) -> Vec3 {

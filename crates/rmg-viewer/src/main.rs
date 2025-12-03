@@ -33,8 +33,13 @@ struct ViewerState {
     camera: Camera,
     perf: PerfStats,
     last_frame: Instant,
-    drag_accum: glam::Vec2,
     keys: HashSet<KeyCode>,
+    // Arcball spin state for right-drag spinning the graph itself
+    arc_active: bool,
+    arc_last: Option<glam::Vec3>,
+    graph_rot: glam::Quat,
+    graph_ang_vel: glam::Vec3,
+    graph_damping: f32,
 }
 
 impl Default for ViewerState {
@@ -44,8 +49,12 @@ impl Default for ViewerState {
             camera: Camera::default(),
             perf: PerfStats::default(),
             last_frame: Instant::now(),
-            drag_accum: glam::Vec2::ZERO,
             keys: HashSet::new(),
+            arc_active: false,
+            arc_last: None,
+            graph_rot: Quat::IDENTITY,
+            graph_ang_vel: Vec3::ZERO,
+            graph_damping: 2.5,
         }
     }
 }
@@ -127,6 +136,15 @@ impl RenderGraph {
             node.pos += node.vel * dt;
         }
     }
+
+    fn bounding_radius(&self) -> f32 {
+        self
+            .nodes
+            .iter()
+            .map(|n| n.pos.length())
+            .fold(0.0, f32::max)
+            .max(1.0)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,6 +187,14 @@ impl Camera {
         let sensitivity = 0.0025;
         self.yaw -= delta.x * sensitivity;
         self.pitch = (self.pitch + delta.y * sensitivity).clamp(-1.4, 1.4);
+    }
+
+    fn pick_ray(&self, ndc: glam::Vec2, aspect: f32) -> Vec3 {
+        // ndc in [-1,1] with y up
+        let (f, r, u) = self.basis();
+        let t = (self.fov_y * 0.5).tan();
+        let dir = (f + r * (ndc.x * t * aspect) + u * (ndc.y * t)).normalize();
+        dir
     }
 
     fn move_relative(&mut self, dir: Vec3) {
@@ -828,6 +854,7 @@ impl ApplicationHandler for App {
 
         let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);
         self.viewer.last_frame = Instant::now();
+        let aspect = gpu.config.width as f32 / gpu.config.height as f32;
 
         let speed = if self.viewer.keys.contains(&KeyCode::ShiftLeft)
             || self.viewer.keys.contains(&KeyCode::ShiftRight)
@@ -858,8 +885,74 @@ impl ApplicationHandler for App {
         self.viewer.camera.move_relative(mv);
 
         self.viewer.graph.step_layout(dt);
+
+        // Arcball spin: right-drag spins the graph; left-drag is FPS look.
+        let pointer = self.egui_ctx.input(|i| i.pointer.clone());
+        let win_size = glam::Vec2::new(gpu.config.width as f32, gpu.config.height as f32);
+        let pixels_per_point = win.scale_factor() as f32;
+        let to_ndc = |pos: egui::Pos2| {
+            let px = glam::Vec2::new(pos.x * pixels_per_point, pos.y * pixels_per_point);
+            let ndc = (px / win_size) * 2.0 - glam::Vec2::splat(1.0);
+            glam::Vec2::new(ndc.x, -ndc.y)
+        };
+
+        let radius = self.viewer.graph.bounding_radius();
+        let arcball_vec = |ndc: glam::Vec2| {
+            let mut v = glam::Vec3::new(ndc.x, ndc.y, 0.0);
+            let d = (ndc.x * ndc.x + ndc.y * ndc.y).min(1.0);
+            v.z = (1.0 - d).max(0.0).sqrt();
+            v.normalize_or_zero()
+        };
+
+        if pointer.secondary_down() && !self.egui_ctx.is_using_pointer() {
+            if let Some(pos) = pointer.interact_pos() {
+                let ndc = to_ndc(pos);
+                let dir = self.viewer.camera.pick_ray(ndc, aspect);
+                let oc = self.viewer.camera.pos;
+                let b = oc.dot(dir);
+                let c = oc.length_squared() - radius * radius;
+                let disc = b * b - c;
+                if disc >= 0.0 {
+                    let v = arcball_vec(ndc);
+                    self.viewer.arc_active = true;
+                    self.viewer.arc_last = Some(v);
+                }
+            }
+        } else if !pointer.secondary_down() {
+            self.viewer.arc_active = false;
+            self.viewer.arc_last = None;
+        }
+
+        if self.viewer.arc_active {
+            if let (Some(last), Some(pos)) = (self.viewer.arc_last, pointer.interact_pos()) {
+                let ndc = to_ndc(pos);
+                let curr = arcball_vec(ndc);
+                if curr.length_squared() > 0.0 && last.length_squared() > 0.0 {
+                    let axis = last.cross(curr);
+                    let dot = last.dot(curr).clamp(-1.0, 1.0);
+                    let angle = dot.acos();
+                    if axis.length_squared() > 0.0 && angle.is_finite() {
+                        let dq = Quat::from_axis_angle(axis.normalize(), angle);
+                        self.viewer.graph_rot = dq * self.viewer.graph_rot;
+                        self.viewer.graph_ang_vel = axis.normalize() * (angle / dt.max(1e-4));
+                    }
+                }
+                self.viewer.arc_last = Some(curr);
+            }
+        } else {
+            let w = self.viewer.graph_ang_vel;
+            let w_len = w.length();
+            if w_len > 1e-4 {
+                let angle = w_len * dt;
+                let dq = Quat::from_axis_angle(w / w_len, angle);
+                self.viewer.graph_rot = dq * self.viewer.graph_rot;
+                let decay = (-self.viewer.graph_damping * dt).exp();
+                self.viewer.graph_ang_vel *= decay;
+            }
+        }
+
         // Mouse look: adjust yaw/pitch directly when not over egui
-        if self.egui_ctx.input(|i| i.pointer.primary_down()) && !self.egui_ctx.is_using_pointer() {
+        if pointer.primary_down() && !self.egui_ctx.is_using_pointer() {
             let delta = self.egui_ctx.input(|i| i.pointer.delta());
             let d = glam::Vec2::new(delta.x, delta.y);
             self.viewer.camera.rotate_by_mouse(d);
@@ -910,9 +1003,12 @@ impl ApplicationHandler for App {
         gpu.queue
             .write_buffer(&gpu.globals_buf, 0, bytemuck::bytes_of(&globals));
 
+        let graph_rot = Mat4::from_quat(self.viewer.graph_rot);
+
         let mut instances = Vec::with_capacity(self.viewer.graph.nodes.len());
         for n in &self.viewer.graph.nodes {
-            let model = (Mat4::from_translation(n.pos) * Mat4::from_scale(Vec3::splat(7.0)))
+            let world_pos = self.viewer.graph_rot * n.pos;
+            let model = (Mat4::from_translation(world_pos) * graph_rot * Mat4::from_scale(Vec3::splat(7.0)))
                 .to_cols_array_2d();
             instances.push(Instance {
                 model,
@@ -925,8 +1021,8 @@ impl ApplicationHandler for App {
 
         let mut edge_instances = Vec::with_capacity(self.viewer.graph.edges.len());
         for (a, b) in &self.viewer.graph.edges {
-            let sa = self.viewer.graph.nodes[*a].pos;
-            let sb = self.viewer.graph.nodes[*b].pos;
+            let sa = self.viewer.graph_rot * self.viewer.graph.nodes[*a].pos;
+            let sb = self.viewer.graph_rot * self.viewer.graph.nodes[*b].pos;
             let color = self.viewer.graph.nodes[*a].color;
             edge_instances.push(EdgeInstance {
                 start: sa.to_array(),

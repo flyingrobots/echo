@@ -1,0 +1,136 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\section{Echo RMG Viewer: State Machine \& UI}
+
+The RMG Viewer is a thin, rendering-first client. It connects to the Echo Session Host, subscribes to one or more RMG streams, and presents a minimal HUD over a 3D scene. This section fixes the viewer19s states, transitions, and on-screen layout so the implementation and the design stay in lockstep.
+
+\subsection{Overview}
+\begin{itemize}
+  \item Full-screen startup flow (Title \textrightarrow{} Connecting \textrightarrow{} Viewer).
+  \item Optional Settings overlay reused between Title and Viewer.
+  \item Viewer HUD: Menu button, toasts stack, perf/controls/stats blocks, persistent watermark/version.
+  \item Multiple RMGs shown on a ring around the camera; arrow keys rotate the ring to bring one RMG to the front.
+  \item Menu overlay offers: Settings, Publish Local RMG, Subscribe to RMG, Back.
+\end{itemize}
+
+\subsection{Top-Level States}
+\begin{description}
+  \item[Start] Ephemeral entry; immediately transitions to Title.
+  \item[Title] Wordmark + version + primary menu (Connect / Settings / Exit).
+  \item[Connecting] Full-screen status with boot-like log lines while the session client handshakes.
+  \item[Viewer] 3D scene + HUD. Overlays (Menu, Settings, RMG Directory) sit atop this state.
+  \item[Error] Optional full-screen error (e.g., desync) with a path back to Title.
+\end{description}
+
+\subsection{Transitions}
+\begin{itemize}
+  \item Start \textrightarrow{} Title on launch.
+  \item Title \textrightarrow{} Connecting when Connect is pressed.
+  \item Title \textrightarrow{} Title after Settings (Save/Back) or if connection fails/cancelled.
+  \item Title \textrightarrow{} Exit when Exit is pressed.
+  \item Connecting \textrightarrow{} Viewer on successful hello + directory fetch.
+  \item Connecting \textrightarrow{} Title on failure or cancel.
+  \item Viewer \textrightarrow{} Title on explicit disconnect.
+  \item Any \textrightarrow{} Error on fatal protocol/stream violation; Error \textrightarrow{} Title via Back.
+\end{itemize}
+
+\subsection{State Machine Diagram}
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[
+    >=Stealth,
+    node distance=2.2cm and 3.5cm,
+    state/.style={rectangle,rounded corners,draw,very thick,align=center,inner sep=6pt,minimum width=2.7cm,fill=gray!5},
+    edge/.style={->,thick,shorten >=2pt,shorten <=2pt},
+    labelsmall/.style={sloped,midway,fill=white,inner sep=1pt,font=\scriptsize}
+  ]
+    \node[state] (start) {Start};
+    \node[state, right=of start] (title) {Title\\\scriptsize Connect / Settings / Exit};
+    \node[state, right=of title] (connecting) {Connecting};
+    \node[state, right=of connecting] (viewer) {Viewer\\\scriptsize 3D Scene + HUD};
+    \node[state, below=of connecting] (error) {Error};
+    \node[state, below=of title] (exit) {Exit};
+
+    \draw[edge] (start) -- (title) node[labelsmall, above] {launch};
+    \draw[edge] (title) -- (connecting) node[labelsmall, above] {Connect};
+    \draw[edge] (connecting) -- (viewer) node[labelsmall, above] {success};
+    \draw[edge] (connecting) -- (title) node[labelsmall, right] {fail/cancel};
+    \draw[edge] (title) -- (exit) node[labelsmall, left] {quit};
+    \draw[edge,bend right=30] (viewer) to node[labelsmall, above] {disconnect} (title);
+    \draw[edge,dashed] (connecting) -- (error) node[labelsmall, right] {fatal};
+    \draw[edge,dashed] (viewer) -- (error) node[labelsmall, right] {desync};
+    \draw[edge,dashed] (error) -- (title) node[labelsmall, left] {back};
+  \end{tikzpicture}
+  \caption{Top-level RMG Viewer state machine.}
+\end{figure}
+
+\subsection{Screen Layouts (Wireframes)}
+All layouts are schematic; exact styling is left to implementation.
+
+\paragraph{Title}
+Full-screen with wordmark/version and vertical menu (Connect, Settings, Exit). Selecting Connect shows host/port fields + Connect button in-place; Settings shows app settings with Save/Back; Exit quits.
+
+\paragraph{Connecting}
+Cleared screen with wordmark/version bottom-right and a vertically stacked log, e.g.:
+\begin{itemize}
+  \item Connecting\ldots
+  \item Connected. Sending hello\ldots
+  \item Session started.
+  \item Requesting RMG directory\ldots
+  \item RMG indexes received.
+\end{itemize}
+Transitions to Viewer on success.
+
+\paragraph{Viewer}
+Full-screen 3D scene with HUD anchors:
+\begin{itemize}
+  \item \textbf{Menu} button (top-left) opens overlay: Settings / Publish Local RMG / Subscribe to RMG / Back.
+  \item \textbf{Toasts} stack (top-right).
+  \item \textbf{Perf} block (bottom-left) showing FPS/timings (toggled in Settings).
+  \item \textbf{Controls} block (bottom-left) showing WASD/QE, mouse look, right-drag spin, wheel zoom, arrow-keys cycle RMGs.
+  \item \textbf{Stats} block (bottom-center/right) showing RMG id/epoch, subscription status.
+  \item \textbf{Watermark/version} always bottom-right.
+\end{itemize}
+Overlay logic: Menu, Settings, and RMG Directory sit atop Viewer; closing them restores the HUD.
+
+\subsection{RMG Ring Layout}
+RMGs (local + subscribed) are placed on a horizontal ring of radius $R$ around the camera. For $n$ RMGs, positions are
+\[
+  x_i = R\cos \theta_i, \quad z_i = R\sin \theta_i, \quad \theta_i = \frac{2\pi i}{n} + \theta_\text{offset}.
+\]
+Arrow keys adjust $\theta_\text{offset}$ to rotate the ring so a chosen RMG sits in front of the camera. Adding subscriptions increases $n$ and redistributes positions evenly.
+
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[
+    >=Stealth,
+    camera/.style={regular polygon,regular polygon sides=3,draw,fill=gray!20,minimum size=0.8cm},
+    rmg/.style={circle,draw,fill=blue!10,minimum size=0.55cm,font=\scriptsize}
+  ]
+    \def\R{2.4}
+    \node[camera, shape border rotate=90, label={[font=\scriptsize]above:camera}] (cam) at (0,2.8) {};
+    \draw[thick,dashed] (0,0) circle (\R);
+    \foreach \i/\name in {0/{RMG A},1/{RMG B},2/{RMG C}} {
+      \coordinate (p\i) at ({\R*cos(90-120*\i)},{\R*sin(90-120*\i)});
+    }
+    \node[rmg,label={[font=\scriptsize]below:{RMG A}}] at (p0) {};
+    \node[rmg,label={[font=\scriptsize]below:{RMG B}}] at (p1) {};
+    \node[rmg,label={[font=\scriptsize]below:{RMG C}}] at (p2) {};
+    \draw[->, thick] (cam.south) -- (0,1.7) node[midway,right,font=\scriptsize]{view};
+    \draw[very thick, red] (p0) circle [radius=0.32];
+  \end{tikzpicture}
+  \caption{Overhead ring layout; arrow keys rotate which RMG is active.}
+\end{figure}
+
+\subsection{Publish / Subscribe semantics}
+\begin{itemize}
+  \item \textbf{Publish Local RMG}: register as the sole producer for a chosen RmgId and stream Snapshot \textrightarrow{} gapless Diff to the host.
+  \item \textbf{Subscribe to RMG}: open the RMG Directory overlay (listing host-known RmgIds); selecting one sends SubscribeRmg and adds that RMG to the ring; arrow keys cycle which RMG is in front.
+\end{itemize}
+
+\subsection{Notes}
+\begin{itemize}
+  \item Error handling: on desync/hash mismatch, drop to Error or Title with a clear reconnect path; keep the watermark visible.
+  \item All overlays reuse the same settings form (host/port, rmg id, HUD toggles) to avoid divergent UIs.
+\end{itemize}
+

@@ -16,6 +16,8 @@ license = "Apache-2.0"
 anyhow = "1.0"
 echo-graph = { path = "../echo-graph" }
 echo-session-proto = { path = "../echo-session-proto" }
+echo-app-core = { path = "../echo-app-core" }
+echo-config-fs = { path = "../echo-config-fs" }
 tokio = { version = "1.41", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }

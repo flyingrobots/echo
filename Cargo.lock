@@ -728,6 +728,8 @@ name = "echo-session-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "echo-app-core",
+ "echo-config-fs",
  "echo-graph",
  "echo-session-proto",
  "tokio",

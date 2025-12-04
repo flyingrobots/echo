@@ -3,6 +3,8 @@
 //! Minimal Unix-socket CBOR hub skeleton.
 
 use anyhow::Result;
+use echo_app_core::config::ConfigService;
+use echo_config_fs::FsConfigStore;
 use echo_graph::{RmgFrame, RmgSnapshot};
 use echo_session_proto::{wire::Packet, Message, Notification, NotifyKind, NotifyScope, RmgId};
 use std::collections::{HashMap, HashSet};
@@ -38,6 +40,10 @@ struct HubState {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+
+    // Config (best-effort); shared with other tools via ConfigPort.
+    let _config: Option<ConfigService<FsConfigStore>> =
+        FsConfigStore::new().map(ConfigService::new).ok();
 
     let hub = Arc::new(Mutex::new(HubState::default()));
 

@@ -732,6 +732,7 @@ dependencies = [
  "echo-config-fs",
  "echo-graph",
  "echo-session-proto",
+ "serde",
  "tokio",
  "tracing",
  "tracing-subscriber",

@@ -7,6 +7,7 @@ use echo_app_core::config::ConfigService;
 use echo_config_fs::FsConfigStore;
 use echo_graph::{RmgFrame, RmgSnapshot};
 use echo_session_proto::{wire::Packet, Message, Notification, NotifyKind, NotifyScope, RmgId};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -14,7 +15,20 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-const SOCKET_PATH: &str = "/tmp/echo-session.sock";
+const DEFAULT_SOCKET_PATH: &str = "/tmp/echo-session.sock";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HostPrefs {
+    socket_path: String,
+}
+
+impl Default for HostPrefs {
+    fn default() -> Self {
+        Self {
+            socket_path: DEFAULT_SOCKET_PATH.into(),
+        }
+    }
+}
 
 #[derive(Default)]
 struct StreamState {
@@ -41,16 +55,28 @@ struct HubState {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    // Config (best-effort); shared with other tools via ConfigPort.
-    let _config: Option<ConfigService<FsConfigStore>> =
+    // Config (best-effort)
+    let config: Option<ConfigService<FsConfigStore>> =
         FsConfigStore::new().map(ConfigService::new).ok();
+
+    let prefs: HostPrefs = config
+        .as_ref()
+        .and_then(|c| c.load::<HostPrefs>("session_host").ok().flatten())
+        .unwrap_or_default();
+
+    // Persist defaults once if absent
+    if let Some(cfg) = &config {
+        let _ = cfg.save("session_host", &prefs);
+    }
+
+    let socket_path = prefs.socket_path.clone();
 
     let hub = Arc::new(Mutex::new(HubState::default()));
 
     // Remove stale socket if present
-    let _ = std::fs::remove_file(SOCKET_PATH);
-    let listener = UnixListener::bind(SOCKET_PATH)?;
-    info!("session hub listening at {}", SOCKET_PATH);
+    let _ = std::fs::remove_file(&socket_path);
+    let listener = UnixListener::bind(&socket_path)?;
+    info!("session hub listening at {}", socket_path);
 
     loop {
         let (stream, _) = listener.accept().await?;

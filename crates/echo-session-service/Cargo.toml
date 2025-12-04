@@ -18,6 +18,7 @@ echo-graph = { path = "../echo-graph" }
 echo-session-proto = { path = "../echo-session-proto" }
 echo-app-core = { path = "../echo-app-core" }
 echo-config-fs = { path = "../echo-config-fs" }
+serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.41", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }

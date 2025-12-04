@@ -11,7 +11,7 @@ use echo_app_core::{
     toast::{ToastKind, ToastScope, ToastService},
 };
 use echo_config_fs::FsConfigStore;
-use echo_session_proto::{Message, Notification, NotifyKind, NotifyScope};
+use echo_session_proto::{Notification, NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
@@ -31,11 +31,10 @@ use rmg_core::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::Read;
-use std::os::unix::net::UnixStream;
-use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Instant;
+
+mod session_adapter;
 
 // ------------------------------------------------------------
 // Data
@@ -1081,7 +1080,7 @@ struct App {
     egui_renderer: Option<egui_wgpu::Renderer>,
     config: Option<ConfigService<FsConfigStore>>,
     toasts: ToastService,
-    notif_rx: Option<Receiver<Notification>>, // incoming notifications from session hub
+    notif_rx: Option<std::sync::mpsc::Receiver<Notification>>, // incoming notifications from session hub
     viewer: ViewerState,
 }
 
@@ -1113,8 +1112,8 @@ impl App {
         };
         viewer.apply_prefs(&prefs);
 
-        // Session notifications via Unix socket (best-effort, non-fatal)
-        let notif_rx = spawn_session_notifier();
+        // Session notifications via injected adapter (best-effort, non-fatal)
+        let notif_rx = Some(session_adapter::connect_default());
         Self {
             window: None,
             gpu: None,
@@ -1825,29 +1824,4 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn spawn_session_notifier() -> Option<Receiver<Notification>> {
-    let path = "/tmp/echo-session.sock";
-    let (tx, rx) = mpsc::channel();
-    // Spawn a blocking thread to read from the Unix socket.
-    let path_owned = path.to_string();
-    std::thread::spawn(move || {
-        if let Ok(mut stream) = UnixStream::connect(path_owned) {
-            // Best-effort: read frames in a loop
-            loop {
-                let mut len_buf = [0u8; 4];
-                if stream.read_exact(&mut len_buf).is_err() {
-                    break;
-                }
-                let len = u32::from_be_bytes(len_buf) as usize;
-                let mut body = vec![0u8; len];
-                if stream.read_exact(&mut body).is_err() {
-                    break;
-                }
-                if let Ok(Message::Notification(n)) = echo_session_proto::wire::from_cbor(&body) {
-                    let _ = tx.send(n);
-                }
-            }
-        }
-    });
-    Some(rx)
-}
+// Session adapter moved to `session_adapter` module; keep this stub to satisfy linkage if referenced.

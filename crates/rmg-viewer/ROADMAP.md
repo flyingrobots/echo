@@ -24,6 +24,7 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe. *(skeleton placeholder; transport TBD)*
 - [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
 - [ ] Convert `rmg-viewer` to consume RMG streams + notifications via client; keep sample graph as offline fallback.
+- [ ] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
 
 ## P2 — Viewer UX & diagnostics
 - [ ] Perf overlay with FPS + frame-time graph (egui_plot) and basic CPU/GPU timings.

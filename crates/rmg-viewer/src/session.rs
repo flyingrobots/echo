@@ -6,12 +6,7 @@ use echo_graph::RmgFrame;
 use echo_session_proto::Notification;
 use std::sync::mpsc::Receiver;
 
-/// Abstract port for receiving session events.
-pub trait SessionPort {
-    fn drain_notifications(&mut self, max: usize) -> Vec<Notification>;
-    fn drain_frames(&mut self, max: usize) -> Vec<RmgFrame>;
-    fn clear_streams(&mut self);
-}
+use crate::ports::SessionPort;
 
 #[derive(Default)]
 pub struct SessionClient {

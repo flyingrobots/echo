@@ -14,9 +14,13 @@ use echo_config_fs::FsConfigStore;
 use echo_graph::{RenderGraph as WireGraph, RmgFrame};
 use echo_session_client::connect_channels_for;
 mod core;
-use core::{Screen, TitleMode, UiState, ViewerOverlay};
+use core::{Screen, TitleMode, UiState};
+mod ports;
+#[allow(unused_imports)]
+use ports::{ConfigPort, RenderPort, SessionPort};
 mod session;
 use echo_session_proto::{NotifyKind, NotifyScope};
+mod ui;
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
@@ -34,10 +38,11 @@ use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
-use session::{SessionClient, SessionPort};
+use session::SessionClient;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
+use ui::{draw_connecting_screen, draw_error_screen, draw_title_screen, draw_view_hud};
 
 // ------------------------------------------------------------
 // Data
@@ -1181,6 +1186,18 @@ struct App {
 }
 
 impl App {
+    fn start_connect(&mut self) {
+        self.ui.connect_log.clear();
+        self.ui.connect_log.push(format!(
+            "Connecting to {}:{}",
+            self.ui.connect_host, self.ui.connect_port
+        ));
+        let path = format!("{}:{}", self.ui.connect_host, self.ui.connect_port);
+        let (rmg_rx, notif_rx) = connect_channels_for(&path, self.ui.rmg_id);
+        self.session.set_channels(rmg_rx, notif_rx);
+        self.ui.screen = Screen::Connecting;
+        self.ui.title_mode = TitleMode::Menu;
+    }
     fn new() -> Self {
         let egui_ctx = egui::Context::default();
         install_image_loaders(&egui_ctx);
@@ -1900,161 +1917,4 @@ fn main() -> Result<()> {
     let mut app = App::new();
     event_loop.run_app(&mut app)?;
     Ok(())
-}
-
-fn draw_title_screen(ctx: &egui::Context, app: &mut App) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(80.0);
-            ui.heading("Echo RMG Viewer");
-            ui.label(format!("v{}", env!("CARGO_PKG_VERSION")));
-            ui.add_space(20.0);
-            match app.ui.title_mode {
-                TitleMode::Menu => {
-                    if ui.button("Connect").clicked() {
-                        app.ui.title_mode = TitleMode::ConnectForm;
-                    }
-                    if ui.button("Settings").clicked() {
-                        app.ui.title_mode = TitleMode::Settings;
-                    }
-                    if ui.button("Exit").clicked() {
-                        std::process::exit(0);
-                    }
-                }
-                TitleMode::ConnectForm => {
-                    ui.label("Host:");
-                    ui.text_edit_singleline(&mut app.ui.connect_host);
-                    ui.label("Port:");
-                    ui.add(egui::DragValue::new(&mut app.ui.connect_port).speed(1));
-                    if ui.button("Connect").clicked() {
-                        // start connecting
-                        app.ui.connect_log.clear();
-                        app.ui.connect_log.push(format!(
-                            "Connecting to {}:{}",
-                            app.ui.connect_host, app.ui.connect_port
-                        ));
-                        let path = format!("{}:{}", app.ui.connect_host, app.ui.connect_port);
-                        let (rmg_rx, notif_rx) = connect_channels_for(&path, app.ui.rmg_id);
-                        app.session.set_channels(rmg_rx, notif_rx);
-                        app.ui.screen = Screen::Connecting;
-                        app.ui.title_mode = TitleMode::Menu;
-                    }
-                    if ui.button("Back").clicked() {
-                        app.ui.title_mode = TitleMode::Menu;
-                    }
-                }
-                TitleMode::Settings => {
-                    ui.label("(Placeholder settings)");
-                    if ui.button("Save").clicked() {
-                        app.ui.title_mode = TitleMode::Menu;
-                    }
-                    if ui.button("Back").clicked() {
-                        app.ui.title_mode = TitleMode::Menu;
-                    }
-                }
-            }
-        });
-    });
-}
-
-fn draw_connecting_screen(ctx: &egui::Context, log: &[String]) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(60.0);
-            ui.heading("Connecting...");
-            ui.add_space(10.0);
-            for line in log {
-                ui.label(line);
-            }
-            ui.add_space(20.0);
-            ui.label("ECHO");
-        });
-    });
-}
-
-fn draw_error_screen(ctx: &egui::Context, app: &mut App, msg: &str) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add_space(80.0);
-            ui.heading("Error");
-            ui.label(msg);
-            ui.add_space(12.0);
-            if ui.button("Back to Title").clicked() {
-                app.ui.screen = Screen::Title;
-                app.ui.title_mode = TitleMode::Menu;
-            }
-        });
-    });
-}
-
-fn draw_view_hud(
-    ctx: &egui::Context,
-    app: &mut App,
-    toasts: &[echo_app_core::toast::ToastRender],
-    _debug_arc: &Option<(egui::Pos2, egui::Pos2)>,
-) {
-    // Menu button
-    egui::Area::new("menu_button".into())
-        .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
-        .show(ctx, |ui| {
-            if ui.button("Menu").clicked() {
-                app.ui.overlay = ViewerOverlay::Menu;
-            }
-        });
-
-    // Toasts stack (simple)
-    egui::Area::new("toasts".into())
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
-        .show(ctx, |ui| {
-            for t in toasts {
-                ui.label(format!("{:?}: {}", t.kind, t.title));
-            }
-        });
-
-    // HUD panels
-    egui::Area::new("perf".into())
-        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
-        .show(ctx, |ui| {
-            ui.label(format!("FPS: {:.1}", app.viewer.perf.fps()));
-        });
-
-    egui::Area::new("controls".into())
-        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -50.0))
-        .show(ctx, |ui| {
-            ui.label("WASD/QE move, L-drag look, R-drag spin, Wheel zoom, Arrows cycle RMG");
-        });
-
-    egui::Area::new("stats".into())
-        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
-        .show(ctx, |ui| {
-            let epoch = app.viewer.epoch.unwrap_or(0);
-            ui.label(format!("RMG id {} | epoch {}", app.ui.rmg_id, epoch));
-        });
-
-    egui::Area::new("watermark".into())
-        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
-        .show(ctx, |ui| {
-            ui.label(format!("ECHO v{}", env!("CARGO_PKG_VERSION")));
-        });
-
-    // Overlays
-    if let ViewerOverlay::Menu = app.ui.overlay {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(40.0);
-                if ui.button("Settings").clicked() {
-                    app.ui.overlay = ViewerOverlay::Settings;
-                }
-                if ui.button("Publish Local RMG").clicked() {
-                    app.ui.overlay = ViewerOverlay::Publish;
-                }
-                if ui.button("Subscribe to RMG").clicked() {
-                    app.ui.overlay = ViewerOverlay::Subscribe;
-                }
-                if ui.button("Back").clicked() {
-                    app.ui.overlay = ViewerOverlay::None;
-                }
-            });
-        });
-    }
 }

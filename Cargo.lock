@@ -728,6 +728,7 @@ name = "echo-session-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "echo-graph",
  "echo-session-proto",
  "tokio",
  "tracing",
@@ -2593,6 +2594,7 @@ dependencies = [
  "echo-app-core",
  "echo-config-fs",
  "echo-graph",
+ "echo-session-client",
  "echo-session-proto",
  "egui 0.33.2",
  "egui-wgpu",

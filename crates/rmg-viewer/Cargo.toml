@@ -30,6 +30,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt"] }
 wgpu = "27"
 echo-app-core = { path = "../echo-app-core" }
 echo-config-fs = { path = "../echo-config-fs" }
+echo-session-client = { path = "../echo-session-client" }
 echo-session-proto = { path = "../echo-session-proto" }
 echo-graph = { path = "../echo-graph" }
 tokio = { version = "1.41", features = ["rt", "macros", "time"] }

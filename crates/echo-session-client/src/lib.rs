@@ -3,41 +3,24 @@
 //! Client helper for talking to the Echo session hub over Unix sockets (CBOR-framed).
 
 use anyhow::Result;
-use echo_session_proto::{wire::Packet, Command, Message, Notification, RmgDiff, RmgSnapshot};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
+use echo_session_proto::{Message, Notification, RmgFrame};
+use std::io::Read;
+use std::os::unix::net::UnixStream;
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+use tokio::io::AsyncReadExt;
+use tokio::net::UnixStream as AsyncUnixStream;
 
 /// Minimal async client over Unix sockets.
 pub struct SessionClient {
-    stream: UnixStream,
+    stream: AsyncUnixStream,
 }
 
 impl SessionClient {
     /// Connect to the hub at the given Unix socket path.
     pub async fn connect(path: &str) -> Result<Self> {
-        let stream = UnixStream::connect(path).await?;
+        let stream = AsyncUnixStream::connect(path).await?;
         Ok(Self { stream })
-    }
-
-    /// Publish an RMG diff.
-    pub async fn publish_diff(&mut self, diff: RmgDiff) -> Result<()> {
-        let packet = Packet::encode(&Message::RmgDiff(diff))?;
-        self.stream.write_all(&packet).await?;
-        Ok(())
-    }
-
-    /// Publish an RMG snapshot.
-    pub async fn publish_snapshot(&mut self, snap: RmgSnapshot) -> Result<()> {
-        let packet = Packet::encode(&Message::RmgSnapshot(snap))?;
-        self.stream.write_all(&packet).await?;
-        Ok(())
-    }
-
-    /// Send a command to the hub.
-    pub async fn send_command(&mut self, cmd: Command) -> Result<()> {
-        let packet = Packet::encode(&Message::Command(cmd))?;
-        self.stream.write_all(&packet).await?;
-        Ok(())
     }
 
     /// Poll a single message if available (non-blocking). Returns Ok(None) when no complete frame is present.
@@ -70,7 +53,42 @@ impl SessionClient {
     }
 
     /// Expose the underlying stream (e.g., for select!).
-    pub fn stream(&mut self) -> &mut UnixStream {
+    pub fn stream(&mut self) -> &mut AsyncUnixStream {
         &mut self.stream
     }
+}
+
+/// Blocking helper: connect and stream frames/notifications on background threads.
+/// Returns (RmgFrame receiver, Notification receiver). On connection failure, receivers stay empty.
+pub fn connect_channels(path: &str) -> (Receiver<RmgFrame>, Receiver<Notification>) {
+    let (rmg_tx, rmg_rx) = mpsc::channel();
+    let (notif_tx, notif_rx) = mpsc::channel();
+    let path = path.to_string();
+
+    thread::spawn(move || {
+        if let Ok(mut stream) = UnixStream::connect(path) {
+            loop {
+                let mut len_buf = [0u8; 4];
+                if stream.read_exact(&mut len_buf).is_err() {
+                    break;
+                }
+                let len = u32::from_be_bytes(len_buf) as usize;
+                let mut body = vec![0u8; len];
+                if stream.read_exact(&mut body).is_err() {
+                    break;
+                }
+                match echo_session_proto::wire::from_cbor(&body) {
+                    Ok(Message::Rmg(frame)) => {
+                        let _ = rmg_tx.send(frame);
+                    }
+                    Ok(Message::Notification(n)) => {
+                        let _ = notif_tx.send(n);
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    });
+
+    (rmg_rx, notif_rx)
 }

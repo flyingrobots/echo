@@ -35,11 +35,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-04 — Sync roadmap with session streaming progress (IN PROGRESS)
+> 2025-12-04 — Sync roadmap with session streaming progress (COMPLETED)
 
 - Goal: capture the new canonical `echo-graph` crate + gapless RMG streaming path, and queue remaining engine/viewer wiring tasks.
 - Scope: update `crates/rmg-viewer/ROADMAP.md`, note outstanding engine emitter + client extraction; log decisions.
-- Status: in progress.
+- Status: completed.
 
 > 2025-12-03 — Recover rmg-viewer ROADMAP after VSCode crash
 

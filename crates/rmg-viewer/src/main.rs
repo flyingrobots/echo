@@ -12,6 +12,7 @@ use echo_app_core::{
 };
 use echo_config_fs::FsConfigStore;
 use echo_graph::{RenderGraph as WireGraph, RmgFrame};
+use echo_session_client::connect_channels;
 use echo_session_proto::{Notification, NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
@@ -34,9 +35,6 @@ use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
-
-mod rmg_stream_adapter;
-mod session_adapter;
 
 // ------------------------------------------------------------
 // Data
@@ -1220,9 +1218,10 @@ impl App {
         viewer.epoch = Some(0);
         viewer.apply_prefs(&prefs);
 
-        // Session notifications via injected adapter (best-effort, non-fatal)
-        let notif_rx = Some(session_adapter::connect_default());
-        let rmg_rx = Some(rmg_stream_adapter::connect_default());
+        // Session notifications + RMG frames via session client (best-effort, non-fatal)
+        let (rmg_rx, notif_rx) = connect_channels("/tmp/echo-session.sock");
+        let notif_rx = Some(notif_rx);
+        let rmg_rx = Some(rmg_rx);
         Self {
             window: None,
             gpu: None,
@@ -1656,7 +1655,10 @@ impl ApplicationHandler for App {
                             ui.label("Session socket:");
                             ui.text_edit_singleline(&mut self.session_path);
                             if ui.button("Connect").clicked() {
-                                self.notif_rx = Some(session_adapter::connect_default());
+                                let (rmg_rx, notif_rx) =
+                                    connect_channels(self.session_path.as_str());
+                                self.rmg_rx = Some(rmg_rx);
+                                self.notif_rx = Some(notif_rx);
                                 self.screen = Screen::Title(TitleStatus::Connecting);
                             }
                         });
@@ -2057,5 +2059,3 @@ fn main() -> Result<()> {
     event_loop.run_app(&mut app)?;
     Ok(())
 }
-
-// Session adapter moved to `session_adapter` module; keep this stub to satisfy linkage if referenced.

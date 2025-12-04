@@ -23,9 +23,9 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe. *(skeleton placeholder; transport TBD)*
 - [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
 - [x] Introduce shared canonical `echo-graph` crate and move `RmgFrame`/`RmgOp`/`Snapshot`/`Diff` there; proto and viewer use it.
-- [ ] Convert `rmg-viewer` to consume RMG streams + notifications via the session client (current: in-crate socket adapter).
-- [ ] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
-- [ ] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
+- [x] Convert `rmg-viewer` to consume RMG streams + notifications via the session client (no direct socket/CBOR in viewer).
+- [x] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
+- [x] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
 - [ ] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(apply path + hash check in place; still need disconnect + error UX)*
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 

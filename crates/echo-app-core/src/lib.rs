@@ -6,4 +6,5 @@
 pub mod config;
 pub mod config_port;
 pub mod prefs;
+pub mod render_port;
 pub mod toast;

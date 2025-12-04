@@ -3,32 +3,43 @@
 //! Minimal Unix-socket CBOR hub skeleton.
 
 use anyhow::Result;
-use echo_graph::{
-    EdgeData, EdgeKind, NodeData, NodeDataPatch, NodeKind, RenderGraph, RenderNode, RmgDiff,
-    RmgFrame, RmgOp, RmgSnapshot,
-};
-use echo_session_proto::{wire::Packet, Message, Notification, NotifyKind, NotifyScope};
+use echo_graph::{RmgFrame, RmgSnapshot};
+use echo_session_proto::{wire::Packet, Message, Notification, NotifyKind, NotifyScope, RmgId};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
-use tokio::time::sleep;
 use tracing::{info, warn};
 
 const SOCKET_PATH: &str = "/tmp/echo-session.sock";
 
-#[derive(Clone, Default)]
-struct GraphState {
-    graph: RenderGraph,
-    epoch: u64,
+#[derive(Default)]
+struct StreamState {
+    last_epoch: Option<u64>,
+    last_hash: Option<echo_graph::Hash32>,
+    latest_snapshot: Option<RmgSnapshot>,
+    subscribers: HashSet<u64>,
+    producer: Option<u64>,
+}
+
+struct ConnState {
+    subscribed: HashSet<RmgId>,
+    tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+}
+
+#[derive(Default)]
+struct HubState {
+    next_conn_id: u64,
+    streams: HashMap<RmgId, StreamState>,
+    conns: HashMap<u64, ConnState>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let state = Arc::new(Mutex::new(seed_graph()));
+    let hub = Arc::new(Mutex::new(HubState::default()));
 
     // Remove stale socket if present
     let _ = std::fs::remove_file(SOCKET_PATH);
@@ -37,17 +48,36 @@ async fn main() -> Result<()> {
 
     loop {
         let (stream, _) = listener.accept().await?;
-        let shared = state.clone();
+        let hub_state = hub.clone();
         tokio::spawn(async move {
-            if let Err(err) = handle_client(stream, shared).await {
+            if let Err(err) = handle_client(stream, hub_state).await {
                 warn!(?err, "client handler error");
             }
         });
     }
 }
 
-async fn handle_client(mut stream: UnixStream, shared: Arc<Mutex<GraphState>>) -> Result<()> {
-    // Send a hello notification on connect (stub)
+async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<()> {
+    // split stream
+    let (mut reader, mut writer) = tokio::io::split(stream);
+
+    // allocate conn id and outbox
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
+    let conn_id = {
+        let mut h = hub.lock().await;
+        let id = h.next_conn_id;
+        h.next_conn_id += 1;
+        h.conns.insert(
+            id,
+            ConnState {
+                subscribed: HashSet::new(),
+                tx,
+            },
+        );
+        id
+    };
+
+    // greet with stub notification before moving writer into task
     let hello = Message::Notification(Notification {
         kind: NotifyKind::Info,
         scope: NotifyScope::Global,
@@ -55,85 +85,132 @@ async fn handle_client(mut stream: UnixStream, shared: Arc<Mutex<GraphState>>) -
         body: Some("stub transport online".into()),
     });
     let packet = Packet::encode(&hello)?;
-    stream.write_all(&packet).await?;
+    writer.write_all(&packet).await?;
 
-    // Send initial snapshot
-    {
-        let state = shared.lock().await;
-        let snap = RmgSnapshot {
-            epoch: state.epoch,
-            graph: state.graph.clone(),
-            state_hash: Some(state.graph.compute_hash()),
-        };
-        let frame = Message::Rmg(RmgFrame::Snapshot(snap));
-        let pkt = Packet::encode(&frame)?;
-        stream.write_all(&pkt).await?;
-    }
-
-    // Spawn a writer that emits gapless diffs for this client
-    let writer_state = shared.clone();
+    // writer task
     tokio::spawn(async move {
-        if let Err(err) = emit_diffs(stream, writer_state).await {
-            warn!(?err, "writer loop error");
+        let mut ws = writer;
+        while let Some(buf) = rx.recv().await {
+            if ws.write_all(&buf).await.is_err() {
+                break;
+            }
         }
     });
+
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        let slice = &buf[..n];
+        match Packet::decode(slice) {
+            Ok((msg, _used)) => {
+                if let Err(err) = handle_message(msg, conn_id, &hub).await {
+                    warn!(?err, "dropping connection {}", conn_id);
+                    break;
+                }
+            }
+            Err(err) => {
+                warn!(?err, "failed to decode packet");
+                break;
+            }
+        }
+    }
+
+    // cleanup connection
+    let mut h = hub.lock().await;
+    if let Some(conn) = h.conns.remove(&conn_id) {
+        for rmg_id in conn.subscribed {
+            if let Some(stream_state) = h.streams.get_mut(&rmg_id) {
+                stream_state.subscribers.remove(&conn_id);
+                if stream_state.producer == Some(conn_id) {
+                    stream_state.producer = None;
+                }
+            }
+        }
+    }
 
     Ok(())
 }
 
-async fn emit_diffs(mut stream: UnixStream, shared: Arc<Mutex<GraphState>>) -> Result<()> {
-    loop {
-        sleep(Duration::from_millis(500)).await;
-        let mut state = shared.lock().await;
-
-        // Increment a simple counter in node 1's payload to simulate updates
-        state.epoch += 1;
-        let from = state.epoch - 1;
-        let to = state.epoch;
-
-        let mut counter_bytes = [0u8; 8];
-        counter_bytes.copy_from_slice(&to.to_le_bytes());
-        let op = RmgOp::UpdateNode {
-            id: 1,
-            data: NodeDataPatch::Replace(NodeData {
-                raw: counter_bytes.to_vec(),
-            }),
-        };
-        state.graph.apply_op(op.clone())?;
-        let diff = RmgDiff {
-            from_epoch: from,
-            to_epoch: to,
-            ops: vec![op],
-            state_hash: Some(state.graph.compute_hash()),
-        };
-        let frame = Message::Rmg(RmgFrame::Diff(diff));
-        let pkt = Packet::encode(&frame)?;
-        stream.write_all(&pkt).await?;
+// Handle a single inbound message from a connection.
+async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) -> Result<()> {
+    match msg {
+        Message::Hello { .. } => {
+            // nothing to do for now
+        }
+        Message::SubscribeRmg { rmg_id } => {
+            let mut h = hub.lock().await;
+            let conn = h
+                .conns
+                .get_mut(&conn_id)
+                .ok_or_else(|| anyhow::anyhow!("missing conn"))?;
+            conn.subscribed.insert(rmg_id);
+            let stream = h.streams.entry(rmg_id).or_default();
+            stream.subscribers.insert(conn_id);
+            if let Some(snap) = stream.latest_snapshot.clone() {
+                if let Some(tx) = h.conns.get(&conn_id).map(|c| c.tx.clone()) {
+                    let pkt = Packet::encode(&Message::RmgStream {
+                        rmg_id,
+                        frame: RmgFrame::Snapshot(snap),
+                    })?;
+                    let _ = tx.send(pkt).await;
+                }
+            }
+        }
+        Message::RmgStream { rmg_id, frame } => {
+            let mut h = hub.lock().await;
+            let stream = h.streams.entry(rmg_id).or_default();
+            // enforce single producer
+            if let Some(p) = stream.producer {
+                if p != conn_id {
+                    anyhow::bail!("producer mismatch for rmg_id {}", rmg_id);
+                }
+            } else {
+                stream.producer = Some(conn_id);
+            }
+            match &frame {
+                RmgFrame::Snapshot(s) => {
+                    stream.last_epoch = Some(s.epoch);
+                    stream.last_hash = s.state_hash;
+                    stream.latest_snapshot = Some(s.clone());
+                }
+                RmgFrame::Diff(d) => {
+                    let last = stream
+                        .last_epoch
+                        .ok_or_else(|| anyhow::anyhow!("diff before snapshot"))?;
+                    if d.from_epoch != last || d.to_epoch != d.from_epoch + 1 {
+                        anyhow::bail!(
+                            "gap for rmg_id {}: got {}->{} expected {}->{}",
+                            rmg_id,
+                            d.from_epoch,
+                            d.to_epoch,
+                            last,
+                            last + 1
+                        );
+                    }
+                    stream.last_epoch = Some(d.to_epoch);
+                    stream.last_hash = d.state_hash;
+                }
+            }
+            // fan out to subscribers
+            let pkt = Packet::encode(&Message::RmgStream { rmg_id, frame })?;
+            let subs = stream.subscribers.clone();
+            for sub in subs {
+                if let Some(conn) = h.conns.get(&sub) {
+                    let _ = conn.tx.send(pkt.clone()).await;
+                }
+            }
+        }
+        Message::Notification(_) => {
+            // Broadcast notifications globally
+            let pkt = Packet::encode(&msg)?;
+            let h = hub.lock().await;
+            for conn in h.conns.values() {
+                let _ = conn.tx.send(pkt.clone()).await;
+            }
+        }
     }
-}
-
-fn seed_graph() -> GraphState {
-    let mut graph = RenderGraph::default();
-    graph.nodes.push(RenderNode {
-        id: 1,
-        kind: NodeKind::Generic,
-        data: NodeData {
-            raw: b"seed".to_vec(),
-        },
-    });
-    graph.nodes.push(RenderNode {
-        id: 2,
-        kind: NodeKind::Generic,
-        data: NodeData {
-            raw: b"leaf".to_vec(),
-        },
-    });
-    graph.edges.push(echo_graph::RenderEdge {
-        id: 1,
-        src: 1,
-        dst: 2,
-        kind: EdgeKind::Generic,
-        data: EdgeData { raw: Vec::new() },
-    });
-    GraphState { graph, epoch: 0 }
+    Ok(())
 }

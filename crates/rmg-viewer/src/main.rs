@@ -12,7 +12,7 @@ use echo_app_core::{
 };
 use echo_config_fs::FsConfigStore;
 use echo_graph::{RenderGraph as WireGraph, RmgFrame};
-use echo_session_client::connect_channels;
+use echo_session_client::{connect_channels, connect_channels_for};
 use echo_session_proto::{Notification, NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
@@ -1173,6 +1173,7 @@ struct App {
     rmg_rx: Option<std::sync::mpsc::Receiver<RmgFrame>>,       // incoming RMG frames
     screen: Screen,
     session_path: String,
+    rmg_id: u64,
     viewer: ViewerState,
 }
 
@@ -1220,7 +1221,7 @@ impl App {
         viewer.apply_prefs(&prefs);
 
         // Session notifications + RMG frames via session client (best-effort, non-fatal)
-        let (rmg_rx, notif_rx) = connect_channels("/tmp/echo-session.sock");
+        let (rmg_rx, notif_rx) = connect_channels_for("/tmp/echo-session.sock", 1);
         let notif_rx = Some(notif_rx);
         let rmg_rx = Some(rmg_rx);
         Self {
@@ -1235,6 +1236,7 @@ impl App {
             rmg_rx,
             screen: Screen::Title(TitleStatus::Connecting),
             session_path: "/tmp/echo-session.sock".into(),
+            rmg_id: 1,
             viewer,
         }
     }
@@ -1668,9 +1670,13 @@ impl ApplicationHandler for App {
                             ui.horizontal(|ui| {
                                 ui.label("Session socket:");
                                 ui.text_edit_singleline(&mut self.session_path);
+                                ui.label("RMG id:");
+                                ui.add(egui::DragValue::new(&mut self.rmg_id).speed(1));
                                 if ui.button("Connect").clicked() {
-                                    let (rmg_rx, notif_rx) =
-                                        connect_channels(self.session_path.as_str());
+                                    let (rmg_rx, notif_rx) = connect_channels_for(
+                                        self.session_path.as_str(),
+                                        self.rmg_id,
+                                    );
                                     self.rmg_rx = Some(rmg_rx);
                                     self.notif_rx = Some(notif_rx);
                                     self.screen = Screen::Title(TitleStatus::Connecting);

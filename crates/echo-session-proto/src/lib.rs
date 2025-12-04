@@ -46,11 +46,39 @@ pub struct Notification {
     pub body: Option<String>,
 }
 
-/// Wire envelope (matches earlier message enum; keep for compat).
+/// Client kind (for logging / policy; optional for now).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ClientKind {
+    /// RMG viewer / tool.
+    Viewer,
+    /// Engine or producer of authoritative RMG.
+    Engine,
+    /// Other tool.
+    Tool,
+}
+
+/// Wire envelope (matches earlier message enum; keep for compat and extend for subscriptions).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Message {
-    /// RMG state frame (snapshot or diff).
-    Rmg(RmgFrame),
+    /// Client hello / version info.
+    Hello {
+        /// Protocol version.
+        protocol_version: u16,
+        /// Declared client kind.
+        client_kind: ClientKind,
+    },
+    /// Subscribe to a specific RMG stream.
+    SubscribeRmg {
+        /// Identifier of the RMG stream to receive.
+        rmg_id: RmgId,
+    },
+    /// RMG state frame (snapshot or diff) for a specific stream.
+    RmgStream {
+        /// Stream identifier.
+        rmg_id: RmgId,
+        /// Snapshot or diff.
+        frame: RmgFrame,
+    },
     /// Notification broadcast.
     Notification(Notification),
 }

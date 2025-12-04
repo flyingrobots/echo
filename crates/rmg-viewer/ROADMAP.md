@@ -30,6 +30,16 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 
 ## P2 — Viewer UX & diagnostics
+- [ ] New state machine + screens:
+  - Title: wordmark/version, menu (Connect / Settings / Exit).
+  - Connect form: host/port/rmg-id; transitions to Connecting.
+  - Settings overlay reused in Title/Viewer; Save/Back behaviors.
+  - Connecting screen with boot-style log; transitions to Viewer on success.
+  - Error screen fallback with reconnect path.
+- [ ] Viewer menu overlays: Menu button opens Settings / Publish Local RMG / Subscribe to RMG / Back; overlays leave HUD/watermark visible.
+- [ ] Subscribe overlay (RMG directory): list known RmgIds from host, buttons to subscribe/unsubscribe, Back returns to Viewer HUD.
+- [ ] Publish mode toggle: mark this client as producer for chosen RmgId and stream local RMG.
+- [ ] RMG ring layout in scene: place local+subscribed RMGs on a circle, arrow keys rotate ring to focus a selected RMG; update camera focus accordingly.
 - [ ] Perf overlay with FPS + frame-time graph (egui_plot) and basic CPU/GPU timings.
 - [ ] Arrowhead scale/color tunables in HUD.
 - [ ] Camera near/far auto-fit from scene bounds (tighter depth range).

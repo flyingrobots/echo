@@ -63,6 +63,7 @@ struct ViewerState {
     debug_invert_cam_x: bool,
     debug_invert_cam_y: bool,
     show_watermark: bool,
+    #[allow(dead_code)]
     watermark_bytes: Arc<[u8]>,
     vsync: bool,
 }
@@ -156,6 +157,7 @@ impl ViewerState {
 
 #[derive(Clone, Debug)]
 struct RenderNode {
+    #[allow(dead_code)]
     ty: TypeId,
     color: [f32; 3],
     pos: Vec3,
@@ -166,6 +168,7 @@ struct RenderNode {
 struct RenderGraph {
     nodes: Vec<RenderNode>,
     edges: Vec<(usize, usize)>,
+    #[allow(dead_code)]
     max_depth: usize,
 }
 

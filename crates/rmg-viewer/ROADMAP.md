@@ -29,6 +29,7 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(disconnect + error overlay now wired)*
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 - [ ] Hex refactor inside viewer:
+  - [x] Extract domain UI/core state machine container (`UiState`) to separate module.
   - Extract domain core/state machine + effects (pure transitions).
   - Define ports/traits: SessionPort, RenderPort, ConfigPort (optional Clock/Perf).
   - Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `main.rs` as composition only.

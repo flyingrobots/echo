@@ -15,7 +15,8 @@ use echo_graph::{RenderGraph as WireGraph, RmgFrame};
 use echo_session_client::connect_channels_for;
 mod core;
 use core::{Screen, TitleMode, UiState, ViewerOverlay};
-use echo_session_proto::{Notification, NotifyKind, NotifyScope};
+mod session;
+use echo_session_proto::{NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
@@ -33,6 +34,7 @@ use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
+use session::SessionClient;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
@@ -1173,8 +1175,7 @@ struct App {
     egui_renderer: Option<egui_wgpu::Renderer>,
     config: Option<ConfigService<FsConfigStore>>,
     toasts: ToastService,
-    notif_rx: Option<std::sync::mpsc::Receiver<Notification>>, // incoming notifications from session hub
-    rmg_rx: Option<std::sync::mpsc::Receiver<RmgFrame>>,       // incoming RMG frames
+    session: SessionClient,
     ui: UiState,
     viewer: ViewerState,
 }
@@ -1218,8 +1219,7 @@ impl App {
             egui_renderer: None,
             config,
             toasts,
-            notif_rx: None,
-            rmg_rx: None,
+            session: SessionClient::new(),
             ui: UiState::new(),
             viewer,
         }
@@ -1333,7 +1333,7 @@ impl ApplicationHandler for App {
         };
 
         // Drain any session notifications into the toast queue
-        if let Some(rx) = &self.notif_rx {
+        if let Some(rx) = self.session.notif_rx() {
             while let Ok(n) = rx.try_recv() {
                 let kind = match n.kind {
                     NotifyKind::Info => ToastKind::Info,
@@ -1359,7 +1359,7 @@ impl ApplicationHandler for App {
 
         // Drain RMG frames into wire graph and rebuild scene; enforce no gaps
         let mut desync: Option<String> = None;
-        if let Some(rx) = &self.rmg_rx {
+        if let Some(rx) = self.session.rmg_rx() {
             while let Ok(frame) = rx.try_recv() {
                 match frame {
                     RmgFrame::Snapshot(s) => {
@@ -1453,7 +1453,7 @@ impl ApplicationHandler for App {
             }
         }
         if let Some(reason) = desync {
-            self.rmg_rx = None;
+            self.session.clear_streams();
             self.ui.screen = Screen::Error(reason);
         }
 
@@ -1940,8 +1940,7 @@ fn draw_title_screen(ctx: &egui::Context, app: &mut App) {
                         ));
                         let path = format!("{}:{}", app.ui.connect_host, app.ui.connect_port);
                         let (rmg_rx, notif_rx) = connect_channels_for(&path, app.ui.rmg_id);
-                        app.rmg_rx = Some(rmg_rx);
-                        app.notif_rx = Some(notif_rx);
+                        app.session.set_channels(rmg_rx, notif_rx);
                         app.ui.screen = Screen::Connecting;
                         app.ui.title_mode = TitleMode::Menu;
                     }

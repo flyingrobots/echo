@@ -1081,7 +1081,21 @@ struct App {
     config: Option<ConfigService<FsConfigStore>>,
     toasts: ToastService,
     notif_rx: Option<std::sync::mpsc::Receiver<Notification>>, // incoming notifications from session hub
+    screen: Screen,
+    session_path: String,
     viewer: ViewerState,
+}
+
+#[derive(Clone, Debug)]
+enum Screen {
+    Title(TitleStatus),
+    View,
+}
+
+#[derive(Clone, Debug)]
+enum TitleStatus {
+    Connecting,
+    SessionStarted,
 }
 
 impl App {
@@ -1123,6 +1137,8 @@ impl App {
             config,
             toasts,
             notif_rx,
+            screen: Screen::Title(TitleStatus::Connecting),
+            session_path: "/tmp/echo-session.sock".into(),
             viewer,
         }
     }
@@ -1259,6 +1275,9 @@ impl ApplicationHandler for App {
                     std::time::Duration::from_secs(8),
                     Instant::now(),
                 );
+                if matches!(self.screen, Screen::Title(_)) {
+                    self.screen = Screen::Title(TitleStatus::SessionStarted);
+                }
             }
         }
 
@@ -1297,7 +1316,9 @@ impl ApplicationHandler for App {
         }
         self.viewer.camera.move_relative(mv);
 
-        self.viewer.graph.step_layout(dt);
+        if matches!(self.screen, Screen::View) {
+            self.viewer.graph.step_layout(dt);
+        }
 
         // Arcball spin: right-drag spins the graph; left-drag is FPS look.
         let pointer = self.egui_ctx.input(|i| i.pointer.clone());
@@ -1433,6 +1454,35 @@ impl ApplicationHandler for App {
         let raw_input = egui_state.take_egui_input(win);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             let toasts = &visible_toasts;
+
+            // Title screen overlay
+            if let Screen::Title(status) = self.screen.clone() {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(80.0);
+                        ui.heading("Echo RMG Viewer");
+                        ui.label(match status {
+                            TitleStatus::Connecting => "Connecting to session...",
+                            TitleStatus::SessionStarted => {
+                                "Session started; awaiting RMG stream..."
+                            }
+                        });
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            ui.label("Session socket:");
+                            ui.text_edit_singleline(&mut self.session_path);
+                            if ui.button("Connect").clicked() {
+                                self.notif_rx = Some(session_adapter::connect_default());
+                                self.screen = Screen::Title(TitleStatus::Connecting);
+                            }
+                        });
+                        ui.add_space(12.0);
+                        if ui.button("Use sample graph").clicked() {
+                            self.screen = Screen::View;
+                        }
+                    });
+                });
+            }
             // HUD overlay (transparent, non-blocking feel)
             let hud_frame = egui::Frame::new()
                 .fill(egui::Color32::from_rgba_unmultiplied(15, 15, 20, 150))

@@ -70,6 +70,7 @@ struct ViewerState {
     debug_show_arc: bool,
     debug_invert_cam_x: bool,
     debug_invert_cam_y: bool,
+    wireframe: bool,
     show_watermark: bool,
     #[allow(dead_code)]
     watermark_bytes: Arc<[u8]>,
@@ -105,6 +106,7 @@ impl Default for ViewerState {
             debug_show_arc: false,
             debug_invert_cam_x: false,
             debug_invert_cam_y: false,
+            wireframe: false,
             show_watermark: true,
             watermark_bytes,
             vsync: false,
@@ -139,6 +141,7 @@ impl ViewerState {
         self.debug_show_arc = hud.debug_show_arc;
         self.debug_invert_cam_x = hud.debug_invert_cam_x;
         self.debug_invert_cam_y = hud.debug_invert_cam_y;
+        self.wireframe = hud.wireframe;
         self.show_watermark = hud.show_watermark;
         self.vsync = hud.vsync;
     }
@@ -156,6 +159,7 @@ impl ViewerState {
                 debug_show_arc: self.debug_show_arc,
                 debug_invert_cam_x: self.debug_invert_cam_x,
                 debug_invert_cam_y: self.debug_invert_cam_y,
+                wireframe: self.wireframe,
                 show_watermark: self.show_watermark,
                 vsync: self.vsync,
             },
@@ -1802,7 +1806,12 @@ impl ApplicationHandler for App {
             rpass.draw(0..2, 0..edge_instances.len() as u32);
 
             // draw nodes
-            rpass.set_pipeline(&gpu.pipelines.node);
+            let node_pipeline = if self.viewer.wireframe {
+                &gpu.pipelines.node_wire
+            } else {
+                &gpu.pipelines.node
+            };
+            rpass.set_pipeline(node_pipeline);
             rpass.set_bind_group(0, &gpu.bind_group, &[]);
             rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
             rpass.set_vertex_buffer(

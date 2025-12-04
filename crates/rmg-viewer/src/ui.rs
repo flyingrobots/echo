@@ -118,6 +118,7 @@ pub fn draw_view_hud(
         .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -50.0))
         .show(ctx, |ui| {
             ui.label("WASD/QE move, L-drag look, R-drag spin, Wheel zoom, Arrows cycle RMG");
+            ui.checkbox(&mut app.viewer.wireframe, "Wireframe");
         });
 
     egui::Area::new("stats".into())

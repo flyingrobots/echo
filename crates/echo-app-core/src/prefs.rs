@@ -48,6 +48,8 @@ pub struct HudPrefs {
     pub debug_invert_cam_x: bool,
     /// Invert camera Y input.
     pub debug_invert_cam_y: bool,
+    /// Render nodes in wireframe mode.
+    pub wireframe: bool,
     /// Display watermark overlay.
     pub show_watermark: bool,
     /// Present in vsync mode.

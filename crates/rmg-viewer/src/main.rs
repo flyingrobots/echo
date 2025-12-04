@@ -41,7 +41,6 @@ use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
 use serde::Deserialize;
-use serde_json;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;

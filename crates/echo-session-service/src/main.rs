@@ -33,6 +33,154 @@ impl Default for HostPrefs {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use echo_graph::{RenderGraph, RmgDiff, RmgFrame, RmgSnapshot};
+    use echo_session_proto::{wire::decode_message, HandshakePayload, NotifyKind};
+    use tokio::time::{timeout, Duration};
+
+    async fn add_conn(hub: &Arc<Mutex<HubState>>) -> (u64, tokio::sync::mpsc::Receiver<Vec<u8>>) {
+        let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+        let mut h = hub.lock().await;
+        let id = h.next_conn_id;
+        h.next_conn_id += 1;
+        h.conns.insert(
+            id,
+            ConnState {
+                subscribed: HashSet::new(),
+                tx,
+            },
+        );
+        (id, rx)
+    }
+
+    #[tokio::test]
+    async fn ts_is_monotonic_for_handshake_and_notification() {
+        let hub = Arc::new(Mutex::new(HubState::default()));
+        let (conn_id, mut rx) = add_conn(&hub).await;
+
+        // first message: handshake -> ts should be 0
+        handle_message(
+            Message::Handshake(HandshakePayload {
+                agent_id: None,
+                capabilities: vec![],
+                client_version: 1,
+                session_meta: None,
+            }),
+            conn_id,
+            &hub,
+        )
+        .await
+        .unwrap();
+        let pkt1 = timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .ok()
+            .flatten()
+            .expect("handshake ack");
+        let (_msg1, ts1, _) = decode_message(&pkt1).expect("decode ack");
+
+        // second message: notification -> ts should be ts1 + 1
+        handle_message(
+            Message::Notification(echo_session_proto::Notification {
+                kind: NotifyKind::Info,
+                scope: echo_session_proto::NotifyScope::Global,
+                title: "hello".into(),
+                body: None,
+            }),
+            conn_id,
+            &hub,
+        )
+        .await
+        .unwrap();
+        let pkt2 = timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .ok()
+            .flatten()
+            .expect("notification");
+        let (_msg2, ts2, _) = decode_message(&pkt2).expect("decode notify");
+
+        assert_eq!(ts1, 0);
+        assert_eq!(ts2, ts1 + 1);
+    }
+
+    #[tokio::test]
+    async fn rmg_stream_is_gapless_and_monotonic() {
+        let hub = Arc::new(Mutex::new(HubState::default()));
+        let (producer, _rx_prod) = add_conn(&hub).await;
+        let (subscriber, mut rx_sub) = add_conn(&hub).await;
+
+        // subscriber registers interest in rmg_id 1
+        handle_message(Message::SubscribeRmg { rmg_id: 1 }, subscriber, &hub)
+            .await
+            .unwrap();
+
+        // producer sends snapshot epoch 0
+        handle_message(
+            Message::RmgStream {
+                rmg_id: 1,
+                frame: RmgFrame::Snapshot(RmgSnapshot {
+                    epoch: 0,
+                    graph: RenderGraph::default(),
+                    state_hash: None,
+                }),
+            },
+            producer,
+            &hub,
+        )
+        .await
+        .unwrap();
+        let pkt_snap = timeout(Duration::from_secs(1), rx_sub.recv())
+            .await
+            .ok()
+            .flatten()
+            .expect("snapshot to subscriber");
+        let (_m_snap, ts_snap, _) = decode_message(&pkt_snap).expect("decode snapshot");
+        assert_eq!(ts_snap, 0);
+
+        // producer sends diff 0->1 (valid)
+        handle_message(
+            Message::RmgStream {
+                rmg_id: 1,
+                frame: RmgFrame::Diff(RmgDiff {
+                    from_epoch: 0,
+                    to_epoch: 1,
+                    ops: vec![],
+                    state_hash: None,
+                }),
+            },
+            producer,
+            &hub,
+        )
+        .await
+        .unwrap();
+        let pkt_diff = rx_sub.recv().await.expect("diff to subscriber");
+        let (_m_diff, ts_diff, _) = decode_message(&pkt_diff).expect("decode diff");
+        assert_eq!(ts_diff, ts_snap + 1);
+
+        // gapful diff should error and not deliver anything
+        let err = handle_message(
+            Message::RmgStream {
+                rmg_id: 1,
+                frame: RmgFrame::Diff(RmgDiff {
+                    from_epoch: 3,
+                    to_epoch: 4,
+                    ops: vec![],
+                    state_hash: None,
+                }),
+            },
+            producer,
+            &hub,
+        )
+        .await;
+        assert!(err.is_err());
+        assert!(
+            rx_sub.try_recv().is_err(),
+            "no packet should be sent on gap"
+        );
+    }
+}
+
 #[derive(Default)]
 struct StreamState {
     last_epoch: Option<u64>,
@@ -53,6 +201,14 @@ struct HubState {
     next_ts: u64,
     streams: HashMap<RmgId, StreamState>,
     conns: HashMap<u64, ConnState>,
+}
+
+impl HubState {
+    fn alloc_ts(&mut self) -> u64 {
+        let t = self.next_ts;
+        self.next_ts += 1;
+        t
+    }
 }
 
 #[tokio::main]
@@ -169,11 +325,7 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
         Message::Handshake(handshake) => {
             // accept all handshakes for now
             let mut h = hub.lock().await;
-            let ts = {
-                let t = h.next_ts;
-                h.next_ts += 1;
-                t
-            };
+            let ts = h.alloc_ts();
             let ack = Message::HandshakeAck(HandshakeAckPayload {
                 status: AckStatus::OK,
                 server_version: handshake.client_version, // echo back
@@ -198,11 +350,7 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
             stream.subscribers.insert(conn_id);
             if let Some(snap) = stream.latest_snapshot.clone() {
                 if let Some(tx) = h.conns.get(&conn_id).map(|c| c.tx.clone()) {
-                    let ts = {
-                        let t = h.next_ts;
-                        h.next_ts += 1;
-                        t
-                    };
+                    let ts = h.alloc_ts();
                     let pkt = encode_message(
                         Message::RmgStream {
                             rmg_id,
@@ -216,11 +364,7 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
         }
         Message::RmgStream { rmg_id, frame } => {
             let mut h = hub.lock().await;
-            let ts = {
-                let t = h.next_ts;
-                h.next_ts += 1;
-                t
-            };
+            let ts = h.alloc_ts();
             let stream = h.streams.entry(rmg_id).or_default();
             // enforce single producer
             if let Some(p) = stream.producer {
@@ -265,16 +409,15 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
         }
         Message::Notification(_) => {
             // Broadcast notifications globally
-            let mut h = hub.lock().await;
-            let ts = {
-                let t = h.next_ts;
-                h.next_ts += 1;
-                t
+            let (pkt, conns) = {
+                let mut h = hub.lock().await;
+                let ts = h.alloc_ts();
+                let pkt = encode_message(msg.clone(), ts)?;
+                let conns: Vec<_> = h.conns.values().map(|c| c.tx.clone()).collect();
+                (pkt, conns)
             };
-            let pkt = encode_message(msg, ts)?;
-            let h = hub.lock().await;
-            for conn in h.conns.values() {
-                let _ = conn.tx.send(pkt.clone()).await;
+            for tx in conns {
+                let _ = tx.send(pkt.clone()).await;
             }
         }
         Message::HandshakeAck(_) | Message::Error(_) => {

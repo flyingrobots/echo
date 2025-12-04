@@ -86,33 +86,8 @@ fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
                 })
                 .collect();
 
-            if entries.iter().all(|(k, _, _)| matches!(k, Value::Text(_))) {
-                let keys: Vec<String> = entries
-                    .iter()
-                    .map(|(k, _, _)| {
-                        if let Value::Text(s) = k {
-                            s.clone()
-                        } else {
-                            String::new()
-                        }
-                    })
-                    .collect();
-                if let Some(order) = known_order(&keys) {
-                    entries.sort_by(|(k1, _, _), (k2, _, _)| match (k1, k2) {
-                        (Value::Text(a), Value::Text(b)) => {
-                            ord_index(&order, a).cmp(&ord_index(&order, b))
-                        }
-                        _ => std::cmp::Ordering::Equal,
-                    });
-                } else {
-                    entries.sort_by(|(k1, _, _), (k2, _, _)| match (k1, k2) {
-                        (Value::Text(a), Value::Text(b)) => a.cmp(b),
-                        _ => std::cmp::Ordering::Equal,
-                    });
-                }
-            } else {
-                entries.sort_by(|a, b| a.2.cmp(&b.2));
-            }
+            // canonical sort by encoded key bytes
+            entries.sort_by(|a, b| a.2.cmp(&b.2));
 
             // dup check
             for win in entries.windows(2) {
@@ -311,31 +286,20 @@ fn dec_value(bytes: &[u8], idx: &mut usize, strict: bool) -> Result<Value> {
             let len = n as usize;
             let mut entries = Vec::with_capacity(len);
             let mut prev_bytes: Option<Vec<u8>> = None;
-            let mut prev_text: Option<Vec<u8>> = None;
             for _ in 0..len {
                 let key_start = *idx;
                 let key = dec_value(bytes, idx, strict)?;
                 let key_end = *idx;
                 let key_bytes = &bytes[key_start..key_end];
-                let key_text = if let Value::Text(s) = &key {
-                    Some(s.as_bytes().to_vec())
-                } else {
-                    None
-                };
                 let curr_bytes = key_bytes.to_vec();
                 if let Some(pb) = &prev_bytes {
-                    let ord = match (&prev_text, &key_text) {
-                        (Some(pt), Some(ct)) => pt.cmp(ct),
-                        _ => pb.cmp(&curr_bytes),
-                    };
-                    match ord {
+                    match pb.cmp(&curr_bytes) {
                         std::cmp::Ordering::Less => {}
                         std::cmp::Ordering::Equal => return Err(CanonError::MapKeyDuplicate),
                         std::cmp::Ordering::Greater => return Err(CanonError::MapKeyOrder),
                     }
                 }
                 prev_bytes = Some(curr_bytes);
-                prev_text = key_text.clone();
                 let val = dec_value(bytes, idx, strict)?;
                 entries.push((key, val));
             }
@@ -460,53 +424,6 @@ fn float_canonical_width(f: f64, width: u8) -> bool {
         return width == 32;
     }
     true // otherwise needs f64
-}
-
-fn known_order(keys: &[String]) -> Option<Vec<String>> {
-    let set: std::collections::BTreeSet<_> = keys.iter().cloned().collect();
-    if set.len() != keys.len() {
-        return None;
-    }
-    if set == std::collections::BTreeSet::from_iter(["op".into(), "ts".into(), "payload".into()]) {
-        return Some(vec!["op".into(), "ts".into(), "payload".into()]);
-    }
-    if set
-        == std::collections::BTreeSet::from_iter([
-            "code".into(),
-            "name".into(),
-            "details".into(),
-            "message".into(),
-        ])
-    {
-        return Some(vec![
-            "code".into(),
-            "name".into(),
-            "details".into(),
-            "message".into(),
-        ]);
-    }
-    if set
-        == std::collections::BTreeSet::from_iter([
-            "status".into(),
-            "server_version".into(),
-            "capabilities".into(),
-            "session_id".into(),
-            "error".into(),
-        ])
-    {
-        return Some(vec![
-            "status".into(),
-            "server_version".into(),
-            "capabilities".into(),
-            "session_id".into(),
-            "error".into(),
-        ]);
-    }
-    None
-}
-
-fn ord_index(order: &[String], key: &str) -> usize {
-    order.iter().position(|k| k == key).unwrap_or(order.len())
 }
 
 #[cfg(test)]

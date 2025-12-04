@@ -18,7 +18,7 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Refactor `rmg-viewer` to a pure rendering adapter: remove serde/directories usage; accept injected `ViewerPrefs`; emit prefs on exit.
 - [x] HUD toast renderer that consumes toasts supplied by core; no toast creation inside viewer.
 
-## P1 — Distributed session/service slice
+## P1 — Architecture (hex) + session slice
 - [x] Define `echo-session-proto` wire schema (Hello, RegisterRmg, RmgDiff/Snapshot, Command/Ack, Notification).
 - [x] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe. *(skeleton placeholder; transport TBD)*
 - [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
@@ -28,9 +28,13 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
 - [x] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(disconnect + error overlay now wired)*
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
+- [ ] Hex refactor inside viewer:
+  - Extract domain core/state machine + effects (pure transitions).
+  - Define ports/traits: SessionPort, RenderPort, ConfigPort (optional Clock/Perf).
+  - Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `main.rs` as composition only.
 
 ## P2 — Viewer UX & diagnostics
-- [ ] New state machine + screens:
+- [ ] New screen flows per spec:
   - Title: wordmark/version, menu (Connect / Settings / Exit).
   - Connect form: host/port/rmg-id; transitions to Connecting.
   - Settings overlay reused in Title/Viewer; Save/Back behaviors.

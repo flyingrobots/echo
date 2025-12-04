@@ -12,7 +12,7 @@ use echo_app_core::{
 };
 use echo_config_fs::FsConfigStore;
 use echo_graph::{RenderGraph as WireGraph, RmgFrame};
-use echo_session_client::{connect_channels, connect_channels_for};
+use echo_session_client::connect_channels_for;
 use echo_session_proto::{Notification, NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
@@ -31,7 +31,6 @@ use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
-use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
@@ -1172,22 +1171,37 @@ struct App {
     notif_rx: Option<std::sync::mpsc::Receiver<Notification>>, // incoming notifications from session hub
     rmg_rx: Option<std::sync::mpsc::Receiver<RmgFrame>>,       // incoming RMG frames
     screen: Screen,
-    session_path: String,
+    title_mode: TitleMode,
+    connect_host: String,
+    connect_port: u16,
     rmg_id: u64,
+    overlay: ViewerOverlay,
+    connect_log: Vec<String>,
     viewer: ViewerState,
 }
 
 #[derive(Clone, Debug)]
 enum Screen {
-    Title(TitleStatus),
+    Title,
+    Connecting,
     View,
     Error(String),
 }
 
 #[derive(Clone, Debug)]
-enum TitleStatus {
-    Connecting,
-    SessionStarted,
+enum TitleMode {
+    Menu,
+    ConnectForm,
+    Settings,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ViewerOverlay {
+    None,
+    Menu,
+    Settings,
+    Publish,
+    Subscribe,
 }
 
 impl App {
@@ -1221,9 +1235,6 @@ impl App {
         viewer.apply_prefs(&prefs);
 
         // Session notifications + RMG frames via session client (best-effort, non-fatal)
-        let (rmg_rx, notif_rx) = connect_channels_for("/tmp/echo-session.sock", 1);
-        let notif_rx = Some(notif_rx);
-        let rmg_rx = Some(rmg_rx);
         Self {
             window: None,
             gpu: None,
@@ -1232,11 +1243,15 @@ impl App {
             egui_renderer: None,
             config,
             toasts,
-            notif_rx,
-            rmg_rx,
-            screen: Screen::Title(TitleStatus::Connecting),
-            session_path: "/tmp/echo-session.sock".into(),
+            notif_rx: None,
+            rmg_rx: None,
+            screen: Screen::Title,
+            title_mode: TitleMode::Menu,
+            connect_host: "localhost".into(),
+            connect_port: 9000,
             rmg_id: 1,
+            overlay: ViewerOverlay::None,
+            connect_log: Vec::new(),
             viewer,
         }
     }
@@ -1342,13 +1357,14 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        let (Some(gpu), Some(egui_state), Some(egui_renderer), Some(win)) = (
-            &mut self.gpu,
-            &mut self.egui_state,
-            &mut self.egui_renderer,
-            self.window,
-        ) else {
+        let (Some(egui_state), Some(egui_renderer), Some(win)) =
+            (&mut self.egui_state, &mut self.egui_renderer, self.window)
+        else {
             return;
+        };
+        let (width_px, height_px) = match &self.gpu {
+            Some(g) => (g.config.width, g.config.height),
+            None => return,
         };
 
         // Drain any session notifications into the toast queue
@@ -1373,9 +1389,6 @@ impl ApplicationHandler for App {
                     std::time::Duration::from_secs(8),
                     Instant::now(),
                 );
-                if matches!(self.screen, Screen::Title(_)) {
-                    self.screen = Screen::Title(TitleStatus::SessionStarted);
-                }
             }
         }
 
@@ -1615,7 +1628,7 @@ impl ApplicationHandler for App {
             );
         }
 
-        let aspect = gpu.config.width as f32 / gpu.config.height as f32;
+        let aspect = width_px as f32 / height_px as f32;
         let view_proj = self.viewer.camera.view_proj(aspect);
 
         // Project debug arc line into screen space for egui overlay
@@ -1630,8 +1643,8 @@ impl ApplicationHandler for App {
                     Some(ndc)
                 };
                 if let (Some(na), Some(nb)) = (proj(a), proj(b)) {
-                    let w = gpu.config.width as f32 / win.scale_factor() as f32;
-                    let h = gpu.config.height as f32 / win.scale_factor() as f32;
+                    let w = width_px as f32 / win.scale_factor() as f32;
+                    let h = height_px as f32 / win.scale_factor() as f32;
                     let to_screen = |n: Vec3| egui::Pos2 {
                         x: (n.x * 0.5 + 0.5) * w,
                         y: (-n.y * 0.5 + 0.5) * h,
@@ -1650,208 +1663,23 @@ impl ApplicationHandler for App {
         let prev_vsync = self.viewer.vsync;
 
         let raw_input = egui_state.take_egui_input(win);
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            let toasts = &visible_toasts;
-
-            // Title / error overlay
-            match self.screen.clone() {
-                Screen::Title(status) => {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(80.0);
-                            ui.heading("Echo RMG Viewer");
-                            ui.label(match status {
-                                TitleStatus::Connecting => "Connecting to session...",
-                                TitleStatus::SessionStarted => {
-                                    "Session started; awaiting RMG stream..."
-                                }
-                            });
-                            ui.add_space(12.0);
-                            ui.horizontal(|ui| {
-                                ui.label("Session socket:");
-                                ui.text_edit_singleline(&mut self.session_path);
-                                ui.label("RMG id:");
-                                ui.add(egui::DragValue::new(&mut self.rmg_id).speed(1));
-                                if ui.button("Connect").clicked() {
-                                    let (rmg_rx, notif_rx) = connect_channels_for(
-                                        self.session_path.as_str(),
-                                        self.rmg_id,
-                                    );
-                                    self.rmg_rx = Some(rmg_rx);
-                                    self.notif_rx = Some(notif_rx);
-                                    self.screen = Screen::Title(TitleStatus::Connecting);
-                                }
-                            });
-                            ui.add_space(12.0);
-                            if ui.button("Use sample graph").clicked() {
-                                self.screen = Screen::View;
-                            }
-                        });
-                    });
+        let full_output = self
+            .egui_ctx
+            .run(raw_input, |ctx| match self.screen.clone() {
+                Screen::Title => {
+                    draw_title_screen(ctx, self);
+                }
+                Screen::Connecting => {
+                    draw_connecting_screen(ctx, &self.connect_log);
                 }
                 Screen::Error(msg) => {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(80.0);
-                            ui.heading("Desynced");
-                            ui.label(msg);
-                            ui.add_space(12.0);
-                            if ui.button("Reconnect").clicked() {
-                                let (rmg_rx, notif_rx) =
-                                    connect_channels(self.session_path.as_str());
-                                self.rmg_rx = Some(rmg_rx);
-                                self.notif_rx = Some(notif_rx);
-                                self.screen = Screen::Title(TitleStatus::Connecting);
-                            }
-                            if ui.button("Use sample graph").clicked() {
-                                self.rmg_rx = None;
-                                self.screen = Screen::View;
-                            }
-                        });
-                    });
+                    draw_error_screen(ctx, self, &msg);
                 }
-                Screen::View => {}
-            }
-            // HUD overlay (transparent, non-blocking feel)
-            let hud_frame = egui::Frame::new()
-                .fill(egui::Color32::from_rgba_unmultiplied(15, 15, 20, 150))
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(60)))
-                .inner_margin(egui::Margin::symmetric(8, 6));
+                Screen::View => {
+                    draw_view_hud(ctx, self, &visible_toasts, &debug_arc_screen);
+                }
+            });
 
-            egui::Area::new("hud_top_left".into())
-                .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
-                .interactable(true)
-                .show(ctx, |ui| {
-                    hud_frame.show(ui, |ui| {
-                        ui.label("Echo RMG Viewer 3D");
-                        ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
-                        ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
-                        ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
-                        ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
-                        ui.label(format!(
-                            "Cam pos: ({:.1},{:.1},{:.1})",
-                            self.viewer.camera.pos.x,
-                            self.viewer.camera.pos.y,
-                            self.viewer.camera.pos.z
-                        ));
-                        ui.separator();
-                        ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
-                        ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
-                        ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
-                        ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
-                        ui.checkbox(&mut self.viewer.vsync, "VSync");
-                        ui.collapsing("Help / Controls", |ui| {
-                            ui.label("WASD/QE: move");
-                            ui.label("Left drag: look");
-                            ui.label("Right drag: spin graph");
-                            ui.label("Wheel: FoV zoom");
-                            ui.label("Toggles: debug sphere/arc, invert axes, vsync");
-                        });
-                    });
-                });
-
-            egui::Area::new("hud_legend".into())
-                .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
-                .interactable(true)
-                .show(ctx, |ui| {
-                    hud_frame.show(ui, |ui| {
-                        ui.heading("Legend");
-                        let mut seen = HashSet::new();
-                        for n in &self.viewer.graph.nodes {
-                            if seen.insert(n.ty) {
-                                ui.horizontal(|ui| {
-                                    ui.colored_label(
-                                        egui::Color32::from_rgb(
-                                            (n.color[0] * 255.0) as u8,
-                                            (n.color[1] * 255.0) as u8,
-                                            (n.color[2] * 255.0) as u8,
-                                        ),
-                                        "⬤",
-                                    );
-                                    ui.label(format!("Type {}", hex::encode_upper(&n.ty.0[..4])));
-                                });
-                            }
-                        }
-                    });
-                });
-
-            if self.viewer.show_watermark {
-                let size = egui::vec2(280.0, 80.0);
-                let bytes = egui::ImageSource::Bytes {
-                    uri: Cow::Borrowed("bytes://echo.svg"),
-                    bytes: egui::load::Bytes::from(self.viewer.watermark_bytes.clone()),
-                };
-                let image = egui::Image::new(bytes)
-                    .fit_to_exact_size(size)
-                    .tint(egui::Color32::from_rgba_unmultiplied(255, 255, 255, 64));
-                egui::Area::new("hud_watermark".into())
-                    .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -12.0))
-                    .interactable(false)
-                    .show(ctx, |ui| {
-                        ui.add(image);
-                    });
-            }
-
-            if let Some((a, b)) = debug_arc_screen {
-                let stroke = egui::Stroke::new(4.0, egui::Color32::from_rgb(255, 50, 200));
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("debug_arc_line"),
-                ));
-                painter.line_segment([a, b], stroke);
-                painter.circle_filled(a, 6.0, egui::Color32::from_rgb(255, 200, 50));
-                painter.circle_filled(b, 6.0, egui::Color32::from_rgb(120, 200, 255));
-            }
-
-            // Toast overlay (bottom-right, non-interactive)
-            if !toasts.is_empty() {
-                egui::Area::new("toast_area".into())
-                    .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-18.0, -20.0))
-                    .interactable(false)
-                    .show(ctx, |ui| {
-                        ui.set_width(360.0);
-                        for toast in toasts.iter().rev() {
-                            let (bg, bar) = match toast.kind {
-                                ToastKind::Info => (
-                                    egui::Color32::from_rgba_unmultiplied(20, 40, 60, 210),
-                                    egui::Color32::from_rgb(80, 170, 255),
-                                ),
-                                ToastKind::Warn => (
-                                    egui::Color32::from_rgba_unmultiplied(60, 50, 20, 210),
-                                    egui::Color32::from_rgb(255, 190, 80),
-                                ),
-                                ToastKind::Error => (
-                                    egui::Color32::from_rgba_unmultiplied(60, 20, 20, 210),
-                                    egui::Color32::from_rgb(255, 90, 90),
-                                ),
-                            };
-                            egui::Frame::default()
-                                .fill(bg)
-                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(80)))
-                                .inner_margin(egui::Margin::symmetric(10, 8))
-                                .outer_margin(egui::Margin::symmetric(0, 6))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.colored_label(bar, "▌");
-                                        ui.vertical(|ui| {
-                                            ui.label(egui::RichText::new(&toast.title).strong());
-                                            if let Some(body) = &toast.body {
-                                                ui.label(body);
-                                            }
-                                            let progress = toast.progress.clamp(0.0, 1.0);
-                                            ui.add(
-                                                egui::ProgressBar::new(progress)
-                                                    .desired_width(320.0)
-                                                    .fill(bar)
-                                                    .show_percentage(),
-                                            );
-                                        });
-                                    });
-                                });
-                        }
-                    });
-            }
-        });
         egui_state.handle_platform_output(win, full_output.platform_output);
 
         if self.viewer.vsync != prev_vsync {
@@ -2101,4 +1929,162 @@ fn main() -> Result<()> {
     let mut app = App::new();
     event_loop.run_app(&mut app)?;
     Ok(())
+}
+
+fn draw_title_screen(ctx: &egui::Context, app: &mut App) {
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(80.0);
+            ui.heading("Echo RMG Viewer");
+            ui.label(format!("v{}", env!("CARGO_PKG_VERSION")));
+            ui.add_space(20.0);
+            match app.title_mode {
+                TitleMode::Menu => {
+                    if ui.button("Connect").clicked() {
+                        app.title_mode = TitleMode::ConnectForm;
+                    }
+                    if ui.button("Settings").clicked() {
+                        app.title_mode = TitleMode::Settings;
+                    }
+                    if ui.button("Exit").clicked() {
+                        std::process::exit(0);
+                    }
+                }
+                TitleMode::ConnectForm => {
+                    ui.label("Host:");
+                    ui.text_edit_singleline(&mut app.connect_host);
+                    ui.label("Port:");
+                    ui.add(egui::DragValue::new(&mut app.connect_port).speed(1));
+                    if ui.button("Connect").clicked() {
+                        // start connecting
+                        app.connect_log.clear();
+                        app.connect_log.push(format!(
+                            "Connecting to {}:{}",
+                            app.connect_host, app.connect_port
+                        ));
+                        let path = format!("{}:{}", app.connect_host, app.connect_port);
+                        let (rmg_rx, notif_rx) = connect_channels_for(&path, app.rmg_id);
+                        app.rmg_rx = Some(rmg_rx);
+                        app.notif_rx = Some(notif_rx);
+                        app.screen = Screen::Connecting;
+                        app.title_mode = TitleMode::Menu;
+                    }
+                    if ui.button("Back").clicked() {
+                        app.title_mode = TitleMode::Menu;
+                    }
+                }
+                TitleMode::Settings => {
+                    ui.label("(Placeholder settings)");
+                    if ui.button("Save").clicked() {
+                        app.title_mode = TitleMode::Menu;
+                    }
+                    if ui.button("Back").clicked() {
+                        app.title_mode = TitleMode::Menu;
+                    }
+                }
+            }
+        });
+    });
+}
+
+fn draw_connecting_screen(ctx: &egui::Context, log: &[String]) {
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(60.0);
+            ui.heading("Connecting...");
+            ui.add_space(10.0);
+            for line in log {
+                ui.label(line);
+            }
+            ui.add_space(20.0);
+            ui.label("ECHO");
+        });
+    });
+}
+
+fn draw_error_screen(ctx: &egui::Context, app: &mut App, msg: &str) {
+    egui::CentralPanel::default().show(ctx, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(80.0);
+            ui.heading("Error");
+            ui.label(msg);
+            ui.add_space(12.0);
+            if ui.button("Back to Title").clicked() {
+                app.screen = Screen::Title;
+                app.title_mode = TitleMode::Menu;
+            }
+        });
+    });
+}
+
+fn draw_view_hud(
+    ctx: &egui::Context,
+    app: &mut App,
+    toasts: &[echo_app_core::toast::ToastRender],
+    _debug_arc: &Option<(egui::Pos2, egui::Pos2)>,
+) {
+    // Menu button
+    egui::Area::new("menu_button".into())
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
+        .show(ctx, |ui| {
+            if ui.button("Menu").clicked() {
+                app.overlay = ViewerOverlay::Menu;
+            }
+        });
+
+    // Toasts stack (simple)
+    egui::Area::new("toasts".into())
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 12.0))
+        .show(ctx, |ui| {
+            for t in toasts {
+                ui.label(format!("{:?}: {}", t.kind, t.title));
+            }
+        });
+
+    // HUD panels
+    egui::Area::new("perf".into())
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
+        .show(ctx, |ui| {
+            ui.label(format!("FPS: {:.1}", app.viewer.perf.fps()));
+        });
+
+    egui::Area::new("controls".into())
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -50.0))
+        .show(ctx, |ui| {
+            ui.label("WASD/QE move, L-drag look, R-drag spin, Wheel zoom, Arrows cycle RMG");
+        });
+
+    egui::Area::new("stats".into())
+        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
+        .show(ctx, |ui| {
+            let epoch = app.viewer.epoch.unwrap_or(0);
+            ui.label(format!("RMG id {} | epoch {}", app.rmg_id, epoch));
+        });
+
+    egui::Area::new("watermark".into())
+        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
+        .show(ctx, |ui| {
+            ui.label(format!("ECHO v{}", env!("CARGO_PKG_VERSION")));
+        });
+
+    // Overlays
+    if let ViewerOverlay::Menu = app.overlay {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(40.0);
+                if ui.button("Settings").clicked() {
+                    app.overlay = ViewerOverlay::Settings;
+                }
+                if ui.button("Publish Local RMG").clicked() {
+                    app.overlay = ViewerOverlay::Publish;
+                }
+                if ui.button("Subscribe to RMG").clicked() {
+                    app.overlay = ViewerOverlay::Subscribe;
+                }
+                if ui.button("Back").clicked() {
+                    app.overlay = ViewerOverlay::None;
+                }
+            });
+        });
+    }
 }

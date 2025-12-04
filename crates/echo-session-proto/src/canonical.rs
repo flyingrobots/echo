@@ -508,3 +508,66 @@ fn known_order(keys: &[String]) -> Option<Vec<String>> {
 fn ord_index(order: &[String], key: &str) -> usize {
     order.iter().position(|k| k == key).unwrap_or(order.len())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ec03_minimal_int_widths() {
+        assert_eq!(encode_value(&Value::Integer(23)).unwrap()[0], 0x17);
+        assert_eq!(encode_value(&Value::Integer(24)).unwrap(), vec![0x18, 0x18]);
+        assert_eq!(
+            encode_value(&Value::Integer(255)).unwrap(),
+            vec![0x18, 0xff]
+        );
+        assert_eq!(
+            encode_value(&Value::Integer(256)).unwrap(),
+            vec![0x19, 0x01, 0x00]
+        );
+    }
+
+    #[test]
+    fn ec04_ints_not_floats_and_smallest_float_width() {
+        let one = encode_value(&Value::Float(1.0)).unwrap();
+        assert_eq!(one[0], 0x01); // encoded as integer
+
+        let half = encode_value(&Value::Float(0.5)).unwrap();
+        assert_eq!(half, vec![0xf9, 0x38, 0x00]); // half-float
+    }
+
+    #[test]
+    fn dc02_reject_indefinite() {
+        let bytes = vec![0x9f, 0x01, 0x02, 0xff];
+        let res = decode_value(&bytes);
+        assert!(matches!(res, Err(CanonError::Indefinite)));
+    }
+
+    #[test]
+    fn dc03_reject_non_canonical_int() {
+        let bytes = vec![0x19, 0x00, 0x01];
+        let res = decode_value(&bytes);
+        assert!(matches!(res, Err(CanonError::NonCanonicalInt)));
+    }
+
+    #[test]
+    fn dc04_reject_tag() {
+        let bytes = vec![0xc0, 0x00];
+        let res = decode_value(&bytes);
+        assert!(matches!(res, Err(CanonError::Tag)));
+    }
+
+    #[test]
+    fn dc05_reject_duplicate_keys() {
+        let bytes = vec![0xa2, 0x61, 0x61, 0x01, 0x61, 0x61, 0x02];
+        let res = decode_value(&bytes);
+        assert!(matches!(res, Err(CanonError::MapKeyDuplicate)));
+    }
+
+    #[test]
+    fn dc06_reject_wrong_order() {
+        let bytes = vec![0xa2, 0x61, 0x7a, 0x01, 0x61, 0x61, 0x01];
+        let res = decode_value(&bytes);
+        assert!(matches!(res, Err(CanonError::MapKeyOrder)));
+    }
+}

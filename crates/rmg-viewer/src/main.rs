@@ -7,6 +7,7 @@ use blake3::Hasher;
 use bytemuck::{Pod, Zeroable};
 use echo_app_core::{
     config::ConfigService,
+    config_port::ConfigPort,
     prefs::ViewerPrefs,
     toast::{ToastKind, ToastScope, ToastService},
 };
@@ -15,9 +16,6 @@ use echo_graph::{RenderGraph as WireGraph, RmgFrame};
 use echo_session_client::connect_channels_for;
 mod core;
 use core::{Screen, TitleMode, UiState};
-// reserved for future shared config wiring
-#[allow(unused_imports)]
-use echo_app_core::config_port::ConfigPort;
 mod session;
 use echo_session_proto::{NotifyKind, NotifyScope};
 use session::{SessionClient, SessionPort};
@@ -1178,7 +1176,7 @@ struct App {
     egui_ctx: egui::Context,
     egui_state: Option<EguiWinitState>,
     egui_renderer: Option<egui_wgpu::Renderer>,
-    config: Option<ConfigService<FsConfigStore>>,
+    config: Option<Box<dyn ConfigPort>>, // boxed to decouple from concrete store
     toasts: ToastService,
     session: SessionClient,
     ui: UiState,
@@ -1201,10 +1199,13 @@ impl App {
     fn new() -> Self {
         let egui_ctx = egui::Context::default();
         install_image_loaders(&egui_ctx);
-        let config = FsConfigStore::new().map(ConfigService::new).ok();
+        let config = FsConfigStore::new()
+            .map(ConfigService::new)
+            .map(|svc| Box::new(svc) as Box<dyn ConfigPort>)
+            .ok();
         let prefs = config
             .as_ref()
-            .and_then(|c| c.load::<ViewerPrefs>("viewer_prefs").ok().flatten())
+            .and_then(|c| c.load_prefs())
             .unwrap_or_default();
         let mut toasts = ToastService::new(32);
         if config.is_none() {
@@ -1294,16 +1295,7 @@ impl ApplicationHandler for App {
         match &mut event {
             WindowEvent::CloseRequested => {
                 if let Some(cfg) = &self.config {
-                    if let Err(e) = cfg.save("viewer_prefs", &self.viewer.export_prefs()) {
-                        self.toasts.push(
-                            ToastKind::Error,
-                            ToastScope::Local,
-                            "Failed to save viewer prefs",
-                            Some(format!("{e:#}")),
-                            std::time::Duration::from_secs(6),
-                            Instant::now(),
-                        );
-                    }
+                    cfg.save_prefs(&self.viewer.export_prefs());
                 }
                 std::process::exit(0);
             }

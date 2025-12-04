@@ -4,34 +4,14 @@
 
 The viewer must stay a rendering adapter. Session logic, persistence, and notifications live in shared core/service crates; the viewer only draws and emits UI events.
 
-## Done / Baseline
-- [x] Arrowheads offset stop at node radius (no penetration)
-- [x] VSync toggle in HUD (Immediate/AutoNoVsync vs Fifo)
-- [x] Help/controls overlay (WASD/QE, L-drag look, R-drag spin, wheel FoV, debug toggles)
-- [x] HUD watermark using `docs/assets/ECHO.svg`
-- [x] Anti-aliased lines/wireframe (MSAA)
-- [x] Persist camera + HUD debug settings between runs (temporary in-viewer impl)
-
 ## P0 — Architectural realignment (complete)
-- [x] Add `echo-app-core` crate with `ToastService`, `ConfigService`, ports (`NotificationSinkPort`, `ConfigStorePort`), and `ViewerPrefs` data.
-- [x] Add filesystem adapter (`echo-config-fs`) implementing `ConfigStorePort` (directories + serde_json).
-- [x] Refactor `rmg-viewer` to a pure rendering adapter: remove serde/directories usage; accept injected `ViewerPrefs`; emit prefs on exit.
-- [x] HUD toast renderer that consumes toasts supplied by core; no toast creation inside viewer.
 
 ## P1 — Architecture (hex) + session slice
-- [x] Define `echo-session-proto` wire schema (Hello, RegisterRmg, RmgDiff/Snapshot, Command/Ack, Notification).
-- [x] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe. *(skeleton placeholder; transport TBD)*
-- [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
-- [x] Introduce shared canonical `echo-graph` crate and move `RmgFrame`/`RmgOp`/`Snapshot`/`Diff` there; proto and viewer use it.
-- [x] Convert `rmg-viewer` to consume RMG streams + notifications via the session client (no direct socket/CBOR in viewer).
-- [x] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
-- [x] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
-- [x] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(disconnect + error overlay now wired)*
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 - [ ] Hex refactor inside viewer:
-  - [x] Extract domain UI/core state machine container (`UiState`) to separate module.
-  - [x] Encapsulate session IO channels in a `SessionClient` adapter (prep for SessionPort).
-  - [x] Define `SessionPort` trait and implement for session adapter; draining moved out of `about_to_wait` loops.
+  - [ ] Introduce `Viewport` wrapper (window + gpu + egui + render port); migrate App to `Vec<Viewport>` for future multi-window/multiview support. *(attempt paused; revisit)*
+  - [ ] Extract domain core/state machine + effects (pure transitions) into its own module; leave `main.rs` as composition only.
+  - [ ] Define RenderPort adapter usage (trait exists in core; viewer still calls winit directly) and remove raw redraw calls.
   - Extract domain core/state machine + effects (pure transitions).
   - Define ports/traits: RenderPort, ConfigPort (optional Clock/Perf).
   - Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `main.rs` as composition only.
@@ -60,3 +40,27 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 ## P4 — Later polish
 - [ ] Multi-light / HDR tonemap option.
 - [ ] VR-friendly camera roll + pose export.
+
+## Done
+- [x] Arrowheads offset stop at node radius (no penetration)
+- [x] VSync toggle in HUD (Immediate/AutoNoVsync vs Fifo)
+- [x] Help/controls overlay (WASD/QE, L-drag look, R-drag spin, wheel FoV, debug toggles)
+- [x] HUD watermark using `docs/assets/ECHO.svg`
+- [x] Anti-aliased lines/wireframe (MSAA)
+- [x] Persist camera + HUD debug settings between runs (temporary in-viewer impl)
+
+- [x] Add `echo-app-core` crate with `ToastService`, `ConfigService`, ports (`NotificationSinkPort`, `ConfigStorePort`), and `ViewerPrefs` data.
+- [x] Add filesystem adapter (`echo-config-fs`) implementing `ConfigStorePort` (directories + serde_json).
+- [x] Refactor `rmg-viewer` to a pure rendering adapter: remove serde/directories usage; accept injected `ViewerPrefs`; emit prefs on exit.
+- [x] HUD toast renderer that consumes toasts supplied by core; no toast creation inside viewer.
+- [x] Define `echo-session-proto` wire schema (Hello, RegisterRmg, RmgDiff/Snapshot, Command/Ack, Notification).
+- [x] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe. *(skeleton placeholder; transport TBD)*
+- [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
+- [x] Introduce shared canonical `echo-graph` crate and move `RmgFrame`/`RmgOp`/`Snapshot`/`Diff` there; proto and viewer use it.
+- [x] Convert `rmg-viewer` to consume RMG streams + notifications via the session client (no direct socket/CBOR in viewer).
+- [x] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
+- [x] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
+- [x] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(disconnect + error overlay now wired)*
+  - [x] Extract domain UI/core state machine container (`UiState`) to separate module.
+  - [x] Encapsulate session IO channels in a `SessionClient` adapter (prep for SessionPort).
+  - [x] Define `SessionPort` trait and implement for session adapter; draining moved out of `about_to_wait` loops.

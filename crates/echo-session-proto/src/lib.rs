@@ -166,9 +166,17 @@ pub enum Message {
     /// Protocol or processing error (op = "error").
     Error(ErrorPayload),
     /// Subscribe to a specific RMG stream (op = "subscribe_rmg").
-    SubscribeRmg { rmg_id: RmgId },
+    SubscribeRmg {
+        /// Identifier of the RMG stream to receive.
+        rmg_id: RmgId,
+    },
     /// RMG state frame (snapshot or diff) for a specific stream (op = "rmg_stream").
-    RmgStream { rmg_id: RmgId, frame: RmgFrame },
+    RmgStream {
+        /// Stream identifier.
+        rmg_id: RmgId,
+        /// Snapshot or diff.
+        frame: RmgFrame,
+    },
     /// Notification broadcast (op = "notification").
     Notification(Notification),
 }

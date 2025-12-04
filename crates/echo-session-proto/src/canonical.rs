@@ -89,11 +89,19 @@ fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
             if entries.iter().all(|(k, _, _)| matches!(k, Value::Text(_))) {
                 let keys: Vec<String> = entries
                     .iter()
-                    .map(|(k, _, _)| if let Value::Text(s) = k { s.clone() } else { String::new() })
+                    .map(|(k, _, _)| {
+                        if let Value::Text(s) = k {
+                            s.clone()
+                        } else {
+                            String::new()
+                        }
+                    })
                     .collect();
                 if let Some(order) = known_order(&keys) {
                     entries.sort_by(|(k1, _, _), (k2, _, _)| match (k1, k2) {
-                        (Value::Text(a), Value::Text(b)) => ord_index(&order, a).cmp(&ord_index(&order, b)),
+                        (Value::Text(a), Value::Text(b)) => {
+                            ord_index(&order, a).cmp(&ord_index(&order, b))
+                        }
                         _ => std::cmp::Ordering::Equal,
                     });
                 } else {
@@ -148,7 +156,11 @@ fn enc_float(f: f64, out: &mut Vec<u8>) {
     }
     if f.is_infinite() {
         // prefer half if fits, else f32, else f64
-        let h = if f.is_sign_positive() { f16::INFINITY } else { f16::NEG_INFINITY };
+        let h = if f.is_sign_positive() {
+            f16::INFINITY
+        } else {
+            f16::NEG_INFINITY
+        };
         write_half(h, out);
         return;
     }
@@ -247,19 +259,21 @@ fn dec_value(bytes: &[u8], idx: &mut usize, strict: bool) -> Result<Value> {
 
     let n = match ai {
         0..=23 => ai as u64,
-        24 => take_u(bytes, idx, 1) as u64,
-        25 => take_u(bytes, idx, 2) as u64,
-        26 => take_u(bytes, idx, 4) as u64,
-        27 => take_u(bytes, idx, 8) as u64,
+        24 => take_u(bytes, idx, 1),
+        25 => take_u(bytes, idx, 2),
+        26 => take_u(bytes, idx, 4),
+        27 => take_u(bytes, idx, 8),
         _ => return Err(CanonError::Decode("invalid additional info".into())),
     };
 
     match major {
-        0 => { // unsigned int
+        0 => {
+            // unsigned int
             check_min_int(ai, n, false, strict)?;
             Ok(int_to_value(n as u128, false))
         }
-        1 => { // negative
+        1 => {
+            // negative
             check_min_int(ai, n, true, strict)?;
             Ok(int_to_value(n as u128, true))
         }
@@ -360,7 +374,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize, strict: bool) -> Result<Value> {
                     Ok(Value::Float(f))
                 }
                 27 => {
-                    let bits = take_u(bytes, idx, 8) as u64;
+                    let bits = take_u(bytes, idx, 8);
                     let f = f64::from_bits(bits);
                     if strict && float_should_be_int(f) {
                         return Err(CanonError::FloatShouldBeInt);
@@ -402,7 +416,11 @@ fn check_min_int(ai: u8, n: u64, _negative: bool, strict: bool) -> Result<()> {
         27 => n > 0xffff_ffff,
         _ => false,
     };
-    if min_ok { Ok(()) } else { Err(CanonError::NonCanonicalInt) }
+    if min_ok {
+        Ok(())
+    } else {
+        Err(CanonError::NonCanonicalInt)
+    }
 }
 
 fn int_to_value(n: u128, negative: bool) -> Value {
@@ -422,7 +440,7 @@ fn float_should_be_int(f: f64) -> bool {
 fn fits_i128(f: f64) -> bool {
     const MAX: f64 = i128::MAX as f64;
     const MIN: f64 = i128::MIN as f64;
-    f >= MIN && f <= MAX
+    (MIN..=MAX).contains(&f)
 }
 
 fn float_canonical_width(f: f64, width: u8) -> bool {
@@ -452,21 +470,30 @@ fn known_order(keys: &[String]) -> Option<Vec<String>> {
     if set == std::collections::BTreeSet::from_iter(["op".into(), "ts".into(), "payload".into()]) {
         return Some(vec!["op".into(), "ts".into(), "payload".into()]);
     }
-    if set == std::collections::BTreeSet::from_iter([
-        "code".into(),
-        "name".into(),
-        "details".into(),
-        "message".into(),
-    ]) {
-        return Some(vec!["code".into(), "name".into(), "details".into(), "message".into()]);
+    if set
+        == std::collections::BTreeSet::from_iter([
+            "code".into(),
+            "name".into(),
+            "details".into(),
+            "message".into(),
+        ])
+    {
+        return Some(vec![
+            "code".into(),
+            "name".into(),
+            "details".into(),
+            "message".into(),
+        ]);
     }
-    if set == std::collections::BTreeSet::from_iter([
-        "status".into(),
-        "server_version".into(),
-        "capabilities".into(),
-        "session_id".into(),
-        "error".into(),
-    ]) {
+    if set
+        == std::collections::BTreeSet::from_iter([
+            "status".into(),
+            "server_version".into(),
+            "capabilities".into(),
+            "session_id".into(),
+            "error".into(),
+        ])
+    {
         return Some(vec![
             "status".into(),
             "server_version".into(),
@@ -479,8 +506,5 @@ fn known_order(keys: &[String]) -> Option<Vec<String>> {
 }
 
 fn ord_index(order: &[String], key: &str) -> usize {
-    order
-        .iter()
-        .position(|k| k == key)
-        .unwrap_or(order.len())
+    order.iter().position(|k| k == key).unwrap_or(order.len())
 }

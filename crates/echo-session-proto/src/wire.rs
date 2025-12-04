@@ -10,8 +10,8 @@
 //! * CHECKSUM = blake3-256 over HEADER (first 12 bytes) || PAYLOAD
 
 use blake3::Hasher;
-use serde::Serialize;
 use serde::de::Error as DeError;
+use serde::Serialize;
 use serde_cbor::Value;
 
 use crate::canonical::{decode_value, encode_value};
@@ -61,14 +61,21 @@ impl Packet {
         hasher.update(&payload);
         let checksum = *hasher.finalize().as_bytes();
 
-        Packet { header, payload, checksum }
+        Packet {
+            header,
+            payload,
+            checksum,
+        }
     }
 
     /// Encode an `OpEnvelope` into a full packet byte vector.
-    pub fn encode_envelope<P: Serialize>(env: &OpEnvelope<P>) -> Result<Vec<u8>, serde_cbor::Error> {
-    let payload = to_cbor(env)?;
+    pub fn encode_envelope<P: Serialize>(
+        env: &OpEnvelope<P>,
+    ) -> Result<Vec<u8>, serde_cbor::Error> {
+        let payload = to_cbor(env)?;
         let packet = Packet::from_payload(payload);
-        let mut out = Vec::with_capacity(packet.header.len() + packet.payload.len() + packet.checksum.len());
+        let mut out =
+            Vec::with_capacity(packet.header.len() + packet.payload.len() + packet.checksum.len());
         out.extend_from_slice(&packet.header);
         out.extend_from_slice(&packet.payload);
         out.extend_from_slice(&packet.checksum);
@@ -76,7 +83,9 @@ impl Packet {
     }
 
     /// Decode a packet from a byte slice, returning the envelope and bytes consumed.
-    pub fn decode_envelope<P: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<(OpEnvelope<P>, usize), serde_cbor::Error> {
+    pub fn decode_envelope<P: serde::de::DeserializeOwned>(
+        bytes: &[u8],
+    ) -> Result<(OpEnvelope<P>, usize), serde_cbor::Error> {
         if bytes.len() < 12 + 32 {
             return Err(serde_cbor::Error::custom("incomplete packet"));
         }
@@ -169,9 +178,9 @@ pub fn decode_message(bytes: &[u8]) -> Result<(Message, u64, usize), serde_cbor:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ErrorPayload, HandshakePayload};
     use hex::FromHex;
     use std::collections::BTreeMap;
-    use crate::{HandshakePayload, ErrorPayload};
 
     fn hex_to_vec(s: &str) -> Vec<u8> {
         let s_clean: String = s.split_whitespace().collect();
@@ -186,7 +195,11 @@ mod tests {
             agent_id: Some("example-agent".into()),
             session_meta: None,
         };
-        let env = OpEnvelope { op: "handshake".into(), ts: 0, payload: payload };
+        let env = OpEnvelope {
+            op: "handshake".into(),
+            ts: 0,
+            payload,
+        };
         let bytes = to_cbor(&env).unwrap();
         // Vector from ADR-0013 Appendix A (113 bytes)
         let expected_hex = "a3 62 6f 70 69 68 61 6e 64 73 68 61 6b 65 62 74 73 00 67 70 61 79 6c 6f 61 64 a4 68 61 67 65 6e 74 5f 69 64 6d 65 78 61 6d 70 6c 65 2d 61 67 65 6e 74 6c 63 61 70 61 62 69 6c 69 74 69 65 73 82 70 63 6f 6d 70 72 65 73 73 69 6f 6e 3a 7a 73 74 64 6f 73 74 72 65 61 6d 3a 73 75 62 67 72 61 70 68 6e 63 6c 69 65 6e 74 5f 76 65 72 73 69 6f 6e 01 6c 73 65 73 73 69 6f 6e 5f 6d 65 74 61 f6";
@@ -200,12 +213,19 @@ mod tests {
             code: 3,
             name: "E_BAD_PAYLOAD".into(),
             message: "Invalid CBOR payload".into(),
-            details: Some(serde_cbor::value::to_value(&BTreeMap::from([(
-                "hint".to_string(), serde_cbor::Value::Text("Check canonical encoding".into()),
-            )]))
-            .unwrap()),
+            details: Some(
+                serde_cbor::value::to_value(BTreeMap::from([(
+                    "hint".to_string(),
+                    serde_cbor::Value::Text("Check canonical encoding".into()),
+                )]))
+                .unwrap(),
+            ),
         };
-        let env = OpEnvelope { op: "error".into(), ts: 42, payload };
+        let env = OpEnvelope {
+            op: "error".into(),
+            ts: 42,
+            payload,
+        };
         let bytes = to_cbor(&env).unwrap();
         let expected_hex = "a3 62 6f 70 65 65 72 72 6f 72 62 74 73 18 2a 67 70 61 79 6c 6f 61 64 a4 64 63 6f 64 65 03 64 6e 61 6d 65 6d 45 5f 42 41 44 5f 50 41 59 4c 4f 41 44 67 64 65 74 61 69 6c 73 a1 64 68 69 6e 74 78 18 43 68 65 63 6b 20 63 61 6e 6f 6e 69 63 61 6c 20 65 6e 63 6f 64 69 6e 67 67 6d 65 73 73 61 67 65 74 49 6e 76 61 6c 69 64 20 43 42 4f 52 20 70 61 79 6c 6f 61 64";
         let expected = hex_to_vec(expected_hex);

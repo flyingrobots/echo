@@ -169,7 +169,11 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
         Message::Handshake(handshake) => {
             // accept all handshakes for now
             let mut h = hub.lock().await;
-            let ts = { let t = h.next_ts; h.next_ts += 1; t };
+            let ts = {
+                let t = h.next_ts;
+                h.next_ts += 1;
+                t
+            };
             let ack = Message::HandshakeAck(HandshakeAckPayload {
                 status: AckStatus::OK,
                 server_version: handshake.client_version, // echo back
@@ -194,7 +198,11 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
             stream.subscribers.insert(conn_id);
             if let Some(snap) = stream.latest_snapshot.clone() {
                 if let Some(tx) = h.conns.get(&conn_id).map(|c| c.tx.clone()) {
-                    let ts = { let t = h.next_ts; h.next_ts += 1; t };
+                    let ts = {
+                        let t = h.next_ts;
+                        h.next_ts += 1;
+                        t
+                    };
                     let pkt = encode_message(
                         Message::RmgStream {
                             rmg_id,
@@ -258,7 +266,11 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
         Message::Notification(_) => {
             // Broadcast notifications globally
             let mut h = hub.lock().await;
-            let ts = { let t = h.next_ts; h.next_ts += 1; t };
+            let ts = {
+                let t = h.next_ts;
+                h.next_ts += 1;
+                t
+            };
             let pkt = encode_message(msg, ts)?;
             let h = hub.lock().await;
             for conn in h.conns.values() {

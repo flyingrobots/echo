@@ -106,7 +106,8 @@ pub fn connect_channels(path: &str) -> (Receiver<RmgFrame>, Receiver<Notificatio
                 if stream.read_exact(&mut header).is_err() {
                     break;
                 }
-                let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+                let len =
+                    u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
                 let mut rest = vec![0u8; len + 32];
                 if stream.read_exact(&mut rest).is_err() {
                     break;
@@ -161,7 +162,8 @@ pub fn connect_channels_for(
                 if stream.read_exact(&mut header).is_err() {
                     break;
                 }
-                let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+                let len =
+                    u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
                 let mut rest = vec![0u8; len + 32];
                 if stream.read_exact(&mut rest).is_err() {
                     break;

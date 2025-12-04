@@ -8,7 +8,9 @@ members = [
     "crates/rmg-cli",
     "crates/rmg-geom",
     "crates/rmg-benches",
-    "crates/rmg-viewer"
+    "crates/rmg-viewer",
+    "crates/echo-app-core",
+    "crates/echo-config-fs"
 ]
 resolver = "2"
 

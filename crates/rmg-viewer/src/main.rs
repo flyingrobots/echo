@@ -5,9 +5,16 @@
 use anyhow::Result;
 use blake3::Hasher;
 use bytemuck::{Pod, Zeroable};
+use echo_app_core::{
+    config::ConfigService,
+    prefs::ViewerPrefs,
+    toast::{ToastKind, ToastScope, ToastService},
+};
+use echo_config_fs::FsConfigStore;
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
+use egui_winit::winit; // module alias for type paths
 use egui_winit::winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -16,7 +23,6 @@ use egui_winit::winit::{
     keyboard::KeyCode,
     window::{Window, WindowAttributes},
 };
-use egui_winit::winit; // module alias for type paths
 use egui_winit::State as EguiWinitState;
 use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
@@ -81,6 +87,57 @@ impl Default for ViewerState {
             show_watermark: true,
             watermark_bytes,
             vsync: false,
+        }
+    }
+}
+
+impl ViewerState {
+    fn apply_prefs(&mut self, cfg: &ViewerPrefs) {
+        let cam = &cfg.camera;
+        let q = Quat::from_xyzw(
+            cam.orientation[0],
+            cam.orientation[1],
+            cam.orientation[2],
+            cam.orientation[3],
+        );
+        if q.is_finite() && q.length_squared() > 0.0 {
+            self.camera.orientation = q.normalize();
+        }
+        if cam.pos.iter().all(|p| p.is_finite()) {
+            self.camera.pos = Vec3::from_array(cam.pos);
+        }
+        if cam.pitch.is_finite() {
+            self.camera.pitch = cam.pitch.clamp(-1.55, 1.55);
+        }
+        if cam.fov_y.is_finite() {
+            self.camera.fov_y = cam.fov_y.clamp(15f32.to_radians(), 120f32.to_radians());
+        }
+
+        let hud = &cfg.hud;
+        self.debug_show_sphere = hud.debug_show_sphere;
+        self.debug_show_arc = hud.debug_show_arc;
+        self.debug_invert_cam_x = hud.debug_invert_cam_x;
+        self.debug_invert_cam_y = hud.debug_invert_cam_y;
+        self.show_watermark = hud.show_watermark;
+        self.vsync = hud.vsync;
+    }
+
+    fn export_prefs(&self) -> ViewerPrefs {
+        ViewerPrefs {
+            camera: echo_app_core::prefs::CameraPrefs {
+                pos: self.camera.pos.to_array(),
+                orientation: self.camera.orientation.to_array(),
+                pitch: self.camera.pitch,
+                fov_y: self.camera.fov_y,
+            },
+            hud: echo_app_core::prefs::HudPrefs {
+                debug_show_sphere: self.debug_show_sphere,
+                debug_show_arc: self.debug_show_arc,
+                debug_invert_cam_x: self.debug_invert_cam_x,
+                debug_invert_cam_y: self.debug_invert_cam_y,
+                show_watermark: self.show_watermark,
+                vsync: self.vsync,
+            },
         }
     }
 }
@@ -164,8 +221,7 @@ impl RenderGraph {
     }
 
     fn bounding_radius(&self) -> f32 {
-        self
-            .nodes
+        self.nodes
             .iter()
             .map(|n| n.pos.length())
             .fold(0.0, f32::max)
@@ -234,8 +290,7 @@ impl Camera {
         // ndc in [-1,1] with y up
         let (f, r, u) = self.basis();
         let t = (self.fov_y * 0.5).tan();
-        let dir = (f + r * (ndc.x * t * aspect) + u * (ndc.y * t)).normalize();
-        dir
+        (f + r * (ndc.x * t * aspect) + u * (ndc.y * t)).normalize()
     }
 
     fn move_relative(&mut self, dir: Vec3) {
@@ -357,7 +412,8 @@ impl Gpu {
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("rmg-viewer-device"),
                 required_features: wgpu::Features::POLYGON_MODE_LINE,
-                required_limits: wgpu::Limits::downlevel_defaults().using_resolution(limits.clone()),
+                required_limits: wgpu::Limits::downlevel_defaults()
+                    .using_resolution(limits.clone()),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::default(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
@@ -376,7 +432,12 @@ impl Gpu {
             .present_modes
             .iter()
             .copied()
-            .find(|m| matches!(m, wgpu::PresentMode::Immediate | wgpu::PresentMode::AutoNoVsync))
+            .find(|m| {
+                matches!(
+                    m,
+                    wgpu::PresentMode::Immediate | wgpu::PresentMode::AutoNoVsync
+                )
+            })
             .unwrap_or(wgpu::PresentMode::Fifo);
         let pmode_vsync = caps
             .present_modes
@@ -476,11 +537,31 @@ impl Gpu {
                         array_stride: std::mem::size_of::<Instance>() as u64,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &[
-                            wgpu::VertexAttribute { shader_location: 2, offset: 0, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 3, offset: 16, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 4, offset: 32, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 5, offset: 48, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 6, offset: 64, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute {
+                                shader_location: 2,
+                                offset: 0,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 3,
+                                offset: 16,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 4,
+                                offset: 32,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 5,
+                                offset: 48,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 6,
+                                offset: 64,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
                         ],
                     },
                 ],
@@ -532,11 +613,31 @@ impl Gpu {
                         array_stride: std::mem::size_of::<Instance>() as u64,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &[
-                            wgpu::VertexAttribute { shader_location: 2, offset: 0, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 3, offset: 16, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 4, offset: 32, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 5, offset: 48, format: wgpu::VertexFormat::Float32x4 },
-                            wgpu::VertexAttribute { shader_location: 6, offset: 64, format: wgpu::VertexFormat::Float32x4 },
+                            wgpu::VertexAttribute {
+                                shader_location: 2,
+                                offset: 0,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 3,
+                                offset: 16,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 4,
+                                offset: 32,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 5,
+                                offset: 48,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
+                            wgpu::VertexAttribute {
+                                shader_location: 6,
+                                offset: 64,
+                                format: wgpu::VertexFormat::Float32x4,
+                            },
                         ],
                     },
                 ],
@@ -637,7 +738,11 @@ impl Gpu {
             instance_buf,
             edge_buf,
             bind_group,
-            pipelines: Pipelines { node, node_wire, edge },
+            pipelines: Pipelines {
+                node,
+                node_wire,
+                edge,
+            },
         })
     }
 
@@ -664,7 +769,11 @@ impl Gpu {
     }
 
     fn set_vsync(&mut self, on: bool) {
-        let mode = if on { self.pmode_vsync } else { self.pmode_fast };
+        let mode = if on {
+            self.pmode_vsync
+        } else {
+            self.pmode_fast
+        };
         if self.config.present_mode != mode {
             self.config.present_mode = mode;
             self.surface.configure(&self.device, &self.config);
@@ -966,6 +1075,8 @@ struct App {
     egui_ctx: egui::Context,
     egui_state: Option<EguiWinitState>,
     egui_renderer: Option<egui_wgpu::Renderer>,
+    config: Option<ConfigService<FsConfigStore>>,
+    toasts: ToastService,
     viewer: ViewerState,
 }
 
@@ -973,16 +1084,38 @@ impl App {
     fn new() -> Self {
         let egui_ctx = egui::Context::default();
         install_image_loaders(&egui_ctx);
+        let config = FsConfigStore::new().map(ConfigService::new).ok();
+        let prefs = config
+            .as_ref()
+            .and_then(|c| c.load::<ViewerPrefs>("viewer_prefs").ok().flatten())
+            .unwrap_or_default();
+        let mut toasts = ToastService::new(32);
+        if config.is_none() {
+            toasts.push(
+                ToastKind::Warn,
+                ToastScope::Local,
+                "Config store unavailable",
+                Some(String::from(
+                    "FsConfigStore init failed; prefs won't persist this session",
+                )),
+                std::time::Duration::from_secs(6),
+                Instant::now(),
+            );
+        }
+        let mut viewer = ViewerState {
+            graph: RenderGraph::from_store(&build_sample_graph()),
+            ..Default::default()
+        };
+        viewer.apply_prefs(&prefs);
         Self {
             window: None,
             gpu: None,
             egui_ctx,
             egui_state: None,
             egui_renderer: None,
-            viewer: ViewerState {
-                graph: RenderGraph::from_store(&build_sample_graph()),
-                ..Default::default()
-            },
+            config,
+            toasts,
+            viewer,
         }
     }
 }
@@ -1037,6 +1170,18 @@ impl ApplicationHandler for App {
 
         match &mut event {
             WindowEvent::CloseRequested => {
+                if let Some(cfg) = &self.config {
+                    if let Err(e) = cfg.save("viewer_prefs", &self.viewer.export_prefs()) {
+                        self.toasts.push(
+                            ToastKind::Error,
+                            ToastScope::Local,
+                            "Failed to save viewer prefs",
+                            Some(format!("{e:#}")),
+                            std::time::Duration::from_secs(6),
+                            Instant::now(),
+                        );
+                    }
+                }
                 std::process::exit(0);
             }
             WindowEvent::Resized(size) => gpu.resize(*size),
@@ -1086,6 +1231,9 @@ impl ApplicationHandler for App {
 
         let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);
         self.viewer.last_frame = Instant::now();
+        let now = self.viewer.last_frame;
+        self.toasts.retain_visible(now);
+        let visible_toasts = self.toasts.visible(now);
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
 
         let speed = if self.viewer.keys.contains(&KeyCode::ShiftLeft)
@@ -1208,9 +1356,11 @@ impl ApplicationHandler for App {
         if pointer.primary_down() && !self.egui_ctx.is_using_pointer() {
             let delta = self.egui_ctx.input(|i| i.pointer.delta());
             let d = glam::Vec2::new(delta.x, delta.y);
-            self.viewer
-                .camera
-                .rotate_by_mouse(d, self.viewer.debug_invert_cam_x, self.viewer.debug_invert_cam_y);
+            self.viewer.camera.rotate_by_mouse(
+                d,
+                self.viewer.debug_invert_cam_x,
+                self.viewer.debug_invert_cam_y,
+            );
         }
 
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
@@ -1230,11 +1380,9 @@ impl ApplicationHandler for App {
                 if let (Some(na), Some(nb)) = (proj(a), proj(b)) {
                     let w = gpu.config.width as f32 / win.scale_factor() as f32;
                     let h = gpu.config.height as f32 / win.scale_factor() as f32;
-                    let to_screen = |n: Vec3| {
-                        egui::Pos2 {
-                            x: (n.x * 0.5 + 0.5) * w,
-                            y: (-n.y * 0.5 + 0.5) * h,
-                        }
+                    let to_screen = |n: Vec3| egui::Pos2 {
+                        x: (n.x * 0.5 + 0.5) * w,
+                        y: (-n.y * 0.5 + 0.5) * h,
                     };
                     Some((to_screen(na), to_screen(nb)))
                 } else {
@@ -1251,6 +1399,7 @@ impl ApplicationHandler for App {
 
         let raw_input = egui_state.take_egui_input(win);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
+            let toasts = &visible_toasts;
             // HUD overlay (transparent, non-blocking feel)
             let hud_frame = egui::Frame::new()
                 .fill(egui::Color32::from_rgba_unmultiplied(15, 15, 20, 150))
@@ -1261,29 +1410,29 @@ impl ApplicationHandler for App {
                 .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
                 .interactable(true)
                 .show(ctx, |ui| {
-            hud_frame.show(ui, |ui| {
-                ui.label("Echo RMG Viewer 3D");
-                ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
-                ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
-                ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
-                ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
-                ui.label(format!(
-                    "Cam pos: ({:.1},{:.1},{:.1})",
-                    self.viewer.camera.pos.x,
-                    self.viewer.camera.pos.y,
-                    self.viewer.camera.pos.z
-                ));
-                ui.separator();
-                ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
-                ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
-                ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
-                ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
-                ui.checkbox(&mut self.viewer.vsync, "VSync");
-                ui.collapsing("Help / Controls", |ui| {
-                    ui.label("WASD/QE: move");
-                    ui.label("Left drag: look");
-                    ui.label("Right drag: spin graph");
-                    ui.label("Wheel: FoV zoom");
+                    hud_frame.show(ui, |ui| {
+                        ui.label("Echo RMG Viewer 3D");
+                        ui.label(format!("FPS: {:.1}", self.viewer.perf.fps()));
+                        ui.label(format!("Nodes: {}", self.viewer.graph.nodes.len()));
+                        ui.label(format!("Edges: {}", self.viewer.graph.edges.len()));
+                        ui.label(format!("Depth~: {}", self.viewer.graph.max_depth));
+                        ui.label(format!(
+                            "Cam pos: ({:.1},{:.1},{:.1})",
+                            self.viewer.camera.pos.x,
+                            self.viewer.camera.pos.y,
+                            self.viewer.camera.pos.z
+                        ));
+                        ui.separator();
+                        ui.checkbox(&mut self.viewer.debug_show_sphere, "Debug: bounding sphere");
+                        ui.checkbox(&mut self.viewer.debug_show_arc, "Debug: arc drag vector");
+                        ui.checkbox(&mut self.viewer.debug_invert_cam_x, "Debug: invert cam X");
+                        ui.checkbox(&mut self.viewer.debug_invert_cam_y, "Debug: invert cam Y");
+                        ui.checkbox(&mut self.viewer.vsync, "VSync");
+                        ui.collapsing("Help / Controls", |ui| {
+                            ui.label("WASD/QE: move");
+                            ui.label("Left drag: look");
+                            ui.label("Right drag: spin graph");
+                            ui.label("Wheel: FoV zoom");
                             ui.label("Toggles: debug sphere/arc, invert axes, vsync");
                         });
                     });
@@ -1341,6 +1490,55 @@ impl ApplicationHandler for App {
                 painter.circle_filled(a, 6.0, egui::Color32::from_rgb(255, 200, 50));
                 painter.circle_filled(b, 6.0, egui::Color32::from_rgb(120, 200, 255));
             }
+
+            // Toast overlay (bottom-right, non-interactive)
+            if !toasts.is_empty() {
+                egui::Area::new("toast_area".into())
+                    .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-18.0, -20.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        ui.set_width(360.0);
+                        for toast in toasts.iter().rev() {
+                            let (bg, bar) = match toast.kind {
+                                ToastKind::Info => (
+                                    egui::Color32::from_rgba_unmultiplied(20, 40, 60, 210),
+                                    egui::Color32::from_rgb(80, 170, 255),
+                                ),
+                                ToastKind::Warn => (
+                                    egui::Color32::from_rgba_unmultiplied(60, 50, 20, 210),
+                                    egui::Color32::from_rgb(255, 190, 80),
+                                ),
+                                ToastKind::Error => (
+                                    egui::Color32::from_rgba_unmultiplied(60, 20, 20, 210),
+                                    egui::Color32::from_rgb(255, 90, 90),
+                                ),
+                            };
+                            egui::Frame::default()
+                                .fill(bg)
+                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(80)))
+                                .inner_margin(egui::Margin::symmetric(10, 8))
+                                .outer_margin(egui::Margin::symmetric(0, 6))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(bar, "▌");
+                                        ui.vertical(|ui| {
+                                            ui.label(egui::RichText::new(&toast.title).strong());
+                                            if let Some(body) = &toast.body {
+                                                ui.label(body);
+                                            }
+                                            let progress = toast.progress.clamp(0.0, 1.0);
+                                            ui.add(
+                                                egui::ProgressBar::new(progress)
+                                                    .desired_width(320.0)
+                                                    .fill(bar)
+                                                    .show_percentage(),
+                                            );
+                                        });
+                                    });
+                                });
+                        }
+                    });
+            }
         });
         egui_state.handle_platform_output(win, full_output.platform_output);
 
@@ -1361,8 +1559,10 @@ impl ApplicationHandler for App {
         let mut instances = Vec::with_capacity(self.viewer.graph.nodes.len() + 1);
         for n in &self.viewer.graph.nodes {
             let world_pos = self.viewer.graph_rot * n.pos;
-            let model = (Mat4::from_translation(world_pos) * graph_rot * Mat4::from_scale(Vec3::splat(7.0)))
-                .to_cols_array_2d();
+            let model = (Mat4::from_translation(world_pos)
+                * graph_rot
+                * Mat4::from_scale(Vec3::splat(7.0)))
+            .to_cols_array_2d();
             instances.push(Instance {
                 model,
                 color: [n.color[0], n.color[1], n.color[2], 1.0],
@@ -1371,8 +1571,7 @@ impl ApplicationHandler for App {
         let node_instance_count = instances.len() as u32;
         let sphere_instance_offset = instances.len() as u32;
         if self.viewer.debug_show_sphere {
-            let model = (graph_rot * Mat4::from_scale(Vec3::splat(radius)))
-                .to_cols_array_2d();
+            let model = (graph_rot * Mat4::from_scale(Vec3::splat(radius))).to_cols_array_2d();
             instances.push(Instance {
                 model,
                 color: [1.0, 0.9, 0.2, 0.3],
@@ -1433,11 +1632,11 @@ impl ApplicationHandler for App {
             (&view, None)
         };
 
-        let mut encoder =
-            gpu.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("main-encoder"),
-                });
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("main-encoder"),
+            });
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1484,25 +1683,31 @@ impl ApplicationHandler for App {
             rpass.set_vertex_buffer(0, gpu.mesh_sphere.vbuf.slice(..));
             rpass.set_vertex_buffer(
                 1,
-                gpu.instance_buf.slice(
-                    ..(instances.len() as u64 * std::mem::size_of::<Instance>() as u64),
-                ),
+                gpu.instance_buf
+                    .slice(..(instances.len() as u64 * std::mem::size_of::<Instance>() as u64)),
             );
             rpass.set_index_buffer(gpu.mesh_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);
             rpass.draw_indexed(0..gpu.mesh_sphere.count, 0, 0..node_instance_count);
 
             // debug sphere using higher-poly mesh
             if self.viewer.debug_show_sphere {
-                let offset_bytes = sphere_instance_offset as u64 * std::mem::size_of::<Instance>() as u64;
+                let offset_bytes =
+                    sphere_instance_offset as u64 * std::mem::size_of::<Instance>() as u64;
                 rpass.set_vertex_buffer(0, gpu.mesh_debug_sphere.vbuf.slice(..));
                 rpass.set_vertex_buffer(1, gpu.instance_buf.slice(offset_bytes..));
-                rpass.set_index_buffer(gpu.mesh_debug_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+                rpass.set_index_buffer(
+                    gpu.mesh_debug_sphere.ibuf.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
                 rpass.draw_indexed(0..gpu.mesh_debug_sphere.count, 0, 0..1);
                 // wireframe overlay
                 rpass.set_pipeline(&gpu.pipelines.node_wire);
                 rpass.set_vertex_buffer(0, gpu.mesh_debug_sphere.vbuf.slice(..));
                 rpass.set_vertex_buffer(1, gpu.instance_buf.slice(offset_bytes..));
-                rpass.set_index_buffer(gpu.mesh_debug_sphere.ibuf.slice(..), wgpu::IndexFormat::Uint16);
+                rpass.set_index_buffer(
+                    gpu.mesh_debug_sphere.ibuf.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
                 rpass.draw_indexed(0..gpu.mesh_debug_sphere.count, 0, 0..1);
             }
         }
@@ -1541,12 +1746,12 @@ impl ApplicationHandler for App {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
                     depth_stencil_attachment: None,
                     occlusion_query_set: None,
                     timestamp_writes: None,
@@ -1576,7 +1781,10 @@ impl ApplicationHandler for App {
 // ------------------------------------------------------------
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt().with_target(false).without_time().init();
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .without_time()
+        .init();
     let event_loop = EventLoop::new()?;
     let mut app = App::new();
     event_loop.run_app(&mut app)?;

@@ -35,6 +35,24 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-03 — Recover rmg-viewer ROADMAP after VSCode crash
+
+- Goal: confirm whether roadmap edits were lost and restore the latest saved state.
+- Scope: `crates/rmg-viewer/ROADMAP.md` sanity check vs git.
+- Status: completed; file matches last commit (no recovery needed).
+
+> 2025-12-03 — Persist rmg-viewer camera + HUD settings between runs (COMPLETED)
+
+- Goal: write config load/save so camera + HUD toggles survive restarts.
+- Scope: `crates/rmg-viewer/src/main.rs`, add serde/directories deps; update roadmap/docs.
+- Status: completed; config saved to OS config dir `rmg-viewer.json`, loads on startup, saves on close.
+
+> 2025-12-03 — Extract core app services and refactor viewer (COMPLETED)
+
+- Goal: stop config/toast creep in rmg-viewer; introduce shared core + fs adapter; make viewer consume injected prefs.
+- Scope: new crates `echo-app-core` (ConfigService/ToastService/ViewerPrefs) and `echo-config-fs`; rewire `rmg-viewer` to use them and drop serde/directories.
+- Status: completed; prefs load/save via ConfigService+FsConfigStore; viewer owns only rendering + HUD state; toast rendering pending.
+
 > 2025-12-01 — LaTeX skeleton + booklets + onboarding/glossary (COMPLETED)
 
 - Goal: scaffold reusable LaTeX parts (master + per-shelf booklets), wire logos, and seed onboarding + glossary content for Orientation.

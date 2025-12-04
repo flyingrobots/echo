@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-session-service"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83.0"
+description = "Headless Echo session hub (skeleton)"
+repository = "https://github.com/flyingrobots/echo"
+readme = "../../README.md"
+keywords = ["echo", "session", "hub", "rmg"]
+categories = ["development-tools", "network-programming"]
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1.0"
+echo-session-proto = { path = "../echo-session-proto" }

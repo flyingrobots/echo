@@ -53,6 +53,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: new crates `echo-app-core` (ConfigService/ToastService/ViewerPrefs) and `echo-config-fs`; rewire `rmg-viewer` to use them and drop serde/directories.
 - Status: completed; prefs load/save via ConfigService+FsConfigStore; viewer owns only rendering + HUD state; toast rendering pending.
 
+> 2025-12-04 — Session proto/service/client skeleton (COMPLETED)
+
+- Goal: set up the distributed session slice with shared wire types and stub endpoints.
+- Scope: new crates `echo-session-proto` (messages), `echo-session-service` (stub hub), `echo-session-client` (stub API); roadmap/docs updates.
+- Status: completed; schema covers Hello/RegisterRmg/RmgDiff+Snapshot/Command+Ack/Notification; transport and viewer binding are next.
+
 > 2025-12-01 — LaTeX skeleton + booklets + onboarding/glossary (COMPLETED)
 
 - Goal: scaffold reusable LaTeX parts (master + per-shelf booklets), wire logos, and seed onboarding + glossary content for Orientation.

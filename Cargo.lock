@@ -696,6 +696,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-session-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "echo-session-proto",
+]
+
+[[package]]
+name = "echo-session-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "echo-session-service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "echo-session-proto",
+]
+
+[[package]]
 name = "ecolor"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

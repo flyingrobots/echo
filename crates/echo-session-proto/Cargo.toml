@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-session-proto"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83.0"
+description = "Wire schema for Echo session hub (RMG streams, commands, notifications)"
+repository = "https://github.com/flyingrobots/echo"
+readme = "../../README.md"
+keywords = ["echo", "session", "protocol", "rmg"]
+categories = ["development-tools", "network-programming"]
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }

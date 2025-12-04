@@ -20,9 +20,9 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
  - [x] HUD toast renderer that consumes toasts supplied by core; no toast creation inside viewer.
 
 ## P1 — Distributed session/service slice
-- [ ] Define `echo-session-proto` wire schema (Hello, RegisterRmg, RmgDiff/Snapshot, Command/Ack, Notification).
-- [ ] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe.
-- [ ] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback.
+- [x] Define `echo-session-proto` wire schema (Hello, RegisterRmg, RmgDiff/Snapshot, Command/Ack, Notification).
+- [x] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe. *(skeleton placeholder; transport TBD)*
+- [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
 - [ ] Convert `rmg-viewer` to consume RMG streams + notifications via client; keep sample graph as offline fallback.
 
 ## P2 — Viewer UX & diagnostics

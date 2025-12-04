@@ -10,7 +10,10 @@ members = [
     "crates/rmg-benches",
     "crates/rmg-viewer",
     "crates/echo-app-core",
-    "crates/echo-config-fs"
+    "crates/echo-config-fs",
+    "crates/echo-session-proto",
+    "crates/echo-session-service",
+    "crates/echo-session-client"
 ]
 resolver = "2"
 

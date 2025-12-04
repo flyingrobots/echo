@@ -11,6 +11,7 @@ use echo_app_core::{
     toast::{ToastKind, ToastScope, ToastService},
 };
 use echo_config_fs::FsConfigStore;
+use echo_session_proto::{Message, Notification, NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
@@ -30,6 +31,9 @@ use rmg_core::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::Read;
+use std::os::unix::net::UnixStream;
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -1077,6 +1081,7 @@ struct App {
     egui_renderer: Option<egui_wgpu::Renderer>,
     config: Option<ConfigService<FsConfigStore>>,
     toasts: ToastService,
+    notif_rx: Option<Receiver<Notification>>, // incoming notifications from session hub
     viewer: ViewerState,
 }
 
@@ -1107,6 +1112,9 @@ impl App {
             ..Default::default()
         };
         viewer.apply_prefs(&prefs);
+
+        // Session notifications via Unix socket (best-effort, non-fatal)
+        let notif_rx = spawn_session_notifier();
         Self {
             window: None,
             gpu: None,
@@ -1115,6 +1123,7 @@ impl App {
             egui_renderer: None,
             config,
             toasts,
+            notif_rx,
             viewer,
         }
     }
@@ -1228,6 +1237,31 @@ impl ApplicationHandler for App {
         ) else {
             return;
         };
+
+        // Drain any session notifications into the toast queue
+        if let Some(rx) = &self.notif_rx {
+            while let Ok(n) = rx.try_recv() {
+                let kind = match n.kind {
+                    NotifyKind::Info => ToastKind::Info,
+                    NotifyKind::Warn => ToastKind::Warn,
+                    NotifyKind::Error => ToastKind::Error,
+                };
+                let scope = match n.scope {
+                    NotifyScope::Global => ToastScope::Global,
+                    NotifyScope::Session(_) => ToastScope::Session,
+                    NotifyScope::Rmg(_) => ToastScope::Session,
+                    NotifyScope::Local => ToastScope::Local,
+                };
+                self.toasts.push(
+                    kind,
+                    scope,
+                    n.title,
+                    n.body,
+                    std::time::Duration::from_secs(8),
+                    Instant::now(),
+                );
+            }
+        }
 
         let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);
         self.viewer.last_frame = Instant::now();
@@ -1789,4 +1823,31 @@ fn main() -> Result<()> {
     let mut app = App::new();
     event_loop.run_app(&mut app)?;
     Ok(())
+}
+
+fn spawn_session_notifier() -> Option<Receiver<Notification>> {
+    let path = "/tmp/echo-session.sock";
+    let (tx, rx) = mpsc::channel();
+    // Spawn a blocking thread to read from the Unix socket.
+    let path_owned = path.to_string();
+    std::thread::spawn(move || {
+        if let Ok(mut stream) = UnixStream::connect(path_owned) {
+            // Best-effort: read frames in a loop
+            loop {
+                let mut len_buf = [0u8; 4];
+                if stream.read_exact(&mut len_buf).is_err() {
+                    break;
+                }
+                let len = u32::from_be_bytes(len_buf) as usize;
+                let mut body = vec![0u8; len];
+                if stream.read_exact(&mut body).is_err() {
+                    break;
+                }
+                if let Ok(Message::Notification(n)) = echo_session_proto::wire::from_cbor(&body) {
+                    let _ = tx.send(n);
+                }
+            }
+        }
+    });
+    Some(rx)
 }

@@ -2,7 +2,7 @@
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 \section{Echo RMG Viewer: State Machine \& UI}
 
-The RMG Viewer is a thin, rendering-first client. It connects to the Echo Session Host, subscribes to one or more RMG streams, and presents a minimal HUD over a 3D scene. This section fixes the viewer19s states, transitions, and on-screen layout so the implementation and the design stay in lockstep.
+The RMG Viewer is a thin, rendering-first client. It connects to the Echo Session Host, subscribes to one or more RMG streams, and presents a minimal HUD over a 3D scene. This section fixes the viewer's states, transitions, and on-screen layout so the implementation and the design stay in lockstep.
 
 \subsection{Overview}
 \begin{itemize}
@@ -133,4 +133,3 @@ Arrow keys adjust $\theta_\text{offset}$ to rotate the ring so a chosen RMG sits
   \item Error handling: on desync/hash mismatch, drop to Error or Title with a clear reconnect path; keep the watermark visible.
   \item All overlays reuse the same settings form (host/port, rmg id, HUD toggles) to avoid divergent UIs.
 \end{itemize}
-

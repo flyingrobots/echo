@@ -1333,122 +1333,118 @@ impl ApplicationHandler for App {
         };
 
         // Drain any session notifications into the toast queue
-        if let Some(rx) = self.session.notif_rx() {
-            while let Ok(n) = rx.try_recv() {
-                let kind = match n.kind {
-                    NotifyKind::Info => ToastKind::Info,
-                    NotifyKind::Warn => ToastKind::Warn,
-                    NotifyKind::Error => ToastKind::Error,
-                };
-                let scope = match n.scope {
-                    NotifyScope::Global => ToastScope::Global,
-                    NotifyScope::Session(_) => ToastScope::Session,
-                    NotifyScope::Rmg(_) => ToastScope::Session,
-                    NotifyScope::Local => ToastScope::Local,
-                };
-                self.toasts.push(
-                    kind,
-                    scope,
-                    n.title,
-                    n.body,
-                    std::time::Duration::from_secs(8),
-                    Instant::now(),
-                );
-            }
+        for n in self.session.drain_notifications(64) {
+            let kind = match n.kind {
+                NotifyKind::Info => ToastKind::Info,
+                NotifyKind::Warn => ToastKind::Warn,
+                NotifyKind::Error => ToastKind::Error,
+            };
+            let scope = match n.scope {
+                NotifyScope::Global => ToastScope::Global,
+                NotifyScope::Session(_) => ToastScope::Session,
+                NotifyScope::Rmg(_) => ToastScope::Session,
+                NotifyScope::Local => ToastScope::Local,
+            };
+            self.toasts.push(
+                kind,
+                scope,
+                n.title,
+                n.body,
+                std::time::Duration::from_secs(8),
+                Instant::now(),
+            );
         }
 
         // Drain RMG frames into wire graph and rebuild scene; enforce no gaps
         let mut desync: Option<String> = None;
-        if let Some(rx) = self.session.rmg_rx() {
-            while let Ok(frame) = rx.try_recv() {
-                match frame {
-                    RmgFrame::Snapshot(s) => {
-                        self.viewer.wire_graph = s.graph;
-                        self.viewer.epoch = Some(s.epoch);
-                        self.viewer
-                            .history
-                            .append(self.viewer.wire_graph.clone(), s.epoch);
-                        self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
-                        self.ui.screen = Screen::View;
-                        if let Some(expected) = s.state_hash {
-                            let actual = self.viewer.wire_graph.compute_hash();
-                            if actual != expected {
-                                self.toasts.push(
-                                    ToastKind::Error,
-                                    ToastScope::Local,
-                                    "Snapshot hash mismatch",
-                                    None,
-                                    std::time::Duration::from_secs(6),
-                                    Instant::now(),
-                                );
-                            }
-                        }
-                    }
-                    RmgFrame::Diff(d) => {
-                        let Some(epoch) = self.viewer.epoch else {
+        for frame in self.session.drain_frames(64) {
+            match frame {
+                RmgFrame::Snapshot(s) => {
+                    self.viewer.wire_graph = s.graph;
+                    self.viewer.epoch = Some(s.epoch);
+                    self.viewer
+                        .history
+                        .append(self.viewer.wire_graph.clone(), s.epoch);
+                    self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
+                    self.ui.screen = Screen::View;
+                    if let Some(expected) = s.state_hash {
+                        let actual = self.viewer.wire_graph.compute_hash();
+                        if actual != expected {
                             self.toasts.push(
                                 ToastKind::Error,
                                 ToastScope::Local,
-                                "Diff received before snapshot",
+                                "Snapshot hash mismatch",
                                 None,
                                 std::time::Duration::from_secs(6),
                                 Instant::now(),
                             );
-                            continue;
-                        };
-                        if d.from_epoch != epoch || d.to_epoch != epoch + 1 {
+                        }
+                    }
+                }
+                RmgFrame::Diff(d) => {
+                    let Some(epoch) = self.viewer.epoch else {
+                        self.toasts.push(
+                            ToastKind::Error,
+                            ToastScope::Local,
+                            "Diff received before snapshot",
+                            None,
+                            std::time::Duration::from_secs(6),
+                            Instant::now(),
+                        );
+                        continue;
+                    };
+                    if d.from_epoch != epoch || d.to_epoch != epoch + 1 {
+                        self.toasts.push(
+                            ToastKind::Error,
+                            ToastScope::Local,
+                            "Protocol violation: non-sequential diff",
+                            Some(format!(
+                                "from={}, to={}, local={}",
+                                d.from_epoch, d.to_epoch, epoch
+                            )),
+                            std::time::Duration::from_secs(8),
+                            Instant::now(),
+                        );
+                        desync = Some("Desynced (gap) — reconnect".into());
+                        break;
+                    }
+                    for op in d.ops {
+                        if let Err(err) = self.viewer.wire_graph.apply_op(op) {
                             self.toasts.push(
                                 ToastKind::Error,
                                 ToastScope::Local,
-                                "Protocol violation: non-sequential diff",
-                                Some(format!(
-                                    "from={}, to={}, local={}",
-                                    d.from_epoch, d.to_epoch, epoch
-                                )),
+                                "Failed applying RMG op",
+                                Some(format!("{err:#}")),
                                 std::time::Duration::from_secs(8),
                                 Instant::now(),
                             );
-                            desync = Some("Desynced (gap) — reconnect".into());
+                            desync = Some("Desynced (apply failed) — reconnect".into());
                             break;
                         }
-                        for op in d.ops {
-                            if let Err(err) = self.viewer.wire_graph.apply_op(op) {
-                                self.toasts.push(
-                                    ToastKind::Error,
-                                    ToastScope::Local,
-                                    "Failed applying RMG op",
-                                    Some(format!("{err:#}")),
-                                    std::time::Duration::from_secs(8),
-                                    Instant::now(),
-                                );
-                                desync = Some("Desynced (apply failed) — reconnect".into());
-                                break;
-                            }
-                        }
-                        if desync.is_some() {
-                            break;
-                        }
-                        self.viewer.epoch = Some(d.to_epoch);
-                        if let Some(expected) = d.state_hash {
-                            let actual = self.viewer.wire_graph.compute_hash();
-                            if actual != expected {
-                                self.toasts.push(
-                                    ToastKind::Error,
-                                    ToastScope::Local,
-                                    "State hash mismatch",
-                                    Some(format!("expected {:?}, got {:?}", expected, actual)),
-                                    std::time::Duration::from_secs(8),
-                                    Instant::now(),
-                                );
-                                desync = Some("Desynced (hash mismatch) — reconnect".into());
-                            }
-                        }
-                        self.viewer
-                            .history
-                            .append(self.viewer.wire_graph.clone(), d.to_epoch);
-                        self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
-                        self.ui.screen = Screen::View;
                     }
+                    if desync.is_some() {
+                        break;
+                    }
+                    self.viewer.epoch = Some(d.to_epoch);
+                    if let Some(expected) = d.state_hash {
+                        let actual = self.viewer.wire_graph.compute_hash();
+                        if actual != expected {
+                            self.toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "State hash mismatch",
+                                Some(format!("expected {:?}, got {:?}", expected, actual)),
+                                std::time::Duration::from_secs(8),
+                                Instant::now(),
+                            );
+                            desync = Some("Desynced (hash mismatch) — reconnect".into());
+                        }
+                    }
+                    self.viewer
+                        .history
+                        .append(self.viewer.wire_graph.clone(), d.to_epoch);
+                    self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
+                    self.ui.screen = Screen::View;
                 }
             }
         }
@@ -1891,7 +1887,6 @@ impl ApplicationHandler for App {
         win.request_redraw();
     }
 }
-
 // ------------------------------------------------------------
 // Main
 // ------------------------------------------------------------

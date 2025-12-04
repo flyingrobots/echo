@@ -22,12 +22,32 @@ impl SessionClient {
         self.notif_rx = Some(notif_rx);
     }
 
-    pub fn rmg_rx(&self) -> Option<&Receiver<RmgFrame>> {
-        self.rmg_rx.as_ref()
+    pub fn drain_notifications(&mut self, max: usize) -> Vec<Notification> {
+        let mut out = Vec::new();
+        if let Some(rx) = &self.notif_rx {
+            for _ in 0..max {
+                match rx.try_recv() {
+                    Ok(n) => out.push(n),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                }
+            }
+        }
+        out
     }
 
-    pub fn notif_rx(&self) -> Option<&Receiver<Notification>> {
-        self.notif_rx.as_ref()
+    pub fn drain_frames(&mut self, max: usize) -> Vec<RmgFrame> {
+        let mut out = Vec::new();
+        if let Some(rx) = &self.rmg_rx {
+            for _ in 0..max {
+                match rx.try_recv() {
+                    Ok(f) => out.push(f),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                }
+            }
+        }
+        out
     }
 
     pub fn clear_streams(&mut self) {

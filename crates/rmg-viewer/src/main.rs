@@ -9,6 +9,7 @@ use echo_app_core::{
     config::ConfigService,
     config_port::ConfigPort,
     prefs::ViewerPrefs,
+    render_port::RenderPort,
     toast::{ToastKind, ToastScope, ToastService},
 };
 use echo_config_fs::FsConfigStore;
@@ -16,6 +17,8 @@ use echo_graph::{RenderGraph as WireGraph, RmgFrame};
 use echo_session_client::connect_channels_for;
 mod core;
 use core::{Screen, TitleMode, UiState};
+mod render_port;
+use render_port::WinitRenderPort;
 mod session;
 use echo_session_proto::{NotifyKind, NotifyScope};
 use session::{SessionClient, SessionPort};
@@ -1177,6 +1180,7 @@ struct App {
     egui_state: Option<EguiWinitState>,
     egui_renderer: Option<egui_wgpu::Renderer>,
     config: Option<Box<dyn ConfigPort>>, // boxed to decouple from concrete store
+    render_port: Option<WinitRenderPort>,
     toasts: ToastService,
     session: SessionClient,
     ui: UiState,
@@ -1236,6 +1240,7 @@ impl App {
             egui_state: None,
             egui_renderer: None,
             config,
+            render_port: None,
             toasts,
             session: SessionClient::new(),
             ui: UiState::new(),
@@ -1257,6 +1262,7 @@ impl ApplicationHandler for App {
             )
             .expect("window");
         let window: &'static Window = Box::leak(Box::new(window));
+        self.render_port = Some(render_port::WinitRenderPort::new(window));
         self.window = Some(window);
 
         let gpu = pollster::block_on(Gpu::new(window)).expect("gpu init");
@@ -1893,7 +1899,11 @@ impl ApplicationHandler for App {
         let frame_ms = self.viewer.last_frame.elapsed().as_secs_f32() * 1000.0;
         self.viewer.perf.push(frame_ms);
 
-        win.request_redraw();
+        if let Some(rp) = &self.render_port {
+            rp.request_redraw();
+        } else {
+            win.request_redraw();
+        }
     }
 }
 // ------------------------------------------------------------

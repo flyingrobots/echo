@@ -31,6 +31,7 @@ wgpu = "27"
 echo-app-core = { path = "../echo-app-core" }
 echo-config-fs = { path = "../echo-config-fs" }
 echo-session-proto = { path = "../echo-session-proto" }
+echo-graph = { path = "../echo-graph" }
 tokio = { version = "1.41", features = ["rt", "macros", "time"] }
 
 [dev-dependencies]

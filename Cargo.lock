@@ -696,6 +696,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-graph"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "serde",
+ "serde_cbor",
+]
+
+[[package]]
 name = "echo-session-client"
 version = "0.1.0"
 dependencies = [
@@ -708,6 +718,7 @@ dependencies = [
 name = "echo-session-proto"
 version = "0.1.0"
 dependencies = [
+ "echo-graph",
  "serde",
  "serde_cbor",
 ]
@@ -2581,6 +2592,7 @@ dependencies = [
  "bytemuck",
  "echo-app-core",
  "echo-config-fs",
+ "echo-graph",
  "echo-session-proto",
  "egui 0.33.2",
  "egui-wgpu",

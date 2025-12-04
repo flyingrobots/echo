@@ -11,6 +11,7 @@ use echo_app_core::{
     toast::{ToastKind, ToastScope, ToastService},
 };
 use echo_config_fs::FsConfigStore;
+use echo_graph::{RenderGraph as WireGraph, RmgFrame};
 use echo_session_proto::{Notification, NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
@@ -27,10 +28,10 @@ use egui_winit::winit::{
 use egui_winit::State as EguiWinitState;
 use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
-    make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeId, NodeRecord, TypeId,
+    make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -42,8 +43,10 @@ mod session_adapter;
 // ------------------------------------------------------------
 
 struct ViewerState {
+    wire_graph: WireGraph,
     graph: RenderGraph,
     history: History,
+    epoch: Option<u64>,
     camera: Camera,
     perf: PerfStats,
     last_frame: Instant,
@@ -72,9 +75,13 @@ impl Default for ViewerState {
             .replace("stroke=\"#ffffff\"", "stroke=\"none\"")
             .replace("stroke=\"#FFF\"", "stroke=\"none\"");
         let watermark_bytes: Arc<[u8]> = svg_no_stroke.into_bytes().into();
+        let wire_graph = sample_wire_graph();
+        let graph = scene_from_wire(&wire_graph);
         Self {
-            graph: RenderGraph::default(),
+            wire_graph,
+            graph,
             history: History::default(),
+            epoch: None,
             camera: Camera::default(),
             perf: PerfStats::default(),
             last_frame: Instant::now(),
@@ -166,7 +173,7 @@ struct RenderGraph {
 #[derive(Clone, Debug, Default)]
 struct HistoryNode {
     #[allow(dead_code)]
-    graph: RenderGraph,
+    graph: WireGraph,
     #[allow(dead_code)]
     revision: u64,
     next: Option<Box<HistoryNode>>,
@@ -180,7 +187,7 @@ struct History {
 }
 
 impl History {
-    fn append(&mut self, graph: RenderGraph, revision: u64) {
+    fn append(&mut self, graph: WireGraph, revision: u64) {
         let node = Box::new(HistoryNode {
             graph,
             revision,
@@ -207,7 +214,7 @@ impl History {
     }
 
     #[allow(dead_code)]
-    fn latest(&self) -> Option<&RenderGraph> {
+    fn latest(&self) -> Option<&WireGraph> {
         let mut cur = self.head.as_ref()?;
         while let Some(n) = cur.next.as_ref() {
             cur = n;
@@ -216,38 +223,67 @@ impl History {
     }
 }
 
-impl RenderGraph {
-    fn from_store(store: &GraphStore) -> Self {
-        let mut nodes = Vec::new();
-        let mut id_to_idx = HashMap::new();
-        for (i, (id, node)) in store.iter_nodes().enumerate() {
-            id_to_idx.insert(*id, i);
-            nodes.push(RenderNode {
-                ty: node.ty,
-                color: hash_color(&node.ty),
-                pos: radial_pos(id),
-                vel: Vec3::ZERO,
+fn sample_wire_graph() -> WireGraph {
+    let store = build_sample_graph();
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    for (id, node) in store.iter_nodes() {
+        nodes.push(echo_graph::RenderNode {
+            id: id_to_u64(&id.0),
+            kind: echo_graph::NodeKind::Generic,
+            data: echo_graph::NodeData { raw: Vec::new() },
+        });
+        let _ = node; // silence
+    }
+    for (from, outs) in store.iter_edges() {
+        for e in outs {
+            edges.push(echo_graph::RenderEdge {
+                id: id_to_u64(&e.id.0),
+                src: id_to_u64(&from.0),
+                dst: id_to_u64(&e.to.0),
+                kind: echo_graph::EdgeKind::Generic,
+                data: echo_graph::EdgeData { raw: Vec::new() },
             });
         }
-        let mut edges = Vec::new();
-        for (from, outs) in store.iter_edges() {
-            let Some(&a) = id_to_idx.get(from) else {
-                continue;
-            };
-            for e in outs {
-                if let Some(&b) = id_to_idx.get(&e.to) {
-                    edges.push((a, b));
-                }
-            }
-        }
-        let max_depth = compute_depth(&edges, nodes.len());
-        Self {
-            nodes,
-            edges,
-            max_depth,
-        }
     }
+    WireGraph { nodes, edges }
+}
 
+fn id_to_u64(bytes: &[u8]) -> u64 {
+    let mut arr = [0u8; 8];
+    let take = bytes.len().min(8);
+    arr[..take].copy_from_slice(&bytes[..take]);
+    u64::from_le_bytes(arr)
+}
+
+fn scene_from_wire(w: &WireGraph) -> RenderGraph {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    for (i, n) in w.nodes.iter().enumerate() {
+        let pos = radial_pos_u64(i as u64);
+        let color = hash_color_u64(n.id);
+        nodes.push(RenderNode {
+            ty: make_type_id("node"),
+            color,
+            pos,
+            vel: Vec3::ZERO,
+        });
+    }
+    for e in &w.edges {
+        edges.push((
+            e.src as usize % nodes.len().max(1),
+            e.dst as usize % nodes.len().max(1),
+        ));
+    }
+    let max_depth = compute_depth(&edges, nodes.len());
+    RenderGraph {
+        nodes,
+        edges,
+        max_depth,
+    }
+}
+
+impl RenderGraph {
     fn step_layout(&mut self, dt: f32) {
         let n = self.nodes.len();
         if n == 0 {
@@ -983,9 +1019,9 @@ fn unit_uv_sphere(device: &wgpu::Device, segments: u32, rings: u32) -> Mesh {
     }
 }
 
-fn radial_pos(id: &NodeId) -> Vec3 {
+fn radial_pos_u64(id: u64) -> Vec3 {
     let mut h = Hasher::new();
-    h.update(&id.0);
+    h.update(&id.to_le_bytes());
     let bytes = h.finalize();
     let theta = u32::from_le_bytes(bytes.as_bytes()[0..4].try_into().unwrap()) as f32
         / u32::MAX as f32
@@ -1025,14 +1061,13 @@ fn compute_depth(edges: &[(usize, usize)], n: usize) -> usize {
     depth.into_iter().max().unwrap_or(0)
 }
 
-fn hash_color(ty: &TypeId) -> [f32; 3] {
-    let mut h = Hasher::new();
-    h.update(&ty.0);
-    let b = h.finalize();
+fn hash_color_u64(id: u64) -> [f32; 3] {
+    let h = blake3::hash(&id.to_be_bytes());
+    let b = h.as_bytes();
     [
-        b.as_bytes()[0] as f32 / 255.0,
-        b.as_bytes()[1] as f32 / 255.0,
-        b.as_bytes()[2] as f32 / 255.0,
+        b[0] as f32 / 255.0,
+        b[1] as f32 / 255.0,
+        b[2] as f32 / 255.0,
     ]
 }
 
@@ -1137,7 +1172,7 @@ struct App {
     config: Option<ConfigService<FsConfigStore>>,
     toasts: ToastService,
     notif_rx: Option<std::sync::mpsc::Receiver<Notification>>, // incoming notifications from session hub
-    rmg_rx: Option<std::sync::mpsc::Receiver<rmg_stream_adapter::RmgFrame>>, // incoming RMG frames
+    rmg_rx: Option<std::sync::mpsc::Receiver<RmgFrame>>,       // incoming RMG frames
     screen: Screen,
     session_path: String,
     viewer: ViewerState,
@@ -1178,11 +1213,11 @@ impl App {
             );
         }
         let mut viewer = ViewerState {
-            graph: RenderGraph::from_store(&build_sample_graph()),
             ..Default::default()
         };
-        // Seed history with sample graph revision 0
-        viewer.history.append(viewer.graph.clone(), 0);
+        viewer.graph = scene_from_wire(&viewer.wire_graph);
+        viewer.history.append(viewer.wire_graph.clone(), 0);
+        viewer.epoch = Some(0);
         viewer.apply_prefs(&prefs);
 
         // Session notifications via injected adapter (best-effort, non-fatal)
@@ -1342,20 +1377,91 @@ impl ApplicationHandler for App {
             }
         }
 
-        // Drain RMG frames into history; switch to View on first frame
+        // Drain RMG frames into wire graph and rebuild scene; enforce no gaps
         if let Some(rx) = &self.rmg_rx {
-            let mut got_frame = false;
             while let Ok(frame) = rx.try_recv() {
-                // TODO: decode real RMG graph; placeholder uses current graph clone
-                let graph = self.viewer.graph.clone();
-                self.viewer.history.append(graph, frame.revision);
-                got_frame = true;
-            }
-            if got_frame {
-                if let Some(latest) = self.viewer.history.latest() {
-                    self.viewer.graph = latest.clone();
+                match frame {
+                    RmgFrame::Snapshot(s) => {
+                        self.viewer.wire_graph = s.graph;
+                        self.viewer.epoch = Some(s.epoch);
+                        self.viewer
+                            .history
+                            .append(self.viewer.wire_graph.clone(), s.epoch);
+                        self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
+                        self.screen = Screen::View;
+                        if let Some(expected) = s.state_hash {
+                            let actual = self.viewer.wire_graph.compute_hash();
+                            if actual != expected {
+                                self.toasts.push(
+                                    ToastKind::Error,
+                                    ToastScope::Local,
+                                    "Snapshot hash mismatch",
+                                    None,
+                                    std::time::Duration::from_secs(6),
+                                    Instant::now(),
+                                );
+                            }
+                        }
+                    }
+                    RmgFrame::Diff(d) => {
+                        let Some(epoch) = self.viewer.epoch else {
+                            self.toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "Diff received before snapshot",
+                                None,
+                                std::time::Duration::from_secs(6),
+                                Instant::now(),
+                            );
+                            continue;
+                        };
+                        if d.from_epoch != epoch || d.to_epoch != epoch + 1 {
+                            self.toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "Protocol violation: non-sequential diff",
+                                Some(format!(
+                                    "from={}, to={}, local={}",
+                                    d.from_epoch, d.to_epoch, epoch
+                                )),
+                                std::time::Duration::from_secs(8),
+                                Instant::now(),
+                            );
+                            continue;
+                        }
+                        for op in d.ops {
+                            if let Err(err) = self.viewer.wire_graph.apply_op(op) {
+                                self.toasts.push(
+                                    ToastKind::Error,
+                                    ToastScope::Local,
+                                    "Failed applying RMG op",
+                                    Some(format!("{err:#}")),
+                                    std::time::Duration::from_secs(8),
+                                    Instant::now(),
+                                );
+                            }
+                        }
+                        self.viewer.epoch = Some(d.to_epoch);
+                        if let Some(expected) = d.state_hash {
+                            let actual = self.viewer.wire_graph.compute_hash();
+                            if actual != expected {
+                                self.toasts.push(
+                                    ToastKind::Error,
+                                    ToastScope::Local,
+                                    "State hash mismatch",
+                                    Some(format!("expected {:?}, got {:?}", expected, actual)),
+                                    std::time::Duration::from_secs(8),
+                                    Instant::now(),
+                                );
+                            }
+                        }
+                        self.viewer
+                            .history
+                            .append(self.viewer.wire_graph.clone(), d.to_epoch);
+                        self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
+                        self.screen = Screen::View;
+                    }
                 }
-                self.screen = Screen::View;
             }
         }
 

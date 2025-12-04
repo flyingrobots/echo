@@ -1,18 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [package]
-name = "echo-session-proto"
+name = "echo-graph"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.83.0"
-description = "Wire schema for Echo session hub (RMG streams, commands, notifications)"
+description = "Canonical renderable graph format for Echo (nodes/edges + payloads)"
 repository = "https://github.com/flyingrobots/echo"
 readme = "../../README.md"
-keywords = ["echo", "session", "protocol", "rmg"]
-categories = ["development-tools", "network-programming"]
+keywords = ["echo", "graph", "render"]
+categories = ["data-structures", "development-tools"]
 license = "Apache-2.0"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_cbor = "0.11"
-echo-graph = { path = "../echo-graph" }
+blake3 = "1.5"
+anyhow = "1.0"

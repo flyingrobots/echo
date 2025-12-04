@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! RMG stream adapter (Unix socket, CBOR-framed). Best-effort placeholder until real decoding.
 
-use echo_session_proto::{wire, Message};
+use echo_session_proto::{wire, Message, RmgFrame};
 use std::io::Read;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver};
@@ -10,15 +10,7 @@ use std::thread;
 
 const DEFAULT_SOCK: &str = "/tmp/echo-session.sock";
 
-/// Simplified frame representing incoming RMG data.
-#[derive(Debug, Clone)]
-pub struct RmgFrame {
-    pub revision: u64,
-    #[allow(dead_code)]
-    pub bytes: Vec<u8>,
-}
-
-/// Connect to the session hub and stream RMG snapshots/diffs.
+/// Connect to the session hub and stream RMG frames.
 pub fn connect_default() -> Receiver<RmgFrame> {
     let (tx, rx) = mpsc::channel();
     let path = DEFAULT_SOCK.to_string();
@@ -34,22 +26,8 @@ pub fn connect_default() -> Receiver<RmgFrame> {
                 if stream.read_exact(&mut body).is_err() {
                     break;
                 }
-                if let Ok(msg) = wire::from_cbor(&body) {
-                    match msg {
-                        Message::RmgSnapshot(s) => {
-                            let _ = tx.send(RmgFrame {
-                                revision: s.revision,
-                                bytes: s.bytes,
-                            });
-                        }
-                        Message::RmgDiff(d) => {
-                            let _ = tx.send(RmgFrame {
-                                revision: d.to_rev,
-                                bytes: d.bytes,
-                            });
-                        }
-                        _ => {}
-                    }
+                if let Ok(Message::Rmg(frame)) = wire::from_cbor(&body) {
+                    let _ = tx.send(frame);
                 }
             }
         }

@@ -13,7 +13,8 @@ members = [
     "crates/echo-config-fs",
     "crates/echo-session-proto",
     "crates/echo-session-service",
-    "crates/echo-session-client"
+    "crates/echo-session-client",
+    "crates/echo-graph"
 ]
 resolver = "2"
 

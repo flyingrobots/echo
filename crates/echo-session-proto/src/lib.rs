@@ -75,31 +75,43 @@ pub enum ClientKind {
 }
 
 /// Error payload used in error and handshake_ack responses.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ErrorPayload {
     /// Numeric error code (e.g., 1, 2, 500).
     pub code: u32,
     /// Stable identifier (e.g., "E_INVALID_OP").
     pub name: String,
     /// Optional machine-readable details.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_cbor::Value>,
     /// Human readable message.
     pub message: String,
+}
+
+impl serde::Serialize for ErrorPayload {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut m = serializer.serialize_map(Some(4))?;
+        m.serialize_entry("code", &self.code)?;
+        m.serialize_entry("name", &self.name)?;
+        m.serialize_entry("details", &self.details)?;
+        m.serialize_entry("message", &self.message)?;
+        m.end()
+    }
 }
 
 /// Handshake request payload (client → host).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HandshakePayload {
     /// Optional agent identifier.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     /// Capability identifiers (e.g., "compression:zstd").
     pub capabilities: Vec<String>,
     /// Implementation version (not wire version).
     pub client_version: u32,
     /// Optional free-form session metadata.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_meta: Option<BTreeMap<String, serde_cbor::Value>>,
 }
 

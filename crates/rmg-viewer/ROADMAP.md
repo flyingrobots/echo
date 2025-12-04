@@ -25,6 +25,9 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
 - [ ] Convert `rmg-viewer` to consume RMG streams + notifications via client; keep sample graph as offline fallback.
 - [ ] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
+- [ ] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
+- [ ] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch.
+- [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 
 ## P2 — Viewer UX & diagnostics
 - [ ] Perf overlay with FPS + frame-time graph (egui_plot) and basic CPU/GPU timings.

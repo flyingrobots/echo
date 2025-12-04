@@ -12,21 +12,21 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Anti-aliased lines/wireframe (MSAA)
 - [x] Persist camera + HUD debug settings between runs (temporary in-viewer impl)
 
-## P0 — Architectural realignment (in-process)
+## P0 — Architectural realignment (complete)
 - [x] Add `echo-app-core` crate with `ToastService`, `ConfigService`, ports (`NotificationSinkPort`, `ConfigStorePort`), and `ViewerPrefs` data.
 - [x] Add filesystem adapter (`echo-config-fs`) implementing `ConfigStorePort` (directories + serde_json).
 - [x] Refactor `rmg-viewer` to a pure rendering adapter: remove serde/directories usage; accept injected `ViewerPrefs`; emit prefs on exit.
-- [ ] HUD toast renderer that consumes toasts supplied by core; no toast creation inside viewer.
- - [x] HUD toast renderer that consumes toasts supplied by core; no toast creation inside viewer.
+- [x] HUD toast renderer that consumes toasts supplied by core; no toast creation inside viewer.
 
 ## P1 — Distributed session/service slice
 - [x] Define `echo-session-proto` wire schema (Hello, RegisterRmg, RmgDiff/Snapshot, Command/Ack, Notification).
 - [x] Ship `echo-session-service` (headless hub) hosting session/core services over Unix socket/pipe. *(skeleton placeholder; transport TBD)*
 - [x] Ship `echo-session-client` crate for tools (viewer, game, inspector) with local loopback fallback. *(stub APIs; transport TBD)*
-- [ ] Convert `rmg-viewer` to consume RMG streams + notifications via client; keep sample graph as offline fallback.
+- [x] Introduce shared canonical `echo-graph` crate and move `RmgFrame`/`RmgOp`/`Snapshot`/`Diff` there; proto and viewer use it.
+- [ ] Convert `rmg-viewer` to consume RMG streams + notifications via the session client (current: in-crate socket adapter).
 - [ ] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
 - [ ] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
-- [ ] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch.
+- [ ] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(apply path + hash check in place; still need disconnect + error UX)*
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 
 ## P2 — Viewer UX & diagnostics

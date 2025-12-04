@@ -34,6 +34,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
+mod rmg_stream_adapter;
 mod session_adapter;
 
 // ------------------------------------------------------------
@@ -1136,6 +1137,7 @@ struct App {
     config: Option<ConfigService<FsConfigStore>>,
     toasts: ToastService,
     notif_rx: Option<std::sync::mpsc::Receiver<Notification>>, // incoming notifications from session hub
+    rmg_rx: Option<std::sync::mpsc::Receiver<rmg_stream_adapter::RmgFrame>>, // incoming RMG frames
     screen: Screen,
     session_path: String,
     viewer: ViewerState,
@@ -1185,6 +1187,7 @@ impl App {
 
         // Session notifications via injected adapter (best-effort, non-fatal)
         let notif_rx = Some(session_adapter::connect_default());
+        let rmg_rx = Some(rmg_stream_adapter::connect_default());
         Self {
             window: None,
             gpu: None,
@@ -1194,6 +1197,7 @@ impl App {
             config,
             toasts,
             notif_rx,
+            rmg_rx,
             screen: Screen::Title(TitleStatus::Connecting),
             session_path: "/tmp/echo-session.sock".into(),
             viewer,
@@ -1335,6 +1339,23 @@ impl ApplicationHandler for App {
                 if matches!(self.screen, Screen::Title(_)) {
                     self.screen = Screen::Title(TitleStatus::SessionStarted);
                 }
+            }
+        }
+
+        // Drain RMG frames into history; switch to View on first frame
+        if let Some(rx) = &self.rmg_rx {
+            let mut got_frame = false;
+            while let Ok(frame) = rx.try_recv() {
+                // TODO: decode real RMG graph; placeholder uses current graph clone
+                let graph = self.viewer.graph.clone();
+                self.viewer.history.append(graph, frame.revision);
+                got_frame = true;
+            }
+            if got_frame {
+                if let Some(latest) = self.viewer.history.latest() {
+                    self.viewer.graph = latest.clone();
+                }
+                self.screen = Screen::View;
             }
         }
 

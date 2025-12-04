@@ -1,51 +1,76 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Client helper for talking to the Echo session hub (skeleton).
-//! Transport is intentionally abstract; today it is a no-op stub.
+//! Client helper for talking to the Echo session hub over Unix sockets (CBOR-framed).
 
 use anyhow::Result;
-use echo_session_proto::{Command, Message, Notification, RmgDiff, RmgSnapshot};
+use echo_session_proto::{wire::Packet, Command, Message, Notification, RmgDiff, RmgSnapshot};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
 
-/// Minimal client placeholder. Replace with real transport (Unix socket / TCP) later.
+/// Minimal async client over Unix sockets.
 pub struct SessionClient {
-    endpoint: String,
+    stream: UnixStream,
 }
 
 impl SessionClient {
-    /// Create a stub client targeting a given endpoint string (not used yet).
-    pub fn connect(endpoint: impl Into<String>) -> Result<Self> {
-        Ok(Self {
-            endpoint: endpoint.into(),
-        })
+    /// Connect to the hub at the given Unix socket path.
+    pub async fn connect(path: &str) -> Result<Self> {
+        let stream = UnixStream::connect(path).await?;
+        Ok(Self { stream })
     }
 
-    /// Publish an RMG diff (stub).
-    pub fn publish_diff(&self, _diff: RmgDiff) -> Result<()> {
+    /// Publish an RMG diff.
+    pub async fn publish_diff(&mut self, diff: RmgDiff) -> Result<()> {
+        let packet = Packet::encode(&Message::RmgDiff(diff))?;
+        self.stream.write_all(&packet).await?;
         Ok(())
     }
 
-    /// Publish an RMG snapshot (stub).
-    pub fn publish_snapshot(&self, _snap: RmgSnapshot) -> Result<()> {
+    /// Publish an RMG snapshot.
+    pub async fn publish_snapshot(&mut self, snap: RmgSnapshot) -> Result<()> {
+        let packet = Packet::encode(&Message::RmgSnapshot(snap))?;
+        self.stream.write_all(&packet).await?;
         Ok(())
     }
 
-    /// Send a command to the hub (stub).
-    pub fn send_command(&self, _cmd: Command) -> Result<()> {
+    /// Send a command to the hub.
+    pub async fn send_command(&mut self, cmd: Command) -> Result<()> {
+        let packet = Packet::encode(&Message::Command(cmd))?;
+        self.stream.write_all(&packet).await?;
         Ok(())
     }
 
-    /// Fetch any pending notifications (stub returns empty).
-    pub fn poll_notifications(&self) -> Result<Vec<Notification>> {
-        Ok(Vec::new())
+    /// Poll a single message if available (non-blocking). Returns Ok(None) when no complete frame is present.
+    pub async fn poll_message(&mut self) -> Result<Option<Message>> {
+        let mut len_buf = [0u8; 4];
+        let n = self.stream.read(&mut len_buf).await?;
+        if n == 0 {
+            return Ok(None);
+        }
+        if n < 4 {
+            // simplistic handling: treat incomplete header as no message
+            return Ok(None);
+        }
+        let len = u32::from_be_bytes(len_buf) as usize;
+        let mut body = vec![0u8; len];
+        self.stream.read_exact(&mut body).await?;
+        let msg = echo_session_proto::wire::from_cbor(&body)?;
+        Ok(Some(msg))
     }
 
-    /// Fetch any pending messages (stub returns empty).
-    pub fn poll_messages(&self) -> Result<Vec<Message>> {
-        Ok(Vec::new())
+    /// Convenience: drain messages until none are immediately available.
+    pub async fn poll_notifications(&mut self) -> Result<Vec<Notification>> {
+        let mut out = Vec::new();
+        while let Some(msg) = self.poll_message().await? {
+            if let Message::Notification(n) = msg {
+                out.push(n);
+            }
+        }
+        Ok(out)
     }
 
-    /// Endpoint string (for debugging).
-    pub fn endpoint(&self) -> &str {
-        &self.endpoint
+    /// Expose the underlying stream (e.g., for select!).
+    pub fn stream(&mut self) -> &mut UnixStream {
+        &mut self.stream
     }
 }

@@ -139,3 +139,5 @@ pub enum Message {
     /// Command acknowledgment.
     CommandAck(CommandAck),
 }
+
+pub mod wire;

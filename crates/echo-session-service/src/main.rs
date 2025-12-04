@@ -1,21 +1,60 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Skeleton headless session hub. Networking to be added later.
+//! Minimal Unix-socket CBOR hub skeleton.
 
 use anyhow::Result;
-use echo_session_proto::{Message, Notification, NotifyKind, NotifyScope};
+use echo_session_proto::{wire::Packet, Message, Notification, NotifyKind, NotifyScope};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{UnixListener, UnixStream};
+use tracing::{info, warn};
 
-fn main() -> Result<()> {
-    // Placeholder: in the future this will spin up the socket server and host the session core.
-    println!("echo-session-service: skeleton hub running (no transport yet)");
+const SOCKET_PATH: &str = "/tmp/echo-session.sock";
 
-    // Emit a dummy notification to show shape.
-    let _ = Message::Notification(Notification {
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
+    // Remove stale socket if present
+    let _ = std::fs::remove_file(SOCKET_PATH);
+    let listener = UnixListener::bind(SOCKET_PATH)?;
+    info!("session hub listening at {}", SOCKET_PATH);
+
+    loop {
+        let (stream, _) = listener.accept().await?;
+        tokio::spawn(async move {
+            if let Err(err) = handle_client(stream).await {
+                warn!(?err, "client handler error");
+            }
+        });
+    }
+}
+
+async fn handle_client(mut stream: UnixStream) -> Result<()> {
+    // Send a hello notification on connect (stub)
+    let hello = Message::Notification(Notification {
         kind: NotifyKind::Info,
         scope: NotifyScope::Global,
-        title: "Session service stub".into(),
-        body: Some("Transport not implemented yet.".into()),
+        title: "session-service".into(),
+        body: Some("stub transport online".into()),
     });
+    let packet = Packet::encode(&hello)?;
+    stream.write_all(&packet).await?;
 
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+        let n = stream.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        let slice = &buf[..n];
+        match Packet::decode(slice) {
+            Ok((msg, _used)) => {
+                info!(?msg, "received message (stub no-op)");
+            }
+            Err(err) => {
+                warn!(?err, "failed to decode packet");
+            }
+        }
+    }
     Ok(())
 }

@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
 
 async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<()> {
     // split stream
-    let (mut reader, mut writer) = tokio::io::split(stream);
+    let (mut reader, writer) = tokio::io::split(stream);
 
     // allocate conn id and outbox
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);

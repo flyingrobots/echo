@@ -10,10 +10,11 @@
 //! * CHECKSUM = blake3-256 over HEADER (first 12 bytes) || PAYLOAD
 
 use blake3::Hasher;
-use serde::{Deserialize, Serialize};
-use serde_cbor::Value;
+use serde::Serialize;
 use serde::de::Error as DeError;
+use serde_cbor::Value;
 
+use crate::canonical::{decode_value, encode_value};
 use crate::{Message, OpEnvelope, RmgStreamPayload, SubscribeRmgPayload};
 
 /// Protocol magic constant "JIT!".
@@ -23,14 +24,16 @@ pub const VERSION: u16 = 0x0001;
 /// Reserved flags (set to zero for v1).
 pub const FLAGS: u16 = 0x0000;
 
-/// Encode to CBOR bytes using serde_cbor (definite lengths by default).
+/// Encode to canonical CBOR bytes.
 pub fn to_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_cbor::Error> {
-    serde_cbor::to_vec(value)
+    let val: Value = serde_cbor::value::to_value(value)?;
+    encode_value(&val).map_err(|e| serde_cbor::Error::custom(e.to_string()))
 }
 
-/// Decode from CBOR bytes.
-pub fn from_cbor<'de, T: Deserialize<'de>>(bytes: &'de [u8]) -> Result<T, serde_cbor::Error> {
-    serde_cbor::from_slice(bytes)
+/// Decode from CBOR bytes with strict canonical validation.
+pub fn from_cbor<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_cbor::Error> {
+    let val = decode_value(bytes).map_err(|e| serde_cbor::Error::custom(e.to_string()))?;
+    serde_cbor::value::from_value(val)
 }
 
 /// A full JS-ABI packet (header + payload + checksum).
@@ -63,7 +66,7 @@ impl Packet {
 
     /// Encode an `OpEnvelope` into a full packet byte vector.
     pub fn encode_envelope<P: Serialize>(env: &OpEnvelope<P>) -> Result<Vec<u8>, serde_cbor::Error> {
-        let payload = to_cbor(env)?;
+    let payload = to_cbor(env)?;
         let packet = Packet::from_payload(payload);
         let mut out = Vec::with_capacity(packet.header.len() + packet.payload.len() + packet.checksum.len());
         out.extend_from_slice(&packet.header);
@@ -73,7 +76,7 @@ impl Packet {
     }
 
     /// Decode a packet from a byte slice, returning the envelope and bytes consumed.
-    pub fn decode_envelope<'de, P: Deserialize<'de>>(bytes: &'de [u8]) -> Result<(OpEnvelope<P>, usize), serde_cbor::Error> {
+    pub fn decode_envelope<P: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<(OpEnvelope<P>, usize), serde_cbor::Error> {
         if bytes.len() < 12 + 32 {
             return Err(serde_cbor::Error::custom("incomplete packet"));
         }
@@ -192,7 +195,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "serializer does not yet enforce canonical key ordering; needs canonical CBOR encoder"]
     fn canonical_error_payload_matches_vector() {
         let payload = ErrorPayload {
             code: 3,
@@ -205,8 +207,17 @@ mod tests {
         };
         let env = OpEnvelope { op: "error".into(), ts: 42, payload };
         let bytes = to_cbor(&env).unwrap();
-        let expected_hex = "a3 62 6f 70 65 65 72 72 6f 72 62 74 73 18 2a 67 70 61 79 6c 6f 61 64 a4 64 63 6f 64 65 03 64 6e 61 6d 65 6d 45 5f 42 41 44 5f 50 41 59 4c 4f 41 44 67 64 65 74 61 69 6c 73 a1 64 68 69 6e 74 78 18 43 68 65 63 6b 20 63 61 6e 6f 6e 69 63 61 6c 20 65 6e 63 6f 64 69 6e 67 67 6d 65 73 73 61 67 65 49 6e 76 61 6c 69 64 20 43 42 4f 52 20 70 61 79 6c 6f 61 64";
+        let expected_hex = "a3 62 6f 70 65 65 72 72 6f 72 62 74 73 18 2a 67 70 61 79 6c 6f 61 64 a4 64 63 6f 64 65 03 64 6e 61 6d 65 6d 45 5f 42 41 44 5f 50 41 59 4c 4f 41 44 67 64 65 74 61 69 6c 73 a1 64 68 69 6e 74 78 18 43 68 65 63 6b 20 63 61 6e 6f 6e 69 63 61 6c 20 65 6e 63 6f 64 69 6e 67 67 6d 65 73 73 61 67 65 74 49 6e 76 61 6c 69 64 20 43 42 4f 52 20 70 61 79 6c 6f 61 64";
         let expected = hex_to_vec(expected_hex);
         assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn broken_tv3_missing_value_length_is_rejected() {
+        // Spec typo (missing 0x74 before the message value)
+        let broken_hex = "a3 62 6f 70 65 65 72 72 6f 72 62 74 73 18 2a 67 70 61 79 6c 6f 61 64 a4 64 63 6f 64 65 03 64 6e 61 6d 65 6d 45 5f 42 41 44 5f 50 41 59 4c 4f 41 44 67 64 65 74 61 69 6c 73 a1 64 68 69 6e 74 78 18 43 68 65 63 6b 20 63 61 6e 6f 6e 69 63 61 6c 20 65 6e 63 6f 64 69 6e 67 67 6d 65 73 73 61 67 65 49 6e 76 61 6c 69 64 20 43 42 4f 52 20 70 61 79 6c 6f 61 64";
+        let broken = hex_to_vec(broken_hex);
+        let res = from_cbor::<serde_cbor::Value>(&broken);
+        assert!(res.is_err());
     }
 }

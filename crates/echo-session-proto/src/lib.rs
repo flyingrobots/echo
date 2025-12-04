@@ -5,6 +5,7 @@
 //! deterministic JS-ABI v1.0 OpEnvelopes (ADR/ARCH-0013).
 
 pub use echo_graph::*;
+mod canonical;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

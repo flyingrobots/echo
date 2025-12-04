@@ -4,5 +4,6 @@
 //! Keeps UI/runtime adapters thin and framework-agnostic.
 
 pub mod config;
+pub mod config_port;
 pub mod prefs;
 pub mod toast;

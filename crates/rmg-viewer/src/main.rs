@@ -15,11 +15,12 @@ use echo_graph::{RenderGraph as WireGraph, RmgFrame};
 use echo_session_client::connect_channels_for;
 mod core;
 use core::{Screen, TitleMode, UiState};
-mod ports;
+// reserved for future shared config wiring
 #[allow(unused_imports)]
-use ports::{ConfigPort, RenderPort, SessionPort};
+use echo_app_core::config_port::ConfigPort;
 mod session;
 use echo_session_proto::{NotifyKind, NotifyScope};
+use session::{SessionClient, SessionPort};
 mod ui;
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
@@ -38,7 +39,6 @@ use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
-use session::SessionClient;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;

@@ -13,6 +13,8 @@ use echo_app_core::{
 use echo_config_fs::FsConfigStore;
 use echo_graph::{RenderGraph as WireGraph, RmgFrame};
 use echo_session_client::connect_channels_for;
+mod core;
+use core::{Screen, TitleMode, UiState, ViewerOverlay};
 use echo_session_proto::{Notification, NotifyKind, NotifyScope};
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
@@ -1170,38 +1172,8 @@ struct App {
     toasts: ToastService,
     notif_rx: Option<std::sync::mpsc::Receiver<Notification>>, // incoming notifications from session hub
     rmg_rx: Option<std::sync::mpsc::Receiver<RmgFrame>>,       // incoming RMG frames
-    screen: Screen,
-    title_mode: TitleMode,
-    connect_host: String,
-    connect_port: u16,
-    rmg_id: u64,
-    overlay: ViewerOverlay,
-    connect_log: Vec<String>,
+    ui: UiState,
     viewer: ViewerState,
-}
-
-#[derive(Clone, Debug)]
-enum Screen {
-    Title,
-    Connecting,
-    View,
-    Error(String),
-}
-
-#[derive(Clone, Debug)]
-enum TitleMode {
-    Menu,
-    ConnectForm,
-    Settings,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum ViewerOverlay {
-    None,
-    Menu,
-    Settings,
-    Publish,
-    Subscribe,
 }
 
 impl App {
@@ -1245,13 +1217,7 @@ impl App {
             toasts,
             notif_rx: None,
             rmg_rx: None,
-            screen: Screen::Title,
-            title_mode: TitleMode::Menu,
-            connect_host: "localhost".into(),
-            connect_port: 9000,
-            rmg_id: 1,
-            overlay: ViewerOverlay::None,
-            connect_log: Vec::new(),
+            ui: UiState::new(),
             viewer,
         }
     }
@@ -1357,12 +1323,8 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        let (Some(egui_state), Some(egui_renderer), Some(win)) =
-            (&mut self.egui_state, &mut self.egui_renderer, self.window)
-        else {
-            return;
-        };
-        let (width_px, height_px) = match &self.gpu {
+        let Some(win) = self.window else { return };
+        let (width_px, height_px) = match self.gpu.as_ref() {
             Some(g) => (g.config.width, g.config.height),
             None => return,
         };
@@ -1404,7 +1366,7 @@ impl ApplicationHandler for App {
                             .history
                             .append(self.viewer.wire_graph.clone(), s.epoch);
                         self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
-                        self.screen = Screen::View;
+                        self.ui.screen = Screen::View;
                         if let Some(expected) = s.state_hash {
                             let actual = self.viewer.wire_graph.compute_hash();
                             if actual != expected {
@@ -1482,14 +1444,14 @@ impl ApplicationHandler for App {
                             .history
                             .append(self.viewer.wire_graph.clone(), d.to_epoch);
                         self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
-                        self.screen = Screen::View;
+                        self.ui.screen = Screen::View;
                     }
                 }
             }
         }
         if let Some(reason) = desync {
             self.rmg_rx = None;
-            self.screen = Screen::Error(reason);
+            self.ui.screen = Screen::Error(reason);
         }
 
         let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);
@@ -1497,7 +1459,7 @@ impl ApplicationHandler for App {
         let now = self.viewer.last_frame;
         self.toasts.retain_visible(now);
         let visible_toasts = self.toasts.visible(now);
-        let aspect = gpu.config.width as f32 / gpu.config.height as f32;
+        let aspect = width_px as f32 / height_px as f32;
 
         let speed = if self.viewer.keys.contains(&KeyCode::ShiftLeft)
             || self.viewer.keys.contains(&KeyCode::ShiftRight)
@@ -1527,13 +1489,13 @@ impl ApplicationHandler for App {
         }
         self.viewer.camera.move_relative(mv);
 
-        if matches!(self.screen, Screen::View) {
+        if matches!(self.ui.screen, Screen::View) {
             self.viewer.graph.step_layout(dt);
         }
 
         // Arcball spin: right-drag spins the graph; left-drag is FPS look.
         let pointer = self.egui_ctx.input(|i| i.pointer.clone());
-        let win_size = glam::Vec2::new(gpu.config.width as f32, gpu.config.height as f32);
+        let win_size = glam::Vec2::new(width_px as f32, height_px as f32);
         let pixels_per_point = win.scale_factor() as f32;
         let to_ndc = |pos: egui::Pos2| {
             let px = glam::Vec2::new(pos.x * pixels_per_point, pos.y * pixels_per_point);
@@ -1662,25 +1624,33 @@ impl ApplicationHandler for App {
 
         let prev_vsync = self.viewer.vsync;
 
-        let raw_input = egui_state.take_egui_input(win);
-        let full_output = self
-            .egui_ctx
-            .run(raw_input, |ctx| match self.screen.clone() {
-                Screen::Title => {
-                    draw_title_screen(ctx, self);
-                }
-                Screen::Connecting => {
-                    draw_connecting_screen(ctx, &self.connect_log);
-                }
-                Screen::Error(msg) => {
-                    draw_error_screen(ctx, self, &msg);
-                }
-                Screen::View => {
-                    draw_view_hud(ctx, self, &visible_toasts, &debug_arc_screen);
-                }
-            });
+        let raw_input = match self.egui_state.as_mut() {
+            Some(es) => es.take_egui_input(win),
+            None => return,
+        };
+        let egui_ctx = self.egui_ctx.clone();
+        let full_output = egui_ctx.run(raw_input, |ctx| match self.ui.screen.clone() {
+            Screen::Title => {
+                draw_title_screen(ctx, self);
+            }
+            Screen::Connecting => {
+                draw_connecting_screen(ctx, &self.ui.connect_log);
+            }
+            Screen::Error(msg) => {
+                draw_error_screen(ctx, self, &msg);
+            }
+            Screen::View => {
+                draw_view_hud(ctx, self, &visible_toasts, &debug_arc_screen);
+            }
+        });
 
-        egui_state.handle_platform_output(win, full_output.platform_output);
+        if let Some(es) = self.egui_state.as_mut() {
+            es.handle_platform_output(win, full_output.platform_output);
+        }
+
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
 
         if self.viewer.vsync != prev_vsync {
             gpu.set_vsync(self.viewer.vsync);
@@ -1862,6 +1832,9 @@ impl ApplicationHandler for App {
             .egui_ctx
             .tessellate(full_output.shapes, full_output.pixels_per_point);
         let textures_delta = full_output.textures_delta;
+        let Some(egui_renderer) = self.egui_renderer.as_mut() else {
+            return;
+        };
 
         let cmd_ui = {
             let mut egui_encoder =
@@ -1938,13 +1911,13 @@ fn draw_title_screen(ctx: &egui::Context, app: &mut App) {
             ui.heading("Echo RMG Viewer");
             ui.label(format!("v{}", env!("CARGO_PKG_VERSION")));
             ui.add_space(20.0);
-            match app.title_mode {
+            match app.ui.title_mode {
                 TitleMode::Menu => {
                     if ui.button("Connect").clicked() {
-                        app.title_mode = TitleMode::ConnectForm;
+                        app.ui.title_mode = TitleMode::ConnectForm;
                     }
                     if ui.button("Settings").clicked() {
-                        app.title_mode = TitleMode::Settings;
+                        app.ui.title_mode = TitleMode::Settings;
                     }
                     if ui.button("Exit").clicked() {
                         std::process::exit(0);
@@ -1952,34 +1925,34 @@ fn draw_title_screen(ctx: &egui::Context, app: &mut App) {
                 }
                 TitleMode::ConnectForm => {
                     ui.label("Host:");
-                    ui.text_edit_singleline(&mut app.connect_host);
+                    ui.text_edit_singleline(&mut app.ui.connect_host);
                     ui.label("Port:");
-                    ui.add(egui::DragValue::new(&mut app.connect_port).speed(1));
+                    ui.add(egui::DragValue::new(&mut app.ui.connect_port).speed(1));
                     if ui.button("Connect").clicked() {
                         // start connecting
-                        app.connect_log.clear();
-                        app.connect_log.push(format!(
+                        app.ui.connect_log.clear();
+                        app.ui.connect_log.push(format!(
                             "Connecting to {}:{}",
-                            app.connect_host, app.connect_port
+                            app.ui.connect_host, app.ui.connect_port
                         ));
-                        let path = format!("{}:{}", app.connect_host, app.connect_port);
-                        let (rmg_rx, notif_rx) = connect_channels_for(&path, app.rmg_id);
+                        let path = format!("{}:{}", app.ui.connect_host, app.ui.connect_port);
+                        let (rmg_rx, notif_rx) = connect_channels_for(&path, app.ui.rmg_id);
                         app.rmg_rx = Some(rmg_rx);
                         app.notif_rx = Some(notif_rx);
-                        app.screen = Screen::Connecting;
-                        app.title_mode = TitleMode::Menu;
+                        app.ui.screen = Screen::Connecting;
+                        app.ui.title_mode = TitleMode::Menu;
                     }
                     if ui.button("Back").clicked() {
-                        app.title_mode = TitleMode::Menu;
+                        app.ui.title_mode = TitleMode::Menu;
                     }
                 }
                 TitleMode::Settings => {
                     ui.label("(Placeholder settings)");
                     if ui.button("Save").clicked() {
-                        app.title_mode = TitleMode::Menu;
+                        app.ui.title_mode = TitleMode::Menu;
                     }
                     if ui.button("Back").clicked() {
-                        app.title_mode = TitleMode::Menu;
+                        app.ui.title_mode = TitleMode::Menu;
                     }
                 }
             }
@@ -2010,8 +1983,8 @@ fn draw_error_screen(ctx: &egui::Context, app: &mut App, msg: &str) {
             ui.label(msg);
             ui.add_space(12.0);
             if ui.button("Back to Title").clicked() {
-                app.screen = Screen::Title;
-                app.title_mode = TitleMode::Menu;
+                app.ui.screen = Screen::Title;
+                app.ui.title_mode = TitleMode::Menu;
             }
         });
     });
@@ -2028,7 +2001,7 @@ fn draw_view_hud(
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
         .show(ctx, |ui| {
             if ui.button("Menu").clicked() {
-                app.overlay = ViewerOverlay::Menu;
+                app.ui.overlay = ViewerOverlay::Menu;
             }
         });
 
@@ -2058,7 +2031,7 @@ fn draw_view_hud(
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
         .show(ctx, |ui| {
             let epoch = app.viewer.epoch.unwrap_or(0);
-            ui.label(format!("RMG id {} | epoch {}", app.rmg_id, epoch));
+            ui.label(format!("RMG id {} | epoch {}", app.ui.rmg_id, epoch));
         });
 
     egui::Area::new("watermark".into())
@@ -2068,21 +2041,21 @@ fn draw_view_hud(
         });
 
     // Overlays
-    if let ViewerOverlay::Menu = app.overlay {
+    if let ViewerOverlay::Menu = app.ui.overlay {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(40.0);
                 if ui.button("Settings").clicked() {
-                    app.overlay = ViewerOverlay::Settings;
+                    app.ui.overlay = ViewerOverlay::Settings;
                 }
                 if ui.button("Publish Local RMG").clicked() {
-                    app.overlay = ViewerOverlay::Publish;
+                    app.ui.overlay = ViewerOverlay::Publish;
                 }
                 if ui.button("Subscribe to RMG").clicked() {
-                    app.overlay = ViewerOverlay::Subscribe;
+                    app.ui.overlay = ViewerOverlay::Subscribe;
                 }
                 if ui.button("Back").clicked() {
-                    app.overlay = ViewerOverlay::None;
+                    app.ui.overlay = ViewerOverlay::None;
                 }
             });
         });

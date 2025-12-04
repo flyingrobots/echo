@@ -40,6 +40,8 @@ use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
+use serde::Deserialize;
+use serde_json;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
@@ -273,9 +275,25 @@ fn id_to_u64(bytes: &[u8]) -> u64 {
 fn scene_from_wire(w: &WireGraph) -> RenderGraph {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
+    #[derive(Deserialize)]
+    struct Payload {
+        #[serde(default)]
+        pos: Option<[f32; 3]>,
+        #[serde(default)]
+        color: Option<[f32; 3]>,
+    }
+
     for (i, n) in w.nodes.iter().enumerate() {
-        let pos = radial_pos_u64(i as u64);
-        let color = hash_color_u64(n.id);
+        let mut pos = radial_pos_u64(i as u64);
+        let mut color = hash_color_u64(n.id);
+        if let Ok(payload) = serde_json::from_slice::<Payload>(&n.data.raw) {
+            if let Some(p) = payload.pos {
+                pos = Vec3::from_array(p);
+            }
+            if let Some(c) = payload.color {
+                color = c;
+            }
+        }
         nodes.push(RenderNode {
             ty: make_type_id("node"),
             color,

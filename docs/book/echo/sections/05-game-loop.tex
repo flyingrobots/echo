@@ -1,30 +1,34 @@
 % SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-\section{The Game Loop}
+\chapter{The Game Loop}
 
 Echo's game loop is a rigid, phase-based pipeline designed to ensure causality and data consistency.
 
-\subsection{The Loop Phases}
+\section{The Loop Phases}
 
-\begin{tikzpicture}[
-    node distance=1cm,
-    phase/.style={rectangle, draw=black, fill=orange!10, thick, minimum width=3cm, align=center},
-    arrow/.style={->, thick, >=stealth}
-]
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[
+        node distance=1cm,
+        phase/.style={rectangle, draw=black, fill=orange!10, thick, minimum width=3cm, align=center},
+        arrow/.style={->, thick, >=stealth}
+    ]
 
-\node[phase] (pre) {1. Pre-Update \\ (Input Assimilation)};
-\node[phase, below=of pre] (update) {2. Update \\ (Graph Rewriting)};
-\node[phase, below=of update] (post) {3. Post-Update \\ (Cleanup)};
-\node[phase, below=of post] (render) {4. Render Prep \\ (FramePacket Gen)};
-\node[phase, below=of render] (flush) {5. Timeline Flush \\ (Commit / Persist)};
+    \node[phase] (pre) {1. Pre-Update \\ (Input Assimilation)};
+    \node[phase, below=of pre] (update) {2. Update \\ (Graph Rewriting)};
+    \node[phase, below=of update] (post) {3. Post-Update \\ (Cleanup)};
+    \node[phase, below=of post] (render) {4. Render Prep \\ (FramePacket Gen)};
+    \node[phase, below=of render] (flush) {5. Timeline Flush \\ (Commit / Persist)};
 
-\draw[arrow] (pre) -- (update);
-\draw[arrow] (update) -- (post);
-\draw[arrow] (post) -- (render);
-\draw[arrow] (render) -- (flush);
-\draw[arrow] (flush.east) -- ++(1,0) |- (pre.east);
+    \draw[arrow] (pre) -- (update);
+    \draw[arrow] (update) -- (post);
+    \draw[arrow] (post) -- (render);
+    \draw[arrow] (render) -- (flush);
+    \draw[arrow] (flush.east) -- ++(1,0) |- (pre.east);
 
-\end{tikzpicture}
+    \end{tikzpicture}
+    \caption[Game loop phases]{Echo's five-phase deterministic game loop.}
+\end{figure}
 
 \begin{enumerate}
     \item \textbf{Pre-Update:}
@@ -56,7 +60,7 @@ Echo's game loop is a rigid, phase-based pipeline designed to ensure causality a
         \end{itemize}
 \end{enumerate}
 
-\subsection{Graph Rewriting (The Scheduler)}
+\section{Graph Rewriting (The Scheduler)}
 
 Inside the \textbf{Update} phase, Echo does not just "loop over arrays." It performs \textbf{Graph Rewriting}.
 

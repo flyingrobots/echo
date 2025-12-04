@@ -3,9 +3,9 @@
 
 \chapter{ECS Storage Layout}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
-    \begin{tikzpicture}[>=stealth, node distance=1.2cm]
+\begin{tikzpicture}[>=stealth, node distance=1.2cm, scale=0.9, every node/.style={transform shape}]
         \tikzstyle{archetype}=[rectangle, draw, rounded corners, fill=gray!10, inner sep=6pt]
         \tikzstyle{column}=[rectangle, draw, minimum height=1cm, minimum width=1.5cm, fill=white]
         \node[archetype] (a0) {Archetype A (Position, Velocity)};
@@ -27,7 +27,7 @@
         \draw[->] (sparse) -- (posA);
         \draw[->] (sparse) -- (posB);
     \end{tikzpicture}
-    \caption{Archetypes store columnar component arrays; moving entities rewrites sparse maps and bumps the dirty index for deterministic diffs.}
+    \caption[Archetype move flow]{Archetypes store columnar component arrays; moving entities rewrites sparse maps\\ and bumps the dirty index for deterministic diffs.}
 \end{figure}
 
 Notes:

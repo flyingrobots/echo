@@ -718,7 +718,9 @@ dependencies = [
 name = "echo-session-proto"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "echo-graph",
+ "hex",
  "serde",
  "serde_cbor",
 ]
@@ -2608,6 +2610,8 @@ dependencies = [
  "hex",
  "pollster",
  "rmg-core",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

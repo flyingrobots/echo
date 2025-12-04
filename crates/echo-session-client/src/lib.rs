@@ -3,7 +3,10 @@
 //! Client helper for talking to the Echo session hub over Unix sockets (CBOR-framed).
 
 use anyhow::Result;
-use echo_session_proto::{ClientKind, Message, Notification, RmgFrame, RmgId};
+use echo_session_proto::{
+    wire::{decode_message, encode_message},
+    HandshakePayload, Message, Notification, RmgFrame, RmgId,
+};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver};
@@ -23,38 +26,37 @@ impl SessionClient {
         Ok(Self { stream })
     }
 
-    /// Send a hello message (client kind + protocol version).
-    pub async fn send_hello(&mut self, kind: ClientKind, version: u16) -> Result<()> {
-        let pkt = echo_session_proto::wire::Packet::encode(&Message::Hello {
-            protocol_version: version,
-            client_kind: kind,
-        })?;
+    /// Send a handshake message (JS-ABI v1.0).
+    pub async fn send_handshake(&mut self, payload: HandshakePayload) -> Result<()> {
+        let pkt = encode_message(Message::Handshake(payload), 0)?;
         self.stream.write_all(&pkt).await?;
         Ok(())
     }
 
     /// Subscribe to an RMG stream.
     pub async fn subscribe_rmg(&mut self, rmg_id: echo_session_proto::RmgId) -> Result<()> {
-        let pkt = echo_session_proto::wire::Packet::encode(&Message::SubscribeRmg { rmg_id })?;
+        let pkt = encode_message(Message::SubscribeRmg { rmg_id }, 0)?;
         self.stream.write_all(&pkt).await?;
         Ok(())
     }
 
     /// Poll a single message if available (non-blocking). Returns Ok(None) when no complete frame is present.
     pub async fn poll_message(&mut self) -> Result<Option<Message>> {
-        let mut len_buf = [0u8; 4];
-        let n = self.stream.read(&mut len_buf).await?;
+        let mut header = [0u8; 12];
+        let n = self.stream.read(&mut header).await?;
         if n == 0 {
             return Ok(None);
         }
-        if n < 4 {
-            // simplistic handling: treat incomplete header as no message
+        if n < 12 {
             return Ok(None);
         }
-        let len = u32::from_be_bytes(len_buf) as usize;
-        let mut body = vec![0u8; len];
-        self.stream.read_exact(&mut body).await?;
-        let msg = echo_session_proto::wire::from_cbor(&body)?;
+        let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+        let mut rest = vec![0u8; len + 32];
+        self.stream.read_exact(&mut rest).await?;
+        let mut packet = Vec::with_capacity(12 + len + 32);
+        packet.extend_from_slice(&header);
+        packet.extend_from_slice(&rest);
+        let (msg, _ts, _) = decode_message(&packet)?;
         Ok(Some(msg))
     }
 
@@ -84,34 +86,39 @@ pub fn connect_channels(path: &str) -> (Receiver<RmgFrame>, Receiver<Notificatio
 
     thread::spawn(move || {
         if let Ok(mut stream) = UnixStream::connect(path) {
-            // Send a hello and subscribe to default rmg_id 1 for simple consumers.
             let _ = stream.write_all(
-                &echo_session_proto::wire::Packet::encode(&Message::Hello {
-                    protocol_version: 1,
-                    client_kind: ClientKind::Viewer,
-                })
+                &encode_message(
+                    Message::Handshake(HandshakePayload {
+                        client_version: 1,
+                        capabilities: vec![],
+                        agent_id: None,
+                        session_meta: None,
+                    }),
+                    0,
+                )
                 .unwrap_or_default(),
             );
-            // Default subscribe to RMG 1
             let _ = stream.write_all(
-                &echo_session_proto::wire::Packet::encode(&Message::SubscribeRmg { rmg_id: 1 })
-                    .unwrap_or_default(),
+                &encode_message(Message::SubscribeRmg { rmg_id: 1 }, 0).unwrap_or_default(),
             );
             loop {
-                let mut len_buf = [0u8; 4];
-                if stream.read_exact(&mut len_buf).is_err() {
+                let mut header = [0u8; 12];
+                if stream.read_exact(&mut header).is_err() {
                     break;
                 }
-                let len = u32::from_be_bytes(len_buf) as usize;
-                let mut body = vec![0u8; len];
-                if stream.read_exact(&mut body).is_err() {
+                let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+                let mut rest = vec![0u8; len + 32];
+                if stream.read_exact(&mut rest).is_err() {
                     break;
                 }
-                match echo_session_proto::wire::from_cbor(&body) {
-                    Ok(Message::RmgStream { frame, .. }) => {
+                let mut packet = Vec::with_capacity(12 + len + 32);
+                packet.extend_from_slice(&header);
+                packet.extend_from_slice(&rest);
+                match decode_message(&packet) {
+                    Ok((Message::RmgStream { frame, .. }, _, _)) => {
                         let _ = rmg_tx.send(frame);
                     }
-                    Ok(Message::Notification(n)) => {
+                    Ok((Message::Notification(n), _, _)) => {
                         let _ = notif_tx.send(n);
                     }
                     _ => continue,
@@ -135,31 +142,38 @@ pub fn connect_channels_for(
     thread::spawn(move || {
         if let Ok(mut stream) = UnixStream::connect(path) {
             let _ = stream.write_all(
-                &echo_session_proto::wire::Packet::encode(&Message::Hello {
-                    protocol_version: 1,
-                    client_kind: ClientKind::Viewer,
-                })
+                &encode_message(
+                    Message::Handshake(HandshakePayload {
+                        client_version: 1,
+                        capabilities: vec![],
+                        agent_id: None,
+                        session_meta: None,
+                    }),
+                    0,
+                )
                 .unwrap_or_default(),
             );
             let _ = stream.write_all(
-                &echo_session_proto::wire::Packet::encode(&Message::SubscribeRmg { rmg_id })
-                    .unwrap_or_default(),
+                &encode_message(Message::SubscribeRmg { rmg_id }, 0).unwrap_or_default(),
             );
             loop {
-                let mut len_buf = [0u8; 4];
-                if stream.read_exact(&mut len_buf).is_err() {
+                let mut header = [0u8; 12];
+                if stream.read_exact(&mut header).is_err() {
                     break;
                 }
-                let len = u32::from_be_bytes(len_buf) as usize;
-                let mut body = vec![0u8; len];
-                if stream.read_exact(&mut body).is_err() {
+                let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+                let mut rest = vec![0u8; len + 32];
+                if stream.read_exact(&mut rest).is_err() {
                     break;
                 }
-                match echo_session_proto::wire::from_cbor(&body) {
-                    Ok(Message::RmgStream { frame, .. }) => {
+                let mut packet = Vec::with_capacity(12 + len + 32);
+                packet.extend_from_slice(&header);
+                packet.extend_from_slice(&rest);
+                match decode_message(&packet) {
+                    Ok((Message::RmgStream { frame, .. }, _, _)) => {
                         let _ = rmg_tx.send(frame);
                     }
-                    Ok(Message::Notification(n)) => {
+                    Ok((Message::Notification(n), _, _)) => {
                         let _ = notif_tx.send(n);
                     }
                     _ => continue,

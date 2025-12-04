@@ -1,10 +1,10 @@
 % SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-\section{Echo Editor Constellation of Services}
+\chapter{Echo Editor Constellation of Services}
 
 Echo’s tooling isn’t a single monolithic editor. Instead, we run a constellation of small, purpose-built tools around a shared \emph{Editor Service Hub}. Each tool speaks three channels: RMG state (diffs/snapshots), notifications/toasts, and commands/edits. The hub maintains session authority and causal ordering so every participant sees a consistent, deterministic timeline.
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     % Rendered in docs/book/echo/tikz/echo-engine-constallation.pdf (built from the standalone TikZ source)
     \includegraphics[width=\textwidth]{tikz/echo-engine-constallation.pdf}

@@ -14,7 +14,12 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{caption}
-\usepackage{hyperref}
+\usepackage[
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+]{hyperref}
 
 % SVG logos are pre-converted to PDF (graphics/ECHO.pdf, graphics/ECHO_chunky.pdf)
 \newcommand{\EchoLogo}{graphics/ECHO.pdf}
@@ -62,11 +67,7 @@
 
 \AtBeginDocument{%
     \hypersetup{
-        colorlinks=true,
-        linkcolor=blue,
-        urlcolor=blue,
-        citecolor=blue,
         pdftitle={\BookTitle: \BookSubtitle},
         pdfauthor={\BookAuthors}
-    }
+    }%
 }

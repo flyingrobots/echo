@@ -1,14 +1,14 @@
 % SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-\section{High-Level Architecture}
+\chapter{High-Level Architecture}
 
 Echo follows a strict \textbf{Hexagonal Architecture} (or Ports and Adapters pattern). The core domain logic sits in the center, isolated from the outside world.
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
-    \begin{tikzpicture}[
-        scale=0.95,
-        every node/.style={transform shape},
+\begin{tikzpicture}[
+    scale=0.8,
+    every node/.style={transform shape},
         node distance=1.4cm,
         core/.style={circle, draw=black, fill=blue!10, thick, minimum size=2.6cm},
         port/.style={rectangle, draw=black, fill=green!10, thick, minimum width=1.8cm, minimum height=0.9cm},
@@ -46,7 +46,7 @@ Echo follows a strict \textbf{Hexagonal Architecture} (or Ports and Adapters pat
     \label{fig:hex-arch}
 \end{figure}
 
-\subsection{Domain Layers}
+\section{Domain Layers}
 
 The architecture is stratified into clear layers:
 
@@ -67,7 +67,7 @@ The architecture is stratified into clear layers:
     \item \textbf{Codex's Baby (Event Bus):} A deterministic event bus used for communication between systems and for bridging the gap between the Core and the Ports.
 \end{enumerate}
 
-\subsection{Ports \& Adapters}
+\section{Ports \& Adapters}
 
 Echo does not define \textit{how} things happen, only \textit{that} they happen.
 
@@ -78,7 +78,7 @@ Echo does not define \textit{how} things happen, only \textit{that} they happen.
     \item \textbf{Networking Port:} Handles replication. Thanks to determinism, it can use state-snapshots or input-replication (GGPO).
 \end{itemize}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
     \begin{tikzpicture}[
         >=stealth,
@@ -117,7 +117,7 @@ Echo does not define \textit{how} things happen, only \textit{that} they happen.
         \draw[dashed, ->] (chk.west) to[bend left=12] (m3);
         \node[label, below=3mm of chk] {(commit hash)};
     \end{tikzpicture}
-    \caption{Git-style branching: Chronos is the main line, Kairos branches diverge and deterministically merge; checkpoints use snapshot hashes (Aion weighting optional).}
+    \caption[Branching timelines]{Git-style branching: Chronos is the main line, Kairos branches diverge and deterministically merge;\\ checkpoints use snapshot hashes (Aion weighting optional).}
     \label{fig:timeline-tree}
 \end{figure}
 

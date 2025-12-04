@@ -1,10 +1,10 @@
 % SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-\section{Deterministic Mathematics}
+\chapter{Deterministic Mathematics}
 
 The cornerstone of Echo's reliability is its deterministic math module. Standard IEEE 754 floating-point arithmetic is famously non-deterministic across different architectures and compiler optimizations.
 
-\subsection{The Hazards of Hardware Floats}
+\section{The Hazards of Hardware Floats}
 
 \begin{itemize}
     \item \textbf{NaN Payloads:} The bit pattern of `NaN` (Not a Number) is not fully specified. `0.0 / 0.0` might produce different bits on x86 vs ARM.
@@ -13,7 +13,7 @@ The cornerstone of Echo's reliability is its deterministic math module. Standard
     \item \textbf{Transcendental Functions:} `sin()`, `cos()`, `pow()` are often implemented in libc or hardware microcode, with varying precision.
 \end{itemize}
 
-\subsection{Echo's Current Float Wrapper: \texttt{F32Scalar}}
+\section{Echo's Current Float Wrapper: \texttt{F32Scalar}}
 
 Echo wraps `f32` in a strict type, `F32Scalar`, with the policies implemented today:
 
@@ -42,7 +42,7 @@ impl Ord for F32Scalar {
 }
 \end{lstlisting}
 
-\subsection{Geometric Types}
+\section{Geometric Types}
 
 Built on top of `F32Scalar` are the standard geometric types:
 \begin{itemize}
@@ -53,5 +53,5 @@ Built on top of `F32Scalar` are the standard geometric types:
 
 These types ensure that vector operations (dot product, cross product, matrix multiplication) propagate determinism.
 
-\subsection{Fixed Point Option}
+\section{Fixed Point Option}
 For environments where floating-point hardware is completely unreliable or missing, Echo supports a `DFix64` (Deterministic Fixed Point) backend. This uses `i64` to represent decimal numbers (e.g., 32 bits for integer, 32 bits for fraction).

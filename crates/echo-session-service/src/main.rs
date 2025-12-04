@@ -6,7 +6,10 @@ use anyhow::Result;
 use echo_app_core::config::ConfigService;
 use echo_config_fs::FsConfigStore;
 use echo_graph::{RmgFrame, RmgSnapshot};
-use echo_session_proto::{wire::Packet, Message, Notification, NotifyKind, NotifyScope, RmgId};
+use echo_session_proto::{
+    wire::{decode_message, encode_message},
+    AckStatus, HandshakeAckPayload, Message, RmgId,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -47,6 +50,7 @@ struct ConnState {
 #[derive(Default)]
 struct HubState {
     next_conn_id: u64,
+    next_ts: u64,
     streams: HashMap<RmgId, StreamState>,
     conns: HashMap<u64, ConnState>,
 }
@@ -110,14 +114,7 @@ async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<
     };
 
     // greet with stub notification before moving writer into task
-    let hello = Message::Notification(Notification {
-        kind: NotifyKind::Info,
-        scope: NotifyScope::Global,
-        title: "session-service".into(),
-        body: Some("stub transport online".into()),
-    });
-    let packet = Packet::encode(&hello)?;
-    writer.write_all(&packet).await?;
+    // no greeting; wait for handshake
 
     // writer task
     tokio::spawn(async move {
@@ -136,8 +133,8 @@ async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<
             break;
         }
         let slice = &buf[..n];
-        match Packet::decode(slice) {
-            Ok((msg, _used)) => {
+        match decode_message(slice) {
+            Ok((msg, _ts, _used)) => {
                 if let Err(err) = handle_message(msg, conn_id, &hub).await {
                     warn!(?err, "dropping connection {}", conn_id);
                     break;
@@ -169,8 +166,22 @@ async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<
 // Handle a single inbound message from a connection.
 async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) -> Result<()> {
     match msg {
-        Message::Hello { .. } => {
-            // nothing to do for now
+        Message::Handshake(handshake) => {
+            // accept all handshakes for now
+            let mut h = hub.lock().await;
+            let ts = { let t = h.next_ts; h.next_ts += 1; t };
+            let ack = Message::HandshakeAck(HandshakeAckPayload {
+                status: AckStatus::OK,
+                server_version: handshake.client_version, // echo back
+                capabilities: handshake.capabilities.clone(),
+                session_id: "default".into(),
+                error: None,
+            });
+            // send ack
+            if let Some(conn) = h.conns.get(&conn_id) {
+                let pkt = encode_message(ack, ts)?;
+                let _ = conn.tx.send(pkt).await;
+            }
         }
         Message::SubscribeRmg { rmg_id } => {
             let mut h = hub.lock().await;
@@ -183,16 +194,25 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
             stream.subscribers.insert(conn_id);
             if let Some(snap) = stream.latest_snapshot.clone() {
                 if let Some(tx) = h.conns.get(&conn_id).map(|c| c.tx.clone()) {
-                    let pkt = Packet::encode(&Message::RmgStream {
-                        rmg_id,
-                        frame: RmgFrame::Snapshot(snap),
-                    })?;
+                    let ts = { let t = h.next_ts; h.next_ts += 1; t };
+                    let pkt = encode_message(
+                        Message::RmgStream {
+                            rmg_id,
+                            frame: RmgFrame::Snapshot(snap),
+                        },
+                        ts,
+                    )?;
                     let _ = tx.send(pkt).await;
                 }
             }
         }
         Message::RmgStream { rmg_id, frame } => {
             let mut h = hub.lock().await;
+            let ts = {
+                let t = h.next_ts;
+                h.next_ts += 1;
+                t
+            };
             let stream = h.streams.entry(rmg_id).or_default();
             // enforce single producer
             if let Some(p) = stream.producer {
@@ -227,7 +247,7 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                 }
             }
             // fan out to subscribers
-            let pkt = Packet::encode(&Message::RmgStream { rmg_id, frame })?;
+            let pkt = encode_message(Message::RmgStream { rmg_id, frame }, ts)?;
             let subs = stream.subscribers.clone();
             for sub in subs {
                 if let Some(conn) = h.conns.get(&sub) {
@@ -237,11 +257,16 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
         }
         Message::Notification(_) => {
             // Broadcast notifications globally
-            let pkt = Packet::encode(&msg)?;
+            let mut h = hub.lock().await;
+            let ts = { let t = h.next_ts; h.next_ts += 1; t };
+            let pkt = encode_message(msg, ts)?;
             let h = hub.lock().await;
             for conn in h.conns.values() {
                 let _ = conn.tx.send(pkt.clone()).await;
             }
+        }
+        Message::HandshakeAck(_) | Message::Error(_) => {
+            // should not be initiated by clients; ignore
         }
     }
     Ok(())

@@ -42,6 +42,7 @@ mod session_adapter;
 
 struct ViewerState {
     graph: RenderGraph,
+    history: History,
     camera: Camera,
     perf: PerfStats,
     last_frame: Instant,
@@ -72,6 +73,7 @@ impl Default for ViewerState {
         let watermark_bytes: Arc<[u8]> = svg_no_stroke.into_bytes().into();
         Self {
             graph: RenderGraph::default(),
+            history: History::default(),
             camera: Camera::default(),
             perf: PerfStats::default(),
             last_frame: Instant::now(),
@@ -158,6 +160,59 @@ struct RenderGraph {
     nodes: Vec<RenderNode>,
     edges: Vec<(usize, usize)>,
     max_depth: usize,
+}
+
+#[derive(Clone, Debug, Default)]
+struct HistoryNode {
+    #[allow(dead_code)]
+    graph: RenderGraph,
+    #[allow(dead_code)]
+    revision: u64,
+    next: Option<Box<HistoryNode>>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct History {
+    head: Option<Box<HistoryNode>>,
+    tail_rev: u64,
+    len: usize,
+}
+
+impl History {
+    fn append(&mut self, graph: RenderGraph, revision: u64) {
+        let node = Box::new(HistoryNode {
+            graph,
+            revision,
+            next: None,
+        });
+        match self.head.as_mut() {
+            None => {
+                self.tail_rev = revision;
+                self.head = Some(node);
+                self.len = 1;
+            }
+            Some(head) => {
+                // Walk to tail and append (append-only, tiny list expected)
+                let mut cur = head;
+                while cur.next.is_some() {
+                    let next = cur.next.as_mut().unwrap();
+                    cur = next;
+                }
+                cur.next = Some(node);
+                self.tail_rev = revision;
+                self.len += 1;
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    fn latest(&self) -> Option<&RenderGraph> {
+        let mut cur = self.head.as_ref()?;
+        while let Some(n) = cur.next.as_ref() {
+            cur = n;
+        }
+        Some(&cur.graph)
+    }
 }
 
 impl RenderGraph {
@@ -1124,6 +1179,8 @@ impl App {
             graph: RenderGraph::from_store(&build_sample_graph()),
             ..Default::default()
         };
+        // Seed history with sample graph revision 0
+        viewer.history.append(viewer.graph.clone(), 0);
         viewer.apply_prefs(&prefs);
 
         // Session notifications via injected adapter (best-effort, non-fatal)

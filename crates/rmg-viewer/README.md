@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # rmg-viewer (scaffold)
 
 Interactive renderer for Echo RMG snapshots. This initial version opens a wgpu window with an egui overlay; next steps are to stream snapshots from `rmg-cli`, render skeleton edges/nodes with instancing, and draw region hulls / wormhole polygons inspired by ADR-0003/4/5/6.

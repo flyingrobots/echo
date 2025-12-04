@@ -1180,6 +1180,7 @@ struct App {
 enum Screen {
     Title(TitleStatus),
     View,
+    Error(String),
 }
 
 #[derive(Clone, Debug)]
@@ -1377,6 +1378,7 @@ impl ApplicationHandler for App {
         }
 
         // Drain RMG frames into wire graph and rebuild scene; enforce no gaps
+        let mut desync: Option<String> = None;
         if let Some(rx) = &self.rmg_rx {
             while let Ok(frame) = rx.try_recv() {
                 match frame {
@@ -1426,7 +1428,8 @@ impl ApplicationHandler for App {
                                 std::time::Duration::from_secs(8),
                                 Instant::now(),
                             );
-                            continue;
+                            desync = Some("Desynced (gap) — reconnect".into());
+                            break;
                         }
                         for op in d.ops {
                             if let Err(err) = self.viewer.wire_graph.apply_op(op) {
@@ -1438,7 +1441,12 @@ impl ApplicationHandler for App {
                                     std::time::Duration::from_secs(8),
                                     Instant::now(),
                                 );
+                                desync = Some("Desynced (apply failed) — reconnect".into());
+                                break;
                             }
+                        }
+                        if desync.is_some() {
+                            break;
                         }
                         self.viewer.epoch = Some(d.to_epoch);
                         if let Some(expected) = d.state_hash {
@@ -1452,6 +1460,7 @@ impl ApplicationHandler for App {
                                     std::time::Duration::from_secs(8),
                                     Instant::now(),
                                 );
+                                desync = Some("Desynced (hash mismatch) — reconnect".into());
                             }
                         }
                         self.viewer
@@ -1462,6 +1471,10 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+        }
+        if let Some(reason) = desync {
+            self.rmg_rx = None;
+            self.screen = Screen::Error(reason);
         }
 
         let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);
@@ -1638,36 +1651,60 @@ impl ApplicationHandler for App {
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
             let toasts = &visible_toasts;
 
-            // Title screen overlay
-            if let Screen::Title(status) = self.screen.clone() {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(80.0);
-                        ui.heading("Echo RMG Viewer");
-                        ui.label(match status {
-                            TitleStatus::Connecting => "Connecting to session...",
-                            TitleStatus::SessionStarted => {
-                                "Session started; awaiting RMG stream..."
+            // Title / error overlay
+            match self.screen.clone() {
+                Screen::Title(status) => {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(80.0);
+                            ui.heading("Echo RMG Viewer");
+                            ui.label(match status {
+                                TitleStatus::Connecting => "Connecting to session...",
+                                TitleStatus::SessionStarted => {
+                                    "Session started; awaiting RMG stream..."
+                                }
+                            });
+                            ui.add_space(12.0);
+                            ui.horizontal(|ui| {
+                                ui.label("Session socket:");
+                                ui.text_edit_singleline(&mut self.session_path);
+                                if ui.button("Connect").clicked() {
+                                    let (rmg_rx, notif_rx) =
+                                        connect_channels(self.session_path.as_str());
+                                    self.rmg_rx = Some(rmg_rx);
+                                    self.notif_rx = Some(notif_rx);
+                                    self.screen = Screen::Title(TitleStatus::Connecting);
+                                }
+                            });
+                            ui.add_space(12.0);
+                            if ui.button("Use sample graph").clicked() {
+                                self.screen = Screen::View;
                             }
                         });
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            ui.label("Session socket:");
-                            ui.text_edit_singleline(&mut self.session_path);
-                            if ui.button("Connect").clicked() {
+                    });
+                }
+                Screen::Error(msg) => {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add_space(80.0);
+                            ui.heading("Desynced");
+                            ui.label(msg);
+                            ui.add_space(12.0);
+                            if ui.button("Reconnect").clicked() {
                                 let (rmg_rx, notif_rx) =
                                     connect_channels(self.session_path.as_str());
                                 self.rmg_rx = Some(rmg_rx);
                                 self.notif_rx = Some(notif_rx);
                                 self.screen = Screen::Title(TitleStatus::Connecting);
                             }
+                            if ui.button("Use sample graph").clicked() {
+                                self.rmg_rx = None;
+                                self.screen = Screen::View;
+                            }
                         });
-                        ui.add_space(12.0);
-                        if ui.button("Use sample graph").clicked() {
-                            self.screen = Screen::View;
-                        }
                     });
-                });
+                }
+                Screen::View => {}
             }
             // HUD overlay (transparent, non-blocking feel)
             let hud_frame = egui::Frame::new()

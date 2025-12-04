@@ -26,7 +26,7 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [x] Convert `rmg-viewer` to consume RMG streams + notifications via the session client (no direct socket/CBOR in viewer).
 - [x] Extract session IO from viewer into a thin adapter (injected ports): viewer takes notifications/RMG frames from outside; no socket/CBOR in viewer binary.
 - [x] Engine emitter: send canonical `echo-graph::RmgFrame` (Snapshot first, then gapless Diff with `RmgOp`) over Unix socket; enforce no-gaps.
-- [ ] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(apply path + hash check in place; still need disconnect + error UX)*
+- [x] Viewer: decode real `RmgFrame` snapshots/diffs, apply structural ops to wire graph, rebuild scene; drop connection on gap/hash mismatch. *(disconnect + error overlay now wired)*
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 
 ## P2 — Viewer UX & diagnostics

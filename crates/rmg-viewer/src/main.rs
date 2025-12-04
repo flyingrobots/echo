@@ -34,7 +34,7 @@ use glam::{Mat4, Quat, Vec3};
 use rmg_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
-use session::SessionClient;
+use session::{SessionClient, SessionPort};
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
@@ -1333,7 +1333,7 @@ impl ApplicationHandler for App {
         };
 
         // Drain any session notifications into the toast queue
-        for n in self.session.drain_notifications(64) {
+        for n in SessionPort::drain_notifications(&mut self.session, 64) {
             let kind = match n.kind {
                 NotifyKind::Info => ToastKind::Info,
                 NotifyKind::Warn => ToastKind::Warn,
@@ -1357,7 +1357,7 @@ impl ApplicationHandler for App {
 
         // Drain RMG frames into wire graph and rebuild scene; enforce no gaps
         let mut desync: Option<String> = None;
-        for frame in self.session.drain_frames(64) {
+        for frame in SessionPort::drain_frames(&mut self.session, 64) {
             match frame {
                 RmgFrame::Snapshot(s) => {
                     self.viewer.wire_graph = s.graph;
@@ -1449,7 +1449,7 @@ impl ApplicationHandler for App {
             }
         }
         if let Some(reason) = desync {
-            self.session.clear_streams();
+            SessionPort::clear_streams(&mut self.session);
             self.ui.screen = Screen::Error(reason);
         }
 

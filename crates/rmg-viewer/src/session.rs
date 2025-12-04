@@ -6,6 +6,13 @@ use echo_graph::RmgFrame;
 use echo_session_proto::Notification;
 use std::sync::mpsc::Receiver;
 
+/// Abstract port for receiving session events.
+pub trait SessionPort {
+    fn drain_notifications(&mut self, max: usize) -> Vec<Notification>;
+    fn drain_frames(&mut self, max: usize) -> Vec<RmgFrame>;
+    fn clear_streams(&mut self);
+}
+
 #[derive(Default)]
 pub struct SessionClient {
     notif_rx: Option<Receiver<Notification>>,
@@ -21,8 +28,10 @@ impl SessionClient {
         self.rmg_rx = Some(rmg_rx);
         self.notif_rx = Some(notif_rx);
     }
+}
 
-    pub fn drain_notifications(&mut self, max: usize) -> Vec<Notification> {
+impl SessionPort for SessionClient {
+    fn drain_notifications(&mut self, max: usize) -> Vec<Notification> {
         let mut out = Vec::new();
         if let Some(rx) = &self.notif_rx {
             for _ in 0..max {
@@ -36,7 +45,7 @@ impl SessionClient {
         out
     }
 
-    pub fn drain_frames(&mut self, max: usize) -> Vec<RmgFrame> {
+    fn drain_frames(&mut self, max: usize) -> Vec<RmgFrame> {
         let mut out = Vec::new();
         if let Some(rx) = &self.rmg_rx {
             for _ in 0..max {
@@ -50,7 +59,7 @@ impl SessionClient {
         out
     }
 
-    pub fn clear_streams(&mut self) {
+    fn clear_streams(&mut self) {
         self.rmg_rx = None;
     }
 }

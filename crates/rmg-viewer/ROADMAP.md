@@ -31,8 +31,9 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [ ] Hex refactor inside viewer:
   - [x] Extract domain UI/core state machine container (`UiState`) to separate module.
   - [x] Encapsulate session IO channels in a `SessionClient` adapter (prep for SessionPort).
+  - [x] Define `SessionPort` trait and implement for session adapter; draining moved out of `about_to_wait` loops.
   - Extract domain core/state machine + effects (pure transitions).
-  - Define ports/traits: SessionPort, RenderPort, ConfigPort (optional Clock/Perf).
+  - Define ports/traits: RenderPort, ConfigPort (optional Clock/Perf).
   - Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `main.rs` as composition only.
 
 ## P2 — Viewer UX & diagnostics

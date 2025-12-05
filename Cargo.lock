@@ -2623,6 +2623,7 @@ dependencies = [
  "pollster",
  "rmg-core",
  "serde",
+ "serde_cbor",
  "serde_json",
  "tokio",
  "tracing",

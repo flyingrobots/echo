@@ -274,6 +274,8 @@ fn id_to_u64(bytes: &[u8]) -> u64 {
 fn scene_from_wire(w: &WireGraph) -> RenderGraph {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
+    use std::collections::HashMap;
+
     #[derive(Deserialize)]
     struct Payload {
         #[serde(default)]
@@ -282,17 +284,26 @@ fn scene_from_wire(w: &WireGraph) -> RenderGraph {
         color: Option<[f32; 3]>,
     }
 
+    // Stable index mapping by node id
+    let mut id_to_idx = HashMap::new();
     for (i, n) in w.nodes.iter().enumerate() {
+        id_to_idx.insert(n.id, i);
         let mut pos = radial_pos_u64(i as u64);
         let mut color = hash_color_u64(n.id);
-        if let Ok(payload) = serde_json::from_slice::<Payload>(&n.data.raw) {
-            if let Some(p) = payload.pos {
-                pos = Vec3::from_array(p);
+
+        // Try CBOR first, then fall back to JSON for older payloads
+        let payload: Option<Payload> = serde_cbor::from_slice(&n.data.raw)
+            .ok()
+            .or_else(|| serde_json::from_slice(&n.data.raw).ok());
+        if let Some(p) = payload {
+            if let Some(pv) = p.pos {
+                pos = Vec3::from_array(pv);
             }
-            if let Some(c) = payload.color {
-                color = c;
+            if let Some(cv) = p.color {
+                color = cv;
             }
         }
+
         nodes.push(RenderNode {
             ty: make_type_id("node"),
             color,
@@ -300,12 +311,13 @@ fn scene_from_wire(w: &WireGraph) -> RenderGraph {
             vel: Vec3::ZERO,
         });
     }
+
     for e in &w.edges {
-        edges.push((
-            e.src as usize % nodes.len().max(1),
-            e.dst as usize % nodes.len().max(1),
-        ));
+        if let (Some(a), Some(b)) = (id_to_idx.get(&e.src), id_to_idx.get(&e.dst)) {
+            edges.push((*a, *b));
+        }
     }
+
     let max_depth = compute_depth(&edges, nodes.len());
     RenderGraph {
         nodes,

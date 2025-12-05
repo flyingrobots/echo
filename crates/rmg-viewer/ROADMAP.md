@@ -9,14 +9,12 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 ## P1 — Architecture (hex) + session slice
 - [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
 - [ ] Hex refactor inside viewer:
-  - [ ] Introduce `Viewport` wrapper (window + gpu + egui + render port); migrate App to `Vec<Viewport>` for future multi-window/multiview support. *(attempt paused; revisit)*
-  - [ ] Extract domain core/state machine + effects (pure transitions) into its own module; leave `main.rs` as composition only.
-  - [ ] Add `UiEvent`/`UiEffect` reducer + effect runner; make UI strictly unidirectional.
-  - [ ] Route UI actions through ports (`SessionPort`, `ConfigPort`, `RenderPort`) instead of direct calls.
+  - [x] Introduce `Viewport` wrapper (window + gpu + egui + render port); migrate App to `Vec<Viewport>` for future multi-window/multiview support.
+  - [x] Extract domain core/state machine + effects (pure transitions) into its own module; leave `main.rs` as composition only. (`App` moved to `app.rs`, `ViewerState` to `viewer_state.rs`, `Viewport` to `viewport.rs`)
+  - [x] Add `UiEvent`/`UiEffect` reducer + effect runner; make UI strictly unidirectional.
+  - [ ] Route UI actions through ports (`SessionPort`, `ConfigPort`, `RenderPort`) instead of direct calls. *(RenderPort still bypassed for redraw; menu overlays still call viewer state directly in places)*
   - [ ] Define RenderPort adapter usage (trait exists in core; viewer still calls winit directly) and remove raw redraw calls.
-  - Extract domain core/state machine + effects (pure transitions).
-  - Define ports/traits: RenderPort, ConfigPort (optional Clock/Perf).
-  - Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `main.rs` as composition only.
+  - [ ] Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `app.rs` minimal (per-frame loop still lives in `app.rs`, could be split into `app_frame.rs`/`app_events.rs`).
 
 ## P2 — Viewer UX & diagnostics
 - [ ] New screen flows per spec:

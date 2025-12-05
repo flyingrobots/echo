@@ -11,6 +11,8 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 - [ ] Hex refactor inside viewer:
   - [ ] Introduce `Viewport` wrapper (window + gpu + egui + render port); migrate App to `Vec<Viewport>` for future multi-window/multiview support. *(attempt paused; revisit)*
   - [ ] Extract domain core/state machine + effects (pure transitions) into its own module; leave `main.rs` as composition only.
+  - [ ] Add `UiEvent`/`UiEffect` reducer + effect runner; make UI strictly unidirectional.
+  - [ ] Route UI actions through ports (`SessionPort`, `ConfigPort`, `RenderPort`) instead of direct calls.
   - [ ] Define RenderPort adapter usage (trait exists in core; viewer still calls winit directly) and remove raw redraw calls.
   - Extract domain core/state machine + effects (pure transitions).
   - Define ports/traits: RenderPort, ConfigPort (optional Clock/Perf).

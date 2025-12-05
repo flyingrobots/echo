@@ -1206,14 +1206,18 @@ fn build_sample_graph() -> GraphStore {
 // ApplicationHandler
 // ------------------------------------------------------------
 
+struct Viewport {
+    window: &'static Window,
+    gpu: Gpu,
+    egui_state: EguiWinitState,
+    egui_renderer: egui_wgpu::Renderer,
+    render_port: WinitRenderPort,
+}
+
 struct App {
-    window: Option<&'static Window>,
-    gpu: Option<Gpu>,
+    viewports: Vec<Viewport>,
     egui_ctx: egui::Context,
-    egui_state: Option<EguiWinitState>,
-    egui_renderer: Option<egui_wgpu::Renderer>,
     config: Option<Box<dyn ConfigPort>>, // boxed to decouple from concrete store
-    render_port: Option<WinitRenderPort>,
     toasts: ToastService,
     session: SessionClient,
     ui: UiState,
@@ -1267,13 +1271,9 @@ impl App {
 
         // Session notifications + RMG frames via session client (best-effort, non-fatal)
         Self {
-            window: None,
-            gpu: None,
+            viewports: Vec::new(),
             egui_ctx,
-            egui_state: None,
-            egui_renderer: None,
             config,
-            render_port: None,
             toasts,
             session: SessionClient::new(),
             ui: UiState::new(),
@@ -1284,7 +1284,7 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
+        if !self.viewports.is_empty() {
             return;
         }
         let window = event_loop
@@ -1295,9 +1295,6 @@ impl ApplicationHandler for App {
             )
             .expect("window");
         let window: &'static Window = Box::leak(Box::new(window));
-        self.render_port = Some(render_port::WinitRenderPort::new(window));
-        self.window = Some(window);
-
         let gpu = pollster::block_on(Gpu::new(window)).expect("gpu init");
         let egui_state = EguiWinitState::new(
             self.egui_ctx.clone(),
@@ -1312,9 +1309,14 @@ impl ApplicationHandler for App {
             gpu.config.format,
             egui_wgpu::RendererOptions::default(),
         );
-        self.gpu = Some(gpu);
-        self.egui_state = Some(egui_state);
-        self.egui_renderer = Some(egui_renderer);
+        let render_port = render_port::WinitRenderPort::new(window);
+        self.viewports.push(Viewport {
+            window,
+            gpu,
+            egui_state,
+            egui_renderer,
+            render_port,
+        });
     }
 
     fn window_event(
@@ -1323,13 +1325,16 @@ impl ApplicationHandler for App {
         window_id: winit::window::WindowId,
         mut event: WindowEvent,
     ) {
-        let Some(win) = self.window else { return };
-        if win.id() != window_id {
-            return;
-        }
-        let (Some(gpu), Some(egui_state)) = (&mut self.gpu, &mut self.egui_state) else {
+        let Some(vp) = self
+            .viewports
+            .iter_mut()
+            .find(|v| v.window.id() == window_id)
+        else {
             return;
         };
+        let win = vp.window;
+        let gpu = &mut vp.gpu;
+        let egui_state = &mut vp.egui_state;
 
         match &mut event {
             WindowEvent::CloseRequested => {
@@ -1374,10 +1379,14 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        let Some(win) = self.window else { return };
-        let (width_px, height_px) = match self.gpu.as_ref() {
-            Some(g) => (g.config.width, g.config.height),
-            None => return,
+        if self.viewports.is_empty() {
+            return;
+        }
+        // Snapshot immutable bits we need before egui run
+        let (win, width_px, height_px, raw_input) = {
+            let vp = self.viewports.get_mut(0).unwrap();
+            let raw = vp.egui_state.take_egui_input(vp.window);
+            (vp.window, vp.gpu.config.width, vp.gpu.config.height, raw)
         };
 
         // Drain any session notifications into the toast queue
@@ -1671,10 +1680,6 @@ impl ApplicationHandler for App {
 
         let prev_vsync = self.viewer.vsync;
 
-        let raw_input = match self.egui_state.as_mut() {
-            Some(es) => es.take_egui_input(win),
-            None => return,
-        };
         let egui_ctx = self.egui_ctx.clone();
         let full_output = egui_ctx.run(raw_input, |ctx| match self.ui.screen.clone() {
             Screen::Title => {
@@ -1691,13 +1696,11 @@ impl ApplicationHandler for App {
             }
         });
 
-        if let Some(es) = self.egui_state.as_mut() {
-            es.handle_platform_output(win, full_output.platform_output);
-        }
+        let vp = self.viewports.get_mut(0).unwrap();
+        vp.egui_state
+            .handle_platform_output(win, full_output.platform_output);
 
-        let Some(gpu) = self.gpu.as_mut() else {
-            return;
-        };
+        let gpu = &mut vp.gpu;
 
         if self.viewer.vsync != prev_vsync {
             gpu.set_vsync(self.viewer.vsync);
@@ -1884,9 +1887,7 @@ impl ApplicationHandler for App {
             .egui_ctx
             .tessellate(full_output.shapes, full_output.pixels_per_point);
         let textures_delta = full_output.textures_delta;
-        let Some(egui_renderer) = self.egui_renderer.as_mut() else {
-            return;
-        };
+        let egui_renderer = &mut vp.egui_renderer;
 
         let cmd_ui = {
             let mut egui_encoder =
@@ -1937,11 +1938,7 @@ impl ApplicationHandler for App {
         let frame_ms = self.viewer.last_frame.elapsed().as_secs_f32() * 1000.0;
         self.viewer.perf.push(frame_ms);
 
-        if let Some(rp) = &self.render_port {
-            rp.request_redraw();
-        } else {
-            win.request_redraw();
-        }
+        vp.render_port.request_redraw();
     }
 }
 // ------------------------------------------------------------

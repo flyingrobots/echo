@@ -1085,6 +1085,9 @@ fn radial_pos_u64(id: u64) -> Vec3 {
 }
 
 fn compute_depth(edges: &[(usize, usize)], n: usize) -> usize {
+    if n == 0 {
+        return 0;
+    }
     let mut adj = vec![Vec::new(); n];
     for &(a, b) in edges {
         if a < n && b < n {

@@ -114,3 +114,48 @@ pub(crate) fn process_frames(
     }
     outcome
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use echo_graph::{RenderGraph, RmgDiff, RmgFrame, RmgSnapshot};
+
+    #[test]
+    fn snapshot_enters_view() {
+        let mut ui = UiState::new();
+        let mut viewer = ViewerState::default();
+        let mut toasts = ToastService::new(8);
+        let snap = RmgFrame::Snapshot(RmgSnapshot {
+            epoch: 0,
+            graph: RenderGraph::default(),
+            state_hash: None,
+        });
+        let outcome = process_frames(&mut ui, &mut viewer, &mut toasts, [snap]);
+        assert!(outcome.enter_view);
+        assert!(outcome.desync.is_none());
+        assert!(matches!(ui.screen, crate::Screen::View));
+    }
+
+    #[test]
+    fn gap_diff_desyncs() {
+        let mut ui = UiState::new();
+        let mut viewer = ViewerState::default();
+        let mut toasts = ToastService::new(8);
+        // first set epoch via snapshot
+        let snap = RmgFrame::Snapshot(RmgSnapshot {
+            epoch: 0,
+            graph: RenderGraph::default(),
+            state_hash: None,
+        });
+        let _ = process_frames(&mut ui, &mut viewer, &mut toasts, [snap]);
+        // gap diff
+        let diff = RmgFrame::Diff(RmgDiff {
+            from_epoch: 2,
+            to_epoch: 3,
+            ops: vec![],
+            state_hash: None,
+        });
+        let outcome = process_frames(&mut ui, &mut viewer, &mut toasts, [diff]);
+        assert!(outcome.desync.is_some());
+    }
+}

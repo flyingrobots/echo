@@ -16,7 +16,7 @@ use echo_config_fs::FsConfigStore;
 use echo_graph::RenderGraph as WireGraph;
 use echo_session_client::connect_channels_for;
 mod core;
-use core::{Screen, TitleMode, UiState};
+use core::{Screen, UiState};
 mod render_port;
 use render_port::WinitRenderPort;
 mod session;
@@ -24,6 +24,7 @@ use echo_session_proto::{NotifyKind, NotifyScope};
 use session::{SessionClient, SessionPort};
 mod session_logic;
 mod ui;
+mod ui_state;
 use egui_extras::install_image_loaders;
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
@@ -46,6 +47,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 use ui::{draw_connecting_screen, draw_error_screen, draw_title_screen, draw_view_hud};
+use ui_state::*;
 
 // ------------------------------------------------------------
 // Data
@@ -1226,17 +1228,28 @@ struct App {
 }
 
 impl App {
-    fn start_connect(&mut self) {
-        self.ui.connect_log.clear();
-        self.ui.connect_log.push(format!(
-            "Connecting to {}:{}",
-            self.ui.connect_host, self.ui.connect_port
-        ));
-        let path = format!("{}:{}", self.ui.connect_host, self.ui.connect_port);
-        let (rmg_rx, notif_rx) = connect_channels_for(&path, self.ui.rmg_id);
-        self.session.set_channels(rmg_rx, notif_rx);
-        self.ui.screen = Screen::Connecting;
-        self.ui.title_mode = TitleMode::Menu;
+    fn apply_ui_event(&mut self, ev: ui_state::UiEvent) {
+        let (next, effects) = ui_state::reduce(&self.ui, ev);
+        self.ui = next;
+        for eff in effects {
+            match eff {
+                ui_state::UiEffect::SavePrefs => {
+                    if let Some(cfg) = &self.config {
+                        cfg.save_prefs(&self.viewer.export_prefs());
+                    }
+                }
+                ui_state::UiEffect::RequestConnect { host, port } => {
+                    self.ui.connect_log.clear();
+                    connecting_push(&mut self.ui, format!("Connecting to {}:{}", host, port));
+                    let path = format!("{host}:{port}");
+                    let (rmg_rx, notif_rx) = connect_channels_for(&path, self.ui.rmg_id);
+                    self.session.set_channels(rmg_rx, notif_rx);
+                }
+                ui_state::UiEffect::QuitApp => {
+                    std::process::exit(0);
+                }
+            }
+        }
     }
     fn new() -> Self {
         let egui_ctx = egui::Context::default();
@@ -1414,14 +1427,18 @@ impl ApplicationHandler for App {
         }
 
         // Drain RMG frames into wire graph and rebuild scene; enforce no gaps
-        if let Some(reason) = session_logic::process_frames(
+        let outcome = session_logic::process_frames(
             &mut self.ui,
             &mut self.viewer,
             &mut self.toasts,
             SessionPort::drain_frames(&mut self.session, 64),
-        ) {
+        );
+        if outcome.enter_view {
+            self.apply_ui_event(ui_state::UiEvent::EnterView);
+        }
+        if let Some(reason) = outcome.desync {
             SessionPort::clear_streams(&mut self.session);
-            self.ui.screen = Screen::Error(reason);
+            self.apply_ui_event(ui_state::UiEvent::ShowError(reason));
         }
 
         let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);

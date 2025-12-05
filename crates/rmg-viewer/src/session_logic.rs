@@ -9,13 +9,22 @@ use echo_graph::RmgFrame;
 
 use crate::{scene_from_wire, UiState, ViewerState};
 
+pub struct FrameOutcome {
+    pub desync: Option<String>,
+    pub enter_view: bool,
+}
+
 /// Apply a batch of RMG frames; returns a desync reason if we should drop the connection.
 pub(crate) fn process_frames(
     ui: &mut UiState,
     viewer: &mut ViewerState,
     toasts: &mut ToastService,
     frames: impl IntoIterator<Item = RmgFrame>,
-) -> Option<String> {
+) -> FrameOutcome {
+    let mut outcome = FrameOutcome {
+        desync: None,
+        enter_view: false,
+    };
     for frame in frames {
         match frame {
             RmgFrame::Snapshot(s) => {
@@ -24,6 +33,7 @@ pub(crate) fn process_frames(
                 viewer.history.append(viewer.wire_graph.clone(), s.epoch);
                 viewer.graph = scene_from_wire(&viewer.wire_graph);
                 ui.screen = crate::Screen::View;
+                outcome.enter_view = true;
                 if let Some(expected) = s.state_hash {
                     let actual = viewer.wire_graph.compute_hash();
                     if actual != expected {
@@ -62,7 +72,8 @@ pub(crate) fn process_frames(
                         std::time::Duration::from_secs(8),
                         Instant::now(),
                     );
-                    return Some("Desynced (gap) — reconnect".into());
+                    outcome.desync = Some("Desynced (gap) — reconnect".into());
+                    return outcome;
                 }
                 for op in d.ops {
                     if let Err(err) = viewer.wire_graph.apply_op(op) {
@@ -74,7 +85,8 @@ pub(crate) fn process_frames(
                             std::time::Duration::from_secs(8),
                             Instant::now(),
                         );
-                        return Some("Desynced (apply failed) — reconnect".into());
+                        outcome.desync = Some("Desynced (apply failed) — reconnect".into());
+                        return outcome;
                     }
                 }
                 viewer.epoch = Some(d.to_epoch);
@@ -89,14 +101,16 @@ pub(crate) fn process_frames(
                             std::time::Duration::from_secs(8),
                             Instant::now(),
                         );
-                        return Some("Desynced (hash mismatch) — reconnect".into());
+                        outcome.desync = Some("Desynced (hash mismatch) — reconnect".into());
+                        return outcome;
                     }
                 }
                 viewer.history.append(viewer.wire_graph.clone(), d.to_epoch);
                 viewer.graph = scene_from_wire(&viewer.wire_graph);
                 ui.screen = crate::Screen::View;
+                outcome.enter_view = true;
             }
         }
     }
-    None
+    outcome
 }

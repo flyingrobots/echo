@@ -4,62 +4,77 @@
 
 use crate::core::{Screen, TitleMode, UiState, ViewerOverlay};
 
-/// Advance UI based on a title-menu selection.
-#[allow(dead_code)]
-pub fn title_select_connect(ui: &mut UiState) {
-    ui.title_mode = TitleMode::ConnectForm;
+#[derive(Debug, Clone)]
+pub enum UiEvent {
+    ConnectClicked,
+    SettingsClicked,
+    ExitClicked,
+    ConnectHostChanged(String),
+    ConnectPortChanged(u16),
+    ConnectSubmit,
+    SavePrefs,
+    BackToTitle,
+    OpenMenu,
+    CloseOverlay,
+    OpenSettingsOverlay,
+    OpenPublishOverlay,
+    OpenSubscribeOverlay,
+    ShowError(String),
+    EnterView,
 }
 
-#[allow(dead_code)]
-pub fn title_select_settings(ui: &mut UiState) {
-    ui.title_mode = TitleMode::Settings;
+#[derive(Debug, Clone)]
+pub enum UiEffect {
+    SavePrefs,
+    RequestConnect { host: String, port: u16 },
+    QuitApp,
 }
 
-#[allow(dead_code)]
-pub fn title_back_to_menu(ui: &mut UiState) {
-    ui.title_mode = TitleMode::Menu;
-}
-
-#[allow(dead_code)]
-pub fn open_menu_overlay(ui: &mut UiState) {
-    ui.overlay = ViewerOverlay::Menu;
-}
-
-#[allow(dead_code)]
-pub fn close_overlay(ui: &mut UiState) {
-    ui.overlay = ViewerOverlay::None;
-}
-
-#[allow(dead_code)]
-pub fn open_settings_overlay(ui: &mut UiState) {
-    ui.overlay = ViewerOverlay::Settings;
-}
-
-#[allow(dead_code)]
-pub fn open_publish_overlay(ui: &mut UiState) {
-    ui.overlay = ViewerOverlay::Publish;
-}
-
-#[allow(dead_code)]
-pub fn open_subscribe_overlay(ui: &mut UiState) {
-    ui.overlay = ViewerOverlay::Subscribe;
+pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
+    let mut next = ui.clone();
+    let mut fx = Vec::new();
+    match ev {
+        UiEvent::ConnectClicked => {
+            next.title_mode = TitleMode::ConnectForm;
+        }
+        UiEvent::SettingsClicked => {
+            next.title_mode = TitleMode::Settings;
+        }
+        UiEvent::ExitClicked => {
+            fx.push(UiEffect::QuitApp);
+        }
+        UiEvent::ConnectHostChanged(h) => next.connect_host = h,
+        UiEvent::ConnectPortChanged(p) => next.connect_port = p,
+        UiEvent::ConnectSubmit => {
+            next.connect_log.clear();
+            next.screen = Screen::Connecting;
+            next.title_mode = TitleMode::Menu;
+            fx.push(UiEffect::RequestConnect {
+                host: next.connect_host.clone(),
+                port: next.connect_port,
+            });
+        }
+        UiEvent::SavePrefs => {
+            fx.push(UiEffect::SavePrefs);
+            next.overlay = ViewerOverlay::None;
+            next.title_mode = TitleMode::Menu;
+        }
+        UiEvent::BackToTitle => {
+            next.screen = Screen::Title;
+            next.title_mode = TitleMode::Menu;
+            next.overlay = ViewerOverlay::None;
+        }
+        UiEvent::OpenMenu => next.overlay = ViewerOverlay::Menu,
+        UiEvent::CloseOverlay => next.overlay = ViewerOverlay::None,
+        UiEvent::OpenSettingsOverlay => next.overlay = ViewerOverlay::Settings,
+        UiEvent::OpenPublishOverlay => next.overlay = ViewerOverlay::Publish,
+        UiEvent::OpenSubscribeOverlay => next.overlay = ViewerOverlay::Subscribe,
+        UiEvent::ShowError(msg) => next.screen = Screen::Error(msg),
+        UiEvent::EnterView => next.screen = Screen::View,
+    }
+    (next, fx)
 }
 
 pub fn connecting_push(ui: &mut UiState, line: impl Into<String>) {
     ui.connect_log.push(line.into());
-}
-
-pub fn to_connecting(ui: &mut UiState) {
-    ui.screen = Screen::Connecting;
-    ui.title_mode = TitleMode::Menu;
-}
-
-#[allow(dead_code)]
-pub fn to_error(ui: &mut UiState, msg: impl Into<String>) {
-    ui.screen = Screen::Error(msg.into());
-}
-
-#[allow(dead_code)]
-pub fn to_view(ui: &mut UiState) {
-    ui.screen = Screen::View;
 }

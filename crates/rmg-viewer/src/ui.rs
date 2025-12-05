@@ -3,7 +3,8 @@
 //! Stateless egui render helpers for the viewer UI screens/overlays.
 
 use crate::{
-    core::{Screen, TitleMode, ViewerOverlay},
+    core::{TitleMode, ViewerOverlay},
+    ui_state::UiEvent,
     App,
 };
 use egui::{self, Context};
@@ -18,34 +19,40 @@ pub fn draw_title_screen(ctx: &Context, app: &mut App) {
             match app.ui.title_mode {
                 TitleMode::Menu => {
                     if ui.button("Connect").clicked() {
-                        app.ui.title_mode = TitleMode::ConnectForm;
+                        app.apply_ui_event(UiEvent::ConnectClicked);
                     }
                     if ui.button("Settings").clicked() {
-                        app.ui.title_mode = TitleMode::Settings;
+                        app.apply_ui_event(UiEvent::SettingsClicked);
                     }
                     if ui.button("Exit").clicked() {
-                        std::process::exit(0);
+                        app.apply_ui_event(UiEvent::ExitClicked);
                     }
                 }
                 TitleMode::ConnectForm => {
                     ui.label("Host:");
-                    ui.text_edit_singleline(&mut app.ui.connect_host);
+                    let mut host = app.ui.connect_host.clone();
+                    if ui.text_edit_singleline(&mut host).changed() {
+                        app.apply_ui_event(UiEvent::ConnectHostChanged(host));
+                    }
                     ui.label("Port:");
-                    ui.add(egui::DragValue::new(&mut app.ui.connect_port).speed(1));
+                    let mut port = app.ui.connect_port;
+                    if ui.add(egui::DragValue::new(&mut port).speed(1)).changed() {
+                        app.apply_ui_event(UiEvent::ConnectPortChanged(port));
+                    }
                     if ui.button("Connect").clicked() {
-                        app.start_connect();
+                        app.apply_ui_event(UiEvent::ConnectSubmit);
                     }
                     if ui.button("Back").clicked() {
-                        app.ui.title_mode = TitleMode::Menu;
+                        app.apply_ui_event(UiEvent::BackToTitle);
                     }
                 }
                 TitleMode::Settings => {
                     ui.label("(Placeholder settings)");
                     if ui.button("Save").clicked() {
-                        app.ui.title_mode = TitleMode::Menu;
+                        app.apply_ui_event(UiEvent::SavePrefs);
                     }
                     if ui.button("Back").clicked() {
-                        app.ui.title_mode = TitleMode::Menu;
+                        app.apply_ui_event(UiEvent::BackToTitle);
                     }
                 }
             }
@@ -76,8 +83,7 @@ pub fn draw_error_screen(ctx: &Context, app: &mut App, msg: &str) {
             ui.label(msg);
             ui.add_space(12.0);
             if ui.button("Back to Title").clicked() {
-                app.ui.screen = Screen::Title;
-                app.ui.title_mode = TitleMode::Menu;
+                app.apply_ui_event(UiEvent::BackToTitle);
             }
         });
     });
@@ -94,7 +100,7 @@ pub fn draw_view_hud(
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
         .show(ctx, |ui| {
             if ui.button("Menu").clicked() {
-                app.ui.overlay = ViewerOverlay::Menu;
+                app.apply_ui_event(UiEvent::OpenMenu);
             }
         });
 
@@ -140,16 +146,16 @@ pub fn draw_view_hud(
             ui.vertical_centered(|ui| {
                 ui.add_space(40.0);
                 if ui.button("Settings").clicked() {
-                    app.ui.overlay = ViewerOverlay::Settings;
+                    app.apply_ui_event(UiEvent::OpenSettingsOverlay);
                 }
                 if ui.button("Publish Local RMG").clicked() {
-                    app.ui.overlay = ViewerOverlay::Publish;
+                    app.apply_ui_event(UiEvent::OpenPublishOverlay);
                 }
                 if ui.button("Subscribe to RMG").clicked() {
-                    app.ui.overlay = ViewerOverlay::Subscribe;
+                    app.apply_ui_event(UiEvent::OpenSubscribeOverlay);
                 }
                 if ui.button("Back").clicked() {
-                    app.ui.overlay = ViewerOverlay::None;
+                    app.apply_ui_event(UiEvent::CloseOverlay);
                 }
             });
         });

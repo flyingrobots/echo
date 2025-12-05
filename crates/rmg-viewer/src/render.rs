@@ -2,7 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Render helper: prepares GPU buffers and draws the 3D scene + egui.
 
-use crate::{Globals, Instance, ViewerState, Viewport};
+use crate::{
+    gpu::{EdgeInstance, Globals, Instance},
+    viewer_state::ViewerState,
+    viewport::Viewport,
+};
 use egui_wgpu::wgpu;
 use glam::Mat4;
 
@@ -64,7 +68,7 @@ pub fn render_frame(
         let sb = viewer.graph_rot * viewer.graph.nodes[*b].pos;
         let color = viewer.graph.nodes[*a].color;
         let head = 7.0; // node radius to keep arrowheads off the sphere
-        edge_instances.push(crate::EdgeInstance {
+        edge_instances.push(EdgeInstance {
             start: sa.to_array(),
             end: sb.to_array(),
             color,
@@ -73,7 +77,7 @@ pub fn render_frame(
     }
     if viewer.debug_show_arc {
         if let (Some(a), Some(b)) = (viewer.arc_last_hit, viewer.arc_curr_hit) {
-            edge_instances.push(crate::EdgeInstance {
+            edge_instances.push(EdgeInstance {
                 start: a.to_array(),
                 end: b.to_array(),
                 color: [1.0, 0.2, 0.8],
@@ -145,7 +149,7 @@ pub fn render_frame(
         rpass.set_vertex_buffer(
             0,
             gpu.edge_buf.slice(
-                ..(edge_instances.len() as u64 * std::mem::size_of::<crate::EdgeInstance>() as u64),
+                ..(edge_instances.len() as u64 * std::mem::size_of::<EdgeInstance>() as u64),
             ),
         );
         rpass.draw(0..2, 0..edge_instances.len() as u32);

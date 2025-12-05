@@ -5,7 +5,7 @@
 use crate::{
     core::{TitleMode, ViewerOverlay},
     ui_state::UiEvent,
-    App,
+    app::App,
 };
 use egui::{self, Context};
 

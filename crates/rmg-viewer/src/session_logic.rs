@@ -7,7 +7,7 @@ use std::time::Instant;
 use echo_app_core::toast::{ToastKind, ToastScope, ToastService};
 use echo_graph::RmgFrame;
 
-use crate::{scene_from_wire, UiState, ViewerState};
+use crate::{core::{Screen, UiState}, scene::scene_from_wire, viewer_state::ViewerState};
 
 pub struct FrameOutcome {
     pub desync: Option<String>,
@@ -32,7 +32,7 @@ pub(crate) fn process_frames(
                 viewer.epoch = Some(s.epoch);
                 viewer.history.append(viewer.wire_graph.clone(), s.epoch);
                 viewer.graph = scene_from_wire(&viewer.wire_graph);
-                ui.screen = crate::Screen::View;
+                ui.screen = Screen::View;
                 outcome.enter_view = true;
                 if let Some(expected) = s.state_hash {
                     let actual = viewer.wire_graph.compute_hash();
@@ -107,7 +107,7 @@ pub(crate) fn process_frames(
                 }
                 viewer.history.append(viewer.wire_graph.clone(), d.to_epoch);
                 viewer.graph = scene_from_wire(&viewer.wire_graph);
-                ui.screen = crate::Screen::View;
+                ui.screen = Screen::View;
                 outcome.enter_view = true;
             }
         }

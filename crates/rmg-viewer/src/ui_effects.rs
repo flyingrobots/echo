@@ -3,7 +3,8 @@
 //! Effect runner for UiEffect -> concrete ports; includes a simple fake for tests.
 
 use crate::ui_state::{UiEffect, UiEvent};
-use crate::{SessionClient, UiState};
+use crate::{core::UiState, session::SessionClient};
+use echo_session_client::connect_channels_for;
 
 pub trait UiEffectsRunner {
     /// Run effects, possibly emitting follow-up events (e.g., failures).
@@ -32,7 +33,7 @@ impl UiEffectsRunner for RealEffectsRunner {
                 }
                 UiEffect::RequestConnect { host, port } => {
                     let path = format!("{host}:{port}");
-                    let (rmg_rx, notif_rx) = crate::connect_channels_for(&path, _ui_state.rmg_id);
+                    let (rmg_rx, notif_rx) = connect_channels_for(&path, _ui_state.rmg_id);
                     session.set_channels(rmg_rx, notif_rx);
                 }
                 UiEffect::QuitApp => {

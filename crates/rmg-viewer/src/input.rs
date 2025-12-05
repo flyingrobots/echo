@@ -9,7 +9,7 @@ use egui_winit::winit::{
     window::Window,
 };
 
-use crate::{ui_state::UiEvent, UiState, ViewerState};
+use crate::{core::UiState, ui_state::UiEvent, viewer_state::ViewerState};
 
 #[derive(Default)]
 pub struct InputOutcome {

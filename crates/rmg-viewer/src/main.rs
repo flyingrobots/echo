@@ -18,10 +18,12 @@ use echo_session_client::connect_channels_for;
 mod core;
 use core::{Screen, UiState};
 mod render_port;
+mod ui_effects;
 use render_port::WinitRenderPort;
 mod session;
 use echo_session_proto::{NotifyKind, NotifyScope};
 use session::{SessionClient, SessionPort};
+mod render;
 mod session_logic;
 mod ui;
 mod ui_state;
@@ -47,7 +49,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 use ui::{draw_connecting_screen, draw_error_screen, draw_title_screen, draw_view_hud};
-use ui_state::*;
+use ui_effects::UiEffectsRunner;
 
 // ------------------------------------------------------------
 // Data
@@ -1224,6 +1226,7 @@ struct App {
     viewports: Vec<Viewport>,
     egui_ctx: egui::Context,
     config: Option<Box<dyn ConfigPort>>, // boxed to decouple from concrete store
+    ui_runner: ui_effects::RealEffectsRunner,
     toasts: ToastService,
     session: SessionClient,
     ui: UiState,
@@ -1234,24 +1237,18 @@ impl App {
     fn apply_ui_event(&mut self, ev: ui_state::UiEvent) {
         let (next, effects) = ui_state::reduce(&self.ui, ev);
         self.ui = next;
-        for eff in effects {
-            match eff {
-                ui_state::UiEffect::SavePrefs => {
-                    if let Some(cfg) = &self.config {
-                        cfg.save_prefs(&self.viewer.export_prefs());
-                    }
-                }
-                ui_state::UiEffect::RequestConnect { host, port } => {
-                    self.ui.connect_log.clear();
-                    connecting_push(&mut self.ui, format!("Connecting to {}:{}", host, port));
-                    let path = format!("{host}:{port}");
-                    let (rmg_rx, notif_rx) = connect_channels_for(&path, self.ui.rmg_id);
-                    self.session.set_channels(rmg_rx, notif_rx);
-                }
-                ui_state::UiEffect::QuitApp => {
-                    std::process::exit(0);
+        // Run config-bound effects locally
+        for eff in effects.iter() {
+            if matches!(eff, ui_state::UiEffect::SavePrefs) {
+                if let Some(cfg) = &self.config {
+                    cfg.save_prefs(&self.viewer.export_prefs());
                 }
             }
+        }
+        // Run remaining effects via runner (session/quits) and handle follow-ups
+        let followups = self.ui_runner.run(effects, &mut self.session, &self.ui);
+        for ev in followups {
+            self.apply_ui_event(ev);
         }
     }
     fn new() -> Self {
@@ -1291,6 +1288,7 @@ impl App {
             viewports: Vec::new(),
             egui_ctx,
             config,
+            ui_runner: ui_effects::RealEffectsRunner,
             toasts,
             session: SessionClient::new(),
             ui: UiState::new(),
@@ -1811,8 +1809,6 @@ impl ApplicationHandler for App {
             }
         }
 
-        let cmd_main = encoder.finish();
-
         let screen_desc = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [gpu.config.width, gpu.config.height],
             pixels_per_point: win.scale_factor() as f32,
@@ -1821,56 +1817,19 @@ impl ApplicationHandler for App {
             .egui_ctx
             .tessellate(full_output.shapes, full_output.pixels_per_point);
         let textures_delta = full_output.textures_delta;
-        let egui_renderer = &mut vp.egui_renderer;
 
-        let cmd_ui = {
-            let mut egui_encoder =
-                gpu.device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("egui-encoder"),
-                    });
+        let render_out = render::render_frame(
+            vp,
+            &mut self.viewer,
+            view_proj,
+            radius,
+            paint_jobs,
+            textures_delta,
+            screen_desc,
+            debug_arc_screen,
+        );
 
-            for (id, delta) in textures_delta.set {
-                egui_renderer.update_texture(&gpu.device, &gpu.queue, id, &delta);
-            }
-            egui_renderer.update_buffers(
-                &gpu.device,
-                &gpu.queue,
-                &mut egui_encoder,
-                &paint_jobs,
-                &screen_desc,
-            );
-            {
-                let rpass = egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("egui"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-                let mut rpass = rpass.forget_lifetime();
-                egui_renderer.render(&mut rpass, &paint_jobs, &screen_desc);
-                drop(rpass);
-            }
-            for id in textures_delta.free {
-                egui_renderer.free_texture(&id);
-            }
-
-            egui_encoder.finish()
-        };
-        gpu.queue.submit([cmd_main, cmd_ui]);
-        frame.present();
-
-        let frame_ms = self.viewer.last_frame.elapsed().as_secs_f32() * 1000.0;
-        self.viewer.perf.push(frame_ms);
+        self.viewer.perf.push(render_out.frame_ms);
 
         vp.render_port.request_redraw();
     }

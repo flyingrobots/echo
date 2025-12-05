@@ -75,6 +75,7 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
     (next, fx)
 }
 
+#[allow(dead_code)]
 pub fn connecting_push(ui: &mut UiState, line: impl Into<String>) {
     ui.connect_log.push(line.into());
 }

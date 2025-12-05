@@ -17,6 +17,7 @@ use echo_graph::RenderGraph as WireGraph;
 use echo_session_client::connect_channels_for;
 mod core;
 use core::{Screen, UiState};
+mod input;
 mod render_port;
 mod ui_effects;
 use render_port::WinitRenderPort;
@@ -34,7 +35,7 @@ use egui_winit::winit; // module alias for type paths
 use egui_winit::winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::{ElementState, MouseScrollDelta, WindowEvent},
+    event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::KeyCode,
     window::{Window, WindowAttributes},
@@ -1338,58 +1339,28 @@ impl ApplicationHandler for App {
         &mut self,
         _event_loop: &ActiveEventLoop,
         window_id: winit::window::WindowId,
-        mut event: WindowEvent,
+        event: WindowEvent,
     ) {
-        let Some(vp) = self
+        let Some(idx) = self
             .viewports
-            .iter_mut()
-            .find(|v| v.window.id() == window_id)
+            .iter()
+            .position(|v| v.window.id() == window_id)
         else {
             return;
         };
-        let win = vp.window;
-        let gpu = &mut vp.gpu;
-        let egui_state = &mut vp.egui_state;
+        // Split the mutable borrow to avoid aliasing conflicts
+        let win = self.viewports[idx].window;
+        let egui_state_ptr: *mut EguiWinitState = &mut self.viewports[idx].egui_state;
 
-        match &mut event {
-            WindowEvent::CloseRequested => {
-                if let Some(cfg) = &self.config {
-                    cfg.save_prefs(&self.viewer.export_prefs());
-                }
-                std::process::exit(0);
-            }
-            WindowEvent::Resized(size) => gpu.resize(*size),
-            WindowEvent::ScaleFactorChanged {
-                scale_factor: _,
-                inner_size_writer,
-            } => {
-                let size = win.inner_size();
-                let _ = inner_size_writer.request_inner_size(size);
-                gpu.resize(size);
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
-                    match event.state {
-                        ElementState::Pressed => {
-                            self.viewer.keys.insert(code);
-                        }
-                        ElementState::Released => {
-                            self.viewer.keys.remove(&code);
-                        }
-                    }
-                }
-            }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let y: f32 = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => *y,
-                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 50.0,
-                };
-                self.viewer.camera.zoom_fov(1.0 - y * 0.05);
-            }
-            _ => {}
+        // input handling via helper
+        let outcome = input::handle_window_event(&event, win, &mut self.viewer, &mut self.ui);
+        if let Some(ev) = outcome.ui_event {
+            self.apply_ui_event(ev);
         }
 
         // Always forward events to egui after we handled movement keys so releases clear our state.
+        // SAFETY: egui_state_ptr points to the current viewport's egui_state; we haven't moved it.
+        let egui_state = unsafe { &mut *egui_state_ptr };
         let _ = egui_state.on_window_event(win, &event);
     }
 

@@ -8,7 +8,7 @@ rust-version = "1.83.0"
 license = "Apache-2.0"
 description = "Filesystem-backed ConfigStore adapter for Echo tools"
 repository = "https://github.com/flyingrobots/echo"
-readme = "../../README.md"
+readme = "README.md"
 keywords = ["echo", "config", "filesystem"]
 categories = ["development-tools", "config"]
 

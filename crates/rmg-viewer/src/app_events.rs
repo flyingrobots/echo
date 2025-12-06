@@ -30,4 +30,3 @@ impl App {
         let _ = egui_state.on_window_event(win, &event);
     }
 }
-

@@ -6,3 +6,16 @@ Placeholder CLI for Echo tooling. Subcommands will be added as the engine mature
 
 See the repository root `README.md` for project context.
 
+## What this crate does
+
+- Provides a home for command-line entrypoints into Echo tooling:
+  - future subcommands for running the engine, inspecting RMGs, driving the
+    session service, etc.
+- Currently a placeholder; behavior will be fleshed out alongside engine and
+  tooling milestones.
+
+## Documentation
+
+- For now, see the root `README.md` and the Echo book (`docs/book/echo/`) for
+  the overall architecture and planned CLI roles (runtime control, debugging,
+  inspection).

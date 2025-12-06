@@ -6,7 +6,6 @@ use crate::{
     core::UiState,
     render_port::WinitRenderPort,
     scene::{sample_wire_graph, scene_from_wire},
-    session::SessionClient,
     ui_effects::{self, UiEffectsRunner},
     ui_state,
     viewer_state::ViewerState,
@@ -18,6 +17,7 @@ use echo_app_core::{
     toast::{ToastKind, ToastScope, ToastService},
 };
 use echo_config_fs::FsConfigStore;
+use echo_session_client::tool::ChannelSession;
 use egui_extras::install_image_loaders;
 use egui_winit::winit::{
     application::ApplicationHandler,
@@ -34,7 +34,7 @@ pub struct App {
     pub config: Option<Box<dyn ConfigPort>>,
     pub ui_runner: ui_effects::RealEffectsRunner,
     pub toasts: ToastService,
-    pub session: SessionClient,
+    pub session: ChannelSession,
     pub ui: UiState,
     pub viewer: ViewerState,
 }
@@ -79,7 +79,7 @@ impl App {
             config,
             ui_runner: ui_effects::RealEffectsRunner,
             toasts,
-            session: SessionClient::new(),
+            session: ChannelSession::new(),
             ui: UiState::new(),
             viewer,
         }

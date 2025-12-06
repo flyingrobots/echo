@@ -5,13 +5,15 @@
 use crate::{
     app::App,
     core::Screen,
-    render,
-    session::SessionPort,
-    session_logic,
+    render, session_logic,
     ui::{draw_connecting_screen, draw_error_screen, draw_title_screen, draw_view_hud},
     ui_state,
 };
-use echo_app_core::{render_port::RenderPort, toast::{ToastKind, ToastScope}};
+use echo_app_core::{
+    render_port::RenderPort,
+    toast::{ToastKind, ToastScope},
+};
+use echo_session_client::tool::SessionPort;
 use echo_session_proto::{NotifyKind, NotifyScope};
 use glam::{Quat, Vec3};
 use std::time::Instant;
@@ -67,8 +69,14 @@ impl App {
         let visible_toasts = self.toasts.visible(now);
         let aspect = width_px as f32 / height_px as f32;
 
-        let speed = if self.viewer.keys.contains(&egui_winit::winit::keyboard::KeyCode::ShiftLeft)
-            || self.viewer.keys.contains(&egui_winit::winit::keyboard::KeyCode::ShiftRight)
+        let speed = if self
+            .viewer
+            .keys
+            .contains(&egui_winit::winit::keyboard::KeyCode::ShiftLeft)
+            || self
+                .viewer
+                .keys
+                .contains(&egui_winit::winit::keyboard::KeyCode::ShiftRight)
         {
             420.0
         } else {
@@ -232,7 +240,8 @@ impl App {
                     if axis.length_squared() > 0.0 && angle.is_finite() {
                         let dq = Quat::from_axis_angle(axis.normalize(), angle);
                         self.viewer.graph_rot = dq * self.viewer.graph_rot;
-                        self.viewer.graph_ang_vel = axis.normalize() * (angle / 0.0001_f32.max(0.0));
+                        self.viewer.graph_ang_vel =
+                            axis.normalize() * (angle / 0.0001_f32.max(0.0));
                     }
                 }
                 self.viewer.arc_last = Some(curr);
@@ -244,9 +253,9 @@ impl App {
                 let angle = w_len * self.viewer.last_frame.elapsed().as_secs_f32();
                 let dq = Quat::from_axis_angle(w / w_len, angle);
                 self.viewer.graph_rot = dq * self.viewer.graph_rot;
-                let decay =
-                    (-self.viewer.graph_damping * self.viewer.last_frame.elapsed().as_secs_f32())
-                        .exp();
+                let decay = (-self.viewer.graph_damping
+                    * self.viewer.last_frame.elapsed().as_secs_f32())
+                .exp();
                 self.viewer.graph_ang_vel *= decay;
             }
         }
@@ -254,9 +263,11 @@ impl App {
         if pointer.primary_down() && !self.egui_ctx.is_using_pointer() {
             let delta = self.egui_ctx.input(|i| i.pointer.delta());
             let d = glam::Vec2::new(delta.x, delta.y);
-            self.viewer
-                .camera
-                .rotate_by_mouse(d, self.viewer.debug_invert_cam_x, self.viewer.debug_invert_cam_y);
+            self.viewer.camera.rotate_by_mouse(
+                d,
+                self.viewer.debug_invert_cam_x,
+                self.viewer.debug_invert_cam_y,
+            );
         }
     }
 

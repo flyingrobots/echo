@@ -35,6 +35,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-06 — Tool crate docs + crate map (COMPLETED)
+
+- Goal: tighten docs around the tool hexagon pattern and make crate-level READMEs point at the Echo booklets as the canonical source of truth.
+- Scope: `docs/book/echo/sections/09-tool-hex-pattern.tex` (crate map), READMEs and `Cargo.toml` `readme` fields for `echo-app-core`, `echo-config-fs`, `echo-session-proto`, `echo-session-service`, `echo-session-client`, and `rmg-viewer`.
+- Status: completed; Tools booklet now includes a crate map, and each tool-related crate README has a “What this crate does” + “Documentation” section pointing back to the relevant booklets/ADR/ARCH specs.
+
+> 2025-12-06 — JS-ABI + RMG streaming docs alignment (COMPLETED)
+
+- Goal: Align Echo’s book-level docs with the JS-ABI v1.0 deterministic encoding + framing decisions (ADR-0013 / ARCH-0013) and the new RMG streaming stack.
+- Scope: `docs/book/echo/sections/{13-networking-wire-protocol,14-rmg-stream-consumers,07-session-service,08-rmg-viewer-spec}.tex` (cross-links, diagrams, tables).
+- Status: completed; Core booklet now documents JS-ABI framing + generic RMG consumer contract (with role summary), and Tools booklet’s Session Service + RMG Viewer sections cross-reference that contract instead of re-specifying it.
+
 > 2025-12-04 — Sync roadmap with session streaming progress (COMPLETED)
 
 - Goal: capture the new canonical `echo-graph` crate + gapless RMG streaming path, and queue remaining engine/viewer wiring tasks.

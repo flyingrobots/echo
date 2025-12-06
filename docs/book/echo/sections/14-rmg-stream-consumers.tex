@@ -1,0 +1,244 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\section{Consuming RMG Streams: Snapshots and Diffs}
+\label{sec:rmg-stream-consumers}
+
+With the wire framing in place (Section~\ref{sec:js-abi-wire}), Echo apps
+still need a clear contract for how to \emph{interpret} RMG-related messages.
+This section specifies how engines, the session host, and client apps exchange
+RMG snapshots and diffs, and what each participant must do to stay in
+lockstep.
+
+At a protocol level, this is the same contract used by the Echo Session
+Service and the RMG Viewer:
+Section~\ref{sec:session-service} explains how the host enforces gapless
+streams and fans out frames, while Section~\ref{sec:rmg-viewer} shows one
+concrete tool (the RMG Viewer) that consumes these streams and projects them
+into a 3D ring of RMGs.
+
+\subsection{Roles and Responsibilities}
+
+\begin{description}
+  \item[Engine] Owns the authoritative RMG state and emits structural
+    changes per epoch.
+  \item[Session Host] Acts as a hub and history keeper:
+    \begin{itemize}
+      \item Tracks one stream per \texttt{RmgId} (worldline).
+      \item Enforces gapless epoch sequences per \texttt{RmgId}.
+      \item Fans out RMG frames to subscribed clients.
+    \end{itemize}
+  \item[Client App] Any tool or runtime that wants to observe or publish an
+    RMG: game, viewer, inspector, profiler, \dots
+\end{description}
+
+\subsection{Role Summary}
+
+Table~\ref{tab:rmg-role-summary} summarizes the responsibilities of each role
+in the RMG streaming pipeline.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}p{0.18\textwidth}p{0.74\textwidth}@{}}
+    \toprule
+    \textbf{Role} & \textbf{Responsibilities} \\
+    \midrule
+    Engine
+      & Owns the authoritative RMG; emits epoch-aligned snapshots and diffs.
+        Computes canonical state hashes after each commit.
+        Guarantees that each \texttt{Diff} maps from epoch \(k\) to \(k+1\). \\
+    Session Host
+      & Tracks per-\texttt{RmgId} streams (\texttt{last\_epoch},
+        \texttt{last\_hash}, latest snapshot, subscribers, producer).
+        Enforces gapless diffs (\texttt{from = last\_epoch},
+        \texttt{to = from + 1}). Fans out accepted frames to all
+        subscribers for that \texttt{RmgId}. \\
+    Client App
+      & Maintains local per-\texttt{RmgId} state (epoch, graph, history).
+        Applies the snapshot/diff algorithm in this section.
+        Treats any gap or hash mismatch as a desync and drops the stream.
+        Projects the resulting RMGs into its own UI/logic (e.g.\ a 3D ring,
+        inspector view, debug overlay). \\
+    \bottomrule
+  \end{tabular}
+  \caption{Summary of RMG streaming roles and their responsibilities.}
+  \label{tab:rmg-role-summary}
+\end{table}
+
+\subsection{RMG Frames}
+
+At the JS-ABI level, RMG traffic is carried as:
+
+\begin{itemize}
+  \item \texttt{op = "rmg\_stream"} payloads containing
+        \(\langle\texttt{rmg\_id}, \texttt{frame}\rangle\).
+  \item \texttt{frame} is either:
+    \begin{itemize}
+      \item \textbf{Snapshot}:
+        \(\{\texttt{epoch}, \texttt{graph: RenderGraph}, \texttt{state\_hash?}\}\).
+      \item \textbf{Diff}:
+        \(\{\texttt{from\_epoch}, \texttt{to\_epoch}, \texttt{ops: Vec<RmgOp>}, \texttt{state\_hash?}\}\).
+    \end{itemize}
+  \item \texttt{RmgOp} is a structural graph mutation:
+    Add/Update/Remove node or edge with a data patch.
+\end{itemize}
+
+Each \texttt{RmgId} corresponds to a single logical stream with at most one
+producer and many consumers.
+
+\subsection{Consumer State Machine}
+
+Applications that consume RMG streams follow a small state machine per
+\texttt{RmgId}. Figure~\ref{fig:rmg-consumer-sm} shows the idealized flow.
+
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[
+    >=latex,
+    node distance=2.4cm and 3.0cm,
+    state/.style={
+      rectangle,
+      rounded corners,
+      draw,
+      very thick,
+      minimum width=3.0cm,
+      minimum height=1.2cm,
+      align=center,
+      fill=gray!5,
+      font=\small,
+    },
+    edge/.style={->, thick, shorten >=2pt, shorten <=2pt},
+    labelsmall/.style={midway, sloped, fill=white, inner sep=1pt, font=\scriptsize}
+  ]
+
+  \node[state] (idle) {Idle\\\scriptsize(no RMG state)};
+  \node[state, right=of idle] (snap) {Snapshot Applied\\\scriptsize(epoch $k$)};
+  \node[state, right=of snap] (live) {Live Stream\\\scriptsize(epoch $k+1, k+2, \dots$)};
+  \node[state, below=2.0cm of snap] (err) {Error / Desynced};
+
+  \draw[edge] (idle) -- (snap)
+    node[labelsmall, above] {receive Snapshot};
+
+  \draw[edge] (snap) -- (live)
+    node[labelsmall, above] {receive Diff with\\$from = k$, $to = k+1$};
+
+  \draw[edge] (live) edge[loop above]
+    node[labelsmall, above] {next Diff\\$from = k$, $to = k+1$} (live);
+
+  \draw[edge, dashed] (snap) -- (err)
+    node[labelsmall, left] {gap / hash mismatch};
+
+  \draw[edge, dashed] (live) -- (err)
+    node[labelsmall, right] {gap / hash mismatch};
+
+  \draw[edge, dashed] (err) -- (idle)
+    node[labelsmall, below] {drop stream,\\await new Snapshot};
+
+  \end{tikzpicture}
+  \caption{Per-RMG consumer state machine for snapshots and diffs.}
+  \label{fig:rmg-consumer-sm}
+\end{figure}
+
+\subsection{Per-RMG Consumer Algorithm}
+
+For each subscribed \texttt{RmgId}, a client app maintains:
+
+\begin{itemize}
+  \item The most recent epoch number \(e\) (or \emph{None} before a snapshot).
+  \item A local \texttt{RenderGraph} mirror of the stream.
+  \item Optional cached \texttt{state\_hash}.
+\end{itemize}
+
+On frames for that \texttt{RmgId}:
+
+\paragraph{Snapshot frame}
+\begin{enumerate}
+  \item Replace the local \texttt{RenderGraph} with the snapshot graph.
+  \item Set \(e = \texttt{snapshot.epoch}\).
+  \item If a \texttt{state\_hash} is present, recompute a canonical hash of the
+        local graph and compare. Mismatch $\Rightarrow$ enter ``Error'' state.
+  \item Rebuild any renderable scene or indices needed by the app.
+\end{enumerate}
+
+\paragraph{Diff frame}
+\begin{enumerate}
+  \item If \(e\) is \emph{None}, treat this as a protocol error: clients must
+        see a snapshot first.
+  \item Enforce gapless epochs:
+    \begin{itemize}
+      \item Require \(\texttt{diff.from\_epoch} = e\).
+      \item Require \(\texttt{diff.to\_epoch} = e + 1\).
+    \end{itemize}
+    Any violation $\Rightarrow$ enter ``Error'' state and drop the stream.
+  \item Apply each \texttt{RmgOp} in order to the local \texttt{RenderGraph}.
+  \item Set \(e = \texttt{diff.to\_epoch}\).
+  \item If \texttt{state\_hash} is present, recompute and compare. Mismatch
+        $\Rightarrow$ enter ``Error'' state.
+  \item Rebuild or incrementally update the app’s renderable scene.
+\end{enumerate}
+
+\subsection{Engine and Session Host Responsibilities}
+
+The engine and session host together ensure that clients can safely apply the
+algorithm above:
+
+\begin{itemize}
+  \item \textbf{Engine}:
+    \begin{itemize}
+      \item Emits structural diffs (\texttt{RmgOp}) that map exactly from
+            epoch \(k\) to \(k+1\).
+      \item Computes a canonical \texttt{state\_hash} after each commit.
+    \end{itemize}
+  \item \textbf{Session Host}:
+    \begin{itemize}
+      \item Tracks \(\texttt{last\_epoch}\) and \(\texttt{last\_hash}\) per
+            \texttt{RmgId}.
+      \item On producer input:
+        \begin{itemize}
+          \item Accepts a \textbf{Snapshot} as a reset for that stream.
+          \item Accepts a \textbf{Diff} only if:
+            \(\texttt{from\_epoch} = \texttt{last\_epoch}\) and
+            \(\texttt{to\_epoch} = \texttt{from\_epoch} + 1\).
+        \end{itemize}
+      \item Fan-outs each accepted frame to all subscribers of that
+            \texttt{RmgId}.
+    \end{itemize}
+\end{itemize}
+
+Clients can therefore assume:
+
+\begin{itemize}
+  \item Each subscribed stream is gapless and totally ordered.
+  \item Each RMG frame is self-identified by its \texttt{RmgId}.
+  \item A fresh snapshot always provides a safe starting point after
+        disconnect or error.
+\end{itemize}
+
+\subsection{Multi-RMG Applications}
+
+An application may subscribe to multiple \texttt{RmgId}s at once. The
+recommended pattern is:
+
+\begin{itemize}
+  \item Maintain a map \(\texttt{RmgId} \mapsto \texttt{RmgRenderState}\).
+  \item For each incoming frame, route it to the appropriate entry and run the
+        per-RMG consumer algorithm.
+  \item Keep a separate ``view model'' (e.g., the RMG ring used by the viewer)
+        that decides how to arrange and highlight the various RMGs in the UI.
+\end{itemize}
+
+This keeps the network-facing logic uniform across apps: everyone reuses the
+same snapshot/diff semantics, while higher-level tools can choose their own
+visualization and interaction patterns.
+
+\paragraph{Aside: RMG Viewer as a Consumer}
+
+The Echo RMG Viewer (Section~\ref{sec:rmg-viewer}) is a direct application of
+this pattern:
+\begin{itemize}
+  \item It maintains per-\texttt{RmgId} render state (graph, epoch, history).
+  \item It routes frames from the session service into the per-RMG algorithm
+        above, treating any epoch gap or hash mismatch as a fatal desync.
+  \item Its UI layer simply arranges those RMGs on a ring and lets the user
+        pick which one is in focus, without changing the underlying network
+        contract.
+\end{itemize}

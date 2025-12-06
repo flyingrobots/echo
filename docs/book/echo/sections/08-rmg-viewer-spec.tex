@@ -1,8 +1,15 @@
 % SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 \section{Echo RMG Viewer: State Machine \& UI}
+\label{sec:rmg-viewer}
 
 The RMG Viewer is a thin, rendering-first client. It connects to the Echo Session Host, subscribes to one or more RMG streams, and presents a minimal HUD over a 3D scene. This section fixes the viewer's states, transitions, and on-screen layout so the implementation and the design stay in lockstep.
+
+At the protocol level, the Viewer is ``just'' a client app in the RMG
+streaming pipeline. It follows the generic snapshot/diff consumer contract in
+Section~\ref{sec:rmg-stream-consumers} and sits in the ``Client App'' row of
+Table~\ref{tab:rmg-role-summary}; what is specific here is \emph{how} it
+projects those RMGs into a 3D ring and UI.
 
 \subsection{Overview}
 \begin{itemize}

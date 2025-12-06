@@ -14,7 +14,7 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
   - [x] Add `UiEvent`/`UiEffect` reducer + effect runner; make UI strictly unidirectional.
   - [x] Route UI actions through ports (`SessionPort`, `ConfigPort`, `RenderPort`) instead of direct calls. *(Config and session are consumed via `ConfigPort`/`SessionPort`; redraws go through `RenderPort`.)*
   - [x] Define RenderPort adapter usage (trait exists in core; viewer still calls winit directly) and remove raw redraw calls. *(Raw `window.request_redraw` only appears inside `WinitRenderPort`; app uses `RenderPort::request_redraw`.)*
-  - [ ] Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `app.rs` minimal (per-frame loop now lives in `app_frame.rs`, but notification drain and frame loop still share `SessionPort` in `app_frame.rs`).
+  - [x] Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `app.rs` minimal. *(UI lives in `ui.rs`, session IO in `session.rs`/`session_logic.rs`, wgpu passes in `render.rs`; `app.rs` + `app_frame.rs` are now mostly glue over ports.)*
 
 ## P2 — Viewer UX & diagnostics
 - [ ] New screen flows per spec:

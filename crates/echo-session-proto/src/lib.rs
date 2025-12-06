@@ -9,6 +9,12 @@ mod canonical;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Default Unix socket path for the session hub.
+///
+/// Both the session service and local tools use this when no explicit path
+/// is configured. This matches the default in the host prefs.
+pub const DEFAULT_SOCKET_PATH: &str = "/tmp/echo-session.sock";
+
 /// Canonical OpEnvelope carried as the payload of a JS-ABI packet.
 ///
 /// * `op` – operation name (see ADR-0013).

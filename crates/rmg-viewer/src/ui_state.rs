@@ -26,7 +26,7 @@ pub enum UiEvent {
 #[derive(Debug, Clone)]
 pub enum UiEffect {
     SavePrefs,
-    RequestConnect { host: String, port: u16 },
+    RequestConnect,
     QuitApp,
 }
 
@@ -49,10 +49,7 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
             next.connect_log.clear();
             next.screen = Screen::Connecting;
             next.title_mode = TitleMode::Menu;
-            fx.push(UiEffect::RequestConnect {
-                host: next.connect_host.clone(),
-                port: next.connect_port,
-            });
+            fx.push(UiEffect::RequestConnect);
         }
         UiEvent::SavePrefs => {
             fx.push(UiEffect::SavePrefs);
@@ -91,9 +88,7 @@ mod tests {
         let (ui2, fx) = reduce(&ui, UiEvent::ConnectSubmit);
         assert!(matches!(ui2.screen, Screen::Connecting));
         assert!(matches!(ui2.title_mode, TitleMode::Menu));
-        assert!(fx
-            .iter()
-            .any(|f| matches!(f, UiEffect::RequestConnect { .. })));
+        assert!(fx.iter().any(|f| matches!(f, UiEffect::RequestConnect)));
     }
 
     #[test]

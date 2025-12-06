@@ -137,7 +137,7 @@ mod tests {
         let outcome = process_frames(&mut ui, &mut viewer, &mut toasts, [snap]);
         assert!(outcome.enter_view);
         assert!(outcome.desync.is_none());
-        assert!(matches!(ui.screen, crate::Screen::View));
+        assert!(matches!(ui.screen, Screen::View));
     }
 
     #[test]

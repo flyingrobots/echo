@@ -1,8 +1,14 @@
 % SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 \section{Echo Session Service and RMG Viewer Sync}
+\label{sec:session-service}
 
 Echo’s editor constellation streams RMG state from the engine to tools over a gapless, deterministic protocol. This section documents the session service, the wire format, and how the RMG Viewer consumes snapshots/diffs to stay in lockstep.
+
+For a role-level summary of how the Engine, Session Host, and client apps
+share responsibility for RMG streaming, see the generic consumer contract in
+Section~\ref{sec:rmg-stream-consumers} and
+Table~\ref{tab:rmg-role-summary}.
 
 \subsection{Roles}
 \begin{itemize}

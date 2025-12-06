@@ -8,7 +8,7 @@ use echo_config_fs::FsConfigStore;
 use echo_graph::{RmgFrame, RmgSnapshot};
 use echo_session_proto::{
     wire::{decode_message, encode_message},
-    AckStatus, HandshakeAckPayload, Message, RmgId,
+    AckStatus, HandshakeAckPayload, Message, RmgId, DEFAULT_SOCKET_PATH,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -17,8 +17,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
-
-const DEFAULT_SOCKET_PATH: &str = "/tmp/echo-session.sock";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HostPrefs {

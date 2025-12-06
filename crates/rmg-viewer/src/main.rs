@@ -16,7 +16,6 @@ mod perf;
 mod render;
 mod render_port;
 mod scene;
-mod session;
 mod session_logic;
 mod ui;
 mod ui_effects;

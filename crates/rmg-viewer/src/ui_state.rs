@@ -47,6 +47,10 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
         UiEvent::ConnectPortChanged(p) => next.connect_port = p,
         UiEvent::ConnectSubmit => {
             next.connect_log.clear();
+            next.connect_log.push(format!(
+                "Connecting to /tmp/echo-session.sock (RMG {})...",
+                next.rmg_id
+            ));
             next.screen = Screen::Connecting;
             next.title_mode = TitleMode::Menu;
             fx.push(UiEffect::RequestConnect);
@@ -66,7 +70,10 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
         UiEvent::OpenSettingsOverlay => next.overlay = ViewerOverlay::Settings,
         UiEvent::OpenPublishOverlay => next.overlay = ViewerOverlay::Publish,
         UiEvent::OpenSubscribeOverlay => next.overlay = ViewerOverlay::Subscribe,
-        UiEvent::ShowError(msg) => next.screen = Screen::Error(msg),
+        UiEvent::ShowError(msg) => {
+            next.connect_log.push(format!("Connection error: {}", msg));
+            next.screen = Screen::Error(msg);
+        }
         UiEvent::EnterView => next.screen = Screen::View,
     }
     (next, fx)

@@ -36,8 +36,12 @@ pub(crate) fn process_frames(
                 viewer.epoch = Some(s.epoch);
                 viewer.history.append(viewer.wire_graph.clone(), s.epoch);
                 viewer.graph = scene_from_wire(&viewer.wire_graph);
-                ui.screen = Screen::View;
-                outcome.enter_view = true;
+                if !matches!(ui.screen, Screen::View) {
+                    ui.screen = Screen::View;
+                    outcome.enter_view = true;
+                    ui.connect_log
+                        .push("Session started. Receiving RMG stream...".into());
+                }
                 if let Some(expected) = s.state_hash {
                     let actual = viewer.wire_graph.compute_hash();
                     if actual != expected {

@@ -40,6 +40,7 @@ impl UiEffectsRunner for RealEffectsRunner {
                             session.set_channels(rmg_rx, notif_rx);
                         }
                         Err(err) => {
+                            // Surface a clear error; UiState reducer will keep the log.
                             followups.push(UiEvent::ShowError(format!("Connect failed: {err}")));
                         }
                     }

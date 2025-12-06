@@ -7,14 +7,14 @@ The viewer must stay a rendering adapter. Session logic, persistence, and notifi
 ## P0 — Architectural realignment (complete)
 
 ## P1 — Architecture (hex) + session slice
-- [ ] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout.
+- [x] Scene conversion: improve `scene_from_wire` to use real payloads (positions/colors) instead of placeholder radial layout. *(CBOR/JSON payloads with `pos`/`color` now drive layout; radial/hash fallbacks remain only for missing data.)*
 - [ ] Hex refactor inside viewer:
   - [x] Introduce `Viewport` wrapper (window + gpu + egui + render port); migrate App to `Vec<Viewport>` for future multi-window/multiview support.
   - [x] Extract domain core/state machine + effects (pure transitions) into its own module; leave `main.rs` as composition only. (`App` moved to `app.rs`, `ViewerState` to `viewer_state.rs`, `Viewport` to `viewport.rs`)
   - [x] Add `UiEvent`/`UiEffect` reducer + effect runner; make UI strictly unidirectional.
-  - [ ] Route UI actions through ports (`SessionPort`, `ConfigPort`, `RenderPort`) instead of direct calls. *(RenderPort still bypassed for redraw; menu overlays still call viewer state directly in places)*
-  - [ ] Define RenderPort adapter usage (trait exists in core; viewer still calls winit directly) and remove raw redraw calls.
-  - [ ] Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `app.rs` minimal (per-frame loop still lives in `app.rs`, could be split into `app_frame.rs`/`app_events.rs`).
+  - [x] Route UI actions through ports (`SessionPort`, `ConfigPort`, `RenderPort`) instead of direct calls. *(Config and session are consumed via `ConfigPort`/`SessionPort`; redraws go through `RenderPort`.)*
+  - [x] Define RenderPort adapter usage (trait exists in core; viewer still calls winit directly) and remove raw redraw calls. *(Raw `window.request_redraw` only appears inside `WinitRenderPort`; app uses `RenderPort::request_redraw`.)*
+  - [ ] Move UI rendering into ui adapter; move session IO to session adapter; move wgpu passes to render adapter; keep `app.rs` minimal (per-frame loop now lives in `app_frame.rs`, but notification drain and frame loop still share `SessionPort` in `app_frame.rs`).
 
 ## P2 — Viewer UX & diagnostics
 - [ ] New screen flows per spec:

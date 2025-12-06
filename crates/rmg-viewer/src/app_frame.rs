@@ -5,45 +5,18 @@
 use crate::{
     app::App,
     core::Screen,
-    input,
     render,
     session::SessionPort,
     session_logic,
     ui::{draw_connecting_screen, draw_error_screen, draw_title_screen, draw_view_hud},
     ui_state,
 };
-use echo_app_core::{toast::{ToastKind, ToastScope}, render_port::RenderPort};
+use echo_app_core::{render_port::RenderPort, toast::{ToastKind, ToastScope}};
 use echo_session_proto::{NotifyKind, NotifyScope};
-use egui_winit::winit::event::WindowEvent;
-use egui_winit::State as EguiWinitState;
 use glam::{Quat, Vec3};
 use std::time::Instant;
 
 impl App {
-    pub fn handle_window_event(
-        &mut self,
-        window_id: egui_winit::winit::window::WindowId,
-        event: WindowEvent,
-    ) {
-        let Some(idx) = self
-            .viewports
-            .iter()
-            .position(|v| v.window.id() == window_id)
-        else {
-            return;
-        };
-        let win = self.viewports[idx].window;
-        let egui_state_ptr: *mut EguiWinitState = &mut self.viewports[idx].egui_state;
-
-        let outcome = input::handle_window_event(&event, win, &mut self.viewer, &mut self.ui);
-        if let Some(ev) = outcome.ui_event {
-            self.apply_ui_event(ev);
-        }
-
-        let egui_state = unsafe { &mut *egui_state_ptr };
-        let _ = egui_state.on_window_event(win, &event);
-    }
-
     pub fn frame(&mut self) {
         let (win, width_px, height_px, raw_input) = {
             let vp = self.viewports.get_mut(0).unwrap();

@@ -6,6 +6,7 @@ use anyhow::Result;
 use egui_winit::winit::event_loop::EventLoop;
 
 mod app;
+mod app_events;
 mod app_frame;
 mod camera;
 mod core;

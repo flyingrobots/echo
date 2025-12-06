@@ -3,9 +3,9 @@
 //! Stateless egui render helpers for the viewer UI screens/overlays.
 
 use crate::{
+    app::App,
     core::{TitleMode, ViewerOverlay},
     ui_state::UiEvent,
-    app::App,
 };
 use egui::{self, Context};
 

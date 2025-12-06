@@ -7,7 +7,11 @@ use std::time::Instant;
 use echo_app_core::toast::{ToastKind, ToastScope, ToastService};
 use echo_graph::RmgFrame;
 
-use crate::{core::{Screen, UiState}, scene::scene_from_wire, viewer_state::ViewerState};
+use crate::{
+    core::{Screen, UiState},
+    scene::scene_from_wire,
+    viewer_state::ViewerState,
+};
 
 pub struct FrameOutcome {
     pub desync: Option<String>,

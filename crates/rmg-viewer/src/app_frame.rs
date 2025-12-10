@@ -77,48 +77,47 @@ impl App {
         let visible_toasts = self.toasts.visible(now);
         let aspect = width_px as f32 / height_px as f32;
 
-        if FREE_CAMERA_CONTROLS {
-            let speed = if self
-                .viewer
-                .keys
-                .contains(&egui_winit::winit::keyboard::KeyCode::ShiftLeft)
-                || self
+        if matches!(self.ui.screen, Screen::View) {
+            if FREE_CAMERA_CONTROLS {
+                let speed = if self
                     .viewer
                     .keys
-                    .contains(&egui_winit::winit::keyboard::KeyCode::ShiftRight)
-            {
-                420.0
-            } else {
-                160.0
-            };
-            let mut mv = Vec3::ZERO;
-            use egui_winit::winit::keyboard::KeyCode::*;
-            if self.viewer.keys.contains(&KeyW) {
-                mv.z += speed * dt;
+                    .contains(&egui_winit::winit::keyboard::KeyCode::ShiftLeft)
+                    || self
+                        .viewer
+                        .keys
+                        .contains(&egui_winit::winit::keyboard::KeyCode::ShiftRight)
+                {
+                    420.0
+                } else {
+                    160.0
+                };
+                let mut mv = Vec3::ZERO;
+                use egui_winit::winit::keyboard::KeyCode::*;
+                if self.viewer.keys.contains(&KeyW) {
+                    mv.z += speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyS) {
+                    mv.z -= speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyA) {
+                    mv.x -= speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyD) {
+                    mv.x += speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyQ) {
+                    mv.y -= speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyE) {
+                    mv.y += speed * dt;
+                }
+                self.viewer.camera.move_relative(mv);
             }
-            if self.viewer.keys.contains(&KeyS) {
-                mv.z -= speed * dt;
-            }
-            if self.viewer.keys.contains(&KeyA) {
-                mv.x -= speed * dt;
-            }
-            if self.viewer.keys.contains(&KeyD) {
-                mv.x += speed * dt;
-            }
-            if self.viewer.keys.contains(&KeyQ) {
-                mv.y -= speed * dt;
-            }
-            if self.viewer.keys.contains(&KeyE) {
-                mv.y += speed * dt;
-            }
-            self.viewer.camera.move_relative(mv);
-        }
 
-        if matches!(self.ui.screen, Screen::View) {
             self.viewer.graph.step_layout(dt);
+            self.handle_pointer(dt, aspect, width_px, height_px, win);
         }
-
-        self.handle_pointer(dt, aspect, width_px, height_px, win);
 
         let radius = self.viewer.graph.bounding_radius();
         let view_proj = self.viewer.camera.view_proj(aspect, radius);

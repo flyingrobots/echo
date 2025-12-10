@@ -93,7 +93,9 @@ impl ViewerState {
             self.camera.pos = Vec3::from_array(cam.pos);
         }
         if cam.pitch.is_finite() {
-            self.camera.pitch = cam.pitch.clamp(-1.55, 1.55);
+            self.camera.pitch = cam
+                .pitch
+                .clamp(-crate::camera::MAX_PITCH, crate::camera::MAX_PITCH);
         }
         if cam.fov_y.is_finite() {
             self.camera.fov_y = cam.fov_y.clamp(15f32.to_radians(), 120f32.to_radians());

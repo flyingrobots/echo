@@ -5,6 +5,8 @@
 use glam::{Mat4, Quat, Vec2, Vec3};
 use std::f32::consts::PI;
 
+pub const MAX_PITCH: f32 = PI * 0.5 - 0.01;
+
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
     pub pos: Vec3,
@@ -67,7 +69,7 @@ impl Camera {
         let yaw_q = Quat::from_axis_angle(Vec3::Y, yaw_delta);
         self.orientation = yaw_q * self.orientation;
 
-        let new_pitch = (self.pitch + pitch_delta).clamp(-PI * 0.5 + 0.01, PI * 0.5 - 0.01);
+        let new_pitch = (self.pitch + pitch_delta).clamp(-MAX_PITCH, MAX_PITCH);
         let applied = new_pitch - self.pitch;
         if applied.abs() > 1e-6 {
             let right = self.orientation * Vec3::X;

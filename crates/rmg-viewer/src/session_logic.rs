@@ -43,16 +43,30 @@ pub(crate) fn process_frames(
                         .push("Session started. Receiving RMG stream...".into());
                 }
                 if let Some(expected) = s.state_hash {
-                    let actual = viewer.wire_graph.compute_hash();
-                    if actual != expected {
-                        toasts.push(
-                            ToastKind::Error,
-                            ToastScope::Local,
-                            "Snapshot hash mismatch",
-                            None,
-                            std::time::Duration::from_secs(6),
-                            Instant::now(),
-                        );
+                    match viewer.wire_graph.compute_hash() {
+                        Ok(actual) if actual != expected => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "Snapshot hash mismatch",
+                                None,
+                                std::time::Duration::from_secs(6),
+                                Instant::now(),
+                            );
+                        }
+                        Err(e) => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "Snapshot hash compute failed",
+                                Some(format!("{e:#}")),
+                                std::time::Duration::from_secs(6),
+                                Instant::now(),
+                            );
+                            outcome.desync = Some("Desynced (hash compute) — reconnect".into());
+                            return outcome;
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -99,18 +113,32 @@ pub(crate) fn process_frames(
                 }
                 viewer.epoch = Some(d.to_epoch);
                 if let Some(expected) = d.state_hash {
-                    let actual = viewer.wire_graph.compute_hash();
-                    if actual != expected {
-                        toasts.push(
-                            ToastKind::Error,
-                            ToastScope::Local,
-                            "State hash mismatch",
-                            Some(format!("expected {:?}, got {:?}", expected, actual)),
-                            std::time::Duration::from_secs(8),
-                            Instant::now(),
-                        );
-                        outcome.desync = Some("Desynced (hash mismatch) — reconnect".into());
-                        return outcome;
+                    match viewer.wire_graph.compute_hash() {
+                        Ok(actual) if actual != expected => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "State hash mismatch",
+                                Some(format!("expected {:?}, got {:?}", expected, actual)),
+                                std::time::Duration::from_secs(8),
+                                Instant::now(),
+                            );
+                            outcome.desync = Some("Desynced (hash mismatch) — reconnect".into());
+                            return outcome;
+                        }
+                        Err(e) => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "State hash compute failed",
+                                Some(format!("{e:#}")),
+                                std::time::Duration::from_secs(8),
+                                Instant::now(),
+                            );
+                            outcome.desync = Some("Desynced (hash compute) — reconnect".into());
+                            return outcome;
+                        }
+                        _ => {}
                     }
                 }
                 viewer.history.append(viewer.wire_graph.clone(), d.to_epoch);

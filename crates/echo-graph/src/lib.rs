@@ -20,6 +20,7 @@ pub type RmgId = u64;
 
 /// Basic node classification (extend as needed).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NodeKind {
     /// Unspecified node type.
     Generic,
@@ -27,6 +28,7 @@ pub enum NodeKind {
 
 /// Basic edge classification (extend as needed).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EdgeKind {
     /// Unspecified edge type.
     Generic,
@@ -149,19 +151,36 @@ pub struct RenderGraph {
 
 impl RenderGraph {
     /// Canonical serialization (sorted by id) for hashing/comparison.
-    pub fn to_canonical_bytes(&self) -> Vec<u8> {
-        let mut g = self.clone();
-        g.nodes.sort_by_key(|n| n.id);
-        g.edges.sort_by_key(|e| (e.src, e.dst, e.id));
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
+        #[derive(Serialize)]
+        struct Canon<'a> {
+            nodes: Vec<&'a RenderNode>,
+            edges: Vec<&'a RenderEdge>,
+        }
+
+        let mut node_idx: Vec<usize> = (0..self.nodes.len()).collect();
+        node_idx.sort_by_key(|&i| self.nodes[i].id);
+
+        let mut edge_idx: Vec<usize> = (0..self.edges.len()).collect();
+        edge_idx.sort_by_key(|&i| {
+            let e = &self.edges[i];
+            (e.src, e.dst, e.id)
+        });
+
+        let canon = Canon {
+            nodes: node_idx.iter().map(|&i| &self.nodes[i]).collect(),
+            edges: edge_idx.iter().map(|&i| &self.edges[i]).collect(),
+        };
+
         let mut bytes = Vec::new();
-        into_writer(&g, &mut bytes).expect("canonical serialize");
-        bytes
+        into_writer(&canon, &mut bytes)?;
+        Ok(bytes)
     }
 
     /// Compute blake3 hash of the canonical form.
-    pub fn compute_hash(&self) -> Hash32 {
-        let h: Hash = blake3::hash(&self.to_canonical_bytes());
-        h.into()
+    pub fn compute_hash(&self) -> Result<Hash32, ciborium::ser::Error<std::io::Error>> {
+        let h: Hash = blake3::hash(&self.to_canonical_bytes()?);
+        Ok(h.into())
     }
 
     /// Apply a structural op; errors if ids are missing/duplicate.

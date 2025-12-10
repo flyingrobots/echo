@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-10 — CI cargo-deny index failures (IN PROGRESS)
+
+- Goal: stop noisy `warning[index-failure]: unable to check for yanked crates` in GitHub Actions by ensuring `cargo-deny` has a warm crates.io index.
+- Scope: `.github/workflows/ci.yml` deny job (prime cargo index before running `cargo deny`).
+- Status: in progress.
+
 > 2025-12-10 — CBOR migration + viewer input gating (COMPLETED)
 
 - Goal: swap serde_cbor for maintained ciborium, harden canonical encoding/decoding, and keep viewer input/render stacks consistent.

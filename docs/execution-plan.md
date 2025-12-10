@@ -35,11 +35,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-10 — CI cargo-deny index failures (IN PROGRESS)
+> 2025-12-10 — CI cargo-deny index failures (COMPLETED)
 
 - Goal: stop noisy `warning[index-failure]: unable to check for yanked crates` in GitHub Actions by ensuring `cargo-deny` has a warm crates.io index.
 - Scope: `.github/workflows/ci.yml` deny job (prime cargo index before running `cargo deny`).
-- Status: in progress.
+- Status: completed; deny job now runs `cargo fetch --locked` before `cargo deny`.
+
+> 2025-12-10 — CI cargo-audit unmaintained warnings (COMPLETED)
+
+- Goal: keep `cargo audit --deny warnings` green despite unavoidable unmaintained transitive `paste` (via wgpu) and legacy `serde_cbor` advisory.
+- Scope: `.github/workflows/security-audit.yml` (add `--ignore RUSTSEC-2024-0436` and `--ignore RUSTSEC-2021-0127`).
+- Status: completed; audit step now ignores these advisories explicitly until upstreams replace them.
 
 > 2025-12-10 — CBOR migration + viewer input gating (COMPLETED)
 

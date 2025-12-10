@@ -4,6 +4,7 @@
 //! Pure data (nodes, edges, payloads) with deterministic hashing/serialization.
 
 use blake3::Hash;
+use ciborium::ser::into_writer;
 use serde::{Deserialize, Serialize};
 
 /// Monotonic epoch identifier.
@@ -152,7 +153,9 @@ impl RenderGraph {
         let mut g = self.clone();
         g.nodes.sort_by_key(|n| n.id);
         g.edges.sort_by_key(|e| (e.src, e.dst, e.id));
-        serde_cbor::to_vec(&g).expect("canonical serialize")
+        let mut bytes = Vec::new();
+        into_writer(&g, &mut bytes).expect("canonical serialize");
+        bytes
     }
 
     /// Compute blake3 hash of the canonical form.

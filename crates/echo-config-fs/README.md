@@ -7,7 +7,7 @@ Filesystem-backed configuration adapter for Echo tools.
 
 ## What this crate does
 
-- Implements `echo-app-core`'s `ConfigStorePort` using platform-specific
+- Implements `echo-app-core`'s `ConfigStore` using platform-specific
   configuration directories (via the `directories` crate) and JSON files.
 - Provides a concrete `FsConfigStore` type that tools like `rmg-viewer` and
   `echo-session-service` use to persist:

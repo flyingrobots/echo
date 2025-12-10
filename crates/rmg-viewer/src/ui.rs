@@ -141,23 +141,76 @@ pub fn draw_view_hud(
         });
 
     // Overlays
-    if let ViewerOverlay::Menu = app.ui.overlay {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(40.0);
-                if ui.button("Settings").clicked() {
-                    app.apply_ui_event(UiEvent::OpenSettingsOverlay);
+    match app.ui.overlay {
+        ViewerOverlay::None => {}
+        ViewerOverlay::Menu => {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(40.0);
+                    if ui.button("Settings").clicked() {
+                        app.apply_ui_event(UiEvent::OpenSettingsOverlay);
+                    }
+                    if ui.button("Publish Local RMG").clicked() {
+                        app.apply_ui_event(UiEvent::OpenPublishOverlay);
+                    }
+                    if ui.button("Subscribe to RMG").clicked() {
+                        app.apply_ui_event(UiEvent::OpenSubscribeOverlay);
+                    }
+                    if ui.button("Back").clicked() {
+                        app.apply_ui_event(UiEvent::CloseOverlay);
+                    }
+                });
+            });
+        }
+        ViewerOverlay::Settings => {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.heading("Viewer Settings");
+                ui.separator();
+                ui.checkbox(&mut app.viewer.vsync, "Enable VSync");
+                ui.checkbox(&mut app.viewer.wireframe, "Wireframe mode");
+                ui.checkbox(&mut app.viewer.show_watermark, "Show watermark");
+                ui.checkbox(&mut app.viewer.debug_show_arc, "Show drag arc");
+                ui.checkbox(&mut app.viewer.debug_show_sphere, "Show debug sphere");
+                ui.add_space(12.0);
+                if ui.button("Save").clicked() {
+                    app.apply_ui_event(UiEvent::SavePrefs);
                 }
-                if ui.button("Publish Local RMG").clicked() {
-                    app.apply_ui_event(UiEvent::OpenPublishOverlay);
-                }
-                if ui.button("Subscribe to RMG").clicked() {
-                    app.apply_ui_event(UiEvent::OpenSubscribeOverlay);
-                }
-                if ui.button("Back").clicked() {
+                if ui.button("Close").clicked() {
                     app.apply_ui_event(UiEvent::CloseOverlay);
                 }
             });
-        });
+        }
+        ViewerOverlay::Publish => {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.heading("Publish Local RMG");
+                ui.label("Publishing from the local runtime will appear here.");
+                ui.label("Hook up engine output to stream snapshots/diffs to the hub.");
+                ui.add_space(12.0);
+                if ui.button("Close").clicked() {
+                    app.apply_ui_event(UiEvent::CloseOverlay);
+                }
+            });
+        }
+        ViewerOverlay::Subscribe => {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.heading("Subscribe to RMG");
+                ui.label("Choose an RMG id to follow from the session hub.");
+                let mut rmg_id = app.ui.rmg_id;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut rmg_id)
+                            .speed(1)
+                            .prefix("RMG id: "),
+                    )
+                    .changed()
+                {
+                    app.ui.rmg_id = rmg_id.max(1);
+                }
+                ui.add_space(12.0);
+                if ui.button("Close").clicked() {
+                    app.apply_ui_event(UiEvent::CloseOverlay);
+                }
+            });
+        }
     }
 }

@@ -4,7 +4,7 @@
 name = "echo-session-proto"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83.0"
+rust-version = "1.71.1"
 description = "Wire schema for Echo session hub (RMG streams, commands, notifications)"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"

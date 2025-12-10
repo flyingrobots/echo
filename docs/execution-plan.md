@@ -41,6 +41,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: `crates/echo-session-client/src/lib.rs` (`poll_message` header handling) and a regression test.
 - Status: completed; `poll_message` now buffers short headers and a partial-read test covers the regression (`cargo test -p echo-session-client`).
 
+> 2025-12-10 — Docs/dep/UI polish (COMPLETED)
+
+- Goal: align docs and deps with code (config trait name, MSRV, maintained CBOR), fix constellation graphic path, and render all viewer overlays.
+- Scope: `crates/echo-config-fs/README.md`, `crates/echo-graph`, `crates/echo-session-proto/Cargo.toml`, `docs/book/echo/sections/06-editor-constellation.tex` + TikZ asset rename, `crates/rmg-viewer/src/ui.rs` overlays.
+- Status: completed; swapped serde_cbor→ciborium in echo-graph, set proto MSRV to 1.71.1, corrected graphic filename, and added match-based overlay rendering with Settings/Publish/Subscribe panels.
+
 > 2025-12-06 — Tool crate docs + crate map (COMPLETED)
 
 - Goal: tighten docs around the tool hexagon pattern and make crate-level READMEs point at the Echo booklets as the canonical source of truth.

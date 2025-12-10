@@ -44,8 +44,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-12-10 — CI cargo-audit unmaintained warnings (COMPLETED)
 
 - Goal: keep `cargo audit --deny warnings` green despite unavoidable unmaintained transitive `paste` (via wgpu) and legacy `serde_cbor` advisory.
-- Scope: `.github/workflows/security-audit.yml` (add `--ignore RUSTSEC-2024-0436` and `--ignore RUSTSEC-2021-0127`).
-- Status: completed; audit step now ignores these advisories explicitly until upstreams replace them.
+- Scope: `.github/workflows/security-audit.yml` and `.github/workflows/ci.yml` (add `--ignore RUSTSEC-2024-0436` and `--ignore RUSTSEC-2021-0127`).
+- Status: completed; audit steps now ignore these advisories explicitly until upstreams replace them.
 
 > 2025-12-10 — RMG View Protocol tasks (IN PROGRESS)
 

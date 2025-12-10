@@ -20,13 +20,17 @@ pub mod tool;
 /// Minimal async client over Unix sockets.
 pub struct SessionClient {
     stream: AsyncUnixStream,
+    buffer: Vec<u8>,
 }
 
 impl SessionClient {
     /// Connect to the hub at the given Unix socket path.
     pub async fn connect(path: &str) -> Result<Self> {
         let stream = AsyncUnixStream::connect(path).await?;
-        Ok(Self { stream })
+        Ok(Self {
+            stream,
+            buffer: Vec::with_capacity(4096),
+        })
     }
 
     /// Send a handshake message (JS-ABI v1.0).
@@ -43,35 +47,55 @@ impl SessionClient {
         Ok(())
     }
 
-    /// Poll a single message if available. Returns Ok(None) when the stream is closed before any bytes are read.
-    /// Reads until a full frame header is buffered so short reads cannot desynchronize framing.
+    /// Poll a single message if available. Returns Ok(None) when no complete frame is buffered and the stream is cleanly closed.
+    /// Buffers across calls so partial reads never drop bytes.
     pub async fn poll_message(&mut self) -> Result<Option<Message>> {
-        let mut header = [0u8; 12];
-        let mut read = 0usize;
-        while read < header.len() {
-            let n = self.stream.read(&mut header[read..]).await?;
+        // Ensure we have a full header buffered.
+        while self.buffer.len() < 12 {
+            let mut chunk = [0u8; 1024];
+            let n = self.stream.read(&mut chunk).await?;
             if n == 0 {
-                if read == 0 {
+                if self.buffer.is_empty() {
                     return Ok(None);
                 }
                 return Err(io::Error::new(
                     io::ErrorKind::UnexpectedEof,
                     format!(
-                        "truncated frame header: read {} of {} bytes",
-                        read,
-                        header.len()
+                        "truncated frame header: have {} of 12 bytes",
+                        self.buffer.len()
                     ),
                 )
                 .into());
             }
-            read += n;
+            self.buffer.extend_from_slice(&chunk[..n]);
         }
-        let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
-        let mut rest = vec![0u8; len + 32];
-        self.stream.read_exact(&mut rest).await?;
-        let mut packet = Vec::with_capacity(12 + len + 32);
-        packet.extend_from_slice(&header);
-        packet.extend_from_slice(&rest);
+
+        let len = u32::from_be_bytes([
+            self.buffer[8],
+            self.buffer[9],
+            self.buffer[10],
+            self.buffer[11],
+        ]) as usize;
+        let frame_len = 12 + len + 32; // header + payload + checksum
+
+        while self.buffer.len() < frame_len {
+            let mut chunk = [0u8; 4096];
+            let n = self.stream.read(&mut chunk).await?;
+            if n == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "truncated frame: expected {} bytes, have {}",
+                        frame_len,
+                        self.buffer.len()
+                    ),
+                )
+                .into());
+            }
+            self.buffer.extend_from_slice(&chunk[..n]);
+        }
+
+        let packet: Vec<u8> = self.buffer.drain(..frame_len).collect();
         let (msg, _ts, _) = decode_message(&packet)?;
         Ok(Some(msg))
     }
@@ -231,6 +255,7 @@ mod tests {
         let client_task = task::spawn(async move {
             let mut client = SessionClient {
                 stream: client_stream,
+                buffer: Vec::new(),
             };
             client.poll_message().await
         });

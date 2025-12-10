@@ -47,6 +47,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: `crates/echo-config-fs/README.md`, `crates/echo-graph`, `crates/echo-session-proto/Cargo.toml`, `docs/book/echo/sections/06-editor-constellation.tex` + TikZ asset rename, `crates/rmg-viewer/src/ui.rs` overlays.
 - Status: completed; swapped serde_cbor→ciborium in echo-graph, set proto MSRV to 1.71.1, corrected graphic filename, and added match-based overlay rendering with Settings/Publish/Subscribe panels.
 
+> 2025-12-10 — Viewer frame timing + session client buffering (COMPLETED)
+
+- Goal: fix frame dt handling/ang-vel math in viewer and stop session client from losing partial packets.
+- Scope: `crates/rmg-viewer/src/app_frame.rs` (dt/ang vel) and `crates/echo-session-client/src/lib.rs` (poll_message buffering).
+- Status: completed; dt captured once per frame and reused; angular velocity uses dt with zero-angle guard; poll_message now buffers across reads and respects checksum length.
+
 > 2025-12-06 — Tool crate docs + crate map (COMPLETED)
 
 - Goal: tighten docs around the tool hexagon pattern and make crate-level READMEs point at the Echo booklets as the canonical source of truth.

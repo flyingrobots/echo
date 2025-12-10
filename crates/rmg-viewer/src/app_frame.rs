@@ -62,9 +62,12 @@ impl App {
             self.apply_ui_event(ui_state::UiEvent::ShowError(reason));
         }
 
-        let dt = self.viewer.last_frame.elapsed().as_secs_f32().min(0.05);
-        self.viewer.last_frame = Instant::now();
-        let now = self.viewer.last_frame;
+        let now = Instant::now();
+        let dt = now
+            .saturating_duration_since(self.viewer.last_frame)
+            .as_secs_f32()
+            .min(0.05);
+        self.viewer.last_frame = now;
         self.toasts.retain_visible(now);
         let visible_toasts = self.toasts.visible(now);
         let aspect = width_px as f32 / height_px as f32;
@@ -108,7 +111,7 @@ impl App {
             self.viewer.graph.step_layout(dt);
         }
 
-        self.handle_pointer(aspect, width_px, height_px, win);
+        self.handle_pointer(dt, aspect, width_px, height_px, win);
 
         let aspect = width_px as f32 / height_px as f32;
         let radius = self.viewer.graph.bounding_radius();
@@ -168,6 +171,7 @@ impl App {
 
     fn handle_pointer(
         &mut self,
+        dt: f32,
         aspect: f32,
         width_px: u32,
         height_px: u32,
@@ -240,8 +244,12 @@ impl App {
                     if axis.length_squared() > 0.0 && angle.is_finite() {
                         let dq = Quat::from_axis_angle(axis.normalize(), angle);
                         self.viewer.graph_rot = dq * self.viewer.graph_rot;
-                        self.viewer.graph_ang_vel =
-                            axis.normalize() * (angle / 0.0001_f32.max(0.0));
+                        let dt = dt.max(1e-6);
+                        if angle < 1e-6 {
+                            self.viewer.graph_ang_vel = Vec3::ZERO;
+                        } else {
+                            self.viewer.graph_ang_vel = axis.normalize() * (angle / dt);
+                        }
                     }
                 }
                 self.viewer.arc_last = Some(curr);
@@ -250,12 +258,10 @@ impl App {
             let w = self.viewer.graph_ang_vel;
             let w_len = w.length();
             if w_len > 1e-4 {
-                let angle = w_len * self.viewer.last_frame.elapsed().as_secs_f32();
+                let angle = w_len * dt;
                 let dq = Quat::from_axis_angle(w / w_len, angle);
                 self.viewer.graph_rot = dq * self.viewer.graph_rot;
-                let decay = (-self.viewer.graph_damping
-                    * self.viewer.last_frame.elapsed().as_secs_f32())
-                .exp();
+                let decay = (-self.viewer.graph_damping * dt).exp();
                 self.viewer.graph_ang_vel *= decay;
             }
         }

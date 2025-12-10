@@ -20,6 +20,7 @@ pub enum UiEvent {
     OpenPublishOverlay,
     OpenSubscribeOverlay,
     ShowError(String),
+    ShutdownRequested,
     EnterView,
 }
 
@@ -48,8 +49,8 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
         UiEvent::ConnectSubmit => {
             next.connect_log.clear();
             next.connect_log.push(format!(
-                "Connecting to /tmp/echo-session.sock (RMG {})...",
-                next.rmg_id
+                "Connecting to {}:{} (RMG {})...",
+                next.connect_host, next.connect_port, next.rmg_id
             ));
             next.screen = Screen::Connecting;
             next.title_mode = TitleMode::Menu;
@@ -74,14 +75,12 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
             next.connect_log.push(format!("Connection error: {}", msg));
             next.screen = Screen::Error(msg);
         }
+        UiEvent::ShutdownRequested => {
+            // handled by App; no state change needed here
+        }
         UiEvent::EnterView => next.screen = Screen::View,
     }
     (next, fx)
-}
-
-#[allow(dead_code)]
-pub fn connecting_push(ui: &mut UiState, line: impl Into<String>) {
-    ui.connect_log.push(line.into());
 }
 
 #[cfg(test)]

@@ -7,8 +7,9 @@ use echo_app_core::config::ConfigService;
 use echo_config_fs::FsConfigStore;
 use echo_graph::{RmgFrame, RmgSnapshot};
 use echo_session_proto::{
+    default_socket_path,
     wire::{decode_message, encode_message},
-    AckStatus, HandshakeAckPayload, Message, RmgId, DEFAULT_SOCKET_PATH,
+    AckStatus, HandshakeAckPayload, Message, RmgId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -26,7 +27,7 @@ struct HostPrefs {
 impl Default for HostPrefs {
     fn default() -> Self {
         Self {
-            socket_path: DEFAULT_SOCKET_PATH.into(),
+            socket_path: default_socket_path().display().to_string(),
         }
     }
 }
@@ -280,23 +281,46 @@ async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<
         }
     });
 
-    let mut buf = vec![0u8; 16 * 1024];
+    const MAX_PAYLOAD: usize = 8 * 1024 * 1024;
+    let mut read_buf: Vec<u8> = vec![0u8; 16 * 1024];
+    let mut acc: Vec<u8> = Vec::with_capacity(32 * 1024);
     loop {
-        let n = reader.read(&mut buf).await?;
+        let n = reader.read(&mut read_buf).await?;
         if n == 0 {
             break;
         }
-        let slice = &buf[..n];
-        match decode_message(slice) {
-            Ok((msg, _ts, _used)) => {
-                if let Err(err) = handle_message(msg, conn_id, &hub).await {
-                    warn!(?err, "dropping connection {}", conn_id);
-                    break;
-                }
-            }
-            Err(err) => {
-                warn!(?err, "failed to decode packet");
+        acc.extend_from_slice(&read_buf[..n]);
+
+        // process as many frames as available
+        loop {
+            if acc.len() < 12 {
                 break;
+            }
+            let len = u32::from_be_bytes([acc[8], acc[9], acc[10], acc[11]]) as usize;
+            if len > MAX_PAYLOAD {
+                warn!("payload too large from conn {}", conn_id);
+                return Ok(());
+            }
+            let frame_len = 12usize
+                .checked_add(len)
+                .and_then(|v| v.checked_add(32))
+                .unwrap_or(usize::MAX);
+            if frame_len == usize::MAX || acc.len() < frame_len {
+                // need more data
+                break;
+            }
+            let packet: Vec<u8> = acc.drain(..frame_len).collect();
+            match decode_message(&packet) {
+                Ok((msg, _ts, _used)) => {
+                    if let Err(err) = handle_message(msg, conn_id, &hub).await {
+                        warn!(?err, "dropping connection {}", conn_id);
+                        return Ok(());
+                    }
+                }
+                Err(err) => {
+                    warn!(?err, "failed to decode packet");
+                    return Ok(());
+                }
             }
         }
     }

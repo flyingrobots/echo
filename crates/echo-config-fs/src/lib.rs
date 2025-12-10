@@ -5,7 +5,7 @@
 use directories::ProjectDirs;
 use echo_app_core::config::{ConfigError, ConfigStore};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 /// Store configs as JSON files under the platform config directory.
 pub struct FsConfigStore {
@@ -22,15 +22,32 @@ impl FsConfigStore {
         Ok(Self { base })
     }
 
-    fn path_for(&self, key: &str) -> PathBuf {
-        let filename = format!("{}.json", key);
-        self.base.join(filename)
+    fn path_for(&self, key: &str) -> Result<PathBuf, ConfigError> {
+        let mut comps = Path::new(key).components();
+        let first = comps
+            .next()
+            .ok_or_else(|| ConfigError::Other("config key cannot be empty".into()))?;
+        // Reject anything but a single normal path component.
+        if comps.next().is_some() {
+            return Err(ConfigError::Other(
+                "config key must not contain path separators".into(),
+            ));
+        }
+        match first {
+            Component::Normal(name) => {
+                let filename = format!("{}.json", name.to_string_lossy());
+                Ok(self.base.join(filename))
+            }
+            _ => Err(ConfigError::Other(
+                "config key must not contain roots or parent dirs".into(),
+            )),
+        }
     }
 }
 
 impl ConfigStore for FsConfigStore {
     fn load_raw(&self, key: &str) -> Result<Vec<u8>, ConfigError> {
-        let path = self.path_for(key);
+        let path = self.path_for(key)?;
         match fs::read(path) {
             Ok(bytes) => Ok(bytes),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(ConfigError::NotFound),
@@ -39,7 +56,7 @@ impl ConfigStore for FsConfigStore {
     }
 
     fn save_raw(&self, key: &str, data: &[u8]) -> Result<(), ConfigError> {
-        let path = self.path_for(key);
+        let path = self.path_for(key)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }

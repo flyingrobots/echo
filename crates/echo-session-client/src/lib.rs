@@ -127,56 +127,8 @@ pub fn connect_channels(path: &str) -> (Receiver<RmgFrame>, Receiver<Notificatio
     let path = path.to_string();
 
     thread::spawn(move || {
-        if let Ok(mut stream) = UnixStream::connect(path) {
-            let _ = stream.write_all(
-                &encode_message(
-                    Message::Handshake(HandshakePayload {
-                        client_version: 1,
-                        capabilities: vec![],
-                        agent_id: None,
-                        session_meta: None,
-                    }),
-                    0,
-                )
-                .unwrap_or_default(),
-            );
-            let _ = stream.write_all(
-                &encode_message(Message::SubscribeRmg { rmg_id: 1 }, 0).unwrap_or_default(),
-            );
-            loop {
-                let mut header = [0u8; 12];
-                if stream.read_exact(&mut header).is_err() {
-                    break;
-                }
-                let len =
-                    u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
-                if len > MAX_PAYLOAD {
-                    break;
-                }
-                let frame_len = 12usize
-                    .checked_add(len)
-                    .and_then(|v| v.checked_add(32))
-                    .unwrap_or(usize::MAX);
-                if frame_len == usize::MAX {
-                    break;
-                }
-                let mut rest = vec![0u8; len + 32];
-                if stream.read_exact(&mut rest).is_err() {
-                    break;
-                }
-                let mut packet = Vec::with_capacity(frame_len);
-                packet.extend_from_slice(&header);
-                packet.extend_from_slice(&rest);
-                match decode_message(&packet) {
-                    Ok((Message::RmgStream { frame, .. }, _, _)) => {
-                        let _ = rmg_tx.send(frame);
-                    }
-                    Ok((Message::Notification(n), _, _)) => {
-                        let _ = notif_tx.send(n);
-                    }
-                    _ => continue,
-                }
-            }
+        if let Ok(stream) = UnixStream::connect(path) {
+            run_message_loop(stream, 1, rmg_tx, notif_tx);
         }
     });
 
@@ -201,57 +153,65 @@ pub fn connect_channels_for(
     let stream = UnixStream::connect(&path)?;
 
     thread::spawn(move || {
-        let mut stream = stream;
-        let _ = stream.write_all(
-            &encode_message(
-                Message::Handshake(HandshakePayload {
-                    client_version: 1,
-                    capabilities: vec![],
-                    agent_id: None,
-                    session_meta: None,
-                }),
-                0,
-            )
-            .unwrap_or_default(),
-        );
-        let _ = stream
-            .write_all(&encode_message(Message::SubscribeRmg { rmg_id }, 0).unwrap_or_default());
-        loop {
-            let mut header = [0u8; 12];
-            if stream.read_exact(&mut header).is_err() {
-                break;
-            }
-            let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
-            if len > MAX_PAYLOAD {
-                break;
-            }
-            let frame_len = 12usize
-                .checked_add(len)
-                .and_then(|v| v.checked_add(32))
-                .unwrap_or(usize::MAX);
-            if frame_len == usize::MAX {
-                break;
-            }
-            let mut rest = vec![0u8; len + 32];
-            if stream.read_exact(&mut rest).is_err() {
-                break;
-            }
-            let mut packet = Vec::with_capacity(frame_len);
-            packet.extend_from_slice(&header);
-            packet.extend_from_slice(&rest);
-            match decode_message(&packet) {
-                Ok((Message::RmgStream { frame, .. }, _, _)) => {
-                    let _ = rmg_tx.send(frame);
-                }
-                Ok((Message::Notification(n), _, _)) => {
-                    let _ = notif_tx.send(n);
-                }
-                _ => continue,
-            }
-        }
+        run_message_loop(stream, rmg_id, rmg_tx, notif_tx);
     });
 
     Ok((rmg_rx, notif_rx))
+}
+
+fn run_message_loop(
+    mut stream: UnixStream,
+    rmg_id: RmgId,
+    rmg_tx: mpsc::Sender<RmgFrame>,
+    notif_tx: mpsc::Sender<Notification>,
+) {
+    let _ = stream.write_all(
+        &encode_message(
+            Message::Handshake(HandshakePayload {
+                client_version: 1,
+                capabilities: vec![],
+                agent_id: None,
+                session_meta: None,
+            }),
+            0,
+        )
+        .unwrap_or_default(),
+    );
+    let _ =
+        stream.write_all(&encode_message(Message::SubscribeRmg { rmg_id }, 0).unwrap_or_default());
+    loop {
+        let mut header = [0u8; 12];
+        if stream.read_exact(&mut header).is_err() {
+            break;
+        }
+        let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+        if len > MAX_PAYLOAD {
+            break;
+        }
+        let frame_len = 12usize
+            .checked_add(len)
+            .and_then(|v| v.checked_add(32))
+            .unwrap_or(usize::MAX);
+        if frame_len == usize::MAX {
+            break;
+        }
+        let mut rest = vec![0u8; len + 32];
+        if stream.read_exact(&mut rest).is_err() {
+            break;
+        }
+        let mut packet = Vec::with_capacity(frame_len);
+        packet.extend_from_slice(&header);
+        packet.extend_from_slice(&rest);
+        match decode_message(&packet) {
+            Ok((Message::RmgStream { frame, .. }, _, _)) => {
+                let _ = rmg_tx.send(frame);
+            }
+            Ok((Message::Notification(n), _, _)) => {
+                let _ = notif_tx.send(n);
+            }
+            _ => continue,
+        }
+    }
 }
 
 #[cfg(test)]

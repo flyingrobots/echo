@@ -37,6 +37,7 @@ pub struct App {
     pub session: ChannelSession,
     pub ui: UiState,
     pub viewer: ViewerState,
+    shutdown_requested: bool,
 }
 
 impl App {
@@ -82,10 +83,12 @@ impl App {
             session: ChannelSession::new(),
             ui: UiState::new(),
             viewer,
+            shutdown_requested: false,
         }
     }
 
     pub fn apply_ui_event(&mut self, ev: ui_state::UiEvent) {
+        let ev_clone = ev.clone();
         let (next, effects) = ui_state::reduce(&self.ui, ev);
         self.ui = next;
         let followups = self.ui_runner.run(
@@ -95,6 +98,9 @@ impl App {
             self.config.as_deref(),
             &self.viewer,
         );
+        if matches!(ev_clone, ui_state::UiEvent::ShutdownRequested) {
+            self.shutdown_requested = true;
+        }
         for ev in followups {
             self.apply_ui_event(ev);
         }
@@ -147,8 +153,16 @@ impl ApplicationHandler for App {
         self.handle_window_event(window_id, event);
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.viewports.is_empty() {
+            return;
+        }
+        if self.shutdown_requested {
+            if let Some(cfg) = &self.config {
+                cfg.save_prefs(&self.viewer.export_prefs());
+            }
+            // Let the app exit gracefully; dropping will clean up GPU/session.
+            event_loop.exit();
             return;
         }
         self.frame();

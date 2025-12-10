@@ -10,13 +10,18 @@ pub use echo_graph::{
 };
 mod canonical;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 /// Default Unix socket path for the session hub.
 ///
-/// Both the session service and local tools use this when no explicit path
-/// is configured. This matches the default in the host prefs.
-pub const DEFAULT_SOCKET_PATH: &str = "/tmp/echo-session.sock";
+/// Prefers a per-user runtime dir (XDG_RUNTIME_DIR) and falls back to `/tmp`
+/// when unavailable.
+pub fn default_socket_path() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("echo-session.sock")
+}
 
 /// Canonical OpEnvelope carried as the payload of a JS-ABI packet.
 ///

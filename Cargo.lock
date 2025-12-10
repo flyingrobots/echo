@@ -719,12 +719,12 @@ name = "echo-session-proto"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "ciborium",
  "echo-graph",
  "half 2.7.1",
  "hex",
  "serde",
  "serde-value",
- "serde_cbor",
  "thiserror 1.0.69",
 ]
 

@@ -10,12 +10,104 @@
 //! * CHECKSUM = blake3-256 over HEADER (first 12 bytes) || PAYLOAD
 
 use blake3::Hasher;
-use serde::de::Error as DeError;
+use ciborium::value::{Integer, Value};
 use serde::Serialize;
-use serde_cbor::Value;
+use serde_value::{to_value, Value as SerdeValue};
+use std::io;
 
 use crate::canonical::{decode_value, encode_value};
 use crate::{Message, OpEnvelope, RmgStreamPayload, SubscribeRmgPayload};
+
+fn sv_to_cv(val: SerdeValue) -> Result<Value, String> {
+    use serde_value::Value::*;
+    match val {
+        Bool(b) => Ok(Value::Bool(b)),
+        I8(n) => Ok(Value::Integer(Integer::from(n))),
+        I16(n) => Ok(Value::Integer(Integer::from(n))),
+        I32(n) => Ok(Value::Integer(Integer::from(n))),
+        I64(n) => Ok(Value::Integer(Integer::from(n))),
+        U8(n) => Ok(Value::Integer(Integer::from(n))),
+        U16(n) => Ok(Value::Integer(Integer::from(n))),
+        U32(n) => Ok(Value::Integer(Integer::from(n))),
+        U64(n) => Ok(Value::Integer(Integer::from(n))),
+        F32(f) => Ok(Value::Float(f as f64)),
+        F64(f) => Ok(Value::Float(f)),
+        Char(c) => Ok(Value::Text(c.to_string())),
+        String(s) => Ok(Value::Text(s)),
+        Bytes(b) => Ok(Value::Bytes(b)),
+        Unit => Ok(Value::Null),
+        Option(None) => Ok(Value::Null),
+        Option(Some(v)) => sv_to_cv(*v),
+        Newtype(v) => sv_to_cv(*v),
+        Seq(vs) => {
+            let mut out = Vec::with_capacity(vs.len());
+            for v in vs {
+                out.push(sv_to_cv(v)?);
+            }
+            Ok(Value::Array(out))
+        }
+        Map(m) => {
+            let mut out = Vec::with_capacity(m.len());
+            for (k, v) in m {
+                out.push((sv_to_cv(k)?, sv_to_cv(v)?));
+            }
+            Ok(Value::Map(out))
+        }
+    }
+}
+
+fn encode_payload<T: Serialize>(value: &T) -> Result<Value, ciborium::ser::Error<io::Error>> {
+    let sv = to_value(value).map_err(|e| {
+        ciborium::ser::Error::Io(io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    })?;
+    sv_to_cv(sv)
+        .map_err(|e| ciborium::ser::Error::Io(io::Error::new(io::ErrorKind::InvalidData, e)))
+}
+
+fn decode_payload<T: serde::de::DeserializeOwned>(
+    value: Value,
+) -> Result<T, ciborium::de::Error<io::Error>> {
+    let sv = cv_to_sv(value).map_err(|e| ciborium::de::Error::Semantic(None, e.to_string()))?;
+    T::deserialize(sv).map_err(|e| ciborium::de::Error::Semantic(None, e.to_string()))
+}
+
+fn cv_to_sv(val: Value) -> Result<SerdeValue, String> {
+    match val {
+        Value::Bool(b) => Ok(SerdeValue::Bool(b)),
+        Value::Null => Ok(SerdeValue::Unit),
+        Value::Integer(i) => {
+            let n: i128 = i.into();
+            if n >= 0 {
+                if let Ok(v) = u64::try_from(n) {
+                    return Ok(SerdeValue::U64(v));
+                }
+            }
+            if let Ok(v) = i64::try_from(n) {
+                return Ok(SerdeValue::I64(v));
+            }
+            Err("integer out of range for serde_value".into())
+        }
+        Value::Float(f) => Ok(SerdeValue::F64(f)),
+        Value::Text(s) => Ok(SerdeValue::String(s)),
+        Value::Bytes(b) => Ok(SerdeValue::Bytes(b)),
+        Value::Array(vs) => {
+            let mut out = Vec::with_capacity(vs.len());
+            for v in vs {
+                out.push(cv_to_sv(v)?);
+            }
+            Ok(SerdeValue::Seq(out))
+        }
+        Value::Map(entries) => {
+            let mut map = std::collections::BTreeMap::new();
+            for (k, v) in entries {
+                map.insert(cv_to_sv(k)?, cv_to_sv(v)?);
+            }
+            Ok(SerdeValue::Map(map))
+        }
+        Value::Tag(_, _) => Err("tags not supported in serde conversion".into()),
+        _ => Err("unsupported value".into()),
+    }
+}
 
 /// Protocol magic constant "JIT!".
 pub const MAGIC: [u8; 4] = [0x4a, 0x49, 0x54, 0x21];
@@ -25,15 +117,21 @@ pub const VERSION: u16 = 0x0001;
 pub const FLAGS: u16 = 0x0000;
 
 /// Encode to canonical CBOR bytes.
-pub fn to_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_cbor::Error> {
-    let val: Value = serde_cbor::value::to_value(value)?;
-    encode_value(&val).map_err(|e| serde_cbor::Error::custom(e.to_string()))
+pub fn to_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
+    let val = encode_payload(value)?;
+    encode_value(&val).map_err(|e| {
+        ciborium::ser::Error::Io(io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    })
 }
 
 /// Decode from CBOR bytes with strict canonical validation.
-pub fn from_cbor<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, serde_cbor::Error> {
-    let val = decode_value(bytes).map_err(|e| serde_cbor::Error::custom(e.to_string()))?;
-    serde_cbor::value::from_value(val)
+pub fn from_cbor<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+) -> Result<T, ciborium::de::Error<std::io::Error>> {
+    let val = decode_value(bytes).map_err(|e| {
+        ciborium::de::Error::Io(io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    })?;
+    decode_payload(val)
 }
 
 /// A full JS-ABI packet (header + payload + checksum).
@@ -71,7 +169,7 @@ impl Packet {
     /// Encode an `OpEnvelope` into a full packet byte vector.
     pub fn encode_envelope<P: Serialize>(
         env: &OpEnvelope<P>,
-    ) -> Result<Vec<u8>, serde_cbor::Error> {
+    ) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
         let payload = to_cbor(env)?;
         let packet = Packet::from_payload(payload);
         let mut out =
@@ -85,20 +183,29 @@ impl Packet {
     /// Decode a packet from a byte slice, returning the envelope and bytes consumed.
     pub fn decode_envelope<P: serde::de::DeserializeOwned>(
         bytes: &[u8],
-    ) -> Result<(OpEnvelope<P>, usize), serde_cbor::Error> {
+    ) -> Result<(OpEnvelope<P>, usize), ciborium::de::Error<std::io::Error>> {
         if bytes.len() < 12 + 32 {
-            return Err(serde_cbor::Error::custom("incomplete packet"));
+            return Err(ciborium::de::Error::Semantic(
+                None,
+                "incomplete packet".into(),
+            ));
         }
         if bytes[0..4] != MAGIC {
-            return Err(serde_cbor::Error::custom("bad magic"));
+            return Err(ciborium::de::Error::Semantic(None, "bad magic".into()));
         }
         let version = u16::from_be_bytes([bytes[4], bytes[5]]);
         if version != VERSION {
-            return Err(serde_cbor::Error::custom("unsupported version"));
+            return Err(ciborium::de::Error::Semantic(
+                None,
+                "unsupported version".into(),
+            ));
         }
         let len = u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
         if bytes.len() < 12 + len + 32 {
-            return Err(serde_cbor::Error::custom("incomplete payload"));
+            return Err(ciborium::de::Error::Semantic(
+                None,
+                "incomplete payload".into(),
+            ));
         }
         let header = &bytes[0..12];
         let payload = &bytes[12..12 + len];
@@ -110,7 +217,10 @@ impl Packet {
         hasher.update(payload);
         let expect = hasher.finalize();
         if expect.as_bytes() != checksum {
-            return Err(serde_cbor::Error::custom("checksum mismatch"));
+            return Err(ciborium::de::Error::Semantic(
+                None,
+                "checksum mismatch".into(),
+            ));
         }
 
         let env: OpEnvelope<P> = from_cbor(payload)?;
@@ -119,23 +229,26 @@ impl Packet {
 }
 
 /// Encode a `Message` into a packet with the provided logical timestamp.
-pub fn encode_message(msg: Message, ts: u64) -> Result<Vec<u8>, serde_cbor::Error> {
+pub fn encode_message(
+    msg: Message,
+    ts: u64,
+) -> Result<Vec<u8>, ciborium::ser::Error<std::io::Error>> {
     let (op, payload) = match &msg {
-        Message::Handshake(p) => ("handshake", serde_cbor::value::to_value(p)?),
-        Message::HandshakeAck(p) => ("handshake_ack", serde_cbor::value::to_value(p)?),
-        Message::Error(p) => ("error", serde_cbor::value::to_value(p)?),
+        Message::Handshake(p) => ("handshake", encode_payload(p)?),
+        Message::HandshakeAck(p) => ("handshake_ack", encode_payload(p)?),
+        Message::Error(p) => ("error", encode_payload(p)?),
         Message::SubscribeRmg { rmg_id } => (
             "subscribe_rmg",
-            serde_cbor::value::to_value(&SubscribeRmgPayload { rmg_id: *rmg_id })?,
+            encode_payload(&SubscribeRmgPayload { rmg_id: *rmg_id })?,
         ),
         Message::RmgStream { rmg_id, frame } => (
             "rmg_stream",
-            serde_cbor::value::to_value(&RmgStreamPayload {
+            encode_payload(&RmgStreamPayload {
                 rmg_id: *rmg_id,
                 frame: frame.clone(),
             })?,
         ),
-        Message::Notification(n) => ("notification", serde_cbor::value::to_value(n)?),
+        Message::Notification(n) => ("notification", encode_payload(n)?),
     };
 
     let env = OpEnvelope {
@@ -147,27 +260,32 @@ pub fn encode_message(msg: Message, ts: u64) -> Result<Vec<u8>, serde_cbor::Erro
 }
 
 /// Decode bytes into (Message, ts, bytes_consumed).
-pub fn decode_message(bytes: &[u8]) -> Result<(Message, u64, usize), serde_cbor::Error> {
+pub fn decode_message(
+    bytes: &[u8],
+) -> Result<(Message, u64, usize), ciborium::de::Error<std::io::Error>> {
     let (env, used) = Packet::decode_envelope::<Value>(bytes)?;
     let ts = env.ts;
     let msg = match env.op.as_str() {
-        "handshake" => Message::Handshake(serde_cbor::value::from_value(env.payload)?),
-        "handshake_ack" => Message::HandshakeAck(serde_cbor::value::from_value(env.payload)?),
-        "error" => Message::Error(serde_cbor::value::from_value(env.payload)?),
+        "handshake" => Message::Handshake(decode_payload(env.payload)?),
+        "handshake_ack" => Message::HandshakeAck(decode_payload(env.payload)?),
+        "error" => Message::Error(decode_payload(env.payload)?),
         "subscribe_rmg" => {
-            let p: SubscribeRmgPayload = serde_cbor::value::from_value(env.payload)?;
+            let p: SubscribeRmgPayload = decode_payload(env.payload)?;
             Message::SubscribeRmg { rmg_id: p.rmg_id }
         }
         "rmg_stream" => {
-            let p: RmgStreamPayload = serde_cbor::value::from_value(env.payload)?;
+            let p: RmgStreamPayload = decode_payload(env.payload)?;
             Message::RmgStream {
                 rmg_id: p.rmg_id,
                 frame: p.frame,
             }
         }
-        "notification" => Message::Notification(serde_cbor::value::from_value(env.payload)?),
+        "notification" => Message::Notification(decode_payload(env.payload)?),
         other => {
-            return Err(serde_cbor::Error::custom(format!("unknown op {other}")));
+            return Err(ciborium::de::Error::Semantic(
+                None,
+                format!("unknown op {other}"),
+            ));
         }
     };
     Ok((msg, ts, used))
@@ -214,9 +332,9 @@ mod tests {
             name: "E_BAD_PAYLOAD".into(),
             message: "Invalid CBOR payload".into(),
             details: Some(
-                serde_cbor::value::to_value(BTreeMap::from([(
+                encode_payload(&BTreeMap::from([(
                     "hint".to_string(),
-                    serde_cbor::Value::Text("Check canonical encoding".into()),
+                    Value::Text("Check canonical encoding".into()),
                 )]))
                 .unwrap(),
             ),
@@ -237,7 +355,7 @@ mod tests {
         // Spec typo (missing 0x74 before the message value)
         let broken_hex = "a3 62 6f 70 65 65 72 72 6f 72 62 74 73 18 2a 67 70 61 79 6c 6f 61 64 a4 64 63 6f 64 65 03 64 6e 61 6d 65 6d 45 5f 42 41 44 5f 50 41 59 4c 4f 41 44 67 64 65 74 61 69 6c 73 a1 64 68 69 6e 74 78 18 43 68 65 63 6b 20 63 61 6e 6f 6e 69 63 61 6c 20 65 6e 63 6f 64 69 6e 67 67 6d 65 73 73 61 67 65 49 6e 76 61 6c 69 64 20 43 42 4f 52 20 70 61 79 6c 6f 61 64";
         let broken = hex_to_vec(broken_hex);
-        let res = from_cbor::<serde_cbor::Value>(&broken);
+        let res = from_cbor::<Value>(&broken);
         assert!(res.is_err());
     }
 }

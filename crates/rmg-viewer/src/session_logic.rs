@@ -37,7 +37,6 @@ pub(crate) fn process_frames(
                 viewer.history.append(viewer.wire_graph.clone(), s.epoch);
                 viewer.graph = scene_from_wire(&viewer.wire_graph);
                 if !matches!(ui.screen, Screen::View) {
-                    ui.screen = Screen::View;
                     outcome.enter_view = true;
                     ui.connect_log
                         .push("Session started. Receiving RMG stream...".into());
@@ -49,10 +48,13 @@ pub(crate) fn process_frames(
                                 ToastKind::Error,
                                 ToastScope::Local,
                                 "Snapshot hash mismatch",
-                                None,
+                                Some(format!("expected {:?}, got {:?}", expected, actual)),
                                 std::time::Duration::from_secs(6),
                                 Instant::now(),
                             );
+                            outcome.desync =
+                                Some("Desynced (snapshot hash mismatch) — reconnect".into());
+                            return outcome;
                         }
                         Err(e) => {
                             toasts.push(
@@ -143,7 +145,6 @@ pub(crate) fn process_frames(
                 }
                 viewer.history.append(viewer.wire_graph.clone(), d.to_epoch);
                 viewer.graph = scene_from_wire(&viewer.wire_graph);
-                ui.screen = Screen::View;
                 outcome.enter_view = true;
             }
         }
@@ -154,6 +155,7 @@ pub(crate) fn process_frames(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui_state::{self, UiEvent};
     use echo_graph::{RenderGraph, RmgDiff, RmgFrame, RmgSnapshot};
 
     #[test]
@@ -169,6 +171,9 @@ mod tests {
         let outcome = process_frames(&mut ui, &mut viewer, &mut toasts, [snap]);
         assert!(outcome.enter_view);
         assert!(outcome.desync.is_none());
+        if outcome.enter_view {
+            ui = ui_state::reduce(&ui, UiEvent::EnterView).0;
+        }
         assert!(matches!(ui.screen, Screen::View));
     }
 

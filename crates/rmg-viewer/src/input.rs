@@ -39,13 +39,13 @@ pub fn handle_window_event(
                 match event.state {
                     ElementState::Pressed => {
                         viewer.keys.insert(code);
+                        if code == KeyCode::Escape {
+                            out.ui_event = Some(UiEvent::OpenMenu);
+                        }
                     }
                     ElementState::Released => {
                         viewer.keys.remove(&code);
                     }
-                }
-                if code == KeyCode::Escape {
-                    out.ui_event = Some(UiEvent::OpenMenu);
                 }
             }
         }

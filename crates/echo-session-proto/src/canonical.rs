@@ -10,9 +10,8 @@
 //! - Map keys sorted by their CBOR byte encoding; no duplicates
 //! - Reject non-canonical float widths and int-as-float
 
+use ciborium::value::{Integer, Value};
 use half::f16;
-use serde_cbor::Value;
-use std::collections::BTreeMap;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CanonError {
@@ -65,7 +64,7 @@ fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
             out.push(if *b { 0xf5 } else { 0xf4 });
         }
         Value::Null => out.push(0xf6),
-        Value::Integer(n) => enc_int(*n, out),
+        Value::Integer(n) => enc_int(i128::from(*n), out),
         Value::Float(f) => enc_float(*f, out),
         Value::Text(s) => enc_text(s, out)?,
         Value::Bytes(b) => enc_bytes(b, out)?,
@@ -75,35 +74,30 @@ fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
                 enc_value(it, out)?;
             }
         }
-        Value::Map(map) => {
-            // collect entries
-            let mut entries: Vec<(Value, Value, Vec<u8>)> = map
-                .iter()
-                .map(|(k, v)| {
-                    let mut kb = Vec::new();
-                    enc_value(k, &mut kb).expect("key encode");
-                    (k.clone(), v.clone(), kb)
-                })
-                .collect();
+        Value::Map(entries) => {
+            let mut buf: Vec<(Value, Value, Vec<u8>)> = Vec::with_capacity(entries.len());
+            for (k, v) in entries {
+                let mut kb = Vec::new();
+                enc_value(k, &mut kb)?;
+                buf.push((k.clone(), v.clone(), kb));
+            }
 
-            // canonical sort by encoded key bytes
-            entries.sort_by(|a, b| a.2.cmp(&b.2));
+            buf.sort_by(|a, b| a.2.cmp(&b.2));
 
-            // dup check
-            for win in entries.windows(2) {
+            for win in buf.windows(2) {
                 if win[0].2 == win[1].2 {
                     return Err(CanonError::MapKeyDuplicate);
                 }
             }
 
-            enc_len(5, entries.len() as u64, out);
-            for (_k, v, kb) in entries {
+            enc_len(5, buf.len() as u64, out);
+            for (_k, v, kb) in buf {
                 out.extend_from_slice(&kb);
                 enc_value(&v, out)?;
             }
         }
         Value::Tag(_, _) => return Err(CanonError::Tag),
-        Value::__Hidden => return Err(CanonError::Decode("hidden value".into())),
+        _ => return Err(CanonError::Decode("unsupported simple value".into())),
     }
     Ok(())
 }
@@ -303,8 +297,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize, strict: bool) -> Result<Value> {
                 let val = dec_value(bytes, idx, strict)?;
                 entries.push((key, val));
             }
-            let map: BTreeMap<Value, Value> = entries.into_iter().collect();
-            Ok(Value::Map(map))
+            Ok(Value::Map(entries))
         }
         6 => unreachable!(),
         7 => {
@@ -391,9 +384,9 @@ fn int_to_value(n: u128, negative: bool) -> Value {
     if negative {
         // value = -1 - n
         let v = -1i128 - (n as i128);
-        Value::Integer(v)
+        Value::Integer(Integer::try_from(v).expect("integer out of range"))
     } else {
-        Value::Integer(n as i128)
+        Value::Integer(Integer::try_from(n as i128).expect("integer out of range"))
     }
 }
 
@@ -432,14 +425,17 @@ mod tests {
 
     #[test]
     fn ec03_minimal_int_widths() {
-        assert_eq!(encode_value(&Value::Integer(23)).unwrap()[0], 0x17);
-        assert_eq!(encode_value(&Value::Integer(24)).unwrap(), vec![0x18, 0x18]);
+        assert_eq!(encode_value(&Value::Integer(23.into())).unwrap()[0], 0x17);
         assert_eq!(
-            encode_value(&Value::Integer(255)).unwrap(),
+            encode_value(&Value::Integer(24.into())).unwrap(),
+            vec![0x18, 0x18]
+        );
+        assert_eq!(
+            encode_value(&Value::Integer(255.into())).unwrap(),
             vec![0x18, 0xff]
         );
         assert_eq!(
-            encode_value(&Value::Integer(256)).unwrap(),
+            encode_value(&Value::Integer(256.into())).unwrap(),
             vec![0x19, 0x01, 0x00]
         );
     }

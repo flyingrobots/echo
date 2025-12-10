@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-10 — CBOR migration + viewer input gating (COMPLETED)
+
+- Goal: swap serde_cbor for maintained ciborium, harden canonical encoding/decoding, and keep viewer input/render stacks consistent.
+- Scope: `crates/echo-session-proto` (ciborium + serde_value bridge, canonical encoder/decoder), `crates/echo-graph` (ciborium canonical bytes + non_exhaustive enums), `crates/rmg-viewer` (egui patch alignment, input/app events/session_logic gating, hash mismatch desync), dependency lockfile.
+- Status: completed; wire encoding now uses ciborium with checked integer handling and canonical ordering, graph hashing returns Result, viewer controls are gated to View screen with safer event handling and consistent egui versions.
+
 > 2025-12-10 — Session client framing & non-blocking polling (COMPLETED)
 
 - Goal: make session client polling non-blocking, bounded, and checksum-aligned.

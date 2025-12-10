@@ -92,7 +92,7 @@ pub struct ErrorPayload {
     /// Stable identifier (e.g., "E_INVALID_OP").
     pub name: String,
     /// Optional machine-readable details.
-    pub details: Option<serde_cbor::Value>,
+    pub details: Option<ciborium::value::Value>,
     /// Human readable message.
     pub message: String,
 }
@@ -122,7 +122,7 @@ pub struct HandshakePayload {
     /// Implementation version (not wire version).
     pub client_version: u32,
     /// Optional free-form session metadata.
-    pub session_meta: Option<BTreeMap<String, serde_cbor::Value>>,
+    pub session_meta: Option<BTreeMap<String, ciborium::value::Value>>,
 }
 
 /// Handshake acknowledgement payload (host → client).

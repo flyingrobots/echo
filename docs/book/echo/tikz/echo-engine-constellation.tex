@@ -57,7 +57,7 @@
 \draw[cmd] (game.west) to[out=180,in=0] node[lbl, above] {syscalls / RMG rewrites} ($(hub.west)+(0,-0.3)$);
 
 % Optional: label the outer pattern
-\node[below=1.1cm of timeline, lbl] {
+\node[below=0.8cm of hub, lbl] {
   \begin{tabular}{@{}ll@{}}
     \tikz{\draw[rmgstream] (0,0)--(0.5,0);} & RMG stream (diffs / snapshots)\\
     \tikz{\draw[notif] (0,0)--(0.5,0);} & Notifications / toasts\\

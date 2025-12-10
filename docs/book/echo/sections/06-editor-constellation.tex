@@ -2,13 +2,14 @@
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 \chapter{Echo Editor Constellation of Services}
 
-Echo’s tooling isn’t a single monolithic editor. Instead, we run a constellation of small, purpose-built tools around a shared \emph{Editor Service Hub}. Each tool speaks three channels: RMG state (diffs/snapshots), notifications/toasts, and commands/edits. The hub maintains session authority and causal ordering so every participant sees a consistent, deterministic timeline.
+Echo’s tooling isn’t a single monolithic editor. Instead, we run a constellation of small, purpose-built tools around a shared \emph{Editor Service Hub}. Each tool speaks three channels: Record Model Graph (RMG) state (diffs/snapshots), notifications/toasts, and commands/edits. As shown in Figure~\ref{fig:editor-constellation}, the hub maintains session authority and causal ordering so every participant sees a consistent, deterministic timeline.
 
 \begin{figure}[htbp]
     \centering
     % Rendered in docs/book/echo/tikz/echo-engine-constellation.pdf (built from the standalone TikZ source)
     \includegraphics[width=\textwidth]{tikz/echo-engine-constellation.pdf}
     \caption{Editor constellation: the hub owns sessions and RMG registry; tools subscribe to RMG streams, receive notifications, and send commands.}
+    \label{fig:editor-constellation}
 \end{figure}
 
 \paragraph{Roles}

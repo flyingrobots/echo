@@ -325,7 +325,7 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
             let mut h = hub.lock().await;
             let ts = h.alloc_ts();
             let ack = Message::HandshakeAck(HandshakeAckPayload {
-                status: AckStatus::OK,
+                status: AckStatus::Ok,
                 server_version: handshake.client_version, // echo back
                 capabilities: handshake.capabilities.clone(),
                 session_id: "default".into(),

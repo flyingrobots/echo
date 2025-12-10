@@ -14,11 +14,11 @@ Filesystem-backed configuration adapter for Echo tools.
   - viewer preferences (camera pose, HUD toggles, vsync options),
   - host/service settings (e.g., socket path).
 - Keeps persistence details (paths, JSON encoding) out of UI and domain logic,
-  which talk only to the abstract `ConfigPort` / `ConfigService` from
+  which talk only to the abstract `ConfigStore` / `ConfigService` from
   `echo-app-core`.
 
 ## Documentation
 
 - See the tool hexagon pattern and crate map in
-  `docs/book/echo/booklet-05-tools.tex` (Echo Editor Tools),
-  Section `Echo Tool Hexagon Pattern` (`09-tool-hex-pattern.tex`).
+  `docs/book/echo/sections/09-tool-hex-pattern.tex` (Echo Editor Tools,
+  "Echo Tool Hexagon Pattern").

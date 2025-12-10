@@ -35,23 +35,23 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-10 — Harden session client header reads (COMPLETED)
+> 2025-12-10 — Session client framing & non-blocking polling (COMPLETED)
 
-- Goal: stop partial header reads from desynchronizing clients when reading from Unix sockets.
-- Scope: `crates/echo-session-client/src/lib.rs` (`poll_message` header handling) and a regression test.
-- Status: completed; `poll_message` now buffers short headers and a partial-read test covers the regression (`cargo test -p echo-session-client`).
+- Goal: make session client polling non-blocking, bounded, and checksum-aligned.
+- Scope: `crates/echo-session-client/src/lib.rs` (buffered try_read polling, MAX_PAYLOAD guard, checksum-respecting frame sizing, notification drain, tests).
+- Status: completed; poll_message is now non-blocking, enforces an 8 MiB cap with checked arithmetic, preserves buffered partials, and poll_notifications drains buffered notifications only.
 
-> 2025-12-10 — Docs/dep/UI polish (COMPLETED)
+> 2025-12-10 — Viewer timing & viewport safety (COMPLETED)
 
-- Goal: align docs and deps with code (config trait name, MSRV, maintained CBOR), fix constellation graphic path, and render all viewer overlays.
-- Scope: `crates/echo-config-fs/README.md`, `crates/echo-graph`, `crates/echo-session-proto/Cargo.toml`, `docs/book/echo/sections/06-editor-constellation.tex` + TikZ asset rename, `crates/rmg-viewer/src/ui.rs` overlays.
-- Status: completed; swapped serde_cbor→ciborium in echo-graph, set proto MSRV to 1.71.1, corrected graphic filename, and added match-based overlay rendering with Settings/Publish/Subscribe panels.
+- Goal: stabilize per-frame timing and prevent viewport unwrap panics.
+- Scope: `crates/rmg-viewer/src/app_frame.rs` (dt reuse, angular velocity with dt, safe viewport access, single aspect computation, window lifetime).
+- Status: completed; dt is captured once per frame, spins/decay use that dt, viewport access is guarded, and helper signatures no longer require 'static windows.
 
-> 2025-12-10 — Viewer frame timing + session client buffering (COMPLETED)
+> 2025-12-10 — Config + docs alignment (COMPLETED)
 
-- Goal: fix frame dt handling/ang-vel math in viewer and stop session client from losing partial packets.
-- Scope: `crates/rmg-viewer/src/app_frame.rs` (dt/ang vel) and `crates/echo-session-client/src/lib.rs` (poll_message buffering).
-- Status: completed; dt captured once per frame and reused; angular velocity uses dt with zero-angle guard; poll_message now buffers across reads and respects checksum length.
+- Goal: keep docs aligned with code and maintained deps.
+- Scope: `crates/echo-config-fs/README.md` (ConfigStore naming, doc path), `crates/echo-session-proto/src/lib.rs` (explicit reexports, AckStatus casing), `docs/book/echo/sections/06-editor-constellation.tex` + TikZ legend/label tweaks.
+- Status: completed; README references correct traits/paths, proto surface is explicit with serde renames, figure labeled/cross-referenced with anchored legend.
 
 > 2025-12-06 — Tool crate docs + crate map (COMPLETED)
 

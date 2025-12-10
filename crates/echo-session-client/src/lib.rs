@@ -3,16 +3,16 @@
 //! Client helper for talking to the Echo session hub over Unix sockets
 //! (CBOR-framed), plus tool-facing adapters (channels + ports).
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use echo_session_proto::{
     wire::{decode_message, encode_message},
     HandshakePayload, Message, Notification, RmgFrame, RmgId,
 };
-use std::io::{self, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream as AsyncUnixStream;
 
 pub mod tool;
@@ -22,6 +22,8 @@ pub struct SessionClient {
     stream: AsyncUnixStream,
     buffer: Vec<u8>,
 }
+
+const MAX_PAYLOAD: usize = 8 * 1024 * 1024; // 8 MiB cap for frames
 
 impl SessionClient {
     /// Connect to the hub at the given Unix socket path.
@@ -47,57 +49,57 @@ impl SessionClient {
         Ok(())
     }
 
-    /// Poll a single message if available. Returns Ok(None) when no complete frame is buffered and the stream is cleanly closed.
+    /// Poll a single message if already available (non-blocking). Returns Ok(None) when no complete frame is buffered yet or on clean EOF.
     /// Buffers across calls so partial reads never drop bytes.
     pub async fn poll_message(&mut self) -> Result<Option<Message>> {
-        // Ensure we have a full header buffered.
-        while self.buffer.len() < 12 {
-            let mut chunk = [0u8; 1024];
-            let n = self.stream.read(&mut chunk).await?;
-            if n == 0 {
-                if self.buffer.is_empty() {
-                    return Ok(None);
+        const MAX_PAYLOAD: usize = 8 * 1024 * 1024; // 8 MiB cap
+
+        loop {
+            if self.buffer.len() >= 12 {
+                let len = u32::from_be_bytes([
+                    self.buffer[8],
+                    self.buffer[9],
+                    self.buffer[10],
+                    self.buffer[11],
+                ]) as usize;
+                if len > MAX_PAYLOAD {
+                    return Err(anyhow!("frame payload too large: {} bytes", len));
                 }
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    format!(
-                        "truncated frame header: have {} of 12 bytes",
-                        self.buffer.len()
-                    ),
-                )
-                .into());
+                let frame_len = 12usize
+                    .checked_add(len)
+                    .and_then(|v| v.checked_add(32))
+                    .ok_or_else(|| anyhow!("frame length overflow"))?;
+
+                if self.buffer.len() >= frame_len {
+                    let packet: Vec<u8> = self.buffer.drain(..frame_len).collect();
+                    let (msg, _ts, _) = decode_message(&packet)?;
+                    return Ok(Some(msg));
+                }
             }
-            self.buffer.extend_from_slice(&chunk[..n]);
-        }
 
-        let len = u32::from_be_bytes([
-            self.buffer[8],
-            self.buffer[9],
-            self.buffer[10],
-            self.buffer[11],
-        ]) as usize;
-        let frame_len = 12 + len + 32; // header + payload + checksum
-
-        while self.buffer.len() < frame_len {
-            let mut chunk = [0u8; 4096];
-            let n = self.stream.read(&mut chunk).await?;
-            if n == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    format!(
-                        "truncated frame: expected {} bytes, have {}",
-                        frame_len,
-                        self.buffer.len()
-                    ),
-                )
-                .into());
+            let mut chunk = [0u8; 2048];
+            match self.stream.try_read(&mut chunk) {
+                Ok(0) => {
+                    if self.buffer.is_empty() {
+                        return Ok(None);
+                    }
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        format!(
+                            "truncated frame: have {} buffered bytes (need at least header)",
+                            self.buffer.len()
+                        ),
+                    )
+                    .into());
+                }
+                Ok(n) => {
+                    self.buffer.extend_from_slice(&chunk[..n]);
+                }
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => return Ok(None),
+                Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
             }
-            self.buffer.extend_from_slice(&chunk[..n]);
         }
-
-        let packet: Vec<u8> = self.buffer.drain(..frame_len).collect();
-        let (msg, _ts, _) = decode_message(&packet)?;
-        Ok(Some(msg))
     }
 
     /// Convenience: drain messages until none are immediately available.
@@ -148,11 +150,21 @@ pub fn connect_channels(path: &str) -> (Receiver<RmgFrame>, Receiver<Notificatio
                 }
                 let len =
                     u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+                if len > MAX_PAYLOAD {
+                    break;
+                }
+                let frame_len = 12usize
+                    .checked_add(len)
+                    .and_then(|v| v.checked_add(32))
+                    .unwrap_or(usize::MAX);
+                if frame_len == usize::MAX {
+                    break;
+                }
                 let mut rest = vec![0u8; len + 32];
                 if stream.read_exact(&mut rest).is_err() {
                     break;
                 }
-                let mut packet = Vec::with_capacity(12 + len + 32);
+                let mut packet = Vec::with_capacity(frame_len);
                 packet.extend_from_slice(&header);
                 packet.extend_from_slice(&rest);
                 match decode_message(&packet) {
@@ -210,11 +222,21 @@ pub fn connect_channels_for(
                 break;
             }
             let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+            if len > MAX_PAYLOAD {
+                break;
+            }
+            let frame_len = 12usize
+                .checked_add(len)
+                .and_then(|v| v.checked_add(32))
+                .unwrap_or(usize::MAX);
+            if frame_len == usize::MAX {
+                break;
+            }
             let mut rest = vec![0u8; len + 32];
             if stream.read_exact(&mut rest).is_err() {
                 break;
             }
-            let mut packet = Vec::with_capacity(12 + len + 32);
+            let mut packet = Vec::with_capacity(frame_len);
             packet.extend_from_slice(&header);
             packet.extend_from_slice(&rest);
             match decode_message(&packet) {
@@ -252,23 +274,146 @@ mod tests {
 
         let encoded = encode_message(Message::Notification(notification.clone()), 42).unwrap();
 
-        let client_task = task::spawn(async move {
-            let mut client = SessionClient {
-                stream: client_stream,
-                buffer: Vec::new(),
-            };
-            client.poll_message().await
-        });
-
         server_stream.write_all(&encoded[..5]).await.unwrap();
         task::yield_now().await;
         server_stream.write_all(&encoded[5..]).await.unwrap();
+        drop(server_stream);
 
-        let msg = client_task.await.unwrap().unwrap();
+        let mut client = SessionClient {
+            stream: client_stream,
+            buffer: Vec::new(),
+        };
 
-        match msg {
-            Some(Message::Notification(n)) => assert_eq!(n, notification),
+        let mut received = None;
+        for _ in 0..50 {
+            if let Some(msg) = client.poll_message().await.unwrap() {
+                received = Some(msg);
+                break;
+            }
+            task::yield_now().await;
+        }
+
+        match received.expect("message not received") {
+            Message::Notification(n) => assert_eq!(n, notification),
             other => panic!("expected notification, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn poll_message_errors_on_eof_mid_header() {
+        let (client_stream, mut server_stream) = tokio::net::UnixStream::pair().unwrap();
+
+        // Send only part of the header then close.
+        let partial = vec![0u8; 5];
+        server_stream.write_all(&partial).await.unwrap();
+        drop(server_stream);
+
+        let mut client = SessionClient {
+            stream: client_stream,
+            buffer: Vec::new(),
+        };
+
+        let mut got_err = false;
+        for _ in 0..10 {
+            match client.poll_message().await {
+                Ok(Some(_)) => continue,
+                Ok(None) => {
+                    task::yield_now().await;
+                    continue;
+                }
+                Err(e) => {
+                    assert!(e.to_string().contains("truncated frame"));
+                    got_err = true;
+                    break;
+                }
+            }
+        }
+        assert!(got_err, "expected truncated frame error");
+    }
+
+    #[tokio::test]
+    async fn poll_message_errors_on_eof_mid_body() {
+        let (client_stream, mut server_stream) = tokio::net::UnixStream::pair().unwrap();
+
+        let notification = Notification {
+            kind: NotifyKind::Warn,
+            scope: NotifyScope::Global,
+            title: "mid-body".to_string(),
+            body: None,
+        };
+        let encoded = encode_message(Message::Notification(notification), 0).unwrap();
+
+        let header_len = 12;
+        let cut = header_len + 5; // send header plus a few payload bytes
+        server_stream.write_all(&encoded[..cut]).await.unwrap();
+        drop(server_stream);
+
+        let mut client = SessionClient {
+            stream: client_stream,
+            buffer: Vec::new(),
+        };
+
+        let mut got_err = false;
+        for _ in 0..10 {
+            match client.poll_message().await {
+                Ok(Some(_)) => continue,
+                Ok(None) => {
+                    task::yield_now().await;
+                    continue;
+                }
+                Err(e) => {
+                    assert!(e.to_string().contains("truncated frame"));
+                    got_err = true;
+                    break;
+                }
+            }
+        }
+        assert!(got_err, "expected truncated frame error");
+    }
+
+    #[tokio::test]
+    async fn poll_message_handles_back_to_back_frames() {
+        let (client_stream, mut server_stream) = tokio::net::UnixStream::pair().unwrap();
+
+        let n1 = Notification {
+            kind: NotifyKind::Info,
+            scope: NotifyScope::Global,
+            title: "first".to_string(),
+            body: None,
+        };
+        let n2 = Notification {
+            kind: NotifyKind::Error,
+            scope: NotifyScope::Global,
+            title: "second".to_string(),
+            body: Some("payload".into()),
+        };
+        let encoded = [
+            encode_message(Message::Notification(n1.clone()), 1).unwrap(),
+            encode_message(Message::Notification(n2.clone()), 2).unwrap(),
+        ]
+        .concat();
+
+        server_stream.write_all(&encoded).await.unwrap();
+
+        let mut client = SessionClient {
+            stream: client_stream,
+            buffer: Vec::new(),
+        };
+
+        let mut got = Vec::new();
+        for _ in 0..10 {
+            if let Some(msg) = client.poll_message().await.unwrap() {
+                got.push(msg);
+                if got.len() == 2 {
+                    break;
+                }
+            } else {
+                task::yield_now().await;
+            }
+        }
+
+        assert_eq!(got.len(), 2);
+        assert!(matches!(got[0], Message::Notification(ref n) if *n == n1));
+        assert!(matches!(got[1], Message::Notification(ref n) if *n == n2));
     }
 }

@@ -160,9 +160,11 @@ pub struct RmgStreamPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AckStatus {
     /// Handshake succeeded.
-    OK,
+    #[serde(rename = "OK")]
+    Ok,
     /// Handshake failed.
-    ERROR,
+    #[serde(rename = "ERROR")]
+    Error,
 }
 
 /// Wire message kinds carried inside OpEnvelope payloads.

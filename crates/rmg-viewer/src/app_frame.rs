@@ -18,10 +18,15 @@ use echo_session_proto::{NotifyKind, NotifyScope};
 use glam::{Quat, Vec3};
 use std::time::Instant;
 
+const FREE_CAMERA_CONTROLS: bool = false; // set true for debug free-fly
+
 impl App {
     pub fn frame(&mut self) {
         let (win, width_px, height_px, raw_input) = {
-            let vp = self.viewports.get_mut(0).unwrap();
+            let Some(vp) = self.viewports.get_mut(0) else {
+                // No viewport available; nothing to draw this frame.
+                return;
+            };
             let raw = vp.egui_state.take_egui_input(vp.window);
             (vp.window, vp.gpu.config.width, vp.gpu.config.height, raw)
         };
@@ -72,40 +77,42 @@ impl App {
         let visible_toasts = self.toasts.visible(now);
         let aspect = width_px as f32 / height_px as f32;
 
-        let speed = if self
-            .viewer
-            .keys
-            .contains(&egui_winit::winit::keyboard::KeyCode::ShiftLeft)
-            || self
+        if FREE_CAMERA_CONTROLS {
+            let speed = if self
                 .viewer
                 .keys
-                .contains(&egui_winit::winit::keyboard::KeyCode::ShiftRight)
-        {
-            420.0
-        } else {
-            160.0
-        };
-        let mut mv = Vec3::ZERO;
-        use egui_winit::winit::keyboard::KeyCode::*;
-        if self.viewer.keys.contains(&KeyW) {
-            mv.z += speed * dt;
+                .contains(&egui_winit::winit::keyboard::KeyCode::ShiftLeft)
+                || self
+                    .viewer
+                    .keys
+                    .contains(&egui_winit::winit::keyboard::KeyCode::ShiftRight)
+            {
+                420.0
+            } else {
+                160.0
+            };
+            let mut mv = Vec3::ZERO;
+            use egui_winit::winit::keyboard::KeyCode::*;
+            if self.viewer.keys.contains(&KeyW) {
+                mv.z += speed * dt;
+            }
+            if self.viewer.keys.contains(&KeyS) {
+                mv.z -= speed * dt;
+            }
+            if self.viewer.keys.contains(&KeyA) {
+                mv.x -= speed * dt;
+            }
+            if self.viewer.keys.contains(&KeyD) {
+                mv.x += speed * dt;
+            }
+            if self.viewer.keys.contains(&KeyQ) {
+                mv.y -= speed * dt;
+            }
+            if self.viewer.keys.contains(&KeyE) {
+                mv.y += speed * dt;
+            }
+            self.viewer.camera.move_relative(mv);
         }
-        if self.viewer.keys.contains(&KeyS) {
-            mv.z -= speed * dt;
-        }
-        if self.viewer.keys.contains(&KeyA) {
-            mv.x -= speed * dt;
-        }
-        if self.viewer.keys.contains(&KeyD) {
-            mv.x += speed * dt;
-        }
-        if self.viewer.keys.contains(&KeyQ) {
-            mv.y -= speed * dt;
-        }
-        if self.viewer.keys.contains(&KeyE) {
-            mv.y += speed * dt;
-        }
-        self.viewer.camera.move_relative(mv);
 
         if matches!(self.ui.screen, Screen::View) {
             self.viewer.graph.step_layout(dt);
@@ -113,7 +120,6 @@ impl App {
 
         self.handle_pointer(dt, aspect, width_px, height_px, win);
 
-        let aspect = width_px as f32 / height_px as f32;
         let radius = self.viewer.graph.bounding_radius();
         let view_proj = self.viewer.camera.view_proj(aspect, radius);
 
@@ -175,7 +181,7 @@ impl App {
         aspect: f32,
         width_px: u32,
         height_px: u32,
-        win: &'static egui_winit::winit::window::Window,
+        win: &egui_winit::winit::window::Window,
     ) {
         let pointer = self.egui_ctx.input(|i| i.pointer.clone());
         let win_size = glam::Vec2::new(width_px as f32, height_px as f32);
@@ -266,7 +272,7 @@ impl App {
             }
         }
 
-        if pointer.primary_down() && !self.egui_ctx.is_using_pointer() {
+        if FREE_CAMERA_CONTROLS && pointer.primary_down() && !self.egui_ctx.is_using_pointer() {
             let delta = self.egui_ctx.input(|i| i.pointer.delta());
             let d = glam::Vec2::new(delta.x, delta.y);
             self.viewer.camera.rotate_by_mouse(
@@ -281,7 +287,7 @@ impl App {
         &self,
         width_px: u32,
         height_px: u32,
-        win: &'static egui_winit::winit::window::Window,
+        win: &egui_winit::winit::window::Window,
         view_proj: glam::Mat4,
     ) -> Option<(egui::Pos2, egui::Pos2)> {
         if !self.viewer.debug_show_arc {

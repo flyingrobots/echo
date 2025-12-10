@@ -4,7 +4,10 @@
 //! RMG frames use the canonical `echo-graph` types and are transported in
 //! deterministic JS-ABI v1.0 OpEnvelopes (ADR/ARCH-0013).
 
-pub use echo_graph::*;
+pub use echo_graph::{
+    EdgeId, EpochId, Hash32, NodeId, RenderEdge, RenderGraph, RenderNode, RmgDiff, RmgFrame,
+    RmgHello, RmgId, RmgOp, RmgSnapshot,
+};
 mod canonical;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

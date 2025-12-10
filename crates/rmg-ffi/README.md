@@ -69,3 +69,6 @@ rmg_engine_commit(eng, tx, &snap);
 
 - Root docs: see repository `README.md` for the architecture and links.
 - Engine surface: `crates/rmg-core/src/lib.rs` (re‑exports) and rustdoc.
+- Engine design details: Core booklet (`docs/book/echo/booklet-02-core.tex`)
+  and ECS/scheduler specs in `docs/` (`spec-ecs-storage.md`,
+  `spec-scheduler.md`, etc.).

@@ -34,6 +34,13 @@ confidence-threshold = 0.8
 multiple-versions = "warn"
 wildcards = "deny"
 
+[advisories]
+ignore = [
+    # wgpu transitively depends on paste 1.0.15; upstream is unmaintained but
+    # tracked in wgpu#5185. Safe to ignore until wgpu publishes a replacement.
+    "RUSTSEC-2024-0436",
+]
+
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"

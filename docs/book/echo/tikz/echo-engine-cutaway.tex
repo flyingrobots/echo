@@ -1,0 +1,139 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,shadows.blur}
+
+\begin{document}
+\begin{tikzpicture}[
+  >=Latex,
+  font=\small,
+  slab/.style={draw, rounded corners, very thick, fill=#1, minimum width=9cm, minimum height=1.6cm},
+  label/.style={font=\small\bfseries},
+  annot/.style={font=\scriptsize, align=left},
+  flow/.style={->, thick},
+]
+
+% --- Coordinates for slab centers ---
+\coordinate (osC)    at (0,0);     % bottom: JITOS / OS RMG
+\coordinate (hubC)   at (0,2.3);   % middle: Editor Service
+\coordinate (toolsC) at (0,4.6);   % top: tools / UIs
+
+% --- Fake 3D offsets (for isometric effect) ---
+\def\dx{0.6}
+\def\dy{0.4}
+
+% Helper to draw a 3D slab: back, top, front
+\newcommand{\slabthree}[4]{%
+  % #1 center coord, #2 style color, #3 front label, #4 annotation (right)
+  \begin{scope}
+    \coordinate (C) at #1;
+    % Base rectangle (front face)
+    \node[slab=#2, fill opacity=0.95, blur shadow={shadow blur steps=5}] (front) at (C) {};
+    % Compute corners
+    \coordinate (A) at ($(front.north west)$);
+    \coordinate (B) at ($(front.north east)$);
+    \coordinate (D) at ($(front.south west)$);
+    \coordinate (E) at ($(front.south east)$);
+    % Top face (just a quad shifted by dx,dy)
+    \coordinate (At) at ($(A)+(\dx,\dy)$);
+    \coordinate (Bt) at ($(B)+(\dx,\dy)$);
+    \coordinate (Dt) at ($(D)+(\dx,\dy)$);
+    \coordinate (Et) at ($(E)+(\dx,\dy)$);
+    % Draw top and side surfaces (lighter)
+    \fill[fill=#2!60] (At) -- (Bt) -- (B) -- (A) -- cycle;             % top front
+    \fill[fill=#2!50] (Bt) -- (Et) -- (E) -- (B) -- cycle;             % right side
+    % Draw outlines to emphasize the 3D edges
+    \draw[thick, #2!80!black] (At) -- (Bt) -- (Et) -- (E);
+    \draw[thick, #2!80!black] (At) -- (A) -- (B) -- (Bt);
+    % Label in the middle of front
+    \node[label] at (front) {#3};
+    % Right-side annotation
+    \node[annot, right=0.4cm of front.east] {#4};
+  \end{scope}
+}
+
+% --- Draw slabs ---
+
+% Bottom: JITOS / Root OS RMG
+\slabthree{(osC)}{blue!12}{
+  JITOS / Root OS RMG
+}{
+  \textbf{Global reality:}\\
+  devices, policies, processes,\\
+  global timelines, capabilities
+}
+
+% Middle: Echo Editor Service Layer
+\slabthree{(hubC)}{green!12}{
+  Echo Editor Service Layer
+}{
+  \textbf{Session + RMG Hub:}\\
+  session registry, RMG authority,\\
+  toast/notification bus, replay core
+}
+
+% Top: Tool Constellation / UIs
+\slabthree{(toolsC)}{orange!12}{
+  Tool Constellation / UIs
+}{
+  \textbf{Distributed tools:}\\
+  RMG Viewer, Inspector, Timeline,\\
+  Profiler, Game Dev UI, etc.
+}
+
+% --- Vertical flow arrows between layers ---
+
+% Up: OS → Editor Service (events, resources)
+\draw[flow] ($(osC)+(0,0.9)$) -- node[right=2pt, annot] {%
+  resource events,\\
+  timebase, OS notifications
+} ($(hubC)+(-0.1,-0.9)$);
+
+% Down: Editor Service → OS (syscalls / RMG rewrites)
+\draw[flow] ($(hubC)+(-1.8,-0.9)$) -- node[left=2pt, annot] {%
+  syscalls, RMG rewrite\\
+  requests, persistence ops
+} ($(osC)+(-1.8,0.9)$);
+
+% Up: Editor Service → Tools (streams)
+\draw[flow] ($(hubC)+(1.4,0.9)$) -- node[right=2pt, annot] {%
+  RMG streams,\\
+  notifications, replay
+} ($(toolsC)+(1.4,-0.9)$);
+
+% Down: Tools → Editor Service (commands)
+\draw[flow] ($(toolsC)+(-1.2,-0.9)$) -- node[left=2pt, annot] {%
+  commands, edits,\\
+  selections, debug ops
+} ($(hubC)+(-1.2,0.9)$);
+
+% --- Small in-layer callouts ---
+
+% Tiny boxes on tools layer: individual tools
+\node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=1.8cm, minimum height=0.5cm]
+  (viewer) at ($(toolsC)+(-2.0,0.4)$) {RMG Viewer};
+\node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=1.8cm, minimum height=0.5cm]
+  (insp)   at ($(toolsC)+(0.0,0.6)$) {Inspector};
+\node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=1.8cm, minimum height=0.5cm]
+  (time)   at ($(toolsC)+(2.0,0.4)$) {Timeline / Replay};
+
+% Tiny icon on hub layer: "Session + RMG registry"
+\node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=2.3cm, minimum height=0.5cm]
+  at ($(hubC)+(0,0.5)$) {Session \& RMG Registry};
+
+% Tiny icon on OS layer: "Device / world graph"
+\node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=2.3cm, minimum height=0.5cm]
+  at ($(osC)+(0,0.5)$) {Device / World Graph};
+
+% Legend
+\node[annot, below=1.3cm of osC] {
+  \begin{tabular}{@{}ll@{}}
+    \textbf{Vertical flows:} & \\
+    \quad $\uparrow$ & streams / events flowing up (state, time, notifications) \\
+    \quad $\downarrow$ & commands / rewrites flowing down (syscalls, edits) \\
+  \end{tabular}
+};
+
+\end{tikzpicture}
+\end{document}

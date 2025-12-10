@@ -1,0 +1,224 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\section{Echo Tool Hexagon Pattern}
+\label{sec:tool-hex-pattern}
+
+Echo tools (viewer, inspector, profiler, \dots) should all follow the same
+hexagonal pattern:
+
+\begin{itemize}
+  \item Domain logic and state live in a pure core (no direct IO).
+  \item IO happens only through narrow ports (config, session, render).
+  \item Each port has one or more shared adapters that talk to concrete
+        libraries (filesystem, sockets, wgpu, egui, \dots).
+  \item \texttt{main.rs} + the top-level \texttt{App} act as thin glue:
+        wiring ports and reducers, delegating work to the core.
+\end{itemize}
+
+The RMG Viewer is a concrete example of this architecture, and can serve as a
+template for future tools.
+
+\subsection{Ports and Adapters}
+
+At a high level, most Echo tools need three capabilities:
+
+\begin{description}
+  \item[ConfigPort] Load/save structured settings and user preferences.
+  \item[SessionPort] Receive RMG snapshots/diffs and notifications from the
+    session hub.
+  \item[RenderPort] Request redraws from whatever windowing/surface system is
+    in use.
+\end{description}
+
+Figure~\ref{fig:tool-hexagon} shows these ports and their adapters for the RMG
+Viewer.
+
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[
+    >=latex,
+    node distance=1.6cm and 2.4cm,
+    core/.style={
+      rectangle,
+      rounded corners,
+      draw,
+      very thick,
+      fill=blue!5,
+      minimum width=3.0cm,
+      minimum height=1.2cm,
+      align=center,
+      font=\small,
+    },
+    port/.style={
+      rectangle,
+      rounded corners,
+      draw,
+      fill=gray!10,
+      minimum width=2.8cm,
+      minimum height=0.9cm,
+      align=center,
+      font=\scriptsize,
+    },
+    adapter/.style={
+      rectangle,
+      rounded corners,
+      draw,
+      fill=green!8,
+      minimum width=3.3cm,
+      minimum height=0.9cm,
+      align=center,
+      font=\scriptsize,
+    },
+    lab/.style={font=\scriptsize}
+  ]
+
+  % Core
+  \node[core] (core) {Tool Core\\\scriptsize UiState / ViewerState / Scene};
+
+  % Ports
+  \node[port, above left=of core] (cfgport) {ConfigPort\\\scriptsize echo-app-core};
+  \node[port, left=of core] (sessport) {SessionPort\\\scriptsize echo-session-client::tool};
+  \node[port, above right=of core] (rendport) {RenderPort\\\scriptsize echo-app-core};
+
+  % Adapters
+  \node[adapter, above=of cfgport] (cfgadapt) {FsConfigStore\\\scriptsize echo-config-fs};
+  \node[adapter, left=of sessport] (sessadapt) {Unix JS-ABI client\\\scriptsize echo-session-client};
+  \node[adapter, above=of rendport] (winadapt) {Winit + wgpu\\\scriptsize rmg-viewer};
+
+  % Arrows core <-> ports
+  \draw[->, thick] (core.north west) -- (cfgport.south east);
+  \draw[->, thick] (cfgport.north) -- (cfgadapt.south);
+
+  \draw[->, thick] (core.west) -- (sessport.east);
+  \draw[->, thick] (sessport.west) -- (sessadapt.east);
+
+  \draw[->, thick] (core.north east) -- (rendport.south west);
+  \draw[->, thick] (rendport.north) -- (winadapt.south);
+
+  % Labels
+  \node[lab, below=0.4cm of core] {Reducer + scene; no direct IO};
+
+  \end{tikzpicture}
+  \caption{Tool hexagon pattern: core + ports + adapters (RMG Viewer example).}
+  \label{fig:tool-hexagon}
+\end{figure}
+
+\subsection{RMG Viewer as Reference Implementation}
+
+For the RMG Viewer specifically (Section~\ref{sec:rmg-viewer}):
+
+\begin{itemize}
+  \item \textbf{Core}:
+    \begin{itemize}
+      \item \texttt{UiState} and \texttt{UiEvent}/\texttt{UiEffect} in
+            \texttt{ui\_state.rs}.
+      \item \texttt{ViewerState} and RMG scene representation in
+            \texttt{viewer\_state.rs}/\texttt{scene.rs}.
+      \item Session frame handling (snapshots/diffs) in
+            \texttt{session\_logic.rs} (see also
+            Section~\ref{sec:rmg-stream-consumers}).
+    \end{itemize}
+  \item \textbf{ConfigPort}:
+    \begin{itemize}
+      \item Provided by \texttt{echo-app-core::ConfigPort}.
+      \item Implemented by \texttt{echo-config-fs::FsConfigStore} +
+            \texttt{ConfigService}, wired into \texttt{App} in
+            \texttt{app.rs}.
+    \end{itemize}
+  \item \textbf{SessionPort}:
+    \begin{itemize}
+      \item Defined in \texttt{echo-session-client::tool} as
+            \texttt{SessionPort}.
+      \item Implemented by \texttt{ChannelSession}, which wraps the
+            \texttt{RmgFrame} / \texttt{Notification} channels returned by
+            \texttt{connect\_channels\_for}.
+      \item The viewer’s \texttt{UiEffectsRunner} uses this to connect and
+            report errors (via \texttt{UiEvent::ShowError}), and the frame loop
+            drains it into \texttt{session\_logic::process\_frames}.
+    \end{itemize}
+  \item \textbf{RenderPort}:
+    \begin{itemize}
+      \item Defined in \texttt{echo-app-core::render\_port::RenderPort}.
+      \item Implemented by a small \texttt{WinitRenderPort} wrapper around
+            \texttt{winit::window::Window::request\_redraw}.
+      \item The viewer calls \texttt{RenderPort::request\_redraw} after each
+            frame, leaving windowing details outside the core.
+    \end{itemize}
+  \item \textbf{UI Rendering}:
+    \begin{itemize}
+      \item Stateless egui helpers in \texttt{ui.rs} draw Title/Connecting
+            screens and the Viewer HUD, driven entirely by \texttt{UiState} and
+            \texttt{ViewerState}.
+      \item All input flows through the reducer
+            (\texttt{UiEvent} $\rightarrow$ \texttt{UiState} + \texttt{UiEffect}); effects are turned into port calls by \texttt{UiEffectsRunner}.
+    \end{itemize}
+\end{itemize}
+
+\subsection{Guidelines for Future Tools}
+
+When building new tools on the Echo stack:
+
+\begin{itemize}
+  \item Define a domain-specific \texttt{UiState} and
+        \texttt{UiEvent}/\texttt{UiEffect} pair.
+  \item Keep the reducer pure: only change state and emit effects; do not
+        perform IO inside the reducer.
+  \item Route all side effects (config, session, rendering) through ports:
+        \texttt{ConfigPort}, \texttt{SessionPort}, \texttt{RenderPort}, or
+        additional ports defined in shared crates.
+  \item Implement adapters in small, dedicated modules or crates (e.g., a
+        filesystem store, a Unix session client, a WGPU renderer), and keep
+        \texttt{main.rs} + \texttt{App} as thin glue.
+  \item Use the RMG Viewer layout in this part of the book as a worked example,
+        and the JS-ABI/RMG streaming specs
+        (Sections~\ref{sec:js-abi-wire} and \ref{sec:rmg-stream-consumers})
+        as the canonical contract for session traffic.
+\end{itemize}
+
+\subsection{Crate Map for Tools}
+
+Table~\ref{tab:tool-crate-map} summarizes the primary tool-related crates and
+their responsibilities. This map is intentionally small; future crates should
+aim to fit naturally alongside these roles.
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}p{0.24\textwidth}p{0.68\textwidth}@{}}
+    \toprule
+    \textbf{Crate} & \textbf{What it does} \\
+    \midrule
+    \texttt{echo-app-core}
+      & Shared app services and ports for tools: configuration service
+        (\texttt{ConfigService}/\texttt{ConfigPort}), toast notifications
+        (\texttt{ToastService}), and the \texttt{RenderPort} trait for
+        redraw requests. Keeps UI/runtime adapters thin and framework-agnostic. \\
+    \texttt{echo-config-fs}
+      & Filesystem-backed implementation of \texttt{ConfigStorePort} using
+        platform config directories and JSON. Used by tools to persist
+        preferences (camera pose, HUD toggles, host settings). \\
+    \texttt{echo-session-proto}
+      & Logical wire schema for the Echo session hub: \texttt{Message},
+        \texttt{OpEnvelope}, deterministic JS-ABI framing helpers, and
+        \texttt{Notification}/\texttt{RmgStream} types that wrap
+        \texttt{echo-graph} RMG frames. \\
+    \texttt{echo-session-service}
+      & Headless session hub process: listens on a Unix socket, handles
+        handshakes, tracks per-\texttt{RmgId} stream state, enforces gapless
+        snapshots/diffs, and fans out frames/notifications to subscribers. \\
+    \texttt{echo-session-client}
+      & Unix-socket JS-ABI client: connects to the hub, sends handshakes and
+        subscriptions, and decodes packets into \texttt{Message} values.
+        Includes the \texttt{tool} module with channel-based
+        \texttt{SessionPort} + \texttt{ChannelSession} for tools. \\
+    \texttt{rmg-viewer}
+      & 3D RMG viewer built on the above ports and adapters: uses
+        \texttt{echo-session-client::tool} for session traffic,
+        \texttt{echo-app-core} + \texttt{echo-config-fs} for prefs, and a
+        WGPU renderer for visualization. Acts as the reference implementation
+        of the tool hexagon pattern. \\
+    \bottomrule
+  \end{tabular}
+  \caption{Tool-related crates and their roles in the Echo stack.}
+  \label{tab:tool-crate-map}
+\end{table}
+

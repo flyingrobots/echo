@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-graph"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.71.1"
+description = "Canonical renderable graph format for Echo (nodes/edges + payloads)"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "graph", "render"]
+categories = ["data-structures", "development-tools"]
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+ciborium = { version = "0.2", default-features = true }
+blake3 = "1.5"
+anyhow = "1.0"

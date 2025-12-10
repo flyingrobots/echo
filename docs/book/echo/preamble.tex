@@ -14,7 +14,12 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{caption}
-\usepackage{hyperref}
+\usepackage[
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+    citecolor=blue
+]{hyperref}
 
 % SVG logos are pre-converted to PDF (graphics/ECHO.pdf, graphics/ECHO_chunky.pdf)
 \newcommand{\EchoLogo}{graphics/ECHO.pdf}
@@ -57,13 +62,12 @@
 \newcommand{\BookCommit}{HEAD}
 \newcommand{\BookAuthors}{James Ross \& Echo Contributors}
 
+% Simple section/page break helper for chapters/sections
+\newcommand{\sectionbreak}{\clearpage}
+
 \AtBeginDocument{%
     \hypersetup{
-        colorlinks=true,
-        linkcolor=blue,
-        urlcolor=blue,
-        citecolor=blue,
         pdftitle={\BookTitle: \BookSubtitle},
         pdfauthor={\BookAuthors}
-    }
+    }%
 }

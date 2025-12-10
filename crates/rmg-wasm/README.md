@@ -6,3 +6,17 @@ wasm-bindgen bindings for the `rmg-core` engine for tooling and web environments
 
 See the repository root `README.md` for the full overview.
 
+## What this crate does
+
+- Wraps `rmg-core` in `wasm-bindgen` bindings so Echo’s deterministic engine
+  can be used from JavaScript/TypeScript in web-based tools and playgrounds.
+- Intended to power future browser-based visualizers and inspectors built on
+  top of the same core engine as native tools.
+
+## Documentation
+
+- High-level engine and tool architecture:
+  - Core + Math booklets in `docs/book/echo/`,
+  - Tool booklet (`booklet-05-tools.tex`) for inspector/editor patterns.
+- Web/wasm integration specifics will be documented alongside the first
+  browser-based tool that consumes this crate.

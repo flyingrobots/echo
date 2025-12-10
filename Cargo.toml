@@ -7,7 +7,14 @@ members = [
     "crates/rmg-wasm",
     "crates/rmg-cli",
     "crates/rmg-geom",
-    "crates/rmg-benches"
+    "crates/rmg-benches",
+    "crates/rmg-viewer",
+    "crates/echo-app-core",
+    "crates/echo-config-fs",
+    "crates/echo-session-proto",
+    "crates/echo-session-service",
+    "crates/echo-session-client",
+    "crates/echo-graph"
 ]
 resolver = "2"
 

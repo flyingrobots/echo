@@ -53,13 +53,13 @@ should_skip() {
       return 1
     }
     
-    is_source_code() {
-      local f="$1"
-      case "$f" in
-        *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) return 0 ;; 
-        *) return 1 ;; 
-      esac
-    }
+is_source_code() {
+  local f="$1"
+  case "$f" in
+    *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart|*.wgsl|*.hlsl|*.glsl) return 0 ;;
+    *) return 1 ;;
+  esac
+}
     
     get_comment_style() {
       local f="$1"

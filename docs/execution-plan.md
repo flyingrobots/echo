@@ -35,6 +35,84 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-10 — CI cargo-deny index failures (COMPLETED)
+
+- Goal: stop noisy `warning[index-failure]: unable to check for yanked crates` in GitHub Actions by ensuring `cargo-deny` has a warm crates.io index.
+- Scope: `.github/workflows/ci.yml` deny job (prime cargo index before running `cargo deny`).
+- Status: completed; deny job now runs `cargo fetch --locked` before `cargo deny`.
+
+> 2025-12-10 — CI cargo-audit unmaintained warnings (COMPLETED)
+
+- Goal: keep `cargo audit --deny warnings` green despite unavoidable unmaintained transitive `paste` (via wgpu) and legacy `serde_cbor` advisory.
+- Scope: `.github/workflows/security-audit.yml` (add `--ignore RUSTSEC-2024-0436` and `--ignore RUSTSEC-2021-0127`).
+- Status: completed; audit step now ignores these advisories explicitly until upstreams replace them.
+
+> 2025-12-10 — CBOR migration + viewer input gating (COMPLETED)
+
+- Goal: swap serde_cbor for maintained ciborium, harden canonical encoding/decoding, and keep viewer input/render stacks consistent.
+- Scope: `crates/echo-session-proto` (ciborium + serde_value bridge, canonical encoder/decoder), `crates/echo-graph` (ciborium canonical bytes + non_exhaustive enums), `crates/rmg-viewer` (egui patch alignment, input/app events/session_logic gating, hash mismatch desync), dependency lockfile.
+- Status: completed; wire encoding now uses ciborium with checked integer handling and canonical ordering, graph hashing returns Result, viewer controls are gated to View screen with safer event handling and consistent egui versions.
+
+> 2025-12-10 — Session client framing & non-blocking polling (COMPLETED)
+
+- Goal: make session client polling non-blocking, bounded, and checksum-aligned.
+- Scope: `crates/echo-session-client/src/lib.rs` (buffered try_read polling, MAX_PAYLOAD guard, checksum-respecting frame sizing, notification drain, tests).
+- Status: completed; poll_message is now non-blocking, enforces an 8 MiB cap with checked arithmetic, preserves buffered partials, and poll_notifications drains buffered notifications only.
+
+> 2025-12-10 — Viewer timing & viewport safety (COMPLETED)
+
+- Goal: stabilize per-frame timing and prevent viewport unwrap panics.
+- Scope: `crates/rmg-viewer/src/app_frame.rs` (dt reuse, angular velocity with dt, safe viewport access, single aspect computation, window lifetime).
+- Status: completed; dt is captured once per frame, spins/decay use that dt, viewport access is guarded, and helper signatures no longer require 'static windows.
+
+> 2025-12-10 — Config + docs alignment (COMPLETED)
+
+- Goal: keep docs aligned with code and maintained deps.
+- Scope: `crates/echo-config-fs/README.md` (ConfigStore naming, doc path), `crates/echo-session-proto/src/lib.rs` (explicit reexports, AckStatus casing), `docs/book/echo/sections/06-editor-constellation.tex` + TikZ legend/label tweaks.
+- Status: completed; README references correct traits/paths, proto surface is explicit with serde renames, figure labeled/cross-referenced with anchored legend.
+
+> 2025-12-06 — Tool crate docs + crate map (COMPLETED)
+
+- Goal: tighten docs around the tool hexagon pattern and make crate-level READMEs point at the Echo booklets as the canonical source of truth.
+- Scope: `docs/book/echo/sections/09-tool-hex-pattern.tex` (crate map), READMEs and `Cargo.toml` `readme` fields for `echo-app-core`, `echo-config-fs`, `echo-session-proto`, `echo-session-service`, `echo-session-client`, and `rmg-viewer`.
+- Status: completed; Tools booklet now includes a crate map, and each tool-related crate README has a “What this crate does” + “Documentation” section pointing back to the relevant booklets/ADR/ARCH specs.
+
+> 2025-12-06 — JS-ABI + RMG streaming docs alignment (COMPLETED)
+
+- Goal: Align Echo’s book-level docs with the JS-ABI v1.0 deterministic encoding + framing decisions (ADR-0013 / ARCH-0013) and the new RMG streaming stack.
+- Scope: `docs/book/echo/sections/{13-networking-wire-protocol,14-rmg-stream-consumers,07-session-service,08-rmg-viewer-spec}.tex` (cross-links, diagrams, tables).
+- Status: completed; Core booklet now documents JS-ABI framing + generic RMG consumer contract (with role summary), and Tools booklet’s Session Service + RMG Viewer sections cross-reference that contract instead of re-specifying it.
+
+> 2025-12-04 — Sync roadmap with session streaming progress (COMPLETED)
+
+- Goal: capture the new canonical `echo-graph` crate + gapless RMG streaming path, and queue remaining engine/viewer wiring tasks.
+- Scope: update `crates/rmg-viewer/ROADMAP.md`, note outstanding engine emitter + client extraction; log decisions.
+- Status: completed.
+
+> 2025-12-03 — Recover rmg-viewer ROADMAP after VSCode crash
+
+- Goal: confirm whether roadmap edits were lost and restore the latest saved state.
+- Scope: `crates/rmg-viewer/ROADMAP.md` sanity check vs git.
+- Status: completed; file matches last commit (no recovery needed).
+
+> 2025-12-03 — Persist rmg-viewer camera + HUD settings between runs (COMPLETED)
+
+- Goal: write config load/save so camera + HUD toggles survive restarts.
+- Scope: `crates/rmg-viewer/src/main.rs`, add serde/directories deps; update roadmap/docs.
+- Status: completed; config saved to OS config dir `rmg-viewer.json`, loads on startup, saves on close.
+
+> 2025-12-03 — Extract core app services and refactor viewer (COMPLETED)
+
+- Goal: stop config/toast creep in rmg-viewer; introduce shared core + fs adapter; make viewer consume injected prefs.
+- Scope: new crates `echo-app-core` (ConfigService/ToastService/ViewerPrefs) and `echo-config-fs`; rewire `rmg-viewer` to use them and drop serde/directories.
+- Status: completed; prefs load/save via ConfigService+FsConfigStore; viewer owns only rendering + HUD state; toast rendering pending.
+
+> 2025-12-04 — Session proto/service/client skeleton (COMPLETED)
+
+- Goal: set up the distributed session slice with shared wire types and stub endpoints.
+- Scope: new crates `echo-session-proto` (messages), `echo-session-service` (stub hub), `echo-session-client` (stub API); roadmap/docs updates.
+- Status: completed; schema covers Hello/RegisterRmg/RmgDiff+Snapshot/Command+Ack/Notification; transport and viewer binding are next.
+
 > 2025-12-01 — LaTeX skeleton + booklets + onboarding/glossary (COMPLETED)
 
 - Goal: scaffold reusable LaTeX parts (master + per-shelf booklets), wire logos, and seed onboarding + glossary content for Orientation.

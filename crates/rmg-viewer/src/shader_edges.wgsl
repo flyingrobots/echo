@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
+// NOTE: light_dir is unused in this shader but retained to match the CPU-side
+// Globals layout shared with node rendering. Keep field order/size identical
+// to `crate::gpu::Globals`.
 struct Globals {
   view_proj: mat4x4<f32>,
   light_dir: vec3<f32>,
@@ -24,7 +27,9 @@ struct VsOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32, e: EdgeIn) -> VsOut {
-  let dir = normalize(e.end - e.start);
+  let delta = e.end - e.start;
+  let len = length(delta);
+  let dir = if (len > 1e-6) { delta / len } else { vec3<f32>(0.0, 0.0, 1.0) };
   var p: vec3<f32>;
   if (vid == 0u) {
     p = e.start + dir * e.head;

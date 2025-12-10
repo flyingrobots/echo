@@ -4,8 +4,12 @@
 
 use crate::core::UiState;
 use crate::ui_state::{UiEffect, UiEvent};
+use crate::viewer_state::ViewerState;
+use echo_app_core::config_port::ConfigPort;
 use echo_session_client::connect_channels_for;
 use echo_session_proto::DEFAULT_SOCKET_PATH;
+use std::sync::mpsc;
+use std::time::Duration;
 
 pub trait UiEffectsRunner {
     /// Run effects, possibly emitting follow-up events (e.g., failures).
@@ -14,6 +18,8 @@ pub trait UiEffectsRunner {
         effects: Vec<UiEffect>,
         session: &mut echo_session_client::tool::ChannelSession,
         ui_state: &UiState,
+        config: Option<&dyn ConfigPort>,
+        viewer: &ViewerState,
     ) -> Vec<UiEvent>;
 }
 
@@ -25,23 +31,41 @@ impl UiEffectsRunner for RealEffectsRunner {
         effects: Vec<UiEffect>,
         session: &mut echo_session_client::tool::ChannelSession,
         ui_state: &UiState,
+        config: Option<&dyn ConfigPort>,
+        viewer: &ViewerState,
     ) -> Vec<UiEvent> {
         let mut followups = Vec::new();
         for eff in effects {
             match eff {
                 UiEffect::SavePrefs => {
-                    // handled upstream in App::apply_ui_event (config port)
+                    if let Some(cfg) = config {
+                        cfg.save_prefs(&viewer.export_prefs());
+                    }
                 }
                 UiEffect::RequestConnect => {
                     // For now, connect to the default local Unix socket path.
                     // Host/port fields are kept in UiState for future TCP support.
-                    match connect_channels_for(DEFAULT_SOCKET_PATH, ui_state.rmg_id) {
-                        Ok((rmg_rx, notif_rx)) => {
+                    let (tx, rx) = mpsc::channel();
+                    let rmg_id = ui_state.rmg_id;
+                    let path = DEFAULT_SOCKET_PATH.to_string();
+                    std::thread::spawn(move || {
+                        let res = connect_channels_for(&path, rmg_id).map_err(|e| e.to_string());
+                        let _ = tx.send(res);
+                    });
+
+                    match rx.recv_timeout(Duration::from_secs(1)) {
+                        Ok(Ok((rmg_rx, notif_rx))) => {
                             session.set_channels(rmg_rx, notif_rx);
                         }
-                        Err(err) => {
-                            // Surface a clear error; UiState reducer will keep the log.
+                        Ok(Err(err)) => {
                             followups.push(UiEvent::ShowError(format!("Connect failed: {err}")));
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            followups.push(UiEvent::ShowError("Connect timed out".into()));
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            followups
+                                .push(UiEvent::ShowError("Connect failed (disconnected)".into()));
                         }
                     }
                 }
@@ -68,6 +92,8 @@ impl UiEffectsRunner for FakeEffectsRunner {
         effects: Vec<UiEffect>,
         _session: &mut echo_session_client::tool::ChannelSession,
         _ui_state: &UiState,
+        _config: Option<&dyn ConfigPort>,
+        _viewer: &ViewerState,
     ) -> Vec<UiEvent> {
         let mut followups = Vec::new();
         for eff in effects {

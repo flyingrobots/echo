@@ -88,14 +88,13 @@ impl App {
     pub fn apply_ui_event(&mut self, ev: ui_state::UiEvent) {
         let (next, effects) = ui_state::reduce(&self.ui, ev);
         self.ui = next;
-        for eff in effects.iter() {
-            if matches!(eff, ui_state::UiEffect::SavePrefs) {
-                if let Some(cfg) = &self.config {
-                    cfg.save_prefs(&self.viewer.export_prefs());
-                }
-            }
-        }
-        let followups = self.ui_runner.run(effects, &mut self.session, &self.ui);
+        let followups = self.ui_runner.run(
+            effects,
+            &mut self.session,
+            &self.ui,
+            self.config.as_deref(),
+            &self.viewer,
+        );
         for ev in followups {
             self.apply_ui_event(ev);
         }

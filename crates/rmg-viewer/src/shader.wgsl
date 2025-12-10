@@ -27,7 +27,9 @@ struct VsOut {
 fn vs_main(input: VsIn) -> VsOut {
     let model = mat4x4<f32>(input.i0, input.i1, input.i2, input.i3);
     let world_pos = model * vec4<f32>(input.position, 1.0);
-    let world_normal = normalize((model * vec4<f32>(input.normal, 0.0)).xyz);
+    let m3 = mat3x3<f32>(input.i0.xyz, input.i1.xyz, input.i2.xyz);
+    let normal_mat = transpose(inverse(m3));
+    let world_normal = normalize(normal_mat * input.normal);
     var out: VsOut;
     out.pos = globals.view_proj * world_pos;
     out.normal = world_normal;

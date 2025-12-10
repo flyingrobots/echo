@@ -8,7 +8,7 @@ use echo_session_proto::{
     wire::{decode_message, encode_message},
     HandshakePayload, Message, Notification, RmgFrame, RmgId,
 };
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
@@ -43,15 +43,28 @@ impl SessionClient {
         Ok(())
     }
 
-    /// Poll a single message if available (non-blocking). Returns Ok(None) when no complete frame is present.
+    /// Poll a single message if available. Returns Ok(None) when the stream is closed before any bytes are read.
+    /// Reads until a full frame header is buffered so short reads cannot desynchronize framing.
     pub async fn poll_message(&mut self) -> Result<Option<Message>> {
         let mut header = [0u8; 12];
-        let n = self.stream.read(&mut header).await?;
-        if n == 0 {
-            return Ok(None);
-        }
-        if n < 12 {
-            return Ok(None);
+        let mut read = 0usize;
+        while read < header.len() {
+            let n = self.stream.read(&mut header[read..]).await?;
+            if n == 0 {
+                if read == 0 {
+                    return Ok(None);
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    format!(
+                        "truncated frame header: read {} of {} bytes",
+                        read,
+                        header.len()
+                    ),
+                )
+                .into());
+            }
+            read += n;
         }
         let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
         let mut rest = vec![0u8; len + 32];
@@ -193,4 +206,44 @@ pub fn connect_channels_for(
     });
 
     Ok((rmg_rx, notif_rx))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use echo_session_proto::{NotifyKind, NotifyScope};
+    use tokio::io::AsyncWriteExt;
+    use tokio::task;
+
+    #[tokio::test]
+    async fn poll_message_handles_partial_header_without_losing_bytes() {
+        let (client_stream, mut server_stream) = tokio::net::UnixStream::pair().unwrap();
+
+        let notification = Notification {
+            kind: NotifyKind::Info,
+            scope: NotifyScope::Global,
+            title: "partial-header".to_string(),
+            body: Some("keep frame aligned".to_string()),
+        };
+
+        let encoded = encode_message(Message::Notification(notification.clone()), 42).unwrap();
+
+        let client_task = task::spawn(async move {
+            let mut client = SessionClient {
+                stream: client_stream,
+            };
+            client.poll_message().await
+        });
+
+        server_stream.write_all(&encoded[..5]).await.unwrap();
+        task::yield_now().await;
+        server_stream.write_all(&encoded[5..]).await.unwrap();
+
+        let msg = client_task.await.unwrap().unwrap();
+
+        match msg {
+            Some(Message::Notification(n)) => assert_eq!(n, notification),
+            other => panic!("expected notification, got {:?}", other),
+        }
+    }
 }

@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-10 — Harden session client header reads (COMPLETED)
+
+- Goal: stop partial header reads from desynchronizing clients when reading from Unix sockets.
+- Scope: `crates/echo-session-client/src/lib.rs` (`poll_message` header handling) and a regression test.
+- Status: completed; `poll_message` now buffers short headers and a partial-read test covers the regression (`cargo test -p echo-session-client`).
+
 > 2025-12-06 — Tool crate docs + crate map (COMPLETED)
 
 - Goal: tighten docs around the tool hexagon pattern and make crate-level READMEs point at the Echo booklets as the canonical source of truth.

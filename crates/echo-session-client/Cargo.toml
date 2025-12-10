@@ -15,4 +15,4 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = "1.0"
 echo-session-proto = { path = "../echo-session-proto" }
-tokio = { version = "1.41", features = ["rt", "net", "io-util"] }
+tokio = { version = "1.41", features = ["rt", "net", "io-util", "macros"] }

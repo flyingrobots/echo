@@ -47,6 +47,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: `.github/workflows/security-audit.yml` (add `--ignore RUSTSEC-2024-0436` and `--ignore RUSTSEC-2021-0127`).
 - Status: completed; audit step now ignores these advisories explicitly until upstreams replace them.
 
+> 2025-12-10 — RMG View Protocol tasks (IN PROGRESS)
+
+- Goal: land the RMG View Protocol/EIP checklist and execute slices toward multi-viewer sharing demo.
+- Scope: tracked in `docs/tasks.md` with stepwise commits as items complete.
+- Status: checklist drafted.
+
 > 2025-12-10 — CBOR migration + viewer input gating (COMPLETED)
 
 - Goal: swap serde_cbor for maintained ciborium, harden canonical encoding/decoding, and keep viewer input/render stacks consistent.

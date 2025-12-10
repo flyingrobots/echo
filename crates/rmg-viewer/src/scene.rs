@@ -3,6 +3,7 @@
 //! Scene construction and lightweight simulation for the viewer.
 
 use blake3::Hasher;
+use ciborium::de::from_reader;
 use echo_graph::RenderGraph as WireGraph;
 use glam::Vec3;
 use rmg_core::{
@@ -193,7 +194,7 @@ pub fn scene_from_wire(w: &WireGraph) -> RenderGraph {
         let mut pos = radial_pos_u64(i as u64);
         let mut color = hash_color_u64(n.id);
 
-        let payload: Option<Payload> = serde_cbor::from_slice(&n.data.raw)
+        let payload: Option<Payload> = from_reader(&n.data.raw[..])
             .ok()
             .or_else(|| serde_json::from_slice(&n.data.raw).ok());
         if let Some(p) = payload {

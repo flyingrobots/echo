@@ -3,6 +3,7 @@
 //! Pure state transitions for the viewer UI (screens, overlays, menu actions).
 
 use crate::core::{Screen, TitleMode, UiState, ViewerOverlay};
+use echo_session_proto::default_socket_path;
 
 #[derive(Debug, Clone)]
 pub enum UiEvent {
@@ -48,10 +49,20 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
         UiEvent::ConnectPortChanged(p) => next.connect_port = p,
         UiEvent::ConnectSubmit => {
             next.connect_log.clear();
-            next.connect_log.push(format!(
-                "Connecting to {}:{} (RMG {})...",
-                next.connect_host, next.connect_port, next.rmg_id
-            ));
+            let target = if !next.connect_host.trim().is_empty() {
+                if next.connect_host.starts_with('/') {
+                    next.connect_host.clone()
+                } else {
+                    format!(
+                        "{}:{} (runtime sock name)",
+                        next.connect_host, next.connect_port
+                    )
+                }
+            } else {
+                default_socket_path().display().to_string()
+            };
+            next.connect_log
+                .push(format!("Connecting to {target} (RMG {})...", next.rmg_id));
             next.screen = Screen::Connecting;
             next.title_mode = TitleMode::Menu;
             fx.push(UiEffect::RequestConnect);

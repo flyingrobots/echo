@@ -11,6 +11,21 @@ use echo_session_proto::default_socket_path;
 use std::sync::mpsc;
 use std::time::Duration;
 
+fn resolve_socket_path(host: &str, port: u16) -> String {
+    if host.trim().is_empty() {
+        return default_socket_path().display().to_string();
+    }
+    if host.starts_with('/') {
+        return host.to_string();
+    }
+    let mut base = default_socket_path();
+    if let Some(parent) = base.parent() {
+        let fname = format!("echo-session-{}-{}.sock", host, port);
+        base = parent.join(fname);
+    }
+    base.display().to_string()
+}
+
 pub trait UiEffectsRunner {
     /// Run effects, possibly emitting follow-up events (e.g., failures).
     fn run(
@@ -47,11 +62,7 @@ impl UiEffectsRunner for RealEffectsRunner {
                     // If the user entered an absolute path in host, honor it; otherwise use the per-user default.
                     let (tx, rx) = mpsc::channel();
                     let rmg_id = ui_state.rmg_id;
-                    let path = if ui_state.connect_host.starts_with('/') {
-                        ui_state.connect_host.clone()
-                    } else {
-                        default_socket_path().to_string_lossy().to_string()
-                    };
+                    let path = resolve_socket_path(&ui_state.connect_host, ui_state.connect_port);
                     std::thread::spawn(move || {
                         let res = connect_channels_for(&path, rmg_id).map_err(|e| e.to_string());
                         let _ = tx.send(res);

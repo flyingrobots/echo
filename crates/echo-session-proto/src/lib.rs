@@ -17,10 +17,10 @@ use std::{collections::BTreeMap, path::PathBuf};
 /// Prefers a per-user runtime dir (XDG_RUNTIME_DIR) and falls back to `/tmp`
 /// when unavailable.
 pub fn default_socket_path() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR")
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("echo-session.sock")
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    base.join("echo-session.sock")
 }
 
 /// Canonical OpEnvelope carried as the payload of a JS-ABI packet.

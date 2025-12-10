@@ -43,8 +43,8 @@ impl UiState {
             screen: Screen::Title,
             title_mode: TitleMode::Menu,
             overlay: ViewerOverlay::None,
-            connect_host: "localhost".into(),
-            connect_port: 9000,
+            connect_host: String::new(),
+            connect_port: 0,
             rmg_id: 1,
             connect_log: Vec::new(),
         }

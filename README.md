@@ -146,7 +146,7 @@ echo/
 │   ├── rmg-geom/        (Geometry primitives: AABB, transforms, broad-phase)
 │   ├── rmg-benches/     (Criterion microbenchmarks: snapshot_hash, scheduler_drain)
 │   ├── rmg-wasm/        (WebAssembly bindings for tools and web)
-│   ├── rmg-ffi/         (C ABI for Lua/host integration)
+│   ├── rmg-ffi/         (C ABI for host integrations; Rhai is embedded directly)
 │   └── rmg-cli/         (Command-line interface, demos launcher)
 ├── docs/                (Comprehensive specifications and diagrams)
 └── scripts/             (Build automation, benchmarking)

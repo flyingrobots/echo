@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-11 — Scripting pivot to Rhai (COMPLETED)
+
+- Goal: cement Rhai as the scripting layer across design/docs, update scripting backlog items, and log the pivot.
+- Scope: execution plan, decision log, scripting/spec docs, FFI descriptions.
+- Status: completed; scripting plans now target Rhai with deterministic sandboxing, prior scripting references removed.
+
 > 2025-12-11 — RMG authority enforcement (COMPLETED)
 
 - Goal: Reject non-owner publishes on RMG channels and surface explicit errors to clients.
@@ -448,8 +454,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [ ] Scaffold Rust workspace (`crates/rmg-core`, `crates/rmg-ffi`, `crates/rmg-wasm`, `crates/rmg-cli`).
 - [ ] Port ECS archetype storage + branch diff engine to Rust.
 - [ ] Implement deterministic PRNG + math module in Rust.
-- [ ] Expose C ABI for Lua and C integrations.
-- [ ] Integrate Lua 5.4 runtime via bindings (mlua or custom FFI).
+- [ ] Expose C ABI for host integrations and embed Rhai for scripting.
+- [ ] Integrate Rhai runtime with deterministic sandboxing and host modules.
 - [ ] Adapt TypeScript CLI/inspector to Rust backend (WASM/FFI).
 - [ ] Archive TypeScript prototype under `/reference/` as spec baseline.
 - [ ] Add Rust CI jobs (cargo test, replay verification).
@@ -488,7 +494,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | ---- | -------- | ------- | --------- |
 | 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
-| 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Lua scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
+| 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Rhai scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
 | 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in rmg-core | Extend coverage to browser environments and fixed-point mode |
 | 2025-10-26 | Adopt RMG + Confluence as core architecture | RMG v2 (typed DPOi engine) + Confluence replication baseline | Scaffold rmg-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
 

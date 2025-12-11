@@ -41,7 +41,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Testing Expectations
 - Write tests before or alongside code changes.
 - `cargo test` must pass locally before PR submission.
-- Add unit/integration coverage for new logic; Lua/TypeScript tooling will regain coverage when reintroduced.
+- Add unit/integration coverage for new logic; Rhai/TypeScript tooling will regain coverage when reintroduced.
 
 ## Documentation & Telemetry
 - Update relevant docs in `docs/` whenever behavior or architecture changes.
@@ -59,7 +59,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 ## Code Style
 - Rust code must pass `cargo fmt` and `cargo clippy` without warnings.
-- Lua scripts should remain deterministic (no uncontrolled globals, RNG via engine services).
+- Rhai scripts should remain deterministic (no uncontrolled globals, RNG via engine services).
 - TypeScript tooling (when active) lives in `reference/typescript/`; follow local lint configs when reactivated.
 - Avoid non-deterministic APIs (no wall-clock, no uncontrolled randomness). Use Echo’s deterministic services.
 

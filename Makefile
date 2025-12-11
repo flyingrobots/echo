@@ -126,3 +126,12 @@ bench-bake: vendor-d3
 
 bench-open-inline:
 	@open docs/benchmarks/report-inline.html
+
+# Spec-000 (WASM) helpers
+.PHONY: spec-000-dev spec-000-build
+
+spec-000-dev:
+	@cd specs/spec-000-rewrite && trunk serve
+
+spec-000-build:
+	@cd specs/spec-000-rewrite && trunk build --release

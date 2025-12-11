@@ -42,6 +42,11 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - Write tests before or alongside code changes.
 - `cargo test` must pass locally before PR submission.
 - Add unit/integration coverage for new logic; Rhai/TypeScript tooling will regain coverage when reintroduced.
+- For WASM / living specs:
+  - Install toolchain target: `rustup target add wasm32-unknown-unknown`.
+  - Install Trunk once: `cargo install --locked trunk`.
+  - Dev loop for Spec-000: from repo root run `make spec-000-dev` (hot reload at http://127.0.0.1:8080).
+  - Release build: `make spec-000-build` (outputs to `specs/spec-000-rewrite/dist/`).
 
 ## Documentation & Telemetry
 - Update relevant docs in `docs/` whenever behavior or architecture changes.

@@ -1,6 +1,18 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Echo
+# ![[echo-white.svg]]
+---
+
+> [!note]
+> # ⚠️ NOTICE: Echo is Becoming the JITOS Kernel
+>
+> Echo is now the kernel for **JITOS**—the world's first causal operating system, where history is immutable, execution is deterministic, and debugging means time-traveling to exact states, instead of hopes and prayers. 
+>
+> **THE REVΩLUTION WILL BE DETERMINISTIC.**  
+> **THE PROOF IS MATHEMATICAL.**  
+> **TIME WILL TELL.**  
+>
+> 🔗 [AIΩN Organization](https://github.com/your-org) | [JITOS RFCs](https://jitos.dev/rfcs) | [CΩMPUTER Paper](link)
 
 ```rust
 //! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░

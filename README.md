@@ -34,14 +34,6 @@ RMG provides atomic, in-place edits of recursive meta-graphs with deterministic 
 
 Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect replay, and Git-like branching for game states.
 
-## Developer: Running Benchmarks
-
-- Command (live dashboard): `make bench-report`
-  - Runs `cargo bench -p rmg-benches`, starts a local server, and opens the dashboard at `http://localhost:8000/docs/benchmarks/`.
-- Command (offline static file): `make bench-bake`
-  - Runs benches and bakes `docs/benchmarks/report-inline.html` with results injected so it works over `file://` (no server required).
-- Docs: see `crates/rmg-benches/benches/README.md` for details, tips, and report paths.
-
 ### Core Principles
 
 | Principle                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -297,6 +289,14 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 
 - `crates/rmg-core/tests/permutation_commute_tests.rs` — Determinism proofs
 - `crates/rmg-benches/benches/snapshot_hash.rs` — Hashing throughput
+
+## Developer: Running Benchmarks
+
+- Command (live dashboard): `make bench-report`
+  - Runs `cargo bench -p rmg-benches`, starts a local server, and opens the dashboard at `http://localhost:8000/docs/benchmarks/`.
+- Command (offline static file): `make bench-bake`
+  - Runs benches and bakes `docs/benchmarks/report-inline.html` with results injected so it works over `file://` (no server required).
+- Docs: see `crates/rmg-benches/benches/README.md` for details, tips, and report paths.
 
 ---
 

@@ -230,6 +230,10 @@ pub fn scene_from_wire(w: &WireGraph) -> RenderGraph {
 
 pub fn sample_wire_graph() -> WireGraph {
     let store = build_sample_graph();
+    store_to_wire_graph(&store)
+}
+
+pub fn store_to_wire_graph(store: &GraphStore) -> WireGraph {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     for (id, node) in store.iter_nodes() {

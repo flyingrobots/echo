@@ -17,6 +17,7 @@ use echo_app_core::{
     toast::{ToastKind, ToastScope, ToastService},
 };
 use echo_config_fs::FsConfigStore;
+use echo_graph::RenderGraph as WireGraph;
 use echo_session_client::tool::ChannelSession;
 use egui_extras::install_image_loaders;
 use egui_winit::winit::{
@@ -26,7 +27,9 @@ use egui_winit::winit::{
     window::{Window, WindowAttributes},
 };
 use egui_winit::State as EguiWinitState;
+use rmg_core::GraphStore;
 use std::time::Instant;
+use tokio::sync::mpsc;
 
 pub struct App {
     pub viewports: Vec<Viewport>,
@@ -37,6 +40,7 @@ pub struct App {
     pub session: ChannelSession,
     pub ui: UiState,
     pub viewer: ViewerState,
+    pub graph_rx: mpsc::Receiver<WireGraph>,
     shutdown_requested: bool,
 }
 
@@ -74,6 +78,28 @@ impl App {
         viewer.epoch = Some(0);
         viewer.apply_prefs(&prefs);
 
+        let (tx, rx) = mpsc::channel(10);
+        tokio::spawn(async move {
+            loop {
+                // Poll the JITOS daemon
+                match reqwest::get("http://127.0.0.1:3000/rmg_state").await {
+                    Ok(resp) => match resp.json::<GraphStore>().await {
+                        Ok(store) => {
+                            let wire = crate::scene::store_to_wire_graph(&store);
+                            if tx.send(wire).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => eprintln!("Failed to parse RMG state: {}", e),
+                    },
+                    Err(_) => {
+                        // Suppress connection errors (daemon might not be up)
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
+
         Self {
             viewports: Vec::new(),
             egui_ctx,
@@ -83,6 +109,7 @@ impl App {
             session: ChannelSession::new(),
             ui: UiState::new(),
             viewer,
+            graph_rx: rx,
             shutdown_requested: false,
         }
     }
@@ -154,6 +181,11 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        while let Ok(wire) = self.graph_rx.try_recv() {
+            self.viewer.wire_graph = wire;
+            self.viewer.graph = scene_from_wire(&self.viewer.wire_graph);
+        }
+
         if self.viewports.is_empty() {
             return;
         }

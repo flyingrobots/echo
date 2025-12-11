@@ -28,6 +28,12 @@ fn main() -> Result<()> {
         .with_target(false)
         .without_time()
         .init();
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let _guard = rt.enter();
+
     let event_loop = EventLoop::new()?;
     let mut app = app::App::new();
     event_loop.run_app(&mut app)?;

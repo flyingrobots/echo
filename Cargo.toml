@@ -15,7 +15,7 @@ members = [
     "crates/echo-session-service",
     "crates/echo-session-client",
     "crates/echo-graph"
-]
+, "crates/echo-sched", "crates/echo-kernel", "crates/echo-tasks", "crates/echo-workers", "crates/echo-net", "bins/jitosd", "bins/jitos-cli"]
 resolver = "2"
 
 [workspace.dependencies]

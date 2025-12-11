@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-kernel"
+version = "0.1.0"
+edition = "2021"
+description = "JITOS Kernel Core"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["jitos", "kernel"]
+categories = ["os"]
+
+[dependencies]
+rmg-core = { path = "../rmg-core" }
+echo-sched = { path = "../echo-sched" }
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

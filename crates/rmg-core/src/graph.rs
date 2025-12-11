@@ -10,7 +10,7 @@ use crate::record::{EdgeRecord, NodeRecord};
 ///
 /// The production engine will eventually swap in a content-addressed store,
 /// but this structure keeps the motion rewrite spike self-contained.
-#[derive(Default, Clone)]
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GraphStore {
     /// Mapping from node identifiers to their materialised records.
     pub(crate) nodes: BTreeMap<NodeId, NodeRecord>,

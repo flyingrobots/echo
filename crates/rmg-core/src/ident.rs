@@ -11,18 +11,20 @@ pub type Hash = [u8; 32];
 ///
 /// `NodeId` values are obtained from [`make_node_id`] and remain stable across
 /// runs because they are derived from a BLAKE3 hash of a string label.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize, serde::Deserialize,
+)]
 pub struct NodeId(pub Hash);
 
 /// Strongly typed identifier for the logical kind of a node or component.
 ///
 /// `TypeId` values are produced by [`make_type_id`] which hashes a label; using
 /// a dedicated wrapper prevents accidental mixing of node and type identifiers.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TypeId(pub Hash);
 
 /// Identifier for a directed edge within the graph.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EdgeId(pub Hash);
 
 /// Produces a stable, domain‑separated type identifier (prefix `b"type:"`) using BLAKE3.

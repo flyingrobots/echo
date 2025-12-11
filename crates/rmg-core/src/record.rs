@@ -14,7 +14,7 @@ use crate::ident::{EdgeId, NodeId, TypeId};
 /// - `ty` must be a valid type identifier in the current schema.
 /// - The node identifier is not embedded here; the store supplies it externally.
 /// - `payload` encoding is caller-defined and opaque to the store.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NodeRecord {
     /// Type identifier describing the node.
     pub ty: TypeId,
@@ -29,7 +29,7 @@ pub struct NodeRecord {
 /// - `id` is stable across runs for the same logical edge.
 /// - `ty` must be a valid edge type in the current schema.
 /// - `payload` encoding is caller-defined and opaque to the store.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EdgeRecord {
     /// Stable identifier for the edge.
     pub id: EdgeId,

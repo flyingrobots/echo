@@ -81,9 +81,7 @@
   </head>
   <body>
     <div id="app"></div>
-    <script type="module">
-      import init from "./pkg/spec_000_rewrite.js";
-      init();
-    </script>
+    <!-- Trunk will compile the crate to WASM and inject the correct JS/WASM bundle. -->
+    <link data-trunk rel="rust" href="Cargo.toml" data-cargo-features="wasm" />
   </body>
 </html>

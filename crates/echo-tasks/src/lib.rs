@@ -7,5 +7,8 @@
 //! - HTN method expansion
 //! - DAG generation and validation
 
-/// Placeholder for the Task Planner.
-pub struct Planner;
+pub mod method;
+pub mod planner;
+pub mod slaps;
+
+pub use planner::Planner;

@@ -15,7 +15,7 @@ members = [
     "crates/echo-session-service",
     "crates/echo-session-client",
     "crates/echo-graph"
-]
+, "crates/echo-session-ws-gateway"]
 resolver = "2"
 
 [workspace.dependencies]

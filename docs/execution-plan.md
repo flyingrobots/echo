@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-11 — WebSocket gateway for session hub (COMPLETED)
+
+- Goal: allow browser clients to connect to the Unix-socket session bus via a secure WS bridge.
+- Scope: new `echo-session-ws-gateway` crate with WS→UDS forwarding, frame guards, origin allowlist, optional TLS.
+- Status: completed; gateway parses JS-ABI frame lengths, enforces 8 MiB cap, and proxies binary frames over WS.
+
 > 2025-12-11 — Scripting pivot to Rhai (COMPLETED)
 
 - Goal: cement Rhai as the scripting layer across design/docs, update scripting backlog items, and log the pivot.

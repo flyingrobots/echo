@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Language & Responsibility Map (Phase 1)
 
-Echo’s runtime stack is intentionally stratified. Rust owns the deterministic graph engine; Lua sits on top for gameplay scripting; TypeScript powers the tooling layer via WebAssembly bindings. This document captures what lives where as we enter Phase 1 (Core Ignition).
+Echo’s runtime stack is intentionally stratified. Rust owns the deterministic graph engine; Rhai sits on top for gameplay scripting; TypeScript powers the tooling layer via WebAssembly bindings. This document captures what lives where as we enter Phase 1 (Core Ignition).
 
 ---
 
@@ -16,32 +16,32 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 - Netcode: lockstep / rollback / authority modes using rewrite transactions.
 - Asset pipeline: import/export graphs, payload storage, zero-copy access.
 - Confluence: distributed synchronization of rewrite transactions.
-- Lua VM hosting: embed Lua 5.4, expose RMG bindings via FFI.
+- Rhai engine hosting: embed Rhai with deterministic module set; expose RMG bindings.
 - CLI tools: `rmg` command for apply/snapshot/diff/verify.
 
 ### Key Crates
 - `rmg-core` – core engine
-- `rmg-ffi` – C ABI for Lua and other native consumers
+- `rmg-ffi` – C ABI for host/native consumers; Rhai binds directly in-process
 - `rmg-wasm` – WASM build for tooling/editor
 - `rmg-cli` – CLI utilities
 
 ---
 
-## Lua (gameplay authoring layer)
+## Rhai (gameplay authoring layer)
 
 ### Responsibilities
 - Gameplay systems & components (e.g., AI state machines, quests, input handling).
 - Component registration, entity creation/destruction via exposed APIs.
 - Scripting for deterministic “async” (scheduled events through Codex’s Baby).
-- Editor lenses and inspector overlays written in Lua for rapid iteration.
+- Editor lenses and inspector overlays written in Rhai for rapid iteration.
 
 ### Constraints
 - Single-threaded per branch; no OS threads.
-- GC runs in deterministic stepped mode, bounded per tick.
+- Engine budgeted deterministically per tick.
 - Mutations occur through rewrite intents (`rmg.apply(...)`), not raw memory access.
 
 ### Bindings
-- `rmg` Lua module providing:
+- `rmg` Rhai module providing:
   - `apply(rule_name, scope, params)`
   - `delay(seconds, fn)` (schedules replay-safe events)
   - Query helpers (read components, iterate entities)
@@ -72,7 +72,7 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 
 ## Summary
 - Rust: core deterministic runtime + binding layers.
-- Lua: gameplay logic, editor lenses, deterministic script-level behavior.
+- Rhai: gameplay logic, editor lenses, deterministic script-level behavior.
 - TypeScript: visualization and tooling on top of WASM/IPC.
 
 This division keeps determinism and performance anchored in Rust while giving designers and tooling engineers approachable layers tailored for their workflows.

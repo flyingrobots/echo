@@ -16,8 +16,8 @@ Networking transports `EventEnvelope`s; no raw state replication. Every node run
 | Layer | Responsibility | Language |
 | ----- | -------------- | -------- |
 | Networking Core | Event replication, lockstep/rollback, authority decisions | Rust |
-| Codex’s Baby Bridge | Converts network packets into cross-branch events | Rust / Lua |
-| Lua Gameplay | Declares networked components/events via API | Lua |
+| Codex’s Baby Bridge | Converts network packets into cross-branch events | Rust / Rhai |
+| Rhai Gameplay | Declares networked components/events via API | Rhai |
 
 ---
 
@@ -45,22 +45,19 @@ interface NetworkingPort {
 
 ---
 
-## Lua API Surface
+## Rhai API Surface
 
-```lua
-function on_start()
-  echo.network.emit("player_input", {
-    axis = self.move,
-    tick = echo.chronos()
-  })
-end
+```rhai
+fn on_start() {
+    echo::network::emit("player_input", #{ axis: this.move, tick: echo::chronos() });
+}
 
-function on_player_input(evt)
-  self:applyInput(evt.payload)
-end
+fn on_player_input(evt) {
+    this.apply_input(evt.payload);
+}
 ```
 
-- Lua never opens sockets; it emits/handles events.
+- Rhai never opens sockets; it emits/handles events.
 - Engine assigns Chronos/Kairos IDs and handles delivery/rollback.
 
 ---

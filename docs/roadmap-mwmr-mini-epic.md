@@ -51,7 +51,7 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 - [x] build.rs generates const family id for `rule:motion/update` (domain‑separated)
 - [ ] Generalize generator (src/gen/rule_ids.rs) and runtime assert test to catch drift
-- [ ] Lua FFI registration: `register_rule{name, match, exec, ?id, ?revision}`; engine computes if omitted
+- [ ] Rhai rule registration: `register_rule{name, match, exec, ?id, ?revision}`; engine computes if omitted
 - [ ] Revision ID = blake3("rule-rev:<lang>:canon-ast-v1" || canonical AST bytes)
 
 ---

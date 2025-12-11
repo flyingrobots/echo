@@ -1,6 +1,18 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Echo
+# ![[echo-white.svg]]
+---
+
+> [!note]
+> # ⚠️ NOTICE: Echo is Becoming the JITOS Kernel
+>
+> Echo is now the kernel for **JITOS**—the world's first causal operating system, where history is immutable, execution is deterministic, and debugging means time-traveling to exact states, instead of hopes and prayers. 
+>
+> **THE REVΩLUTION WILL BE DETERMINISTIC.**  
+> **THE PROOF IS MATHEMATICAL.**  
+> **TIME WILL TELL.**  
+>
+> 🔗 [AIΩN](https://github.com/flyingrobots/aion) | [JITOS RFCs](https://github.com/flyingrobots/jitos) | [CΩMPUTER Paper](https://github.com/flyingrobots/aion-computer-book)
 
 ```rust
 //! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
@@ -34,14 +46,6 @@ RMG provides atomic, in-place edits of recursive meta-graphs with deterministic 
 
 Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect replay, and Git-like branching for game states.
 
-## Developer: Running Benchmarks
-
-- Command (live dashboard): `make bench-report`
-  - Runs `cargo bench -p rmg-benches`, starts a local server, and opens the dashboard at `http://localhost:8000/docs/benchmarks/`.
-- Command (offline static file): `make bench-bake`
-  - Runs benches and bakes `docs/benchmarks/report-inline.html` with results injected so it works over `file://` (no server required).
-- Docs: see `crates/rmg-benches/benches/README.md` for details, tips, and report paths.
-
 ### Core Principles
 
 | Principle                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -63,6 +67,15 @@ Echo is a mathematically rigorous game engine that replaces traditional OOP with
 Echo runs on something called an **RMG (Recursive Meta-Graph)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
 
 Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
+
+## JITOS Engineering Standard (Living Specs)
+
+Echo follows the JITOS Engineering Standard: every SPEC is simultaneously documentation, implementation, interactive demo (WASM), living test, and contributor certification. See `docs/METHODOLOGY.md` for the full 5x Duty model and workflow.
+
+### WASM Dev Quickstart (Spec-000)
+- Prereq: `rustup target add wasm32-unknown-unknown` and `cargo install --locked trunk`
+- Dev: `make spec-000-dev` (hot reload at http://127.0.0.1:8080)
+- Build: `make spec-000-build` (outputs to `specs/spec-000-rewrite/dist/`)
 
 ### Why Echo's Cool
 
@@ -146,7 +159,7 @@ echo/
 │   ├── rmg-geom/        (Geometry primitives: AABB, transforms, broad-phase)
 │   ├── rmg-benches/     (Criterion microbenchmarks: snapshot_hash, scheduler_drain)
 │   ├── rmg-wasm/        (WebAssembly bindings for tools and web)
-│   ├── rmg-ffi/         (C ABI for Lua/host integration)
+│   ├── rmg-ffi/         (C ABI for host integrations; Rhai is embedded directly)
 │   └── rmg-cli/         (Command-line interface, demos launcher)
 ├── docs/                (Comprehensive specifications and diagrams)
 └── scripts/             (Build automation, benchmarking)
@@ -293,6 +306,14 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 
 - `crates/rmg-core/tests/permutation_commute_tests.rs` — Determinism proofs
 - `crates/rmg-benches/benches/snapshot_hash.rs` — Hashing throughput
+
+## Developer: Running Benchmarks
+
+- Command (live dashboard): `make bench-report`
+  - Runs `cargo bench -p rmg-benches`, starts a local server, and opens the dashboard at `http://localhost:8000/docs/benchmarks/`.
+- Command (offline static file): `make bench-bake`
+  - Runs benches and bakes `docs/benchmarks/report-inline.html` with results injected so it works over `file://` (no server required).
+- Docs: see `crates/rmg-benches/benches/README.md` for details, tips, and report paths.
 
 ---
 

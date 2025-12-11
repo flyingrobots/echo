@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use echo_session_proto::{
     wire::{decode_message, encode_message},
-    HandshakePayload, Message, Notification, RmgFrame, RmgId,
+    HandshakePayload, Message, Notification, NotifyKind, NotifyScope, RmgFrame, RmgId,
 };
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -208,6 +208,14 @@ fn run_message_loop(
             }
             Ok((Message::Notification(n), _, _)) => {
                 let _ = notif_tx.send(n);
+            }
+            Ok((Message::Error(err), _, _)) => {
+                let _ = notif_tx.send(Notification {
+                    kind: NotifyKind::Error,
+                    scope: NotifyScope::Local,
+                    title: format!("{} ({})", err.name, err.code),
+                    body: Some(err.message),
+                });
             }
             _ => continue,
         }

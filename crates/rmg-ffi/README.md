@@ -4,7 +4,7 @@
 
 Thin C ABI bindings for the `rmg-core` deterministic graph rewriting engine.
 
-This crate produces a C-callable library for embedding Echo’s core in other runtimes (C/C++, Lua, etc.). It exposes a minimal, stable surface: engine creation, rule registration by name, apply/commit, and snapshot hash retrieval.
+This crate produces a C-callable library for embedding Echo’s core in other runtimes (C/C++, host modules alongside Rhai, etc.). It exposes a minimal, stable surface: engine creation, rule registration by name, apply/commit, and snapshot hash retrieval.
 
 ## Platforms and Toolchain
 

@@ -34,12 +34,12 @@ This document captures the interactive demos and performance milestones we want 
 - Success criteria: merge replay produces the documented canonical hash, paradox branch quarantined with deterministic error log, entropy metrics trend as expected.
 - Deliverable: recorded replay plus JSON report showing branch IDs, merge decisions, and resulting hashes.
 
-## Demo 4: Lua Live Coding Loop
+## Demo 4: Rhai Live Coding Loop
 
-**Goal:** Prove Lua bindings support hot reload without breaking determinism.
+**Goal:** Prove Rhai bindings support hot reload without breaking determinism.
 
-- Script registers a system that increments a component each tick; developer edits Lua code mid-run via CLI hot-reload.
-- Engine stages rewrite intents from Lua through the FFI; after reload, replay the prior ticks to confirm deterministic equivalence.
+- Script registers a system that increments a component each tick; developer edits Rhai code mid-run via CLI hot-reload.
+- Engine stages rewrite intents from Rhai through the FFI; after reload, replay the prior ticks to confirm deterministic equivalence.
 - Success: frame hashes before/after reload identical when replayed from the same snapshot; inspector shows live diff of system graphs.
 - Includes integration test capturing reload latency budget (< 50 ms) and ensuring queued rewrites survive reload boundary.
 
@@ -68,7 +68,7 @@ This document captures the interactive demos and performance milestones we want 
 | ----- | ------------- | ------------- |
 | 1A    | Demo 2 harness scaffolding | Criterion setup, synthetic rewrite fixtures |
 | 1B    | Demo 1 prototype (local hash) | Motion rewrite spike, snapshot hashing |
-| 1C    | Demo 4 Lua API | `rmg-ffi` bindings, hot-reload CLI |
+| 1C    | Demo 4 Rhai API | `rmg-ffi` bindings, hot-reload CLI |
 | 1D    | Demo 3 timeline tooling | Branch tree diff viewer, entropy metrics |
 | 1E    | Demo 5 networking | Confluence transaction protocol, replay verification |
 | 1F    | Demo dashboards | Inspector frame overlays, JSON ingestion |

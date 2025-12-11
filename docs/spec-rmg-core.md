@@ -94,9 +94,9 @@ engine.rewrite("physics:update");
 let snap = engine.snapshot();
 ```
 
-### Lua
-```lua
-rmg.apply("update/transform", {entity = id})
+### Rhai
+```rhai
+rmg.apply("update/transform", #{ entity: id })
 ```
 
 ### TypeScript (WASM)

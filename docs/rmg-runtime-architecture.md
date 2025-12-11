@@ -74,7 +74,7 @@ loop {
 ## Implementation Notes
 
 - RMG engine runs in Rust (`rmg-core`).
-- Lua scripts issue rewrite intents via bindings; remain deterministic.
+- Rhai scripts issue rewrite intents via bindings; remain deterministic.
 - TypeScript tools (via WASM) visualize the same graphs.
 
 ---

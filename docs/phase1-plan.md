@@ -11,7 +11,7 @@ Goal: deliver a deterministic Rust implementation of RMG powering the Echo runti
 graph TD
   A[1A · RMG Core Bootstrap]
   B[1B · Rewrite Executor Spike]
-  C[1C · Lua/TS Bindings]
+  C[1C · Rhai/TS Bindings]
   D[1D · Echo ECS on RMG]
   E[1E · Networking & Confluence MVP]
   F[1F · Tooling Integration]
@@ -26,7 +26,7 @@ graph TD
     DemoToy[Demo 2 · Toy Rewrite Benchmark]
     DemoNetcode[Demo 1 · Deterministic Netcode]
     DemoTimeTravel[Demo 5 · Time Travel Merge]
-    DemoLiveCoding[Demo 6 · Lua Live Coding]
+    DemoLiveCoding[Demo 6 · Rhai Live Coding]
   end
 ```
 
@@ -49,12 +49,12 @@ graph TD
 - Demonstration: **Demo 2 · Toy Benchmark**
   - 100 nodes, 10 rules, property tests showing stable hashes.
 
-### 1C · Lua/TS Bindings
+### 1C · Rhai/TS Bindings
 - Tasks
-  - Expose C ABI, embed Lua 5.4 with deterministic async helpers.
+  - Expose C ABI for host integrations, embed Rhai with deterministic sandbox + host modules.
   - Build WASM bindings for tooling.
   - Port inspector CLI to use snapshots.
-- Demonstration: Lua script triggers rewrite; inspector shows matching snapshot hash.
+- Demonstration: Rhai script triggers rewrite; inspector shows matching snapshot hash.
 
 ### 1D · Echo ECS on RMG
 - Tasks
@@ -76,10 +76,10 @@ graph TD
 - Tasks
   - Echo Studio (TS + WASM) graph viewer with live updates.
   - Entropy lens, paradox heatmap overlays.
-  - Lua live coding pipeline (hot reload).
+  - Rhai live coding pipeline (hot reload).
 - Demonstrations:
   - **Demo 3 · Real Benchmark** (1k nodes, 100 rules).
-  - **Demo 6 · Live Coding** (Lua edit updates live graph).
+  - **Demo 6 · Live Coding** (Rhai edit updates live graph).
 
 ---
 
@@ -113,4 +113,4 @@ Optimization roadmap once baseline is working:
 - Append decision log entries per phase.
 - Record demo outcomes in `docs/decision-log.md`, prefixing the Decision column with `Demo <number> —` (e.g., `Demo 2 — Timeline hash verified`).
 
-Phase 1 completes when Demo 6 (Live Coding) runs atop the Rust RMG runtime with inspector tooling in place.
+Phase 1 completes when Demo 6 (Live Coding) runs atop the Rust RMG runtime with inspector tooling in place, using Rhai as the scripting layer.

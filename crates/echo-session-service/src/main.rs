@@ -9,7 +9,7 @@ use echo_graph::{RmgFrame, RmgSnapshot};
 use echo_session_proto::{
     default_socket_path,
     wire::{decode_message, encode_message},
-    AckStatus, HandshakeAckPayload, Message, RmgId,
+    AckStatus, ErrorPayload, HandshakeAckPayload, Message, RmgId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -176,6 +176,73 @@ mod tests {
         assert!(
             rx_sub.try_recv().is_err(),
             "no packet should be sent on gap"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_owner_publish_is_rejected_with_error() {
+        let hub = Arc::new(Mutex::new(HubState::default()));
+        let (owner, _rx_owner) = add_conn(&hub).await;
+        let (attacker, mut rx_attacker) = add_conn(&hub).await;
+        let (subscriber, mut rx_sub) = add_conn(&hub).await;
+
+        handle_message(Message::SubscribeRmg { rmg_id: 7 }, subscriber, &hub)
+            .await
+            .unwrap();
+
+        handle_message(
+            Message::RmgStream {
+                rmg_id: 7,
+                frame: RmgFrame::Snapshot(RmgSnapshot {
+                    epoch: 0,
+                    graph: RenderGraph::default(),
+                    state_hash: None,
+                }),
+            },
+            owner,
+            &hub,
+        )
+        .await
+        .unwrap();
+        timeout(Duration::from_secs(1), rx_sub.recv())
+            .await
+            .ok()
+            .flatten()
+            .expect("subscriber received snapshot");
+
+        let err = handle_message(
+            Message::RmgStream {
+                rmg_id: 7,
+                frame: RmgFrame::Diff(RmgDiff {
+                    from_epoch: 0,
+                    to_epoch: 1,
+                    ops: vec![],
+                    state_hash: None,
+                }),
+            },
+            attacker,
+            &hub,
+        )
+        .await;
+        assert!(err.is_err());
+
+        let pkt = timeout(Duration::from_secs(1), rx_attacker.recv())
+            .await
+            .ok()
+            .flatten()
+            .expect("attacker receives error");
+        let (msg, _ts, _) = decode_message(&pkt).expect("decode error payload");
+        match msg {
+            Message::Error(payload) => {
+                assert_eq!(payload.name, "E_FORBIDDEN_PUBLISH");
+                assert_eq!(payload.code, 403);
+            }
+            other => panic!("expected error, got {:?}", other),
+        }
+
+        assert!(
+            rx_sub.try_recv().is_err(),
+            "subscriber should not receive attacker diff"
         );
     }
 }
@@ -385,44 +452,104 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
             }
         }
         Message::RmgStream { rmg_id, frame } => {
-            let mut h = hub.lock().await;
-            let ts = h.alloc_ts();
-            let stream = h.streams.entry(rmg_id).or_default();
-            // enforce single producer
-            if let Some(p) = stream.producer {
-                if p != conn_id {
-                    anyhow::bail!("producer mismatch for rmg_id {}", rmg_id);
-                }
-            } else {
-                stream.producer = Some(conn_id);
-            }
-            match &frame {
-                RmgFrame::Snapshot(s) => {
-                    stream.last_epoch = Some(s.epoch);
-                    stream.last_hash = s.state_hash;
-                    stream.latest_snapshot = Some(s.clone());
-                }
-                RmgFrame::Diff(d) => {
-                    let last = stream
-                        .last_epoch
-                        .ok_or_else(|| anyhow::anyhow!("diff before snapshot"))?;
-                    if d.from_epoch != last || d.to_epoch != d.from_epoch + 1 {
-                        anyhow::bail!(
-                            "gap for rmg_id {}: got {}->{} expected {}->{}",
-                            rmg_id,
-                            d.from_epoch,
-                            d.to_epoch,
-                            last,
-                            last + 1
-                        );
+            let (subs, pkt) = {
+                let mut h = hub.lock().await;
+                let mut error: Option<ErrorPayload> = None;
+                let mut err_reason: Option<String> = None;
+                let mut subs: Option<HashSet<u64>> = None;
+                {
+                    let stream = h.streams.entry(rmg_id).or_default();
+                    // enforce single producer
+                    if let Some(p) = stream.producer {
+                        if p != conn_id {
+                            error = Some(ErrorPayload {
+                                code: 403,
+                                name: "E_FORBIDDEN_PUBLISH".into(),
+                                details: None,
+                                message: format!("rmg_id {} is owned by {}", rmg_id, p),
+                            });
+                            err_reason = Some(format!("producer mismatch for rmg_id {}", rmg_id));
+                        }
+                    } else {
+                        stream.producer = Some(conn_id);
                     }
-                    stream.last_epoch = Some(d.to_epoch);
-                    stream.last_hash = d.state_hash;
+
+                    if error.is_none() {
+                        match &frame {
+                            RmgFrame::Snapshot(s) => {
+                                stream.last_epoch = Some(s.epoch);
+                                stream.last_hash = s.state_hash;
+                                stream.latest_snapshot = Some(s.clone());
+                            }
+                            RmgFrame::Diff(d) => {
+                                let last = match stream.last_epoch {
+                                    Some(v) => v,
+                                    None => {
+                                        error = Some(ErrorPayload {
+                                            code: 409,
+                                            name: "E_RMG_SNAPSHOT_REQUIRED".into(),
+                                            details: None,
+                                            message: "send a snapshot before the first diff".into(),
+                                        });
+                                        err_reason = Some("diff before snapshot".into());
+                                        0 // placeholder, unused when error is set
+                                    }
+                                };
+                                if error.is_none()
+                                    && (d.from_epoch != last || d.to_epoch != d.from_epoch + 1)
+                                {
+                                    error = Some(ErrorPayload {
+                                        code: 409,
+                                        name: "E_RMG_EPOCH_GAP".into(),
+                                        details: None,
+                                        message: format!(
+                                            "expected {}->{} but got {}->{}",
+                                            last,
+                                            last + 1,
+                                            d.from_epoch,
+                                            d.to_epoch
+                                        ),
+                                    });
+                                    err_reason = Some(format!(
+                                        "gap for rmg_id {}: got {}->{} expected {}->{}",
+                                        rmg_id,
+                                        d.from_epoch,
+                                        d.to_epoch,
+                                        last,
+                                        last + 1
+                                    ));
+                                }
+                                if error.is_none() {
+                                    stream.last_epoch = Some(d.to_epoch);
+                                    stream.last_hash = d.state_hash;
+                                }
+                            }
+                        }
+                    }
+
+                    if error.is_none() {
+                        subs = Some(stream.subscribers.clone());
+                    }
+                } // drop stream borrow
+
+                if let Some(payload) = error {
+                    let tx = h.conns.get(&conn_id).map(|c| c.tx.clone());
+                    let ts = h.alloc_ts();
+                    if let Some(tx) = tx {
+                        let pkt = encode_message(Message::Error(payload), ts)?;
+                        let _ = tx.send(pkt).await;
+                    }
+                    let reason = err_reason.unwrap_or_else(|| "rmg stream error".into());
+                    anyhow::bail!(reason);
                 }
-            }
-            // fan out to subscribers
-            let pkt = encode_message(Message::RmgStream { rmg_id, frame }, ts)?;
-            let subs = stream.subscribers.clone();
+
+                let subs = subs.unwrap_or_default();
+                let ts = h.alloc_ts();
+                let pkt = encode_message(Message::RmgStream { rmg_id, frame }, ts)?;
+                (subs, pkt)
+            };
+
+            let h = hub.lock().await;
             for sub in subs {
                 if let Some(conn) = h.conns.get(&sub) {
                     let _ = conn.tx.send(pkt.clone()).await;

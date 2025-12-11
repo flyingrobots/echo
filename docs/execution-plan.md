@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-11 — RMG authority enforcement (COMPLETED)
+
+- Goal: Reject non-owner publishes on RMG channels and surface explicit errors to clients.
+- Scope: `echo-session-service` (producer lock + error frames), `echo-session-client` (map error frames to notifications), protocol tasks checklist.
+- Status: completed; unauthorized publishers now receive `E_FORBIDDEN_PUBLISH` errors, gap/diff ordering errors emit structured responses, and clients surface them as error notifications.
+
 > 2025-12-10 — CI cargo-deny index failures (COMPLETED)
 
 - Goal: stop noisy `warning[index-failure]: unable to check for yanked crates` in GitHub Actions by ensuring `cargo-deny` has a warm crates.io index.

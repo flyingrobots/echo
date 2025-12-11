@@ -15,6 +15,7 @@ members = [
     "crates/echo-session-service",
     "crates/echo-session-client",
     "crates/echo-graph",
+    "crates/echo-wasm-abi",
     "crates/echo-session-ws-gateway",
     "specs/spec-000-rewrite"
 ]

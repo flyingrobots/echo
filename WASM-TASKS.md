@@ -6,12 +6,12 @@
 Policy: write failing tests first, then implement; check off tasks only when tests and docs are updated.
 
 ## P0 — Bootstrap & Scaffold
-- [ ] Scaffold `specs/spec-000-rewrite` Leptos+Trunk app (CSR) with `index.html`, `src/lib.rs`, panic hook, hot-reload.
-- [ ] Add workspace membership and `make spec-000-{dev,build}` helpers.
+- [x] Scaffold `specs/spec-000-rewrite` Leptos+Trunk app (CSR) with `index.html`, `src/lib.rs`, panic hook, hot-reload.
+- [x] Add workspace membership and `make spec-000-{dev,build}` helpers.
 - [ ] Failing check: `cargo check -p spec-000-rewrite --target wasm32-unknown-unknown` in CI job (Trunk build).
 
 ## P1 — Kernel Bindings & Types
-- [ ] Add `wasm-bindgen` feature to kernel crate (or shim crate) and expose minimal RMG/rewrite API (add node, set field, connect, tombstone, materialize).
+- [x] Add `wasm-bindgen` feature to kernel crate (or shim crate) and expose minimal RMG/rewrite API (add node, set field, connect, tombstone, materialize).
 - [x] Create shared DTO crate (`echo-wasm-abi`) with serde + wasm-bindgen-friendly types for graph and rewrite log; reuse in UI.
 - [ ] Failing tests: wasm-bindgen unit test exercising add/set/connect/tombstone round-trip serialization.
 

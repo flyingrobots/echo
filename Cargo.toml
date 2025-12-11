@@ -17,7 +17,8 @@ members = [
     "crates/echo-graph",
     "crates/echo-wasm-abi",
     "crates/echo-session-ws-gateway",
-    "specs/spec-000-rewrite"
+    "specs/spec-000-rewrite",
+    "crates/echo-wasm-bindings"
 ]
 resolver = "2"
 

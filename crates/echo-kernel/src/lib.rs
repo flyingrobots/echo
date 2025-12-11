@@ -5,17 +5,30 @@
 //! The core kernel logic for the JITOS operating system.
 //! Manages the System RMG, Shadow Working Sets, and process lifecycle.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use echo_sched::Scheduler;
 use rmg_core::GraphStore; // The canonical system RMG
+use std::collections::HashMap;
 use tracing::{info, instrument};
+
+/// Identifier for a Shadow Working Set (SWS).
+pub type SwsId = u64;
+
+/// A Shadow Working Set: an isolated branch of the causal graph.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct SwsContext {
+    /// Unique identifier for this Shadow Working Set.
+    pub id: SwsId,
+    /// The graph store associated with this SWS (isolated overlay).
+    pub store: GraphStore,
+}
 
 /// The JITOS Kernel Core.
 /// Owns the system RMG(s) and manages the overall state.
 pub struct Kernel {
     system_rmg: GraphStore, // The canonical system RMG
-    // In the future: sws_pool: HashMap<SwsId, SwsInstance>,
-    // In the future: processes: HashMap<ProcessId, Process>,
+    sws_pool: HashMap<SwsId, SwsContext>,
+    next_sws_id: SwsId,
     scheduler: Scheduler,
 }
 
@@ -33,11 +46,13 @@ impl Kernel {
     pub fn new() -> Self {
         info!("Initializing JITOS Kernel...");
         // Placeholder for real RMG initialization
-        let system_rmg = GraphStore::default(); // Assuming GraphStore::default() exists
+        let system_rmg = GraphStore::default();
         let scheduler = Scheduler::new(1000); // 1-second tick interval for now
 
         Self {
             system_rmg,
+            sws_pool: HashMap::new(),
+            next_sws_id: 1,
             scheduler,
         }
     }
@@ -52,11 +67,51 @@ impl Kernel {
         self.scheduler.run().await
     }
 
-    /// Placeholder for a simple API to submit rewrites to the system RMG.
+    /// Creates a new Shadow Working Set (SWS) by forking the current System RMG.
+    #[instrument(skip(self))]
+    pub fn create_sws(&mut self) -> SwsId {
+        let id = self.next_sws_id;
+        self.next_sws_id += 1;
+
+        let sws = SwsContext {
+            id,
+            store: self.system_rmg.clone(), // Copy-on-write (expensive clone for now)
+        };
+
+        self.sws_pool.insert(id, sws);
+        info!("Created SWS #{}", id);
+        id
+    }
+
+    /// Applies a rewrite to a specific SWS.
+    ///
+    /// For now, this is a placeholder that logs the intent.
+    #[instrument(skip(self))]
+    pub fn apply_rewrite_sws(&mut self, sws_id: SwsId, _rewrite: String) -> Result<()> {
+        let _sws = self.sws_pool.get_mut(&sws_id).context("SWS not found")?;
+        info!("Applying rewrite to SWS #{}", sws_id);
+        // Logic to parse rewrite and update sws.store goes here
+        Ok(())
+    }
+
+    /// Collapses (merges) a SWS back into the System RMG.
+    ///
+    /// This makes the speculative state canonical.
+    #[instrument(skip(self))]
+    pub fn collapse_sws(&mut self, sws_id: SwsId) -> Result<()> {
+        let sws = self.sws_pool.remove(&sws_id).context("SWS not found")?;
+        info!("Collapsing SWS #{} into System RMG", sws_id);
+
+        // Naive merge: Replace system store with SWS store.
+        // In a real implementation, we would compute deltas and apply them transactionally.
+        self.system_rmg = sws.store;
+        Ok(())
+    }
+
+    /// Placeholder for a simple API to submit rewrites to the system RMG directly.
     #[instrument(skip(self))]
     pub fn submit_rewrite(&mut self, _rewrite: String) -> Result<()> {
-        // In the future, this would parse the rewrite and apply it to system_rmg
-        info!("Rewrite submitted (placeholder).");
+        info!("Rewrite submitted to System RMG (placeholder).");
         Ok(())
     }
 

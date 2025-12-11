@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 use anyhow::Result;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Router};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Router,
+};
 use clap::Parser;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -43,9 +49,11 @@ async fn main() -> Result<()> {
     // Clone the kernel Arc for the HTTP server task
     let kernel_for_api = Arc::clone(&kernel);
 
-    // Build our application with a route to get RMG state
+    // Build our application with routes
     let app = Router::new()
         .route("/rmg_state", get(get_rmg_state_handler))
+        .route("/sws/create", post(create_sws_handler))
+        .route("/sws/:id/collapse", post(collapse_sws_handler))
         .with_state(kernel_for_api);
 
     // Start the HTTP server in a separate task
@@ -71,4 +79,21 @@ async fn get_rmg_state_handler(State(kernel): State<Arc<Mutex<Kernel>>>) -> impl
     let kernel_locked = kernel.lock().await;
     let state = kernel_locked.get_rmg_state();
     (StatusCode::OK, state)
+}
+
+async fn create_sws_handler(State(kernel): State<Arc<Mutex<Kernel>>>) -> impl IntoResponse {
+    let mut kernel_locked = kernel.lock().await;
+    let sws_id = kernel_locked.create_sws();
+    (StatusCode::CREATED, format!("{{\"sws_id\": {}}}", sws_id))
+}
+
+async fn collapse_sws_handler(
+    State(kernel): State<Arc<Mutex<Kernel>>>,
+    Path(id): Path<u64>,
+) -> impl IntoResponse {
+    let mut kernel_locked = kernel.lock().await;
+    match kernel_locked.collapse_sws(id) {
+        Ok(_) => (StatusCode::OK, "Collapsed SWS".to_string()),
+        Err(e) => (StatusCode::NOT_FOUND, e.to_string()),
+    }
 }

@@ -4,6 +4,12 @@
 name = "echo-session-ws-gateway"
 version = "0.1.0"
 edition = "2021"
+description = "WebSocket to Unix-socket bridge for the Echo session hub (browser clients -> JS-ABI frames)"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "rmg", "websocket", "gateway", "wasm"]
+categories = ["network-programming", "web-programming", "asynchronous"]
 
 [dependencies]
 anyhow = "1"

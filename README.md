@@ -12,7 +12,7 @@
 > **THE PROOF IS MATHEMATICAL.**  
 > **TIME WILL TELL.**  
 >
-> 🔗 [AIΩN Organization](https://github.com/your-org) | [JITOS RFCs](https://jitos.dev/rfcs) | [CΩMPUTER Paper](link)
+> 🔗 [AIΩN](https://github.com/flyingrobots/aion) | [JITOS RFCs](https://github.com/flyingrobots/jitos) | [CΩMPUTER Paper](https://github.com/flyingrobots/aion-computer-book)
 
 ```rust
 //! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
@@ -71,6 +71,11 @@ Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a se
 ## JITOS Engineering Standard (Living Specs)
 
 Echo follows the JITOS Engineering Standard: every SPEC is simultaneously documentation, implementation, interactive demo (WASM), living test, and contributor certification. See `docs/METHODOLOGY.md` for the full 5x Duty model and workflow.
+
+### WASM Dev Quickstart (Spec-000)
+- Prereq: `rustup target add wasm32-unknown-unknown` and `cargo install --locked trunk`
+- Dev: `make spec-000-dev` (hot reload at http://127.0.0.1:8080)
+- Build: `make spec-000-build` (outputs to `specs/spec-000-rewrite/dist/`)
 
 ### Why Echo's Cool
 

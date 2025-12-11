@@ -5,6 +5,8 @@
 use leptos::*;
 use wasm_bindgen::prelude::*;
 
+/// Top-level Spec-000 Leptos component (WASM).
+#[allow(missing_docs)]
 #[component]
 pub fn App() -> impl IntoView {
     let (epoch, set_epoch) = create_signal(0usize);
@@ -34,6 +36,8 @@ pub fn App() -> impl IntoView {
     }
 }
 
+/// WASM entry point required by `trunk serve`.
+#[allow(missing_docs)]
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();

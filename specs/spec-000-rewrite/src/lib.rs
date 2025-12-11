@@ -7,6 +7,8 @@ use leptos::*;
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
+mod spec_content;
+
 /// Top-level Spec-000 Leptos component (WASM).
 #[allow(missing_docs)]
 #[component]
@@ -33,6 +35,11 @@ pub fn App() -> impl IntoView {
             <div class="note">
                 "Hook this component to the real kernel bindings to drive rewrites, "
                 "render the RMG graph, and record completion hashes."
+            </div>
+
+            <div class="panel" style="margin-top: 20px;">
+                <h2>"SPEC-000: Everything Is a Rewrite"</h2>
+                <pre class="spec">{spec_content::SPEC_MD}</pre>
             </div>
         </div>
     }

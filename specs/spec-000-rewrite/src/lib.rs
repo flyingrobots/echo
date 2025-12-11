@@ -3,6 +3,8 @@
 //! Spec-000 scaffold: Leptos CSR app wired for trunk/wasm32.
 
 use leptos::*;
+
+#[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
 /// Top-level Spec-000 Leptos component (WASM).
@@ -38,8 +40,9 @@ pub fn App() -> impl IntoView {
 
 /// WASM entry point required by `trunk serve`.
 #[allow(missing_docs)]
+#[cfg(feature = "wasm")]
 #[wasm_bindgen(start)]
-pub fn main() {
+pub fn start() {
     console_error_panic_hook::set_once();
     leptos::mount_to_body(|| view! { <App/> })
 }

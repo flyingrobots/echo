@@ -17,3 +17,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 leptos = { version = "0.6", features = ["csr"] }
 console_error_panic_hook = "0.1"
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+default = []
+wasm = ["wasm-bindgen"]

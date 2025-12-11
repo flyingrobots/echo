@@ -64,6 +64,10 @@ Echo runs on something called an **RMG (Recursive Meta-Graph)**. Think of it as 
 
 Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
 
+## JITOS Engineering Standard (Living Specs)
+
+Echo follows the JITOS Engineering Standard: every SPEC is simultaneously documentation, implementation, interactive demo (WASM), living test, and contributor certification. See `docs/METHODOLOGY.md` for the full 5x Duty model and workflow.
+
 ### Why Echo's Cool
 
 - **Deterministic:** same inputs = same world every time.

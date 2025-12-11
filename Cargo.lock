@@ -834,6 +834,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "echo-sched",
+ "echo-tasks",
  "rmg-core",
  "serde",
  "serde_json",
@@ -1831,6 +1832,7 @@ dependencies = [
  "axum",
  "clap",
  "echo-kernel",
+ "echo-tasks",
  "http",
  "serde",
  "serde_json",

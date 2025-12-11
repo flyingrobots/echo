@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! JITOS Daemon (jitosd)
+//!
+//! The main daemon process for the JITOS Causal Operating System.
+//! It initializes and runs the kernel, exposes its API via HTTP, and manages the overall system.
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Router,
+    Json, Router,
 };
 use clap::Parser;
 use std::sync::Arc;
@@ -16,6 +20,7 @@ use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use echo_kernel::Kernel;
+use echo_tasks::slaps::Slaps;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -54,6 +59,7 @@ async fn main() -> Result<()> {
         .route("/rmg_state", get(get_rmg_state_handler))
         .route("/sws/create", post(create_sws_handler))
         .route("/sws/:id/collapse", post(collapse_sws_handler))
+        .route("/intent", post(submit_intent_handler))
         .with_state(kernel_for_api);
 
     // Start the HTTP server in a separate task
@@ -95,5 +101,16 @@ async fn collapse_sws_handler(
     match kernel_locked.collapse_sws(id) {
         Ok(_) => (StatusCode::OK, "Collapsed SWS".to_string()),
         Err(e) => (StatusCode::NOT_FOUND, e.to_string()),
+    }
+}
+
+async fn submit_intent_handler(
+    State(kernel): State<Arc<Mutex<Kernel>>>,
+    Json(slaps): Json<Slaps>,
+) -> impl IntoResponse {
+    let mut kernel_locked = kernel.lock().await;
+    match kernel_locked.submit_intent(slaps) {
+        Ok(id) => (StatusCode::CREATED, format!("{{\"sws_id\": {}}}", id)),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

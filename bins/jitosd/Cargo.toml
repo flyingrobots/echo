@@ -13,6 +13,7 @@ categories = ["os"]
 
 [dependencies]
 echo-kernel = { path = "../../crates/echo-kernel" }
+echo-tasks = { path = "../../crates/echo-tasks" } # Added dependency
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"

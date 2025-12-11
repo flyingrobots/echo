@@ -7,6 +7,7 @@
 
 use anyhow::{Context, Result};
 use echo_sched::Scheduler;
+use echo_tasks::{slaps::Slaps, Planner};
 use rmg_core::GraphStore; // The canonical system RMG
 use std::collections::HashMap;
 use tracing::{info, instrument};
@@ -21,15 +22,19 @@ pub struct SwsContext {
     pub id: SwsId,
     /// The graph store associated with this SWS (isolated overlay).
     pub store: GraphStore,
+    /// The epoch of the System RMG from which this SWS was forked.
+    pub base_epoch: u64,
 }
 
 /// The JITOS Kernel Core.
 /// Owns the system RMG(s) and manages the overall state.
 pub struct Kernel {
     system_rmg: GraphStore, // The canonical system RMG
+    system_epoch: u64,
     sws_pool: HashMap<SwsId, SwsContext>,
     next_sws_id: SwsId,
     scheduler: Scheduler,
+    planner: Planner,
 }
 
 impl Default for Kernel {
@@ -48,12 +53,15 @@ impl Kernel {
         // Placeholder for real RMG initialization
         let system_rmg = GraphStore::default();
         let scheduler = Scheduler::new(1000); // 1-second tick interval for now
+        let planner = Planner::new();
 
         Self {
             system_rmg,
+            system_epoch: 0, // Initialize system epoch to 0
             sws_pool: HashMap::new(),
             next_sws_id: 1,
             scheduler,
+            planner,
         }
     }
 
@@ -67,6 +75,30 @@ impl Kernel {
         self.scheduler.run().await
     }
 
+    /// Submits a high-level intent (SLAPS) to the kernel.
+    ///
+    /// The kernel will:
+    /// 1. Plan the execution using the HTN Planner.
+    /// 2. Create a new Shadow Working Set (SWS) for the task.
+    /// 3. (Future) Dispatch tasks to the scheduler.
+    #[instrument(skip(self))]
+    pub fn submit_intent(&mut self, slaps: Slaps) -> Result<SwsId> {
+        info!("Received intent: {}", slaps.intent);
+
+        // 1. Plan
+        // Note: Planner currently returns a String description.
+        // In the future, this will return a DAG.
+        match self.planner.plan(&slaps) {
+            Ok(plan_desc) => info!("Generated Plan: {}", plan_desc),
+            Err(e) => info!("Planning failed (using fallback/empty): {}", e),
+        }
+
+        // 2. Create SWS for this process
+        let sws_id = self.create_sws();
+
+        Ok(sws_id)
+    }
+
     /// Creates a new Shadow Working Set (SWS) by forking the current System RMG.
     #[instrument(skip(self))]
     pub fn create_sws(&mut self) -> SwsId {
@@ -76,10 +108,14 @@ impl Kernel {
         let sws = SwsContext {
             id,
             store: self.system_rmg.clone(), // Copy-on-write (expensive clone for now)
+            base_epoch: self.system_epoch,  // SWS forks from current system epoch
         };
 
         self.sws_pool.insert(id, sws);
-        info!("Created SWS #{}", id);
+        info!(
+            "Created SWS #{} from system epoch {}",
+            id, self.system_epoch
+        );
         id
     }
 
@@ -89,7 +125,10 @@ impl Kernel {
     #[instrument(skip(self))]
     pub fn apply_rewrite_sws(&mut self, sws_id: SwsId, _rewrite: String) -> Result<()> {
         let _sws = self.sws_pool.get_mut(&sws_id).context("SWS not found")?;
-        info!("Applying rewrite to SWS #{}", sws_id);
+        info!(
+            "Applying rewrite to SWS #{} (base epoch {})",
+            sws_id, _sws.base_epoch
+        );
         // Logic to parse rewrite and update sws.store goes here
         Ok(())
     }
@@ -100,11 +139,17 @@ impl Kernel {
     #[instrument(skip(self))]
     pub fn collapse_sws(&mut self, sws_id: SwsId) -> Result<()> {
         let sws = self.sws_pool.remove(&sws_id).context("SWS not found")?;
-        info!("Collapsing SWS #{} into System RMG", sws_id);
+        info!(
+            "Collapsing SWS #{} (base epoch {}) into System RMG (epoch {})",
+            sws_id, sws.base_epoch, self.system_epoch
+        );
 
         // Naive merge: Replace system store with SWS store.
-        // In a real implementation, we would compute deltas and apply them transactionally.
+        // In a real implementation, we would compute deltas and apply them transactionally
+        // and reconcile any divergence if sws.base_epoch is older than system_epoch.
         self.system_rmg = sws.store;
+        self.system_epoch += 1; // Advance system epoch on successful collapse
+        info!("System RMG epoch advanced to {}", self.system_epoch);
         Ok(())
     }
 
@@ -112,6 +157,9 @@ impl Kernel {
     #[instrument(skip(self))]
     pub fn submit_rewrite(&mut self, _rewrite: String) -> Result<()> {
         info!("Rewrite submitted to System RMG (placeholder).");
+        // This should also advance the system_epoch
+        self.system_epoch += 1;
+        info!("System RMG epoch advanced to {}", self.system_epoch);
         Ok(())
     }
 

@@ -211,7 +211,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
         }
     });
 
-    // Optional ping loop to keep connections alive
+    // Optional ping loop to keep connections alive.
     let ping_tx = out_tx.clone();
     let ping = tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(30));
@@ -223,7 +223,64 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
         }
     });
 
-    let _ = tokio::join!(ws_to_uds, uds_to_ws, writer, ping);
+    enum EndReason {
+        Client,
+        Upstream,
+        Writer,
+    }
+
+    let mut ws_to_uds = ws_to_uds;
+    let mut uds_to_ws = uds_to_ws;
+    let mut writer = writer;
+
+    let reason: EndReason = tokio::select! {
+        _ = &mut ws_to_uds => EndReason::Client,
+        _ = &mut uds_to_ws => EndReason::Upstream,
+        _ = &mut writer => EndReason::Writer,
+    };
+
+    if matches!(reason, EndReason::Upstream) {
+        warn!(?peer, "upstream disconnected; closing websocket");
+        let _ = time::timeout(
+            Duration::from_millis(250),
+            out_tx.send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                code: axum::extract::ws::close_code::ERROR,
+                reason: "upstream disconnected".into(),
+            }))),
+        )
+        .await;
+    }
+
+    // Stop background tasks so handle_socket doesn't hang if one side exits early.
+    ping.abort();
+    ws_to_uds.abort();
+    uds_to_ws.abort();
+    drop(out_tx);
+
+    // Best-effort flush for the close frame; force-cancel on slow/broken clients.
+    if !matches!(reason, EndReason::Writer)
+        && time::timeout(Duration::from_secs(1), &mut writer)
+            .await
+            .is_err()
+    {
+        writer.abort();
+        let _ = writer.await;
+    }
+
+    match reason {
+        EndReason::Client => {
+            let _ = uds_to_ws.await;
+        }
+        EndReason::Upstream => {
+            let _ = ws_to_uds.await;
+        }
+        EndReason::Writer => {
+            let _ = ws_to_uds.await;
+            let _ = uds_to_ws.await;
+        }
+    }
+
+    let _ = ping.await;
 }
 
 fn origin_allowed(state: &AppState, headers: &HeaderMap) -> bool {

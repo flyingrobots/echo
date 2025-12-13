@@ -4,7 +4,7 @@
 
 use leptos::*;
 
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 use wasm_bindgen::prelude::*;
 
 mod spec_content;
@@ -47,7 +47,7 @@ pub fn App() -> impl IntoView {
 
 /// WASM entry point required by `trunk serve`.
 #[allow(missing_docs)]
-#[cfg(feature = "wasm")]
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();

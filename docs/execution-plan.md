@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-13 — WS gateway disconnect hygiene + Spec-000 WASM gating (COMPLETED)
+
+- Goal: keep `cargo build`/`cargo test` green for the host target while still supporting `trunk serve` (wasm32) builds.
+- Scope: gate `spec-000-rewrite` WASM entry points correctly; ensure `echo-session-ws-gateway` closes WS + stops ping task when upstream UDS disconnects.
+- Status: completed; Spec-000 entrypoint is wasm32-gated and the WS gateway now closes + cancels ping on upstream disconnect.
+
 > 2025-12-11 — WebSocket gateway for session hub (COMPLETED)
 
 - Goal: allow browser clients to connect to the Unix-socket session bus via a secure WS bridge.

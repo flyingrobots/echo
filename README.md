@@ -17,20 +17,20 @@
 
 ## **tl;dr:**
 
-> Echo is a recursive metagraph (RMG) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
+> Echo is a WARP Graph (Worldline Algebra for Recursive Provenance) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
 > It’s built so every change can branch, merge, and replay perfectly.
 
 <img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="400" align="right" />
 
 ### Say what??
 
-**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The RMG is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
+**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The WARP graph is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
 
 Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
 
 Echo is fundamentally **built different**.
 
-RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation. It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
+WARP provides atomic, in-place edits of WARP graphs with deterministic local scheduling and snapshot isolation. Yep, Echo is powered by a WARP core engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
 
 Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect replay, and Git-like branching for game states.
 
@@ -60,7 +60,7 @@ Echo is a mathematically rigorous game engine that replaces traditional OOP with
 
 ### What's Echo?
 
-Echo runs on something called an **RMG (Recursive Meta-Graph)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
+Echo runs on something called a **WARP Graph (Worldline Algebra for Recursive Provenance)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
 
 Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
 
@@ -142,7 +142,7 @@ Echo is a Rust workspace organized into a multi-crate setup. The core engine is 
 ```bash
 echo/
 ├── crates/
-│   ├── rmg-core/        (Core engine: RMG, scheduler, transaction model, snapshotting)
+│   ├── rmg-core/        (Core engine: WARP, scheduler, transaction model, snapshotting)
 │   ├── rmg-geom/        (Geometry primitives: AABB, transforms, broad-phase)
 │   ├── rmg-benches/     (Criterion microbenchmarks: snapshot_hash, scheduler_drain)
 │   ├── rmg-wasm/        (WebAssembly bindings for tools and web)
@@ -278,7 +278,7 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 
 - `README.md` — Project vision
 - `docs/architecture-outline.md` — Full system design
-- `docs/spec-rmg-core.md` — RMG Core spec v2
+- `docs/spec-rmg-core.md` — WARP Core spec v2
 - `docs/spec-merkle-commit.md` — Snapshot hashing spec
 - `docs/spec-scheduler.md` — Deterministic scheduler design
 

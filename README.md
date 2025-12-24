@@ -24,13 +24,13 @@
 
 ### Say what??
 
-**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The WARP graph is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
+**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The [WARP graph is a powerful mathematical tool](https://doi.org/10.5281/zenodo.17908005) that brings the full weight of textbook category theory to interactive computational experiences. 
 
 Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
 
 Echo is fundamentally **built different**.
 
-WARP provides atomic, in-place edits of WARP graphs with deterministic local scheduling and snapshot isolation. Yep, Echo is powered by a WARP core engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
+WARP provides atomic, in-place edits of WARP graphs with deterministic local scheduling and snapshot isolation. Yep, Echo is powered by a **WARP core** engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
 
 Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect replay, and Git-like branching for game states.
 
@@ -60,7 +60,7 @@ Echo is a mathematically rigorous game engine that replaces traditional OOP with
 
 ### What's Echo?
 
-Echo runs on something called a **WARP Graph (Worldline Algebra for Recursive Provenance)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
+Echo runs on something called a [**WARP Graph (Worldline Algebra for Recursive Provenance)**](https://doi.org/10.5281/zenodo.17908005). Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
 
 Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
 
@@ -74,7 +74,7 @@ Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a se
 
 ### In Plain English
 
-Echo feels like if Minecraft, Git, and a physics engine had a baby that understood time travel.
+Lots of math that would make your eyes pop out -> ECHO.
 You can pause time, fork a copy of reality, try out a new idea, and merge the timelines back together, without breaking determinism.
 
 ---
@@ -163,22 +163,14 @@ echo/
 
 ### Key Technical Concepts
 
-#### Recursive Meta Graph Core
+#### WARP Graph Core
 
-The engine operates on typed, directed graphs:
+The engine operates on WARP graphs. You can learn about them by reading the AIΩN Foundations Serires (why, yes, I am the author):
 
-- Nodes = typed entities with component data
-- Edges = typed relationships between nodes
-- Rules = deterministic transformations that match patterns and rewrite subgraphs
-
-All identifiers are 256-bit BLAKE3 hashes with domain separation:
-
-```rust
-pub type Hash = [u8; 32];
-pub struct NodeId(pub Hash);   // Entities
-pub struct TypeId(pub Hash);   // Type descriptors
-pub struct EdgeId(pub Hash);   // Relationships
-```
+[Paper 1](https://doi.org/10.5281/zenodo.17908005) introduces the WARP graph.  
+[Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.
+[Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.
+... there are other papers, but they are less directly relevant in this setting.
 
 #### Deterministic Rewriting
 
@@ -204,7 +196,7 @@ Two hashes per commit:
 - `state_root`: BLAKE3 of canonical graph encoding (sorted nodes/edges)
 - `commit_id`: BLAKE3 of commit header (`state_root` + parent + plan + decisions + rewrites)
 
-### Footprints & Independence (MWMR)
+### Footprints & Independence (Many Writers + Many Readers)
 
 For parallel rewriting:
 
@@ -217,7 +209,7 @@ struct Footprint {
 }
 ```
 
-Disjoint footprints = independent rewrites = safe parallel execution.
+Disjoint footprints = independent rewrites = safe parallel execution. **The scheduler ensures deterministic confluent concurrency.**
 
 ### Component Interaction
 

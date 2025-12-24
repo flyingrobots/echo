@@ -160,9 +160,9 @@ echo/
 The engine operates on WARP graphs. You can learn about them by reading the AIΩN Foundations Serires (why, yes, I am the author):
 
 [Paper 1](https://doi.org/10.5281/zenodo.17908005) introduces the WARP graph.  
-[Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.
-[Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.
-... there are other papers, but they are less directly relevant in this setting.
+[Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.  
+[Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.  
+... there are other papers, but they are less directly relevant in this context.  
 
 #### Deterministic Rewriting
 

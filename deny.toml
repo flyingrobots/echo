@@ -53,11 +53,6 @@ ignore = [
     # wgpu transitively depends on paste 1.0.15; upstream is unmaintained but
     # tracked in wgpu#5185. Safe to ignore until wgpu publishes a replacement.
     "RUSTSEC-2024-0436",
-    # Leptos transitively depends on proc-macro-error 1.0.4 (via syn_derive/rstml).
-    # RUSTSEC-2024-0370 is informational (unmaintained), not an exploit report.
-    # Risk: build-graph bloat (syn 1.x duplication) + maintenance/availability concerns; no known runtime impact.
-    # Exit plan: drop this ignore once the upstream macro stack replaces proc-macro-error.
-    "RUSTSEC-2024-0370",
 ]
 
 [sources]

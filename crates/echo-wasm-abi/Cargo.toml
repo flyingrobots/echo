@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
 keywords = ["echo", "rmg", "wasm", "abi", "dto"]
-categories = ["encoding", "data-structures"]
+categories = ["wasm", "encoding", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

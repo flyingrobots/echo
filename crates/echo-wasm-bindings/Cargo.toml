@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
 keywords = ["echo", "rmg", "wasm", "bindings"]
-categories = ["encoding", "api-bindings"]
+categories = ["wasm", "encoding", "api-bindings"]
 
 [dependencies]
 echo-wasm-abi.workspace = true

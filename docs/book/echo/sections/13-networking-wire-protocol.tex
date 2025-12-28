@@ -12,9 +12,9 @@ Detailed rationale, test vectors, and the deterministic encoding profile live
 in the JS-ABI architecture documents (ADR-0013 and ARCH-0013); here we focus on
 the subset needed to reason about Echo’s engine, session service, and tools.
 The way the session service uses this framing is described in
-Section~\ref{sec:rmg-stream-consumers} and in more detail for tools in
+Section~\ref{sec:warp-stream-consumers} and in more detail for tools in
 Section~\ref{sec:session-service} (Session Service) and
-Section~\ref{sec:rmg-viewer} (RMG Viewer) in the Editor Tools volume.
+Section~\ref{sec:warp-viewer} (WARP Viewer) in the Editor Tools volume.
 
 \subsection{Packet Framing Overview}
 
@@ -67,14 +67,14 @@ following logical shape:
 
 \begin{verbatim}
 op-envelope = {
-  "op": tstr,   ; operation name (e.g. "handshake", "error", "rmg_stream")
+  "op": tstr,   ; operation name (e.g. "handshake", "error", "warp_stream")
   "ts": uint,   ; logical timestamp (kernel clock, authoritative on server)
   "payload": any
 }
 \end{verbatim}
 
 The \texttt{op} field selects a concrete payload schema (handshake, error,
-RMG stream, \dots). The \texttt{ts} field is the kernel logical timestamp; the
+WARP stream, \dots). The \texttt{ts} field is the kernel logical timestamp; the
 server is the sole authority for WAL-participating timestamps.
 
 Canonical CBOR rules (definite lengths only, preferred integer encodings,

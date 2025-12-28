@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Telemetry: Graph Snapshot for Repro/Replay (Design Note)
 
-Status: Draft • Scope: rmg-core (dev-only feature)
+Status: Draft • Scope: warp-core (dev-only feature)
 
 ## Problem
 
@@ -54,13 +54,13 @@ When a conflict or unexpected outcome occurs during a transaction, logs with cou
 
 ## Replay
 
-- CLI helper (`rmg-cli`) to read JSONL and reconstruct an in-memory `GraphStore` for any `graph_snapshot` event.
+- CLI helper (`warp-cli`) to read JSONL and reconstruct an in-memory `GraphStore` for any `graph_snapshot` event.
 - Verify by recomputing the `snapshot_hash` and comparing with the logged value.
 
 ## Next Steps
 
 - [ ] Add serialization helper that walks the same reachable set as `compute_snapshot_hash`.
 - [ ] Feature-gate emitting on conflict (first per tx) and on commit (debug only).
-- [ ] CLI command: `rmg-cli replay --from telemetry.jsonl --tx 42`.
+- [ ] CLI command: `warp-cli replay --from telemetry.jsonl --tx 42`.
 - [ ] Document redaction policy and sampling knobs.
 

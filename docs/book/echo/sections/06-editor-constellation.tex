@@ -2,27 +2,27 @@
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 \chapter{Echo Editor Constellation of Services}
 
-Echo’s tooling isn’t a single monolithic editor. Instead, we run a constellation of small, purpose-built tools around a shared \emph{Editor Service Hub}. Each tool speaks three channels: Record Model Graph (RMG) state (diffs/snapshots), notifications/toasts, and commands/edits. As shown in Figure~\ref{fig:editor-constellation}, the hub maintains session authority and causal ordering so every participant sees a consistent, deterministic timeline.
+Echo’s tooling isn’t a single monolithic editor. Instead, we run a constellation of small, purpose-built tools around a shared \emph{Editor Service Hub}. Each tool speaks three channels: Record Model Graph (WARP) state (diffs/snapshots), notifications/toasts, and commands/edits. As shown in Figure~\ref{fig:editor-constellation}, the hub maintains session authority and causal ordering so every participant sees a consistent, deterministic timeline.
 
 \begin{figure}[htbp]
     \centering
     % Rendered in docs/book/echo/tikz/echo-engine-constellation.pdf (built from the standalone TikZ source)
     \includegraphics[width=\textwidth]{tikz/echo-engine-constellation.pdf}
-    \caption{Editor constellation: the hub owns sessions and RMG registry; tools subscribe to RMG streams, receive notifications, and send commands.}
+    \caption{Editor constellation: the hub owns sessions and WARP registry; tools subscribe to WARP streams, receive notifications, and send commands.}
     \label{fig:editor-constellation}
 \end{figure}
 
 \paragraph{Roles}
 \begin{itemize}
-    \item \textbf{Editor Service Hub}: authoritative session, RMG registry, notification bus; enforces causal order and collapse rules.
-    \item \textbf{Publishers} (e.g., Game Runtime): stream RMG diffs/snapshots into the hub.
-    \item \textbf{Consumers} (Viewer, Inspector, Timeline, Profiler): subscribe to chosen RMG streams; render, inspect, or replay; emit commands back.
+    \item \textbf{Editor Service Hub}: authoritative session, WARP registry, notification bus; enforces causal order and collapse rules.
+    \item \textbf{Publishers} (e.g., Game Runtime): stream WARP diffs/snapshots into the hub.
+    \item \textbf{Consumers} (Viewer, Inspector, Timeline, Profiler): subscribe to chosen WARP streams; render, inspect, or replay; emit commands back.
 \end{itemize}
 
 \paragraph{Interfaces (hex-friendly)}
 \begin{itemize}
-    \item RMG Stream Port: ordered diffs + on-demand snapshots per RMG id.
-    \item Notification Port: broadcast info/warn/error events (toasts/logs) scoped to session or RMG.
+    \item WARP Stream Port: ordered diffs + on-demand snapshots per WARP id.
+    \item Notification Port: broadcast info/warn/error events (toasts/logs) scoped to session or WARP.
     \item Command Port: edits, inspections, timeline seeks, profiler signals; acknowledged with deterministic acks.
 \end{itemize}
 

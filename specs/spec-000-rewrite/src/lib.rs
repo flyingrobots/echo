@@ -33,7 +33,7 @@ pub fn App() -> impl IntoView {
 
             <div class="note">
                 "Hook this component to the real kernel bindings to drive rewrites, "
-                "render the RMG graph, and record completion hashes."
+                "render the WARP graph, and record completion hashes."
             </div>
 
             <div class="panel" style="margin-top: 20px;">

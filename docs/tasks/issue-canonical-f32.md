@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Title: feat(rmg-core): Implement strict determinism for F32Scalar (NaNs, Subnormals)
+# Title: feat(warp-core): Implement strict determinism for F32Scalar (NaNs, Subnormals)
 
 ## Summary
 Upgrade `F32Scalar` to enforce strict bit-level determinism across all platforms by handling "freaky numbers" (NaN payloads and subnormals) in software. Currently, `F32Scalar` only canonicalizes `-0.0`.
@@ -21,7 +21,7 @@ Modify `F32Scalar::new(f32)` to apply the following transformations:
 3.  **Signed Zero:** Continue to map `-0.0` to `+0.0`.
 
 ## Test Plan
-Enable the commented-out tests in `crates/rmg-core/tests/determinism_policy_tests.rs`:
+Enable the commented-out tests in `crates/warp-core/tests/determinism_policy_tests.rs`:
 *   `test_policy_nan_canonicalization`: Verify positive/negative/signaling/payload NaNs all map to the canonical bits.
 *   `test_policy_subnormal_flushing`: Verify small/large/negative subnormals map to `+0.0`.
 *   `test_policy_serialization_guard`: Verify deserializing `-0.0` results in `+0.0`.

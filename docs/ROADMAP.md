@@ -27,7 +27,7 @@ This roadmap reconciles our current plan with GitHub milestones, issues, and the
 - M3 – Sweep‑and‑Prune v1 (Target: deterministic broad‑phase replaces O(n²) baseline)
   - Integerized endpoints; stable tie‑breakers; ordering/stability property tests
 - M4 – Determinism Proof & Publish 0.1 (Target: cross‑OS proof + 0.1 release)
-  - Prove determinism across OSes; finalize docs; publish rmg‑core/geom 0.1
+  - Prove determinism across OSes; finalize docs; publish warp‑core/geom 0.1
 
 ---
 

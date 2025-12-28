@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Session wire schema for Echo hub (RMG snapshots/diffs + notifications).
-//! RMG frames use the canonical `echo-graph` types and are transported in
+//! Session wire schema for Echo hub (WARP snapshots/diffs + notifications).
+//! WARP frames use the canonical `echo-graph` types and are transported in
 //! deterministic JS-ABI v1.0 OpEnvelopes (ADR/ARCH-0013).
 
 pub use echo_graph::{
-    EdgeId, EpochId, Hash32, NodeId, RenderEdge, RenderGraph, RenderNode, RmgDiff, RmgFrame,
-    RmgHello, RmgId, RmgOp, RmgSnapshot,
+    EdgeId, EpochId, Hash32, NodeId, RenderEdge, RenderGraph, RenderNode, WarpDiff, WarpFrame,
+    WarpHello, WarpId, WarpOp, WarpSnapshot,
 };
 mod canonical;
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ pub fn default_socket_path() -> PathBuf {
 /// * `payload` – operation specific body.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OpEnvelope<P> {
-    /// Operation name (e.g., "handshake", "handshake_ack", "error", "rmg_stream").
+    /// Operation name (e.g., "handshake", "handshake_ack", "error", "warp_stream").
     pub op: String,
     /// Logical timestamp (monotonic per-host clock).
     pub ts: u64,
@@ -59,8 +59,8 @@ pub enum NotifyScope {
     Global,
     /// Scoped to a specific session.
     Session(SessionId),
-    /// Scoped to a specific RMG stream.
-    Rmg(RmgId),
+    /// Scoped to a specific WARP stream.
+    Warp(WarpId),
     /// Local-only to the emitting tool.
     Local,
 }
@@ -81,9 +81,9 @@ pub struct Notification {
 /// Client kind (for logging / policy; optional for now).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ClientKind {
-    /// RMG viewer / tool.
+    /// WARP viewer / tool.
     Viewer,
-    /// Engine or producer of authoritative RMG.
+    /// Engine or producer of authoritative WARP.
     Engine,
     /// Other tool.
     Tool,
@@ -147,18 +147,20 @@ pub struct HandshakeAckPayload {
 
 /// Subscribe payload (consumer → host).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SubscribeRmgPayload {
-    /// Identifier of the RMG stream to receive.
-    pub rmg_id: RmgId,
+pub struct SubscribeWarpPayload {
+    /// Identifier of the WARP stream to receive.
+    #[serde(alias = "rmg_id")]
+    pub warp_id: WarpId,
 }
 
-/// RMG stream payload (producer/host → consumers).
+/// WARP stream payload (producer/host → consumers).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RmgStreamPayload {
+pub struct WarpStreamPayload {
     /// Stream identifier.
-    pub rmg_id: RmgId,
+    #[serde(alias = "rmg_id")]
+    pub warp_id: WarpId,
     /// Snapshot or diff.
-    pub frame: RmgFrame,
+    pub frame: WarpFrame,
 }
 
 /// Status enumeration for handshake ack.
@@ -181,17 +183,17 @@ pub enum Message {
     HandshakeAck(HandshakeAckPayload),
     /// Protocol or processing error (op = "error").
     Error(ErrorPayload),
-    /// Subscribe to a specific RMG stream (op = "subscribe_rmg").
-    SubscribeRmg {
-        /// Identifier of the RMG stream to receive.
-        rmg_id: RmgId,
+    /// Subscribe to a specific WARP stream (op = "subscribe_warp").
+    SubscribeWarp {
+        /// Identifier of the WARP stream to receive.
+        warp_id: WarpId,
     },
-    /// RMG state frame (snapshot or diff) for a specific stream (op = "rmg_stream").
-    RmgStream {
+    /// WARP state frame (snapshot or diff) for a specific stream (op = "warp_stream").
+    WarpStream {
         /// Stream identifier.
-        rmg_id: RmgId,
+        warp_id: WarpId,
         /// Snapshot or diff.
-        frame: RmgFrame,
+        frame: WarpFrame,
     },
     /// Notification broadcast (op = "notification").
     Notification(Notification),
@@ -204,8 +206,8 @@ impl Message {
             Message::Handshake(_) => "handshake",
             Message::HandshakeAck(_) => "handshake_ack",
             Message::Error(_) => "error",
-            Message::SubscribeRmg { .. } => "subscribe_rmg",
-            Message::RmgStream { .. } => "rmg_stream",
+            Message::SubscribeWarp { .. } => "subscribe_warp",
+            Message::WarpStream { .. } => "warp_stream",
             Message::Notification(_) => "notification",
         }
     }

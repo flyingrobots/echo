@@ -15,7 +15,7 @@ control (`LICENSE-APACHE`, `LICENSE-MIND-UCAL`).
 
 ## 2) Theory / Math / Documentation
 
-- Applies to: `docs/`, `rmg-math/`, LaTeX sources, papers/notes, other written or mathematical materials.
+- Applies to: `docs/`, `warp-math/`, LaTeX sources, papers/notes, other written or mathematical materials.
 - License options (your choice):
   - Apache License, Version 2.0 **OR**
   - MIND-UCAL License v1.0

@@ -5,11 +5,11 @@ name = "echo-wasm-bindings"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90.0"
-description = "WASM bindings shim for Echo/JITOS specs: minimal RMG+rewrite API exposed via wasm-bindgen"
+description = "WASM bindings shim for Echo/JITOS specs: minimal WARP graph+rewrite API exposed via wasm-bindgen"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "rmg", "wasm", "bindings"]
+keywords = ["echo", "warp", "wasm", "bindings"]
 categories = ["wasm", "encoding", "api-bindings"]
 
 [dependencies]

@@ -26,9 +26,9 @@ allow = [
     # Dependency chain: echo-session-ws-gateway -> axum-server[tls-rustls] -> rustls -> aws-lc-sys.
     # Verify: cargo tree -p echo-session-ws-gateway -e normal | rg '(axum-server|rustls|aws-lc-sys)'
     "OpenSSL",
-    # Required by epaint_default_fonts (via egui/epaint in rmg-viewer).
-    # Dependency chain: rmg-viewer -> egui -> epaint -> epaint_default_fonts.
-    # Verify: cargo tree -p rmg-viewer -e normal | rg '(egui|epaint_default_fonts)'
+    # Required by epaint_default_fonts (via egui/epaint in warp-viewer).
+    # Dependency chain: warp-viewer -> egui -> epaint -> epaint_default_fonts.
+    # Verify: cargo tree -p warp-viewer -e normal | rg '(egui|epaint_default_fonts)'
     "Ubuntu-font-1.0",
 ]
 

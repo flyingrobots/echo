@@ -9,7 +9,7 @@ Filesystem-backed configuration adapter for Echo tools.
 
 - Implements `echo-app-core`'s `ConfigStore` using platform-specific
   configuration directories (via the `directories` crate) and JSON files.
-- Provides a concrete `FsConfigStore` type that tools like `rmg-viewer` and
+- Provides a concrete `FsConfigStore` type that tools like `warp-viewer` and
   `echo-session-service` use to persist:
   - viewer preferences (camera pose, HUD toggles, vsync options),
   - host/service settings (e.g., socket path).

@@ -5,11 +5,11 @@
 use anyhow::Result;
 use echo_app_core::config::ConfigService;
 use echo_config_fs::FsConfigStore;
-use echo_graph::{RmgFrame, RmgSnapshot};
+use echo_graph::{WarpFrame, WarpSnapshot};
 use echo_session_proto::{
     default_socket_path,
     wire::{decode_message, encode_message},
-    AckStatus, ErrorPayload, HandshakeAckPayload, Message, RmgId,
+    AckStatus, ErrorPayload, HandshakeAckPayload, Message, WarpId,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -35,7 +35,7 @@ impl Default for HostPrefs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use echo_graph::{RenderGraph, RmgDiff, RmgFrame, RmgSnapshot};
+    use echo_graph::{RenderGraph, WarpDiff, WarpFrame, WarpSnapshot};
     use echo_session_proto::{wire::decode_message, HandshakePayload, NotifyKind};
     use tokio::time::{timeout, Duration};
 
@@ -104,21 +104,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rmg_stream_is_gapless_and_monotonic() {
+    async fn warp_stream_is_gapless_and_monotonic() {
         let hub = Arc::new(Mutex::new(HubState::default()));
         let (producer, _rx_prod) = add_conn(&hub).await;
         let (subscriber, mut rx_sub) = add_conn(&hub).await;
 
-        // subscriber registers interest in rmg_id 1
-        handle_message(Message::SubscribeRmg { rmg_id: 1 }, subscriber, &hub)
+        // subscriber registers interest in warp_id 1
+        handle_message(Message::SubscribeWarp { warp_id: 1 }, subscriber, &hub)
             .await
             .unwrap();
 
         // producer sends snapshot epoch 0
         handle_message(
-            Message::RmgStream {
-                rmg_id: 1,
-                frame: RmgFrame::Snapshot(RmgSnapshot {
+            Message::WarpStream {
+                warp_id: 1,
+                frame: WarpFrame::Snapshot(WarpSnapshot {
                     epoch: 0,
                     graph: RenderGraph::default(),
                     state_hash: None,
@@ -139,9 +139,9 @@ mod tests {
 
         // producer sends diff 0->1 (valid)
         handle_message(
-            Message::RmgStream {
-                rmg_id: 1,
-                frame: RmgFrame::Diff(RmgDiff {
+            Message::WarpStream {
+                warp_id: 1,
+                frame: WarpFrame::Diff(WarpDiff {
                     from_epoch: 0,
                     to_epoch: 1,
                     ops: vec![],
@@ -159,9 +159,9 @@ mod tests {
 
         // gapful diff should error and not deliver anything
         let err = handle_message(
-            Message::RmgStream {
-                rmg_id: 1,
-                frame: RmgFrame::Diff(RmgDiff {
+            Message::WarpStream {
+                warp_id: 1,
+                frame: WarpFrame::Diff(WarpDiff {
                     from_epoch: 3,
                     to_epoch: 4,
                     ops: vec![],
@@ -186,14 +186,14 @@ mod tests {
         let (attacker, mut rx_attacker) = add_conn(&hub).await;
         let (subscriber, mut rx_sub) = add_conn(&hub).await;
 
-        handle_message(Message::SubscribeRmg { rmg_id: 7 }, subscriber, &hub)
+        handle_message(Message::SubscribeWarp { warp_id: 7 }, subscriber, &hub)
             .await
             .unwrap();
 
         handle_message(
-            Message::RmgStream {
-                rmg_id: 7,
-                frame: RmgFrame::Snapshot(RmgSnapshot {
+            Message::WarpStream {
+                warp_id: 7,
+                frame: WarpFrame::Snapshot(WarpSnapshot {
                     epoch: 0,
                     graph: RenderGraph::default(),
                     state_hash: None,
@@ -211,9 +211,9 @@ mod tests {
             .expect("subscriber received snapshot");
 
         let err = handle_message(
-            Message::RmgStream {
-                rmg_id: 7,
-                frame: RmgFrame::Diff(RmgDiff {
+            Message::WarpStream {
+                warp_id: 7,
+                frame: WarpFrame::Diff(WarpDiff {
                     from_epoch: 0,
                     to_epoch: 1,
                     ops: vec![],
@@ -251,13 +251,13 @@ mod tests {
 struct StreamState {
     last_epoch: Option<u64>,
     last_hash: Option<echo_graph::Hash32>,
-    latest_snapshot: Option<RmgSnapshot>,
+    latest_snapshot: Option<WarpSnapshot>,
     subscribers: HashSet<u64>,
     producer: Option<u64>,
 }
 
 struct ConnState {
-    subscribed: HashSet<RmgId>,
+    subscribed: HashSet<WarpId>,
     tx: tokio::sync::mpsc::Sender<Vec<u8>>,
 }
 
@@ -265,7 +265,7 @@ struct ConnState {
 struct HubState {
     next_conn_id: u64,
     next_ts: u64,
-    streams: HashMap<RmgId, StreamState>,
+    streams: HashMap<WarpId, StreamState>,
     conns: HashMap<u64, ConnState>,
 }
 
@@ -395,8 +395,8 @@ async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<
     // cleanup connection
     let mut h = hub.lock().await;
     if let Some(conn) = h.conns.remove(&conn_id) {
-        for rmg_id in conn.subscribed {
-            if let Some(stream_state) = h.streams.get_mut(&rmg_id) {
+        for warp_id in conn.subscribed {
+            if let Some(stream_state) = h.streams.get_mut(&warp_id) {
                 stream_state.subscribers.remove(&conn_id);
                 if stream_state.producer == Some(conn_id) {
                     stream_state.producer = None;
@@ -428,22 +428,22 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                 let _ = conn.tx.send(pkt).await;
             }
         }
-        Message::SubscribeRmg { rmg_id } => {
+        Message::SubscribeWarp { warp_id } => {
             let mut h = hub.lock().await;
             let conn = h
                 .conns
                 .get_mut(&conn_id)
                 .ok_or_else(|| anyhow::anyhow!("missing conn"))?;
-            conn.subscribed.insert(rmg_id);
-            let stream = h.streams.entry(rmg_id).or_default();
+            conn.subscribed.insert(warp_id);
+            let stream = h.streams.entry(warp_id).or_default();
             stream.subscribers.insert(conn_id);
             if let Some(snap) = stream.latest_snapshot.clone() {
                 if let Some(tx) = h.conns.get(&conn_id).map(|c| c.tx.clone()) {
                     let ts = h.alloc_ts();
                     let pkt = encode_message(
-                        Message::RmgStream {
-                            rmg_id,
-                            frame: RmgFrame::Snapshot(snap),
+                        Message::WarpStream {
+                            warp_id,
+                            frame: WarpFrame::Snapshot(snap),
                         },
                         ts,
                     )?;
@@ -451,14 +451,14 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                 }
             }
         }
-        Message::RmgStream { rmg_id, frame } => {
+        Message::WarpStream { warp_id, frame } => {
             let (subs, pkt) = {
                 let mut h = hub.lock().await;
                 let mut error: Option<ErrorPayload> = None;
                 let mut err_reason: Option<String> = None;
                 let mut subs: Option<HashSet<u64>> = None;
                 {
-                    let stream = h.streams.entry(rmg_id).or_default();
+                    let stream = h.streams.entry(warp_id).or_default();
                     // enforce single producer
                     if let Some(p) = stream.producer {
                         if p != conn_id {
@@ -466,9 +466,9 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                                 code: 403,
                                 name: "E_FORBIDDEN_PUBLISH".into(),
                                 details: None,
-                                message: format!("rmg_id {} is owned by {}", rmg_id, p),
+                                message: format!("warp_id {} is owned by {}", warp_id, p),
                             });
-                            err_reason = Some(format!("producer mismatch for rmg_id {}", rmg_id));
+                            err_reason = Some(format!("producer mismatch for warp_id {}", warp_id));
                         }
                     } else {
                         stream.producer = Some(conn_id);
@@ -476,18 +476,18 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
 
                     if error.is_none() {
                         match &frame {
-                            RmgFrame::Snapshot(s) => {
+                            WarpFrame::Snapshot(s) => {
                                 stream.last_epoch = Some(s.epoch);
                                 stream.last_hash = s.state_hash;
                                 stream.latest_snapshot = Some(s.clone());
                             }
-                            RmgFrame::Diff(d) => {
+                            WarpFrame::Diff(d) => {
                                 let last = match stream.last_epoch {
                                     Some(v) => v,
                                     None => {
                                         error = Some(ErrorPayload {
                                             code: 409,
-                                            name: "E_RMG_SNAPSHOT_REQUIRED".into(),
+                                            name: "E_WARP_SNAPSHOT_REQUIRED".into(),
                                             details: None,
                                             message: "send a snapshot before the first diff".into(),
                                         });
@@ -500,7 +500,7 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                                 {
                                     error = Some(ErrorPayload {
                                         code: 409,
-                                        name: "E_RMG_EPOCH_GAP".into(),
+                                        name: "E_WARP_EPOCH_GAP".into(),
                                         details: None,
                                         message: format!(
                                             "expected {}->{} but got {}->{}",
@@ -511,8 +511,8 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                                         ),
                                     });
                                     err_reason = Some(format!(
-                                        "gap for rmg_id {}: got {}->{} expected {}->{}",
-                                        rmg_id,
+                                        "gap for warp_id {}: got {}->{} expected {}->{}",
+                                        warp_id,
                                         d.from_epoch,
                                         d.to_epoch,
                                         last,
@@ -539,13 +539,13 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                         let pkt = encode_message(Message::Error(payload), ts)?;
                         let _ = tx.send(pkt).await;
                     }
-                    let reason = err_reason.unwrap_or_else(|| "rmg stream error".into());
+                    let reason = err_reason.unwrap_or_else(|| "warp stream error".into());
                     anyhow::bail!(reason);
                 }
 
                 let subs = subs.unwrap_or_default();
                 let ts = h.alloc_ts();
-                let pkt = encode_message(Message::RmgStream { rmg_id, frame }, ts)?;
+                let pkt = encode_message(Message::WarpStream { warp_id, frame }, ts)?;
                 (subs, pkt)
             };
 

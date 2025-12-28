@@ -21,7 +21,7 @@ pub enum ToastKind {
 pub enum ToastScope {
     /// Visible to all tools/sessions.
     Global,
-    /// Scoped to a specific session/RMG.
+    /// Scoped to a specific session/WARP.
     Session,
     /// Local to the current tool only.
     Local,

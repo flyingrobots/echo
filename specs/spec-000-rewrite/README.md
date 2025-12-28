@@ -22,5 +22,5 @@ make spec-000-build  # outputs dist/
 
 ## Next steps
 - Wire kernel bindings (wasm-bindgen feature)
-- Render RMG graph + rewrite log
+- Render WARP graph + rewrite log
 - Add completion badge win condition

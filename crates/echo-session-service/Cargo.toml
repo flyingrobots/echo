@@ -8,7 +8,7 @@ rust-version = "1.90.0"
 description = "Headless Echo session hub (skeleton)"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "session", "hub", "rmg"]
+keywords = ["echo", "session", "hub", "warp"]
 categories = ["development-tools", "network-programming"]
 license = "Apache-2.0"
 

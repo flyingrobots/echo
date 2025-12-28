@@ -8,7 +8,7 @@
 
 # Policy: Strictly Deterministic Math
 
-All math within the simulation loop (`rmg-core`) must adhere to these rules.
+All math within the simulation loop (`warp-core`) must adhere to these rules.
 
 ## 1. Floating Point (f32)
 
@@ -36,7 +36,7 @@ Implementations of `Eq` for floating-point types **must** be reflexive.
 
 ## 3. Audit Findings (2025-11-30)
 
-An audit of `rmg-core` identified the following risks:
+An audit of `warp-core` identified the following risks:
 
 *   **Hardware Transcendentals:** `F32Scalar::sin/cos` currently delegate to `f32::sin/cos`. **Risk:** High. These vary across libc/hardware implementations.
     *   *Action:* Replace with deterministic software implementation (Issue #115).

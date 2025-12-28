@@ -6,7 +6,7 @@ by different license options, as follows:
    - Licensed under the Apache License, Version 2.0 only.
    - See `LICENSE-APACHE` or https://www.apache.org/licenses/LICENSE-2.0
 
-2. Theory / math / documentation corpus (e.g., `docs/`, `rmg-math/`, papers/notes)
+2. Theory / math / documentation corpus (e.g., `docs/`, `warp-math/`, papers/notes)
    - Dual-licensed under:
        (a) Apache License, Version 2.0, OR
        (b) MIND-UCAL License v1.0 (canonical text: https://github.com/UniversalCharter/mind-ucal/blob/v1.0/LICENSE).

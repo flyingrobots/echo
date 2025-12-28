@@ -15,7 +15,7 @@ hexagonal pattern:
         wiring ports and reducers, delegating work to the core.
 \end{itemize}
 
-The RMG Viewer is a concrete example of this architecture, and can serve as a
+The WARP Viewer is a concrete example of this architecture, and can serve as a
 template for future tools.
 
 \subsection{Ports and Adapters}
@@ -24,13 +24,13 @@ At a high level, most Echo tools need three capabilities:
 
 \begin{description}
   \item[ConfigPort] Load/save structured settings and user preferences.
-  \item[SessionPort] Receive RMG snapshots/diffs and notifications from the
+  \item[SessionPort] Receive WARP snapshots/diffs and notifications from the
     session hub.
   \item[RenderPort] Request redraws from whatever windowing/surface system is
     in use.
 \end{description}
 
-Figure~\ref{fig:tool-hexagon} shows these ports and their adapters for the RMG
+Figure~\ref{fig:tool-hexagon} shows these ports and their adapters for the WARP
 Viewer.
 
 \begin{figure}[h]
@@ -83,7 +83,7 @@ Viewer.
   % Adapters
   \node[adapter, above=of cfgport] (cfgadapt) {FsConfigStore\\\scriptsize echo-config-fs};
   \node[adapter, left=of sessport] (sessadapt) {Unix JS-ABI client\\\scriptsize echo-session-client};
-  \node[adapter, above=of rendport] (winadapt) {Winit + wgpu\\\scriptsize rmg-viewer};
+  \node[adapter, above=of rendport] (winadapt) {Winit + wgpu\\\scriptsize warp-viewer};
 
   % Arrows core <-> ports
   \draw[->, thick] (core.north west) -- (cfgport.south east);
@@ -99,24 +99,24 @@ Viewer.
   \node[lab, below=0.4cm of core] {Reducer + scene; no direct IO};
 
   \end{tikzpicture}
-  \caption{Tool hexagon pattern: core + ports + adapters (RMG Viewer example).}
+  \caption{Tool hexagon pattern: core + ports + adapters (WARP Viewer example).}
   \label{fig:tool-hexagon}
 \end{figure}
 
-\subsection{RMG Viewer as Reference Implementation}
+\subsection{WARP Viewer as Reference Implementation}
 
-For the RMG Viewer specifically (Section~\ref{sec:rmg-viewer}):
+For the WARP Viewer specifically (Section~\ref{sec:warp-viewer}):
 
 \begin{itemize}
   \item \textbf{Core}:
     \begin{itemize}
       \item \texttt{UiState} and \texttt{UiEvent}/\texttt{UiEffect} in
             \texttt{ui\_state.rs}.
-      \item \texttt{ViewerState} and RMG scene representation in
+      \item \texttt{ViewerState} and WARP scene representation in
             \texttt{viewer\_state.rs}/\texttt{scene.rs}.
       \item Session frame handling (snapshots/diffs) in
             \texttt{session\_logic.rs} (see also
-            Section~\ref{sec:rmg-stream-consumers}).
+            Section~\ref{sec:warp-stream-consumers}).
     \end{itemize}
   \item \textbf{ConfigPort}:
     \begin{itemize}
@@ -130,7 +130,7 @@ For the RMG Viewer specifically (Section~\ref{sec:rmg-viewer}):
       \item Defined in \texttt{echo-session-client::tool} as
             \texttt{SessionPort}.
       \item Implemented by \texttt{ChannelSession}, which wraps the
-            \texttt{RmgFrame} / \texttt{Notification} channels returned by
+            \texttt{WarpFrame} / \texttt{Notification} channels returned by
             \texttt{connect\_channels\_for}.
       \item The viewer’s \texttt{UiEffectsRunner} uses this to connect and
             report errors (via \texttt{UiEvent::ShowError}), and the frame loop
@@ -169,9 +169,9 @@ When building new tools on the Echo stack:
   \item Implement adapters in small, dedicated modules or crates (e.g., a
         filesystem store, a Unix session client, a WGPU renderer), and keep
         \texttt{main.rs} + \texttt{App} as thin glue.
-  \item Use the RMG Viewer layout in this part of the book as a worked example,
-        and the JS-ABI/RMG streaming specs
-        (Sections~\ref{sec:js-abi-wire} and \ref{sec:rmg-stream-consumers})
+  \item Use the WARP Viewer layout in this part of the book as a worked example,
+        and the JS-ABI/WARP streaming specs
+        (Sections~\ref{sec:js-abi-wire} and \ref{sec:warp-stream-consumers})
         as the canonical contract for session traffic.
 \end{itemize}
 
@@ -199,19 +199,19 @@ aim to fit naturally alongside these roles.
     \texttt{echo-session-proto}
       & Logical wire schema for the Echo session hub: \texttt{Message},
         \texttt{OpEnvelope}, deterministic JS-ABI framing helpers, and
-        \texttt{Notification}/\texttt{RmgStream} types that wrap
-        \texttt{echo-graph} RMG frames. \\
+        \texttt{Notification}/\texttt{WarpStream} types that wrap
+        \texttt{echo-graph} WARP frames. \\
     \texttt{echo-session-service}
       & Headless session hub process: listens on a Unix socket, handles
-        handshakes, tracks per-\texttt{RmgId} stream state, enforces gapless
+        handshakes, tracks per-\texttt{WarpId} stream state, enforces gapless
         snapshots/diffs, and fans out frames/notifications to subscribers. \\
     \texttt{echo-session-client}
       & Unix-socket JS-ABI client: connects to the hub, sends handshakes and
         subscriptions, and decodes packets into \texttt{Message} values.
         Includes the \texttt{tool} module with channel-based
         \texttt{SessionPort} + \texttt{ChannelSession} for tools. \\
-    \texttt{rmg-viewer}
-      & 3D RMG viewer built on the above ports and adapters: uses
+    \texttt{warp-viewer}
+      & 3D WARP viewer built on the above ports and adapters: uses
         \texttt{echo-session-client::tool} for session traffic,
         \texttt{echo-app-core} + \texttt{echo-config-fs} for prefs, and a
         WGPU renderer for visualization. Acts as the reference implementation
@@ -221,4 +221,3 @@ aim to fit naturally alongside these roles.
   \caption{Tool-related crates and their roles in the Echo stack.}
   \label{tab:tool-crate-map}
 \end{table}
-

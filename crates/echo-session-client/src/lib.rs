@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use echo_session_proto::{
     wire::{decode_message, encode_message},
-    HandshakePayload, Message, Notification, NotifyKind, NotifyScope, RmgFrame, RmgId,
+    HandshakePayload, Message, Notification, NotifyKind, NotifyScope, WarpFrame, WarpId,
 };
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -45,9 +45,9 @@ impl SessionClient {
         Ok(())
     }
 
-    /// Subscribe to an RMG stream.
-    pub async fn subscribe_rmg(&mut self, rmg_id: echo_session_proto::RmgId) -> Result<()> {
-        let pkt = encode_message(Message::SubscribeRmg { rmg_id }, 0)?;
+    /// Subscribe to a WARP stream.
+    pub async fn subscribe_warp(&mut self, warp_id: echo_session_proto::WarpId) -> Result<()> {
+        let pkt = encode_message(Message::SubscribeWarp { warp_id }, 0)?;
         self.stream.write_all(&pkt).await?;
         Ok(())
     }
@@ -123,22 +123,22 @@ impl SessionClient {
 }
 
 /// Blocking helper: connect and stream frames/notifications on background threads.
-/// Returns (RmgFrame receiver, Notification receiver). On connection failure, receivers stay empty.
-pub fn connect_channels(path: &str) -> (Receiver<RmgFrame>, Receiver<Notification>) {
-    let (rmg_tx, rmg_rx) = mpsc::channel();
+/// Returns (WarpFrame receiver, Notification receiver). On connection failure, receivers stay empty.
+pub fn connect_channels(path: &str) -> (Receiver<WarpFrame>, Receiver<Notification>) {
+    let (warp_tx, warp_rx) = mpsc::channel();
     let (notif_tx, notif_rx) = mpsc::channel();
     let path = path.to_string();
 
     thread::spawn(move || {
         if let Ok(stream) = UnixStream::connect(path) {
-            run_message_loop(stream, 1, rmg_tx, notif_tx);
+            run_message_loop(stream, 1, warp_tx, notif_tx);
         }
     });
 
-    (rmg_rx, notif_rx)
+    (warp_rx, notif_rx)
 }
 
-/// Connect, hello, and subscribe to a specific rmg_id; returns frame + notification receivers.
+/// Connect, hello, and subscribe to a specific warp_id; returns frame + notification receivers.
 ///
 /// This performs the initial Unix socket connect synchronously so callers can
 /// surface connection errors in their UI. After a successful connect, the
@@ -146,9 +146,9 @@ pub fn connect_channels(path: &str) -> (Receiver<RmgFrame>, Receiver<Notificatio
 /// subscription, and message decoding.
 pub fn connect_channels_for(
     path: &str,
-    rmg_id: RmgId,
-) -> std::io::Result<(Receiver<RmgFrame>, Receiver<Notification>)> {
-    let (rmg_tx, rmg_rx) = mpsc::channel();
+    warp_id: WarpId,
+) -> std::io::Result<(Receiver<WarpFrame>, Receiver<Notification>)> {
+    let (warp_tx, warp_rx) = mpsc::channel();
     let (notif_tx, notif_rx) = mpsc::channel();
     let path = path.to_string();
 
@@ -156,16 +156,16 @@ pub fn connect_channels_for(
     let stream = UnixStream::connect(&path)?;
 
     thread::spawn(move || {
-        run_message_loop(stream, rmg_id, rmg_tx, notif_tx);
+        run_message_loop(stream, warp_id, warp_tx, notif_tx);
     });
 
-    Ok((rmg_rx, notif_rx))
+    Ok((warp_rx, notif_rx))
 }
 
 fn run_message_loop(
     mut stream: UnixStream,
-    rmg_id: RmgId,
-    rmg_tx: mpsc::Sender<RmgFrame>,
+    warp_id: WarpId,
+    warp_tx: mpsc::Sender<WarpFrame>,
     notif_tx: mpsc::Sender<Notification>,
 ) {
     let _ = stream.write_all(
@@ -180,8 +180,8 @@ fn run_message_loop(
         )
         .unwrap_or_default(),
     );
-    let _ =
-        stream.write_all(&encode_message(Message::SubscribeRmg { rmg_id }, 0).unwrap_or_default());
+    let _ = stream
+        .write_all(&encode_message(Message::SubscribeWarp { warp_id }, 0).unwrap_or_default());
     loop {
         let mut header = [0u8; 12];
         if stream.read_exact(&mut header).is_err() {
@@ -206,8 +206,8 @@ fn run_message_loop(
         packet.extend_from_slice(&header);
         packet.extend_from_slice(&rest);
         match decode_message(&packet) {
-            Ok((Message::RmgStream { frame, .. }, _, _)) => {
-                let _ = rmg_tx.send(frame);
+            Ok((Message::WarpStream { frame, .. }, _, _)) => {
+                let _ = warp_tx.send(frame);
             }
             Ok((Message::Notification(n), _, _)) => {
                 let _ = notif_tx.send(n);
@@ -242,11 +242,11 @@ mod tests {
     fn run_message_loop_classifies_error_scope_by_code() {
         let (client_stream, mut server_stream) = UnixStream::pair().unwrap();
 
-        let (rmg_tx, _rmg_rx) = mpsc::channel();
+        let (warp_tx, _warp_rx) = mpsc::channel();
         let (notif_tx, notif_rx) = mpsc::channel();
 
         let handle = thread::spawn(move || {
-            run_message_loop(client_stream, 1, rmg_tx, notif_tx);
+            run_message_loop(client_stream, 1, warp_tx, notif_tx);
         });
 
         let encoded_global = encode_message(

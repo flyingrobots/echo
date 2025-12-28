@@ -36,8 +36,8 @@ Header fields (v1):
 - parents: Vec<Hash> (length u64 LE, then each 32-byte hash). Genesis commits
   have zero parents (length = 0).
 - state_root: 32 bytes (from section 1)
-- plan_digest: 32 bytes (canonical digest of ready-set ordering; empty list = the
-  BLAKE3 hash of a zero-length byte sequence, i.e., blake3(b""))
+- plan_digest: 32 bytes (canonical digest of ready-set ordering encoded as a
+  length-prefixed list; empty list = BLAKE3 of `0u64.to_le_bytes()`).
 - decision_digest: 32 bytes (Aion/agency inputs; v1 uses the empty digest until
   Aion integration)
 - rewrites_digest: 32 bytes (ordered rewrites applied)
@@ -49,8 +49,10 @@ Hash: blake3(encode(header)) → commit_id.
 
 - Any change to ordering, lengths, or endianness breaks all prior hashes.
 - The commit_id is stable across identical states and provenance, independent of runtime.
-- The canonical empty digest is the BLAKE3 hash of a zero-length byte sequence
-  (blake3(b"")); use this for empty plan/rewrites/decisions until populated.
+- The canonical empty digest for *length-prefixed list digests* is
+  `blake3(0u64.to_le_bytes())` (not `blake3(b"")`). This matches the engine’s
+  `DIGEST_LEN0_U64` constant and keeps empty-digest semantics consistent with the
+  encoding strategy (the length prefix is part of the canonical byte stream).
 
 ## 4. Future Evolution
 

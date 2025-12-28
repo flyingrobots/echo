@@ -16,7 +16,7 @@ use serde_value::{to_value, Value as SerdeValue};
 use std::io;
 
 use crate::canonical::{decode_value, encode_value};
-use crate::{Message, OpEnvelope, RmgStreamPayload, SubscribeRmgPayload};
+use crate::{Message, OpEnvelope, SubscribeWarpPayload, WarpStreamPayload};
 
 fn sv_to_cv(val: SerdeValue) -> Result<Value, String> {
     use serde_value::Value::*;
@@ -237,14 +237,14 @@ pub fn encode_message(
         Message::Handshake(p) => ("handshake", encode_payload(p)?),
         Message::HandshakeAck(p) => ("handshake_ack", encode_payload(p)?),
         Message::Error(p) => ("error", encode_payload(p)?),
-        Message::SubscribeRmg { rmg_id } => (
-            "subscribe_rmg",
-            encode_payload(&SubscribeRmgPayload { rmg_id: *rmg_id })?,
+        Message::SubscribeWarp { warp_id } => (
+            "subscribe_warp",
+            encode_payload(&SubscribeWarpPayload { warp_id: *warp_id })?,
         ),
-        Message::RmgStream { rmg_id, frame } => (
-            "rmg_stream",
-            encode_payload(&RmgStreamPayload {
-                rmg_id: *rmg_id,
+        Message::WarpStream { warp_id, frame } => (
+            "warp_stream",
+            encode_payload(&WarpStreamPayload {
+                warp_id: *warp_id,
                 frame: frame.clone(),
             })?,
         ),
@@ -269,14 +269,15 @@ pub fn decode_message(
         "handshake" => Message::Handshake(decode_payload(env.payload)?),
         "handshake_ack" => Message::HandshakeAck(decode_payload(env.payload)?),
         "error" => Message::Error(decode_payload(env.payload)?),
-        "subscribe_rmg" => {
-            let p: SubscribeRmgPayload = decode_payload(env.payload)?;
-            Message::SubscribeRmg { rmg_id: p.rmg_id }
+        // Compatibility aliases: previous iterations used "subscribe_rmg" / "rmg_stream".
+        "subscribe_warp" | "subscribe_rmg" => {
+            let p: SubscribeWarpPayload = decode_payload(env.payload)?;
+            Message::SubscribeWarp { warp_id: p.warp_id }
         }
-        "rmg_stream" => {
-            let p: RmgStreamPayload = decode_payload(env.payload)?;
-            Message::RmgStream {
-                rmg_id: p.rmg_id,
+        "warp_stream" | "rmg_stream" => {
+            let p: WarpStreamPayload = decode_payload(env.payload)?;
+            Message::WarpStream {
+                warp_id: p.warp_id,
                 frame: p.frame,
             }
         }

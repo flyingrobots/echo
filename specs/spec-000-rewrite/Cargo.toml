@@ -4,6 +4,7 @@
 name = "spec-000-rewrite"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85.0"
 description = "Living spec (Spec-000) for Echo/JITOS: Leptos + Trunk WASM demo scaffold"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"

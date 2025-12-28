@@ -15,7 +15,7 @@ This file is a PR-scoped, action-oriented index of review threads → fixing SHA
 
 - Head branch: `echo/wasm-spec-000-scaffold`
 - Base branch: `main`
-- Head commit (at last update): `6ee8811`
+- Head commit (at last update): `17687f2`
 - Latest CodeRabbit review commit: `c8111ec` (review submitted 2025-12-28)
 
 ### Extraction (paginated, per EXTRACT-PR-COMMENTS procedure)
@@ -84,7 +84,7 @@ Notes:
 
 - [x] [r2649731188](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731188) `crates/echo-wasm-abi/Cargo.toml` — Resolve SPDX header vs `license` field mismatch by aligning build/config files to `Apache-2.0` headers (per repo license split). Fixed in `042ec2b`.
 - [x] [r2649731189](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731189) `crates/echo-wasm-abi/Cargo.toml` — `"wasm"` category is valid on crates.io as of 2025-12-28 (verified via crates.io categories API); no change required.
-- [x] [r2649731196](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731196) `deny.toml` — Remove orphaned `OpenSSL`/`Ubuntu-font-1.0` allowlist entries (no longer present in `Cargo.lock`). Fixed in `5086881`.
+- [x] [r2649731196](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731196) `deny.toml` — Keep `OpenSSL`/`Ubuntu-font-1.0` allowlist entries but add explicit justification (required by current transitive dependencies). Fixed in `17687f2`.
 - [x] [r2649731199](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731199) `docs/jitos/spec-0000.md` — Fix heading-increment violation (MD001). Fixed in `6ee8811`.
 
 - [x] [r2649763196](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763196) `docs/execution-plan.md` — Fix MD034: wrap bare PR-comment URL in angle brackets. Fixed in `6ee8811`.

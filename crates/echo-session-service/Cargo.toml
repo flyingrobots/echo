@@ -14,10 +14,10 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1.0"
-echo-graph = { version = "0.1.0", path = "../echo-graph" }
-echo-session-proto = { version = "0.1.0", path = "../echo-session-proto" }
-echo-app-core = { version = "0.1.0", path = "../echo-app-core" }
-echo-config-fs = { version = "0.1.0", path = "../echo-config-fs" }
+echo-graph.workspace = true
+echo-session-proto.workspace = true
+echo-app-core.workspace = true
+echo-config-fs.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.41", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }
 tracing = "0.1"

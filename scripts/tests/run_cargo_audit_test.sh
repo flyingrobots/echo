@@ -16,13 +16,12 @@ fail() {
 [[ -x "$audit_script" ]] || fail "cargo-audit runner missing or not executable: $audit_script"
 
 # Prevent drift: ignore IDs must live in deny.toml, not hardcoded in the runner script.
-if rg -n "RUSTSEC-" "$audit_script" >/dev/null; then
+if grep -q "RUSTSEC-" "$audit_script"; then
   fail "scripts/run_cargo_audit.sh must not hardcode advisory IDs; source them from deny.toml instead"
 fi
 
-if ! rg -n "deny\\.toml" "$audit_script" >/dev/null; then
+if ! grep -q "deny\\.toml" "$audit_script"; then
   fail "scripts/run_cargo_audit.sh should reference deny.toml as its ignore source-of-truth"
 fi
 
 exit 0
-

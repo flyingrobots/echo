@@ -35,6 +35,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit review @ `b563359`) (IN PROGRESS)
+
+- Goal: address newly posted CodeRabbit review comments on PR #141 (including minor/nitpick) and repair any newly failing CI jobs.
+- Scope: re-extract paginated PR comments; bucket by severity; implement fixes with tests + doc alignment; update burn-down index + consolidated PR comment with fix SHAs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D warnings -D missing_docs` green; PR checks green; consolidated summary comment updated with fix SHAs.
+- Evidence: (pending) — will append fixing SHAs as each bucket lands.
+
 > 2025-12-28 — PR #141 follow-up (new CodeRabbit comments after `c8111ec`) (COMPLETED)
 
 - Goal: address newly posted CodeRabbit review comments on PR #141 (including minor/nitpick) and ship a clean follow-up push.

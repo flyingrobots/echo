@@ -15,8 +15,8 @@ This file is a PR-scoped, action-oriented index of review threads → fixing SHA
 
 - Head branch: `echo/wasm-spec-000-scaffold`
 - Base branch: `main`
-- Head commit (at last update): `17687f2`
-- Latest CodeRabbit review commit: `c8111ec` (review submitted 2025-12-28)
+- Head commit (at last update): `b563359`
+- Latest CodeRabbit review commit: `b563359` (review submitted 2025-12-28)
 
 ### Extraction (paginated, per EXTRACT-PR-COMMENTS procedure)
 
@@ -25,8 +25,8 @@ gh api --paginate repos/flyingrobots/echo/pulls/141/comments --jq '.[]' | jq -s 
 gh api --paginate repos/flyingrobots/echo/issues/141/comments --jq '.[]' | jq -s '.' > /tmp/pr141-issue-comments.json
 ```
 
-- PR review comments (inline): 114 total
-  - Top-level: 79
+- PR review comments (inline): 127 total
+  - Top-level: 92
   - Replies: 35
 - Issue comments (conversation): 3 (CodeRabbit summary + maintainer summary notes; non-actionable)
 
@@ -39,6 +39,9 @@ Notes:
 - Some CodeRabbit comments include a built-in “✅ Confirmed …” marker; many do not. This file is the canonical burn-down record for PR #141.
 
 ### P0 — Blockers
+
+- [ ] [r2649834667](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834667) `crates/rmg-ffi/Cargo.toml` — Standardize workspace MSRV (`rust-version`) and align with the pinned toolchain. (pending)
+- [ ] [r2649834670](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834670) `deny.toml` — CodeRabbit claims OpenSSL + Ubuntu-font allowlist entries are orphaned; verify dependency chains and either remove or strengthen justification to reflect reality. (pending)
 
 - [x] [r2649763194](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763194) `.github/workflows/ci.yml` — Supply-chain hardening: replace mutable `@v2` with a pinned `cargo-deny-action` commit SHA. Fixed in `602ba1e`.
 
@@ -59,6 +62,10 @@ Notes:
 - [x] [r2649731206](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731206) `specs/spec-000-rewrite/Cargo.toml` — Bump Leptos from `0.6` → `0.8.15` and run `cargo update` + fix compile breakage. Fixed in `1a0c870`.
 
 ### P1 — Major
+
+- [ ] [r2649834662](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834662) `Cargo.toml` — Add `echo-wasm-abi` to `[workspace.dependencies]` to restore workspace inheritance for internal consumers. (pending)
+- [ ] [r2649834663](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834663) `crates/echo-session-service/Cargo.toml` — Migrate internal deps to `workspace = true` (avoid version drift vs root `[workspace.dependencies]`). (pending)
+- [ ] [r2649834682](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834682) `scripts/run_cargo_audit.sh` — DRY: eliminate duplicated ignore list vs `deny.toml` and document ignore rationale. (pending)
 
 - [x] [r2649763195](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763195) `.github/workflows/security-audit.yml` — Remove duplicate `cargo-audit` job definition from CI; centralize audit args in `scripts/run_cargo_audit.sh` to prevent ignore-list drift. Fixed in `602ba1e`.
 
@@ -81,6 +88,12 @@ Notes:
 - [x] [r2645857687](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857687) `docs/jitos/spec-0000.md` — Replace deprecated serde-on-`JsValue` helpers; keep WASM boundary panic-free. Fixed in `7825d81` + `cf286e9`.
 
 ### P2 — Minor
+
+- [ ] [r2649834666](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834666) `crates/echo-wasm-bindings/Cargo.toml` (and `crates/echo-wasm-abi/Cargo.toml`) — Remove `"wasm"` from `categories` to avoid `cargo publish` failures. (pending)
+- [ ] [r2649834672](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834672) `deny.toml` — Clarify RUSTSEC-2024-0370 ignore rationale (informational, syn 1.x duplication risk) and document mitigation/exit plan. (pending)
+- [ ] [r2649834674](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834674) `docs/execution-plan.md` — Fix MD056 (table column count mismatch) in the Phase Overview table. (pending)
+- [ ] [r2649834677](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834677) `docs/execution-plan.md` — Remove single trailing whitespace (MD009). (pending)
+- [ ] [r2649834678](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834678) `docs/execution-plan.md` — Remove single trailing whitespace (MD009). (pending)
 
 - [x] [r2649731188](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731188) `crates/echo-wasm-abi/Cargo.toml` — Resolve SPDX header vs `license` field mismatch by aligning build/config files to `Apache-2.0` headers (per repo license split). Fixed in `042ec2b`.
 - [x] [r2649731189](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731189) `crates/echo-wasm-abi/Cargo.toml` — `"wasm"` category is valid on crates.io as of 2025-12-28 (verified via crates.io categories API); no change required.
@@ -113,6 +126,10 @@ Notes:
 - [x] [r2612251512](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251512) `docs/spec-concurrency-and-authoring.md` — Clarify that `echo::delay()`/`echo::emit()` are Echo host functions (not built-in Rhai). Fixed in `6238c98`.
 
 ### P3 — Trivial
+
+- [ ] [r2649834681](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834681) `Makefile` — Add guard rails to `spec-000-dev` / `spec-000-build` for missing `trunk` and missing `specs/spec-000-rewrite`. (pending)
+- [ ] [r2649834665](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834665) `crates/echo-session-ws-gateway/Cargo.toml` — Add explicit `rust-version` to the manifest (or align via workspace MSRV decision). (pending)
+- [ ] [r2649834680](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834680) `docs/jitos/spec-0000.md` — Style: vary sentence openings in the “Next Steps” list to avoid repetitive “Add …” phrasing. (pending)
 
 - [x] [r2649763192](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763192) `.github/workflows/ci.yml` — Harden task-lists job (explicit `bash`, executable check, richer diagnostics). Fixed in `602ba1e`.
 - [x] [r2649731202](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731202) `scripts/check_task_lists.sh` — Do not silently skip missing files (warn + fail when none exist). Fixed in `602ba1e`.

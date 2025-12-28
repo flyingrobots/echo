@@ -23,6 +23,11 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+echo-app-core = { version = "0.1.0", path = "crates/echo-app-core" }
+echo-config-fs = { version = "0.1.0", path = "crates/echo-config-fs" }
+echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
+echo-session-client = { version = "0.1.0", path = "crates/echo-session-client" }
+echo-session-proto = { version = "0.1.0", path = "crates/echo-session-proto" }
 rmg-core = { version = "0.1.0", path = "crates/rmg-core" }
 
 [profile.release]

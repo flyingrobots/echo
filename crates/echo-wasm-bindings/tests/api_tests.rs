@@ -50,6 +50,25 @@ fn connect_requires_existing_nodes() {
 }
 
 #[test]
+fn connect_self_loop_is_allowed_and_logged() {
+    let mut k = DemoKernel::new();
+    k.add_node("A".into());
+
+    k.connect("A".into(), "A".into());
+
+    let graph = k.graph();
+    assert_eq!(graph.edges.len(), 1);
+    assert_eq!(graph.edges[0].from, "A");
+    assert_eq!(graph.edges[0].to, "A");
+
+    let history = k.history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[1].op, SemanticOp::Connect);
+    assert_eq!(history[1].target, "A");
+    assert_eq!(history[1].new_value, Some(Value::Str("A".into())));
+}
+
+#[test]
 fn delete_missing_node_is_noop_and_not_logged() {
     let mut k = DemoKernel::new();
     k.delete_node("missing".into());

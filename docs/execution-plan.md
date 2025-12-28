@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-28 — PR #141 review comment burn-down (IN PROGRESS)
+
+- Goal: extract, bucket, and resolve every PR comment on #141 with tests, fixes, and doc alignment.
+- Scope: use `gh` + API to enumerate review + issue comments; verify stale vs actionable; implement fixes with minimal deterministic surface changes; update `docs/decision-log.md` and any impacted specs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; PR thread replies include fix SHAs; branch is pushable.
+
 > 2025-12-13 — WS gateway disconnect hygiene + Spec-000 WASM gating (COMPLETED)
 
 - Goal: keep `cargo build`/`cargo test` green for the host target while still supporting `trunk serve` (wasm32) builds.

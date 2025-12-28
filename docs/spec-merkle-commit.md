@@ -38,12 +38,31 @@ Header fields (v1):
 - state_root: 32 bytes (from section 1)
 - plan_digest: 32 bytes (canonical digest of ready-set ordering encoded as a
   length-prefixed list; empty list = BLAKE3 of `0u64.to_le_bytes()`).
-- decision_digest: 32 bytes (Aion/agency inputs; v1 uses the empty digest until
-  Aion integration)
+- decision_digest: 32 bytes (tick receipt decisions today; Aion/agency inputs later).
 - rewrites_digest: 32 bytes (ordered rewrites applied)
 - policy_id: u32 (version pin for Aion policy)
 
 Hash: blake3(encode(header)) → commit_id.
+
+### 2.1 decision_digest (Tick receipt digest)
+
+Until Aion integration lands, `decision_digest` commits to the **tick receipt**
+outcomes (accepted vs rejected candidates).
+
+Canonical encoding (v1) for the tick receipt digest:
+
+- If the tick receipt has **0 entries**, `decision_digest` is the canonical empty
+  digest: `blake3(0u64.to_le_bytes())` (matches `DIGEST_LEN0_U64`).
+- Otherwise, compute `blake3(encoding)` where `encoding` is:
+  - `version: u16 = 1`
+  - `count: u64` number of entries
+  - For each entry (in canonical plan order):
+    - `rule_id: 32`
+    - `scope_hash: 32`
+    - `scope: 32`
+    - `disposition_code: u8`
+      - `1` = Applied
+      - `2` = Rejected(FootprintConflict)
 
 ## 3. Invariants and Notes
 

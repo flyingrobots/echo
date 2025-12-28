@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::graph::GraphStore;
 use crate::ident::{CompactRuleId, Hash, NodeId};
+use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
@@ -186,6 +187,23 @@ impl Engine {
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
     ///   corrupted (e.g., a reserved rewrite references a missing rule).
     pub fn commit(&mut self, tx: TxId) -> Result<Snapshot, EngineError> {
+        let (snapshot, _receipt) = self.commit_with_receipt(tx)?;
+        Ok(snapshot)
+    }
+
+    /// Executes all pending rewrites for the transaction, producing both a snapshot and a tick receipt.
+    ///
+    /// The receipt records (in canonical plan order) which candidates were accepted vs rejected.
+    /// This is the first step toward Paper II “tick receipts” (and later, the blocking poset).
+    ///
+    /// # Errors
+    /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
+    /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
+    ///   corrupted (e.g., a reserved rewrite references a missing rule).
+    pub fn commit_with_receipt(
+        &mut self,
+        tx: TxId,
+    ) -> Result<(Snapshot, TickReceipt), EngineError> {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
@@ -202,12 +220,26 @@ impl Engine {
         };
 
         // Reserve phase: enforce independence against active frontier.
+        let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
         let mut reserved: Vec<PendingRewrite> = Vec::new();
         for mut rewrite in drained {
-            if self.scheduler.reserve(tx, &mut rewrite) {
+            let accepted = self.scheduler.reserve(tx, &mut rewrite);
+            receipt_entries.push(TickReceiptEntry {
+                rule_id: rewrite.rule_id,
+                scope_hash: rewrite.scope_hash,
+                scope: rewrite.scope,
+                disposition: if accepted {
+                    TickReceiptDisposition::Applied
+                } else {
+                    TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
+                },
+            });
+            if accepted {
                 reserved.push(rewrite);
             }
         }
+        let receipt = TickReceipt::new(tx, receipt_entries);
+
         // Deterministic digest of the ordered rewrites we will apply.
         let rewrites_digest = {
             let mut hasher = blake3::Hasher::new();
@@ -237,8 +269,9 @@ impl Engine {
             .as_ref()
             .map(|s| vec![s.hash])
             .unwrap_or_default();
-        // Canonical empty digest (0-length list) for decisions until Aion lands.
-        let decision_digest: Hash = *crate::constants::DIGEST_LEN0_U64;
+        // `decision_digest` is reserved for Aion tie-breaks; in the spike we use the tick receipt digest
+        // to commit to accepted/rejected decisions in a deterministic way.
+        let decision_digest: Hash = receipt.digest();
         let hash = crate::snapshot::compute_commit_hash(
             &state_root,
             &parents,
@@ -261,7 +294,7 @@ impl Engine {
         // Mark transaction as closed/inactive and finalize scheduler accounting.
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
-        Ok(snapshot)
+        Ok((snapshot, receipt))
     }
 
     /// Returns a snapshot for the current graph state without executing rewrites.

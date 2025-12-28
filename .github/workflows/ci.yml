@@ -112,6 +112,14 @@ jobs:
             exit 1;
           }
 
+  task-lists:
+    name: Task Lists Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check task lists for contradictions
+        run: scripts/check_task_lists.sh
+
   # MSRV job removed per policy: use @stable everywhere
 
   rustdoc:
@@ -148,6 +156,7 @@ jobs:
         run: |
           cargo audit --deny warnings \
             --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2024-0370 \
             --ignore RUSTSEC-2021-0127
 
   deny:

@@ -76,7 +76,14 @@ if [[ -n "$RUST_CHANGED" ]]; then
   echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when Rust files change.' >&2; exit 1; }
 fi
 
-# 5) Lockfile guard: ensure lockfile version is v3 (current cargo format)
+# 5) Task list guard: prevent contradictory duplicated checklist items
+if [[ -x scripts/check_task_lists.sh ]]; then
+  if echo "$STAGED" | grep -E '^(WASM-TASKS\\.md|docs/tasks\\.md)$' >/dev/null; then
+    scripts/check_task_lists.sh || { echo 'pre-commit: task list conflicts detected.' >&2; exit 1; }
+  fi
+fi
+
+# 6) Lockfile guard: ensure lockfile version is v3 (current cargo format)
 if [[ -f Cargo.lock ]]; then
   # Normalize detected lockfile version (strip quotes/CR/whitespace)
   VER_LINE=$(grep -n '^version = ' Cargo.lock | head -n1 | awk -F'= ' '{print $2}' | tr -d '\r' | tr -d '"' | xargs)
@@ -93,14 +100,14 @@ if [[ -f Cargo.lock ]]; then
   fi
 fi
 
-# 6) Targeted clippy + check for changed crates (fast-ish)
+# 7) Targeted clippy + check for changed crates (fast-ish)
 CRATES=$(echo "$STAGED" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u)
 for c in $CRATES; do
   cargo clippy -p "$c" --all-targets -- -D warnings -D missing_docs
   cargo check -p "$c" --quiet
 done
 
-# 7) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR MIND-UCAL-1.0)
+# 8) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR MIND-UCAL-1.0)
 if [[ -x scripts/ensure_spdx.sh ]]; then
   scripts/ensure_spdx.sh || exit 1
 fi

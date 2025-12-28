@@ -24,15 +24,15 @@ egui_extras = { version = "0.33.0", features = ["image", "svg"] }
 glam = "0.29"
 hex = "0.4"
 pollster = "0.3"
-rmg-core = { path = "../rmg-core" }
+rmg-core = { version = "0.1.0", path = "../rmg-core" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 wgpu = "27"
-echo-app-core = { path = "../echo-app-core" }
-echo-config-fs = { path = "../echo-config-fs" }
-echo-session-client = { path = "../echo-session-client" }
-echo-session-proto = { path = "../echo-session-proto" }
-echo-graph = { path = "../echo-graph" }
+echo-app-core = { version = "0.1.0", path = "../echo-app-core" }
+echo-config-fs = { version = "0.1.0", path = "../echo-config-fs" }
+echo-session-client = { version = "0.1.0", path = "../echo-session-client" }
+echo-session-proto = { version = "0.1.0", path = "../echo-session-proto" }
+echo-graph = { version = "0.1.0", path = "../echo-graph" }
 tokio = { version = "1.41", features = ["rt", "macros", "time"] }
 serde_json = "1.0"
 ciborium = "0.2"

@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
 keywords = ["echo", "rmg", "wasm", "leptos", "spec"]
-categories = ["wasm", "gui", "education"]
+categories = ["wasm", "web-programming", "visualization"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

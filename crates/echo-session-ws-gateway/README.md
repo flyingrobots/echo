@@ -6,7 +6,7 @@ WebSocket ↔ Unix-socket bridge for the Echo session hub. It terminates browser
 
 ## Usage
 
-```
+```bash
 cargo run -p echo-session-ws-gateway -- \
   --unix-socket /tmp/echo-session.sock \
   --listen 0.0.0.0:8787 \

@@ -18,8 +18,9 @@ allow = [
     "Unlicense",
     "Zlib",
     "OFL-1.1",
-    "Ubuntu-font-1.0",
     "MPL-2.0",
+    "OpenSSL",
+    "Ubuntu-font-1.0",
 ]
 
 # Modernized for cargo-deny >=0.14.21 (PR #611):
@@ -43,6 +44,9 @@ ignore = [
     # wgpu transitively depends on paste 1.0.15; upstream is unmaintained but
     # tracked in wgpu#5185. Safe to ignore until wgpu publishes a replacement.
     "RUSTSEC-2024-0436",
+    # Leptos transitively depends on proc-macro-error 1.0.4 (via syn_derive/rstml).
+    # This is flagged as unmaintained; ignore until the upstream macro stack ships a replacement.
+    "RUSTSEC-2024-0370",
 ]
 
 [sources]

@@ -24,6 +24,9 @@ pub struct SessionClient {
 }
 
 const MAX_PAYLOAD: usize = 8 * 1024 * 1024; // 8 MiB cap for frames
+/// Error codes below this threshold are treated as client-side decode/wire failures (Local scope).
+/// Codes at or above this threshold are treated as session/service protocol errors (Global scope).
+const ERROR_CODE_GLOBAL_THRESHOLD: u32 = 400;
 
 impl SessionClient {
     /// Connect to the hub at the given Unix socket path.
@@ -210,7 +213,7 @@ fn run_message_loop(
                 let _ = notif_tx.send(n);
             }
             Ok((Message::Error(err), _, _)) => {
-                let scope = if err.code >= 400 {
+                let scope = if err.code >= ERROR_CODE_GLOBAL_THRESHOLD {
                     NotifyScope::Global
                 } else {
                     NotifyScope::Local
@@ -273,9 +276,15 @@ mod tests {
 
         let n1 = notif_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(n1.scope, NotifyScope::Global);
+        assert_eq!(n1.kind, NotifyKind::Error);
+        assert_eq!(n1.title, "E_FORBIDDEN_PUBLISH (403)");
+        assert_eq!(n1.body, Some("forbidden".to_string()));
 
         let n2 = notif_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert_eq!(n2.scope, NotifyScope::Local);
+        assert_eq!(n2.kind, NotifyKind::Error);
+        assert_eq!(n2.title, "E_BAD_PAYLOAD (3)");
+        assert_eq!(n2.body, Some("bad payload".to_string()));
 
         handle.join().unwrap();
     }

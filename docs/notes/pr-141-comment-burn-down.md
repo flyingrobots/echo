@@ -2,7 +2,14 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # PR #141 — Comment Burn-Down
 
-PR: https://github.com/flyingrobots/echo/pull/141
+PR: [#141](https://github.com/flyingrobots/echo/pull/141)
+
+## Purpose & Retention
+
+This file is a PR-scoped, action-oriented index of review threads → fixing SHAs.
+
+- Canonical design decisions belong in `docs/decision-log.md`.
+- After PR #141 merges, this file may be deleted or moved to `docs/legacy/` if it remains useful as a historical artifact.
 
 ## Snapshot (2025-12-28)
 
@@ -66,14 +73,14 @@ Notes:
 
 - [x] [r2612251521](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251521) `README.md` — Remove trailing whitespace / tighten formatting. Fixed in `cf286e9`.
 - [x] [r2645857690](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857690) `README.md` — Add alt text to images. Fixed in `cf286e9`.
-- [x] [r2612251524](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251524) `README.md` — Resolve markdown formatting nits in the referenced section. Fixed in `cf286e9`.
+- [x] [r2612251524](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251524) `README.md` — Resolve Markdown formatting nits in the referenced section. Fixed in `cf286e9`.
 
 - [x] [r2612251540](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251540) `WASM-TASKS.md` — Fix heading spacing. Fixed in `6238c98`.
 - [x] [r2612251473](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251473) `crates/echo-session-ws-gateway/README.md` — Add missing blank lines around headings/fences. Fixed in `6238c98`.
 - [x] [r2612251477](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251477) `crates/echo-session-ws-gateway/src/main.rs` — Add a timeout to UDS connect to avoid hanging forever. Fixed in `89c2bb1`.
 
 - [x] [r2645857679](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857679) `docs/execution-plan.md` — Add verifiable evidence pointers (commit SHAs / branch notes) to completion claims. Fixed in `641e482`.
-- [x] [r2645857680](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857680) `docs/jitos/spec-0000.md` — Improve markdown spacing/readability (MD022). Fixed in `cf286e9`.
+- [x] [r2645857680](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857680) `docs/jitos/spec-0000.md` — Improve Markdown spacing/readability (MD022). Fixed in `cf286e9`.
 - [x] [r2612251509](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251509) `docs/spec-concurrency-and-authoring.md` — Add missing blank lines around fences. Fixed in `6238c98`.
 - [x] [r2612251512](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251512) `docs/spec-concurrency-and-authoring.md` — Clarify that `echo::delay()`/`echo::emit()` are Echo host functions (not built-in Rhai). Fixed in `6238c98`.
 
@@ -85,7 +92,7 @@ Notes:
 - [x] [r2645857642](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857642) `crates/echo-wasm-abi/Cargo.toml` — Pin dependencies to minor versions for reproducibility. Fixed in `2431e9f`.
 - [x] [r2645857643](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857643) `crates/echo-wasm-abi/README.md` — Fix heading spacing. Fixed in `2431e9f`.
 
-- [x] [r2645857651](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857651) `crates/echo-wasm-bindings/README.md` — Fix markdown formatting / align exposed API docs. Fixed in `cf286e9`.
+- [x] [r2645857651](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857651) `crates/echo-wasm-bindings/README.md` — Fix Markdown formatting / align exposed API docs. Fixed in `cf286e9`.
 - [x] [r2645857656](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857656) `crates/echo-wasm-bindings/src/lib.rs` — Reorder ops to mutate, then log (future-proof history consistency). Fixed in `95f8eda`.
 - [x] [r2645857675](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857675) `crates/echo-wasm-bindings/tests/api_tests.rs` — Add tests for error/no-op paths and boundary conditions. Fixed in `7825d81`.
 

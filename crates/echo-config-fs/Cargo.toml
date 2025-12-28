@@ -14,4 +14,4 @@ categories = ["development-tools", "config"]
 
 [dependencies]
 directories = "5"
-echo-app-core = { path = "../echo-app-core" }
+echo-app-core = { version = "0.1.0", path = "../echo-app-core" }

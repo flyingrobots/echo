@@ -17,7 +17,7 @@ use wasm_bindgen::prelude::*;
 ///
 /// - It owns an in-memory [`Rmg`] and an append-only [`Rewrite`] history.
 /// - It is designed for JS/WASM interop: when built with `--features wasm`, the type is exposed
-///   via `wasm-bindgen` and provides `JsValue` serializers.
+///   via `wasm-bindgen` and provides JSON serializers (see `serializeGraph` / `serializeHistory`).
 /// - It is not the production Echo kernel, does not validate invariants, and does not implement
 ///   canonical hashing / deterministic encoding.
 ///
@@ -51,7 +51,13 @@ impl DemoKernel {
     }
 
     /// Add a node by id.
+    ///
+    /// If the id already exists, this operation is a no-op and is not recorded in `history`.
     pub fn add_node(&mut self, id: String) {
+        if self.graph.nodes.contains_key(&id) {
+            return;
+        }
+
         let node_id = id;
         self.graph.nodes.insert(
             node_id.clone(),
@@ -132,12 +138,13 @@ impl DemoKernel {
 
     /// Serialize graph to JSON (host use).
     pub fn graph_json(&self) -> String {
-        serde_json::to_string(&self.graph).unwrap_or_default()
+        serde_json::to_string(&self.graph)
+            .unwrap_or_else(|_| "{\"nodes\":{},\"edges\":[]}".to_string())
     }
 
     /// Serialize history to JSON (host use).
     pub fn history_json(&self) -> String {
-        serde_json::to_string(&self.history).unwrap_or_default()
+        serde_json::to_string(&self.history).unwrap_or_else(|_| "[]".to_string())
     }
 }
 

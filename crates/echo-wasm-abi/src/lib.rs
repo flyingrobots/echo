@@ -15,7 +15,6 @@
 //! - For canonical/deterministic transport and hashing, prefer `echo-session-proto` / `echo-graph`.
 
 use serde::{Deserialize, Serialize};
-use serde_with::serde_as;
 use std::collections::HashMap;
 
 /// Node identifier used in the living-spec demos.
@@ -115,7 +114,6 @@ pub enum SemanticOp {
 ///   `new_value = Some(new_field_value)`.
 /// - [`SemanticOp::Connect`]: `target = from_id`, `new_value = Some(Value::Str(to_id))`.
 /// - [`SemanticOp::Disconnect`]: same encoding as `Connect`, but interpreted as removal.
-#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rewrite {
     /// Monotonic rewrite id within history.
@@ -135,16 +133,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn serialize_rewrite_round_trip() {
-        let rw = Rewrite {
-            id: 1,
-            op: SemanticOp::AddNode,
-            target: "A".into(),
-            old_value: None,
-            new_value: None,
-        };
-        let json = serde_json::to_string(&rw).expect("serialize");
-        let back: Rewrite = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(rw, back);
+    fn serialize_rewrite_round_trips_across_ops() {
+        let cases = [
+            Rewrite {
+                id: 1,
+                op: SemanticOp::AddNode,
+                target: "A".into(),
+                old_value: None,
+                new_value: None,
+            },
+            Rewrite {
+                id: 2,
+                op: SemanticOp::Set,
+                target: "A".into(),
+                old_value: Some(Value::Str("name".into())),
+                new_value: Some(Value::Str("Server".into())),
+            },
+            Rewrite {
+                id: 3,
+                op: SemanticOp::Connect,
+                target: "A".into(),
+                old_value: None,
+                new_value: Some(Value::Str("B".into())),
+            },
+            Rewrite {
+                id: 4,
+                op: SemanticOp::Disconnect,
+                target: "A".into(),
+                old_value: None,
+                new_value: Some(Value::Str("B".into())),
+            },
+            Rewrite {
+                id: 5,
+                op: SemanticOp::DeleteNode,
+                target: "A".into(),
+                old_value: None,
+                new_value: None,
+            },
+        ];
+
+        for rw in cases {
+            let json = serde_json::to_string(&rw).expect("serialize");
+            let back: Rewrite = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(rw, back);
+        }
     }
 }

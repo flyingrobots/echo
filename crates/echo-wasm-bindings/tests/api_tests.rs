@@ -60,3 +60,20 @@ fn delete_missing_node_is_noop_and_not_logged() {
     let history = k.history();
     assert_eq!(history.len(), 0);
 }
+
+#[test]
+fn add_node_duplicate_id_is_noop_and_does_not_clobber_fields() {
+    let mut k = DemoKernel::new();
+    k.add_node("A".into());
+    k.set_field("A".into(), "name".into(), Value::Str("Server".into()));
+    k.add_node("A".into());
+
+    let graph = k.graph();
+    let a = graph.nodes.get("A").expect("node A missing");
+    assert_eq!(a.fields.get("name"), Some(&Value::Str("Server".into())));
+
+    let history = k.history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].op, SemanticOp::AddNode);
+    assert_eq!(history[1].op, SemanticOp::Set);
+}

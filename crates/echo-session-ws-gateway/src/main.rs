@@ -28,8 +28,13 @@ use tokio::{
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
+/// JS-ABI v1 framing header size (bytes).
+///
+/// The payload length is encoded as a big-endian `u32` at offsets `8..12`.
 const JS_ABI_HEADER_BYTES: usize = 12;
+/// Trailing per-frame hash/checksum size (bytes).
 const JS_ABI_HASH_BYTES: usize = 32;
+/// JS-ABI framing overhead: header + trailing hash/checksum bytes.
 const JS_ABI_OVERHEAD_BYTES: usize = JS_ABI_HEADER_BYTES + JS_ABI_HASH_BYTES;
 type TaskResult<T> = std::result::Result<T, JoinError>;
 
@@ -455,6 +460,19 @@ mod tests {
     }
 
     #[test]
+    fn validate_frame_rejects_too_small_buffer() {
+        let err = validate_frame(&[], 5).expect_err("expected too-small error");
+        assert!(err.to_string().contains("too small"));
+    }
+
+    #[test]
+    fn validate_frame_rejects_payload_too_large() {
+        let frame = make_frame(6);
+        let err = validate_frame(&frame, 5).expect_err("expected payload-too-large error");
+        assert!(err.to_string().contains("payload too large"));
+    }
+
+    #[test]
     fn try_extract_frame_drains_one_frame_and_preserves_remainder() {
         let f1 = make_frame(2);
         let f2 = make_frame(3);
@@ -467,5 +485,30 @@ mod tests {
         let pkt2 = try_extract_frame(&mut acc, 3).unwrap().expect("pkt2");
         assert_eq!(pkt2, f2);
         assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn try_extract_frame_returns_none_for_partial_header() {
+        let mut acc = vec![0u8; JS_ABI_HEADER_BYTES - 1];
+        let pkt = try_extract_frame(&mut acc, 3).unwrap();
+        assert!(pkt.is_none());
+        assert_eq!(acc.len(), JS_ABI_HEADER_BYTES - 1);
+    }
+
+    #[test]
+    fn try_extract_frame_returns_none_for_partial_frame() {
+        let full = make_frame(3);
+        let mut acc = full[..full.len() - 1].to_vec();
+        let pkt = try_extract_frame(&mut acc, 3).unwrap();
+        assert!(pkt.is_none());
+        assert_eq!(acc.len(), full.len() - 1);
+    }
+
+    #[test]
+    fn try_extract_frame_errors_on_payload_too_large_without_draining() {
+        let mut acc = make_frame(6);
+        let err = try_extract_frame(&mut acc, 5).expect_err("expected payload-too-large error");
+        assert!(err.to_string().contains("payload too large"));
+        assert_eq!(acc.len(), JS_ABI_HEADER_BYTES + 6 + JS_ABI_HASH_BYTES);
     }
 }

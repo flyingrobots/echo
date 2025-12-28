@@ -56,8 +56,8 @@ jobs:
             .
       - name: cargo test (workspace)
         run: cargo test --workspace
-      - name: PRNG golden regression (rmg-core)
-        run: cargo test -p rmg-core --features golden_prng -- tests::next_int_golden_regression
+      - name: PRNG golden regression (warp-core)
+        run: cargo test -p warp-core --features golden_prng -- tests::next_int_golden_regression
 
   test-musl:
     name: Tests (musl)
@@ -75,10 +75,10 @@ jobs:
         with:
           workspaces: |
             .
-      # Intentionally test only rmg-core under MUSL; rmg-wasm targets wasm32
-      # (wasm-bindgen/js-sys) and rmg-ffi has separate cross-compilation concerns.
-      - name: cargo test (rmg-core, musl)
-        run: cargo test -p rmg-core --target x86_64-unknown-linux-musl
+      # Intentionally test only warp-core under MUSL; warp-wasm targets wasm32
+      # (wasm-bindgen/js-sys) and warp-ffi has separate cross-compilation concerns.
+      - name: cargo test (warp-core, musl)
+        run: cargo test -p warp-core --target x86_64-unknown-linux-musl
 
   docs:
     name: Docs Guard
@@ -170,16 +170,16 @@ jobs:
           submodules: false
       - uses: dtolnay/rust-toolchain@1.90.0
       - uses: Swatinem/rust-cache@v2
-      - name: rustdoc warnings gate (rmg-core)
-        run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps
-      - name: rustdoc warnings gate (rmg-geom)
-        run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-geom --no-deps
-      - name: rustdoc warnings gate (rmg-ffi)
+      - name: rustdoc warnings gate (warp-core)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-core --no-deps
+      - name: rustdoc warnings gate (warp-geom)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-geom --no-deps
+      - name: rustdoc warnings gate (warp-ffi)
         run: |
-          if [ -f crates/rmg-ffi/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-ffi --no-deps; fi
-      - name: rustdoc warnings gate (rmg-wasm)
+          if [ -f crates/warp-ffi/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p warp-ffi --no-deps; fi
+      - name: rustdoc warnings gate (warp-wasm)
         run: |
-          if [ -f crates/rmg-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-wasm --no-deps; fi
+          if [ -f crates/warp-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p warp-wasm --no-deps; fi
 
   deny:
     name: Dependency Policy (cargo-deny)

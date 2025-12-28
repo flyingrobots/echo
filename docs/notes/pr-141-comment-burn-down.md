@@ -15,8 +15,8 @@ This file is a PR-scoped, action-oriented index of review threads → fixing SHA
 
 - Head branch: `echo/wasm-spec-000-scaffold`
 - Base branch: `main`
-- Head commit (at last update): `1a0c870`
-- Latest CodeRabbit review commit: `c6be13e` (review submitted 2025-12-28)
+- Head commit (at last update): `6ee8811`
+- Latest CodeRabbit review commit: `c8111ec` (review submitted 2025-12-28)
 
 ### Extraction (paginated, per EXTRACT-PR-COMMENTS procedure)
 
@@ -25,8 +25,8 @@ gh api --paginate repos/flyingrobots/echo/pulls/141/comments --jq '.[]' | jq -s 
 gh api --paginate repos/flyingrobots/echo/issues/141/comments --jq '.[]' | jq -s '.' > /tmp/pr141-issue-comments.json
 ```
 
-- PR review comments (inline): 110 total
-  - Top-level: 75
+- PR review comments (inline): 114 total
+  - Top-level: 79
   - Replies: 35
 - Issue comments (conversation): 3 (CodeRabbit summary + maintainer summary notes; non-actionable)
 
@@ -39,6 +39,8 @@ Notes:
 - Some CodeRabbit comments include a built-in “✅ Confirmed …” marker; many do not. This file is the canonical burn-down record for PR #141.
 
 ### P0 — Blockers
+
+- [x] [r2649763194](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763194) `.github/workflows/ci.yml` — Supply-chain hardening: replace mutable `@v2` with a pinned `cargo-deny-action` commit SHA. Fixed in `602ba1e`.
 
 - [x] [r2645857657](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857657) `crates/echo-wasm-bindings/src/lib.rs` — Only log rewrites for successful mutations (no-op history is a semantic violation). Fixed in `7825d81`.
 - [x] [r2645857663](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857663) `crates/echo-wasm-bindings/src/lib.rs` — Prevent dangling edges: validate `from`/`to` nodes exist before connecting. Fixed in `7825d81`.
@@ -57,6 +59,8 @@ Notes:
 - [x] [r2649731206](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731206) `specs/spec-000-rewrite/Cargo.toml` — Bump Leptos from `0.6` → `0.8.15` and run `cargo update` + fix compile breakage. Fixed in `1a0c870`.
 
 ### P1 — Major
+
+- [x] [r2649763195](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763195) `.github/workflows/security-audit.yml` — Remove duplicate `cargo-audit` job definition from CI; centralize audit args in `scripts/run_cargo_audit.sh` to prevent ignore-list drift. Fixed in `602ba1e`.
 
 - [x] [r2649699435](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699435) `crates/echo-session-ws-gateway/src/main.rs` — Add negative tests for frame parsing (partial header/body, too-small, payload-too-large). Fixed in `46bc079`.
 - [x] [r2649699436](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699436) `crates/echo-wasm-abi/src/lib.rs` — Remove vestigial `#[serde_as]` usage (no annotations present). Fixed in `46bc079`.
@@ -77,6 +81,16 @@ Notes:
 - [x] [r2645857687](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857687) `docs/jitos/spec-0000.md` — Replace deprecated serde-on-`JsValue` helpers; keep WASM boundary panic-free. Fixed in `7825d81` + `cf286e9`.
 
 ### P2 — Minor
+
+- [x] [r2649731188](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731188) `crates/echo-wasm-abi/Cargo.toml` — Resolve SPDX header vs `license` field mismatch by aligning build/config files to `Apache-2.0` headers (per repo license split). Fixed in `042ec2b`.
+- [x] [r2649731189](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731189) `crates/echo-wasm-abi/Cargo.toml` — `"wasm"` category is valid on crates.io as of 2025-12-28 (verified via crates.io categories API); no change required.
+- [x] [r2649731196](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731196) `deny.toml` — Remove orphaned `OpenSSL`/`Ubuntu-font-1.0` allowlist entries (no longer present in `Cargo.lock`). Fixed in `5086881`.
+- [x] [r2649731199](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731199) `docs/jitos/spec-0000.md` — Fix heading-increment violation (MD001). Fixed in `6ee8811`.
+
+- [x] [r2649763196](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763196) `docs/execution-plan.md` — Fix MD034: wrap bare PR-comment URL in angle brackets. Fixed in `6ee8811`.
+- [x] [r2649763197](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763197) `docs/jitos/spec-0000.md` — Fix MD040: add language identifiers to fenced code blocks (`text`/`rust`/`javascript`). Fixed in `6ee8811`.
+- [x] [r2649731200](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731200) `docs/jitos/spec-0000.md` — Fix MD040: add language identifiers to fenced code blocks. Fixed in `6ee8811`.
+- [x] [r2649763198](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763198) `docs/jitos/spec-0000.md` — Fix MD009: strip trailing whitespace throughout. Fixed in `6ee8811`.
 
 - [x] [r2649699430](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699430) `crates/echo-session-client/src/lib.rs` — Strengthen test to assert full notification structure (kind/title/body), not just scope. Fixed in `46bc079`.
 - [x] [r2649699439](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699439) `crates/echo-wasm-bindings/src/lib.rs` — Make `add_node` a no-op on duplicate ids to avoid clobbering + semantic ambiguity; add regression test. Fixed in `46bc079`.
@@ -99,6 +113,13 @@ Notes:
 - [x] [r2612251512](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251512) `docs/spec-concurrency-and-authoring.md` — Clarify that `echo::delay()`/`echo::emit()` are Echo host functions (not built-in Rhai). Fixed in `6238c98`.
 
 ### P3 — Trivial
+
+- [x] [r2649763192](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763192) `.github/workflows/ci.yml` — Harden task-lists job (explicit `bash`, executable check, richer diagnostics). Fixed in `602ba1e`.
+- [x] [r2649731202](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731202) `scripts/check_task_lists.sh` — Do not silently skip missing files (warn + fail when none exist). Fixed in `602ba1e`.
+- [x] [r2649731204](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731204) `scripts/check_task_lists.sh` — Compare task text case-insensitively for conflict detection. Fixed in `602ba1e`.
+- [x] [r2649731186](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731186) `.githooks/pre-commit` — Fail if task list guard script exists but is not executable (avoid silent skip). Fixed in `5086881`.
+- [x] [r2649731194](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731194) `crates/echo-wasm-bindings/tests/api_tests.rs` — Add explicit self-edge (`connect("A","A")`) behavior test. Fixed in `5086881`.
+- [x] [r2649731195](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731195) `crates/rmg-viewer/Cargo.toml` — DRY: move local path+version pins into `[workspace.dependencies]` and inherit with `workspace = true`. Fixed in `5086881`.
 
 - [x] [r2649699428](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699428) `crates/echo-session-client/src/lib.rs` — Extract the `>= 400` scope threshold into a named constant. Fixed in `46bc079`.
 - [x] [r2649699432](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699432) `crates/echo-session-ws-gateway/README.md` — Add language to fenced code blocks (MD040). Fixed in `46bc079`.

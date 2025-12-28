@@ -22,6 +22,11 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+rust-version = "1.90.0"
+
 [workspace.dependencies]
 echo-app-core = { version = "0.1.0", path = "crates/echo-app-core" }
 echo-config-fs = { version = "0.1.0", path = "crates/echo-config-fs" }

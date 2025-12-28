@@ -15,20 +15,20 @@ This file is a PR-scoped, action-oriented index of review threads → fixing SHA
 
 - Head branch: `echo/wasm-spec-000-scaffold`
 - Base branch: `main`
-- Head commit (at last update): `46bc079`
-- Latest CodeRabbit review commit: `933239a` (review submitted 2025-12-28)
+- Head commit (at last update): `1a0c870`
+- Latest CodeRabbit review commit: `c6be13e` (review submitted 2025-12-28)
 
 ### Extraction (paginated, per EXTRACT-PR-COMMENTS procedure)
 
 ```bash
-gh api --paginate repos/flyingrobots/echo/pulls/141/comments > /tmp/pr141-review-comments.json
-gh api --paginate repos/flyingrobots/echo/issues/141/comments > /tmp/pr141-issue-comments.json
+gh api --paginate repos/flyingrobots/echo/pulls/141/comments --jq '.[]' | jq -s '.' > /tmp/pr141-review-comments.json
+gh api --paginate repos/flyingrobots/echo/issues/141/comments --jq '.[]' | jq -s '.' > /tmp/pr141-issue-comments.json
 ```
 
-- PR review comments (inline): 96 total
-  - Top-level: 61
+- PR review comments (inline): 110 total
+  - Top-level: 75
   - Replies: 35
-- Issue comments (conversation): 1 (CodeRabbit rate-limit / other-bot note; non-actionable)
+- Issue comments (conversation): 3 (CodeRabbit summary + maintainer summary notes; non-actionable)
 
 ## Buckets (Top-Level Review Comments)
 
@@ -54,12 +54,15 @@ Notes:
 - [x] [r2612251514](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251514) `docs/tasks.md` — Remove duplicate contradictory task entries. Fixed in `cfe9270`.
 
 - [x] [r2645857694](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857694) `specs/spec-000-rewrite/Cargo.toml` — CodeRabbit claimed `edition = "2024"` is invalid; it is valid under the repo toolchain (`rust-toolchain.toml` pins Rust 1.90.0) and the crate declares `rust-version = "1.85.0"` (see `f70ba94`). No code change required.
+- [x] [r2649731206](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731206) `specs/spec-000-rewrite/Cargo.toml` — Bump Leptos from `0.6` → `0.8.15` and run `cargo update` + fix compile breakage. Fixed in `1a0c870`.
 
 ### P1 — Major
 
 - [x] [r2649699435](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699435) `crates/echo-session-ws-gateway/src/main.rs` — Add negative tests for frame parsing (partial header/body, too-small, payload-too-large). Fixed in `46bc079`.
 - [x] [r2649699436](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699436) `crates/echo-wasm-abi/src/lib.rs` — Remove vestigial `#[serde_as]` usage (no annotations present). Fixed in `46bc079`.
 - [x] [r2649699438](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699438) `crates/echo-wasm-bindings/README.md` — Document API surface with explicit type signatures. Fixed in `46bc079`.
+- [x] [r2649731190](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731190) `crates/echo-wasm-abi/src/lib.rs` — Add a separate field-name slot so `old_value` can carry the actual prior field value; update docs/tests to match. Fixed in `1f36f77`.
+- [x] [r2649731193](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731193) `crates/echo-wasm-bindings/src/lib.rs` — Record `Set` rewrites with `subject = field_name` and `old_value = prior_value` (or `None`); add a regression test. Fixed in `1f36f77`.
 
 - [x] [r2612251468](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251468) `crates/echo-session-client/src/lib.rs` — Classify protocol errors by code so session-level errors become `Global` notifications. Fixed in `12ecd95`.
 - [x] [r2612251472](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251472) `crates/echo-session-ws-gateway/Cargo.toml` — Upgrade `axum`/`axum-server` to compatible, modern versions. Fixed in `89c2bb1`.

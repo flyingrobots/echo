@@ -35,6 +35,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit round: Leptos bump + Rewrite semantics) (COMPLETED)
+
+- Goal: address newly posted PR #141 review comments (Leptos 0.8.15 bump + fix `Rewrite` semantics around `old_value`) and ship a clean follow-up push.
+- Scope: re-extract review comments with pagination; implement fixes with tests + doc alignment; re-check CI and repair any failing jobs; post one consolidated PR summary comment with fix SHAs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D warnings -D missing_docs` green; PR checks green; summary comment updated with new fix SHAs.
+- Evidence: `Rewrite` semantics fix in `1f36f77`, Leptos bump in `1a0c870`, and the refreshed burn-down index in `docs/notes/pr-141-comment-burn-down.md`.
+
 > 2025-12-28 — PR #141 follow-up (new review comments + CI fixes) (COMPLETED)
 
 - Goal: resolve newly posted PR review comments on #141, fix failing CI jobs, and ship a clean follow-up push.

@@ -131,7 +131,11 @@ bench-open-inline:
 .PHONY: spec-000-dev spec-000-build
 
 spec-000-dev:
+	@command -v trunk >/dev/null 2>&1 || { echo "Error: trunk not found. Install: cargo install trunk" >&2; exit 1; }
+	@test -d specs/spec-000-rewrite || { echo "Error: specs/spec-000-rewrite not found" >&2; exit 1; }
 	@cd specs/spec-000-rewrite && trunk serve
 
 spec-000-build:
+	@command -v trunk >/dev/null 2>&1 || { echo "Error: trunk not found. Install: cargo install trunk" >&2; exit 1; }
+	@test -d specs/spec-000-rewrite || { echo "Error: specs/spec-000-rewrite not found" >&2; exit 1; }
 	@cd specs/spec-000-rewrite && trunk build --release

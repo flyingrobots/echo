@@ -15,7 +15,7 @@ This file is a PR-scoped, action-oriented index of review threads → fixing SHA
 
 - Head branch: `echo/wasm-spec-000-scaffold`
 - Base branch: `main`
-- Head commit (at last update): `b563359`
+- Head commit (for this snapshot): `b563359`
 - Latest CodeRabbit review commit: `b563359` (review submitted 2025-12-28)
 
 ### Extraction (paginated, per EXTRACT-PR-COMMENTS procedure)
@@ -40,8 +40,8 @@ Notes:
 
 ### P0 — Blockers
 
-- [ ] [r2649834667](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834667) `crates/rmg-ffi/Cargo.toml` — Standardize workspace MSRV (`rust-version`) and align with the pinned toolchain. (pending)
-- [ ] [r2649834670](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834670) `deny.toml` — CodeRabbit claims OpenSSL + Ubuntu-font allowlist entries are orphaned; verify dependency chains and either remove or strengthen justification to reflect reality. (pending)
+- [x] [r2649834667](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834667) `crates/rmg-ffi/Cargo.toml` — Standardize workspace MSRV (`rust-version`) and align with the pinned toolchain. Fixed in `0f8e95d`.
+- [x] [r2649834670](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834670) `deny.toml` — CodeRabbit claimed OpenSSL + Ubuntu-font allowlist entries were orphaned; verified dependency chains and strengthened justification. Fixed in `3e5b52d`.
 
 - [x] [r2649763194](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763194) `.github/workflows/ci.yml` — Supply-chain hardening: replace mutable `@v2` with a pinned `cargo-deny-action` commit SHA. Fixed in `602ba1e`.
 
@@ -58,14 +58,14 @@ Notes:
 - [x] [r2645857683](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857683) `docs/jitos/spec-0000.md` — Fix incorrect `crate::rmg_core::*` example imports (use external `rmg_core` crate paths). Fixed in `cf286e9`.
 - [x] [r2612251514](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251514) `docs/tasks.md` — Remove duplicate contradictory task entries. Fixed in `cfe9270`.
 
-- [x] [r2645857694](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857694) `specs/spec-000-rewrite/Cargo.toml` — CodeRabbit claimed `edition = "2024"` is invalid; it is valid under the repo toolchain (`rust-toolchain.toml` pins Rust 1.90.0) and the crate declares `rust-version = "1.85.0"` (see `f70ba94`). No code change required.
+- [x] [r2645857694](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857694) `specs/spec-000-rewrite/Cargo.toml` — CodeRabbit claimed `edition = "2024"` is invalid; it is valid under the repo toolchain (`rust-toolchain.toml` pins Rust 1.90.0) and the crate declares `rust-version = "1.90.0"` (see `0f8e95d`). No code change required.
 - [x] [r2649731206](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731206) `specs/spec-000-rewrite/Cargo.toml` — Bump Leptos from `0.6` → `0.8.15` and run `cargo update` + fix compile breakage. Fixed in `1a0c870`.
 
 ### P1 — Major
 
-- [ ] [r2649834662](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834662) `Cargo.toml` — Add `echo-wasm-abi` to `[workspace.dependencies]` to restore workspace inheritance for internal consumers. (pending)
-- [ ] [r2649834663](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834663) `crates/echo-session-service/Cargo.toml` — Migrate internal deps to `workspace = true` (avoid version drift vs root `[workspace.dependencies]`). (pending)
-- [ ] [r2649834682](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834682) `scripts/run_cargo_audit.sh` — DRY: eliminate duplicated ignore list vs `deny.toml` and document ignore rationale. (pending)
+- [x] [r2649834662](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834662) `Cargo.toml` — Add `echo-wasm-abi` to `[workspace.dependencies]` to restore workspace inheritance for internal consumers. Fixed in `150415b`.
+- [x] [r2649834663](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834663) `crates/echo-session-service/Cargo.toml` — Migrate internal deps to `workspace = true` (avoid version drift vs root `[workspace.dependencies]`). Fixed in `2ee0a07`.
+- [x] [r2649834682](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834682) `scripts/run_cargo_audit.sh` — DRY: derive ignore IDs from `deny.toml` and add a self-test to prevent drift. Fixed in `3570069` (self-test portability tweak in `e5954e4`).
 
 - [x] [r2649763195](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763195) `.github/workflows/security-audit.yml` — Remove duplicate `cargo-audit` job definition from CI; centralize audit args in `scripts/run_cargo_audit.sh` to prevent ignore-list drift. Fixed in `602ba1e`.
 
@@ -89,14 +89,14 @@ Notes:
 
 ### P2 — Minor
 
-- [ ] [r2649834666](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834666) `crates/echo-wasm-bindings/Cargo.toml` (and `crates/echo-wasm-abi/Cargo.toml`) — Remove `"wasm"` from `categories` to avoid `cargo publish` failures. (pending)
-- [ ] [r2649834672](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834672) `deny.toml` — Clarify RUSTSEC-2024-0370 ignore rationale (informational, syn 1.x duplication risk) and document mitigation/exit plan. (pending)
-- [ ] [r2649834674](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834674) `docs/execution-plan.md` — Fix MD056 (table column count mismatch) in the Phase Overview table. (pending)
-- [ ] [r2649834677](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834677) `docs/execution-plan.md` — Remove single trailing whitespace (MD009). (pending)
-- [ ] [r2649834678](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834678) `docs/execution-plan.md` — Remove single trailing whitespace (MD009). (pending)
+- [x] [r2649834666](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834666) `crates/echo-wasm-bindings/Cargo.toml` (and `crates/echo-wasm-abi/Cargo.toml`) — Remove `"wasm"` from `categories` to avoid `cargo publish` failures. Fixed in `3ccaf47`.
+- [x] [r2649834672](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834672) `deny.toml` — RUSTSEC-2024-0370 no longer appears in the lock; remove the stale ignore to avoid drift. Fixed in `1bf90d3`.
+- [x] [r2649834674](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834674) `docs/execution-plan.md` — Verified: Phase Overview table already has 5 columns per row; no change required.
+- [x] [r2649834677](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834677) `docs/execution-plan.md` — Verified: no trailing whitespace present; no change required.
+- [x] [r2649834678](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834678) `docs/execution-plan.md` — Verified: no trailing whitespace present; no change required.
 
 - [x] [r2649731188](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731188) `crates/echo-wasm-abi/Cargo.toml` — Resolve SPDX header vs `license` field mismatch by aligning build/config files to `Apache-2.0` headers (per repo license split). Fixed in `042ec2b`.
-- [x] [r2649731189](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731189) `crates/echo-wasm-abi/Cargo.toml` — `"wasm"` category is valid on crates.io as of 2025-12-28 (verified via crates.io categories API); no change required.
+- [x] [r2649731189](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731189) `crates/echo-wasm-abi/Cargo.toml` — `"wasm"` category validity was disputed in a later review; remove `"wasm"` from `categories` across the workspace to avoid publish lint churn (keywords still include `wasm`). Fixed in `3ccaf47`.
 - [x] [r2649731196](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731196) `deny.toml` — Keep `OpenSSL`/`Ubuntu-font-1.0` allowlist entries but add explicit justification (required by current transitive dependencies). Fixed in `17687f2`.
 - [x] [r2649731199](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731199) `docs/jitos/spec-0000.md` — Fix heading-increment violation (MD001). Fixed in `6ee8811`.
 
@@ -109,7 +109,7 @@ Notes:
 - [x] [r2649699439](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699439) `crates/echo-wasm-bindings/src/lib.rs` — Make `add_node` a no-op on duplicate ids to avoid clobbering + semantic ambiguity; add regression test. Fixed in `46bc079`.
 - [x] [r2649699447](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699447) `docs/notes/pr-141-comment-burn-down.md` — Replace bare URL with a Markdown link (MD034). Fixed in `46bc079`.
 - [x] [r2649699453](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699453) `docs/notes/pr-141-comment-burn-down.md` — Capitalize “Markdown” (proper noun). Fixed in `46bc079`.
-- [x] [r2649699463](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699463) `specs/spec-000-rewrite/Cargo.toml` — Replace invalid categories (keep `wasm`, swap out `gui`/`education` for valid crates.io slugs). Fixed in `46bc079`.
+- [x] [r2649699463](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699463) `specs/spec-000-rewrite/Cargo.toml` — Replace invalid categories (`gui`/`education` → valid crates.io slugs) in `46bc079`; `"wasm"` category later dropped in `3ccaf47`.
 - [x] [r2649699470](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699470) `specs/spec-000-rewrite/spec.md` — Fix MD022 (blank line after headings). Fixed in `46bc079`.
 
 - [x] [r2612251521](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251521) `README.md` — Remove trailing whitespace / tighten formatting. Fixed in `cf286e9`.
@@ -127,9 +127,9 @@ Notes:
 
 ### P3 — Trivial
 
-- [ ] [r2649834681](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834681) `Makefile` — Add guard rails to `spec-000-dev` / `spec-000-build` for missing `trunk` and missing `specs/spec-000-rewrite`. (pending)
-- [ ] [r2649834665](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834665) `crates/echo-session-ws-gateway/Cargo.toml` — Add explicit `rust-version` to the manifest (or align via workspace MSRV decision). (pending)
-- [ ] [r2649834680](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834680) `docs/jitos/spec-0000.md` — Style: vary sentence openings in the “Next Steps” list to avoid repetitive “Add …” phrasing. (pending)
+- [x] [r2649834681](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834681) `Makefile` — Add guard rails to `spec-000-dev` / `spec-000-build` for missing `trunk` and missing `specs/spec-000-rewrite`. Fixed in `8db8ac6`.
+- [x] [r2649834665](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834665) `crates/echo-session-ws-gateway/Cargo.toml` — Add explicit `rust-version` to the manifest (aligned via workspace MSRV standardization). Fixed in `0f8e95d`.
+- [x] [r2649834680](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834680) `docs/jitos/spec-0000.md` — Style: vary sentence openings in the “Next Steps” list to avoid repetitive “Add …” phrasing. Fixed in `82fce3f`.
 
 - [x] [r2649763192](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763192) `.github/workflows/ci.yml` — Harden task-lists job (explicit `bash`, executable check, richer diagnostics). Fixed in `602ba1e`.
 - [x] [r2649731202](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731202) `scripts/check_task_lists.sh` — Do not silently skip missing files (warn + fail when none exist). Fixed in `602ba1e`.

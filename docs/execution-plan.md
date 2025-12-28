@@ -45,25 +45,25 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Goal: keep `cargo build`/`cargo test` green for the host target while still supporting `trunk serve` (wasm32) builds.
 - Scope: gate `spec-000-rewrite` WASM entry points correctly; ensure `echo-session-ws-gateway` closes WS + stops ping task when upstream UDS disconnects.
-- Status: completed; Spec-000 entrypoint is wasm32-gated and the WS gateway now closes + cancels ping on upstream disconnect.
+- Status: completed; Spec-000 entrypoint is wasm32-gated and the WS gateway now closes + cancels ping on upstream disconnect. (PR #141: commits `2fec335`, `970a4b5`)
 
 > 2025-12-11 — WebSocket gateway for session hub (COMPLETED)
 
 - Goal: allow browser clients to connect to the Unix-socket session bus via a secure WS bridge.
 - Scope: new `echo-session-ws-gateway` crate with WS→UDS forwarding, frame guards, origin allowlist, optional TLS.
-- Status: completed; gateway parses JS-ABI frame lengths, enforces 8 MiB cap, and proxies binary frames over WS.
+- Status: completed; gateway parses JS-ABI frame lengths, enforces 8 MiB cap, and proxies binary frames over WS. (PR #141: commit `785c14e`; hardening in `89c2bb1`)
 
 > 2025-12-11 — Scripting pivot to Rhai (COMPLETED)
 
 - Goal: cement Rhai as the scripting layer across design/docs, update scripting backlog items, and log the pivot.
 - Scope: execution plan, decision log, scripting/spec docs, FFI descriptions.
-- Status: completed; scripting plans now target Rhai with deterministic sandboxing, prior scripting references removed.
+- Status: completed; scripting plans now target Rhai with deterministic sandboxing, prior scripting references removed. (commit `30b3b82`)
 
-> 2025-12-11 — RMG authority enforcement (COMPLETED)
+> 2025-12-11 — RMG authority enforcement (IMPLEMENTED; PENDING MERGE)
 
 - Goal: Reject non-owner publishes on RMG channels and surface explicit errors to clients.
 - Scope: `echo-session-service` (producer lock + error frames), `echo-session-client` (map error frames to notifications), protocol tasks checklist.
-- Status: completed; unauthorized publishers now receive `E_FORBIDDEN_PUBLISH` errors, gap/diff ordering errors emit structured responses, and clients surface them as error notifications.
+- Status: implemented on branch `echo/rmg-view-protocol-spec` (commit `237460e`); not yet merged to `main`.
 
 > 2025-12-10 — CI cargo-deny index failures (COMPLETED)
 

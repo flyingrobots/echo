@@ -4,6 +4,9 @@
 
 [licenses]
 # Explicit allowlist of common permissive licenses used in our deps.
+# Note: Cargo.lock does not record license metadata; cargo-deny evaluates
+# license expressions from registry metadata (crates.io / git) plus license
+# files when needed.
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
@@ -19,9 +22,13 @@ allow = [
     "Zlib",
     "OFL-1.1",
     "MPL-2.0",
-    # Required by aws-lc-sys (via rustls used by axum-server in echo-session-ws-gateway).
+    # Required by aws-lc-sys' license expression when pulled in via rustls.
+    # Dependency chain: echo-session-ws-gateway -> axum-server[tls-rustls] -> rustls -> aws-lc-sys.
+    # Verify: cargo tree -p echo-session-ws-gateway -e normal | rg '(axum-server|rustls|aws-lc-sys)'
     "OpenSSL",
     # Required by epaint_default_fonts (via egui/epaint in rmg-viewer).
+    # Dependency chain: rmg-viewer -> egui -> epaint -> epaint_default_fonts.
+    # Verify: cargo tree -p rmg-viewer -e normal | rg '(egui|epaint_default_fonts)'
     "Ubuntu-font-1.0",
 ]
 

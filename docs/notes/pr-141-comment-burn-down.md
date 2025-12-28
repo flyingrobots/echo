@@ -15,8 +15,8 @@ This file is a PR-scoped, action-oriented index of review threads → fixing SHA
 
 - Head branch: `echo/wasm-spec-000-scaffold`
 - Base branch: `main`
-- Head commit (at last update): `cf286e9`
-- Latest CodeRabbit review commit: `83576fc` (review submitted 2025-12-28)
+- Head commit (at last update): `46bc079`
+- Latest CodeRabbit review commit: `933239a` (review submitted 2025-12-28)
 
 ### Extraction (paginated, per EXTRACT-PR-COMMENTS procedure)
 
@@ -25,9 +25,9 @@ gh api --paginate repos/flyingrobots/echo/pulls/141/comments > /tmp/pr141-review
 gh api --paginate repos/flyingrobots/echo/issues/141/comments > /tmp/pr141-issue-comments.json
 ```
 
-- PR review comments (inline): 79 total
-  - Top-level: 43
-  - Replies: 36
+- PR review comments (inline): 96 total
+  - Top-level: 61
+  - Replies: 35
 - Issue comments (conversation): 1 (CodeRabbit rate-limit / other-bot note; non-actionable)
 
 ## Buckets (Top-Level Review Comments)
@@ -57,6 +57,10 @@ Notes:
 
 ### P1 — Major
 
+- [x] [r2649699435](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699435) `crates/echo-session-ws-gateway/src/main.rs` — Add negative tests for frame parsing (partial header/body, too-small, payload-too-large). Fixed in `46bc079`.
+- [x] [r2649699436](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699436) `crates/echo-wasm-abi/src/lib.rs` — Remove vestigial `#[serde_as]` usage (no annotations present). Fixed in `46bc079`.
+- [x] [r2649699438](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699438) `crates/echo-wasm-bindings/README.md` — Document API surface with explicit type signatures. Fixed in `46bc079`.
+
 - [x] [r2612251468](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251468) `crates/echo-session-client/src/lib.rs` — Classify protocol errors by code so session-level errors become `Global` notifications. Fixed in `12ecd95`.
 - [x] [r2612251472](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251472) `crates/echo-session-ws-gateway/Cargo.toml` — Upgrade `axum`/`axum-server` to compatible, modern versions. Fixed in `89c2bb1`.
 - [x] [r2612251488](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251488) `crates/echo-session-ws-gateway/src/main.rs` — Don’t swallow task errors; improve logging for debuggability. Fixed in `89c2bb1`.
@@ -70,6 +74,13 @@ Notes:
 - [x] [r2645857687](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857687) `docs/jitos/spec-0000.md` — Replace deprecated serde-on-`JsValue` helpers; keep WASM boundary panic-free. Fixed in `7825d81` + `cf286e9`.
 
 ### P2 — Minor
+
+- [x] [r2649699430](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699430) `crates/echo-session-client/src/lib.rs` — Strengthen test to assert full notification structure (kind/title/body), not just scope. Fixed in `46bc079`.
+- [x] [r2649699439](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699439) `crates/echo-wasm-bindings/src/lib.rs` — Make `add_node` a no-op on duplicate ids to avoid clobbering + semantic ambiguity; add regression test. Fixed in `46bc079`.
+- [x] [r2649699447](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699447) `docs/notes/pr-141-comment-burn-down.md` — Replace bare URL with a Markdown link (MD034). Fixed in `46bc079`.
+- [x] [r2649699453](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699453) `docs/notes/pr-141-comment-burn-down.md` — Capitalize “Markdown” (proper noun). Fixed in `46bc079`.
+- [x] [r2649699463](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699463) `specs/spec-000-rewrite/Cargo.toml` — Replace invalid categories (keep `wasm`, swap out `gui`/`education` for valid crates.io slugs). Fixed in `46bc079`.
+- [x] [r2649699470](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699470) `specs/spec-000-rewrite/spec.md` — Fix MD022 (blank line after headings). Fixed in `46bc079`.
 
 - [x] [r2612251521](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251521) `README.md` — Remove trailing whitespace / tighten formatting. Fixed in `cf286e9`.
 - [x] [r2645857690](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857690) `README.md` — Add alt text to images. Fixed in `cf286e9`.
@@ -85,6 +96,16 @@ Notes:
 - [x] [r2612251512](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251512) `docs/spec-concurrency-and-authoring.md` — Clarify that `echo::delay()`/`echo::emit()` are Echo host functions (not built-in Rhai). Fixed in `6238c98`.
 
 ### P3 — Trivial
+
+- [x] [r2649699428](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699428) `crates/echo-session-client/src/lib.rs` — Extract the `>= 400` scope threshold into a named constant. Fixed in `46bc079`.
+- [x] [r2649699432](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699432) `crates/echo-session-ws-gateway/README.md` — Add language to fenced code blocks (MD040). Fixed in `46bc079`.
+- [x] [r2649699434](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699434) `crates/echo-session-ws-gateway/src/main.rs` — Add rustdoc for JS-ABI constants (frame structure intent). Fixed in `46bc079`.
+- [x] [r2649699437](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699437) `crates/echo-wasm-abi/src/lib.rs` — Broaden serialization tests to cover all `SemanticOp` variants. Fixed in `46bc079`.
+- [x] [r2649699441](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699441) `crates/echo-wasm-bindings/tests/api_tests.rs` — “Edge-case coverage significantly improved” (ack; no action required). Fixed in `46bc079`.
+- [x] [r2649699442](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699442) `docs/jitos/spec-0000.md` — Remove interactive “Which one do you want me to generate next?” prompt from the spec doc. Fixed in `46bc079`.
+- [x] [r2649699444](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699444) `docs/notes/pr-141-comment-burn-down.md` — Explain relationship to `docs/decision-log.md` and define a retention policy. Fixed in `46bc079`.
+- [x] [r2649699466](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699466) `specs/spec-000-rewrite/index.html` — Add an explicit note about keeping CSS inline for Phase 0 (extraction planned later). Fixed in `46bc079`.
+- [x] [r2649699471](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699471) `WASM-TASKS.md` / `docs/tasks.md` — Add automated enforcement for “task lists must not contradict themselves” (pre-commit + CI). Fixed in `46bc079`.
 
 - [x] [r2612251483](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251483) `crates/echo-session-ws-gateway/src/main.rs` — Avoid immediate ping tick (let handshake settle). Fixed in `89c2bb1`.
 - [x] [r2645857635](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857635) `crates/echo-session-ws-gateway/src/main.rs` — Log rejected Origin values for debugging. Fixed in `89c2bb1`.

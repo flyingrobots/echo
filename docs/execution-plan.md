@@ -35,11 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-28 — PR #141 follow-up (new review comments + CI fixes) (IN PROGRESS)
+> 2025-12-28 — PR #141 follow-up (new review comments + CI fixes) (COMPLETED)
 
 - Goal: resolve newly posted PR review comments on #141, fix failing CI jobs, and ship a clean follow-up push.
 - Scope: re-extract review comments with pagination; bucket by severity; implement fixes with tests + docs; inspect the latest GitHub Actions run and repair failing jobs/workflows if needed; post one consolidated PR summary comment with fix SHAs.
 - Exit criteria: PR checks green; new review comments addressed; `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; follow-up summary comment posted.
+- Evidence: follow-up fixes landed in `46bc079` (see `docs/notes/pr-141-comment-burn-down.md`).
 
 > 2025-12-28 — PR #141 review comment burn-down (COMPLETED)
 

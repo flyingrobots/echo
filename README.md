@@ -31,20 +31,20 @@
 
 ## **tl;dr:**
 
-> Echo is a recursive metagraph (RMG) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
+> Echo is a WARP Graph (Worldline Algebra for Recursive Provenance) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
 > It’s built so every change can branch, merge, and replay perfectly.
 
 <img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="400" align="right" />
 
 ### Say what??
 
-**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The RMG is a powerful mathematical tool that brings the full weight of textbook category theory to interactive computational experiences. 
+**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The [WARP graph is a powerful mathematical tool](https://doi.org/10.5281/zenodo.17908005) that brings the full weight of textbook category theory to interactive computational experiences. 
 
 Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
 
 Echo is fundamentally **built different**.
 
-RMG provides atomic, in-place edits of recursive meta-graphs with deterministic local scheduling and snapshot isolation. It’s the core of the Echo engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
+WARP provides atomic, in-place edits of WARP graphs with deterministic local scheduling and snapshot isolation. Yep, Echo is powered by a **WARP core** engine: runtime, assets, networking, and tools all operate on the same living graph of graphs.
 
 Echo is a mathematically rigorous game engine that replaces traditional OOP with deterministic graph rewriting, enabling time-travel debugging, perfect replay, and Git-like branching for game states.
 
@@ -66,7 +66,7 @@ Echo is a mathematically rigorous game engine that replaces traditional OOP with
 
 ### What's Echo?
 
-Echo runs on something called an **RMG (Recursive Meta-Graph)**. Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
+Echo runs on something called a [**WARP Graph (Worldline Algebra for Recursive Provenance)**](https://doi.org/10.5281/zenodo.17908005). Think of it as a graph-based operating system. Everything in the engine (worlds, entities, physics, shaders, even the tools) lives inside that graph.
 
 Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
 
@@ -89,7 +89,7 @@ Echo follows the JITOS Engineering Standard: every SPEC is simultaneously docume
 
 ### In Plain English
 
-Echo feels like if Minecraft, Git, and a physics engine had a baby that understood time travel.
+Lots of math that would make your eyes pop out -> ECHO.
 You can pause time, fork a copy of reality, try out a new idea, and merge the timelines back together, without breaking determinism.
 
 ---
@@ -157,7 +157,7 @@ Echo is a Rust workspace organized into a multi-crate setup. The core engine is 
 ```bash
 echo/
 ├── crates/
-│   ├── rmg-core/        (Core engine: RMG, scheduler, transaction model, snapshotting)
+│   ├── rmg-core/        (Core engine: WARP, scheduler, transaction model, snapshotting)
 │   ├── rmg-geom/        (Geometry primitives: AABB, transforms, broad-phase)
 │   ├── rmg-benches/     (Criterion microbenchmarks: snapshot_hash, scheduler_drain)
 │   ├── rmg-wasm/        (WebAssembly bindings for tools and web)
@@ -178,22 +178,14 @@ echo/
 
 ### Key Technical Concepts
 
-#### Recursive Meta Graph Core
+#### WARP Graph Core
 
-The engine operates on typed, directed graphs:
+The engine operates on WARP graphs. You can learn about them by reading the AIΩN Foundations Serires (why, yes, I am the author):
 
-- Nodes = typed entities with component data
-- Edges = typed relationships between nodes
-- Rules = deterministic transformations that match patterns and rewrite subgraphs
-
-All identifiers are 256-bit BLAKE3 hashes with domain separation:
-
-```rust
-pub type Hash = [u8; 32];
-pub struct NodeId(pub Hash);   // Entities
-pub struct TypeId(pub Hash);   // Type descriptors
-pub struct EdgeId(pub Hash);   // Relationships
-```
+[Paper 1](https://doi.org/10.5281/zenodo.17908005) introduces the WARP graph.  
+[Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.  
+[Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.  
+... there are other papers, but they are less directly relevant in this context.  
 
 #### Deterministic Rewriting
 
@@ -219,7 +211,7 @@ Two hashes per commit:
 - `state_root`: BLAKE3 of canonical graph encoding (sorted nodes/edges)
 - `commit_id`: BLAKE3 of commit header (`state_root` + parent + plan + decisions + rewrites)
 
-### Footprints & Independence (MWMR)
+### Footprints & Independence (Many Writers + Many Readers)
 
 For parallel rewriting:
 
@@ -232,7 +224,7 @@ struct Footprint {
 }
 ```
 
-Disjoint footprints = independent rewrites = safe parallel execution.
+Disjoint footprints = independent rewrites = safe parallel execution. **The scheduler ensures deterministic confluent concurrency.**
 
 ### Component Interaction
 
@@ -293,7 +285,7 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 
 - `README.md` — Project vision
 - `docs/architecture-outline.md` — Full system design
-- `docs/spec-rmg-core.md` — RMG Core spec v2
+- `docs/spec-rmg-core.md` — WARP Core spec v2
 - `docs/spec-merkle-commit.md` — Snapshot hashing spec
 - `docs/spec-scheduler.md` — Deterministic scheduler design
 
@@ -309,7 +301,7 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 - `crates/rmg-core/tests/permutation_commute_tests.rs` — Determinism proofs
 - `crates/rmg-benches/benches/snapshot_hash.rs` — Hashing throughput
 
-## Developer: Running Benchmarks
+#### Running Benchmarks
 
 - Command (live dashboard): `make bench-report`
   - Runs `cargo bench -p rmg-benches`, starts a local server, and opens the dashboard at `http://localhost:8000/docs/benchmarks/`.

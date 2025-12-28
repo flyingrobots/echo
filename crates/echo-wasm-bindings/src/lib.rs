@@ -70,20 +70,30 @@ impl DemoKernel {
             id: self.history.len() as u64,
             op: SemanticOp::AddNode,
             target: node_id,
+            subject: None,
             old_value: None,
             new_value: None,
         });
     }
 
     /// Set a field value on a node.
+    ///
+    /// Records a [`Rewrite`] with:
+    ///
+    /// - `target = node_id`
+    /// - `subject = Some(field_name)`
+    /// - `old_value = prior field value` (or `None` if the field was missing)
+    /// - `new_value = new field value`
     pub fn set_field(&mut self, target: String, field: String, value: Value) {
         if let Some(node) = self.graph.nodes.get_mut(&target) {
+            let prior_value = node.fields.get(&field).cloned();
             node.fields.insert(field.clone(), value.clone());
             self.history.push(Rewrite {
                 id: self.history.len() as u64,
                 op: SemanticOp::Set,
                 target,
-                old_value: Some(Value::Str(field)),
+                subject: Some(field),
+                old_value: prior_value,
                 new_value: Some(value),
             });
         }
@@ -105,6 +115,7 @@ impl DemoKernel {
             id: self.history.len() as u64,
             op: SemanticOp::Connect,
             target: from_id,
+            subject: None,
             old_value: None,
             new_value: Some(Value::Str(to_id)),
         });
@@ -120,6 +131,7 @@ impl DemoKernel {
                 id: self.history.len() as u64,
                 op: SemanticOp::DeleteNode,
                 target,
+                subject: None,
                 old_value: None,
                 new_value: None,
             });

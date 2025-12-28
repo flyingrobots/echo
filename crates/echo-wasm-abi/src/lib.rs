@@ -103,6 +103,7 @@ pub enum SemanticOp {
 ///
 /// - `id` is expected to be monotonic within a single history (the demo kernel uses `0..n`).
 /// - `target` is the primary node id the operation is about.
+/// - `subject` is an optional secondary identifier (e.g., field name for `Set`).
 /// - `old_value` / `new_value` are intentionally generic to keep the DTO small; their meaning is
 ///   operation-dependent (see below).
 ///
@@ -110,8 +111,8 @@ pub enum SemanticOp {
 ///
 /// - [`SemanticOp::AddNode`]: `target = node_id`, values are `None`.
 /// - [`SemanticOp::DeleteNode`]: `target = node_id`, values are `None`.
-/// - [`SemanticOp::Set`]: `target = node_id`, `old_value = Some(Value::Str(field_name))`,
-///   `new_value = Some(new_field_value)`.
+/// - [`SemanticOp::Set`]: `target = node_id`, `subject = Some(field_name)`,
+///   `old_value = Some(prior_value)` (or `None`), and `new_value = Some(new_value)`.
 /// - [`SemanticOp::Connect`]: `target = from_id`, `new_value = Some(Value::Str(to_id))`.
 /// - [`SemanticOp::Disconnect`]: same encoding as `Connect`, but interpreted as removal.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -122,6 +123,10 @@ pub struct Rewrite {
     pub op: SemanticOp,
     /// Target node id.
     pub target: NodeId,
+    /// Optional secondary identifier for the operation.
+    ///
+    /// For [`SemanticOp::Set`] this is the field name.
+    pub subject: Option<String>,
     /// Prior value (if any).
     pub old_value: Option<Value>,
     /// New value (if any).
@@ -139,6 +144,7 @@ mod tests {
                 id: 1,
                 op: SemanticOp::AddNode,
                 target: "A".into(),
+                subject: None,
                 old_value: None,
                 new_value: None,
             },
@@ -146,13 +152,15 @@ mod tests {
                 id: 2,
                 op: SemanticOp::Set,
                 target: "A".into(),
-                old_value: Some(Value::Str("name".into())),
+                subject: Some("name".into()),
+                old_value: Some(Value::Str("Prior".into())),
                 new_value: Some(Value::Str("Server".into())),
             },
             Rewrite {
                 id: 3,
                 op: SemanticOp::Connect,
                 target: "A".into(),
+                subject: None,
                 old_value: None,
                 new_value: Some(Value::Str("B".into())),
             },
@@ -160,6 +168,7 @@ mod tests {
                 id: 4,
                 op: SemanticOp::Disconnect,
                 target: "A".into(),
+                subject: None,
                 old_value: None,
                 new_value: Some(Value::Str("B".into())),
             },
@@ -167,6 +176,7 @@ mod tests {
                 id: 5,
                 op: SemanticOp::DeleteNode,
                 target: "A".into(),
+                subject: None,
                 old_value: None,
                 new_value: None,
             },

@@ -77,3 +77,29 @@ fn add_node_duplicate_id_is_noop_and_does_not_clobber_fields() {
     assert_eq!(history[0].op, SemanticOp::AddNode);
     assert_eq!(history[1].op, SemanticOp::Set);
 }
+
+#[test]
+fn set_field_logs_subject_and_prior_value() {
+    let mut k = DemoKernel::new();
+    k.add_node("A".into());
+
+    k.set_field("A".into(), "name".into(), Value::Str("Server".into()));
+    k.set_field("A".into(), "name".into(), Value::Str("Client".into()));
+
+    let history = k.history();
+    assert_eq!(history.len(), 3);
+
+    let first_set = &history[1];
+    assert_eq!(first_set.op, SemanticOp::Set);
+    assert_eq!(first_set.target, "A");
+    assert_eq!(first_set.subject.as_deref(), Some("name"));
+    assert_eq!(first_set.old_value, None);
+    assert_eq!(first_set.new_value, Some(Value::Str("Server".into())));
+
+    let second_set = &history[2];
+    assert_eq!(second_set.op, SemanticOp::Set);
+    assert_eq!(second_set.target, "A");
+    assert_eq!(second_set.subject.as_deref(), Some("name"));
+    assert_eq!(second_set.old_value, Some(Value::Str("Server".into())));
+    assert_eq!(second_set.new_value, Some(Value::Str("Client".into())));
+}

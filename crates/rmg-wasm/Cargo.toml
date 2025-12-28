@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
 keywords = ["echo", "wasm", "ecs", "deterministic"]
-categories = ["wasm", "game-engines"]
+categories = ["game-engines"]
 
 [lib]
 crate-type = ["cdylib"]

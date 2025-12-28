@@ -210,9 +210,14 @@ fn run_message_loop(
                 let _ = notif_tx.send(n);
             }
             Ok((Message::Error(err), _, _)) => {
+                let scope = if err.code >= 400 {
+                    NotifyScope::Global
+                } else {
+                    NotifyScope::Local
+                };
                 let _ = notif_tx.send(Notification {
                     kind: NotifyKind::Error,
-                    scope: NotifyScope::Local,
+                    scope,
                     title: format!("{} ({})", err.name, err.code),
                     body: Some(err.message),
                 });
@@ -226,8 +231,54 @@ fn run_message_loop(
 mod tests {
     use super::*;
     use echo_session_proto::{NotifyKind, NotifyScope};
+    use std::time::Duration;
     use tokio::io::AsyncWriteExt;
     use tokio::task;
+
+    #[test]
+    fn run_message_loop_classifies_error_scope_by_code() {
+        let (client_stream, mut server_stream) = UnixStream::pair().unwrap();
+
+        let (rmg_tx, _rmg_rx) = mpsc::channel();
+        let (notif_tx, notif_rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            run_message_loop(client_stream, 1, rmg_tx, notif_tx);
+        });
+
+        let encoded_global = encode_message(
+            Message::Error(echo_session_proto::ErrorPayload {
+                code: 403,
+                name: "E_FORBIDDEN_PUBLISH".into(),
+                details: None,
+                message: "forbidden".into(),
+            }),
+            1,
+        )
+        .unwrap();
+        server_stream.write_all(&encoded_global).unwrap();
+
+        let encoded_local = encode_message(
+            Message::Error(echo_session_proto::ErrorPayload {
+                code: 3,
+                name: "E_BAD_PAYLOAD".into(),
+                details: None,
+                message: "bad payload".into(),
+            }),
+            2,
+        )
+        .unwrap();
+        server_stream.write_all(&encoded_local).unwrap();
+        drop(server_stream);
+
+        let n1 = notif_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(n1.scope, NotifyScope::Global);
+
+        let n2 = notif_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(n2.scope, NotifyScope::Local);
+
+        handle.join().unwrap();
+    }
 
     #[tokio::test]
     async fn poll_message_handles_partial_header_without_losing_bytes() {

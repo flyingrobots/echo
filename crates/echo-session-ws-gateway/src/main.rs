@@ -6,6 +6,7 @@
 use std::{collections::HashSet, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
+use axum::body::Bytes;
 use axum::{
     extract::ws::{Message, WebSocket},
     extract::{ConnectInfo, State, WebSocketUpgrade},
@@ -17,6 +18,7 @@ use axum::{
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
+use tokio::task::JoinError;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
@@ -25,6 +27,11 @@ use tokio::{
 };
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+const JS_ABI_HEADER_BYTES: usize = 12;
+const JS_ABI_HASH_BYTES: usize = 32;
+const JS_ABI_OVERHEAD_BYTES: usize = JS_ABI_HEADER_BYTES + JS_ABI_HASH_BYTES;
+type TaskResult<T> = std::result::Result<T, JoinError>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Echo session WebSocket gateway")]
@@ -123,21 +130,41 @@ async fn ws_handler(
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     if !origin_allowed(&state, &headers) {
-        warn!(?addr, "origin rejected");
+        let origin = headers
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("<missing>");
+        warn!(?addr, origin = %origin, "origin rejected");
         return StatusCode::FORBIDDEN.into_response();
     }
     ws.on_upgrade(move |socket| handle_socket(socket, state, addr))
 }
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: SocketAddr) {
-    let unix = match UnixStream::connect(&state.unix_socket).await {
-        Ok(stream) => stream,
-        Err(err) => {
-            error!(?err, "failed to connect to unix socket");
+    let socket_path = state.unix_socket.clone();
+    let unix = match time::timeout(Duration::from_secs(2), UnixStream::connect(&socket_path)).await
+    {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(err)) => {
+            error!(?err, path = %socket_path.display(), "failed to connect to unix socket");
             let _ = socket
                 .send(Message::Close(Some(axum::extract::ws::CloseFrame {
                     code: axum::extract::ws::close_code::ERROR,
                     reason: "upstream unavailable".into(),
+                })))
+                .await;
+            return;
+        }
+        Err(_) => {
+            warn!(
+                ?peer,
+                path = %socket_path.display(),
+                "timed out connecting to unix socket"
+            );
+            let _ = socket
+                .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                    code: axum::extract::ws::close_code::ERROR,
+                    reason: "upstream connect timeout".into(),
                 })))
                 .await;
             return;
@@ -163,14 +190,28 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
     let uds_to_ws = tokio::spawn(async move {
         let mut buf = vec![0u8; 16 * 1024];
         let mut acc: Vec<u8> = Vec::with_capacity(32 * 1024);
+        let max_acc = max_len
+            .saturating_add(JS_ABI_OVERHEAD_BYTES)
+            .saturating_add(buf.len());
         loop {
             let n = uds_reader.read(&mut buf).await?;
             if n == 0 {
                 break;
             }
             acc.extend_from_slice(&buf[..n]);
+            if acc.len() > max_acc {
+                return Err(anyhow!(
+                    "accumulator overflow ({} > {}): malformed upstream framing",
+                    acc.len(),
+                    max_acc
+                ));
+            }
             while let Some(pkt) = try_extract_frame(&mut acc, max_len)? {
-                if out_tx_clone.send(Message::Binary(pkt)).await.is_err() {
+                if out_tx_clone
+                    .send(Message::Binary(pkt.into()))
+                    .await
+                    .is_err()
+                {
                     return Ok::<(), anyhow::Error>(());
                 }
             }
@@ -215,18 +256,21 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
     let ping_tx = out_tx.clone();
     let ping = tokio::spawn(async move {
         let mut interval = time::interval(Duration::from_secs(30));
+        // tokio::time::interval() ticks immediately; discard the first tick so we
+        // don't ping before the handshake has a chance to settle.
+        interval.tick().await;
         loop {
             interval.tick().await;
-            if ping_tx.send(Message::Ping(Vec::new())).await.is_err() {
+            if ping_tx.send(Message::Ping(Bytes::new())).await.is_err() {
                 break;
             }
         }
     });
 
     enum EndReason {
-        Client,
-        Upstream,
-        Writer,
+        Client(TaskResult<()>),
+        Upstream(TaskResult<Result<(), anyhow::Error>>),
+        Writer(TaskResult<()>),
     }
 
     let mut ws_to_uds = ws_to_uds;
@@ -234,12 +278,25 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
     let mut writer = writer;
 
     let reason: EndReason = tokio::select! {
-        _ = &mut ws_to_uds => EndReason::Client,
-        _ = &mut uds_to_ws => EndReason::Upstream,
-        _ = &mut writer => EndReason::Writer,
+        res = &mut ws_to_uds => EndReason::Client(res),
+        res = &mut uds_to_ws => EndReason::Upstream(res),
+        res = &mut writer => EndReason::Writer(res),
     };
 
-    if matches!(reason, EndReason::Upstream) {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum EndKind {
+        Client,
+        Upstream,
+        Writer,
+    }
+
+    let end_kind = match &reason {
+        EndReason::Client(_) => EndKind::Client,
+        EndReason::Upstream(_) => EndKind::Upstream,
+        EndReason::Writer(_) => EndKind::Writer,
+    };
+
+    if matches!(end_kind, EndKind::Upstream) {
         warn!(?peer, "upstream disconnected; closing websocket");
         let _ = time::timeout(
             Duration::from_millis(250),
@@ -258,29 +315,36 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
     drop(out_tx);
 
     // Best-effort flush for the close frame; force-cancel on slow/broken clients.
-    if !matches!(reason, EndReason::Writer)
-        && time::timeout(Duration::from_secs(1), &mut writer)
-            .await
-            .is_err()
-    {
-        writer.abort();
-        let _ = writer.await;
+    if !matches!(end_kind, EndKind::Writer) {
+        match time::timeout(Duration::from_secs(1), &mut writer).await {
+            Ok(res) => log_void_task_result("writer", peer, res),
+            Err(_) => {
+                writer.abort();
+                log_void_task_result("writer", peer, writer.await);
+            }
+        }
     }
 
     match reason {
-        EndReason::Client => {
-            let _ = uds_to_ws.await;
-        }
-        EndReason::Upstream => {
-            let _ = ws_to_uds.await;
-        }
-        EndReason::Writer => {
-            let _ = ws_to_uds.await;
-            let _ = uds_to_ws.await;
-        }
+        EndReason::Client(res) => log_void_task_result("ws_to_uds", peer, res),
+        EndReason::Upstream(res) => log_result_task_result("uds_to_ws", peer, res),
+        EndReason::Writer(res) => log_void_task_result("writer", peer, res),
     }
 
-    let _ = ping.await;
+    // Await the aborted tasks to surface panics (cancellation is expected).
+    log_void_task_result("ping", peer, ping.await);
+    match end_kind {
+        EndKind::Client => {
+            log_result_task_result("uds_to_ws", peer, uds_to_ws.await);
+        }
+        EndKind::Upstream => {
+            log_void_task_result("ws_to_uds", peer, ws_to_uds.await);
+        }
+        EndKind::Writer => {
+            log_void_task_result("ws_to_uds", peer, ws_to_uds.await);
+            log_result_task_result("uds_to_ws", peer, uds_to_ws.await);
+        }
+    }
 }
 
 fn origin_allowed(state: &AppState, headers: &HeaderMap) -> bool {
@@ -295,18 +359,40 @@ fn origin_allowed(state: &AppState, headers: &HeaderMap) -> bool {
     false
 }
 
+fn log_void_task_result(name: &'static str, peer: SocketAddr, res: TaskResult<()>) {
+    match res {
+        Ok(()) => {}
+        Err(err) => log_join_error(name, peer, err),
+    }
+}
+
+fn log_result_task_result(
+    name: &'static str,
+    peer: SocketAddr,
+    res: TaskResult<Result<(), anyhow::Error>>,
+) {
+    match res {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => warn!(?peer, ?err, "{name} task returned error"),
+        Err(err) => log_join_error(name, peer, err),
+    }
+}
+
+fn log_join_error(name: &'static str, peer: SocketAddr, err: JoinError) {
+    if err.is_cancelled() {
+        return;
+    }
+    if err.is_panic() {
+        error!(?peer, ?err, "{name} task panicked");
+    } else {
+        warn!(?peer, ?err, "{name} task failed");
+    }
+}
+
 fn validate_frame(buf: &[u8], max: usize) -> Result<()> {
-    if buf.len() < 12 {
+    let Some(frame_len) = try_frame_len(buf, max)? else {
         return Err(anyhow!("frame too small"));
-    }
-    let len = u32::from_be_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
-    if len > max {
-        return Err(anyhow!("payload too large"));
-    }
-    let frame_len = 12usize
-        .checked_add(len)
-        .and_then(|v| v.checked_add(32))
-        .ok_or_else(|| anyhow!("frame length overflow"))?;
+    };
     if buf.len() != frame_len {
         return Err(anyhow!("frame length mismatch"));
     }
@@ -314,17 +400,9 @@ fn validate_frame(buf: &[u8], max: usize) -> Result<()> {
 }
 
 fn try_extract_frame(acc: &mut Vec<u8>, max: usize) -> Result<Option<Vec<u8>>> {
-    if acc.len() < 12 {
+    let Some(frame_len) = try_frame_len(acc, max)? else {
         return Ok(None);
-    }
-    let len = u32::from_be_bytes([acc[8], acc[9], acc[10], acc[11]]) as usize;
-    if len > max {
-        return Err(anyhow!("payload too large"));
-    }
-    let frame_len = 12usize
-        .checked_add(len)
-        .and_then(|v| v.checked_add(32))
-        .ok_or_else(|| anyhow!("frame length overflow"))?;
+    };
     if acc.len() < frame_len {
         return Ok(None);
     }
@@ -332,7 +410,62 @@ fn try_extract_frame(acc: &mut Vec<u8>, max: usize) -> Result<Option<Vec<u8>>> {
     Ok(Some(pkt))
 }
 
+fn try_frame_len(buf: &[u8], max_payload: usize) -> Result<Option<usize>> {
+    if buf.len() < JS_ABI_HEADER_BYTES {
+        return Ok(None);
+    }
+    let payload_len = u32::from_be_bytes([buf[8], buf[9], buf[10], buf[11]]) as usize;
+    if payload_len > max_payload {
+        return Err(anyhow!("payload too large"));
+    }
+    let frame_len = JS_ABI_HEADER_BYTES
+        .checked_add(payload_len)
+        .and_then(|v| v.checked_add(JS_ABI_HASH_BYTES))
+        .ok_or_else(|| anyhow!("frame length overflow"))?;
+    Ok(Some(frame_len))
+}
+
 async fn load_tls(cert_path: PathBuf, key_path: PathBuf) -> Result<RustlsConfig> {
     let cfg = RustlsConfig::from_pem_file(cert_path, key_path).await?;
     Ok(cfg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_frame(payload_len: usize) -> Vec<u8> {
+        let mut buf = vec![0u8; JS_ABI_HEADER_BYTES + payload_len + JS_ABI_HASH_BYTES];
+        buf[8..12].copy_from_slice(&(payload_len as u32).to_be_bytes());
+        buf
+    }
+
+    #[test]
+    fn validate_frame_accepts_exact_frame_len() {
+        let frame = make_frame(5);
+        validate_frame(&frame, 5).expect("valid frame");
+    }
+
+    #[test]
+    fn validate_frame_rejects_len_mismatch() {
+        let mut frame = make_frame(5);
+        frame.push(0u8);
+        let err = validate_frame(&frame, 5).expect_err("expected mismatch");
+        assert!(err.to_string().contains("length mismatch"));
+    }
+
+    #[test]
+    fn try_extract_frame_drains_one_frame_and_preserves_remainder() {
+        let f1 = make_frame(2);
+        let f2 = make_frame(3);
+        let mut acc = [f1.clone(), f2.clone()].concat();
+
+        let pkt1 = try_extract_frame(&mut acc, 3).unwrap().expect("pkt1");
+        assert_eq!(pkt1, f1);
+        assert_eq!(acc, f2);
+
+        let pkt2 = try_extract_frame(&mut acc, 3).unwrap().expect("pkt2");
+        assert_eq!(pkt2, f2);
+        assert!(acc.is_empty());
+    }
 }

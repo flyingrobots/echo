@@ -231,6 +231,8 @@ impl Engine {
                 disposition: if accepted {
                     TickReceiptDisposition::Applied
                 } else {
+                    // NOTE: reserve() currently only rejects for footprint conflicts.
+                    // If additional rejection reasons are added, update this mapping.
                     TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
                 },
             });

@@ -59,7 +59,7 @@ Canonical encoding (v1) for the tick receipt digest:
   - For each entry (in canonical plan order):
     - `rule_id: 32`
     - `scope_hash: 32`
-    - `scope: 32`
+    - `scope: 32` (raw 32-byte `NodeId` inner value: `NodeId.0`)
     - `disposition_code: u8`
       - `1` = Applied
       - `2` = Rejected(FootprintConflict)

@@ -104,7 +104,7 @@ These tables are intentionally “backlog-driving”: they identify what exists 
 
 **Core idea:** a *WARP graph* is either an **atom** (`Atom(p)` for opaque payload `p`) or a **finite directed multigraph skeleton** whose vertices and edges carry attached WARPs.
 
-**Why this matters for Echo:**
+**Relevance to Echo:**
 
 - Echo’s “everything is a graph” story is Paper I’s substrate claim.
 - Echo’s current engine spike (`warp-core`) implements a *flat* typed graph store (`GraphStore` with node/edge records + payload bytes).
@@ -124,7 +124,7 @@ These tables are intentionally “backlog-driving”: they identify what exists 
 - Deterministic scheduling comes from a deterministic total order on candidates (“left-most wins”).
 - Optional **tick receipts** record accepted vs rejected candidates and *why* (a poset of blocking causality).
 
-**Why this matters for Echo:**
+**Relevance to Echo:**
 
 - Echo’s runtime determinism is largely “Paper II made executable”:
   - collect candidate rewrites,
@@ -156,7 +156,7 @@ These tables are intentionally “backlog-driving”: they identify what exists 
 - prefix forks: Git-like branching via shared-prefix dedupe under content addressing
 - wormholes: compress multi-tick segments into a single edge carrying a sub-payload
 
-**Why this matters for Echo:**
+**Relevance to Echo:**
 
 - Echo already treats hashing and canonical encoding as “truth checks”.
 - Echo’s session pipeline is essentially a practical “boundary stream”:
@@ -183,7 +183,7 @@ This paper also formalizes the three-layer time model used throughout Echo docs:
 - **Kairos:** branch events / loci of alternative continuations
 - **Aion:** the full possibility space (history category; “Ruliad” as a large disjoint union)
 
-**Why this matters for Echo:**
+**Relevance to Echo:**
 
 - Echo’s Chronos/Kairos/Aion language isn’t “theme”; it’s an architectural partitioning of:
   - replay time,

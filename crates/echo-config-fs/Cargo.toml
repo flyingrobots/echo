@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [package]
 name = "echo-config-fs"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83.0"
+rust-version = "1.90.0"
 license = "Apache-2.0"
 description = "Filesystem-backed ConfigStore adapter for Echo tools"
 repository = "https://github.com/flyingrobots/echo"
@@ -14,4 +14,4 @@ categories = ["development-tools", "config"]
 
 [dependencies]
 directories = "5"
-echo-app-core = { path = "../echo-app-core" }
+echo-app-core = { version = "0.1.0", path = "../echo-app-core" }

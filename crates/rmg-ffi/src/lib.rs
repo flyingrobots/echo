@@ -3,7 +3,7 @@
 
 //! C-compatible bindings for the motion rewrite spike.
 //!
-//! This module exposes a minimal ABI that higher-level languages (Lua, Python,
+//! This module exposes a minimal ABI that higher-level languages (Rhai host modules, Python,
 //! etc.) can use to interact with the deterministic engine without knowing the
 //! internal Rust types.
 #![deny(missing_docs)]

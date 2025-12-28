@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-session-ws-gateway"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+description = "WebSocket to Unix-socket bridge for the Echo session hub (browser clients -> JS-ABI frames)"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "rmg", "websocket", "gateway", "wasm"]
+categories = ["network-programming", "web-programming", "asynchronous"]
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["ws"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
+clap = { version = "4", features = ["derive"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

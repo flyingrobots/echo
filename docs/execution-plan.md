@@ -35,6 +35,78 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit nits @ `4469b9e`) (COMPLETED)
+
+- Goal: address the two newly posted CodeRabbit nitpicks on PR #141 (latest review on commit `4469b9e`).
+- Scope: bucket new actionable threads; implement fixes (incl. rust-version guard + workspace package metadata inheritance) with tests where applicable; update burn-down index + decision log; reply on each thread with fix SHAs; land PR.
+- Exit criteria: pre-push hooks green; `gh pr checks 141` green; explicit PR comment posted mapping issue IDs → fixing SHAs; PR merged.
+- Evidence: rust-version guard now supports `rust-version.workspace = true` + avoids `sed` (`7e84b16`); Spec-000 rewrite inherits shared package metadata from `[workspace.package]` (`e4e5c19`).
+
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit review @ `639235b`) (COMPLETED)
+
+- Goal: address newly posted CodeRabbit review comments on PR #141 (latest review on commit `639235b`), including any high-priority blockers.
+- Scope: re-extract paginated PR comments; bucket new actionable threads; implement fixes with tests + doc alignment; update burn-down index + consolidated PR comment with fix SHAs.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --all-targets -- -D warnings -D missing_docs` green; PR checks green; explicit PR comment posted mapping issue IDs → fixing SHAs.
+- Evidence: restore `"wasm"` categories in `84e63d3`; Spec-000 docs fixes in `922553f`; workspace dep cleanup in `dfa938a`; CI + rust-version guard hardening in `56a37f8`.
+
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit review @ `b563359`) (COMPLETED)
+
+- Goal: address newly posted CodeRabbit review comments on PR #141 (including minor/nitpick) and repair any newly failing CI jobs.
+- Scope: re-extract paginated PR comments; bucket by severity; implement fixes with tests + doc alignment; update burn-down index + consolidated PR comment with fix SHAs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D warnings -D missing_docs` green; PR checks green; consolidated summary comment updated with fix SHAs.
+- Evidence: MSRV standardization + CI guard in `0f8e95d`; workspace deps fixes in `150415b` + `2ee0a07`; audit ignore DRY in `3570069` + `e5954e4`; deny license justification in `3e5b52d`; remove `"wasm"` categories in `3ccaf47`; stale advisory ignore removed in `1bf90d3`; Makefile guard rails in `8db8ac6`; doc style tweaks in `82fce3f`.
+
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit comments after `c8111ec`) (COMPLETED)
+
+- Goal: address newly posted CodeRabbit review comments on PR #141 (including minor/nitpick) and ship a clean follow-up push.
+- Scope: re-extract paginated PR comments; bucket by severity; implement fixes with tests + doc alignment; update burn-down index + consolidated PR comment with fix SHAs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D warnings -D missing_docs` green; PR checks green; consolidated summary comment updated with new SHAs.
+- Evidence: task-list/CI hardening in `602ba1e`, SPDX policy alignment in `042ec2b`, follow-up nits in `5086881`, docs fixes in `6ee8811` + `a55e1e0`, deny justification in `17687f2`.
+
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit round: Leptos bump + Rewrite semantics) (COMPLETED)
+
+- Goal: address newly posted PR #141 review comments (Leptos 0.8.15 bump + fix `Rewrite` semantics around `old_value`) and ship a clean follow-up push.
+- Scope: re-extract review comments with pagination; implement fixes with tests + doc alignment; re-check CI and repair any failing jobs; post one consolidated PR summary comment with fix SHAs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D warnings -D missing_docs` green; PR checks green; summary comment updated with new fix SHAs.
+- Evidence: `Rewrite` semantics fix in `1f36f77`, Leptos bump in `1a0c870`, and the refreshed burn-down index in `docs/notes/pr-141-comment-burn-down.md`.
+
+> 2025-12-28 — PR #141 follow-up (new review comments + CI fixes) (COMPLETED)
+
+- Goal: resolve newly posted PR review comments on #141, fix failing CI jobs, and ship a clean follow-up push.
+- Scope: re-extract review comments with pagination; bucket by severity; implement fixes with tests + docs; inspect the latest GitHub Actions run and repair failing jobs/workflows if needed; post one consolidated PR summary comment with fix SHAs.
+- Exit criteria: PR checks green; new review comments addressed; `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; follow-up summary comment posted.
+- Evidence: follow-up fixes landed in `46bc079` (see `docs/notes/pr-141-comment-burn-down.md`).
+
+> 2025-12-28 — PR #141 review comment burn-down (COMPLETED)
+
+- Goal: extract, bucket, and resolve every PR comment on #141 with tests, fixes, and doc alignment.
+- Scope: use `gh` + API to enumerate review + issue comments; verify stale vs actionable; implement fixes with minimal deterministic surface changes; update `docs/decision-log.md` and any impacted specs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; PR thread includes fix SHAs; branch is pushable. (See `docs/notes/pr-141-comment-burn-down.md` @ `933239a`, PR comment: <https://github.com/flyingrobots/echo/pull/141#issuecomment-3694739980>)
+
+> 2025-12-13 — WS gateway disconnect hygiene + Spec-000 WASM gating (COMPLETED)
+
+- Goal: keep `cargo build`/`cargo test` green for the host target while still supporting `trunk serve` (wasm32) builds.
+- Scope: gate `spec-000-rewrite` WASM entry points correctly; ensure `echo-session-ws-gateway` closes WS + stops ping task when upstream UDS disconnects.
+- Status: completed; Spec-000 entrypoint is wasm32-gated and the WS gateway now closes + cancels ping on upstream disconnect. (PR #141: commits `2fec335`, `970a4b5`)
+
+> 2025-12-11 — WebSocket gateway for session hub (COMPLETED)
+
+- Goal: allow browser clients to connect to the Unix-socket session bus via a secure WS bridge.
+- Scope: new `echo-session-ws-gateway` crate with WS→UDS forwarding, frame guards, origin allowlist, optional TLS.
+- Status: completed; gateway parses JS-ABI frame lengths, enforces 8 MiB cap, and proxies binary frames over WS. (PR #141: commit `785c14e`; hardening in `89c2bb1`)
+
+> 2025-12-11 — Scripting pivot to Rhai (COMPLETED)
+
+- Goal: cement Rhai as the scripting layer across design/docs, update scripting backlog items, and log the pivot.
+- Scope: execution plan, decision log, scripting/spec docs, FFI descriptions.
+- Status: completed; scripting plans now target Rhai with deterministic sandboxing, prior scripting references removed. (commit `30b3b82`)
+
+> 2025-12-11 — RMG authority enforcement (IMPLEMENTED; PENDING MERGE)
+
+- Goal: Reject non-owner publishes on RMG channels and surface explicit errors to clients.
+- Scope: `echo-session-service` (producer lock + error frames), `echo-session-client` (map error frames to notifications), protocol tasks checklist.
+- Status: implemented on branch `echo/rmg-view-protocol-spec` (commit `237460e`); not yet merged to `main`.
+
 > 2025-12-10 — CI cargo-deny index failures (COMPLETED)
 
 - Goal: stop noisy `warning[index-failure]: unable to check for yanked crates` in GitHub Actions by ensuring `cargo-deny` has a warm crates.io index.
@@ -448,8 +520,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [ ] Scaffold Rust workspace (`crates/rmg-core`, `crates/rmg-ffi`, `crates/rmg-wasm`, `crates/rmg-cli`).
 - [ ] Port ECS archetype storage + branch diff engine to Rust.
 - [ ] Implement deterministic PRNG + math module in Rust.
-- [ ] Expose C ABI for Lua and C integrations.
-- [ ] Integrate Lua 5.4 runtime via bindings (mlua or custom FFI).
+- [ ] Expose C ABI for host integrations and embed Rhai for scripting.
+- [ ] Integrate Rhai runtime with deterministic sandboxing and host modules.
 - [ ] Adapt TypeScript CLI/inspector to Rust backend (WASM/FFI).
 - [ ] Archive TypeScript prototype under `/reference/` as spec baseline.
 - [ ] Add Rust CI jobs (cargo test, replay verification).
@@ -488,7 +560,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | ---- | -------- | ------- | --------- |
 | 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
-| 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Lua scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
+| 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Rhai scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
 | 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in rmg-core | Extend coverage to browser environments and fixed-point mode |
 | 2025-10-26 | Adopt RMG + Confluence as core architecture | RMG v2 (typed DPOi engine) + Confluence replication baseline | Scaffold rmg-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
 

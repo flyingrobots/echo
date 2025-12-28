@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [package]
 name = "echo-session-client"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83.0"
+rust-version = "1.90.0"
 description = "Client helper for talking to the Echo session hub (skeleton)"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
@@ -14,5 +14,5 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1.0"
-echo-session-proto = { path = "../echo-session-proto" }
+echo-session-proto.workspace = true
 tokio = { version = "1.41", features = ["rt", "net", "io-util", "macros"] }

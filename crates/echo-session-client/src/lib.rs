@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use echo_session_proto::{
     wire::{decode_message, encode_message},
-    HandshakePayload, Message, Notification, RmgFrame, RmgId,
+    HandshakePayload, Message, Notification, NotifyKind, NotifyScope, RmgFrame, RmgId,
 };
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -24,6 +24,9 @@ pub struct SessionClient {
 }
 
 const MAX_PAYLOAD: usize = 8 * 1024 * 1024; // 8 MiB cap for frames
+/// Error codes below this threshold are treated as client-side decode/wire failures (Local scope).
+/// Codes at or above this threshold are treated as session/service protocol errors (Global scope).
+const ERROR_CODE_GLOBAL_THRESHOLD: u32 = 400;
 
 impl SessionClient {
     /// Connect to the hub at the given Unix socket path.
@@ -209,6 +212,19 @@ fn run_message_loop(
             Ok((Message::Notification(n), _, _)) => {
                 let _ = notif_tx.send(n);
             }
+            Ok((Message::Error(err), _, _)) => {
+                let scope = if err.code >= ERROR_CODE_GLOBAL_THRESHOLD {
+                    NotifyScope::Global
+                } else {
+                    NotifyScope::Local
+                };
+                let _ = notif_tx.send(Notification {
+                    kind: NotifyKind::Error,
+                    scope,
+                    title: format!("{} ({})", err.name, err.code),
+                    body: Some(err.message),
+                });
+            }
             _ => continue,
         }
     }
@@ -218,8 +234,60 @@ fn run_message_loop(
 mod tests {
     use super::*;
     use echo_session_proto::{NotifyKind, NotifyScope};
+    use std::time::Duration;
     use tokio::io::AsyncWriteExt;
     use tokio::task;
+
+    #[test]
+    fn run_message_loop_classifies_error_scope_by_code() {
+        let (client_stream, mut server_stream) = UnixStream::pair().unwrap();
+
+        let (rmg_tx, _rmg_rx) = mpsc::channel();
+        let (notif_tx, notif_rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            run_message_loop(client_stream, 1, rmg_tx, notif_tx);
+        });
+
+        let encoded_global = encode_message(
+            Message::Error(echo_session_proto::ErrorPayload {
+                code: 403,
+                name: "E_FORBIDDEN_PUBLISH".into(),
+                details: None,
+                message: "forbidden".into(),
+            }),
+            1,
+        )
+        .unwrap();
+        server_stream.write_all(&encoded_global).unwrap();
+
+        let encoded_local = encode_message(
+            Message::Error(echo_session_proto::ErrorPayload {
+                code: 3,
+                name: "E_BAD_PAYLOAD".into(),
+                details: None,
+                message: "bad payload".into(),
+            }),
+            2,
+        )
+        .unwrap();
+        server_stream.write_all(&encoded_local).unwrap();
+        drop(server_stream);
+
+        let n1 = notif_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(n1.scope, NotifyScope::Global);
+        assert_eq!(n1.kind, NotifyKind::Error);
+        assert_eq!(n1.title, "E_FORBIDDEN_PUBLISH (403)");
+        assert_eq!(n1.body, Some("forbidden".to_string()));
+
+        let n2 = notif_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(n2.scope, NotifyScope::Local);
+        assert_eq!(n2.kind, NotifyKind::Error);
+        assert_eq!(n2.title, "E_BAD_PAYLOAD (3)");
+        assert_eq!(n2.body, Some("bad payload".to_string()));
+
+        handle.join().unwrap();
+    }
 
     #[tokio::test]
     async fn poll_message_handles_partial_header_without_losing_bytes() {

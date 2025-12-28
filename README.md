@@ -1,6 +1,20 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Echo
+
+<img src="./assets/echo-white.svg" alt="Echo logo" align="center">
+
+---
+
+> [!note]
+> # ⚠️ NOTICE: Echo is Becoming the JITOS Kernel
+>
+> Echo is now the kernel for **JITOS**—the world's first causal operating system, where history is immutable, execution is deterministic, and debugging means time-traveling to exact states, instead of hopes and prayers.
+>
+> **THE REVΩLUTION WILL BE DETERMINISTIC.**<br/>
+> **THE PROOF IS MATHEMATICAL.**<br/>
+> **TIME WILL TELL.**
+>
+> 🔗 [AIΩN](https://github.com/flyingrobots/aion) | [JITOS RFCs](https://github.com/flyingrobots/jitos) | [CΩMPUTER Paper](https://github.com/flyingrobots/aion-computer-book)
 
 ```rust
 //! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
@@ -20,13 +34,18 @@
 > Echo is a WARP Graph (Worldline Algebra for Recursive Provenance) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
 > It’s built so every change can branch, merge, and replay perfectly.
 
-<img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="400" align="right" />
+<img
+  src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de"
+  alt="WARP graph visualization"
+  height="400"
+  align="right"
+/>
 
 ### Say what??
 
-**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The [WARP graph is a powerful mathematical tool](https://doi.org/10.5281/zenodo.17908005) that brings the full weight of textbook category theory to interactive computational experiences. 
+**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The [WARP graph is a powerful mathematical tool](https://doi.org/10.5281/zenodo.17908005) that brings the full weight of textbook category theory to interactive computational experiences.
 
-Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
+Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules."
 
 Echo is fundamentally **built different**.
 
@@ -56,6 +75,16 @@ Echo runs on something called a [**WARP Graph (Worldline Algebra for Recursive P
 
 Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a set of deterministic rules. That’s what “graph rewriting” means.
 
+## JITOS Engineering Standard (Living Specs)
+
+Echo follows the JITOS Engineering Standard: every SPEC is simultaneously documentation, implementation, interactive demo (WASM), living test, and contributor certification. See `docs/METHODOLOGY.md` for the full 5x Duty model and workflow.
+
+### WASM Dev Quickstart (Spec-000)
+
+- Prereq: `rustup target add wasm32-unknown-unknown` and `cargo install --locked trunk`
+- Dev: `make spec-000-dev` (hot reload at <http://127.0.0.1:8080>)
+- Build: `make spec-000-build` (outputs to `specs/spec-000-rewrite/dist/`)
+
 ### Why Echo's Cool
 
 - **Deterministic:** same inputs = same world every time.
@@ -77,7 +106,7 @@ You can pause time, fork a copy of reality, try out a new idea, and merge the ti
 
 Can your game engine do...
 
-### Perfect Determinism 
+### Perfect Determinism
 
 Same input graph + same rules = same output, always. This is huge for:
 
@@ -86,7 +115,7 @@ Same input graph + same rules = same output, always. This is huge for:
 - Testing (reproducible bugs)
 - Time travel debugging
 
-### Branching Timelines 
+### Branching Timelines
 
 > _“All we have to decide is what to do with the time that is given to us.” — Gandalf, The Lord of the Rings_
 
@@ -104,7 +133,7 @@ Independent changes converge to the same result. This is operational transformat
 - Distributed simulation
 - Conflict-free merges
 
-### Everything-is-a-graph 
+### Everything-is-a-graph
 
 Rules are graphs. Systems are graphs. The whole runtime is a graph. This gives you:
 
@@ -138,7 +167,7 @@ echo/
 │   ├── rmg-geom/        (Geometry primitives: AABB, transforms, broad-phase)
 │   ├── rmg-benches/     (Criterion microbenchmarks: snapshot_hash, scheduler_drain)
 │   ├── rmg-wasm/        (WebAssembly bindings for tools and web)
-│   ├── rmg-ffi/         (C ABI for Lua/host integration)
+│   ├── rmg-ffi/         (C ABI for host integrations; Rhai is embedded directly)
 │   └── rmg-cli/         (Command-line interface, demos launcher)
 ├── docs/                (Comprehensive specifications and diagrams)
 └── scripts/             (Build automation, benchmarking)
@@ -157,12 +186,12 @@ echo/
 
 #### WARP Graph Core
 
-The engine operates on WARP graphs. You can learn about them by reading the AIΩN Foundations Serires (why, yes, I am the author):
+The engine operates on WARP graphs. You can learn about them by reading the AIΩN Foundations Series (why, yes, I am the author):
 
-[Paper 1](https://doi.org/10.5281/zenodo.17908005) introduces the WARP graph.  
-[Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.  
-[Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.  
-... there are other papers, but they are less directly relevant in this context.  
+- [Paper 1](https://doi.org/10.5281/zenodo.17908005) introduces the WARP graph.
+- [Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.
+- [Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.
+- ... there are other papers, but they are less directly relevant in this context.
 
 #### Deterministic Rewriting
 
@@ -174,7 +203,7 @@ Each tick follows a transaction model:
 
 #### $O(n)$ Deterministic Scheduler
 
-Rewrites are ordered using stable radix sort (not comparison-based):  
+Rewrites are ordered using stable radix sort (not comparison-based):
 
 - Order: (`scope_hash`, `rule_id`, `nonce`) lexicographically
 - Time: $O(n)$ with 20 passes of 16-bit radix digits
@@ -299,7 +328,7 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 - Tests go in `packages/echo-core/test/` (fixtures in `test/fixtures/`). End-to-end scenarios will eventually live under `apps/playground`.
 - Use expressive commits (`subject` / `body` / optional `trailer`). Tell future us the *why*, not just the *what*.
 - Treat determinism as sacred: use Echo’s PRNG, avoid non-deterministic APIs without wrapping them.
-  
+
 ### Git Hooks
 
 Install the repo’s hooks so formatting and quick checks run before commits:
@@ -317,10 +346,10 @@ make hooks
 
 ### Roadmap Highlights
 
-✅ **Phase 0** – Finalize specs and design.  
-⏳ **Phase 1** – Ship Echo Core MVP with tests and headless harness.  
-☑️ **Phase 2** – Deliver reference render/input adapters and **the playground**.  
-☑️ **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.  
+- ✅ **Phase 0** – Finalize specs and design.
+- ⏳ **Phase 1** – Ship Echo Core MVP with tests and headless harness.
+- ☑️ **Phase 2** – Deliver reference render/input adapters and **the playground**.
+- ☑️ **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.
 
 **Chrononauts welcome.** Strap in, branch responsibly, and leave the timeline cleaner than you found it.
 
@@ -339,5 +368,5 @@ adopting MIND-UCAL.
 
 See [`LICENSE`](./LICENSE) for the summary and [`NOTICE`](./NOTICE) for attribution.
 
-© 2025 James Ross   
+© 2025 James Ross
 Ω [FLYING•ROBOTS](https://github.com/flyingrobots)

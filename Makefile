@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 SHELL := /bin/bash
@@ -126,3 +126,16 @@ bench-bake: vendor-d3
 
 bench-open-inline:
 	@open docs/benchmarks/report-inline.html
+
+# Spec-000 (WASM) helpers
+.PHONY: spec-000-dev spec-000-build
+
+spec-000-dev:
+	@command -v trunk >/dev/null 2>&1 || { echo "Error: trunk not found. Install: cargo install trunk" >&2; exit 1; }
+	@test -d specs/spec-000-rewrite || { echo "Error: specs/spec-000-rewrite not found" >&2; exit 1; }
+	@cd specs/spec-000-rewrite && trunk serve
+
+spec-000-build:
+	@command -v trunk >/dev/null 2>&1 || { echo "Error: trunk not found. Install: cargo install trunk" >&2; exit 1; }
+	@test -d specs/spec-000-rewrite || { echo "Error: specs/spec-000-rewrite not found" >&2; exit 1; }
+	@cd specs/spec-000-rewrite && trunk build --release

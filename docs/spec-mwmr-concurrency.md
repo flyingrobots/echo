@@ -70,7 +70,7 @@ Ordering & determinism
 
 ## Rule Identity & Hot-Load
 
-- Family ID (stable): `blake3("rule-family:v1" || fully_qualified_name)` — compile-time const in Rust; computed once on load in Lua.
+- Family ID (stable): `blake3("rule-family:v1" || fully_qualified_name)` — compile-time const in Rust; computed once on load in Rhai.
 - Revision ID (dynamic): `blake3("rule-rev:<lang>:canon-ast-v1" || canonical AST graph bytes)` — flips on semantic changes; used for hot‑reload/peer compatibility; not in scheduling keys.
 
 ## Performance Targets
@@ -115,4 +115,3 @@ Phase 3 (Real demo)
 - Multiplayer confluence demo (zero desync), time‑travel fork/merge, inspector visualization of footprints/conflicts
 
 References: confluence skeleton v5, RMG math confluence, offset-graph arena notes
-

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 name: CI
 
@@ -112,6 +112,53 @@ jobs:
             exit 1;
           }
 
+  rust-version:
+    name: Rust Version Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Check workspace rust-version declarations
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/check_rust_versions.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Rust version checker self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/check_rust_versions_test.sh
+
+  task-lists:
+    name: Task Lists Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check task lists for contradictions
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/check_task_lists.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Task list checker self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/check_task_lists_test.sh
+
   # MSRV job removed per policy: use @stable everywhere
 
   rustdoc:
@@ -134,22 +181,6 @@ jobs:
         run: |
           if [ -f crates/rmg-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-wasm --no-deps; fi
 
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.90.0
-      - name: Install cargo-audit (latest)
-        run: cargo install cargo-audit --locked
-      - name: Run cargo audit
-        env:
-          CARGO_TERM_COLOR: always
-        run: |
-          cargo audit --deny warnings \
-            --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2021-0127
-
   deny:
     name: Dependency Policy (cargo-deny)
     runs-on: ubuntu-latest
@@ -159,5 +190,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Pre-fetch crates (locked)
         run: cargo fetch --locked
+      - name: cargo-audit runner self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/run_cargo_audit_test.sh
       - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14

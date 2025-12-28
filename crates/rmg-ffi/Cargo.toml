@@ -1,11 +1,11 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [package]
 name = "rmg-ffi"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.71.1"
-description = "Echo FFI: C ABI for host integrations (Lua/C/etc.)"
+rust-version = "1.90.0"
+description = "Echo FFI: C ABI for host integrations (Rhai in-process; C/others via ABI)"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"

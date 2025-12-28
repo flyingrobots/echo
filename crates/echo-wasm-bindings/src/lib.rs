@@ -12,6 +12,19 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 /// Demo kernel with append-only rewrite history.
+///
+/// This is a **teaching/demo** kernel intended for living specs (e.g. Spec-000):
+///
+/// - It owns an in-memory [`Rmg`] and an append-only [`Rewrite`] history.
+/// - It is designed for JS/WASM interop: when built with `--features wasm`, the type is exposed
+///   via `wasm-bindgen` and provides `JsValue` serializers.
+/// - It is not the production Echo kernel, does not validate invariants, and does not implement
+///   canonical hashing / deterministic encoding.
+///
+/// Invariants (demo conventions):
+///
+/// - `history` ids are monotonic (`0..n`) within a single instance.
+/// - Each public mutation method updates the graph first, then appends a matching rewrite record.
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct DemoKernel {
     graph: Rmg,
@@ -37,65 +50,67 @@ impl DemoKernel {
 
     /// Add a node by id.
     pub fn add_node(&mut self, id: String) {
-        let rw = Rewrite {
-            id: self.history.len() as u64,
-            op: SemanticOp::AddNode,
-            target: id.clone(),
-            old_value: None,
-            new_value: None,
-        };
+        let node_id = id;
         self.graph.nodes.insert(
-            id.clone(),
+            node_id.clone(),
             Node {
-                id,
+                id: node_id.clone(),
                 fields: HashMap::new(),
             },
         );
-        self.history.push(rw);
+        self.history.push(Rewrite {
+            id: self.history.len() as u64,
+            op: SemanticOp::AddNode,
+            target: node_id,
+            old_value: None,
+            new_value: None,
+        });
     }
 
     /// Set a field value on a node.
     pub fn set_field(&mut self, target: String, field: String, value: Value) {
-        let rw = Rewrite {
+        if let Some(node) = self.graph.nodes.get_mut(&target) {
+            node.fields.insert(field.clone(), value.clone());
+        }
+        self.history.push(Rewrite {
             id: self.history.len() as u64,
             op: SemanticOp::Set,
-            target: target.clone(),
-            old_value: Some(Value::Str(field.clone())),
-            new_value: Some(value.clone()),
-        };
-        if let Some(node) = self.graph.nodes.get_mut(&target) {
-            node.fields.insert(field, value);
-        }
-        self.history.push(rw);
+            target,
+            old_value: Some(Value::Str(field)),
+            new_value: Some(value),
+        });
     }
 
     /// Add a directed edge between two nodes.
     pub fn connect(&mut self, from: String, to: String) {
-        let rw = Rewrite {
+        let from_id = from;
+        let to_id = to;
+        self.graph.edges.push(Edge {
+            from: from_id.clone(),
+            to: to_id.clone(),
+        });
+        self.history.push(Rewrite {
             id: self.history.len() as u64,
             op: SemanticOp::Connect,
-            target: from.clone(),
+            target: from_id,
             old_value: None,
-            new_value: Some(Value::Str(to.clone())),
-        };
-        self.graph.edges.push(Edge { from, to });
-        self.history.push(rw);
+            new_value: Some(Value::Str(to_id)),
+        });
     }
 
     /// Delete a node and any incident edges.
     pub fn delete_node(&mut self, target: String) {
-        let rw = Rewrite {
-            id: self.history.len() as u64,
-            op: SemanticOp::DeleteNode,
-            target: target.clone(),
-            old_value: None,
-            new_value: None,
-        };
         self.graph.nodes.remove(&target);
         self.graph
             .edges
             .retain(|e| e.from != target && e.to != target);
-        self.history.push(rw);
+        self.history.push(Rewrite {
+            id: self.history.len() as u64,
+            op: SemanticOp::DeleteNode,
+            target,
+            old_value: None,
+            new_value: None,
+        });
     }
 
     /// Get a clone of the current graph (host use).

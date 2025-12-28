@@ -15,8 +15,8 @@ This file is a PR-scoped, action-oriented index of review threads → fixing SHA
 
 - Head branch: `echo/wasm-spec-000-scaffold`
 - Base branch: `main`
-- Head commit (for this snapshot): `639235b`
-- Latest CodeRabbit review commit: `639235b` (review submitted 2025-12-28)
+- Head commit (for this snapshot): `4469b9e`
+- Latest CodeRabbit review commit: `4469b9e` (review submitted 2025-12-28)
 
 ### Extraction (paginated, per EXTRACT-PR-COMMENTS procedure)
 
@@ -25,10 +25,10 @@ gh api --paginate repos/flyingrobots/echo/pulls/141/comments --jq '.[]' | jq -s 
 gh api --paginate repos/flyingrobots/echo/issues/141/comments --jq '.[]' | jq -s '.' > /tmp/pr141-issue-comments.json
 ```
 
-- PR review comments (inline): 135 total
-  - Top-level: 100
-  - Replies: 35
-- Issue comments (conversation): 3 (CodeRabbit summary + maintainer summary notes; non-actionable)
+- PR review comments (inline): 153 total
+  - Top-level: 102
+  - Replies: 51
+- Issue comments (conversation): 4 (CodeRabbit summaries + maintainer notes + consolidated fix-map comments)
 
 ## Buckets (Top-Level Review Comments)
 
@@ -133,6 +133,9 @@ Notes:
 - [x] [r2612251512](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251512) `docs/spec-concurrency-and-authoring.md` — Clarify that `echo::delay()`/`echo::emit()` are Echo host functions (not built-in Rhai). Fixed in `6238c98`.
 
 ### P3 — Trivial
+
+- [x] [r2649892639](https://github.com/flyingrobots/echo/pull/141#discussion_r2649892639) `scripts/check_rust_versions.sh` — Replace `sed` prefix formatting with bash-native output and support `rust-version.workspace = true` (with regression tests). Fixed in `7e84b16`.
+- [x] [r2649892640](https://github.com/flyingrobots/echo/pull/141#discussion_r2649892640) `specs/spec-000-rewrite/Cargo.toml` — Inherit shared `license`/`repository`/`rust-version` from `[workspace.package]` to reduce duplication and drift. Fixed in `e4e5c19`.
 
 - [x] [r2649872448](https://github.com/flyingrobots/echo/pull/141#discussion_r2649872448) `.github/workflows/ci.yml` — Move `cargo-audit` runner self-tests out of the “Task Lists Guard” job (into the dependency policy job). Fixed in `56a37f8`.
 - [x] [r2649872450](https://github.com/flyingrobots/echo/pull/141#discussion_r2649872450) `crates/echo-session-client/Cargo.toml` — Standardize internal deps on workspace inheritance (`echo-session-proto.workspace = true`). Fixed in `dfa938a`.

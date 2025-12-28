@@ -5,17 +5,6 @@
 
 ---
 
-> [!note]
-> # ⚠️ NOTICE: Echo is Becoming the JITOS Kernel
->
-> Echo is now the kernel for **JITOS**—the world's first causal operating system, where history is immutable, execution is deterministic, and debugging means time-traveling to exact states, instead of hopes and prayers.
->
-> **THE REVΩLUTION WILL BE DETERMINISTIC.**<br/>
-> **THE PROOF IS MATHEMATICAL.**<br/>
-> **TIME WILL TELL.**
->
-> 🔗 [AIΩN](https://github.com/flyingrobots/aion) | [JITOS RFCs](https://github.com/flyingrobots/jitos) | [CΩMPUTER Paper](https://github.com/flyingrobots/aion-computer-book)
-
 ```rust
 //! ░▒▓████████▓▒░▒▓██████▓▒░░▒▓█▓▒░░▒▓█▓▒░░▒▓██████▓▒░
 //! ░▒▓█▓▒░     ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░

@@ -16,7 +16,7 @@ categories = ["wasm", "web-programming", "visualization"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-leptos = { version = "0.6", features = ["csr"] }
+leptos = { version = "0.8.15", features = ["csr"] }
 console_error_panic_hook = "0.1"
 wasm-bindgen = { version = "0.2", optional = true }
 

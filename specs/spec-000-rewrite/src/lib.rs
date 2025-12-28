@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Spec-000 scaffold: Leptos CSR app wired for trunk/wasm32.
 
-use leptos::*;
+use leptos::prelude::*;
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 use wasm_bindgen::prelude::*;
@@ -12,7 +12,7 @@ mod spec_content;
 /// Top-level Spec-000 Leptos component (WASM).
 #[component]
 pub fn App() -> impl IntoView {
-    let (epoch, set_epoch) = create_signal(0usize);
+    let (epoch, set_epoch) = signal(0usize);
 
     view! {
         <div class="container">

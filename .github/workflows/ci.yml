@@ -131,6 +131,11 @@ jobs:
             exit 1
           fi
           "$script"
+      - name: Rust version checker self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/check_rust_versions_test.sh
 
   task-lists:
     name: Task Lists Guard
@@ -153,11 +158,6 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/tests/check_task_lists_test.sh
-      - name: cargo-audit runner self-tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash scripts/tests/run_cargo_audit_test.sh
 
   # MSRV job removed per policy: use @stable everywhere
 
@@ -190,5 +190,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Pre-fetch crates (locked)
         run: cargo fetch --locked
+      - name: cargo-audit runner self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/run_cargo_audit_test.sh
       - name: Run cargo-deny
         uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14

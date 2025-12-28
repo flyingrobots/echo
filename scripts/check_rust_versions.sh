@@ -32,16 +32,15 @@ if [[ ! "$toolchain_channel" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 manifests=()
-if [[ -d "${repo_root}/crates" ]]; then
-  while IFS= read -r f; do
-    manifests+=("$f")
-  done < <(find "${repo_root}/crates" -mindepth 2 -maxdepth 2 -name Cargo.toml -print | sort)
-fi
-if [[ -d "${repo_root}/specs" ]]; then
-  while IFS= read -r f; do
-    manifests+=("$f")
-  done < <(find "${repo_root}/specs" -mindepth 2 -maxdepth 2 -name Cargo.toml -print | sort)
-fi
+# Scan manifests recursively under crates/ and specs/ so nested workspace members
+# cannot be silently skipped.
+for root in "${repo_root}/crates" "${repo_root}/specs"; do
+  if [[ -d "$root" ]]; then
+    while IFS= read -r f; do
+      manifests+=("$f")
+    done < <(find "$root" -name Cargo.toml -print | sort)
+  fi
+done
 
 if [[ "${#manifests[@]}" -eq 0 ]]; then
   echo "Error: no workspace manifests found under crates/ or specs/" >&2
@@ -53,13 +52,17 @@ mismatch=()
 versions=()
 
 for manifest in "${manifests[@]}"; do
-  rel="${manifest#${repo_root}/}"
+  rel="${manifest#"${repo_root}/"}"
 
   rust_version="$(
-    awk -F'"' '
+    awk '
       /^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"/ {
-        print $2
-        exit
+        # Extract the first quoted value. This remains correct even when the
+        # line has an inline comment containing additional quotes.
+        if (match($0, /"[^"]+"/)) {
+          print substr($0, RSTART + 1, RLENGTH - 2)
+          exit
+        }
       }
     ' "$manifest"
   )"

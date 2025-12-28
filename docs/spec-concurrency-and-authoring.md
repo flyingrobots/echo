@@ -30,8 +30,10 @@ Clarifies Echo’s deterministic concurrency model and how Rhai/Rust developers 
 - Rhai tasks stay single-threaded; no host threads spawned from scripts.
 - GC/engine budgeting runs in deterministic steps per tick.
 - Rhai “async” helpers emit events; e.g., `echo::delay(seconds, callback)` enqueues an event to Codex’s Baby targeting future Chronos.
+- Note: `echo::delay(...)` and `echo::emit(...)` are **Echo-provided host functions** registered into the Rhai engine; they are not built-in Rhai constructs.
 
 ### Deterministic Async Example
+
 ```rhai
 fn on_start() {
     echo::delay(3.0, || {
@@ -39,7 +41,7 @@ fn on_start() {
     });
 }
 ```
-- `echo.delay` schedules a timed event with `chronos + seconds * tickRate`.
+- `echo::delay` schedules a timed event with `chronos + seconds * tickRate`.
 - Replay reproduces identical scheduling.
 
 ---

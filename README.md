@@ -8,7 +8,7 @@
 > [!note]
 > # ⚠️ NOTICE: Echo is Becoming the JITOS Kernel
 >
-> Echo is now the kernel for **JITOS**—the world's first causal operating system, where history is immutable, execution is deterministic, and debugging means time-traveling to exact states, instead of hopes and prayers. 
+> Echo is now the kernel for **JITOS**—the world's first causal operating system, where history is immutable, execution is deterministic, and debugging means time-traveling to exact states, instead of hopes and prayers.
 >
 > **THE REVΩLUTION WILL BE DETERMINISTIC.**  
 > **THE PROOF IS MATHEMATICAL.**  
@@ -38,9 +38,9 @@
 
 ### Say what??
 
-**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The [WARP graph is a powerful mathematical tool](https://doi.org/10.5281/zenodo.17908005) that brings the full weight of textbook category theory to interactive computational experiences. 
+**Echo is an ambitious, mind-bending, radically different computational model for game engines and other interactive simulations.** The [WARP graph is a powerful mathematical tool](https://doi.org/10.5281/zenodo.17908005) that brings the full weight of textbook category theory to interactive computational experiences.
 
-Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules." 
+Most game engines are object-oriented state machines. Unity, Unreal, Godot all maintain mutable object hierarchies that update every frame. Echo says: "No, everything is a graph, and the engine rewrites that graph deterministically using typed transformation rules."
 
 Echo is fundamentally **built different**.
 
@@ -75,8 +75,9 @@ Echo doesn’t “update objects.” It _rewrites_ parts of the graph using a se
 Echo follows the JITOS Engineering Standard: every SPEC is simultaneously documentation, implementation, interactive demo (WASM), living test, and contributor certification. See `docs/METHODOLOGY.md` for the full 5x Duty model and workflow.
 
 ### WASM Dev Quickstart (Spec-000)
+
 - Prereq: `rustup target add wasm32-unknown-unknown` and `cargo install --locked trunk`
-- Dev: `make spec-000-dev` (hot reload at http://127.0.0.1:8080)
+- Dev: `make spec-000-dev` (hot reload at <http://127.0.0.1:8080>)
 - Build: `make spec-000-build` (outputs to `specs/spec-000-rewrite/dist/`)
 
 ### Why Echo's Cool
@@ -100,7 +101,7 @@ You can pause time, fork a copy of reality, try out a new idea, and merge the ti
 
 Can your game engine do...
 
-### Perfect Determinism 
+### Perfect Determinism
 
 Same input graph + same rules = same output, always. This is huge for:
 
@@ -109,7 +110,7 @@ Same input graph + same rules = same output, always. This is huge for:
 - Testing (reproducible bugs)
 - Time travel debugging
 
-### Branching Timelines 
+### Branching Timelines
 
 > _“All we have to decide is what to do with the time that is given to us.” — Gandalf, The Lord of the Rings_
 
@@ -127,7 +128,7 @@ Independent changes converge to the same result. This is operational transformat
 - Distributed simulation
 - Conflict-free merges
 
-### Everything-is-a-graph 
+### Everything-is-a-graph
 
 Rules are graphs. Systems are graphs. The whole runtime is a graph. This gives you:
 
@@ -322,7 +323,7 @@ Phase 1 MVP (active development on echo/pr-12-snapshot-bench):
 - Tests go in `packages/echo-core/test/` (fixtures in `test/fixtures/`). End-to-end scenarios will eventually live under `apps/playground`.
 - Use expressive commits (`subject` / `body` / optional `trailer`). Tell future us the *why*, not just the *what*.
 - Treat determinism as sacred: use Echo’s PRNG, avoid non-deterministic APIs without wrapping them.
-  
+
 ### Git Hooks
 
 Install the repo’s hooks so formatting and quick checks run before commits:
@@ -362,5 +363,5 @@ adopting MIND-UCAL.
 
 See [`LICENSE`](./LICENSE) for the summary and [`NOTICE`](./NOTICE) for attribution.
 
-© 2025 James Ross   
+© 2025 James Ross
 Ω [FLYING•ROBOTS](https://github.com/flyingrobots)

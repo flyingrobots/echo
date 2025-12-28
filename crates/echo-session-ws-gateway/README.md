@@ -15,6 +15,7 @@ cargo run -p echo-session-ws-gateway -- \
 ```
 
 ## Features
+
 - Binary WS frames → JS-ABI packets over UDS
 - Payload guard (8 MiB default)
 - Optional origin allowlist

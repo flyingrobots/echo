@@ -19,6 +19,10 @@ allow = [
     "Zlib",
     "OFL-1.1",
     "MPL-2.0",
+    # Required by aws-lc-sys (via rustls used by axum-server in echo-session-ws-gateway).
+    "OpenSSL",
+    # Required by epaint_default_fonts (via egui/epaint in rmg-viewer).
+    "Ubuntu-font-1.0",
 ]
 
 # Modernized for cargo-deny >=0.14.21 (PR #611):

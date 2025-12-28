@@ -6,6 +6,12 @@ set -euo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
+workspace_manifest="${repo_root}/Cargo.toml"
+if [[ ! -f "$workspace_manifest" ]]; then
+  echo "Error: workspace manifest not found: $workspace_manifest" >&2
+  exit 1
+fi
+
 toolchain_file="${repo_root}/rust-toolchain.toml"
 if [[ ! -f "$toolchain_file" ]]; then
   echo "Error: rust toolchain file not found: $toolchain_file" >&2
@@ -28,6 +34,25 @@ fi
 
 if [[ ! "$toolchain_channel" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Error: rust-toolchain.toml channel must be a pinned semver for this guard (got: $toolchain_channel)" >&2
+  exit 1
+fi
+
+workspace_package_rust_version="$(
+  awk '
+    BEGIN { in_section = 0 }
+    /^[[:space:]]*\[workspace\.package\][[:space:]]*$/ { in_section = 1; next }
+    in_section && /^[[:space:]]*\[[^]]+][[:space:]]*$/ { in_section = 0 }
+    in_section && /^[[:space:]]*rust-version[[:space:]]*=/ {
+      if (match($0, /"[^"]+"/)) {
+        print substr($0, RSTART + 1, RLENGTH - 2)
+        exit
+      }
+    }
+  ' "$workspace_manifest"
+)"
+
+if [[ -n "$workspace_package_rust_version" && "$workspace_package_rust_version" != "$toolchain_channel" ]]; then
+  echo "Error: [workspace.package] rust-version ($workspace_package_rust_version) does not match rust-toolchain.toml channel ($toolchain_channel)" >&2
   exit 1
 fi
 
@@ -68,8 +93,26 @@ for manifest in "${manifests[@]}"; do
   )"
 
   if [[ -z "$rust_version" ]]; then
-    missing+=("$rel")
-    continue
+    uses_workspace="$(
+      awk '
+        /^[[:space:]]*rust-version\.workspace[[:space:]]*=[[:space:]]*true/ {
+          print "yes"
+          exit
+        }
+      ' "$manifest"
+    )"
+
+    if [[ -n "$uses_workspace" ]]; then
+      if [[ -z "$workspace_package_rust_version" ]]; then
+        missing+=("$rel (rust-version.workspace=true but [workspace.package] rust-version is missing)")
+        continue
+      fi
+
+      rust_version="$workspace_package_rust_version"
+    else
+      missing+=("$rel")
+      continue
+    fi
   fi
 
   versions+=("$rust_version")
@@ -94,4 +137,6 @@ fi
 
 unique_versions="$(printf '%s\n' "${versions[@]}" | sort -u)"
 echo "OK: workspace rust-version matches rust-toolchain.toml ($toolchain_channel)"
-echo "$unique_versions" | sed 's/^/  - /'
+while IFS= read -r version; do
+  printf '  - %s\n' "$version"
+done <<<"$unique_versions"

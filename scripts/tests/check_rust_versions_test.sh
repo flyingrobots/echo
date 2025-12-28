@@ -27,6 +27,15 @@ with_tmp_repo() (
 channel = "1.90.0"
 EOF
 
+  cat > "$tmp/Cargo.toml" <<'EOF'
+[workspace]
+members = ["crates/foo", "specs/bar"]
+resolver = "2"
+
+[workspace.package]
+rust-version = "1.90.0"
+EOF
+
   cd "$tmp"
   "$@"
 )
@@ -40,6 +49,27 @@ name = "foo"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.90.0"
+EOF
+    cat > specs/bar/Cargo.toml <<EOF
+[package]
+name = "bar"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+EOF
+    ./scripts/check_rust_versions.sh >/dev/null
+  '
+}
+
+test_passes_with_workspace_inherited_version() {
+  with_tmp_repo bash -c '
+    set -euo pipefail
+    cat > crates/foo/Cargo.toml <<EOF
+[package]
+name = "foo"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
 EOF
     cat > specs/bar/Cargo.toml <<EOF
 [package]
@@ -122,6 +152,7 @@ main() {
   [[ -f "$checker_src" ]] || fail "checker script missing: $checker_src"
 
   test_passes_with_matching_versions
+  test_passes_with_workspace_inherited_version
   test_parses_inline_comment_with_quotes
   test_fails_when_rust_version_missing
   test_fails_on_mismatch

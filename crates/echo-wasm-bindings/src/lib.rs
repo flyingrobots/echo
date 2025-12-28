@@ -25,6 +25,8 @@ use wasm_bindgen::prelude::*;
 ///
 /// - `history` ids are monotonic (`0..n`) within a single instance.
 /// - Each public mutation method updates the graph first, then appends a matching rewrite record.
+/// - Operations that cannot be applied (e.g., missing node ids) are treated as no-ops and are not
+///   recorded in `history`.
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct DemoKernel {
     graph: Rmg,
@@ -71,18 +73,22 @@ impl DemoKernel {
     pub fn set_field(&mut self, target: String, field: String, value: Value) {
         if let Some(node) = self.graph.nodes.get_mut(&target) {
             node.fields.insert(field.clone(), value.clone());
+            self.history.push(Rewrite {
+                id: self.history.len() as u64,
+                op: SemanticOp::Set,
+                target,
+                old_value: Some(Value::Str(field)),
+                new_value: Some(value),
+            });
         }
-        self.history.push(Rewrite {
-            id: self.history.len() as u64,
-            op: SemanticOp::Set,
-            target,
-            old_value: Some(Value::Str(field)),
-            new_value: Some(value),
-        });
     }
 
     /// Add a directed edge between two nodes.
     pub fn connect(&mut self, from: String, to: String) {
+        if !self.graph.nodes.contains_key(&from) || !self.graph.nodes.contains_key(&to) {
+            return;
+        }
+
         let from_id = from;
         let to_id = to;
         self.graph.edges.push(Edge {
@@ -100,17 +106,18 @@ impl DemoKernel {
 
     /// Delete a node and any incident edges.
     pub fn delete_node(&mut self, target: String) {
-        self.graph.nodes.remove(&target);
-        self.graph
-            .edges
-            .retain(|e| e.from != target && e.to != target);
-        self.history.push(Rewrite {
-            id: self.history.len() as u64,
-            op: SemanticOp::DeleteNode,
-            target,
-            old_value: None,
-            new_value: None,
-        });
+        if self.graph.nodes.remove(&target).is_some() {
+            self.graph
+                .edges
+                .retain(|e| e.from != target && e.to != target);
+            self.history.push(Rewrite {
+                id: self.history.len() as u64,
+                op: SemanticOp::DeleteNode,
+                target,
+                old_value: None,
+                new_value: None,
+            });
+        }
     }
 
     /// Get a clone of the current graph (host use).
@@ -138,15 +145,15 @@ impl DemoKernel {
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
 impl DemoKernel {
-    /// Get graph as JsValue (serde).
+    /// Get graph as JSON string (JS/WASM use).
     #[wasm_bindgen(js_name = serializeGraph)]
-    pub fn serialize_graph(&self) -> wasm_bindgen::JsValue {
-        wasm_bindgen::JsValue::from_serde(&self.graph).unwrap()
+    pub fn serialize_graph(&self) -> String {
+        self.graph_json()
     }
 
-    /// Get history as JsValue (serde).
+    /// Get history as JSON string (JS/WASM use).
     #[wasm_bindgen(js_name = serializeHistory)]
-    pub fn serialize_history(&self) -> wasm_bindgen::JsValue {
-        wasm_bindgen::JsValue::from_serde(&self.history).unwrap()
+    pub fn serialize_history(&self) -> String {
+        self.history_json()
     }
 }

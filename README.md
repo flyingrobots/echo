@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 <p align="center">
-  <img src="./assets/echo-white.svg" alt="Echo" width="360" />
+  <img alt="Echo" src="https://github.com/user-attachments/assets/3d147042-5139-4289-8c22-675899ce68ab" />
 </p>
 
 # Echo

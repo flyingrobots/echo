@@ -112,6 +112,26 @@ jobs:
             exit 1;
           }
 
+  rust-version:
+    name: Rust Version Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Check workspace rust-version declarations
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/check_rust_versions.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+
   task-lists:
     name: Task Lists Guard
     runs-on: ubuntu-latest

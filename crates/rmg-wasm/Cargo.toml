@@ -4,7 +4,7 @@
 name = "rmg-wasm"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.71.1"
+rust-version = "1.90.0"
 description = "Echo WASM: wasm-bindgen bindings for tools and web"
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"

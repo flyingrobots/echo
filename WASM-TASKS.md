@@ -13,13 +13,13 @@ Policy: write failing tests first, then implement; check off tasks only when tes
 
 ## P1 — Kernel Bindings & Types
 
-- [x] Add `wasm-bindgen` feature to kernel crate (or shim crate) and expose minimal RMG/rewrite API (add node, set field, connect, tombstone, materialize).
+- [x] Add `wasm-bindgen` feature to kernel crate (or shim crate) and expose minimal WARP graph/rewrite API (add node, set field, connect, tombstone, materialize).
 - [x] Create shared DTO crate (`echo-wasm-abi`) with serde + wasm-bindgen-friendly types for graph and rewrite log; reuse in UI.
 - [ ] Failing tests: wasm-bindgen unit test exercising add/set/connect/tombstone round-trip serialization.
 
 ## P1 — UI MVP (Living Spec)
 
-- [ ] Render graph (SVG/canvas) from serialized RMG; simple layout.
+- [ ] Render graph (SVG/canvas) from serialized WARP graph; simple layout.
 - [ ] Render rewrite log; click-to-time-travel replays history via kernel API.
 - [ ] “Apply Rewrite” panel hooks to kernel methods; updates view reactively.
 - [ ] Failing tests: screenshot/DOM snapshot via Playwright (Trunk serve) or headless wasm-bindgen tests for state transitions.

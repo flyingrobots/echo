@@ -10,7 +10,7 @@ Added comprehensive benchmarking for the `reserve()` independence checking funct
 
 ### 1. Benchmark Implementation
 
-**File:** `crates/rmg-benches/benches/reserve_independence.rs`
+**File:** `crates/warp-benches/benches/reserve_independence.rs`
 
 - Measures reserve() overhead with n independent rewrites
 - Each rewrite has m=1 (writes to self only) with overlapping factor_mask (0b0001)
@@ -28,7 +28,7 @@ Added comprehensive benchmarking for the `reserve()` independence checking funct
 **Files Modified:**
 - `docs/benchmarks/index.html` - Added reserve_independence to GROUPS
 - `scripts/bench_bake.py` - Added to GROUPS list for baking
-- `crates/rmg-benches/Cargo.toml` - Registered benchmark with harness=false
+- `crates/warp-benches/Cargo.toml` - Registered benchmark with harness=false
 
 **Visual Style:**
 - Color: `#7dcfff` (cyan)
@@ -65,7 +65,7 @@ Benchmark results for reserve() with n rewrites (each checking against k-1 prior
 
 ### Quick Test
 ```bash
-cargo bench -p rmg-benches --bench reserve_independence
+cargo bench -p warp-benches --bench reserve_independence
 ```
 
 ### Full Dashboard Generation
@@ -117,7 +117,7 @@ The reserve_independence benchmark appears in the dashboard with:
 
 - `docs/scheduler-reserve-complexity.md` - Detailed complexity analysis
 - `docs/scheduler-reserve-validation.md` - Test results and validation
-- `crates/rmg-core/src/scheduler.rs` - Implementation with inline docs
+- `crates/warp-core/src/scheduler.rs` - Implementation with inline docs
 
 ## Makefile Targets
 
@@ -136,4 +136,4 @@ The benchmark results are currently **not** gated in CI. To add:
 2. Regression check comparing to baseline
 3. Fail CI if performance degrades >10%
 
-See TODO in `crates/rmg-benches/benches/scheduler_drain.rs:11` for tracking.
+See TODO in `crates/warp-benches/benches/scheduler_drain.rs:11` for tracking.

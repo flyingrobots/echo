@@ -8,12 +8,12 @@ Wire schema and deterministic encoding for the Echo session hub.
 ## What this crate does
 
 - Defines the logical protocol types used by the session hub and tools:
-  - `Message` enum (handshake, handshake\_ack, error, subscribe\_rmg,
-    rmg\_stream, notification).
+  - `Message` enum (handshake, handshake\_ack, error, subscribe\_warp,
+    warp\_stream, notification).
   - `OpEnvelope` wrapper used as the CBOR payload for JS-ABI v1.0 packets.
-  - Notification and RMG stream payload types (`Notification`,
-    `RmgStreamPayload`).
-  - Re-exports canonical RMG graph types from `echo-graph`.
+  - Notification and WARP stream payload types (`Notification`,
+    `WarpStreamPayload`).
+  - Re-exports canonical WARP graph types from `echo-graph`.
 - Implements deterministic JS-ABI v1.0 encoding for these messages:
   - Canonical CBOR value encoding with strict rules (no tags, definite
     lengths, preferred integer encodings, canonical map ordering).
@@ -33,5 +33,5 @@ Wire schema and deterministic encoding for the Echo session hub.
   these decisions in:
   - Section `Low-Level Networking: JS-ABI Wire Protocol`
     (`13-networking-wire-protocol.tex`),
-  - Section `Consuming RMG Streams: Snapshots and Diffs`
-    (`14-rmg-stream-consumers.tex`).
+  - Section `Consuming WARP Streams: Snapshots and Diffs`
+    (`14-warp-stream-consumers.tex`).

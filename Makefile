@@ -71,8 +71,8 @@ bench-open:
 	fi
 
 bench-report: vendor-d3
-	@echo "Running benches (rmg-benches)..."
-	cargo bench -p rmg-benches
+	@echo "Running benches (warp-benches)..."
+	cargo bench -p warp-benches
 	@echo "Starting local server on :$(BENCH_PORT) and opening dashboard..."
 	@mkdir -p target
 	@if [ -f target/bench_http.pid ] && ps -p $$(cat target/bench_http.pid) >/dev/null 2>&1; then \
@@ -117,8 +117,8 @@ bench-stop:
 
 # Bake a standalone HTML with inline data that works over file://
 bench-bake: vendor-d3
-	@echo "Running benches (rmg-benches)..."
-	cargo bench -p rmg-benches
+	@echo "Running benches (warp-benches)..."
+	cargo bench -p warp-benches
 	@echo "Baking inline report..."
 	@python3 scripts/bench_bake.py --out docs/benchmarks/report-inline.html
 	@echo "Opening inline report..."

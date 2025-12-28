@@ -16,6 +16,6 @@ Minimal WASM bindings shim for Echo/JITOS living specs. Provides `DemoKernel` wi
 - `DemoKernel::set_field(target: String, field: String, value: Value)`
 - `DemoKernel::connect(from: String, to: String)` (no-op if either node is missing)
 - `DemoKernel::delete_node(target: String)` (no-op if node is missing)
-- `DemoKernel::graph() -> Rmg` / `DemoKernel::history() -> Vec<Rewrite>` (native clones)
+- `DemoKernel::graph() -> WarpGraph` / `DemoKernel::history() -> Vec<Rewrite>` (native clones)
 - `DemoKernel::graph_json() -> String` / `DemoKernel::history_json() -> String` (JSON strings; native + WASM)
 - `serializeGraph() -> String` / `serializeHistory() -> String` (WASM JS names; JSON strings)

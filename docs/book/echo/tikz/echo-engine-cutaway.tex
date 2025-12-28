@@ -15,7 +15,7 @@
 ]
 
 % --- Coordinates for slab centers ---
-\coordinate (osC)    at (0,0);     % bottom: JITOS / OS RMG
+\coordinate (osC)    at (0,0);     % bottom: JITOS / OS WARP
 \coordinate (hubC)   at (0,2.3);   % middle: Editor Service
 \coordinate (toolsC) at (0,4.6);   % top: tools / UIs
 
@@ -55,9 +55,9 @@
 
 % --- Draw slabs ---
 
-% Bottom: JITOS / Root OS RMG
+% Bottom: JITOS / Root OS WARP
 \slabthree{(osC)}{blue!12}{
-  JITOS / Root OS RMG
+  JITOS / Root OS WARP
 }{
   \textbf{Global reality:}\\
   devices, policies, processes,\\
@@ -68,8 +68,8 @@
 \slabthree{(hubC)}{green!12}{
   Echo Editor Service Layer
 }{
-  \textbf{Session + RMG Hub:}\\
-  session registry, RMG authority,\\
+  \textbf{Session + WARP Hub:}\\
+  session registry, WARP authority,\\
   toast/notification bus, replay core
 }
 
@@ -78,7 +78,7 @@
   Tool Constellation / UIs
 }{
   \textbf{Distributed tools:}\\
-  RMG Viewer, Inspector, Timeline,\\
+  WARP Viewer, Inspector, Timeline,\\
   Profiler, Game Dev UI, etc.
 }
 
@@ -90,15 +90,15 @@
   timebase, OS notifications
 } ($(hubC)+(-0.1,-0.9)$);
 
-% Down: Editor Service → OS (syscalls / RMG rewrites)
+% Down: Editor Service → OS (syscalls / WARP rewrites)
 \draw[flow] ($(hubC)+(-1.8,-0.9)$) -- node[left=2pt, annot] {%
-  syscalls, RMG rewrite\\
+  syscalls, WARP rewrite\\
   requests, persistence ops
 } ($(osC)+(-1.8,0.9)$);
 
 % Up: Editor Service → Tools (streams)
 \draw[flow] ($(hubC)+(1.4,0.9)$) -- node[right=2pt, annot] {%
-  RMG streams,\\
+  WARP streams,\\
   notifications, replay
 } ($(toolsC)+(1.4,-0.9)$);
 
@@ -112,15 +112,15 @@
 
 % Tiny boxes on tools layer: individual tools
 \node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=1.8cm, minimum height=0.5cm]
-  (viewer) at ($(toolsC)+(-2.0,0.4)$) {RMG Viewer};
+  (viewer) at ($(toolsC)+(-2.0,0.4)$) {WARP Viewer};
 \node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=1.8cm, minimum height=0.5cm]
   (insp)   at ($(toolsC)+(0.0,0.6)$) {Inspector};
 \node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=1.8cm, minimum height=0.5cm]
   (time)   at ($(toolsC)+(2.0,0.4)$) {Timeline / Replay};
 
-% Tiny icon on hub layer: "Session + RMG registry"
+% Tiny icon on hub layer: "Session + WARP registry"
 \node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=2.3cm, minimum height=0.5cm]
-  at ($(hubC)+(0,0.5)$) {Session \& RMG Registry};
+  at ($(hubC)+(0,0.5)$) {Session \& WARP Registry};
 
 % Tiny icon on OS layer: "Device / world graph"
 \node[draw, rounded corners, fill=white, font=\scriptsize, minimum width=2.3cm, minimum height=0.5cm]

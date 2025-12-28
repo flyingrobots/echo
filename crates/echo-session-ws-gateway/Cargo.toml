@@ -9,7 +9,7 @@ description = "WebSocket to Unix-socket bridge for the Echo session hub (browser
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "rmg", "websocket", "gateway", "wasm"]
+keywords = ["echo", "warp", "websocket", "gateway", "wasm"]
 categories = ["network-programming", "web-programming", "asynchronous"]
 
 [dependencies]

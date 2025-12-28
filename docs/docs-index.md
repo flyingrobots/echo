@@ -19,8 +19,8 @@
 | `spec-concurrency-and-authoring.md` | Parallel core & single-threaded scripting model |
 | `spec-networking.md` | Deterministic event replication modes |
 | `phase1-plan.md` | Phase 1 implementation roadmap & demo targets |
-| `spec-rmg-core.md` | Recursive Meta Graph core format and runtime |
-| `spec-rmg-confluence.md` | Global graph synchronization (Confluence) |
+| `spec-warp-core.md` | WARP core format and runtime |
+| `spec-warp-confluence.md` | Global WARP graph synchronization (Confluence) |
 | `spec-ecs-storage.md` | ECS storage (archetypes, chunks, COW) |
 | `math-validation-plan.md` | Deterministic math coverage |
 | `scheduler-benchmarks.md` | Scheduler performance scenarios |

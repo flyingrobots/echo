@@ -40,9 +40,9 @@ Notes:
 
 ### P0 — Blockers
 
-- [x] [r2649872451](https://github.com/flyingrobots/echo/pull/141#discussion_r2649872451) `crates/rmg-wasm/Cargo.toml` — Restore the canonical crates.io `"wasm"` category for WASM crates (verified via crates.io categories API). Fixed in `84e63d3`.
+- [x] [r2649872451](https://github.com/flyingrobots/echo/pull/141#discussion_r2649872451) `crates/warp-wasm/Cargo.toml` — Restore the canonical crates.io `"wasm"` category for WASM crates (verified via crates.io categories API). Fixed in `84e63d3`.
 
-- [x] [r2649834667](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834667) `crates/rmg-ffi/Cargo.toml` — Standardize workspace MSRV (`rust-version`) and align with the pinned toolchain. Fixed in `0f8e95d`.
+- [x] [r2649834667](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834667) `crates/warp-ffi/Cargo.toml` — Standardize workspace MSRV (`rust-version`) and align with the pinned toolchain. Fixed in `0f8e95d`.
 - [x] [r2649834670](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834670) `deny.toml` — CodeRabbit claimed OpenSSL + Ubuntu-font allowlist entries were orphaned; verified dependency chains and strengthened justification. Fixed in `3e5b52d`.
 
 - [x] [r2649763194](https://github.com/flyingrobots/echo/pull/141#discussion_r2649763194) `.github/workflows/ci.yml` — Supply-chain hardening: replace mutable `@v2` with a pinned `cargo-deny-action` commit SHA. Fixed in `602ba1e`.
@@ -57,7 +57,7 @@ Notes:
 - [x] [r2612251505](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251505) `docs/METHODOLOGY.md` — Definition of Done must include the repo’s quality gates (tests, docs, clippy, docs-guard, SPDX, fmt). Fixed in `cfe9270` + `641e482`.
 
 - [x] [r2645857677](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857677) `docs/decision-log.md` — Remove duplicate decision-log row (keep the authoritative combined entry). Fixed in `641e482`.
-- [x] [r2645857683](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857683) `docs/jitos/spec-0000.md` — Fix incorrect `crate::rmg_core::*` example imports (use external `rmg_core` crate paths). Fixed in `cf286e9`.
+- [x] [r2645857683](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857683) `docs/jitos/spec-0000.md` — Fix incorrect `crate::warp_core::*` example imports (use external `warp_core` crate paths). Fixed in `cf286e9`.
 - [x] [r2612251514](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251514) `docs/tasks.md` — Remove duplicate contradictory task entries. Fixed in `cfe9270`.
 
 - [x] [r2645857694](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857694) `specs/spec-000-rewrite/Cargo.toml` — CodeRabbit claimed `edition = "2024"` is invalid; it is valid under the repo toolchain (`rust-toolchain.toml` pins Rust 1.90.0) and the crate declares `rust-version = "1.90.0"` (see `0f8e95d`). No code change required.
@@ -65,7 +65,7 @@ Notes:
 
 ### P1 — Major
 
-- [x] [r2649872452](https://github.com/flyingrobots/echo/pull/141#discussion_r2649872452) `docs/jitos/spec-0000.md` — Make the `Rmg` example struct `Serialize`/`Deserialize` so the WASM example’s `serde_json::to_string(&self.rmg)` compiles. Fixed in `922553f`.
+- [x] [r2649872452](https://github.com/flyingrobots/echo/pull/141#discussion_r2649872452) `docs/jitos/spec-0000.md` — Make the `WarpGraph` example struct `Serialize`/`Deserialize` so the WASM example’s `serde_json::to_string(&self.warp)` compiles. Fixed in `922553f`.
 
 - [x] [r2649834662](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834662) `Cargo.toml` — Add `echo-wasm-abi` to `[workspace.dependencies]` to restore workspace inheritance for internal consumers. Fixed in `150415b`.
 - [x] [r2649834663](https://github.com/flyingrobots/echo/pull/141#discussion_r2649834663) `crates/echo-session-service/Cargo.toml` — Migrate internal deps to `workspace = true` (avoid version drift vs root `[workspace.dependencies]`). Fixed in `2ee0a07`.
@@ -151,7 +151,7 @@ Notes:
 - [x] [r2649731204](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731204) `scripts/check_task_lists.sh` — Compare task text case-insensitively for conflict detection. Fixed in `602ba1e`.
 - [x] [r2649731186](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731186) `.githooks/pre-commit` — Fail if task list guard script exists but is not executable (avoid silent skip). Fixed in `5086881`.
 - [x] [r2649731194](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731194) `crates/echo-wasm-bindings/tests/api_tests.rs` — Add explicit self-edge (`connect("A","A")`) behavior test. Fixed in `5086881`.
-- [x] [r2649731195](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731195) `crates/rmg-viewer/Cargo.toml` — DRY: move local path+version pins into `[workspace.dependencies]` and inherit with `workspace = true`. Fixed in `5086881`.
+- [x] [r2649731195](https://github.com/flyingrobots/echo/pull/141#discussion_r2649731195) `crates/warp-viewer/Cargo.toml` — DRY: move local path+version pins into `[workspace.dependencies]` and inherit with `workspace = true`. Fixed in `5086881`.
 
 - [x] [r2649699428](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699428) `crates/echo-session-client/src/lib.rs` — Extract the `>= 400` scope threshold into a named constant. Fixed in `46bc079`.
 - [x] [r2649699432](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699432) `crates/echo-session-ws-gateway/README.md` — Add language to fenced code blocks (MD040). Fixed in `46bc079`.

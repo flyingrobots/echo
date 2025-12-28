@@ -15,8 +15,8 @@ pub type Hash32 = [u8; 32];
 pub type NodeId = u64;
 /// Canonical edge identifier.
 pub type EdgeId = u64;
-/// Identifier for an RMG authority/stream.
-pub type RmgId = u64;
+/// Identifier for a WARP authority/stream.
+pub type WarpId = u64;
 
 /// Basic node classification (extend as needed).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -64,7 +64,7 @@ pub enum EdgeDataPatch {
 
 /// Structural graph mutations used in diffs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum RmgOp {
+pub enum WarpOp {
     /// Create a node.
     AddNode {
         /// Node identifier.
@@ -184,15 +184,15 @@ impl RenderGraph {
     }
 
     /// Apply a structural op; errors if ids are missing/duplicate.
-    pub fn apply_op(&mut self, op: RmgOp) -> anyhow::Result<()> {
+    pub fn apply_op(&mut self, op: WarpOp) -> anyhow::Result<()> {
         match op {
-            RmgOp::AddNode { id, kind, data } => {
+            WarpOp::AddNode { id, kind, data } => {
                 if self.nodes.iter().any(|n| n.id == id) {
                     anyhow::bail!("node already exists: {}", id);
                 }
                 self.nodes.push(RenderNode { id, kind, data });
             }
-            RmgOp::RemoveNode { id } => {
+            WarpOp::RemoveNode { id } => {
                 let before = self.nodes.len();
                 self.nodes.retain(|n| n.id != id);
                 if self.nodes.len() == before {
@@ -200,7 +200,7 @@ impl RenderGraph {
                 }
                 self.edges.retain(|e| e.src != id && e.dst != id);
             }
-            RmgOp::UpdateNode { id, data } => {
+            WarpOp::UpdateNode { id, data } => {
                 let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) else {
                     anyhow::bail!("missing node: {}", id);
                 };
@@ -208,7 +208,7 @@ impl RenderGraph {
                     NodeDataPatch::Replace(nd) => node.data = nd,
                 }
             }
-            RmgOp::AddEdge {
+            WarpOp::AddEdge {
                 id,
                 src,
                 dst,
@@ -232,14 +232,14 @@ impl RenderGraph {
                     data,
                 });
             }
-            RmgOp::RemoveEdge { id } => {
+            WarpOp::RemoveEdge { id } => {
                 let before = self.edges.len();
                 self.edges.retain(|e| e.id != id);
                 if self.edges.len() == before {
                     anyhow::bail!("missing edge: {}", id);
                 }
             }
-            RmgOp::UpdateEdge { id, data } => {
+            WarpOp::UpdateEdge { id, data } => {
                 let Some(edge) = self.edges.iter_mut().find(|e| e.id == id) else {
                     anyhow::bail!("missing edge: {}", id);
                 };
@@ -254,7 +254,7 @@ impl RenderGraph {
 
 /// Full snapshot of an epoch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RmgSnapshot {
+pub struct WarpSnapshot {
     /// Epoch identifier for this snapshot.
     pub epoch: EpochId,
     /// Full renderable graph at this epoch.
@@ -265,29 +265,29 @@ pub struct RmgSnapshot {
 
 /// Diff between consecutive epochs (must be gapless in live streams).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RmgDiff {
+pub struct WarpDiff {
     /// Base epoch (pre-diff).
     pub from_epoch: EpochId,
     /// Target epoch (post-diff, expected = from_epoch + 1 in live streams).
     pub to_epoch: EpochId,
     /// Structural operations to apply.
-    pub ops: Vec<RmgOp>,
+    pub ops: Vec<WarpOp>,
     /// Optional hash of the post-state (epoch = to_epoch).
     pub state_hash: Option<Hash32>,
 }
 
 /// Wire frame.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum RmgFrame {
+pub enum WarpFrame {
     /// Full state snapshot for an epoch.
-    Snapshot(RmgSnapshot),
+    Snapshot(WarpSnapshot),
     /// Gapless diff between consecutive epochs.
-    Diff(RmgDiff),
+    Diff(WarpDiff),
 }
 
 /// Viewer→Engine hello for late join/reconnect.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RmgHello {
+pub struct WarpHello {
     /// Viewer’s last known epoch (if any).
     pub last_known_epoch: Option<EpochId>,
     /// Hash of viewer’s last known epoch (if any).

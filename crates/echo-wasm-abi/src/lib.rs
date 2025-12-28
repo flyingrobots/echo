@@ -45,7 +45,7 @@ pub enum Value {
 ///
 /// Invariants:
 ///
-/// - `id` should be unique within an [`Rmg`] (not enforced by the type).
+/// - `id` should be unique within a [`WarpGraph`] (not enforced by the type).
 /// - `fields` is an unordered bag of per-node values intended for UI/demo state.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Node {
@@ -66,12 +66,12 @@ pub struct Edge {
     pub to: NodeId,
 }
 
-/// Minimal render-metagraph (RMG) view for the WASM demo.
+/// Minimal WARP graph view for the WASM demo.
 ///
 /// This is the “teaching graph” representation used by Spec-000 and friends, not the canonical
 /// engine graph.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Rmg {
+pub struct WarpGraph {
     /// Node map keyed by id (unordered).
     pub nodes: HashMap<NodeId, Node>,
     /// Edges (directed).

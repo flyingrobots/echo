@@ -6,24 +6,24 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 
 ---
 
-## Rust (rmg-core, ffi, wasm, cli)
+## Rust (warp-core, ffi, wasm, cli)
 
 ### Responsibilities
-- RMG engine: GraphStore, PatternGraph, RewriteRule, DeterministicScheduler, commit/Snapshot APIs.
+- WARP engine: GraphStore, PatternGraph, RewriteRule, DeterministicScheduler, commit/Snapshot APIs.
 - ECS foundations: Worlds, Systems, Components expressed as rewrite rules.
 - Timeline & Branch tree: rewrite transactions, snapshot hashing, concurrency guard rails.
 - Math/PRNG: deterministic float32 / fixed32 modules shared with gameplay.
 - Netcode: lockstep / rollback / authority modes using rewrite transactions.
 - Asset pipeline: import/export graphs, payload storage, zero-copy access.
 - Confluence: distributed synchronization of rewrite transactions.
-- Rhai engine hosting: embed Rhai with deterministic module set; expose RMG bindings.
-- CLI tools: `rmg` command for apply/snapshot/diff/verify.
+- Rhai engine hosting: embed Rhai with deterministic module set; expose WARP bindings.
+- CLI tools: `warp` command for apply/snapshot/diff/verify.
 
 ### Key Crates
-- `rmg-core` – core engine
-- `rmg-ffi` – C ABI for host/native consumers; Rhai binds directly in-process
-- `rmg-wasm` – WASM build for tooling/editor
-- `rmg-cli` – CLI utilities
+- `warp-core` – core engine
+- `warp-ffi` – C ABI for host/native consumers; Rhai binds directly in-process
+- `warp-wasm` – WASM build for tooling/editor
+- `warp-cli` – CLI utilities
 
 ---
 
@@ -38,10 +38,10 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 ### Constraints
 - Single-threaded per branch; no OS threads.
 - Engine budgeted deterministically per tick.
-- Mutations occur through rewrite intents (`rmg.apply(...)`), not raw memory access.
+- Mutations occur through rewrite intents (`warp.apply(...)`), not raw memory access.
 
 ### Bindings
-- `rmg` Rhai module providing:
+- `warp` Rhai module providing:
   - `apply(rule_name, scope, params)`
   - `delay(seconds, fn)` (schedules replay-safe events)
   - Query helpers (read components, iterate entities)
@@ -58,10 +58,10 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 - Plugin builders and determinism test harness UI.
 
 ### Integration
-- Uses `rmg-wasm` to call into RMG engine from the browser.
+- Uses `warp-wasm` to call into WARP engine from the browser.
 - IPC/WebSocket for live inspector feeds (`InspectorEnvelope`).
 - Works with JSONL logs for offline analysis.
-- All mutations go through bindings; tooling never mutates state outside RMG APIs.
+- All mutations go through bindings; tooling never mutates state outside WARP APIs.
 
 ### Tech
 - Frontend frameworks: React/Svelte/Vanilla as needed.

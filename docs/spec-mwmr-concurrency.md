@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# RMG MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
+# WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
 
-Status: Draft • Date: 2025-10-27 • Owner: rmg-core
+Status: Draft • Date: 2025-10-27 • Owner: warp-core
 
 ## Why
 
@@ -114,4 +114,4 @@ Phase 2 (Optimization)
 Phase 3 (Real demo)
 - Multiplayer confluence demo (zero desync), time‑travel fork/merge, inspector visualization of footprints/conflicts
 
-References: confluence skeleton v5, RMG math confluence, offset-graph arena notes
+References: confluence skeleton v5, WARP math confluence, offset-graph arena notes

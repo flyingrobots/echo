@@ -9,7 +9,7 @@
 
 ## 1. Abstract
 
-The JITOS operating system rejects the traditional dichotomy between "code" and "documentation." Given the paradigm-shifting nature of the Causal Operating System (Recursive Metagraphs, Event Sourcing, Schrödinger Workspaces), static text is insufficient to convey system behavior.
+The JITOS operating system rejects the traditional dichotomy between "code" and "documentation." Given the paradigm-shifting nature of the Causal Operating System (WARP graphs, Event Sourcing, Schrödinger Workspaces), static text is insufficient to convey system behavior.
 
 Instead, JITOS adopts the **"5x Duty" Methodology**. Every feature added to the kernel must simultaneously serve five distinct purposes through a single, unified codebase. We do not write documentation *about* the OS; we compile the OS *into* the documentation.
 

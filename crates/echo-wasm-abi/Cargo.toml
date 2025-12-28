@@ -9,7 +9,7 @@ description = "Shared WASM-friendly DTOs for Echo/JITOS living specs (graph + re
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "rmg", "wasm", "abi", "dto"]
+keywords = ["echo", "warp", "wasm", "abi", "dto"]
 categories = ["wasm", "encoding", "data-structures"]
 
 [dependencies]

@@ -13,7 +13,7 @@ Goal: a human-friendly `cargo xtask` (or `just`/`make` alias) that walks a contr
 
 ### During session
 - Task DAG helper: load tasks from issue body / local `tasks.yaml`; compute simple priority/topo order (dependencies, P1/P0 tags).
-- Bench/test shortcuts: menu to run common commands (clippy, cargo test -p rmg-core, bench targets).
+- Bench/test shortcuts: menu to run common commands (clippy, cargo test -p warp-core, bench targets).
 - Docs guard assist: if runtime code touched, remind to update execution-plan + decision-log; offer to append templated entries.
 
 ### End session

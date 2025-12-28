@@ -55,7 +55,7 @@ and a player on Windows (x86). Hashing this state (`blake3(mem)`) will result in
 *   **Compiler:** Rust/LLVM might optimize `mul` + `add` into `fma` depending on target features.
 
 **Mitigation:**
-*   **Strict Ops:** Rely on `rmg-core` wrappers which enforce distinct operations.
+*   **Strict Ops:** Rely on `warp-core` wrappers which enforce distinct operations.
 *   **Compiler Flags:** Ensure builds do not aggressively fuse ops unless explicitly safe.
 
 ## 5. Transmutation & Zerocopy

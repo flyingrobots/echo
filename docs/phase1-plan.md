@@ -2,17 +2,17 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Phase 1 – Core Ignition Plan
 
-Goal: deliver a deterministic Rust implementation of RMG powering the Echo runtime, with tangible demos at each milestone. This plan outlines task chains, dependencies, and expected demonstrations.
+Goal: deliver a deterministic Rust implementation of WARP powering the Echo runtime, with tangible demos at each milestone. This plan outlines task chains, dependencies, and expected demonstrations.
 
 ---
 
 ## Task Graph
 ```mermaid
 graph TD
-  A[1A · RMG Core Bootstrap]
+  A[1A · WARP Core Bootstrap]
   B[1B · Rewrite Executor Spike]
   C[1C · Rhai/TS Bindings]
-  D[1D · Echo ECS on RMG]
+  D[1D · Echo ECS on WARP]
   E[1E · Networking & Confluence MVP]
   F[1F · Tooling Integration]
 
@@ -34,9 +34,9 @@ graph TD
 
 ## Phases & Tangible Outcomes
 
-### 1A · RMG Core Bootstrap
+### 1A · WARP Core Bootstrap
 - Tasks
-  - Scaffold crates (`rmg-core`, `rmg-ffi`, `rmg-wasm`, `rmg-cli`).
+  - Scaffold crates (`warp-core`, `warp-ffi`, `warp-wasm`, `warp-cli`).
   - Implement GraphStore primitives, hash utilities, scheduler skeleton.
   - CI: `cargo fmt/clippy/test` baseline.
 - Demonstration: *None* (foundation only).
@@ -56,7 +56,7 @@ graph TD
   - Port inspector CLI to use snapshots.
 - Demonstration: Rhai script triggers rewrite; inspector shows matching snapshot hash.
 
-### 1D · Echo ECS on RMG
+### 1D · Echo ECS on WARP
 - Tasks
   - Map existing ECS system set onto rewrite rules.
   - Replace Codex’s Baby event queue with rewrite intents.
@@ -109,8 +109,8 @@ Optimization roadmap once baseline is working:
 ---
 
 ## Documentation Checklist
-- Update `docs/rmg-runtime-architecture.md` as rules/loop evolve.
+- Update `docs/warp-runtime-architecture.md` as rules/loop evolve.
 - Append decision log entries per phase.
 - Record demo outcomes in `docs/decision-log.md`, prefixing the Decision column with `Demo <number> —` (e.g., `Demo 2 — Timeline hash verified`).
 
-Phase 1 completes when Demo 6 (Live Coding) runs atop the Rust RMG runtime with inspector tooling in place, using Rhai as the scripting layer.
+Phase 1 completes when Demo 6 (Live Coding) runs atop the Rust WARP runtime with inspector tooling in place, using Rhai as the scripting layer.

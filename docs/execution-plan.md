@@ -35,6 +35,27 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-28 — WARP rename + AIΩN docs sanity pass (COMPLETED)
+
+- Goal: confirm the WARP-first terminology sweep and AIΩN linkage are consistent and build-clean after the rename.
+- Scope: rerun `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs`; verify README links and ensure the only remaining `rmg_*` mentions are explicit compatibility/historical references.
+- Exit criteria: tests + clippy green; no stray “RMG / recursive metagraph” naming remains in code/docs beyond the bridge note and wire-compat aliases.
+- Evidence: workspace tests + clippy rerun green; wire decoder keeps a short transition window for `subscribe_rmg`/`rmg_stream` and `rmg_id` aliases (documented in `docs/spec-warp-view-protocol.md`).
+
+> 2025-12-28 — Repo survey + briefing capture (COMPLETED)
+
+- Goal: refresh a full-stack mental model of Echo as it exists *today* (Rust workspace + session tooling) and capture a durable briefing for future work.
+- Scope: read architecture + determinism specs; map crate boundaries; trace the rewrite/commit hashing pipeline and the session wire/protocol pipeline; review AIΩN/WARP paper sources and map them onto the current repo; note any doc/code drift.
+- Exit criteria: publish a concise repo map + invariants note in `docs/notes/` and repair any obvious spec drift discovered during the survey.
+- Evidence: added `docs/notes/project-tour-2025-12-28.md` and `docs/notes/aion-papers-bridge.md`; corrected the canonical empty digest semantics in `docs/spec-merkle-commit.md` to match `warp-core`; refreshed `README.md` to link the AIΩN Framework repo + Foundations series.
+
+> 2025-12-28 — RMG → WARP rename sweep (COMPLETED)
+
+- Goal: eliminate the legacy “RMG / recursive metagraph” naming drift by renaming the workspace to WARP-first terminology.
+- Scope: rename crates (`rmg-*` → `warp-*`), update Rust identifiers (`Rmg*` → `Warp*`), align the session proto/service/client/viewer, and sweep docs/specs/book text to match.
+- Exit criteria: `cargo test --workspace` passes; the only remaining `rmg_*` strings are explicit compatibility aliases and historical bridge-note references.
+- Evidence: workspace builds and tests pass under WARP naming; the wire decoder accepts legacy `subscribe_rmg` / `rmg_stream` and `rmg_id` as transition aliases; docs/specs/book now describe WARP streams and WarpIds.
+
 > 2025-12-28 — PR #141 follow-up (new CodeRabbit nits @ `4469b9e`) (COMPLETED)
 
 - Goal: address the two newly posted CodeRabbit nitpicks on PR #141 (latest review on commit `4469b9e`).
@@ -101,11 +122,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: execution plan, decision log, scripting/spec docs, FFI descriptions.
 - Status: completed; scripting plans now target Rhai with deterministic sandboxing, prior scripting references removed. (commit `30b3b82`)
 
-> 2025-12-11 — RMG authority enforcement (IMPLEMENTED; PENDING MERGE)
+> 2025-12-11 — WARP authority enforcement (IMPLEMENTED; PENDING MERGE)
 
-- Goal: Reject non-owner publishes on RMG channels and surface explicit errors to clients.
+- Goal: Reject non-owner publishes on WARP channels and surface explicit errors to clients.
 - Scope: `echo-session-service` (producer lock + error frames), `echo-session-client` (map error frames to notifications), protocol tasks checklist.
-- Status: implemented on branch `echo/rmg-view-protocol-spec` (commit `237460e`); not yet merged to `main`.
+- Status: implemented on branch `echo/warp-view-protocol-spec` (commit `237460e`); not yet merged to `main`.
 
 > 2025-12-10 — CI cargo-deny index failures (COMPLETED)
 
@@ -119,16 +140,16 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope: `.github/workflows/security-audit.yml` and `.github/workflows/ci.yml` (add `--ignore RUSTSEC-2024-0436` and `--ignore RUSTSEC-2021-0127`).
 - Status: completed; audit steps now ignore these advisories explicitly until upstreams replace them.
 
-> 2025-12-10 — RMG View Protocol tasks (IN PROGRESS)
+> 2025-12-10 — WARP View Protocol tasks (IN PROGRESS)
 
-- Goal: land the RMG View Protocol/EIP checklist and execute slices toward multi-viewer sharing demo.
+- Goal: land the WARP View Protocol/EIP checklist and execute slices toward multi-viewer sharing demo.
 - Scope: tracked in `docs/tasks.md` with stepwise commits as items complete.
 - Status: checklist drafted.
 
 > 2025-12-10 — CBOR migration + viewer input gating (COMPLETED)
 
 - Goal: swap serde_cbor for maintained ciborium, harden canonical encoding/decoding, and keep viewer input/render stacks consistent.
-- Scope: `crates/echo-session-proto` (ciborium + serde_value bridge, canonical encoder/decoder), `crates/echo-graph` (ciborium canonical bytes + non_exhaustive enums), `crates/rmg-viewer` (egui patch alignment, input/app events/session_logic gating, hash mismatch desync), dependency lockfile.
+- Scope: `crates/echo-session-proto` (ciborium + serde_value bridge, canonical encoder/decoder), `crates/echo-graph` (ciborium canonical bytes + non_exhaustive enums), `crates/warp-viewer` (egui patch alignment, input/app events/session_logic gating, hash mismatch desync), dependency lockfile.
 - Status: completed; wire encoding now uses ciborium with checked integer handling and canonical ordering, graph hashing returns Result, viewer controls are gated to View screen with safer event handling and consistent egui versions.
 
 > 2025-12-10 — Session client framing & non-blocking polling (COMPLETED)
@@ -140,7 +161,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-12-10 — Viewer timing & viewport safety (COMPLETED)
 
 - Goal: stabilize per-frame timing and prevent viewport unwrap panics.
-- Scope: `crates/rmg-viewer/src/app_frame.rs` (dt reuse, angular velocity with dt, safe viewport access, single aspect computation, window lifetime).
+- Scope: `crates/warp-viewer/src/app_frame.rs` (dt reuse, angular velocity with dt, safe viewport access, single aspect computation, window lifetime).
 - Status: completed; dt is captured once per frame, spins/decay use that dt, viewport access is guarded, and helper signatures no longer require 'static windows.
 
 > 2025-12-10 — Config + docs alignment (COMPLETED)
@@ -152,44 +173,44 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-12-06 — Tool crate docs + crate map (COMPLETED)
 
 - Goal: tighten docs around the tool hexagon pattern and make crate-level READMEs point at the Echo booklets as the canonical source of truth.
-- Scope: `docs/book/echo/sections/09-tool-hex-pattern.tex` (crate map), READMEs and `Cargo.toml` `readme` fields for `echo-app-core`, `echo-config-fs`, `echo-session-proto`, `echo-session-service`, `echo-session-client`, and `rmg-viewer`.
+- Scope: `docs/book/echo/sections/09-tool-hex-pattern.tex` (crate map), READMEs and `Cargo.toml` `readme` fields for `echo-app-core`, `echo-config-fs`, `echo-session-proto`, `echo-session-service`, `echo-session-client`, and `warp-viewer`.
 - Status: completed; Tools booklet now includes a crate map, and each tool-related crate README has a “What this crate does” + “Documentation” section pointing back to the relevant booklets/ADR/ARCH specs.
 
-> 2025-12-06 — JS-ABI + RMG streaming docs alignment (COMPLETED)
+> 2025-12-06 — JS-ABI + WARP streaming docs alignment (COMPLETED)
 
-- Goal: Align Echo’s book-level docs with the JS-ABI v1.0 deterministic encoding + framing decisions (ADR-0013 / ARCH-0013) and the new RMG streaming stack.
-- Scope: `docs/book/echo/sections/{13-networking-wire-protocol,14-rmg-stream-consumers,07-session-service,08-rmg-viewer-spec}.tex` (cross-links, diagrams, tables).
-- Status: completed; Core booklet now documents JS-ABI framing + generic RMG consumer contract (with role summary), and Tools booklet’s Session Service + RMG Viewer sections cross-reference that contract instead of re-specifying it.
+- Goal: Align Echo’s book-level docs with the JS-ABI v1.0 deterministic encoding + framing decisions (ADR-0013 / ARCH-0013) and the new WARP streaming stack.
+- Scope: `docs/book/echo/sections/{13-networking-wire-protocol,14-warp-stream-consumers,07-session-service,08-warp-viewer-spec}.tex` (cross-links, diagrams, tables).
+- Status: completed; Core booklet now documents JS-ABI framing + generic WARP consumer contract (with role summary), and Tools booklet’s Session Service + WARP Viewer sections cross-reference that contract instead of re-specifying it.
 
 > 2025-12-04 — Sync roadmap with session streaming progress (COMPLETED)
 
-- Goal: capture the new canonical `echo-graph` crate + gapless RMG streaming path, and queue remaining engine/viewer wiring tasks.
-- Scope: update `crates/rmg-viewer/ROADMAP.md`, note outstanding engine emitter + client extraction; log decisions.
+- Goal: capture the new canonical `echo-graph` crate + gapless WARP streaming path, and queue remaining engine/viewer wiring tasks.
+- Scope: update `crates/warp-viewer/ROADMAP.md`, note outstanding engine emitter + client extraction; log decisions.
 - Status: completed.
 
-> 2025-12-03 — Recover rmg-viewer ROADMAP after VSCode crash
+> 2025-12-03 — Recover warp-viewer ROADMAP after VSCode crash
 
 - Goal: confirm whether roadmap edits were lost and restore the latest saved state.
-- Scope: `crates/rmg-viewer/ROADMAP.md` sanity check vs git.
+- Scope: `crates/warp-viewer/ROADMAP.md` sanity check vs git.
 - Status: completed; file matches last commit (no recovery needed).
 
-> 2025-12-03 — Persist rmg-viewer camera + HUD settings between runs (COMPLETED)
+> 2025-12-03 — Persist warp-viewer camera + HUD settings between runs (COMPLETED)
 
 - Goal: write config load/save so camera + HUD toggles survive restarts.
-- Scope: `crates/rmg-viewer/src/main.rs`, add serde/directories deps; update roadmap/docs.
-- Status: completed; config saved to OS config dir `rmg-viewer.json`, loads on startup, saves on close.
+- Scope: `crates/warp-viewer/src/main.rs`, add serde/directories deps; update roadmap/docs.
+- Status: completed; config saved to OS config dir `warp-viewer.json`, loads on startup, saves on close.
 
 > 2025-12-03 — Extract core app services and refactor viewer (COMPLETED)
 
-- Goal: stop config/toast creep in rmg-viewer; introduce shared core + fs adapter; make viewer consume injected prefs.
-- Scope: new crates `echo-app-core` (ConfigService/ToastService/ViewerPrefs) and `echo-config-fs`; rewire `rmg-viewer` to use them and drop serde/directories.
+- Goal: stop config/toast creep in warp-viewer; introduce shared core + fs adapter; make viewer consume injected prefs.
+- Scope: new crates `echo-app-core` (ConfigService/ToastService/ViewerPrefs) and `echo-config-fs`; rewire `warp-viewer` to use them and drop serde/directories.
 - Status: completed; prefs load/save via ConfigService+FsConfigStore; viewer owns only rendering + HUD state; toast rendering pending.
 
 > 2025-12-04 — Session proto/service/client skeleton (COMPLETED)
 
 - Goal: set up the distributed session slice with shared wire types and stub endpoints.
 - Scope: new crates `echo-session-proto` (messages), `echo-session-service` (stub hub), `echo-session-client` (stub API); roadmap/docs updates.
-- Status: completed; schema covers Hello/RegisterRmg/RmgDiff+Snapshot/Command+Ack/Notification; transport and viewer binding are next.
+- Status: completed; schema covers Handshake/SubscribeWarp/WarpStream (snapshot/diff)/Notification; transport and viewer binding are next.
 
 > 2025-12-01 — LaTeX skeleton + booklets + onboarding/glossary (COMPLETED)
 
@@ -225,7 +246,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-12-01 — Book accuracy + visuals refresh
 
 - Goal: align the “How Echo Works” guide with the current code (scheduler kinds, sandbox, math invariants) and add clearer visuals/tables.
-- Scope: scan `rmg-core` for scheduler, sandbox, and math implementations; update prose, tables, and TikZ diagrams; remove layout warnings.
+- Scope: scan `warp-core` for scheduler, sandbox, and math implementations; update prose, tables, and TikZ diagrams; remove layout warnings.
 - Status: completed; PDF now builds cleanly with updated figures and code snippets.
 
 > 2025-12-01 — License appendix + SPDX CI
@@ -237,7 +258,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-11-30 — PR #121 feedback (perf/scheduler)
 
 - Goal: triage and address CodeRabbit review feedback on scheduler radix drain/footprint changes; ensure determinism and docs guard stay green.
-- Scope: `crates/rmg-core/src/scheduler.rs`, related engine wiring, and any doc/bench fallout; keep PendingTx private and fail-fast drain semantics intact.
+- Scope: `crates/warp-core/src/scheduler.rs`, related engine wiring, and any doc/bench fallout; keep PendingTx private and fail-fast drain semantics intact.
 - Plan: classify feedback (P0–P3), implement required fixes on `perf/scheduler`, update Decision Log + docs guard, run `cargo clippy --all-targets` and relevant tests.
 - Added: pluggable scheduler kind (Radix default, Legacy BTreeMap option) via `SchedulerKind`; legacy path kept for side-by-side comparisons.
 - Risks: regress deterministic ordering or footprint conflict semantics; ensure histogram O(n) performance and radix counts remain u32 without overflow.
@@ -245,13 +266,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-12-01 — Sandbox harness for deterministic A/B tests
 
 - Goal: enable spawning isolated Echo instances (Engine + GraphStore) from configs to compare schedulers and determinism.
-- Scope: `rmg-core::sandbox` with `EchoConfig`, `build_engine`, `run_pair_determinism`; public `SchedulerKind` (Radix/Legacy).
+- Scope: `warp-core::sandbox` with `EchoConfig`, `build_engine`, `run_pair_determinism`; public `SchedulerKind` (Radix/Legacy).
 - Behavior: seed + rules provided as factories per instance; synchronous per-step determinism check helper; threaded runs left to callers.
 
-> 2025-11-06 — Unblock commit: rmg-core scheduler Clippy fixes (follow-up)
+> 2025-11-06 — Unblock commit: warp-core scheduler Clippy fixes (follow-up)
 
 - Goal: make pre-commit Clippy pass without `--no-verify`, preserving determinism.
-- Scope: `crates/rmg-core/src/scheduler.rs` only; no API surface changes intended.
+- Scope: `crates/warp-core/src/scheduler.rs` only; no API surface changes intended.
 - Changes:
   - Doc lint: add backticks in `scheduler.rs` docs for `b_in`/`b_out` and `GenSet(s)`.
   - Reserve refactor: split `DeterministicScheduler::reserve` into `has_conflict`, `mark_all`, `on_conflict`, `on_reserved` (fix `too_many_lines`).
@@ -264,7 +285,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-11-30 – F32Scalar canonicalization and trait implementations (COMPLETED)
 
 - Goal: Ensure bit-level deterministic handling of zero for `F32Scalar` and implement necessary traits for comprehensive numerical behavior.
-- Scope: `crates/rmg-core/src/math/scalar.rs` and `crates/rmg-core/tests/math_scalar_tests.rs`.
+- Scope: `crates/warp-core/src/math/scalar.rs` and `crates/warp-core/tests/math_scalar_tests.rs`.
 - Changes:
     - `F32Scalar` canonicalizes `-0.0` to `+0.0` on construction.
     - `F32Scalar` canonicalizes all NaNs to `0x7fc00000` on construction (new).
@@ -276,19 +297,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-11-29 – Finish off `F32Scalar` implementation
 
-- Added `rmg-core::math::scalar::F32Scalar` type.
+- Added `warp-core::math::scalar::F32Scalar` type.
 
 > 2025-11-03 — Issue #115: Scalar trait scaffold
 
-- Added `rmg-core::math::scalar::Scalar` trait declaring deterministic scalar operations.
+- Added `warp-core::math::scalar::Scalar` trait declaring deterministic scalar operations.
 - Arithmetic is required via operator supertraits: `Add/Sub/Mul/Div/Neg` with `Output = Self` for ergonomic `+ - * / -` use in generics.
 - Explicit APIs included: `zero`, `one`, `sin`, `cos`, `sin_cos` (default), `from_f32`, `to_f32`.
 - No implementations yet (F32Scalar/DFix64 follow); no canonicalization or LUTs in this change.
-- Exported via `rmg-core::math::Scalar` for consumers.
+- Exported via `warp-core::math::Scalar` for consumers.
 
 > 2025-11-02 — PR-12: benches updates (CI docs guard)
 
-- Dependency policy: pin `blake3` in `rmg-benches` to exact patch `=1.8.2` with
+- Dependency policy: pin `blake3` in `warp-benches` to exact patch `=1.8.2` with
   `default-features = false, features = ["std"]` (no rayon; deterministic, lean).
 - snapshot_hash bench: precompute `link` type id once; fix edge labels to `e-i-(i+1)`.
 - scheduler_drain bench: builder returns `Vec<NodeId>` to avoid re-hashing labels; bench loop uses the precomputed ids.
@@ -302,7 +323,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-11-02 — PR-12: benches README
 
-- Added `crates/rmg-benches/benches/README.md` documenting how to run and interpret
+- Added `crates/warp-benches/benches/README.md` documenting how to run and interpret
   benchmarks, report locations, and optional flamegraph usage.
 - Linked it from the main `README.md`.
 
@@ -324,24 +345,24 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Target: `echo/pr-12-snapshot-bench` (PR #113).
 - Merged `origin/main` into the branch (merge commit, no rebase) to clear GitHub conflict status.
-- Resolved `crates/rmg-benches/Cargo.toml` conflict by keeping:
+- Resolved `crates/warp-benches/Cargo.toml` conflict by keeping:
   - `license = "Apache-2.0"` and `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }` in dev-dependencies.
-  - Version-pinned path dep: `rmg-core = { version = "0.1.0", path = "../rmg-core" }`.
+  - Version-pinned path dep: `warp-core = { version = "0.1.0", path = "../warp-core" }`.
   - Bench entries: `motion_throughput`, `snapshot_hash`, `scheduler_drain`.
-- Benches code present/updated: `crates/rmg-benches/benches/snapshot_hash.rs`, `crates/rmg-benches/benches/scheduler_drain.rs`.
+- Benches code present/updated: `crates/warp-benches/benches/snapshot_hash.rs`, `crates/warp-benches/benches/scheduler_drain.rs`.
 - Scope: benches + metadata only; no runtime changes. Hooks (fmt, clippy, tests, rustdoc) were green locally before push.
 
 > 2025-11-02 — PR-11 hotfix-deterministic-rollup-check
 
 - Switch to `echo/hotfix-deterministic-rollup-check`, fetch and merge `origin/main` (merge commit; no rebase).
 - Fix CI cargo-deny failures:
-  - Add `license = "Apache-2.0"` to `crates/rmg-benches/Cargo.toml`.
-  - Ensure no wildcard dependency remains in benches (use workspace path dep for `rmg-core`).
+  - Add `license = "Apache-2.0"` to `crates/warp-benches/Cargo.toml`.
+  - Ensure no wildcard dependency remains in benches (use workspace path dep for `warp-core`).
 - Modernize `deny.toml` (remove deprecated `copyleft` and `unlicensed` keys per cargo-deny PR #611); enforcement still via explicit allowlist.
 
 > 2025-10-30 — PR-01: Golden motion fixtures (tests-only)
 
-- Add JSON golden fixtures and a minimal harness for the motion rule under `crates/rmg-core/tests/`.
+- Add JSON golden fixtures and a minimal harness for the motion rule under `crates/warp-core/tests/`.
 - Scope: tests-only; no runtime changes.
 - Links: PR-01 and tracking issue are associated for visibility.
 
@@ -375,20 +396,20 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-10-30 — PR-03: proptest seed pinning (tests-only)
 
-- Added `proptest` as a dev‑dependency in `rmg-core` and a single example test `proptest_seed_pinning.rs` that pins a deterministic RNG seed and validates the motion rule under generated inputs. This demonstrates how to reproduce failures via a fixed seed across CI and local runs (no runtime changes).
+- Added `proptest` as a dev‑dependency in `warp-core` and a single example test `proptest_seed_pinning.rs` that pins a deterministic RNG seed and validates the motion rule under generated inputs. This demonstrates how to reproduce failures via a fixed seed across CI and local runs (no runtime changes).
 
 > 2025-10-30 — PR-04: CI matrix (glibc + musl; macOS manual)
 
-- CI: Added a musl job (`Tests (musl)`) that installs `musl-tools`, adds target `x86_64-unknown-linux-musl`, and runs `cargo test -p rmg-core --target x86_64-unknown-linux-musl`.
+- CI: Added a musl job (`Tests (musl)`) that installs `musl-tools`, adds target `x86_64-unknown-linux-musl`, and runs `cargo test -p warp-core --target x86_64-unknown-linux-musl`.
 - CI: Added a separate macOS workflow (`CI (macOS — manual)`) triggered via `workflow_dispatch` to run fmt/clippy/tests on `macos-latest` when needed, avoiding default macOS runner costs.
 
 > 2025-10-30 — PR-06: Motion negative tests (opened)
 
-- Added tests in `rmg-core` covering NaN/Infinity propagation and invalid payload size returning `NoMatch`. Tests-only; documents expected behavior; no runtime changes.
+- Added tests in `warp-core` covering NaN/Infinity propagation and invalid payload size returning `NoMatch`. Tests-only; documents expected behavior; no runtime changes.
 
 > 2025-10-30 — PR-09: BLAKE3 header tests (tests-only)
 
-- Added unit tests under `rmg-core` (in `snapshot.rs`) that:
+- Added unit tests under `warp-core` (in `snapshot.rs`) that:
   - Build canonical commit header bytes and assert `compute_commit_hash` equals `blake3(header)`.
   - Spot-check LE encoding (version u16 = 1, parents length as u64 LE).
 - Assert that reversing parent order changes the hash. No runtime changes.
@@ -399,12 +420,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-11-01 — PR-10 scope hygiene
 
-- Removed commit‑header tests from `crates/rmg-core/src/snapshot.rs` on this branch to keep PR‑10 strictly docs/CI/tooling. Those tests live in PR‑09 (`echo/pr-09-blake3-header-tests`). No runtime changes here.
+- Removed commit‑header tests from `crates/warp-core/src/snapshot.rs` on this branch to keep PR‑10 strictly docs/CI/tooling. Those tests live in PR‑09 (`echo/pr-09-blake3-header-tests`). No runtime changes here.
 
 
 > 2025-10-29 — Geom fat AABB midpoint sampling (merge-train)
 
-- Update `rmg-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.
+- Update `warp-geom::temporal::Timespan::fat_aabb` to union AABBs at start, mid (t=0.5), and end to conservatively bound rotations about off‑centre pivots.
 - Add test `fat_aabb_covers_mid_rotation_with_offset` to verify the fat box encloses the mid‑pose AABB.
 
 > 2025-10-29 — Pre-commit format policy
@@ -414,7 +435,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-10-29 — CI/security hardening
 
 - CI now includes `cargo audit` and `cargo-deny` jobs to catch vulnerable/deprecated dependencies early.
-- Rustdoc warnings gate covers rmg-core, rmg-geom, rmg-ffi, and rmg-wasm.
+- Rustdoc warnings gate covers warp-core, warp-geom, warp-ffi, and warp-wasm.
 - Devcontainer runs `make hooks` post-create to install repo hooks by default.
 - Note: switched audit action to `rustsec/audit-check@v1` (previous attempt to pin a non-existent tag failed).
 - Added `deny.toml` with an explicit permissive-license allowlist (Apache-2.0, MIT, BSD-2/3, CC0-1.0, MIT-0, Unlicense, Unicode-3.0, BSL-1.0, Apache-2.0 WITH LLVM-exception) to align cargo-deny with our dependency set.
@@ -423,7 +444,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 > 2025-10-29 — Snapshot commit spec
 
 - Added `docs/spec-merkle-commit.md` defining `state_root` vs `commit_id` encoding and invariants.
-- Linked the spec from `crates/rmg-core/src/snapshot.rs` and README.
+- Linked the spec from `crates/warp-core/src/snapshot.rs` and README.
 
 > 2025-10-28 — PR #13 (math polish) opened
 
@@ -447,9 +468,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Updated Makefile by merging hooks target with docs targets.
 - CI Docs Guard satisfied with this entry; Decision Log updated.
 
-> 2025-10-29 — rmg-core snapshot header + tx/rules hardening (PR #9 base)
+> 2025-10-29 — warp-core snapshot header + tx/rules hardening (PR #9 base)
 
-- Adopt Snapshot v1 header shape in `rmg-core` with `parents: Vec<Hash>`, and canonical digests:
+- Adopt Snapshot v1 header shape in `warp-core` with `parents: Vec<Hash>`, and canonical digests:
   - `state_root` (reachable‑only graph hashing)
   - `plan_digest` (ready‑set ordering; empty = blake3(len=0))
   - `decision_digest` (Aion; zero for now)
@@ -472,38 +493,38 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Renamed `AUTO_FMT` → `ECHO_AUTO_FMT` in `.githooks/pre-commit`.
 - README, AGENTS, and CONTRIBUTING updated to document hooks installation and the new flag.
 
-> 2025-10-28 — PR #8 (rmg-geom foundation) updates
+> 2025-10-28 — PR #8 (warp-geom foundation) updates
 
 - Focus: compile + clippy pass for the new geometry crate baseline.
 - Changes in this branch:
-  - rmg-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, Timespan, SweepProxy}`.
+  - warp-geom crate foundations: `types::{Aabb, Transform}`, `temporal::{Tick, Timespan, SweepProxy}`.
   - Removed premature `pub mod broad` (broad-phase lands in a separate PR) to fix E0583.
-  - Transform::to_mat4 now builds `T*R*S` using `Mat4::new` and `Quat::to_mat4` (no dependency on rmg-core helpers).
+  - Transform::to_mat4 now builds `T*R*S` using `Mat4::new` and `Quat::to_mat4` (no dependency on warp-core helpers).
   - Clippy: resolved similar_names in `Aabb::transformed`; relaxed `nursery`/`cargo` denies to keep scope tight.
   - Merged latest `main` to inherit CI/toolchain updates.
 
-> 2025-10-28 — PR #7 (rmg-core engine spike)
+> 2025-10-28 — PR #7 (warp-core engine spike)
 
 - Landed on main; see Decision Log for summary of changes and CI outcomes.
 
-> 2025-10-30 — rmg-core determinism tests and API hardening
+> 2025-10-30 — warp-core determinism tests and API hardening
 
 - **Focus**: Address PR feedback for the split-core-math-engine branch. Add tests for snapshot reachability, tx lifecycle, scheduler drain order, and duplicate rule registration. Harden API docs and FFI (TxId repr, const ctors).
-- **Definition of done**: `cargo test -p rmg-core` passes; clippy clean for rmg-core with strict gates; no workspace pushes yet (hold for more feedback).
+- **Definition of done**: `cargo test -p warp-core` passes; clippy clean for warp-core with strict gates; no workspace pushes yet (hold for more feedback).
 
 > 2025-10-30 — CI toolchain policy: use stable everywhere
 
 - **Focus**: Simplify CI by standardizing on `@stable` toolchain (fmt, clippy, tests, audit). Remove MSRV job; developers default to stable via `rust-toolchain.toml`.
 - **Definition of done**: CI workflows updated; Security Audit uses latest cargo-audit on stable; docs updated.
 
-> 2025-10-30 — Minor rustdoc/lint cleanups (rmg-core)
+> 2025-10-30 — Minor rustdoc/lint cleanups (warp-core)
 
 - **Focus**: Address clippy::doc_markdown warning by clarifying Snapshot docs (`state_root` backticks).
 - **Definition of done**: Lints pass under pedantic; no behavior changes.
 
 > 2025-10-30 — Spec + lint hygiene (core)
 
-- **Focus**: Remove duplicate clippy allow in `crates/rmg-core/src/lib.rs`; clarify `docs/spec-merkle-commit.md` (edge_count may be 0; explicit empty digests; genesis parents).
+- **Focus**: Remove duplicate clippy allow in `crates/warp-core/src/lib.rs`; clarify `docs/spec-merkle-commit.md` (edge_count may be 0; explicit empty digests; genesis parents).
 - **Definition of done**: Docs updated; clippy clean.
 
 ---
@@ -517,7 +538,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 - [x] Deterministic math validation strategy.
 - [x] Branch merge conflict playbook.
-- [ ] Scaffold Rust workspace (`crates/rmg-core`, `crates/rmg-ffi`, `crates/rmg-wasm`, `crates/rmg-cli`).
+- [ ] Scaffold Rust workspace (`crates/warp-core`, `crates/warp-ffi`, `crates/warp-wasm`, `crates/warp-cli`).
 - [ ] Port ECS archetype storage + branch diff engine to Rust.
 - [ ] Implement deterministic PRNG + math module in Rust.
 - [ ] Expose C ABI for host integrations and embed Rhai for scripting.
@@ -561,8 +582,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 | 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
 | 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Rhai scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
-| 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in rmg-core | Extend coverage to browser environments and fixed-point mode |
-| 2025-10-26 | Adopt RMG + Confluence as core architecture | RMG v2 (typed DPOi engine) + Confluence replication baseline | Scaffold rmg-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
+| 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in warp-core | Extend coverage to browser environments and fixed-point mode |
+| 2025-10-26 | Adopt WARP + Confluence as core architecture | WARP v2 (typed DPOi engine) + Confluence replication baseline | Scaffold warp-core/ffi/wasm/cli crates; implement rewrite executor spike; integrate Rust CI; migrate TS prototype to `/reference` |
+| 2025-12-28 | Mechanical rename: RMG → WARP | Align the repo’s terminology and public surface to the AIΩN Foundations Series naming | Keep decode aliases during transition; update bridge/mapping docs as divergences land |
 
 (Keep this table updated; include file references or commit hashes when useful.)
 
@@ -597,5 +619,5 @@ Remember: every entry here shrinks temporal drift between Codices. Leave breadcr
 
 > 2025-11-02 — PR-11: benches crate skeleton (M1)
 
-- Add `crates/rmg-benches` with Criterion harness and a minimal motion-throughput benchmark that exercises public `rmg-core` APIs.
-- Scope: benches-only; no runtime changes. Document local run (`cargo bench -p rmg-benches`).
+- Add `crates/warp-benches` with Criterion harness and a minimal motion-throughput benchmark that exercises public `warp-core` APIs.
+- Scope: benches-only; no runtime changes. Document local run (`cargo bench -p warp-benches`).

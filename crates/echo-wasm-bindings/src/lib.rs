@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Minimal RMG + rewrite API exposed for WASM specs.
+//! Minimal WARP graph + rewrite API exposed for WASM specs.
 //!
 //! Provides a tiny in-memory kernel for Spec-000 that mirrors the wasm ABI types.
 
 use echo_wasm_abi::{Edge, Node};
-pub use echo_wasm_abi::{Rewrite, Rmg, SemanticOp, Value};
+pub use echo_wasm_abi::{Rewrite, SemanticOp, Value, WarpGraph};
 use std::collections::HashMap;
 
 #[cfg(feature = "wasm")]
@@ -15,7 +15,7 @@ use wasm_bindgen::prelude::*;
 ///
 /// This is a **teaching/demo** kernel intended for living specs (e.g. Spec-000):
 ///
-/// - It owns an in-memory [`Rmg`] and an append-only [`Rewrite`] history.
+/// - It owns an in-memory [`WarpGraph`] and an append-only [`Rewrite`] history.
 /// - It is designed for JS/WASM interop: when built with `--features wasm`, the type is exposed
 ///   via `wasm-bindgen` and provides JSON serializers (see `serializeGraph` / `serializeHistory`).
 /// - It is not the production Echo kernel, does not validate invariants, and does not implement
@@ -29,7 +29,7 @@ use wasm_bindgen::prelude::*;
 ///   recorded in `history`.
 #[cfg_attr(feature = "wasm", wasm_bindgen)]
 pub struct DemoKernel {
-    graph: Rmg,
+    graph: WarpGraph,
     history: Vec<Rewrite>,
 }
 
@@ -45,7 +45,7 @@ impl DemoKernel {
     #[cfg_attr(feature = "wasm", wasm_bindgen(constructor))]
     pub fn new() -> Self {
         Self {
-            graph: Rmg::default(),
+            graph: WarpGraph::default(),
             history: Vec::new(),
         }
     }
@@ -139,7 +139,7 @@ impl DemoKernel {
     }
 
     /// Get a clone of the current graph (host use).
-    pub fn graph(&self) -> Rmg {
+    pub fn graph(&self) -> WarpGraph {
         self.graph.clone()
     }
 

@@ -6,7 +6,7 @@ Shared WASM-friendly DTOs for Echo/JITOS living specs. Mirrors the minimal graph
 
 ## Types
 
-- `Node`, `Edge`, `Rmg`
+- `Node`, `Edge`, `WarpGraph`
 - `Value` (Str/Num/Bool/Null)
 - `Rewrite` with `SemanticOp` (AddNode/Set/DeleteNode/Connect/Disconnect)
 

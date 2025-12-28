@@ -8,7 +8,7 @@ rust-version = "1.90.0"
 description = "Client helper for talking to the Echo session hub (skeleton)"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
-keywords = ["echo", "session", "client", "rmg"]
+keywords = ["echo", "session", "client", "warp"]
 categories = ["development-tools", "network-programming"]
 license = "Apache-2.0"
 

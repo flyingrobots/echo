@@ -1,30 +1,30 @@
 % SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-\section{Echo Session Service and RMG Viewer Sync}
+\section{Echo Session Service and WARP Viewer Sync}
 \label{sec:session-service}
 
-Echo’s editor constellation streams RMG state from the engine to tools over a gapless, deterministic protocol. This section documents the session service, the wire format, and how the RMG Viewer consumes snapshots/diffs to stay in lockstep.
+Echo’s editor constellation streams WARP state from the engine to tools over a gapless, deterministic protocol. This section documents the session service, the wire format, and how the WARP Viewer consumes snapshots/diffs to stay in lockstep.
 
 For a role-level summary of how the Engine, Session Host, and client apps
-share responsibility for RMG streaming, see the generic consumer contract in
-Section~\ref{sec:rmg-stream-consumers} and
-Table~\ref{tab:rmg-role-summary}.
+share responsibility for WARP streaming, see the generic consumer contract in
+Section~\ref{sec:warp-stream-consumers} and
+Table~\ref{tab:warp-role-summary}.
 
 \subsection{Roles}
 \begin{itemize}
-  \item \textbf{Engine / Session Service}: authoritative owner of the RMG; emits snapshots and diffs over a Unix socket; guarantees ordered, gapless epochs.
-  \item \textbf{RMG Viewer}: connects to the service, receives frames, applies structural ops, renders the graph; treats any epoch gap/hash mismatch as a protocol error.
+  \item \textbf{Engine / Session Service}: authoritative owner of the WARP; emits snapshots and diffs over a Unix socket; guarantees ordered, gapless epochs.
+  \item \textbf{WARP Viewer}: connects to the service, receives frames, applies structural ops, renders the graph; treats any epoch gap/hash mismatch as a protocol error.
   \item \textbf{Other tools}: inspectors, profilers, etc., use the same frames and can render or analyze the graph identically.
 \end{itemize}
 
 \subsection{Wire Types (from \texttt{echo-graph} / \texttt{echo-session-proto})}
 \begin{itemize}
   \item \textbf{EpochId}: monotonically increasing tick id.
-  \item \textbf{RmgFrame}: either \texttt{Snapshot} or \texttt{Diff}.
+  \item \textbf{WarpFrame}: either \texttt{Snapshot} or \texttt{Diff}.
   \item \textbf{Snapshot}: \texttt{\{ epoch, graph: RenderGraph, state\_hash? \}} (first frame after connect).
-  \item \textbf{Diff}: \texttt{\{ from\_epoch, to\_epoch, ops: Vec<RmgOp>, state\_hash? \}} with \texttt{to = from + 1} in live streams.
-  \item \textbf{RmgOp}: structural graph mutations (Add/Update/Remove node/edge with payload patches).
-  \item \textbf{Notification}: info/warn/error scoped to Global/Session/RMG/Local; carried alongside RmgFrame.
+  \item \textbf{Diff}: \texttt{\{ from\_epoch, to\_epoch, ops: Vec<WarpOp>, state\_hash? \}} with \texttt{to = from + 1} in live streams.
+  \item \textbf{WarpOp}: structural graph mutations (Add/Update/Remove node/edge with payload patches).
+  \item \textbf{Notification}: info/warn/error scoped to Global/Session/WARP/Local; carried alongside WarpFrame.
 \end{itemize}
 
 \subsection{Protocol Invariants}
@@ -76,5 +76,5 @@ Diff(d):
 \begin{itemize}
   \item Engine emitter: send real RenderGraph snapshots/diffs using \texttt{echo-graph} types.
   \item Viewer: improve \texttt{scene\_from\_wire} to honor payload-driven layout/appearance.
-  \item Add resume-from-epoch handshake (\texttt{RmgHello}) to support reconnect without full snapshot when logs are retained.
+  \item Add resume-from-epoch handshake (\texttt{WarpHello}) to support reconnect without full snapshot when logs are retained.
 \end{itemize}

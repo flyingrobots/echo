@@ -13,7 +13,7 @@ keywords = ["echo", "rmg", "wasm", "bindings"]
 categories = ["wasm", "encoding", "api-bindings"]
 
 [dependencies]
-echo-wasm-abi = { version = "0.1.0", path = "../echo-wasm-abi" }
+echo-wasm-abi.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 wasm-bindgen = { version = "0.2", optional = true }

@@ -35,6 +35,12 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-28 — PR #141 follow-up (new CodeRabbit comments after `c8111ec`) (IN PROGRESS)
+
+- Goal: address newly posted CodeRabbit review comments on PR #141 (including minor/nitpick) and ship a clean follow-up push.
+- Scope: re-extract paginated PR comments; bucket by severity; implement fixes with tests + doc alignment; update burn-down index + consolidated PR comment with fix SHAs.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D warnings -D missing_docs` green; PR checks green; consolidated summary comment updated with new SHAs.
+
 > 2025-12-28 — PR #141 follow-up (new CodeRabbit round: Leptos bump + Rewrite semantics) (COMPLETED)
 
 - Goal: address newly posted PR #141 review comments (Leptos 0.8.15 bump + fix `Rewrite` semantics around `old_value`) and ship a clean follow-up push.
@@ -53,7 +59,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Goal: extract, bucket, and resolve every PR comment on #141 with tests, fixes, and doc alignment.
 - Scope: use `gh` + API to enumerate review + issue comments; verify stale vs actionable; implement fixes with minimal deterministic surface changes; update `docs/decision-log.md` and any impacted specs.
-- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; PR thread includes fix SHAs; branch is pushable. (See `docs/notes/pr-141-comment-burn-down.md` @ `933239a`, PR comment: https://github.com/flyingrobots/echo/pull/141#issuecomment-3694739980)
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; PR thread includes fix SHAs; branch is pushable. (See `docs/notes/pr-141-comment-burn-down.md` @ `933239a`, PR comment: <https://github.com/flyingrobots/echo/pull/141#issuecomment-3694739980>)
 
 > 2025-12-13 — WS gateway disconnect hygiene + Spec-000 WASM gating (COMPLETED)
 

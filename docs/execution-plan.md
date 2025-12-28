@@ -35,11 +35,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-28 — PR #141 review comment burn-down (IN PROGRESS)
+> 2025-12-28 — PR #141 review comment burn-down (COMPLETED)
 
 - Goal: extract, bucket, and resolve every PR comment on #141 with tests, fixes, and doc alignment.
 - Scope: use `gh` + API to enumerate review + issue comments; verify stale vs actionable; implement fixes with minimal deterministic surface changes; update `docs/decision-log.md` and any impacted specs.
-- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; PR thread replies include fix SHAs; branch is pushable.
+- Exit criteria: `cargo test` + `cargo clippy --all-targets -- -D missing_docs` green; PR thread includes fix SHAs; branch is pushable. (See `docs/notes/pr-141-comment-burn-down.md` @ `933239a`, PR comment: https://github.com/flyingrobots/echo/pull/141#issuecomment-3694739980)
 
 > 2025-12-13 — WS gateway disconnect hygiene + Spec-000 WASM gating (COMPLETED)
 

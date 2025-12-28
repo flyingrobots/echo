@@ -19,8 +19,10 @@ Teach the core JITOS principle: all durable state evolves via immutable, semanti
 - Rewrite log (click to replay)
 - Apply rewrite panel (add node, set field, connect, tombstone)
 
-## Win Condition (to add)
-- Apply a sequence of rewrites to reach a target graph; issue a completion hash when achieved.
+## Win Condition (Phase 0 scaffold)
+- The Spec-000 page builds and runs in the browser via `make spec-000-dev`.
+- The UI renders the embedded Spec-000 markdown and supports a deterministic “epoch” counter increment.
+- Next milestone (not yet implemented): wire `echo-wasm-bindings::DemoKernel` into the UI, replay rewrites, and emit a deterministic completion proof.
 
 ## Implementation Notes
 - UI: Leptos CSR (Trunk)

@@ -15,4 +15,6 @@ Minimal WASM bindings shim for Echo/JITOS living specs. Provides `DemoKernel` wi
 - `set_field(target, field, value)`
 - `connect(from, to)`
 - `delete_node(target)`
-- `graph()` / `history()` (native) and `serialize_graph()` / `serialize_history()` (WASM)
+- `graph()` / `history()` (native clones)
+- `graph_json()` / `history_json()` (JSON strings; native + WASM)
+- `serializeGraph()` / `serializeHistory()` (WASM JS names; JSON strings)

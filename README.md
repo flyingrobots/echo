@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-<img src="./assets/echo-white.svg" align="center">
+<img src="./assets/echo-white.svg" alt="Echo logo" align="center">
 
 ---
 
@@ -10,9 +10,9 @@
 >
 > Echo is now the kernel for **JITOS**—the world's first causal operating system, where history is immutable, execution is deterministic, and debugging means time-traveling to exact states, instead of hopes and prayers.
 >
-> **THE REVΩLUTION WILL BE DETERMINISTIC.**  
-> **THE PROOF IS MATHEMATICAL.**  
-> **TIME WILL TELL.**  
+> **THE REVΩLUTION WILL BE DETERMINISTIC.**<br/>
+> **THE PROOF IS MATHEMATICAL.**<br/>
+> **TIME WILL TELL.**
 >
 > 🔗 [AIΩN](https://github.com/flyingrobots/aion) | [JITOS RFCs](https://github.com/flyingrobots/jitos) | [CΩMPUTER Paper](https://github.com/flyingrobots/aion-computer-book)
 
@@ -34,7 +34,12 @@
 > Echo is a WARP Graph (Worldline Algebra for Recursive Provenance) simulation engine that treats _everything_–code, data, and time itself—as one big living graph.
 > It’s built so every change can branch, merge, and replay perfectly.
 
-<img src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de" height="400" align="right" />
+<img
+  src="https://github.com/user-attachments/assets/d31abba2-276e-4740-b370-b4a9c80b30de"
+  alt="WARP graph visualization"
+  height="400"
+  align="right"
+/>
 
 ### Say what??
 
@@ -181,12 +186,12 @@ echo/
 
 #### WARP Graph Core
 
-The engine operates on WARP graphs. You can learn about them by reading the AIΩN Foundations Serires (why, yes, I am the author):
+The engine operates on WARP graphs. You can learn about them by reading the AIΩN Foundations Series (why, yes, I am the author):
 
-[Paper 1](https://doi.org/10.5281/zenodo.17908005) introduces the WARP graph.  
-[Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.  
-[Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.  
-... there are other papers, but they are less directly relevant in this context.  
+- [Paper 1](https://doi.org/10.5281/zenodo.17908005) introduces the WARP graph.
+- [Paper 2](https://doi.org/10.5281/zenodo.17934512) describes how it ticks.
+- [Paper 3](https://doi.org/10.5281/zenodo.17963669) provides provenance.
+- ... there are other papers, but they are less directly relevant in this context.
 
 #### Deterministic Rewriting
 
@@ -198,7 +203,7 @@ Each tick follows a transaction model:
 
 #### $O(n)$ Deterministic Scheduler
 
-Rewrites are ordered using stable radix sort (not comparison-based):  
+Rewrites are ordered using stable radix sort (not comparison-based):
 
 - Order: (`scope_hash`, `rule_id`, `nonce`) lexicographically
 - Time: $O(n)$ with 20 passes of 16-bit radix digits
@@ -341,10 +346,10 @@ make hooks
 
 ### Roadmap Highlights
 
-✅ **Phase 0** – Finalize specs and design.  
-⏳ **Phase 1** – Ship Echo Core MVP with tests and headless harness.  
-☑️ **Phase 2** – Deliver reference render/input adapters and **the playground**.  
-☑️ **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.  
+- ✅ **Phase 0** – Finalize specs and design.
+- ⏳ **Phase 1** – Ship Echo Core MVP with tests and headless harness.
+- ☑️ **Phase 2** – Deliver reference render/input adapters and **the playground**.
+- ☑️ **Phase 3+** – Physics, WebGPU, audio, inspector, and full temporal tooling.
 
 **Chrononauts welcome.** Strap in, branch responsibly, and leave the timeline cleaner than you found it.
 

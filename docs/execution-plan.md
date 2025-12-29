@@ -35,6 +35,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-28 — Promote AIΩN bridge doc + add tick receipts (COMPLETED)
+
+- Goal: promote the AIΩN Foundations ↔ Echo bridge from a dated note into a canonical doc, then implement Paper II “tick receipts” in `warp-core`.
+- Scope: move the bridge into `docs/` (keep a stub for historical links); add `TickReceipt` + `Engine::commit_with_receipt`; commit receipt outcomes via `decision_digest`; update `docs/spec-merkle-commit.md` to define the receipt digest encoding.
+- Exit criteria: `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` are green; the bridge is indexed in `docs/docs-index.md`; the decision log records rationale.
+- Evidence: added `docs/aion-papers-bridge.md` and indexed it; implemented `crates/warp-core/src/receipt.rs` + `Engine::commit_with_receipt`; updated `docs/spec-merkle-commit.md`; validated via `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs`.
+
 > 2025-12-28 — WARP rename + AIΩN docs sanity pass (COMPLETED)
 
 - Goal: confirm the WARP-first terminology sweep and AIΩN linkage are consistent and build-clean after the rename.

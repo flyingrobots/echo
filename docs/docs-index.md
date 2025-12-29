@@ -18,6 +18,7 @@
 | `spec-plugin-system.md` | Plugin discovery, namespace isolation, capabilities |
 | `spec-concurrency-and-authoring.md` | Parallel core & single-threaded scripting model |
 | `spec-networking.md` | Deterministic event replication modes |
+| `aion-papers-bridge.md` | Map AIΩN Foundations (WARP papers) onto Echo’s backlog and document deviations |
 | `phase1-plan.md` | Phase 1 implementation roadmap & demo targets |
 | `spec-warp-core.md` | WARP core format and runtime |
 | `spec-warp-confluence.md` | Global WARP graph synchronization (Confluence) |

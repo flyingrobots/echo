@@ -20,7 +20,7 @@ Instead of treating a game/simulation as a pile of mutable objects, Echo treats 
 Start here:
 
 - Project tour: [`docs/notes/project-tour-2025-12-28.md`](docs/notes/project-tour-2025-12-28.md)
-- AIΩN bridge note: [`docs/notes/aion-papers-bridge.md`](docs/notes/aion-papers-bridge.md)
+- AIΩN bridge doc: [`docs/aion-papers-bridge.md`](docs/aion-papers-bridge.md)
 - Architecture outline: [`docs/architecture-outline.md`](docs/architecture-outline.md)
 - Commit hashing spec: [`docs/spec-merkle-commit.md`](docs/spec-merkle-commit.md)
 

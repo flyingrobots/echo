@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Tick receipts (Paper II): accepted vs rejected rewrites.
+//!
+//! In the AIΩN Foundations terminology, a *tick* is an atomic commit attempt that
+//! considers a deterministically ordered candidate set of rewrites and applies a
+//! scheduler-admissible, conflict-free subset.
+//!
+//! Echo’s `warp-core` already exposes `plan_digest` (candidate set + ordering)
+//! and `rewrites_digest` (the applied subset). A `TickReceipt` fills the gap:
+//! it records, in canonical order, whether each candidate was accepted or
+//! rejected and (when rejected) why.
+//!
+//! Today (engine spike), the only rejection reason is footprint conflict with
+//! previously accepted rewrites in the same tick.
+
+use blake3::Hasher;
+
+use crate::ident::{Hash, NodeId};
+use crate::tx::TxId;
+
+/// A tick receipt: the per-candidate outcomes for a single commit attempt.
+#[derive(Debug, Clone)]
+pub struct TickReceipt {
+    tx: TxId,
+    entries: Vec<TickReceiptEntry>,
+    digest: Hash,
+}
+
+impl TickReceipt {
+    pub(crate) fn new(tx: TxId, entries: Vec<TickReceiptEntry>) -> Self {
+        let digest = compute_tick_receipt_digest(&entries);
+        Self {
+            tx,
+            entries,
+            digest,
+        }
+    }
+
+    /// Transaction identifier associated with the tick receipt.
+    #[must_use]
+    pub fn tx(&self) -> TxId {
+        self.tx
+    }
+
+    /// Returns the entries in canonical plan order.
+    #[must_use]
+    pub fn entries(&self) -> &[TickReceiptEntry] {
+        &self.entries
+    }
+
+    /// Canonical digest of the tick receipt entries.
+    ///
+    /// This digest is stable across architectures and depends only on:
+    /// - the receipt format version,
+    /// - the number of entries, and
+    /// - the ordered per-entry content.
+    ///
+    /// It intentionally does **not** include `tx` so that receipts can be
+    /// compared across runs that use different transaction numbering.
+    #[must_use]
+    pub fn digest(&self) -> Hash {
+        self.digest
+    }
+}
+
+/// One candidate rewrite and its tick outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TickReceiptEntry {
+    /// Canonical rule family id.
+    pub rule_id: Hash,
+    /// Scope hash used in the scheduler’s sort key.
+    pub scope_hash: Hash,
+    /// Scope node supplied when `Engine::apply` was invoked.
+    pub scope: NodeId,
+    /// Outcome of the candidate rewrite in this tick.
+    pub disposition: TickReceiptDisposition,
+}
+
+/// Outcome of a tick candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickReceiptDisposition {
+    /// Candidate rewrite was accepted and applied.
+    Applied,
+    /// Candidate rewrite was rejected.
+    Rejected(TickReceiptRejection),
+}
+
+/// Why a tick candidate was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickReceiptRejection {
+    /// Candidate footprint conflicts with an already-accepted footprint.
+    FootprintConflict,
+}
+
+fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
+    if entries.is_empty() {
+        return *crate::constants::DIGEST_LEN0_U64;
+    }
+    let mut hasher = Hasher::new();
+    // Receipt format version tag.
+    hasher.update(&1u16.to_le_bytes());
+    // Entry count.
+    hasher.update(&(entries.len() as u64).to_le_bytes());
+    for entry in entries {
+        hasher.update(&entry.rule_id);
+        hasher.update(&entry.scope_hash);
+        hasher.update(&(entry.scope).0);
+        let code = match entry.disposition {
+            TickReceiptDisposition::Applied => 1u8,
+            TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => 2u8,
+        };
+        hasher.update(&[code]);
+    }
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ident::make_node_id;
+
+    #[test]
+    fn receipt_digest_is_stable_for_same_entries() {
+        let entries = vec![
+            TickReceiptEntry {
+                rule_id: [1u8; 32],
+                scope_hash: [2u8; 32],
+                scope: make_node_id("a"),
+                disposition: TickReceiptDisposition::Applied,
+            },
+            TickReceiptEntry {
+                rule_id: [3u8; 32],
+                scope_hash: [4u8; 32],
+                scope: make_node_id("b"),
+                disposition: TickReceiptDisposition::Rejected(
+                    TickReceiptRejection::FootprintConflict,
+                ),
+            },
+        ];
+        let digest_a = compute_tick_receipt_digest(&entries);
+        let digest_b = compute_tick_receipt_digest(&entries);
+        assert_eq!(digest_a, digest_b);
+        assert_ne!(digest_a, *crate::constants::DIGEST_LEN0_U64);
+    }
+}

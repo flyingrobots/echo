@@ -166,7 +166,7 @@ impl Engine {
             return Ok(ApplyResult::NoMatch);
         }
 
-        let scope_fp = scope_hash(rule, scope);
+        let scope_fp = scope_hash(&rule.id, scope);
         let footprint = (rule.compute_footprint)(&self.store, scope);
         let Some(&compact_rule) = self.compact_rule_ids.get(&rule.id) else {
             return Err(EngineError::InternalCorruption(
@@ -219,7 +219,8 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
-        let policy_id = 0u32;
+        // TODO(#151): Parameterize `policy_id` once Aion policy semantics are implemented.
+        let policy_id = crate::constants::POLICY_ID_NO_POLICY_V0;
         let rule_pack_id = self.compute_rule_pack_id();
         // Drain pending to form the ready set and compute a plan digest over its canonical order.
         let drained = self.scheduler.drain_for_tx(tx);
@@ -385,13 +386,10 @@ impl Engine {
             .map(|s| vec![s.hash])
             .unwrap_or_default();
         // Canonical empty digests match commit() behaviour when no rewrites are pending.
-        let empty_digest: Hash = {
-            let mut h = blake3::Hasher::new();
-            h.update(&0u64.to_le_bytes());
-            h.finalize().into()
-        };
+        let empty_digest: Hash = *crate::constants::DIGEST_LEN0_U64;
         let decision_empty: Hash = *crate::constants::DIGEST_LEN0_U64;
-        let policy_id = 0u32;
+        // TODO(#151): Parameterize `policy_id` once Aion policy semantics are implemented.
+        let policy_id = crate::constants::POLICY_ID_NO_POLICY_V0;
         let rule_pack_id = self.compute_rule_pack_id();
         let patch_digest = WarpTickPatchV1::new(
             policy_id,
@@ -513,9 +511,17 @@ impl Engine {
     }
 }
 
-fn scope_hash(rule: &RewriteRule, scope: &NodeId) -> Hash {
+/// Computes the canonical scope hash used for deterministic scheduler ordering.
+///
+/// This value is the first component of the scheduler’s canonical ordering key
+/// (`scope_hash`, then `rule_id`, then nonce), and is used to domain-separate
+/// candidates by both the producing rule and the scoped node.
+///
+/// Stable definition (v0):
+/// - `scope_hash := blake3(rule_id || scope_node_id)`
+pub fn scope_hash(rule_id: &Hash, scope: &NodeId) -> Hash {
     let mut hasher = Hasher::new();
-    hasher.update(&rule.id);
+    hasher.update(rule_id);
     hasher.update(&scope.0);
     hasher.finalize().into()
 }
@@ -562,7 +568,7 @@ mod tests {
     fn scope_hash_stable_for_rule_and_scope() {
         let rule = motion_rule();
         let scope = make_node_id("scope-hash-entity");
-        let h1 = super::scope_hash(&rule, &scope);
+        let h1 = super::scope_hash(&rule.id, &scope);
         // Recompute expected value manually using the same inputs.
         let mut hasher = blake3::Hasher::new();
         hasher.update(&rule.id);

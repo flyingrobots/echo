@@ -4,24 +4,15 @@
 #![allow(missing_docs)]
 
 use warp_core::{
-    encode_motion_payload, make_node_id, make_type_id, ConflictPolicy, Engine, Footprint,
-    GraphStore, Hash, NodeId, NodeRecord, PatternGraph, RewriteRule, TickReceiptDisposition,
-    TickReceiptEntry, TickReceiptRejection, TxId, MOTION_RULE_NAME,
+    encode_motion_payload, make_node_id, make_type_id, scope_hash, ConflictPolicy, Engine,
+    Footprint, GraphStore, Hash, NodeId, NodeRecord, PatternGraph, RewriteRule,
+    TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId, MOTION_RULE_NAME,
 };
 
 fn rule_id(name: &str) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"rule:");
     hasher.update(name.as_bytes());
-    hasher.finalize().into()
-}
-
-// Mirrors the engine implementation in `crates/warp-core/src/engine_impl.rs`.
-// If the engine's scope hash semantics change, this helper must be updated to match.
-fn scope_hash(rule_id: &Hash, scope: &NodeId) -> Hash {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(rule_id);
-    hasher.update(&scope.0);
     hasher.finalize().into()
 }
 

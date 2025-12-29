@@ -41,7 +41,7 @@ Minimal V1 op set:
 - `UpsertNode { node: NodeId, record: NodeRecord }`
 - `DeleteNode { node: NodeId }`
 - `UpsertEdge { record: EdgeRecord }`
-- `DeleteEdge { from: NodeId, id: EdgeId }`
+- `DeleteEdge { from: NodeId, edge_id: EdgeId }`
 
 Semantic intent:
 - Ops are deterministic edits that, when applied in order, transform `U_i` into `U_{i+1}`.
@@ -95,7 +95,7 @@ Within each tag:
 ### 2.2 Op ordering
 
 `ops` must be emitted in canonical order:
-1) `DeleteEdge` by (`from`, `id`)
+1) `DeleteEdge` by (`from`, `edge_id`)
 2) `DeleteNode` by (`node`)
 3) `UpsertNode` by (`node`)
 4) `UpsertEdge` by (`record.from`, `record.id`)
@@ -132,7 +132,7 @@ Encoding rules:
   - `tag: u8` then tag-specific bytes:
     - UpsertNode: `node_id: 32`, `type_id: 32`, `payload_len: u64`, `payload_bytes`
     - DeleteNode: `node_id: 32`
-    - UpsertEdge: `edge_id: 32`, `from: 32`, `to: 32`, `type_id: 32`, `payload_len: u64`, `payload_bytes`
+    - UpsertEdge: `from: 32`, `edge_id: 32`, `to: 32`, `type_id: 32`, `payload_len: u64`, `payload_bytes`
     - DeleteEdge: `from: 32`, `edge_id: 32`
 
 ---

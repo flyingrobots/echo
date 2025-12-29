@@ -74,7 +74,8 @@ impl Ord for SlotId {
             (Self::Node(a), Self::Node(b)) => a.0.cmp(&b.0),
             (Self::Edge(a), Self::Edge(b)) => a.0.cmp(&b.0),
             (Self::Port(a), Self::Port(b)) => a.cmp(&b),
-            _ => core::cmp::Ordering::Equal,
+            // SAFETY: tag comparison above guarantees matching variants.
+            _ => unreachable!("tag mismatch in SlotId::cmp"),
         }
     }
 }
@@ -104,7 +105,7 @@ pub enum WarpOp {
         /// Source node bucket holding the edge.
         from: NodeId,
         /// Edge identifier being deleted.
-        id: EdgeId,
+        edge_id: EdgeId,
     },
 }
 
@@ -118,10 +119,10 @@ struct WarpOpKey {
 impl WarpOp {
     fn sort_key(&self) -> WarpOpKey {
         match self {
-            Self::DeleteEdge { from, id } => WarpOpKey {
+            Self::DeleteEdge { from, edge_id } => WarpOpKey {
                 kind: 1,
                 a: from.0,
-                b: id.0,
+                b: edge_id.0,
             },
             Self::DeleteNode { node } => WarpOpKey {
                 kind: 2,
@@ -267,6 +268,10 @@ impl WarpTickPatchV1 {
                 }
                 WarpOp::UpsertEdge { record } => {
                     // Remove any existing edge with the same id from its current bucket.
+                    //
+                    // NOTE: `remove_edge_by_id` is O(total_edges). This is acceptable for v0
+                    // correctness, but replay performance will require a reverse index
+                    // (`EdgeId -> NodeId`) once graph sizes grow.
                     remove_edge_by_id(store, &record.id);
                     store
                         .edges_from
@@ -274,14 +279,14 @@ impl WarpTickPatchV1 {
                         .or_default()
                         .push(record.clone());
                 }
-                WarpOp::DeleteEdge { from, id } => {
+                WarpOp::DeleteEdge { from, edge_id } => {
                     let Some(edges) = store.edges_from.get_mut(from) else {
-                        return Err(TickPatchError::MissingEdge(*id));
+                        return Err(TickPatchError::MissingEdge(*edge_id));
                     };
                     let before = edges.len();
-                    edges.retain(|e| e.id != *id);
+                    edges.retain(|e| e.id != *edge_id);
                     if edges.len() == before {
-                        return Err(TickPatchError::MissingEdge(*id));
+                        return Err(TickPatchError::MissingEdge(*edge_id));
                     }
                 }
             }
@@ -381,8 +386,8 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
             }
             WarpOp::UpsertEdge { record } => {
                 h.update(&[3u8]);
-                h.update(&(record.id).0);
                 h.update(&(record.from).0);
+                h.update(&(record.id).0);
                 h.update(&(record.to).0);
                 h.update(&(record.ty).0);
                 match &record.payload {
@@ -395,10 +400,10 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
                     }
                 }
             }
-            WarpOp::DeleteEdge { from, id } => {
+            WarpOp::DeleteEdge { from, edge_id } => {
                 h.update(&[4u8]);
                 h.update(&from.0);
-                h.update(&id.0);
+                h.update(&edge_id.0);
             }
         }
     }
@@ -438,7 +443,7 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
         if !after_edges.contains_key(id) {
             ops.push(WarpOp::DeleteEdge {
                 from: rec_before.from,
-                id: EdgeId(*id),
+                edge_id: EdgeId(*id),
             });
         }
     }
@@ -454,7 +459,7 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
                     if rec_before.from != rec_after.from {
                         ops.push(WarpOp::DeleteEdge {
                             from: rec_before.from,
-                            id: EdgeId(*id),
+                            edge_id: EdgeId(*id),
                         });
                     }
                     ops.push(WarpOp::UpsertEdge {

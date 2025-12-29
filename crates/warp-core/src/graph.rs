@@ -57,11 +57,15 @@ impl GraphStore {
         self.nodes.insert(id, record);
     }
 
-    /// Inserts a directed edge into the store in insertion order.
+    /// Inserts or replaces a directed edge in the store.
     ///
-    /// Ordering note: The underlying vector preserves insertion order. When
-    /// deterministic ordering is required (e.g., snapshot hashing), callers
-    /// must sort by `EdgeId` explicitly.
+    /// If an edge with the same `EdgeId` already exists (in any bucket), the
+    /// old edge is removed before inserting the new one. This maintains `EdgeId`
+    /// uniqueness across the entire store.
+    ///
+    /// Ordering note: Edges within a bucket preserve insertion order. When
+    /// deterministic ordering is required (e.g., snapshot hashing), callers must
+    /// sort by `EdgeId` explicitly.
     pub fn insert_edge(&mut self, from: NodeId, edge: EdgeRecord) {
         self.upsert_edge_record(from, edge);
     }

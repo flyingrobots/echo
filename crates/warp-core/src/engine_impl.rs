@@ -64,6 +64,11 @@ pub struct Engine {
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
     rules_by_compact: HashMap<CompactRuleId, &'static str>,
     scheduler: DeterministicScheduler,
+    /// Policy identifier committed into `patch_digest` (tick patches) and
+    /// `commit_id` (commit hash v2).
+    ///
+    /// This is part of the deterministic boundary. Callers select it explicitly
+    /// via constructors like [`Engine::with_policy_id`].
     policy_id: u32,
     tx_counter: u64,
     live_txs: HashSet<u64>,
@@ -108,7 +113,15 @@ impl Engine {
         Self::with_scheduler_and_policy_id(store, root, SchedulerKind::Radix, policy_id)
     }
 
-    /// Constructs a new engine with explicit scheduler kind and policy id.
+    /// Constructs a new engine with explicit scheduler kind and policy identifier.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
     pub fn with_scheduler_and_policy_id(
         store: GraphStore,
         root: NodeId,

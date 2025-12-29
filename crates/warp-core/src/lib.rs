@@ -52,15 +52,16 @@ mod rule;
 mod sandbox;
 mod scheduler;
 mod snapshot;
+mod tick_patch;
 mod tx;
 
 // Re-exports for stable public API
 /// Canonical digests (e.g., empty inputs, empty length-prefixed lists).
-pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64};
+pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64, POLICY_ID_NO_POLICY_V0};
 /// Demo helpers and constants for the motion rule.
 pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
-/// Rewrite engine and error types.
-pub use engine_impl::{ApplyResult, Engine, EngineError};
+/// Rewrite engine and canonical hashing helpers.
+pub use engine_impl::{scope_hash, ApplyResult, Engine, EngineError};
 /// Footprint utilities for MWMR independence checks.
 /// `pack_port_key(node, port_id, dir_in)` packs a 64‑bit key as:
 /// - upper 32 bits: low 32 bits of the `NodeId` (LE)
@@ -89,5 +90,7 @@ pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConf
 pub use scheduler::SchedulerKind;
 /// Immutable deterministic snapshot.
 pub use snapshot::Snapshot;
+/// Tick patch boundary artifacts (Paper III): replayable delta ops + slot sets.
+pub use tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1};
 /// Transaction identifier type.
 pub use tx::TxId;

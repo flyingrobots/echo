@@ -1,11 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Snapshot Commit Spec (v1)
+# Snapshot Commit Spec (v2)
 
 This document precisely defines the two hashes produced by the engine when recording state and provenance.
 
 - state_root: BLAKE3 of the canonical encoding of the reachable graph under the current root.
-- commit hash (commit_id): BLAKE3 of a header that includes state_root, parent commit(s), and deterministic digests of plan/decisions/rewrites, plus a policy id.
+- commit hash (commit_id): BLAKE3 of a header that includes state_root, parent commit(s), the tick patch digest (boundary delta), plus a policy id.
 
 ## 1. Canonical Graph Encoding (state_root)
 
@@ -31,20 +31,37 @@ Hash: blake3(encoding) → 32-byte digest.
 
 ## 2. Commit Header (commit_id)
 
-Header fields (v1):
-- version: u16 = 1
+Header fields (v2):
+- version: u16 = 2
 - parents: Vec<Hash> (length u64 LE, then each 32-byte hash). Genesis commits
   have zero parents (length = 0).
 - state_root: 32 bytes (from section 1)
-- plan_digest: 32 bytes (canonical digest of ready-set ordering encoded as a
-  length-prefixed list; empty list = BLAKE3 of `0u64.to_le_bytes()`).
-- decision_digest: 32 bytes (tick receipt decisions today; Aion/agency inputs later).
-- rewrites_digest: 32 bytes (ordered rewrites applied)
+- patch_digest: 32 bytes (digest of the tick patch boundary delta)
 - policy_id: u32 (version pin for Aion policy)
 
 Hash: blake3(encode(header)) → commit_id.
 
-### 2.1 decision_digest (Tick receipt digest)
+### 2.1 patch_digest (Tick patch digest)
+
+`patch_digest` commits to the tick patch boundary artifact: a replayable delta
+patch with canonical ops and conservative in/out slot sets.
+
+Canonical encoding for the tick patch (v1) is defined in `docs/spec-warp-tick-patch.md`.
+
+---
+
+## 3. Diagnostic Digests (not committed into commit_id v2)
+
+Echo retains several deterministic digests on `Snapshot` for debugging and
+tooling, but commit hash v2 intentionally does **not** commit to them.
+
+### 3.1 plan_digest
+
+`plan_digest` is a deterministic digest of the candidate ready set and its
+canonical ordering (encoded as a length-prefixed list; empty list =
+`blake3(0u64.to_le_bytes())`).
+
+### 3.2 decision_digest (Tick receipt digest)
 
 Until Aion integration lands, `decision_digest` commits to the **tick receipt**
 outcomes (accepted vs rejected candidates).
@@ -69,16 +86,24 @@ blocking-causality witness for rejections). `decision_digest` v1 intentionally
 commits only to accepted vs rejected outcomes (and the coarse rejection code),
 not to the blocker metadata.
 
-## 3. Invariants and Notes
+### 3.3 rewrites_digest
+
+`rewrites_digest` is a deterministic digest of the ordered rewrites applied
+during the tick (encoded as a length-prefixed list; empty list =
+`blake3(0u64.to_le_bytes())`).
+
+---
+
+## 4. Invariants and Notes
 
 - Any change to ordering, lengths, or endianness breaks all prior hashes.
-- The commit_id is stable across identical states and provenance, independent of runtime.
+- The commit_id (v2) is stable across identical states and patch deltas, independent of runtime.
 - The canonical empty digest for *length-prefixed list digests* is
   `blake3(0u64.to_le_bytes())` (not `blake3(b"")`). This matches the engine’s
   `DIGEST_LEN0_U64` constant and keeps empty-digest semantics consistent with the
   encoding strategy (the length prefix is part of the canonical byte stream).
 
-## 4. Future Evolution
+## 5. Future Evolution
 
-- v2 may add additional fields (e.g., signer, timestamp) and bump header version.
+- v3 (and later) may add additional fields (e.g., signer, timestamp) and bump header version.
 - Migrations must document how to re-compute commit_id for archival data.

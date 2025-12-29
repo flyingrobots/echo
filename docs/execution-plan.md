@@ -42,6 +42,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Exit criteria: new tests cover multi-blocker cases; `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` are green; bridge docs updated to match implementation; decision log entry recorded.
 - Evidence: implemented `TickReceipt::blocked_by` and blocker attribution in `Engine::commit_with_receipt`; added multi-blocker tests; updated `docs/aion-papers-bridge.md` and `docs/spec-merkle-commit.md`; validated via `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs`.
 
+> 2025-12-29 — Delta tick patches + commit hash v2 (COMPLETED)
+
+- Goal: implement Paper III-aligned **delta tick patches** (`WarpTickPatchV1`) in `warp-core` and switch commit hashing to **v2** so `commit_id` commits only to the replayable delta (`patch_digest`).
+- Scope: define canonical patch ops + slot sets (`in_slots`/`out_slots` as *unversioned* slots); compute `patch_digest` from canonical patch encoding; update `Snapshot` and commit hashing so v2 commits to `(parents, state_root, patch_digest, policy_id, version)` and treats planner/scheduler digests + receipts as diagnostics only.
+- Exit criteria: new spec doc for `WarpTickPatchV1` + commit hash v2; tests cover deterministic patch generation + patch replay; `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` are green; decision log entry recorded.
+- Evidence: added `docs/spec-warp-tick-patch.md`; upgraded `docs/spec-merkle-commit.md` to v2; implemented `crates/warp-core/src/tick_patch.rs` + wired patch generation into `Engine::commit_with_receipt`; added patch replay test (`Engine` unit test) + updated receipt tests; validated via `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs`.
+
 > 2025-12-28 — Promote AIΩN bridge doc + add tick receipts (COMPLETED)
 
 - Goal: promote the AIΩN Foundations ↔ Echo bridge from a dated note into a canonical doc, then implement Paper II “tick receipts” in `warp-core`.

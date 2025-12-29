@@ -46,6 +46,7 @@ mod footprint;
 mod graph;
 mod ident;
 mod payload;
+mod receipt;
 mod record;
 mod rule;
 mod sandbox;
@@ -76,6 +77,8 @@ pub use graph::GraphStore;
 pub use ident::{make_edge_id, make_node_id, make_type_id, EdgeId, Hash, NodeId, TypeId};
 /// Motion payload encoding/decoding helpers.
 pub use payload::{decode_motion_payload, encode_motion_payload};
+/// Tick receipts for deterministic commits (accepted vs rejected rewrites).
+pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 /// Graph node and edge record types.
 pub use record::{EdgeRecord, NodeRecord};
 /// Rule primitives for pattern/match/execute.

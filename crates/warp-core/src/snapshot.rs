@@ -51,7 +51,11 @@ pub struct Snapshot {
     pub parents: Vec<Hash>,
     /// Deterministic digest of the candidate ready set and its canonical ordering.
     pub plan_digest: Hash,
-    /// Deterministic digest of Aion inputs/tie‑breaks used when choices affect structure.
+    /// Deterministic digest of tick decisions (and later Aion tie‑break inputs).
+    ///
+    /// Today, `warp-core` uses this field to commit to the tick receipt decisions
+    /// (accepted vs rejected candidates). Future Aion integration will extend
+    /// this digest with additional agency inputs.
     pub decision_digest: Hash,
     /// Deterministic digest of the ordered rewrites applied during this commit.
     pub rewrites_digest: Hash,

@@ -22,7 +22,7 @@ pub struct NodeId(pub Hash);
 pub struct TypeId(pub Hash);
 
 /// Identifier for a directed edge within the graph.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct EdgeId(pub Hash);
 
 /// Produces a stable, domain‑separated type identifier (prefix `b"type:"`) using BLAKE3.

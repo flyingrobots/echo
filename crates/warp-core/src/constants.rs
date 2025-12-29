@@ -13,8 +13,6 @@ use crate::ident::Hash;
 ///
 /// The value is intentionally non-zero and is encoded as the ASCII bytes
 /// `b"NOP0"` (“NO Policy”, v0) interpreted as a little-endian `u32`.
-///
-/// TODO(#151): Parameterize `policy_id` from real Aion policy configuration.
 pub const POLICY_ID_NO_POLICY_V0: u32 = u32::from_le_bytes(*b"NOP0");
 
 /// BLAKE3 digest of an empty byte slice.

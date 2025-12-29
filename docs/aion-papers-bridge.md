@@ -14,17 +14,6 @@ For background and public context:
 
 - AIΩN Framework repo: <https://github.com/flyingrobots/aion>
 
-Paper TeX sources read from your local sibling repos:
-
-- `~/git/aion-paper-01/paper/main.tex`
-- `~/git/aion-paper-02/paper/main.tex`
-- `~/git/aion-paper-03/paper/main.tex`
-- `~/git/aion-paper-04/paper/main.tex`
-- `~/git/aion-paper-05/paper/main.tex`
-- `~/git/aion-paper-06/paper/main.tex`
-
-Note: `~/git/aion-paper-00` was not present locally at time of writing.
-
 Published paper links (DOIs):
 
 - Paper I: <https://doi.org/10.5281/zenodo.17908005>
@@ -32,6 +21,8 @@ Published paper links (DOIs):
 - Paper III: <https://doi.org/10.5281/zenodo.17963669>
 - Paper IV: <https://doi.org/10.5281/zenodo.18038297>
 - Papers V–VI: not yet published (as of 2025-12-28).
+
+Note: the TeX sources used to author Papers I–VI are maintained outside this repo and are intentionally not vendored into Echo.
 
 ## Terminology (WARP vs RMG)
 

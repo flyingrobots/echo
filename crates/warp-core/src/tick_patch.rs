@@ -173,8 +173,8 @@ impl WarpTickPatchV1 {
     /// Canonicalization:
     /// - `in_slots` and `out_slots` are sorted and deduped.
     /// - `ops` are sorted into canonical op order (see spec) and deduped by
-    ///   [`WarpOp::sort_key`] (duplicate ops are collapsed as “last wins” after
-    ///   canonical sorting).
+    ///   the same sort key used for canonical ordering (`WarpOp::sort_key`);
+    ///   duplicate ops are collapsed as “last wins” after canonical sorting.
     #[must_use]
     pub fn new(
         policy_id: u32,
@@ -347,7 +347,7 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
 ///
 /// The op tag bytes are part of the patch format and exist solely to provide a
 /// stable, versioned encoding for hashing (`patch_digest`). They are
-/// intentionally distinct from [`WarpOp::sort_key`]’s `kind` values, which exist
+/// intentionally distinct from `WarpOp::sort_key`’s `kind` values, which exist
 /// only to define deterministic replay ordering.
 fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
@@ -428,9 +428,12 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
 ///   bucket changes (migration), in which case a `DeleteEdge(old_from, id)` is
 ///   emitted before the corresponding `UpsertEdge(new_record)`.
 ///
-/// The returned list is sorted by [`WarpOp::sort_key`] so it can be applied in
+/// The returned list is sorted by the canonical op ordering key (`WarpOp::sort_key`) so it can be applied in
 /// deterministic order. Applying the returned ops to a store in the `before`
 /// state should yield a store equivalent to `after`.
+///
+/// (Note: `WarpOp::sort_key` is an internal ordering key; it is not itself part
+/// of the wire encoding or patch digest encoding.)
 ///
 /// # Why diff vs. recording ops directly?
 /// `diff_store` is useful when the engine executes arbitrary user code (rule

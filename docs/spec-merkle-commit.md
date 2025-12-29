@@ -81,6 +81,11 @@ Canonical encoding (v1) for the tick receipt digest:
       - `1` = Applied
       - `2` = Rejected(FootprintConflict)
 
+Note: `TickReceipt` may expose additional debugging/provenance metadata (e.g. a
+blocking-causality witness for rejections). `decision_digest` v1 intentionally
+commits only to accepted vs rejected outcomes (and the coarse rejection code),
+not to the blocker metadata.
+
 ### 3.3 rewrites_digest
 
 `rewrites_digest` is a deterministic digest of the ordered rewrites applied
@@ -100,5 +105,5 @@ during the tick (encoded as a length-prefixed list; empty list =
 
 ## 5. Future Evolution
 
-- v2 may add additional fields (e.g., signer, timestamp) and bump header version.
+- v3 (and later) may add additional fields (e.g., signer, timestamp) and bump header version.
 - Migrations must document how to re-compute commit_id for archival data.

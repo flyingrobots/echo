@@ -70,6 +70,13 @@ pub struct Engine {
     last_snapshot: Option<Snapshot>,
 }
 
+struct ReserveOutcome {
+    receipt: TickReceipt,
+    reserved: Vec<PendingRewrite>,
+    in_slots: std::collections::BTreeSet<SlotId>,
+    out_slots: std::collections::BTreeSet<SlotId>,
+}
+
 impl Engine {
     /// Constructs a new engine with the supplied backing store and root node id.
     pub fn new(store: GraphStore, root: NodeId) -> Self {
@@ -195,7 +202,8 @@ impl Engine {
     /// Executes all pending rewrites for the transaction, producing both a snapshot and a tick receipt.
     ///
     /// The receipt records (in canonical plan order) which candidates were accepted vs rejected.
-    /// This is the first step toward Paper II “tick receipts” (and later, the blocking poset).
+    /// For rejected candidates, it also records which earlier applied candidates blocked them
+    /// (a minimal blocking-causality witness / poset edge list, per Paper II).
     ///
     /// This method also produces a delta tick patch (Paper III): a replayable boundary artifact
     /// whose digest is committed into the v2 commit hash.
@@ -215,67 +223,22 @@ impl Engine {
         let rule_pack_id = self.compute_rule_pack_id();
         // Drain pending to form the ready set and compute a plan digest over its canonical order.
         let drained = self.scheduler.drain_for_tx(tx);
-        let plan_digest = {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&(drained.len() as u64).to_le_bytes());
-            for pr in &drained {
-                hasher.update(&pr.scope_hash);
-                hasher.update(&pr.rule_id);
-            }
-            hasher.finalize().into()
-        };
+        let plan_digest = compute_plan_digest(&drained);
 
-        // Reserve phase: enforce independence against active frontier.
-        let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
-        let mut in_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
-        let mut out_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
-        let mut reserved: Vec<PendingRewrite> = Vec::new();
-        for mut rewrite in drained {
-            let accepted = self.scheduler.reserve(tx, &mut rewrite);
-            receipt_entries.push(TickReceiptEntry {
-                rule_id: rewrite.rule_id,
-                scope_hash: rewrite.scope_hash,
-                scope: rewrite.scope,
-                disposition: if accepted {
-                    TickReceiptDisposition::Applied
-                } else {
-                    // NOTE: reserve() currently only rejects for footprint conflicts.
-                    // If additional rejection reasons are added, update this mapping.
-                    TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
-                },
-            });
-            if accepted {
-                extend_slots_from_footprint(&mut in_slots, &mut out_slots, &rewrite.footprint);
-                reserved.push(rewrite);
-            }
-        }
-        let receipt = TickReceipt::new(tx, receipt_entries);
+        let ReserveOutcome {
+            receipt,
+            reserved: reserved_rewrites,
+            in_slots,
+            out_slots,
+        } = self.reserve_for_receipt(tx, drained)?;
 
         // Deterministic digest of the ordered rewrites we will apply.
-        let rewrites_digest = {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&(reserved.len() as u64).to_le_bytes());
-            for r in &reserved {
-                hasher.update(&r.rule_id);
-                hasher.update(&r.scope_hash);
-                hasher.update(&(r.scope).0);
-            }
-            hasher.finalize().into()
-        };
+        let rewrites_digest = compute_rewrites_digest(&reserved_rewrites);
 
         // Capture pre-state for delta patch construction.
         let store_before = self.store.clone();
 
-        for rewrite in reserved {
-            let id = rewrite.compact_rule;
-            let Some(rule) = self.rule_by_compact(id) else {
-                debug_assert!(false, "missing rule for compact id: {id:?}");
-                return Err(EngineError::InternalCorruption(
-                    "missing rule for compact id during commit",
-                ));
-            };
-            (rule.executor)(&mut self.store, &rewrite.scope);
-        }
+        self.apply_reserved_rewrites(reserved_rewrites)?;
 
         // Delta tick patch (Paper III boundary artifact).
         let ops = diff_store(&store_before, &self.store);
@@ -320,6 +283,92 @@ impl Engine {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
         Ok((snapshot, receipt, patch))
+    }
+
+    fn reserve_for_receipt(
+        &mut self,
+        tx: TxId,
+        drained: Vec<PendingRewrite>,
+    ) -> Result<ReserveOutcome, EngineError> {
+        // Reserve phase: enforce independence against active frontier.
+        let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
+        let mut in_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
+        let mut out_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
+        let mut blocked_by: Vec<Vec<u32>> = Vec::with_capacity(drained.len());
+        let mut reserved: Vec<PendingRewrite> = Vec::new();
+        let mut reserved_entry_indices: Vec<u32> = Vec::new();
+
+        for (entry_idx, mut rewrite) in drained.into_iter().enumerate() {
+            let entry_idx_u32 = u32::try_from(entry_idx).map_err(|_| {
+                EngineError::InternalCorruption("too many receipt entries to index")
+            })?;
+            let accepted = self.scheduler.reserve(tx, &mut rewrite);
+            let blockers = if accepted {
+                Vec::new()
+            } else {
+                // O(n) scan over reserved rewrites. Acceptable for typical tick sizes;
+                // consider spatial indexing if tick candidate counts grow large.
+                let mut blockers: Vec<u32> = Vec::new();
+                for (k, prior) in reserved.iter().enumerate() {
+                    if footprints_conflict(&rewrite.footprint, &prior.footprint) {
+                        blockers.push(reserved_entry_indices[k]);
+                    }
+                }
+                if blockers.is_empty() {
+                    // `reserve()` currently returns `false` exclusively on footprint
+                    // conflicts (see scheduler reserve rustdoc). If additional rejection
+                    // reasons are added, update the scheduler contract and this attribution
+                    // logic accordingly.
+                    return Err(EngineError::InternalCorruption(
+                        "scheduler rejected rewrite but no blockers were found",
+                    ));
+                }
+                blockers
+            };
+            receipt_entries.push(TickReceiptEntry {
+                rule_id: rewrite.rule_id,
+                scope_hash: rewrite.scope_hash,
+                scope: rewrite.scope,
+                disposition: if accepted {
+                    TickReceiptDisposition::Applied
+                } else {
+                    // NOTE: reserve() currently returns `false` exclusively on
+                    // footprint conflicts (see scheduler reserve rustdoc).
+                    // If additional rejection reasons are added, update this mapping.
+                    TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
+                },
+            });
+            if accepted {
+                extend_slots_from_footprint(&mut in_slots, &mut out_slots, &rewrite.footprint);
+                reserved.push(rewrite);
+                reserved_entry_indices.push(entry_idx_u32);
+            }
+            blocked_by.push(blockers);
+        }
+
+        Ok(ReserveOutcome {
+            receipt: TickReceipt::new(tx, receipt_entries, blocked_by),
+            reserved,
+            in_slots,
+            out_slots,
+        })
+    }
+
+    fn apply_reserved_rewrites(
+        &mut self,
+        rewrites: Vec<PendingRewrite>,
+    ) -> Result<(), EngineError> {
+        for rewrite in rewrites {
+            let id = rewrite.compact_rule;
+            let Some(rule) = self.rule_by_compact(id) else {
+                debug_assert!(false, "missing rule for compact id: {id:?}");
+                return Err(EngineError::InternalCorruption(
+                    "missing rule for compact id during commit",
+                ));
+            };
+            (rule.executor)(&mut self.store, &rewrite.scope);
+        }
+        Ok(())
     }
 
     /// Returns a snapshot for the current graph state without executing rewrites.
@@ -379,6 +428,67 @@ impl Engine {
     pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
         self.store.insert_node(id, record);
     }
+}
+
+fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Footprint) -> bool {
+    // IMPORTANT: do not use `Footprint::independent` here yet.
+    //
+    // This logic MUST remain consistent with the scheduler’s footprint conflict
+    // predicate (`RadixScheduler::has_conflict` in `scheduler.rs`). If one
+    // changes, the other must change too, or receipts will attribute blockers
+    // differently than the scheduler rejects candidates.
+    //
+    // `Footprint::independent` includes a `factor_mask` fast-path that assumes
+    // masks are correctly populated as a conservative superset. Many current
+    // footprints in the engine spike use `factor_mask = 0` as a placeholder,
+    // which would incorrectly classify conflicting rewrites as independent.
+    //
+    // The scheduler’s conflict logic is defined by explicit overlap checks on
+    // nodes/edges/ports; this mirrors that behavior exactly and stays correct
+    // while factor masks are still being wired through.
+    if a.b_in.intersects(&b.b_in)
+        || a.b_in.intersects(&b.b_out)
+        || a.b_out.intersects(&b.b_in)
+        || a.b_out.intersects(&b.b_out)
+    {
+        return true;
+    }
+    if a.e_write.intersects(&b.e_write)
+        || a.e_write.intersects(&b.e_read)
+        || b.e_write.intersects(&a.e_read)
+    {
+        return true;
+    }
+    a.n_write.intersects(&b.n_write)
+        || a.n_write.intersects(&b.n_read)
+        || b.n_write.intersects(&a.n_read)
+}
+
+fn compute_plan_digest(plan: &[PendingRewrite]) -> Hash {
+    if plan.is_empty() {
+        return *crate::constants::DIGEST_LEN0_U64;
+    }
+    let mut hasher = Hasher::new();
+    hasher.update(&(plan.len() as u64).to_le_bytes());
+    for pr in plan {
+        hasher.update(&pr.scope_hash);
+        hasher.update(&pr.rule_id);
+    }
+    hasher.finalize().into()
+}
+
+fn compute_rewrites_digest(rewrites: &[PendingRewrite]) -> Hash {
+    if rewrites.is_empty() {
+        return *crate::constants::DIGEST_LEN0_U64;
+    }
+    let mut hasher = Hasher::new();
+    hasher.update(&(rewrites.len() as u64).to_le_bytes());
+    for r in rewrites {
+        hasher.update(&r.rule_id);
+        hasher.update(&r.scope_hash);
+        hasher.update(&(r.scope).0);
+    }
+    hasher.finalize().into()
 }
 
 impl Engine {

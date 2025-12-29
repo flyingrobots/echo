@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # AIΩN Foundations → Echo: Bridge
 
-Last reviewed: 2025-12-28.
+Last reviewed: 2025-12-29.
 
 This doc maps the **AIΩN Foundations series** (“WARP Graphs”, Papers I–VI) onto the **Echo** repository as it exists today.
 
@@ -60,7 +60,7 @@ These tables are intentionally “backlog-driving”: they identify what exists 
 | Tick = atomic commit (all-or-nothing) | Implemented for the spike (`commit` finalizes tx) | `crates/warp-core/src/engine_impl.rs` | Make abort/stutter semantics explicit if/when partial failure exists (currently “reserve rejects conflicts”) | Echo currently models conflicts as “not reserved”; explicit abort receipts are a good future addition. |
 | Independence via footprints (delete/use; read/write sets) | Implemented (expanded to nodes/edges/ports + factor mask) | `crates/warp-core/src/footprint.rs`, `crates/warp-core/src/scheduler.rs` | Ensure footprint semantics remain “Paper II compatible” as optimizations land (bitmaps/SIMD, etc.) | Echo adds boundary ports + factor masks for engine practicality; document as an extension of the footprint idea. |
 | Deterministic scheduling via total key order (“left-most wins”) | Implemented (deterministic ordering + deterministic reserve filter) | `crates/warp-core/src/scheduler.rs` | Specify the canonical key format (what exactly is “scope”?); keep stable across releases | Echo’s key is currently (`scope_hash`, `rule_id`, `nonce`); may evolve, but must remain deterministic. |
-| Tick receipts (accepted vs rejected + blocking poset) | Implemented (minimal receipt; poset pending) | `crates/warp-core/src/receipt.rs`, `crates/warp-core/src/engine_impl.rs`, `docs/spec-merkle-commit.md` | Extend receipts with blocking attribution (poset) + richer rejection reasons once conflict policy/join semantics land | Current receipt captures accepted vs rejected in canonical plan order; only rejection reason today is footprint conflict. |
+| Tick receipts (accepted vs rejected + blocking poset) | Implemented (receipt + blocking attribution; richer reasons pending) | `crates/warp-core/src/receipt.rs`, `crates/warp-core/src/engine_impl.rs`, `docs/spec-merkle-commit.md` | Decide when/if to commit blocking edges into the hash and extend receipts with richer rejection reasons once conflict policy/join semantics land | Receipt captures accepted vs rejected in canonical plan order and records blockers (poset edges) for footprint conflicts; only rejection reason today is footprint conflict. |
 
 ### Paper III — Holography (payloads, BTRs, wormholes)
 
@@ -135,7 +135,7 @@ These tables are intentionally “backlog-driving”: they identify what exists 
 
 **Notable gap (intentional/expected):**
 
-- Echo’s current engine exposes “plan_digest” / “rewrites_digest”, but does not yet expose a first-class “tick receipt poset” structure for debugging/provenance the way Paper II describes.
+- Echo’s current engine exposes “plan_digest” / “rewrites_digest”, and now exposes a minimal tick receipt blocking witness: for rejected candidates, the receipt lists which earlier applied candidates blocked it (indices in canonical plan order).
 
 ## Paper III — Computational holography: provenance payloads, BTRs, wormholes
 

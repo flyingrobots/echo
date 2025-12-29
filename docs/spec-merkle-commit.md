@@ -64,6 +64,11 @@ Canonical encoding (v1) for the tick receipt digest:
       - `1` = Applied
       - `2` = Rejected(FootprintConflict)
 
+Note: `TickReceipt` may expose additional debugging/provenance metadata (e.g. a
+blocking-causality witness for rejections). `decision_digest` v1 intentionally
+commits only to accepted vs rejected outcomes (and the coarse rejection code),
+not to the blocker metadata.
+
 ## 3. Invariants and Notes
 
 - Any change to ordering, lengths, or endianness breaks all prior hashes.

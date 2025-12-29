@@ -13,10 +13,11 @@
 //!   `P = (μ0, …, μn-1)` via `ValueVersionId := (slot_id, tick_index)`.
 
 use blake3::Hasher;
+use thiserror::Error;
 
 use crate::footprint::PortKey;
 use crate::graph::GraphStore;
-use crate::ident::{EdgeId, Hash, NodeId};
+use crate::ident::{EdgeId, Hash as ContentHash, NodeId};
 use crate::record::{EdgeRecord, NodeRecord};
 
 /// Commit status of a tick patch.
@@ -112,8 +113,8 @@ pub enum WarpOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct WarpOpKey {
     kind: u8,
-    a: Hash,
-    b: Hash,
+    a: ContentHash,
+    b: ContentHash,
 }
 
 impl WarpOp {
@@ -158,12 +159,12 @@ impl WarpOp {
 #[derive(Debug, Clone)]
 pub struct WarpTickPatchV1 {
     policy_id: u32,
-    rule_pack_id: Hash,
+    rule_pack_id: ContentHash,
     commit_status: TickCommitStatus,
     in_slots: Vec<SlotId>,
     out_slots: Vec<SlotId>,
     ops: Vec<WarpOp>,
-    digest: Hash,
+    digest: ContentHash,
 }
 
 impl WarpTickPatchV1 {
@@ -171,11 +172,13 @@ impl WarpTickPatchV1 {
     ///
     /// Canonicalization:
     /// - `in_slots` and `out_slots` are sorted and deduped.
-    /// - `ops` are sorted into canonical op order (see spec).
+    /// - `ops` are sorted into canonical op order (see spec) and deduped by
+    ///   the same sort key used for canonical ordering (`WarpOp::sort_key`);
+    ///   duplicate ops are collapsed as “last wins” after canonical sorting.
     #[must_use]
     pub fn new(
         policy_id: u32,
-        rule_pack_id: Hash,
+        rule_pack_id: ContentHash,
         commit_status: TickCommitStatus,
         mut in_slots: Vec<SlotId>,
         mut out_slots: Vec<SlotId>,
@@ -186,6 +189,14 @@ impl WarpTickPatchV1 {
         out_slots.sort();
         out_slots.dedup();
         ops.sort_by_key(WarpOp::sort_key);
+        ops.dedup_by(|a, b| {
+            if a.sort_key() == b.sort_key() {
+                *b = a.clone();
+                true
+            } else {
+                false
+            }
+        });
         let digest = compute_patch_digest_v1(
             policy_id,
             &rule_pack_id,
@@ -216,7 +227,7 @@ impl WarpTickPatchV1 {
     /// This pins the producing rule-pack for auditability but does not affect
     /// replay semantics (replay executes `ops` only).
     #[must_use]
-    pub fn rule_pack_id(&self) -> Hash {
+    pub fn rule_pack_id(&self) -> ContentHash {
         self.rule_pack_id
     }
 
@@ -246,7 +257,7 @@ impl WarpTickPatchV1 {
 
     /// Canonical digest of the patch contents.
     #[must_use]
-    pub fn digest(&self) -> Hash {
+    pub fn digest(&self) -> ContentHash {
         self.digest
     }
 
@@ -281,33 +292,24 @@ impl WarpTickPatchV1 {
 }
 
 /// Errors produced while applying a tick patch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum TickPatchError {
     /// Tried to delete a node that did not exist.
+    #[error("missing node: {0:?}")]
     MissingNode(NodeId),
     /// Tried to delete an edge that did not exist.
+    #[error("missing edge: {0:?}")]
     MissingEdge(EdgeId),
 }
 
-impl core::fmt::Display for TickPatchError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::MissingNode(id) => write!(f, "missing node: {id:?}"),
-            Self::MissingEdge(id) => write!(f, "missing edge: {id:?}"),
-        }
-    }
-}
-
-impl std::error::Error for TickPatchError {}
-
 fn compute_patch_digest_v1(
     policy_id: u32,
-    rule_pack_id: &Hash,
+    rule_pack_id: &ContentHash,
     commit_status: TickCommitStatus,
     in_slots: &[SlotId],
     out_slots: &[SlotId],
     ops: &[WarpOp],
-) -> Hash {
+) -> ContentHash {
     let mut h = Hasher::new();
     // Patch format version.
     h.update(&1u16.to_le_bytes());
@@ -341,6 +343,12 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
     }
 }
 
+/// Encodes ops into the patch digest stream.
+///
+/// The op tag bytes are part of the patch format and exist solely to provide a
+/// stable, versioned encoding for hashing (`patch_digest`). They are
+/// intentionally distinct from `WarpOp::sort_key`’s `kind` values, which exist
+/// only to define deterministic replay ordering.
 fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
     for op in ops {
@@ -388,17 +396,73 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     }
 }
 
-/// Computes a canonical delta op list from `before` and `after`.
+/// Computes a canonical delta op list that transforms one in-memory store state into another.
+///
+/// This is the “diff” constructor used by the v0 engine to build a
+/// [`WarpTickPatchV1`]: the engine snapshots `store_before`, executes rewrites
+/// to produce `store_after`, then calls `diff_store(store_before, store_after)`
+/// to obtain a canonical set of delta operations (`WarpOp`) for replay.
+///
+/// # Required invariants
+/// This function assumes both `before` and `after` are *valid* [`GraphStore`]
+/// instances that satisfy the store invariants:
+/// - `nodes` contains at most one record per `NodeId`.
+/// - `edges_from` contains outbound edges whose `EdgeRecord.from` matches the
+///   bucket key used to store them (the “from bucket” invariant).
+/// - Each `EdgeId` is globally unique across the entire store (no duplicates in
+///   different buckets).
+///
+/// Ordering within each store is expected to be deterministic (`BTreeMap`
+/// iteration order), but the returned ops do **not** preserve any original
+/// mutation order; they are canonicalized for hashing/replay.
+///
+/// # Semantics of returned ops
+/// - [`WarpOp::UpsertNode`]: ensure the node record at `node` matches `after`.
+///   Emitted when a node is new or its type/payload changed.
+/// - [`WarpOp::DeleteNode`]: remove a node record that existed in `before` but
+///   is absent in `after`.
+/// - [`WarpOp::UpsertEdge`]: ensure the edge record for `EdgeId` matches `after`.
+///   Emitted when an edge is new or any of its fields changed.
+/// - [`WarpOp::DeleteEdge`]: remove an edge record from the specified `from`
+///   bucket. Emitted when an edge is removed, and also when an edge’s `from`
+///   bucket changes (migration), in which case a `DeleteEdge(old_from, id)` is
+///   emitted before the corresponding `UpsertEdge(new_record)`.
+///
+/// The returned list is sorted by the canonical op ordering key (`WarpOp::sort_key`) so it can be applied in
+/// deterministic order. Applying the returned ops to a store in the `before`
+/// state should yield a store equivalent to `after`.
+///
+/// (Note: `WarpOp::sort_key` is an internal ordering key; it is not itself part
+/// of the wire encoding or patch digest encoding.)
+///
+/// # Why diff vs. recording ops directly?
+/// `diff_store` is useful when the engine executes arbitrary user code (rule
+/// executors) that mutates the store and we want a deterministic, replayable
+/// delta patch without requiring the executor to emit canonical ops itself.
+///
+/// In the long run, recording canonical ops directly (or emitting a cheaper
+/// structural diff) can avoid the clone+diff cost, but `diff_store` is the
+/// simplest correct v0 boundary artifact.
+///
+/// # Edge cases and behavior
+/// - If `before` and `after` are identical, this returns an empty list.
+/// - This function does not validate the stores; if either store violates the
+///   invariants above, the resulting op list may be incomplete or replay may
+///   fail (e.g., deleting a missing edge).
+///
+/// # Performance characteristics
+/// This routine is `O(nodes + edges)` to walk both stores plus `O(edges log edges)`
+/// to build `EdgeId`-keyed maps. It allocates and clones edge/node records as
+/// needed for op payloads, so it is not intended for hot paths.
 pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp> {
     let mut ops: Vec<WarpOp> = Vec::new();
 
     // Nodes
     for (id, rec_before) in &before.nodes {
-        if !after.nodes.contains_key(id) {
+        let Some(rec_after) = after.nodes.get(id) else {
             ops.push(WarpOp::DeleteNode { node: *id });
             continue;
-        }
-        let rec_after = &after.nodes[id];
+        };
         if rec_before.ty != rec_after.ty || rec_before.payload != rec_after.payload {
             ops.push(WarpOp::UpsertNode {
                 node: *id,
@@ -453,7 +517,7 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
     ops
 }
 
-fn edges_by_id(store: &GraphStore) -> std::collections::BTreeMap<Hash, EdgeRecord> {
+fn edges_by_id(store: &GraphStore) -> std::collections::BTreeMap<ContentHash, EdgeRecord> {
     let mut out = std::collections::BTreeMap::new();
     for edges in store.edges_from.values() {
         for e in edges {

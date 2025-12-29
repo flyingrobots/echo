@@ -35,6 +35,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-29 — Follow-up: tick patch hygiene (COMPLETED)
+
+- Goal: clean up `tick_patch` sharp edges so the patch boundary stays deterministic, well-documented, and resistant to misuse.
+- Scope:
+  - `diff_store`: avoid double map lookups and expand rustdoc (intent, invariants, semantics, edge cases, perf).
+  - `TickPatchError`: switch to `thiserror` derive (remove boilerplate).
+  - `encode_ops`: document that digest tag bytes are distinct from replay sort ordering.
+  - `WarpTickPatchV1::new`: dedupe duplicate ops by sort key to avoid replay errors.
+  - `Hash` naming: alias `crate::ident::Hash` to `ContentHash` to avoid confusion with `derive(Hash)`.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
+- Evidence: Issue `#156` / PR `#157` (commits `793322f`, `615b9e9`, `5e1e502`) — `crates/warp-core/src/tick_patch.rs` implements the changes; tests/clippy rerun green.
+
 > 2025-12-29 — Follow-up: `EdgeRecord` equality (COMPLETED)
 
 - Goal: remove the ad-hoc `edge_record_eq` helper so `EdgeRecord` equality is defined by the type, not by duplicated helper logic in `tick_patch`.

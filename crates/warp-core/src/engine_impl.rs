@@ -64,6 +64,12 @@ pub struct Engine {
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
     rules_by_compact: HashMap<CompactRuleId, &'static str>,
     scheduler: DeterministicScheduler,
+    /// Policy identifier committed into `patch_digest` (tick patches) and
+    /// `commit_id` (commit hash v2).
+    ///
+    /// This is part of the deterministic boundary. Callers select it explicitly
+    /// via constructors like [`Engine::with_policy_id`].
+    policy_id: u32,
     tx_counter: u64,
     live_txs: HashSet<u64>,
     current_root: NodeId,
@@ -79,12 +85,49 @@ struct ReserveOutcome {
 
 impl Engine {
     /// Constructs a new engine with the supplied backing store and root node id.
+    ///
+    /// Uses the default scheduler (Radix) and the default policy id
+    /// [`crate::POLICY_ID_NO_POLICY_V0`].
     pub fn new(store: GraphStore, root: NodeId) -> Self {
-        Self::with_scheduler(store, root, SchedulerKind::Radix)
+        Self::with_scheduler_and_policy_id(
+            store,
+            root,
+            SchedulerKind::Radix,
+            crate::POLICY_ID_NO_POLICY_V0,
+        )
     }
 
     /// Constructs a new engine with an explicit scheduler kind (radix vs. legacy).
+    ///
+    /// Uses the default policy id [`crate::POLICY_ID_NO_POLICY_V0`].
     pub fn with_scheduler(store: GraphStore, root: NodeId, kind: SchedulerKind) -> Self {
+        Self::with_scheduler_and_policy_id(store, root, kind, crate::POLICY_ID_NO_POLICY_V0)
+    }
+
+    /// Constructs a new engine with an explicit policy identifier.
+    ///
+    /// `policy_id` is committed into both `patch_digest` (tick patches) and
+    /// `commit_id` (commit hash v2). Callers must treat it as part of the
+    /// deterministic boundary.
+    pub fn with_policy_id(store: GraphStore, root: NodeId, policy_id: u32) -> Self {
+        Self::with_scheduler_and_policy_id(store, root, SchedulerKind::Radix, policy_id)
+    }
+
+    /// Constructs a new engine with explicit scheduler kind and policy identifier.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    pub fn with_scheduler_and_policy_id(
+        store: GraphStore,
+        root: NodeId,
+        kind: SchedulerKind,
+        policy_id: u32,
+    ) -> Self {
         Self {
             store,
             rules: HashMap::new(),
@@ -92,6 +135,7 @@ impl Engine {
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
             scheduler: DeterministicScheduler::new(kind),
+            policy_id,
             tx_counter: 0,
             live_txs: HashSet::new(),
             current_root: root,
@@ -219,8 +263,7 @@ impl Engine {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
-        // TODO(#151): Parameterize `policy_id` once Aion policy semantics are implemented.
-        let policy_id = crate::constants::POLICY_ID_NO_POLICY_V0;
+        let policy_id = self.policy_id;
         let rule_pack_id = self.compute_rule_pack_id();
         // Drain pending to form the ready set and compute a plan digest over its canonical order.
         let drained = self.scheduler.drain_for_tx(tx);
@@ -388,8 +431,7 @@ impl Engine {
         // Canonical empty digests match commit() behaviour when no rewrites are pending.
         let empty_digest: Hash = *crate::constants::DIGEST_LEN0_U64;
         let decision_empty: Hash = *crate::constants::DIGEST_LEN0_U64;
-        // TODO(#151): Parameterize `policy_id` once Aion policy semantics are implemented.
-        let policy_id = crate::constants::POLICY_ID_NO_POLICY_V0;
+        let policy_id = self.policy_id;
         let rule_pack_id = self.compute_rule_pack_id();
         let patch_digest = WarpTickPatchV1::new(
             policy_id,

@@ -35,6 +35,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-29 — Follow-ups: policy_id plumbing + edge replay index (COMPLETED)
+
+- Goal: eliminate “TODO-vibes” follow-ups by making policy id handling explicit/configurable and by removing the O(total_edges) edge scan from tick patch replay.
+- Scope: thread `policy_id` through `Engine` as an explicit engine parameter (defaulting to `POLICY_ID_NO_POLICY_V0`); add a `GraphStore` reverse index (`EdgeId -> from`) to support O(bucket) edge migration/removal during patch replay; keep commit hash semantics unchanged (still commits to `state_root` + `patch_digest` + policy id).
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; no remaining local-only scope hash clones; no edge replay full-scan.
+- Evidence: `Engine::{with_policy_id, with_scheduler_and_policy_id}` added; tick patch replay now uses `GraphStore` reverse index; strict clippy/tests gates rerun green.
+
 > 2025-12-29 — Tick receipts: blocking causality (COMPLETED)
 
 - Goal: finish the Paper II tick receipt slice by recording *blocking causality* for rejected candidates (a poset edge list) in `warp-core`.

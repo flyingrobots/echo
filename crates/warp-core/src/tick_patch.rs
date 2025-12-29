@@ -267,25 +267,10 @@ impl WarpTickPatchV1 {
                     }
                 }
                 WarpOp::UpsertEdge { record } => {
-                    // Remove any existing edge with the same id from its current bucket.
-                    //
-                    // NOTE: `remove_edge_by_id` is O(total_edges). This is acceptable for v0
-                    // correctness, but replay performance will require a reverse index
-                    // (`EdgeId -> NodeId`) once graph sizes grow.
-                    remove_edge_by_id(store, &record.id);
-                    store
-                        .edges_from
-                        .entry(record.from)
-                        .or_default()
-                        .push(record.clone());
+                    store.upsert_edge_record(record.from, record.clone());
                 }
                 WarpOp::DeleteEdge { from, edge_id } => {
-                    let Some(edges) = store.edges_from.get_mut(from) else {
-                        return Err(TickPatchError::MissingEdge(*edge_id));
-                    };
-                    let before = edges.len();
-                    edges.retain(|e| e.id != *edge_id);
-                    if edges.len() == before {
+                    if !store.delete_edge_exact(*from, *edge_id) {
                         return Err(TickPatchError::MissingEdge(*edge_id));
                     }
                 }
@@ -314,12 +299,6 @@ impl core::fmt::Display for TickPatchError {
 }
 
 impl std::error::Error for TickPatchError {}
-
-fn remove_edge_by_id(store: &mut GraphStore, id: &EdgeId) {
-    for edges in store.edges_from.values_mut() {
-        edges.retain(|e| e.id != *id);
-    }
-}
 
 fn compute_patch_digest_v1(
     policy_id: u32,

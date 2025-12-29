@@ -191,7 +191,7 @@ impl WarpTickPatchV1 {
         ops.sort_by_key(WarpOp::sort_key);
         ops.dedup_by(|a, b| {
             if a.sort_key() == b.sort_key() {
-                *a = b.clone();
+                *b = a.clone();
                 true
             } else {
                 false

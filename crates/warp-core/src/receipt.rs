@@ -24,15 +24,22 @@ use crate::tx::TxId;
 pub struct TickReceipt {
     tx: TxId,
     entries: Vec<TickReceiptEntry>,
+    blocked_by: Vec<Vec<u32>>,
     digest: Hash,
 }
 
 impl TickReceipt {
-    pub(crate) fn new(tx: TxId, entries: Vec<TickReceiptEntry>) -> Self {
+    pub(crate) fn new(tx: TxId, entries: Vec<TickReceiptEntry>, blocked_by: Vec<Vec<u32>>) -> Self {
+        assert_eq!(
+            entries.len(),
+            blocked_by.len(),
+            "blocked_by must be parallel to entries"
+        );
         let digest = compute_tick_receipt_digest(&entries);
         Self {
             tx,
             entries,
+            blocked_by,
             digest,
         }
     }
@@ -49,12 +56,45 @@ impl TickReceipt {
         &self.entries
     }
 
+    /// Returns the indices of the candidates that blocked entry `idx`.
+    ///
+    /// This is the (currently minimal) *blocking causality poset* witness described
+    /// by Paper II: when a candidate is rejected due to a footprint conflict, the
+    /// receipt records which already-applied candidates blocked it.
+    ///
+    /// Semantics and invariants:
+    /// - Returned indices are indices into [`TickReceipt::entries`].
+    /// - The list is sorted in ascending order and contains no duplicates.
+    /// - Every returned index is strictly less than `idx`.
+    /// - For an [`TickReceiptDisposition::Applied`] entry, the list is empty.
+    /// - For a [`TickReceiptDisposition::Rejected`] entry, the list is expected to
+    ///   be non-empty for `Rejected(FootprintConflict)`.
+    ///
+    /// Note: these blocker indices are *not* included in [`TickReceipt::digest`]
+    /// today; the digest commits only to accepted vs rejected outcomes.
+    ///
+    /// # Panics
+    /// Panics if `idx` is out of bounds for [`TickReceipt::entries`].
+    #[must_use]
+    pub fn blocked_by(&self, idx: usize) -> &[u32] {
+        assert!(
+            idx < self.blocked_by.len(),
+            "blocked_by index {idx} out of bounds for {} entries",
+            self.blocked_by.len()
+        );
+        &self.blocked_by[idx]
+    }
+
     /// Canonical digest of the tick receipt entries.
     ///
     /// This digest is stable across architectures and depends only on:
     /// - the receipt format version,
     /// - the number of entries, and
     /// - the ordered per-entry content.
+    ///
+    /// It intentionally does **not** include blocking attribution metadata
+    /// (see [`TickReceipt::blocked_by`]) so that commit hashes remain stable
+    /// across improvements to rejection explanations.
     ///
     /// It intentionally does **not** include `tx` so that receipts can be
     /// compared across runs that use different transaction numbering.

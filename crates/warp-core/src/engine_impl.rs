@@ -194,7 +194,8 @@ impl Engine {
     /// Executes all pending rewrites for the transaction, producing both a snapshot and a tick receipt.
     ///
     /// The receipt records (in canonical plan order) which candidates were accepted vs rejected.
-    /// This is the first step toward Paper II “tick receipts” (and later, the blocking poset).
+    /// For rejected candidates, it also records which earlier applied candidates blocked them
+    /// (a minimal blocking-causality witness / poset edge list, per Paper II).
     ///
     /// # Errors
     /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
@@ -209,21 +210,40 @@ impl Engine {
         }
         // Drain pending to form the ready set and compute a plan digest over its canonical order.
         let drained = self.scheduler.drain_for_tx(tx);
-        let plan_digest = {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&(drained.len() as u64).to_le_bytes());
-            for pr in &drained {
-                hasher.update(&pr.scope_hash);
-                hasher.update(&pr.rule_id);
-            }
-            hasher.finalize().into()
-        };
+        let plan_digest = compute_plan_digest(&drained);
 
         // Reserve phase: enforce independence against active frontier.
         let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
+        let mut blocked_by: Vec<Vec<u32>> = Vec::with_capacity(drained.len());
         let mut reserved: Vec<PendingRewrite> = Vec::new();
-        for mut rewrite in drained {
+        let mut reserved_entry_indices: Vec<u32> = Vec::new();
+        for (entry_idx, mut rewrite) in drained.into_iter().enumerate() {
+            let entry_idx_u32 = u32::try_from(entry_idx).map_err(|_| {
+                EngineError::InternalCorruption("too many receipt entries to index")
+            })?;
             let accepted = self.scheduler.reserve(tx, &mut rewrite);
+            let blockers = if accepted {
+                Vec::new()
+            } else {
+                // O(n) scan over reserved rewrites. Acceptable for typical tick sizes;
+                // consider spatial indexing if tick candidate counts grow large.
+                let mut blockers: Vec<u32> = Vec::new();
+                for (k, prior) in reserved.iter().enumerate() {
+                    if footprints_conflict(&rewrite.footprint, &prior.footprint) {
+                        blockers.push(reserved_entry_indices[k]);
+                    }
+                }
+                if blockers.is_empty() {
+                    // `reserve()` currently returns `false` exclusively on footprint
+                    // conflicts (see scheduler reserve rustdoc). If additional rejection
+                    // reasons are added, update the scheduler contract and this attribution
+                    // logic accordingly.
+                    return Err(EngineError::InternalCorruption(
+                        "scheduler rejected rewrite but no blockers were found",
+                    ));
+                }
+                blockers
+            };
             receipt_entries.push(TickReceiptEntry {
                 rule_id: rewrite.rule_id,
                 scope_hash: rewrite.scope_hash,
@@ -231,28 +251,22 @@ impl Engine {
                 disposition: if accepted {
                     TickReceiptDisposition::Applied
                 } else {
-                    // NOTE: reserve() currently only rejects for footprint conflicts.
+                    // NOTE: reserve() currently returns `false` exclusively on
+                    // footprint conflicts (see scheduler reserve rustdoc).
                     // If additional rejection reasons are added, update this mapping.
                     TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
                 },
             });
             if accepted {
                 reserved.push(rewrite);
+                reserved_entry_indices.push(entry_idx_u32);
             }
+            blocked_by.push(blockers);
         }
-        let receipt = TickReceipt::new(tx, receipt_entries);
+        let receipt = TickReceipt::new(tx, receipt_entries, blocked_by);
 
         // Deterministic digest of the ordered rewrites we will apply.
-        let rewrites_digest = {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(&(reserved.len() as u64).to_le_bytes());
-            for r in &reserved {
-                hasher.update(&r.rule_id);
-                hasher.update(&r.scope_hash);
-                hasher.update(&(r.scope).0);
-            }
-            hasher.finalize().into()
-        };
+        let rewrites_digest = compute_rewrites_digest(&reserved);
 
         for rewrite in reserved {
             let id = rewrite.compact_rule;
@@ -351,6 +365,67 @@ impl Engine {
     pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
         self.store.insert_node(id, record);
     }
+}
+
+fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Footprint) -> bool {
+    // IMPORTANT: do not use `Footprint::independent` here yet.
+    //
+    // This logic MUST remain consistent with the scheduler’s footprint conflict
+    // predicate (`RadixScheduler::has_conflict` in `scheduler.rs`). If one
+    // changes, the other must change too, or receipts will attribute blockers
+    // differently than the scheduler rejects candidates.
+    //
+    // `Footprint::independent` includes a `factor_mask` fast-path that assumes
+    // masks are correctly populated as a conservative superset. Many current
+    // footprints in the engine spike use `factor_mask = 0` as a placeholder,
+    // which would incorrectly classify conflicting rewrites as independent.
+    //
+    // The scheduler’s conflict logic is defined by explicit overlap checks on
+    // nodes/edges/ports; this mirrors that behavior exactly and stays correct
+    // while factor masks are still being wired through.
+    if a.b_in.intersects(&b.b_in)
+        || a.b_in.intersects(&b.b_out)
+        || a.b_out.intersects(&b.b_in)
+        || a.b_out.intersects(&b.b_out)
+    {
+        return true;
+    }
+    if a.e_write.intersects(&b.e_write)
+        || a.e_write.intersects(&b.e_read)
+        || b.e_write.intersects(&a.e_read)
+    {
+        return true;
+    }
+    a.n_write.intersects(&b.n_write)
+        || a.n_write.intersects(&b.n_read)
+        || b.n_write.intersects(&a.n_read)
+}
+
+fn compute_plan_digest(plan: &[PendingRewrite]) -> Hash {
+    if plan.is_empty() {
+        return *crate::constants::DIGEST_LEN0_U64;
+    }
+    let mut hasher = Hasher::new();
+    hasher.update(&(plan.len() as u64).to_le_bytes());
+    for pr in plan {
+        hasher.update(&pr.scope_hash);
+        hasher.update(&pr.rule_id);
+    }
+    hasher.finalize().into()
+}
+
+fn compute_rewrites_digest(rewrites: &[PendingRewrite]) -> Hash {
+    if rewrites.is_empty() {
+        return *crate::constants::DIGEST_LEN0_U64;
+    }
+    let mut hasher = Hasher::new();
+    hasher.update(&(rewrites.len() as u64).to_le_bytes());
+    for r in rewrites {
+        hasher.update(&r.rule_id);
+        hasher.update(&r.scope_hash);
+        hasher.update(&(r.scope).0);
+    }
+    hasher.finalize().into()
 }
 
 impl Engine {

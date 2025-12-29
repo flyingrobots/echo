@@ -35,6 +35,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-29 — Tick receipts: blocking causality (COMPLETED)
+
+- Goal: finish the Paper II tick receipt slice by recording *blocking causality* for rejected candidates (a poset edge list) in `warp-core`.
+- Scope: extend `TickReceipt` to expose the applied candidates that blocked a `Rejected(FootprintConflict)` entry; keep `decision_digest` stable (digest commits only to accept/reject outcomes, not blocker metadata).
+- Exit criteria: new tests cover multi-blocker cases; `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` are green; bridge docs updated to match implementation; decision log entry recorded.
+- Evidence: implemented `TickReceipt::blocked_by` and blocker attribution in `Engine::commit_with_receipt`; added multi-blocker tests; updated `docs/aion-papers-bridge.md` and `docs/spec-merkle-commit.md`; validated via `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs`.
+
 > 2025-12-28 — Promote AIΩN bridge doc + add tick receipts (COMPLETED)
 
 - Goal: promote the AIΩN Foundations ↔ Echo bridge from a dated note into a canonical doc, then implement Paper II “tick receipts” in `warp-core`.

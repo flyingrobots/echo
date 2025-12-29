@@ -434,7 +434,7 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
                 });
             }
             Some(rec_before) => {
-                if !edge_record_eq(rec_before, rec_after) {
+                if rec_before != rec_after {
                     if rec_before.from != rec_after.from {
                         ops.push(WarpOp::DeleteEdge {
                             from: rec_before.from,
@@ -461,8 +461,4 @@ fn edges_by_id(store: &GraphStore) -> std::collections::BTreeMap<Hash, EdgeRecor
         }
     }
     out
-}
-
-fn edge_record_eq(a: &EdgeRecord, b: &EdgeRecord) -> bool {
-    a.id == b.id && a.from == b.from && a.to == b.to && a.ty == b.ty && a.payload == b.payload
 }

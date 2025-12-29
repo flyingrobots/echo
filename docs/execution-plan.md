@@ -35,6 +35,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-29 — Follow-up: `EdgeRecord` equality (COMPLETED)
+
+- Goal: remove the ad-hoc `edge_record_eq` helper so `EdgeRecord` equality is defined by the type, not by duplicated helper logic in `tick_patch`.
+- Scope: derive `PartialEq` + `Eq` on `EdgeRecord`; replace `edge_record_eq(a, b)` call sites with idiomatic `a == b`; delete the helper from `tick_patch.rs`.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
+- Evidence: `EdgeRecord` derives `PartialEq, Eq` and `tick_patch` uses `==` directly; helper removed; tests/clippy rerun green.
+
 > 2025-12-29 — Follow-ups: policy_id plumbing + edge replay index (COMPLETED)
 
 - Goal: eliminate “TODO-vibes” follow-ups by making policy id handling explicit/configurable and by removing the O(total_edges) edge scan from tick patch replay.

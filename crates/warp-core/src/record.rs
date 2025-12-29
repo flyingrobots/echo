@@ -29,7 +29,7 @@ pub struct NodeRecord {
 /// - `id` is stable across runs for the same logical edge.
 /// - `ty` must be a valid edge type in the current schema.
 /// - `payload` encoding is caller-defined and opaque to the store.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EdgeRecord {
     /// Stable identifier for the edge.
     pub id: EdgeId,

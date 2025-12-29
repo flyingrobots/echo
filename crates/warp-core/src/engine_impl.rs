@@ -225,6 +225,8 @@ impl Engine {
             let blockers = if accepted {
                 Vec::new()
             } else {
+                // O(n) scan over reserved rewrites. Acceptable for typical tick sizes;
+                // consider spatial indexing if tick candidate counts grow large.
                 let mut blockers: Vec<u32> = Vec::new();
                 for (k, prior) in reserved.iter().enumerate() {
                     if footprints_conflict(&rewrite.footprint, &prior.footprint) {
@@ -232,6 +234,10 @@ impl Engine {
                     }
                 }
                 if blockers.is_empty() {
+                    // `reserve()` currently returns `false` exclusively on footprint
+                    // conflicts (see scheduler reserve rustdoc). If additional rejection
+                    // reasons are added, update the scheduler contract and this attribution
+                    // logic accordingly.
                     return Err(EngineError::InternalCorruption(
                         "scheduler rejected rewrite but no blockers were found",
                     ));
@@ -245,7 +251,8 @@ impl Engine {
                 disposition: if accepted {
                     TickReceiptDisposition::Applied
                 } else {
-                    // NOTE: reserve() currently only rejects for footprint conflicts.
+                    // NOTE: reserve() currently returns `false` exclusively on
+                    // footprint conflicts (see scheduler reserve rustdoc).
                     // If additional rejection reasons are added, update this mapping.
                     TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict)
                 },
@@ -362,6 +369,11 @@ impl Engine {
 
 fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Footprint) -> bool {
     // IMPORTANT: do not use `Footprint::independent` here yet.
+    //
+    // This logic MUST remain consistent with the scheduler’s footprint conflict
+    // predicate (`RadixScheduler::has_conflict` in `scheduler.rs`). If one
+    // changes, the other must change too, or receipts will attribute blockers
+    // differently than the scheduler rejects candidates.
     //
     // `Footprint::independent` includes a `factor_mask` fast-path that assumes
     // masks are correctly populated as a conservative superset. Many current

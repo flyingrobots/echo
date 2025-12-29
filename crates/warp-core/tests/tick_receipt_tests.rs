@@ -16,6 +16,8 @@ fn rule_id(name: &str) -> Hash {
     hasher.finalize().into()
 }
 
+// Mirrors the engine implementation in `crates/warp-core/src/engine_impl.rs`.
+// If the engine's scope hash semantics change, this helper must be updated to match.
 fn scope_hash(rule_id: &Hash, scope: &NodeId) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(rule_id);
@@ -75,6 +77,12 @@ fn fp_write_scope_and_other(_: &GraphStore, scope: &NodeId) -> Footprint {
     fp
 }
 
+/// Finds three synthetic rule ids (A, B, C) such that when applied to
+/// `(scope_a, scope_b, scope_a)` the deterministic scheduler order is `[A, B, C]`
+/// with `C` last.
+///
+/// This ensures the first two candidates are accepted and the last candidate is
+/// rejected with two blockers for stable multi-blocker assertions.
 fn pick_rule_ids_for_blocker_test(scope_a: &NodeId, scope_b: &NodeId) -> (Hash, Hash, Hash) {
     // Pick three distinct synthetic ids such that:
     // - the combined-write rule (C) sorts last by scope_hash

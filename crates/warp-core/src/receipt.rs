@@ -30,7 +30,7 @@ pub struct TickReceipt {
 
 impl TickReceipt {
     pub(crate) fn new(tx: TxId, entries: Vec<TickReceiptEntry>, blocked_by: Vec<Vec<u32>>) -> Self {
-        debug_assert_eq!(
+        assert_eq!(
             entries.len(),
             blocked_by.len(),
             "blocked_by must be parallel to entries"
@@ -77,6 +77,11 @@ impl TickReceipt {
     /// Panics if `idx` is out of bounds for [`TickReceipt::entries`].
     #[must_use]
     pub fn blocked_by(&self, idx: usize) -> &[u32] {
+        assert!(
+            idx < self.blocked_by.len(),
+            "blocked_by index {idx} out of bounds for {} entries",
+            self.blocked_by.len()
+        );
         &self.blocked_by[idx]
     }
 

@@ -117,6 +117,16 @@ impl RadixScheduler {
     ///
     /// On success, marks all resources in the active `GenSets` and transitions
     /// the phase to `Reserved`.
+    ///
+    /// Return value contract (engine spike):
+    /// - Returns `true` when the rewrite is reserved and will be applied.
+    /// - Returns `false` exclusively when the rewrite footprint conflicts with
+    ///   the already-reserved frontier for this tick. In this case the rewrite
+    ///   phase is transitioned to `Aborted`.
+    ///
+    /// If additional rejection reasons are introduced in the future (beyond
+    /// footprint conflicts), upgrade the return type to an explicit reason enum
+    /// so callers can distinguish between them.
     pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
         let active = self.active.entry(tx).or_insert_with(ActiveFootprints::new);
 
@@ -543,6 +553,22 @@ impl LegacyScheduler {
             .unwrap_or_default()
     }
 
+    /// Attempts to reserve a rewrite by checking full footprint independence
+    /// against the currently reserved frontier.
+    ///
+    /// This legacy implementation performs an O(k) scan over the reserved
+    /// footprints for the tick, using [`Footprint::independent`] to detect
+    /// conflicts.
+    ///
+    /// Return value contract (engine spike):
+    /// - Returns `true` when the rewrite is reserved and will be applied.
+    /// - Returns `false` exclusively when the rewrite footprint conflicts with
+    ///   the already-reserved frontier for this tick. In this case the rewrite
+    ///   phase is transitioned to `Aborted`.
+    ///
+    /// If additional rejection reasons are introduced in the future (beyond
+    /// footprint conflicts), upgrade the return type to an explicit reason enum
+    /// so callers can distinguish between them.
     pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
         let frontier = self.active.entry(tx).or_default();
         for fp in frontier.iter() {
@@ -633,6 +659,19 @@ impl DeterministicScheduler {
         }
     }
 
+    /// Attempts to reserve `pr` in the scheduler for `tx`.
+    ///
+    /// This forwards to the selected scheduler implementation (radix vs legacy).
+    ///
+    /// Return value contract (engine spike):
+    /// - Returns `true` when the rewrite is reserved and will be applied.
+    /// - Returns `false` exclusively when the rewrite footprint conflicts with
+    ///   the already-reserved frontier for this tick. In this case the rewrite
+    ///   phase is transitioned to `Aborted`.
+    ///
+    /// If additional rejection reasons are introduced in the future (beyond
+    /// footprint conflicts), upgrade the return type to an explicit reason enum
+    /// so callers can distinguish between them.
     pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
         match &mut self.inner {
             SchedulerImpl::Radix(s) => s.reserve(tx, pr),

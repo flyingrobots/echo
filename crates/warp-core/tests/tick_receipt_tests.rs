@@ -89,7 +89,7 @@ fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
         .apply(tx, rule2_name, &entity)
         .expect("second apply succeeds");
 
-    let (snapshot, receipt) = engine.commit_with_receipt(tx).expect("commit_with_receipt");
+    let (snapshot, receipt, patch) = engine.commit_with_receipt(tx).expect("commit_with_receipt");
 
     let entries = receipt.entries();
     assert_eq!(
@@ -106,6 +106,11 @@ fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
     assert_eq!(snapshot.plan_digest, compute_plan_digest(entries));
     assert_eq!(snapshot.rewrites_digest, compute_rewrites_digest(entries));
     assert_eq!(snapshot.decision_digest, receipt.digest());
+    assert_eq!(
+        snapshot.patch_digest,
+        patch.digest(),
+        "snapshot should carry the canonical patch digest committed into commit hash v2"
+    );
     assert_ne!(
         snapshot.decision_digest,
         *warp_core::DIGEST_LEN0_U64,

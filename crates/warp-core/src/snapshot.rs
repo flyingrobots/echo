@@ -59,6 +59,12 @@ pub struct Snapshot {
     pub decision_digest: Hash,
     /// Deterministic digest of the ordered rewrites applied during this commit.
     pub rewrites_digest: Hash,
+    /// Deterministic digest of the tick patch boundary artifact.
+    ///
+    /// For commit hash v2, this is the sole committed “what happened” delta: the
+    /// commit id commits to `state_root` and `patch_digest` (plus parents/policy),
+    /// while plan/decision/rewrites digests remain diagnostics.
+    pub patch_digest: Hash,
     /// Aion policy identifier (version pin for agency decisions).
     pub policy_id: u32,
     /// Transaction identifier associated with the snapshot.
@@ -150,7 +156,11 @@ pub(crate) fn compute_state_root(store: &GraphStore, root: &NodeId) -> Hash {
 }
 
 /// Computes the final commit hash from the state root and metadata digests.
-pub(crate) fn compute_commit_hash(
+///
+/// This is the legacy v1 commit header hash (plan/decision/rewrites digests).
+/// It is retained for reference and potential migration tooling.
+#[allow(dead_code)]
+pub(crate) fn compute_commit_hash_v1(
     state_root: &Hash,
     parents: &[Hash],
     plan_digest: &Hash,
@@ -171,6 +181,31 @@ pub(crate) fn compute_commit_hash(
     h.update(plan_digest);
     h.update(decision_digest);
     h.update(rewrites_digest);
+    h.update(&policy_id.to_le_bytes());
+    h.finalize().into()
+}
+
+/// Computes the commit hash (commit id) for commit header v2.
+///
+/// Commit hash v2 commits only to the replay boundary artifact: `state_root`
+/// and the tick `patch_digest` (plus explicit parents and policy id).
+pub(crate) fn compute_commit_hash_v2(
+    state_root: &Hash,
+    parents: &[Hash],
+    patch_digest: &Hash,
+    policy_id: u32,
+) -> Hash {
+    let mut h = Hasher::new();
+    // Version tag for future evolution.
+    h.update(&2u16.to_le_bytes());
+    // Parents (length + raw bytes)
+    h.update(&(parents.len() as u64).to_le_bytes());
+    for p in parents {
+        h.update(p);
+    }
+    // State root + patch digest + policy id.
+    h.update(state_root);
+    h.update(patch_digest);
     h.update(&policy_id.to_le_bytes());
     h.finalize().into()
 }

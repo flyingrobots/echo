@@ -52,6 +52,7 @@ mod rule;
 mod sandbox;
 mod scheduler;
 mod snapshot;
+mod tick_patch;
 mod tx;
 
 // Re-exports for stable public API
@@ -89,5 +90,7 @@ pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConf
 pub use scheduler::SchedulerKind;
 /// Immutable deterministic snapshot.
 pub use snapshot::Snapshot;
+/// Tick patch boundary artifacts (Paper III): replayable delta ops + slot sets.
+pub use tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1};
 /// Transaction identifier type.
 pub use tx::TxId;

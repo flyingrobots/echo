@@ -7,12 +7,13 @@ use blake3::Hasher;
 use thiserror::Error;
 
 use crate::graph::GraphStore;
-use crate::ident::{CompactRuleId, Hash, NodeId};
+use crate::ident::{CompactRuleId, EdgeId, Hash, NodeId};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
-use crate::snapshot::{compute_commit_hash, compute_state_root, Snapshot};
+use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
+use crate::tick_patch::{diff_store, SlotId, TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
 
 /// Result of calling [`Engine::apply`].
@@ -187,7 +188,7 @@ impl Engine {
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
     ///   corrupted (e.g., a reserved rewrite references a missing rule).
     pub fn commit(&mut self, tx: TxId) -> Result<Snapshot, EngineError> {
-        let (snapshot, _receipt) = self.commit_with_receipt(tx)?;
+        let (snapshot, _receipt, _patch) = self.commit_with_receipt(tx)?;
         Ok(snapshot)
     }
 
@@ -196,6 +197,9 @@ impl Engine {
     /// The receipt records (in canonical plan order) which candidates were accepted vs rejected.
     /// This is the first step toward Paper II “tick receipts” (and later, the blocking poset).
     ///
+    /// This method also produces a delta tick patch (Paper III): a replayable boundary artifact
+    /// whose digest is committed into the v2 commit hash.
+    ///
     /// # Errors
     /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
@@ -203,10 +207,12 @@ impl Engine {
     pub fn commit_with_receipt(
         &mut self,
         tx: TxId,
-    ) -> Result<(Snapshot, TickReceipt), EngineError> {
+    ) -> Result<(Snapshot, TickReceipt, WarpTickPatchV1), EngineError> {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
+        let policy_id = 0u32;
+        let rule_pack_id = self.compute_rule_pack_id();
         // Drain pending to form the ready set and compute a plan digest over its canonical order.
         let drained = self.scheduler.drain_for_tx(tx);
         let plan_digest = {
@@ -221,6 +227,8 @@ impl Engine {
 
         // Reserve phase: enforce independence against active frontier.
         let mut receipt_entries: Vec<TickReceiptEntry> = Vec::with_capacity(drained.len());
+        let mut in_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
+        let mut out_slots: std::collections::BTreeSet<SlotId> = std::collections::BTreeSet::new();
         let mut reserved: Vec<PendingRewrite> = Vec::new();
         for mut rewrite in drained {
             let accepted = self.scheduler.reserve(tx, &mut rewrite);
@@ -237,6 +245,7 @@ impl Engine {
                 },
             });
             if accepted {
+                extend_slots_from_footprint(&mut in_slots, &mut out_slots, &rewrite.footprint);
                 reserved.push(rewrite);
             }
         }
@@ -254,6 +263,9 @@ impl Engine {
             hasher.finalize().into()
         };
 
+        // Capture pre-state for delta patch construction.
+        let store_before = self.store.clone();
+
         for rewrite in reserved {
             let id = rewrite.compact_rule;
             let Some(rule) = self.rule_by_compact(id) else {
@@ -265,6 +277,18 @@ impl Engine {
             (rule.executor)(&mut self.store, &rewrite.scope);
         }
 
+        // Delta tick patch (Paper III boundary artifact).
+        let ops = diff_store(&store_before, &self.store);
+        let patch = WarpTickPatchV1::new(
+            policy_id,
+            rule_pack_id,
+            TickCommitStatus::Committed,
+            in_slots.into_iter().collect(),
+            out_slots.into_iter().collect(),
+            ops,
+        );
+        let patch_digest = patch.digest();
+
         let state_root = crate::snapshot::compute_state_root(&self.store, &self.current_root);
         let parents: Vec<Hash> = self
             .last_snapshot
@@ -274,13 +298,11 @@ impl Engine {
         // `decision_digest` is reserved for Aion tie-breaks; in the spike we use the tick receipt digest
         // to commit to accepted/rejected decisions in a deterministic way.
         let decision_digest: Hash = receipt.digest();
-        let hash = crate::snapshot::compute_commit_hash(
+        let hash = crate::snapshot::compute_commit_hash_v2(
             &state_root,
             &parents,
-            &plan_digest,
-            &decision_digest,
-            &rewrites_digest,
-            0,
+            &patch_digest,
+            policy_id,
         );
         let snapshot = Snapshot {
             root: self.current_root,
@@ -289,23 +311,24 @@ impl Engine {
             plan_digest,
             decision_digest,
             rewrites_digest,
-            policy_id: 0,
+            patch_digest,
+            policy_id,
             tx,
         };
         self.last_snapshot = Some(snapshot.clone());
         // Mark transaction as closed/inactive and finalize scheduler accounting.
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
-        Ok((snapshot, receipt))
+        Ok((snapshot, receipt, patch))
     }
 
     /// Returns a snapshot for the current graph state without executing rewrites.
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
         // Build a lightweight snapshot view of the current state using the
-        // same commit header shape but with zeroed metadata digests. This
-        // ensures callers see the same stable structure as real commits while
-        // making it clear that no rewrites were applied.
+        // same v2 commit hash shape (parents + state_root + patch_digest) but
+        // with empty diagnostic digests. This makes it explicit that no rewrites
+        // were applied while keeping the structure stable for callers/tools.
         let state_root = compute_state_root(&self.store, &self.current_root);
         let parents: Vec<Hash> = self
             .last_snapshot
@@ -319,14 +342,18 @@ impl Engine {
             h.finalize().into()
         };
         let decision_empty: Hash = *crate::constants::DIGEST_LEN0_U64;
-        let hash = compute_commit_hash(
-            &state_root,
-            &parents,
-            &empty_digest,
-            &decision_empty,
-            &empty_digest,
-            0,
-        );
+        let policy_id = 0u32;
+        let rule_pack_id = self.compute_rule_pack_id();
+        let patch_digest = WarpTickPatchV1::new(
+            policy_id,
+            rule_pack_id,
+            TickCommitStatus::Committed,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .digest();
+        let hash = compute_commit_hash_v2(&state_root, &parents, &patch_digest, policy_id);
         Snapshot {
             root: self.current_root,
             hash,
@@ -334,7 +361,8 @@ impl Engine {
             plan_digest: empty_digest,
             decision_digest: decision_empty,
             rewrites_digest: empty_digest,
-            policy_id: 0,
+            patch_digest,
+            policy_id,
             tx: TxId::from_raw(self.tx_counter),
         }
     }
@@ -358,6 +386,21 @@ impl Engine {
         let name = self.rules_by_compact.get(&id)?;
         self.rules.get(name)
     }
+
+    fn compute_rule_pack_id(&self) -> Hash {
+        let mut ids: Vec<Hash> = self.rules.values().map(|r| r.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+
+        let mut h = Hasher::new();
+        // Version tag for future evolution.
+        h.update(&1u16.to_le_bytes());
+        h.update(&(ids.len() as u64).to_le_bytes());
+        for id in ids {
+            h.update(&id);
+        }
+        h.finalize().into()
+    }
 }
 
 fn scope_hash(rule: &RewriteRule, scope: &NodeId) -> Hash {
@@ -367,10 +410,43 @@ fn scope_hash(rule: &RewriteRule, scope: &NodeId) -> Hash {
     hasher.finalize().into()
 }
 
+fn extend_slots_from_footprint(
+    in_slots: &mut std::collections::BTreeSet<SlotId>,
+    out_slots: &mut std::collections::BTreeSet<SlotId>,
+    fp: &crate::footprint::Footprint,
+) {
+    for node_hash in fp.n_read.iter() {
+        in_slots.insert(SlotId::Node(NodeId(*node_hash)));
+    }
+    for node_hash in fp.n_write.iter() {
+        let id = NodeId(*node_hash);
+        in_slots.insert(SlotId::Node(id));
+        out_slots.insert(SlotId::Node(id));
+    }
+    for edge_hash in fp.e_read.iter() {
+        in_slots.insert(SlotId::Edge(EdgeId(*edge_hash)));
+    }
+    for edge_hash in fp.e_write.iter() {
+        let id = EdgeId(*edge_hash);
+        in_slots.insert(SlotId::Edge(id));
+        out_slots.insert(SlotId::Edge(id));
+    }
+    for port_key in fp.b_in.keys() {
+        in_slots.insert(SlotId::Port(*port_key));
+    }
+    for port_key in fp.b_out.keys() {
+        in_slots.insert(SlotId::Port(*port_key));
+        out_slots.insert(SlotId::Port(*port_key));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{demo::motion::motion_rule, ident::make_node_id};
+    use crate::demo::motion::{motion_rule, MOTION_RULE_NAME};
+    use crate::ident::{make_node_id, make_type_id};
+    use crate::payload::encode_motion_payload;
+    use crate::record::NodeRecord;
 
     #[test]
     fn scope_hash_stable_for_rule_and_scope() {
@@ -405,5 +481,73 @@ mod tests {
             matches!(res, Err(EngineError::MissingJoinFn)),
             "expected MissingJoinFn, got {res:?}"
         );
+    }
+
+    #[test]
+    fn tick_patch_replay_matches_post_state() {
+        let entity = make_node_id("tick-patch-entity");
+        let entity_type = make_type_id("entity");
+        let payload = encode_motion_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+
+        let mut store = GraphStore::default();
+        store.insert_node(
+            entity,
+            NodeRecord {
+                ty: entity_type,
+                payload: Some(payload),
+            },
+        );
+
+        let mut engine = Engine::new(store, entity);
+        let register = engine.register_rule(motion_rule());
+        assert!(register.is_ok(), "rule registration failed: {register:?}");
+
+        let tx = engine.begin();
+        let applied = engine.apply(tx, MOTION_RULE_NAME, &entity);
+        assert!(
+            matches!(applied, Ok(ApplyResult::Applied)),
+            "expected ApplyResult::Applied, got {applied:?}"
+        );
+
+        let store_before = engine.store.clone();
+        let committed = engine.commit_with_receipt(tx);
+        assert!(
+            committed.is_ok(),
+            "commit_with_receipt failed: {committed:?}"
+        );
+        let Ok((snapshot, _receipt, patch)) = committed else {
+            return;
+        };
+        let store_after = engine.store.clone();
+
+        // Replay patch delta from the captured pre-state and compare the resulting state root.
+        let mut store_replay = store_before;
+        let replay = patch.apply_to_store(&mut store_replay);
+        assert!(replay.is_ok(), "patch replay failed: {replay:?}");
+
+        let root = entity;
+        let state_after = compute_state_root(&store_after, &root);
+        let state_replay = compute_state_root(&store_replay, &root);
+        assert_eq!(
+            state_after, state_replay,
+            "patch replay must match post-state"
+        );
+
+        // Patch digest is the committed boundary artifact in commit hash v2.
+        assert_eq!(snapshot.patch_digest, patch.digest());
+        assert_eq!(
+            snapshot.hash,
+            compute_commit_hash_v2(
+                &state_after,
+                &snapshot.parents,
+                &snapshot.patch_digest,
+                snapshot.policy_id
+            ),
+            "commit hash v2 must commit to state_root + patch_digest (+ parents/policy)"
+        );
+
+        // Conservative slots from footprint: motion writes the scoped node record.
+        assert!(patch.in_slots().contains(&SlotId::Node(entity)));
+        assert!(patch.out_slots().contains(&SlotId::Node(entity)));
     }
 }

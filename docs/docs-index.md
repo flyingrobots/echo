@@ -21,6 +21,7 @@
 | `aion-papers-bridge.md` | Map AIΩN Foundations (WARP papers) onto Echo’s backlog and document deviations |
 | `phase1-plan.md` | Phase 1 implementation roadmap & demo targets |
 | `spec-warp-core.md` | WARP core format and runtime |
+| `spec-warp-tick-patch.md` | Tick patch boundary artifact (delta ops, in/out slots, patch_digest) |
 | `spec-warp-confluence.md` | Global WARP graph synchronization (Confluence) |
 | `spec-ecs-storage.md` | ECS storage (archetypes, chunks, COW) |
 | `math-validation-plan.md` | Deterministic math coverage |

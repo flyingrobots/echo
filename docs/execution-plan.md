@@ -751,8 +751,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [ ] Adapt TypeScript CLI/inspector to Rust backend (WASM/FFI).
 - [ ] Archive TypeScript prototype under `/reference/` as spec baseline.
 - [x] Add Rust CI jobs (cargo test, replay verification).
+- [ ] Integrate roaring bitmaps into ECS dirty tracking.
+- [ ] Implement chunk epoch counters on mutation.
+- [ ] Add deterministic hashing module (canonical encode + BLAKE3).
+- [ ] Build DirtyChunkIndex pipeline from ECS to branch tree.
 
 ### Code Tasks (Phase 1 prep)
+- [x] Install & configure Vitest.
 - [x] Install & configure Vitest.
 - [x] Set up `crates/warp-core/tests/common/` helpers & fixtures layout.
 - [ ] Write failing tests for entity ID allocation + recycling.

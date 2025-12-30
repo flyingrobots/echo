@@ -19,6 +19,9 @@
 | `spec-concurrency-and-authoring.md` | Parallel core & single-threaded scripting model |
 | `spec-networking.md` | Deterministic event replication modes |
 | `aion-papers-bridge.md` | Map AIΩN Foundations (WARP papers) onto Echo’s backlog and document deviations |
+| `warp-two-plane-law.md` | Project law: define SkeletonGraph vs attachment plane, π(U), depth-0 atoms, and “no hidden edges” |
+| `adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md` | ADR: formalize two-plane representation (SkeletonGraph + Attachment Plane) and the core invariants |
+| `spec/SPEC-0001-attachment-plane-v0-atoms.md` | Spec: attachment plane v0 (typed atoms), codec boundary, and deterministic decode failure semantics |
 | `phase1-plan.md` | Phase 1 implementation roadmap & demo targets |
 | `spec-warp-core.md` | WARP core format and runtime |
 | `spec-warp-tick-patch.md` | Tick patch boundary artifact (delta ops, in/out slots, patch_digest) |

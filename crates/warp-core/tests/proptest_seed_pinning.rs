@@ -6,8 +6,8 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config as PropConfig, RngAlgorithm, TestRng, TestRunner};
 
 use warp_core::{
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
-    GraphStore, NodeRecord, MOTION_RULE_NAME,
+    decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
+    ApplyResult, Engine, GraphStore, NodeRecord, MOTION_RULE_NAME,
 };
 
 // Demonstrates how to pin a deterministic seed for property tests so failures
@@ -46,7 +46,7 @@ fn proptest_seed_pinned_motion_updates() {
                 entity,
                 NodeRecord {
                     ty: entity_ty,
-                    payload: Some(encode_motion_payload(pos, vel)),
+                    payload: Some(encode_motion_atom_payload(pos, vel)),
                 },
             );
 
@@ -62,7 +62,8 @@ fn proptest_seed_pinned_motion_updates() {
 
             let node = engine.node(&entity).expect("node exists");
             let (new_pos, new_vel) =
-                decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
+                decode_motion_atom_payload(node.payload.as_ref().expect("payload"))
+                    .expect("decode");
 
             // Velocity is preserved; position += vel * dt (dt = 1.0).
             for i in 0..3 {

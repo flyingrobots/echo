@@ -41,9 +41,9 @@ impl TickCommitStatus {
 /// Unversioned slot identifier for slicing and provenance bookkeeping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SlotId {
-    /// Full node record at `NodeId` (type id + payload bytes).
+    /// Full node record at `NodeId` (type id + optional atom payload).
     Node(NodeId),
-    /// Full edge record at `EdgeId` (from/to/type/payload).
+    /// Full edge record at `EdgeId` (from/to/type + optional atom payload).
     Edge(EdgeId),
     /// Boundary port value (opaque key).
     Port(PortKey),
@@ -357,15 +357,7 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
                 h.update(&[1u8]);
                 h.update(&node.0);
                 h.update(&(record.ty).0);
-                match &record.payload {
-                    Some(payload) => {
-                        h.update(&(payload.len() as u64).to_le_bytes());
-                        h.update(payload);
-                    }
-                    None => {
-                        h.update(&0u64.to_le_bytes());
-                    }
-                }
+                encode_atom_payload(h, record.payload.as_ref());
             }
             WarpOp::DeleteNode { node } => {
                 h.update(&[2u8]);
@@ -377,21 +369,27 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
                 h.update(&(record.id).0);
                 h.update(&(record.to).0);
                 h.update(&(record.ty).0);
-                match &record.payload {
-                    Some(payload) => {
-                        h.update(&(payload.len() as u64).to_le_bytes());
-                        h.update(payload);
-                    }
-                    None => {
-                        h.update(&0u64.to_le_bytes());
-                    }
-                }
+                encode_atom_payload(h, record.payload.as_ref());
             }
             WarpOp::DeleteEdge { from, edge_id } => {
                 h.update(&[4u8]);
                 h.update(&from.0);
                 h.update(&edge_id.0);
             }
+        }
+    }
+}
+
+fn encode_atom_payload(h: &mut Hasher, payload: Option<&crate::AtomPayload>) {
+    match payload {
+        None => {
+            h.update(&[0u8]);
+        }
+        Some(atom) => {
+            h.update(&[1u8]);
+            h.update(&(atom.type_id).0);
+            h.update(&(atom.bytes.len() as u64).to_le_bytes());
+            h.update(&atom.bytes);
         }
     }
 }

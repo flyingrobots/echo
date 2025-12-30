@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
-use warp_core::{encode_motion_payload, make_node_id, make_type_id, GraphStore, NodeRecord};
+use warp_core::{encode_motion_atom_payload, make_node_id, make_type_id, GraphStore, NodeRecord};
 mod common;
 use common::snapshot_hash_of;
 
@@ -35,7 +35,7 @@ fn n_permutation_commute_n3_and_n4() {
                 id,
                 NodeRecord {
                     ty: ent_ty,
-                    payload: Some(encode_motion_payload([0.0, 0.0, 0.0], v)),
+                    payload: Some(encode_motion_atom_payload([0.0, 0.0, 0.0], v)),
                 },
             );
             // Connect entity to root so snapshot reachability includes it.

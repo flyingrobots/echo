@@ -35,6 +35,21 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-29 — WARP two-plane semantics: typed atom attachments (COMPLETED)
+
+- Goal: align Echo’s `warp-core` implementation with Paper I/II “two-plane” semantics without slowing the rewrite hot path.
+- Scope:
+  - Treat `GraphStore` as the **SkeletonGraph** (π(U)): the structure used for matching, rewriting, scheduling, slicing, and hashing.
+  - Model attachment-plane payloads as **typed atoms** (depth-0): `AtomPayload { type_id: TypeId, bytes: Bytes }`.
+  - Update snapshot hashing + tick patch canonical encoding so payload `type_id` participates in digests (no “same bytes, different meaning” collisions).
+  - Introduce a minimal codec boundary (`Codec<T>` + registry concept) for typed decode/encode at rule/view boundaries; core matching/indexing remains skeleton-only unless a rule explicitly decodes.
+  - Document the project laws (“no hidden edges in payload bytes”, “skeleton rewrites never decode attachments”) and record the decision in ADR + SPEC form.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated (`docs/decision-log.md` + new ADR/SPEC + law doc).
+- Evidence:
+  - Implementation: `crates/warp-core/src/attachment.rs`, `crates/warp-core/src/record.rs`, `crates/warp-core/src/snapshot.rs`, `crates/warp-core/src/tick_patch.rs`.
+  - Docs: `docs/warp-two-plane-law.md`, `docs/adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md`, `docs/spec/SPEC-0001-attachment-plane-v0-atoms.md`.
+  - Tests: new digest/type-id assertions in `crates/warp-core/tests/atom_payload_digest_tests.rs`; workspace tests + clippy rerun green.
+
 > 2025-12-29 — Follow-up: tick patch hygiene (COMPLETED)
 
 - Goal: clean up `tick_patch` sharp edges so the patch boundary stays deterministic, well-documented, and resistant to misuse.

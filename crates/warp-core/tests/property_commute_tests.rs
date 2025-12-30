@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
-use warp_core::{encode_motion_payload, make_node_id, make_type_id, GraphStore, NodeRecord};
+use warp_core::{encode_motion_atom_payload, make_node_id, make_type_id, GraphStore, NodeRecord};
 mod common;
 use common::snapshot_hash_of;
 
@@ -27,14 +27,14 @@ fn independent_motion_rewrites_commute_on_distinct_nodes() {
         a,
         NodeRecord {
             ty: ent_ty,
-            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
+            payload: Some(encode_motion_atom_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0])),
         },
     );
     store1.insert_node(
         b,
         NodeRecord {
             ty: ent_ty,
-            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 1.0, 0.0])),
+            payload: Some(encode_motion_atom_payload([0.0, 0.0, 0.0], [0.0, 1.0, 0.0])),
         },
     );
     // Make entities reachable from root via edges so snapshots include them.

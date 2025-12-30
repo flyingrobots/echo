@@ -6,7 +6,10 @@ use crate::engine_impl::Engine;
 use crate::footprint::{Footprint, IdSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
-use crate::payload::{decode_motion_payload, encode_motion_payload};
+use crate::payload::{
+    decode_motion_atom_payload, decode_motion_payload, encode_motion_payload,
+    motion_payload_type_id,
+};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 // Build-time generated canonical ids (domain-separated).
@@ -32,11 +35,14 @@ pub const MOTION_RULE_NAME: &str = "motion/update";
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
     if let Some(node) = store.node_mut(scope) {
         if let Some(payload) = &mut node.payload {
-            if let Some((mut pos, vel)) = decode_motion_payload(payload) {
+            if payload.type_id != motion_payload_type_id() {
+                return;
+            }
+            if let Some((mut pos, vel)) = decode_motion_payload(&payload.bytes) {
                 pos[0] += vel[0];
                 pos[1] += vel[1];
                 pos[2] += vel[2];
-                *payload = encode_motion_payload(pos, vel);
+                payload.bytes = encode_motion_payload(pos, vel);
             }
         }
     }
@@ -46,7 +52,7 @@ fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
     store
         .node(scope)
         .and_then(|n| n.payload.as_ref())
-        .and_then(decode_motion_payload)
+        .and_then(decode_motion_atom_payload)
         .is_some()
 }
 
@@ -153,7 +159,7 @@ mod tests {
         let ty = make_type_id("entity");
         let pos = [10.0, -2.0, 3.5];
         let vel = [0.125, 2.0, -1.5];
-        let payload = encode_motion_payload(pos, vel);
+        let payload = crate::encode_motion_atom_payload(pos, vel);
         store.insert_node(
             ent,
             NodeRecord {
@@ -170,7 +176,7 @@ mod tests {
         let Some(bytes) = rec.payload.as_ref() else {
             unreachable!("payload present");
         };
-        let Some((new_pos, new_vel)) = decode_motion_payload(bytes) else {
+        let Some((new_pos, new_vel)) = decode_motion_atom_payload(bytes) else {
             unreachable!("payload decode");
         };
         // Compare component-wise using exact bit equality for deterministic values.
@@ -184,6 +190,6 @@ mod tests {
         let Some(bytes) = rec.payload.as_ref() else {
             unreachable!("payload present after executor");
         };
-        assert_eq!(bytes, &expected_bytes);
+        assert_eq!(bytes.bytes, expected_bytes);
     }
 }

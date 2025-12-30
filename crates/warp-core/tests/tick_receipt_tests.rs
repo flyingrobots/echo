@@ -4,7 +4,7 @@
 #![allow(missing_docs)]
 
 use warp_core::{
-    encode_motion_payload, make_node_id, make_type_id, scope_hash, ConflictPolicy, Engine,
+    encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, ConflictPolicy, Engine,
     Footprint, GraphStore, Hash, NodeId, NodeRecord, PatternGraph, RewriteRule,
     TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId, MOTION_RULE_NAME,
 };
@@ -116,7 +116,7 @@ fn pick_rule_ids_for_blocker_test(scope_a: &NodeId, scope_b: &NodeId) -> (Hash, 
 fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
     let entity = make_node_id("tick-receipt-entity");
     let entity_type = make_type_id("entity");
-    let payload = encode_motion_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+    let payload = encode_motion_atom_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
 
     let mut store = GraphStore::default();
     store.insert_node(

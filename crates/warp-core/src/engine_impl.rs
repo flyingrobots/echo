@@ -603,7 +603,7 @@ mod tests {
     use super::*;
     use crate::demo::motion::{motion_rule, MOTION_RULE_NAME};
     use crate::ident::{make_node_id, make_type_id};
-    use crate::payload::encode_motion_payload;
+    use crate::payload::encode_motion_atom_payload;
     use crate::record::NodeRecord;
 
     #[test]
@@ -645,7 +645,7 @@ mod tests {
     fn tick_patch_replay_matches_post_state() {
         let entity = make_node_id("tick-patch-entity");
         let entity_type = make_type_id("entity");
-        let payload = encode_motion_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        let payload = encode_motion_atom_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
 
         let mut store = GraphStore::default();
         store.insert_node(

@@ -19,13 +19,17 @@ Deterministic traversal:
 Encoding (little-endian where applicable):
 - Root id: 32 bytes.
 - For each node (in order):
-  - node_id (32), node.ty (32), payload_len (u64 LE), payload bytes.
+  - node_id (32), node.ty (32), payload_atom.
 - For each source (in order):
   - from_id (32), edge_count (u64 LE) of included edges.
     - edge_count is a 64-bit little-endian integer and may be 0 when a source
       node has no outbound edges included by reachability/ordering rules.
   - For each edge (in order):
-    - edge.id (32), edge.ty (32), edge.to (32), payload_len (u64 LE), payload bytes.
+    - edge.id (32), edge.ty (32), edge.to (32), payload_atom.
+
+Where `payload_atom` is encoded as:
+- `present: u8` (`0` = None, `1` = Some)
+- when present: `payload_type_id: 32`, `payload_len: u64 LE`, then raw bytes.
 
 Hash: blake3(encoding) → 32-byte digest.
 

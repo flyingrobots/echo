@@ -25,11 +25,14 @@ Echo policy (locked decisions):
 `SlotId` identifies a location whose value can change over ticks.
 
 V1 slots:
-- `Node(NodeId)` — the full node record at `NodeId` (type id + payload bytes).
-- `Edge(EdgeId)` — the full edge record at `EdgeId` (from/to/type/payload).
+- `Node(NodeId)` — the full node record at `NodeId` (node type id + optional atom payload).
+- `Edge(EdgeId)` — the full edge record at `EdgeId` (from/to/edge type id + optional atom payload).
 - `Port(PortKey)` — a boundary port value (opaque key).
 
 Notes:
+- In Echo v0, “payload” means a typed atom: `AtomPayload { type_id: TypeId, bytes: Bytes }`.
+  - `NodeRecord.ty` / `EdgeRecord.ty` are **skeleton type ids** (schema typing for structure).
+  - `AtomPayload.type_id` is an **attachment-plane type id** (meaning tag for the bytes).
 - V1 treats node/edge records as atomic “values” at their slots. Finer-grained slots (component fields, attachment fragments) can be introduced later.
 - The patch does **not** embed version identifiers. Versioning is derived from tick index at slice time.
 
@@ -122,7 +125,9 @@ Rationale:
 Encoding rules:
 - All list lengths are `u64` little-endian.
 - All ids (`NodeId`, `EdgeId`, `TypeId`, and `Hash`) are raw 32-byte values.
-- Payload bytes are encoded as: `len: u64 LE` then raw bytes.
+- Payload atoms are encoded as:
+  - `present: u8` (`0` = None, `1` = Some)
+  - when present: `payload_type_id: 32`, `payload_len: u64 LE`, then raw bytes.
 - Slot encoding:
   - `tag: u8` then tag-specific bytes:
     - Node: `node_id: 32`
@@ -130,9 +135,9 @@ Encoding rules:
     - Port: `port_key: u64 LE`
 - Op encoding:
   - `tag: u8` then tag-specific bytes:
-    - UpsertNode: `node_id: 32`, `type_id: 32`, `payload_len: u64`, `payload_bytes`
+    - UpsertNode: `node_id: 32`, `node_type_id: 32`, `payload_atom`
     - DeleteNode: `node_id: 32`
-    - UpsertEdge: `from: 32`, `edge_id: 32`, `to: 32`, `type_id: 32`, `payload_len: u64`, `payload_bytes`
+    - UpsertEdge: `from: 32`, `edge_id: 32`, `to: 32`, `edge_type_id: 32`, `payload_atom`
     - DeleteEdge: `from: 32`, `edge_id: 32`
 
 ---

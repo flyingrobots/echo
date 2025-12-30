@@ -13,7 +13,7 @@ use std::os::raw::c_char;
 use std::slice;
 
 use warp_core::{
-    build_motion_demo_engine, decode_motion_payload, encode_motion_payload, make_node_id,
+    build_motion_demo_engine, decode_motion_atom_payload, encode_motion_atom_payload, make_node_id,
     make_type_id, ApplyResult, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
 };
 
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn warp_engine_spawn_motion_entity(
 
     let node_id = make_node_id(label_str);
     let entity_type = make_type_id("entity");
-    let payload = encode_motion_payload([px, py, pz], [vx, vy, vz]);
+    let payload = encode_motion_atom_payload([px, py, pz], [vx, vy, vz]);
 
     engine.inner.insert_node(
         node_id,
@@ -218,7 +218,7 @@ pub unsafe extern "C" fn warp_engine_read_motion(
         Some(payload) => payload,
         None => return false,
     };
-    let (position, velocity) = match decode_motion_payload(payload) {
+    let (position, velocity) = match decode_motion_atom_payload(payload) {
         Some(values) => values,
         None => return false,
     };

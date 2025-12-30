@@ -16,8 +16,10 @@
 //!   sorted by ascending `EdgeId` before being encoded.
 //! - Encoding is fixed-size and architecture-independent:
 //!   - All ids (`NodeId`, `TypeId`, `EdgeId`) are raw 32-byte values.
-//!   - Payloads are prefixed by an 8-byte little-endian length, followed by the
-//!     exact payload bytes (or length `0` with no payload).
+//!   - Payloads are encoded as:
+//!     - 1 byte presence tag (`0` = None, `1` = Some)
+//!     - when present: payload `type_id` (32 bytes), then 8-byte little-endian
+//!       length, then the exact payload bytes.
 //! - The root id is included first to bind the subgraph identity.
 //!
 //! Notes
@@ -77,12 +79,16 @@ pub struct Snapshot {
 /// 1) Update with `root` id bytes.
 /// 2) For each `(node_id, node)` in `store.nodes` (ascending by `node_id`):
 ///    - Update with `node_id`, `node.ty`.
-///    - Update with 8-byte LE payload length, then payload bytes (if any).
+///    - Update with payload encoding:
+///      - 1 byte presence tag (`0` = None, `1` = Some)
+///      - when present: payload `type_id`, then 8-byte LE length, then bytes.
 /// 3) For each `(from, edges)` in `store.edges_from` (ascending by `from`):
 ///    - Update with `from` id and edge count (8-byte LE).
 ///    - Sort `edges` by `edge.id` ascending and for each edge:
 ///      - Update with `edge.id`, `edge.ty`, `edge.to`.
-///      - Update with 8-byte LE payload length, then payload bytes (if any).
+///      - Update with payload encoding:
+///        - 1 byte presence tag (`0` = None, `1` = Some)
+///        - when present: payload `type_id`, then 8-byte LE length, then bytes.
 pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
     // 1) Determine reachable subgraph using a deterministic BFS over outgoing edges.
     let mut reachable: BTreeSet<NodeId> = BTreeSet::new();
@@ -107,15 +113,7 @@ pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
         }
         hasher.update(&node_id.0);
         hasher.update(&(node.ty).0);
-        match &node.payload {
-            Some(payload) => {
-                hasher.update(&(payload.len() as u64).to_le_bytes());
-                hasher.update(payload);
-            }
-            None => {
-                hasher.update(&0u64.to_le_bytes());
-            }
-        }
+        hash_atom_payload(&mut hasher, node.payload.as_ref());
     }
 
     // 3) Hash outgoing edges per reachable source, sorted by EdgeId, and only
@@ -135,18 +133,24 @@ pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
             hasher.update(&(edge.id).0);
             hasher.update(&(edge.ty).0);
             hasher.update(&(edge.to).0);
-            match &edge.payload {
-                Some(payload) => {
-                    hasher.update(&(payload.len() as u64).to_le_bytes());
-                    hasher.update(payload);
-                }
-                None => {
-                    hasher.update(&0u64.to_le_bytes());
-                }
-            }
+            hash_atom_payload(&mut hasher, edge.payload.as_ref());
         }
     }
     hasher.finalize().into()
+}
+
+fn hash_atom_payload(hasher: &mut Hasher, payload: Option<&crate::AtomPayload>) {
+    match payload {
+        None => {
+            hasher.update(&[0u8]);
+        }
+        Some(atom) => {
+            hasher.update(&[1u8]);
+            hasher.update(&(atom.type_id).0);
+            hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
+            hasher.update(&atom.bytes);
+        }
+    }
 }
 
 /// Computes the canonical state root hash (graph only) using the same

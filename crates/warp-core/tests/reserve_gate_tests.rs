@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
-use warp_core::{decode_motion_payload, make_node_id, make_type_id, NodeRecord};
+use warp_core::{decode_motion_atom_payload, make_node_id, make_type_id, NodeRecord};
 
 #[test]
 fn reserve_gate_aborts_second_on_port_conflict() {
@@ -31,7 +31,7 @@ fn reserve_gate_aborts_second_on_port_conflict() {
         .unwrap()
         .payload
         .as_ref()
-        .and_then(decode_motion_payload)
+        .and_then(decode_motion_atom_payload)
         .expect("payload present");
     assert!(
         (pos[0] - 1.0).abs() < 1e-6,

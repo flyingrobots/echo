@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 use warp_core::{
-    encode_motion_payload, make_edge_id, make_node_id, make_type_id, GraphStore, NodeRecord,
+    encode_motion_atom_payload, make_edge_id, make_node_id, make_type_id, GraphStore, NodeRecord,
 };
 
 fn snapshot_hash(store: GraphStore, root: warp_core::NodeId) -> [u8; 32] {
@@ -43,7 +43,7 @@ fn unreachable_nodes_do_not_affect_hash() {
         unreachable,
         NodeRecord {
             ty: ent_ty,
-            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
+            payload: Some(encode_motion_atom_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
         },
     );
 

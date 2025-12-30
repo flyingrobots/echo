@@ -3,15 +3,15 @@
 
 #![allow(missing_docs)]
 use warp_core::{
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
-    EngineError, GraphStore, NodeRecord, MOTION_RULE_NAME,
+    decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
+    ApplyResult, Engine, EngineError, GraphStore, NodeRecord, MOTION_RULE_NAME,
 };
 
 #[test]
 fn motion_rule_updates_position_deterministically() {
     let entity = make_node_id("entity-1");
     let entity_type = make_type_id("entity");
-    let payload = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
+    let payload = encode_motion_atom_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
 
     let mut store = GraphStore::default();
     store.insert_node(
@@ -36,7 +36,7 @@ fn motion_rule_updates_position_deterministically() {
 
     // Run a second engine with identical initial state and ensure hashes match.
     let mut store_b = GraphStore::default();
-    let payload_b = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
+    let payload_b = encode_motion_atom_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
     store_b.insert_node(
         entity,
         NodeRecord {
@@ -62,7 +62,7 @@ fn motion_rule_updates_position_deterministically() {
         .expect("entity exists")
         .payload
         .as_ref()
-        .and_then(decode_motion_payload)
+        .and_then(decode_motion_atom_payload)
         .expect("payload decode");
     assert_eq!(node.0, [1.5, 1.0, 3.25]);
     assert_eq!(node.1, [0.5, -1.0, 0.25]);
@@ -102,7 +102,7 @@ fn motion_rule_no_match_on_missing_payload() {
 fn motion_rule_twice_is_deterministic_across_engines() {
     let entity = make_node_id("entity-1-twice");
     let entity_type = make_type_id("entity");
-    let payload = encode_motion_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
+    let payload = encode_motion_atom_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
 
     let mut store_a = GraphStore::default();
     store_a.insert_node(
@@ -153,7 +153,7 @@ fn apply_unknown_rule_returns_error() {
         entity,
         NodeRecord {
             ty: entity_type,
-            payload: Some(encode_motion_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
+            payload: Some(encode_motion_atom_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
         },
     );
 

@@ -6,7 +6,10 @@ use crate::engine_impl::Engine;
 use crate::footprint::{pack_port_key, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
-use crate::payload::{decode_motion_payload, encode_motion_payload};
+use crate::payload::{
+    decode_motion_payload, encode_motion_atom_payload, encode_motion_payload,
+    motion_payload_type_id,
+};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 
@@ -20,15 +23,18 @@ fn port_matcher(_: &GraphStore, _: &NodeId) -> bool {
 fn port_executor(store: &mut GraphStore, scope: &NodeId) {
     if let Some(node) = store.node_mut(scope) {
         // Use motion payload layout; increment pos.x by 1.0
-        if let Some(bytes) = &mut node.payload {
-            if let Some((mut pos, vel)) = decode_motion_payload(bytes) {
+        if let Some(payload) = &mut node.payload {
+            if payload.type_id != motion_payload_type_id() {
+                return;
+            }
+            if let Some((mut pos, vel)) = decode_motion_payload(&payload.bytes) {
                 pos[0] += 1.0;
-                *bytes = encode_motion_payload(pos, vel);
+                payload.bytes = encode_motion_payload(pos, vel);
             }
         } else {
             let pos = [1.0, 0.0, 0.0];
             let vel = [0.0, 0.0, 0.0];
-            node.payload = Some(encode_motion_payload(pos, vel));
+            node.payload = Some(encode_motion_atom_payload(pos, vel));
         }
     }
 }

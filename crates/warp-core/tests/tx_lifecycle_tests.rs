@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 use warp_core::{
-    encode_motion_payload, make_node_id, make_type_id, EngineError, GraphStore, NodeRecord,
+    encode_motion_atom_payload, make_node_id, make_type_id, EngineError, GraphStore, NodeRecord,
     MOTION_RULE_NAME,
 };
 
@@ -11,7 +11,7 @@ use warp_core::{
 fn tx_invalid_after_commit() {
     let entity = make_node_id("tx-lifecycle-entity");
     let entity_type = make_type_id("entity");
-    let payload = encode_motion_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+    let payload = encode_motion_atom_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
 
     let mut store = GraphStore::default();
     store.insert_node(

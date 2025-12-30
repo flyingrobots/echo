@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use js_sys::Uint8Array;
 use warp_core::{
-    build_motion_demo_engine, decode_motion_payload, encode_motion_payload, make_node_id,
+    build_motion_demo_engine, decode_motion_atom_payload, encode_motion_atom_payload, make_node_id,
     make_type_id, ApplyResult, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
 };
 use wasm_bindgen::prelude::*;
@@ -153,7 +153,7 @@ impl WasmEngine {
         let mut engine = self.inner.borrow_mut();
         let node_id = make_node_id(label);
         let entity_type = make_type_id("entity");
-        let payload = encode_motion_payload(position.components(), velocity.components());
+        let payload = encode_motion_atom_payload(position.components(), velocity.components());
 
         engine.insert_node(
             node_id,
@@ -212,7 +212,7 @@ impl WasmEngine {
         let node_id = bytes_to_node_id(entity_id)?;
         let record = engine.node(&node_id)?;
         let payload = record.payload.as_ref()?;
-        let (position, velocity) = decode_motion_payload(payload)?;
+        let (position, velocity) = decode_motion_atom_payload(payload)?;
         let mut data = Vec::with_capacity(6);
         data.extend_from_slice(&position);
         data.extend_from_slice(&velocity);

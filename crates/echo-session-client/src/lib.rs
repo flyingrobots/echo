@@ -205,7 +205,9 @@ fn run_message_loop(
     warp_tx: mpsc::Sender<WarpFrame>,
     notif_tx: mpsc::Sender<Notification>,
 ) {
-    let _ = write_handshake_and_subscribe(&mut stream, Some(warp_id));
+    if !write_handshake_and_subscribe(&mut stream, Some(warp_id)) {
+        return;
+    }
     run_read_loop(stream, warp_tx, notif_tx);
 }
 
@@ -345,6 +347,9 @@ mod tests {
     #[test]
     fn run_message_loop_classifies_error_scope_by_code() {
         let (client_stream, mut server_stream) = UnixStream::pair().unwrap();
+        server_stream
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("set_read_timeout failed");
 
         let (warp_tx, _warp_rx) = mpsc::channel();
         let (notif_tx, notif_rx) = mpsc::channel();
@@ -352,6 +357,24 @@ mod tests {
         let handle = thread::spawn(move || {
             run_message_loop(client_stream, 1, warp_tx, notif_tx);
         });
+
+        let read_packet = |stream: &mut UnixStream| -> Vec<u8> {
+            let mut header = [0u8; 12];
+            stream.read_exact(&mut header).expect("read header");
+            let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+            let mut rest = vec![0u8; len + 32];
+            stream.read_exact(&mut rest).expect("read body");
+            let mut packet = Vec::with_capacity(12 + len + 32);
+            packet.extend_from_slice(&header);
+            packet.extend_from_slice(&rest);
+            packet
+        };
+
+        let (handshake, _, _) = decode_message(&read_packet(&mut server_stream)).unwrap();
+        assert!(matches!(handshake, Message::Handshake(_)));
+
+        let (subscribe, _, _) = decode_message(&read_packet(&mut server_stream)).unwrap();
+        assert!(matches!(subscribe, Message::SubscribeWarp { warp_id: 1 }));
 
         let encoded_global = encode_message(
             Message::Error(echo_session_proto::ErrorPayload {

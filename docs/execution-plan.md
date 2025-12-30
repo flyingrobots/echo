@@ -35,6 +35,26 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — PR #162: Address CodeRabbit doc nits (COMPLETED)
+
+- Goal: close out CodeRabbit review comments on the THEORY doc with minimal churn.
+- Scope:
+  - Tighten small prose redundancies in `docs/THEORY.md` (wordiness/repetition).
+  - Double-check markdownlint-sensitive formatting (no trailing whitespace; headings surrounded by blank lines).
+- Exit criteria: CodeRabbit review comments are resolved; hooks remain green.
+- Evidence:
+  - Commit: `22ba855` (THEORY prose tightening + session logging)
+
+> 2025-12-30 — THEORY.md paper alignment callouts (COMPLETED)
+
+- Goal: annotate the local THEORY paraphrase so readers can see where Echo intentionally diverges from the published papers.
+- Scope:
+  - Add `[!note]` callouts explaining “Echo does this differently … because …” where implementation differs.
+  - Commit `docs/THEORY.md` + the `assets/echo-white-radial.svg` brand asset; remove the local-only `assets/readme/` image scratchpad.
+- Exit criteria: THEORY doc is self-aware (differences + rationale); files pass hooks (SPDX guard, fmt/clippy/tests).
+- Evidence:
+  - Commit: `c029c82` (`docs/THEORY.md` + `assets/echo-white-radial.svg`)
+
 > 2025-12-30 — Post-merge housekeeping: sync roadmap/checklists (COMPLETED)
 
 - Goal: keep the living roadmap accurate now that WARP Stage B1 landed and merged.

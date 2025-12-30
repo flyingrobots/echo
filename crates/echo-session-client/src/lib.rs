@@ -205,36 +205,60 @@ fn run_message_loop(
     warp_tx: mpsc::Sender<WarpFrame>,
     notif_tx: mpsc::Sender<Notification>,
 ) {
-    write_handshake_and_subscribe(&mut stream, Some(warp_id));
+    let _ = write_handshake_and_subscribe(&mut stream, Some(warp_id));
     run_read_loop(stream, warp_tx, notif_tx);
 }
 
-fn write_handshake_and_subscribe(stream: &mut UnixStream, warp_id: Option<WarpId>) {
-    let _ = stream.write_all(
-        &encode_message(
-            Message::Handshake(HandshakePayload {
-                client_version: 1,
-                capabilities: vec![],
-                agent_id: None,
-                session_meta: None,
-            }),
-            0,
-        )
-        .unwrap_or_default(),
-    );
+fn write_handshake_and_subscribe(stream: &mut UnixStream, warp_id: Option<WarpId>) -> bool {
+    let msg = Message::Handshake(HandshakePayload {
+        client_version: 1,
+        capabilities: vec![],
+        agent_id: None,
+        session_meta: None,
+    });
+    let pkt = match encode_message(msg, 0) {
+        Ok(pkt) => pkt,
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to encode handshake message");
+            return false;
+        }
+    };
+    if let Err(err) = stream.write_all(&pkt) {
+        tracing::warn!(error = %err, "failed to write handshake message");
+        return false;
+    }
 
     if let Some(warp_id) = warp_id {
-        let _ = stream
-            .write_all(&encode_message(Message::SubscribeWarp { warp_id }, 0).unwrap_or_default());
+        let pkt = match encode_message(Message::SubscribeWarp { warp_id }, 0) {
+            Ok(pkt) => pkt,
+            Err(err) => {
+                tracing::warn!(error = %err, %warp_id, "failed to encode subscribe message");
+                return false;
+            }
+        };
+        if let Err(err) = stream.write_all(&pkt) {
+            tracing::warn!(error = %err, %warp_id, "failed to write subscribe message");
+            return false;
+        }
     }
+    true
 }
 
 fn run_write_loop(mut stream: UnixStream, warp_id: Option<WarpId>, out_rx: Receiver<Message>) {
-    write_handshake_and_subscribe(&mut stream, warp_id);
+    if !write_handshake_and_subscribe(&mut stream, warp_id) {
+        return;
+    }
 
     for msg in out_rx {
-        let pkt = encode_message(msg, 0).unwrap_or_default();
-        if stream.write_all(&pkt).is_err() {
+        let pkt = match encode_message(msg, 0) {
+            Ok(pkt) => pkt,
+            Err(err) => {
+                tracing::warn!(error = %err, "failed to encode outbound session message");
+                break;
+            }
+        };
+        if let Err(err) = stream.write_all(&pkt) {
+            tracing::warn!(error = %err, "session socket write failed");
             break;
         }
     }

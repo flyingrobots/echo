@@ -41,6 +41,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope:
   - `echo-session-client`: bidirectional tool connection (receive + publish `warp_stream`).
   - `warp-viewer`: publish/subscribe toggles, deterministic local mutation to generate diffs, gapless epoch publish, surface hub errors as notifications/toasts.
+  - Review follow-ups (PR #164): resolve CodeRabbit/Codex actionables (rustdoc coverage, reconnect snapshot reset, and no-silent-encode-failure logging).
   - Docs: update `docs/tasks.md` and add a short “two viewers + hub” demo walkthrough.
 - Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; demo is reproducible locally; PR opened.
 - Tracking: GitHub issue #163.

@@ -131,6 +131,12 @@ impl App {
             self.config.as_deref(),
             &self.viewer,
         );
+        if matches!(ev_clone, ui_state::UiEvent::EnterView) {
+            // A new connection requires a snapshot before any diffs. If we were already
+            // publishing prior to reconnect, reset the per-connection flag so publishing
+            // can resume without requiring a manual toggle.
+            self.wvp.snapshot_published = false;
+        }
         if matches!(ev_clone, ui_state::UiEvent::ShutdownRequested) {
             self.shutdown_requested = true;
         }
@@ -139,6 +145,10 @@ impl App {
         }
     }
 
+    /// Enable or disable publishing local mutations to the session hub.
+    ///
+    /// When enabling from a disabled state, clears `snapshot_published` so the next
+    /// publish sends a snapshot before any diffs.
     pub fn set_publish_enabled(&mut self, enabled: bool) {
         if enabled && !self.wvp.publish_enabled {
             // First time enabling: ensure the next publish is a snapshot so we
@@ -148,6 +158,11 @@ impl App {
         self.wvp.publish_enabled = enabled;
     }
 
+    /// Enable or disable applying inbound WARP frames to the local viewer state.
+    ///
+    /// When enabling from a disabled state, resubscribes to the current `warp_id`
+    /// to fetch a fresh snapshot. On success, clears `viewer.epoch`; on failure,
+    /// pushes a warning toast.
     pub fn set_receive_enabled(&mut self, enabled: bool) {
         if enabled && !self.wvp.receive_enabled {
             // Re-request the latest snapshot so we can resume a gapless stream.
@@ -168,10 +183,16 @@ impl App {
         self.wvp.receive_enabled = enabled;
     }
 
+    /// Force the next publish to be a snapshot rather than a diff.
     pub fn request_publish_snapshot(&mut self) {
         self.wvp.snapshot_published = false;
     }
 
+    /// Perform a deterministic mutation on the first graph node for demo purposes.
+    ///
+    /// Each call increments an internal pulse counter and derives new position/color
+    /// values from a hash of `(node_id, pulse)`. The mutation is applied locally and
+    /// queued as a pending op for the next diff frame.
     pub fn pulse_local_graph(&mut self) {
         if self.viewer.wire_graph.nodes.is_empty() {
             self.toasts.push(

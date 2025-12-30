@@ -57,7 +57,9 @@ impl ChannelSession {
         self.set_sender(send_tx);
     }
 
-    /// Send an outbound session message (best-effort).
+    /// Send an outbound session message.
+    ///
+    /// Returns an error if no sender is installed or if the connection has been dropped.
     pub fn send(&self, msg: Message) -> Result<()> {
         let tx = self
             .send_tx

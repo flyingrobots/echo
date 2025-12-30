@@ -128,7 +128,8 @@ pub(crate) fn encode_viz_payload(pos: [f32; 3], color: [f32; 3]) -> Vec<u8> {
     };
 
     let mut bytes = Vec::new();
-    if into_writer(&payload, &mut bytes).is_err() {
+    if let Err(err) = into_writer(&payload, &mut bytes) {
+        tracing::warn!(error = %err, "failed to encode VizPayload");
         return Vec::new();
     }
     bytes

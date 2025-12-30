@@ -35,7 +35,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-30 — Post-merge housekeeping: sync roadmap/checklists (IN PROGRESS)
+> 2025-12-30 — Post-merge housekeeping: sync roadmap/checklists (COMPLETED)
 
 - Goal: keep the living roadmap accurate now that WARP Stage B1 landed and merged.
 - Scope:
@@ -43,6 +43,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Remove/replace references to non-existent paths (e.g. `packages/…`) with current Rust workspace paths.
   - Update `docs/docs-index.md` “Getting Started” so it points at the current WARP entry path (`docs/guide/warp-primer.md`).
 - Exit criteria: roadmap reflects current repo structure; no “(IN PROGRESS)” entries for merged work.
+- Evidence:
+  - Commit: `a0e908a` (roadmap housekeeping)
 
 > 2025-12-30 — PR #159: Address CodeRabbit actionables (COMPLETED)
 

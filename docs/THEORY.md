@@ -167,7 +167,7 @@ Ross, J. (2025). WARP Graphs: Canonical State Evolution and Deterministic Worldl
 
 ### The Problem: Concurrency Without Chaos
 
-Paper I gave us the state object (WARPs). Now we need **dynamics** - how do WARPs evolve over time?
+Paper I gave us the state object (WARPs). Now we need **dynamics** - how do WARPs evolve?
 
 Real systems are concurrent. Multiple things happen "at once" - not in a strict total order, but in a partial order constrained by causality. Left unmanaged, this creates chaos:
 
@@ -691,7 +691,7 @@ Papers I-III gave us deterministic execution with provenance. But there's a prob
 - A **debugger** sees every microstep, state transition, and match candidate
 - A **performance analyst** sees CPU profiles, memory allocations, and cache misses
 
-All of these are observing the **same underlying worldline**. But their traces look completely different.
+All of these are observing the **same underlying worldline**. But their traces can differ.
 
 The naive question is: "Which observer is right?"
 
@@ -702,9 +702,9 @@ This cost has two components:
 2. **Distortion** - how much information is lost in translation?
 
 For Echo, this matters because:
-- We need to verify computations without re-running them (translate boundary → bulk)
-- We need to compare alternative observers (which trace format should we deploy?)
-- We need to know if summarization breaks verification (does distortion exceed tolerance?)
+- Verify computations without re-running them (translate boundary → bulk)
+- Compare alternative observers (which trace format should we deploy?)
+- Understand when summarization breaks verification (does distortion exceed tolerance?)
 
 > [!note]
 > Echo does this differently. Echo does not yet implement Paper IV’s observer/translator machinery (or compute rulial distance) in code; the current runtime work focuses on producing deterministic, hash-committed boundary artifacts (patches/receipts/state roots) so that observers can be built on top. It works like this because “observer geometry” only becomes meaningful once the underlying history/provenance substrate is stable and replayable.

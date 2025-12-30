@@ -379,3 +379,12 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Readers should be able to move between the papers and the repo without guessing which parts are “paper law” vs “engine law,” and any deviation should be documented with rationale to keep the repo backlog honest.
 - Consequence: THEORY becomes an onboarding bridge and drift detector; future changes that diverge from the papers have a clear place to document rationale.
   - Evidence: `c029c82`
+
+## 2025-12-30 — PR #162: CodeRabbit doc nits (prose/markdown)
+
+- Context: CodeRabbit review requested small readability tweaks and markdownlint-sensitive cleanup in `docs/THEORY.md`.
+- Decisions:
+  - Tighten minor wordiness/repetition without changing meaning.
+  - Keep formatting conservative (no trailing whitespace; blank lines around headings).
+- Rationale: Keep the “paper bridge” doc readable and reduce review noise without churn.
+- Consequence: Same technical content, slightly tighter prose; markdownlint nits avoided.

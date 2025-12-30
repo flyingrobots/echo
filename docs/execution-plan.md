@@ -35,6 +35,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — PR #162: Address CodeRabbit doc nits (IN PROGRESS)
+
+- Goal: close out CodeRabbit review comments on the THEORY doc with minimal churn.
+- Scope:
+  - Tighten small prose redundancies in `docs/THEORY.md` (wordiness/repetition).
+  - Double-check markdownlint-sensitive formatting (no trailing whitespace; headings surrounded by blank lines).
+- Exit criteria: CodeRabbit review comments are resolved; hooks remain green.
+
 > 2025-12-30 — THEORY.md paper alignment callouts (COMPLETED)
 
 - Goal: annotate the local THEORY paraphrase so readers can see where Echo intentionally diverges from the published papers.

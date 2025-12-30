@@ -84,6 +84,10 @@ pub(crate) fn process_frames(
                     );
                     continue;
                 };
+                if d.to_epoch <= epoch {
+                    // Duplicate/stale frame (e.g., local publisher receiving its own broadcast).
+                    continue;
+                }
                 if d.from_epoch != epoch || d.to_epoch != epoch + 1 {
                     toasts.push(
                         ToastKind::Error,

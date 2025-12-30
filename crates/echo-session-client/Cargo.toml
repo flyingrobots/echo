@@ -16,3 +16,4 @@ license = "Apache-2.0"
 anyhow = "1.0"
 echo-session-proto.workspace = true
 tokio = { version = "1.41", features = ["rt", "net", "io-util", "macros"] }
+tracing = "0.1"

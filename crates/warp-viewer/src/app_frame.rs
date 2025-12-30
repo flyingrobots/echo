@@ -53,12 +53,16 @@ impl App {
             );
         }
 
-        let outcome = session_logic::process_frames(
-            &mut self.ui,
-            &mut self.viewer,
-            &mut self.toasts,
-            SessionPort::drain_frames(&mut self.session, 64),
-        );
+        let frames = SessionPort::drain_frames(&mut self.session, 64);
+        let outcome = if self.wvp.receive_enabled {
+            session_logic::process_frames(&mut self.ui, &mut self.viewer, &mut self.toasts, frames)
+        } else {
+            // Still drain frames to avoid unbounded buffering, but don't apply them.
+            session_logic::FrameOutcome {
+                desync: None,
+                enter_view: false,
+            }
+        };
         if outcome.enter_view {
             self.apply_ui_event(ui_state::UiEvent::EnterView);
         }
@@ -134,6 +138,8 @@ impl App {
             Screen::View => draw_view_hud(ctx, self, &visible_toasts, &debug_arc_screen),
         });
 
+        self.publish_wvp(Instant::now());
+
         let vp = self.viewports.get_mut(0).unwrap();
         vp.egui_state
             .handle_platform_output(win, full_output.platform_output);
@@ -172,6 +178,66 @@ impl App {
         self.viewer.perf.push(render_out.frame_ms);
 
         vp.render_port.request_redraw();
+    }
+
+    fn publish_wvp(&mut self, now: Instant) {
+        if !self.wvp.publish_enabled {
+            return;
+        }
+
+        let warp_id = self.ui.warp_id;
+        let state_hash = self.viewer.wire_graph.compute_hash().ok();
+
+        if !self.wvp.snapshot_published {
+            let frame = echo_graph::WarpFrame::Snapshot(echo_graph::WarpSnapshot {
+                epoch: self.wvp.publish_epoch,
+                graph: self.viewer.wire_graph.clone(),
+                state_hash,
+            });
+            if let Err(err) = self.session.publish_warp_frame(warp_id, frame) {
+                self.toasts.push(
+                    ToastKind::Error,
+                    ToastScope::Local,
+                    "Publish snapshot failed",
+                    Some(format!("{err:#}")),
+                    std::time::Duration::from_secs(8),
+                    now,
+                );
+                return;
+            }
+            self.wvp.snapshot_published = true;
+            self.wvp.pending_ops.clear();
+            self.viewer.epoch = Some(self.wvp.publish_epoch);
+            return;
+        }
+
+        if self.wvp.pending_ops.is_empty() {
+            return;
+        }
+
+        let from_epoch = self.wvp.publish_epoch;
+        let to_epoch = from_epoch.saturating_add(1);
+        let ops = self.wvp.pending_ops.clone();
+        let frame = echo_graph::WarpFrame::Diff(echo_graph::WarpDiff {
+            from_epoch,
+            to_epoch,
+            ops,
+            state_hash,
+        });
+        if let Err(err) = self.session.publish_warp_frame(warp_id, frame) {
+            self.toasts.push(
+                ToastKind::Error,
+                ToastScope::Local,
+                "Publish diff failed",
+                Some(format!("{err:#}")),
+                std::time::Duration::from_secs(8),
+                now,
+            );
+            return;
+        }
+        self.wvp.publish_epoch = to_epoch;
+        self.wvp.pending_ops.clear();
+        self.viewer.epoch = Some(to_epoch);
     }
 
     fn handle_pointer(

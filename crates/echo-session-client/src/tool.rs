@@ -7,7 +7,8 @@
 //! `connect_channels` / `connect_channels_for`. Tools (viewer, inspector, etc.)
 //! can depend on this API without knowing about the underlying socket framing.
 
-use echo_session_proto::{Notification, WarpFrame};
+use anyhow::{anyhow, Result};
+use echo_session_proto::{Message, Notification, WarpFrame, WarpId};
 use std::sync::mpsc::Receiver;
 
 /// Abstract port for receiving session events (WARP frames + notifications).
@@ -25,6 +26,7 @@ pub trait SessionPort {
 pub struct ChannelSession {
     notif_rx: Option<Receiver<Notification>>,
     warp_rx: Option<Receiver<WarpFrame>>,
+    send_tx: Option<std::sync::mpsc::Sender<Message>>,
 }
 
 impl ChannelSession {
@@ -37,6 +39,45 @@ impl ChannelSession {
     pub fn set_channels(&mut self, warp_rx: Receiver<WarpFrame>, notif_rx: Receiver<Notification>) {
         self.warp_rx = Some(warp_rx);
         self.notif_rx = Some(notif_rx);
+    }
+
+    /// Install an outbound message channel for publishing.
+    pub fn set_sender(&mut self, send_tx: std::sync::mpsc::Sender<Message>) {
+        self.send_tx = Some(send_tx);
+    }
+
+    /// Install both inbound receivers and an outbound sender.
+    pub fn set_link(
+        &mut self,
+        warp_rx: Receiver<WarpFrame>,
+        notif_rx: Receiver<Notification>,
+        send_tx: std::sync::mpsc::Sender<Message>,
+    ) {
+        self.set_channels(warp_rx, notif_rx);
+        self.set_sender(send_tx);
+    }
+
+    /// Send an outbound session message.
+    ///
+    /// Returns an error if no sender is installed or if the connection has been dropped.
+    pub fn send(&self, msg: Message) -> Result<()> {
+        let tx = self
+            .send_tx
+            .as_ref()
+            .ok_or_else(|| anyhow!("session is not connected (no sender installed)"))?;
+        tx.send(msg)
+            .map_err(|_| anyhow!("session send failed (connection dropped)"))?;
+        Ok(())
+    }
+
+    /// Convenience: subscribe to a WARP stream on an existing connection.
+    pub fn subscribe_warp(&self, warp_id: WarpId) -> Result<()> {
+        self.send(Message::SubscribeWarp { warp_id })
+    }
+
+    /// Convenience: publish a WARP frame on an existing connection.
+    pub fn publish_warp_frame(&self, warp_id: WarpId, frame: WarpFrame) -> Result<()> {
+        self.send(Message::WarpStream { warp_id, frame })
     }
 }
 

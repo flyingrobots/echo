@@ -183,8 +183,33 @@ pub fn draw_view_hud(
         ViewerOverlay::Publish => {
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.heading("Publish Local WARP");
-                ui.label("Publishing from the local runtime will appear here.");
-                ui.label("Hook up engine output to stream snapshots/diffs to the hub.");
+                ui.label("Publish `warp_stream` frames (snapshot + diff) for the current WARP id.");
+                ui.add_space(6.0);
+
+                let mut enabled = app.wvp.publish_enabled;
+                if ui
+                    .checkbox(&mut enabled, "Enable publishing (I am the producer)")
+                    .changed()
+                {
+                    app.set_publish_enabled(enabled);
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.button("Publish snapshot now").clicked() {
+                        app.request_publish_snapshot();
+                    }
+                    if ui.button("Pulse mutation").clicked() {
+                        app.pulse_local_graph();
+                    }
+                });
+
+                ui.add_space(8.0);
+                ui.label(format!("publish epoch: {}", app.wvp.publish_epoch));
+                ui.label(format!(
+                    "snapshot published: {}",
+                    app.wvp.snapshot_published
+                ));
+                ui.label(format!("pending ops: {}", app.wvp.pending_ops.len()));
                 ui.add_space(12.0);
                 if ui.button("Close").clicked() {
                     app.apply_ui_event(UiEvent::CloseOverlay);
@@ -195,6 +220,15 @@ pub fn draw_view_hud(
             egui::CentralPanel::default().show(ctx, |ui| {
                 ui.heading("Subscribe to WARP");
                 ui.label("Choose a WARP id to follow from the session hub.");
+                ui.add_space(6.0);
+
+                let mut recv = app.wvp.receive_enabled;
+                if ui
+                    .checkbox(&mut recv, "Apply incoming WARP frames")
+                    .changed()
+                {
+                    app.set_receive_enabled(recv);
+                }
                 let mut warp_id = app.ui.warp_id;
                 if ui
                     .add(
@@ -206,6 +240,7 @@ pub fn draw_view_hud(
                 {
                     app.ui.warp_id = warp_id.max(1);
                 }
+                ui.label("Changing WARP id requires reconnect (v0 client: one warp per socket).");
                 ui.add_space(12.0);
                 if ui.button("Close").clicked() {
                     app.apply_ui_event(UiEvent::CloseOverlay);

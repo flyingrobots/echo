@@ -35,6 +35,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
+
+- Goal: complete the WARP View Protocol demo path (publisher + subscriber) by adding outbound publish support to `echo-session-client` and wiring publish/subscribe toggles + a dirty publish loop in `warp-viewer`.
+- Scope:
+  - `echo-session-client`: bidirectional tool connection (receive + publish `warp_stream`).
+  - `warp-viewer`: publish/subscribe toggles, deterministic local mutation to generate diffs, gapless epoch publish, surface hub errors as notifications/toasts.
+  - Review follow-ups (PR #164): resolve CodeRabbit/Codex actionables (rustdoc coverage, reconnect snapshot reset, and no-silent-encode-failure logging).
+  - Docs: update `docs/tasks.md` and add a short “two viewers + hub” demo walkthrough.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; demo is reproducible locally; PR opened.
+- Tracking: GitHub issue #163.
+
 > 2025-12-30 — PR #162: Address CodeRabbit doc nits (COMPLETED)
 
 - Goal: close out CodeRabbit review comments on the THEORY doc with minimal churn.

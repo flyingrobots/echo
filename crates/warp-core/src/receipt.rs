@@ -159,7 +159,7 @@ fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ident::make_node_id;
+    use crate::ident::{make_node_id, make_warp_id};
 
     #[test]
     fn receipt_digest_is_stable_for_same_entries() {
@@ -190,5 +190,36 @@ mod tests {
         let digest_b = compute_tick_receipt_digest(&entries);
         assert_eq!(digest_a, digest_b);
         assert_ne!(digest_a, *crate::constants::DIGEST_LEN0_U64);
+    }
+
+    #[test]
+    fn receipt_digest_includes_warp_id() {
+        let warp_id_a = make_warp_id("receipt-test-warp-a");
+        let warp_id_b = make_warp_id("receipt-test-warp-b");
+        let node = make_node_id("receipt-test-node");
+
+        let entries_a = vec![TickReceiptEntry {
+            rule_id: [1u8; 32],
+            scope_hash: [2u8; 32],
+            scope: NodeKey {
+                warp_id: warp_id_a,
+                local_id: node,
+            },
+            disposition: TickReceiptDisposition::Applied,
+        }];
+
+        let entries_b = vec![TickReceiptEntry {
+            rule_id: [1u8; 32],
+            scope_hash: [2u8; 32],
+            scope: NodeKey {
+                warp_id: warp_id_b,
+                local_id: node,
+            },
+            disposition: TickReceiptDisposition::Applied,
+        }];
+
+        let digest_a = compute_tick_receipt_digest(&entries_a);
+        let digest_b = compute_tick_receipt_digest(&entries_b);
+        assert_ne!(digest_a, digest_b);
     }
 }

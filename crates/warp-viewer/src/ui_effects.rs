@@ -6,7 +6,7 @@ use crate::core::UiState;
 use crate::ui_state::{UiEffect, UiEvent};
 use crate::viewer_state::ViewerState;
 use echo_app_core::config_port::ConfigPort;
-use echo_session_client::connect_channels_for;
+use echo_session_client::connect_channels_for_bidir;
 use echo_session_proto::default_socket_path;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -64,13 +64,15 @@ impl UiEffectsRunner for RealEffectsRunner {
                     let warp_id = ui_state.warp_id;
                     let path = resolve_socket_path(&ui_state.connect_host, ui_state.connect_port);
                     std::thread::spawn(move || {
-                        let res = connect_channels_for(&path, warp_id).map_err(|e| e.to_string());
+                        let res =
+                            connect_channels_for_bidir(&path, warp_id).map_err(|e| e.to_string());
                         let _ = tx.send(res);
                     });
 
                     match rx.recv_timeout(Duration::from_secs(1)) {
-                        Ok(Ok((warp_rx, notif_rx))) => {
-                            session.set_channels(warp_rx, notif_rx);
+                        Ok(Ok((send_tx, warp_rx, notif_rx))) => {
+                            session.set_link(warp_rx, notif_rx, send_tx);
+                            followups.push(UiEvent::EnterView);
                         }
                         Ok(Err(err)) => {
                             followups.push(UiEvent::ShowError(format!("Connect failed: {err}")));

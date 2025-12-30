@@ -162,12 +162,54 @@ pub fn connect_channels_for(
     Ok((warp_rx, notif_rx))
 }
 
+/// Connect, hello, and provide a bidirectional channel for publishing session messages.
+///
+/// This is a tool-friendly adapter: it connects synchronously (so UIs can report
+/// errors immediately), then spawns background threads:
+/// - a reader loop that decodes inbound packets into `WarpFrame` + `Notification` receivers,
+/// - a writer loop that accepts outbound `Message` values over a `Sender<Message>`.
+///
+/// The writer loop sends an initial handshake and (optionally) an initial
+/// `SubscribeWarp` before it begins draining outbound messages.
+pub fn connect_channels_for_bidir(
+    path: &str,
+    warp_id: WarpId,
+) -> std::io::Result<(
+    mpsc::Sender<Message>,
+    Receiver<WarpFrame>,
+    Receiver<Notification>,
+)> {
+    let (warp_tx, warp_rx) = mpsc::channel();
+    let (notif_tx, notif_rx) = mpsc::channel();
+    let (out_tx, out_rx) = mpsc::channel();
+
+    // Try to connect synchronously so callers can handle errors immediately.
+    let stream = UnixStream::connect(path)?;
+    let reader = stream.try_clone()?;
+    let writer = stream;
+
+    thread::spawn(move || {
+        run_read_loop(reader, warp_tx, notif_tx);
+    });
+
+    thread::spawn(move || {
+        run_write_loop(writer, Some(warp_id), out_rx);
+    });
+
+    Ok((out_tx, warp_rx, notif_rx))
+}
+
 fn run_message_loop(
     mut stream: UnixStream,
     warp_id: WarpId,
     warp_tx: mpsc::Sender<WarpFrame>,
     notif_tx: mpsc::Sender<Notification>,
 ) {
+    write_handshake_and_subscribe(&mut stream, Some(warp_id));
+    run_read_loop(stream, warp_tx, notif_tx);
+}
+
+fn write_handshake_and_subscribe(stream: &mut UnixStream, warp_id: Option<WarpId>) {
     let _ = stream.write_all(
         &encode_message(
             Message::Handshake(HandshakePayload {
@@ -180,8 +222,29 @@ fn run_message_loop(
         )
         .unwrap_or_default(),
     );
-    let _ = stream
-        .write_all(&encode_message(Message::SubscribeWarp { warp_id }, 0).unwrap_or_default());
+
+    if let Some(warp_id) = warp_id {
+        let _ = stream
+            .write_all(&encode_message(Message::SubscribeWarp { warp_id }, 0).unwrap_or_default());
+    }
+}
+
+fn run_write_loop(mut stream: UnixStream, warp_id: Option<WarpId>, out_rx: Receiver<Message>) {
+    write_handshake_and_subscribe(&mut stream, warp_id);
+
+    for msg in out_rx {
+        let pkt = encode_message(msg, 0).unwrap_or_default();
+        if stream.write_all(&pkt).is_err() {
+            break;
+        }
+    }
+}
+
+fn run_read_loop(
+    mut stream: UnixStream,
+    warp_tx: mpsc::Sender<WarpFrame>,
+    notif_tx: mpsc::Sender<Notification>,
+) {
     loop {
         let mut header = [0u8; 12];
         if stream.read_exact(&mut header).is_err() {
@@ -443,5 +506,54 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert!(matches!(got[0], Message::Notification(ref n) if *n == n1));
         assert!(matches!(got[1], Message::Notification(ref n) if *n == n2));
+    }
+
+    fn read_one_packet(stream: &mut UnixStream) -> Vec<u8> {
+        let mut header = [0u8; 12];
+        stream.read_exact(&mut header).expect("read header");
+        let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+        assert!(len <= MAX_PAYLOAD, "len within cap");
+        let mut rest = vec![0u8; len + 32];
+        stream.read_exact(&mut rest).expect("read payload+checksum");
+        let mut pkt = Vec::with_capacity(12 + len + 32);
+        pkt.extend_from_slice(&header);
+        pkt.extend_from_slice(&rest);
+        pkt
+    }
+
+    #[test]
+    fn write_loop_sends_handshake_subscribe_and_outbound_messages() {
+        let (client_stream, mut server_stream) = UnixStream::pair().unwrap();
+        let (out_tx, out_rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            run_write_loop(client_stream, Some(7), out_rx);
+        });
+
+        let pkt_handshake = read_one_packet(&mut server_stream);
+        let (m1, _ts1, _) = decode_message(&pkt_handshake).expect("decode handshake");
+        assert!(matches!(m1, Message::Handshake(_)));
+
+        let pkt_sub = read_one_packet(&mut server_stream);
+        let (m2, _ts2, _) = decode_message(&pkt_sub).expect("decode subscribe");
+        assert!(matches!(m2, Message::SubscribeWarp { warp_id: 7 }));
+
+        out_tx
+            .send(Message::WarpStream {
+                warp_id: 7,
+                frame: WarpFrame::Snapshot(echo_session_proto::WarpSnapshot {
+                    epoch: 0,
+                    graph: echo_session_proto::RenderGraph::default(),
+                    state_hash: None,
+                }),
+            })
+            .unwrap();
+
+        let pkt_stream = read_one_packet(&mut server_stream);
+        let (m3, _ts3, _) = decode_message(&pkt_stream).expect("decode stream");
+        assert!(matches!(m3, Message::WarpStream { warp_id: 7, .. }));
+
+        drop(out_tx);
+        handle.join().unwrap();
     }
 }

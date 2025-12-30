@@ -4,9 +4,10 @@
 
 use blake3::Hasher;
 use ciborium::de::from_reader;
+use ciborium::ser::into_writer;
 use echo_graph::RenderGraph as WireGraph;
 use glam::Vec3;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, EdgeRecord, GraphStore, NodeRecord, TypeId,
 };
@@ -112,6 +113,27 @@ impl History {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+struct VizPayload {
+    #[serde(default)]
+    pos: Option<[f32; 3]>,
+    #[serde(default)]
+    color: Option<[f32; 3]>,
+}
+
+pub(crate) fn encode_viz_payload(pos: [f32; 3], color: [f32; 3]) -> Vec<u8> {
+    let payload = VizPayload {
+        pos: Some(pos),
+        color: Some(color),
+    };
+
+    let mut bytes = Vec::new();
+    if into_writer(&payload, &mut bytes).is_err() {
+        return Vec::new();
+    }
+    bytes
+}
+
 fn id_to_u64(bytes: &[u8]) -> u64 {
     let mut arr = [0u8; 8];
     let take = bytes.len().min(8);
@@ -180,21 +202,13 @@ pub fn scene_from_wire(w: &WireGraph) -> RenderGraph {
     let mut edges = Vec::new();
     use std::collections::HashMap;
 
-    #[derive(Deserialize)]
-    struct Payload {
-        #[serde(default)]
-        pos: Option<[f32; 3]>,
-        #[serde(default)]
-        color: Option<[f32; 3]>,
-    }
-
     let mut id_to_idx = HashMap::new();
     for (i, n) in w.nodes.iter().enumerate() {
         id_to_idx.insert(n.id, i);
         let mut pos = radial_pos_u64(i as u64);
         let mut color = hash_color_u64(n.id);
 
-        let payload: Option<Payload> = from_reader(&n.data.raw[..])
+        let payload: Option<VizPayload> = from_reader(&n.data.raw[..])
             .ok()
             .or_else(|| serde_json::from_slice(&n.data.raw).ok());
         if let Some(p) = payload {

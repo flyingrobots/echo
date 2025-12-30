@@ -20,11 +20,15 @@ Client helpers for talking to the Echo session hub, plus tool-facing adapters.
     delivered over `std::sync::mpsc::Receiver`s.
   - These functions synchronously surface connection errors so UIs can show a
     clear failure message.
+  - `connect_channels_for_bidir(path, warp_id)` does the same, but also returns
+    a `Sender<Message>` so tools can publish additional session messages (e.g.,
+    `warp_stream` frames) over the same connection.
 - Exposes the `tool` module for hexagonal tool architectures:
   - `tool::SessionPort` trait: abstract interface for draining notifications
     and WARP frames and clearing WARP streams.
   - `tool::ChannelSession`: a simple channel-backed implementation that wraps
-    the receivers returned by `connect_channels` / `connect_channels_for`.
+    the receivers returned by `connect_channels` / `connect_channels_for` and
+    can optionally hold an outbound sender for publishing.
 - Used by `warp-viewer` and future tools to keep domain logic dependent only on
   a clean `SessionPort`, not on socket or CBOR details.
 

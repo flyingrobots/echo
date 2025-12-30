@@ -105,7 +105,8 @@ pub use scheduler::SchedulerKind;
 pub use snapshot::Snapshot;
 /// Tick patch boundary artifacts (Paper III): replayable delta ops + slot sets.
 pub use tick_patch::{
-    slice_worldline_indices, SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1,
+    slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
+    WarpTickPatchV1,
 };
 /// Transaction identifier type.
 pub use tx::TxId;

@@ -35,6 +35,26 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — Stage B1.1: Atomic portals + merge/DAG slicing semantics (IN PROGRESS)
+
+- Goal: make descended attachments “slice-safe” by introducing an atomic portal authoring op (`OpenPortal`), then lock down merge semantics and terminology to prevent long-term drift.
+- Scope:
+  - Add `WarpOp::OpenPortal { key, child_warp, child_root, init }` as the canonical portal authoring operation.
+  - Update patch replay validation to forbid dangling portals / orphan instances.
+  - Update `diff_state` to emit `OpenPortal` for new descended instances, preventing portal/instance creation from being separable across ticks.
+  - Document merge semantics (explicit conflict resolution) and DAG slicing algorithm.
+  - Add a terminology law doc to pin “instance zoom vs wormholes”.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated.
+- Pending: refactor `diff_instance` in `crates/warp-core/src/tick_patch.rs` to satisfy `clippy::too_many_lines`.
+- Evidence:
+  - Implementation:
+    - `crates/warp-core/src/tick_patch.rs` (`WarpOp::OpenPortal`, replay validation, diff_state portal canonicalization)
+  - Docs:
+    - `docs/adr/ADR-0002-warp-instances-descended-attachments.md` (atomic portals + merge law)
+    - `docs/spec/SPEC-0002-descended-attachments-v1.md` (OpenPortal + merge/DAG slicing + zoom tooling note)
+    - `docs/spec-warp-tick-patch.md` (OpenPortal op encoding)
+    - `docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md` (terminology law)
+
 > 2025-12-30 — Stage B1: WarpInstances + descended attachments (COMPLETED)
 
 - Goal: implement “WARPs all the way down” without recursive traversal in the rewrite hot path by modeling descent as flattened indirection (WarpInstances).

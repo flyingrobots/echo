@@ -36,6 +36,10 @@ We represent descended attachments as **flattened indirection** using **WarpInst
 5) Keep the rewrite/match hot path skeleton-only:
    - matching/indexing must not decode atoms or automatically traverse descended instances
    - descent is explicit (`Descend(WarpId)`), not encoded inside bytes
+6) Authoring a descended instance is **atomic**:
+   - creating the child instance and setting `Descend(child_warp)` must be performed as a single canonical operation (`OpenPortal`).
+7) Multi-parent merges (DAG) require explicit resolution at the patch level:
+   - merge commits must resolve slot conflicts (including attachment slots) deterministically.
 
 ## Laws (Non-Negotiable Invariants)
 
@@ -67,6 +71,27 @@ If a slice demands any slot within instance `W`, the slice must include producer
 
 - treating attachment slots as slots (`SlotId::Attachment(AttachmentKey)`), and
 - ensuring descended execution reads the descent-chain slots (L4), so the generic Paper III slice algorithm pulls in the portal producers.
+
+### L6 — Portal authoring is atomic (OpenPortal)
+
+Creating a child instance and setting `Attachment[key] = Descend(child_warp)` MUST be atomic at the patch level.
+
+Slices/replay must not be able to observe:
+- a “dangling portal” (`Descend(child_warp)` without a corresponding `WarpInstance(child_warp)`), or
+- an “orphan instance” (a `WarpInstance` whose recorded `parent` slot does not point to it).
+
+### L7 — Merge commits resolve slot conflicts explicitly
+
+For any merge commit with multiple parents, if two or more parents write the same slot (including `SlotId::Attachment(...)`),
+the merge commit MUST contain an explicit resolution write in its patch.
+
+The merge is a first-class event, not implicit ancestry magic.
+
+## Tooling note: instance zoom vs wormholes
+
+Instance zoom/projection is a **state-structure** view derived from explicit `Descend(WarpId)` relationships.
+
+Wormholes remain a **history/payload** compression mechanism over tick ranges. These are intentionally distinct.
 
 ## Consequences
 

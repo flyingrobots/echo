@@ -49,6 +49,7 @@ Notes:
 `WarpOp` is a canonical edit operation on the WARP state.
 
 V2 op set (minimal but recursion-ready):
+- `OpenPortal { key: AttachmentKey, child_warp: WarpId, child_root: NodeId, init: PortalInit }`
 - `UpsertWarpInstance { instance: WarpInstance }`
 - `DeleteWarpInstance { warp_id: WarpId }`
 - `UpsertNode { node: NodeKey, record: NodeRecord }`
@@ -61,6 +62,7 @@ Semantic intent:
 - Ops are deterministic edits that, when applied in order, transform `U_i` into `U_{i+1}`.
 - Ops are a replay contract and must be stable across languages.
 - Attachment-plane edits must be explicit ops (`SetAttachment`), never “hidden” inside node/edge record bytes.
+- Descended attachments should be authored atomically via `OpenPortal` (so portal creation and instance creation cannot be separated across ticks).
 
 ### 1.3 WarpTickPatchV1 (μ)
 
@@ -114,15 +116,17 @@ Within each tag:
 ### 2.2 Op ordering
 
 `ops` must be emitted in canonical order (`WarpOp::sort_key`):
-1) `UpsertWarpInstance` by (`warp_id`)
-2) `DeleteWarpInstance` by (`warp_id`)
-3) `DeleteEdge` by (`warp_id`, `from`, `edge_id`)
-4) `DeleteNode` by (`node.warp_id`, `node.local_id`)
-5) `UpsertNode` by (`node.warp_id`, `node.local_id`)
-6) `UpsertEdge` by (`warp_id`, `record.from`, `record.id`)
-7) `SetAttachment` by (`owner_tag`, `plane_tag`, `owner.warp_id`, `owner.local_id`)
+1) `OpenPortal` by (`owner_tag`, `plane_tag`, `owner.warp_id`, `owner.local_id`)
+2) `UpsertWarpInstance` by (`warp_id`)
+3) `DeleteWarpInstance` by (`warp_id`)
+4) `DeleteEdge` by (`warp_id`, `from`, `edge_id`)
+5) `DeleteNode` by (`node.warp_id`, `node.local_id`)
+6) `UpsertNode` by (`node.warp_id`, `node.local_id`)
+7) `UpsertEdge` by (`warp_id`, `record.from`, `record.id`)
+8) `SetAttachment` by (`owner_tag`, `plane_tag`, `owner.warp_id`, `owner.local_id`)
 
 Rationale:
+- Portals are authored atomically (instance creation + `Descend` link) and must be applied before any ops that depend on the child instance.
 - Instance metadata is written before instance-scoped content ops.
 - Deletes occur before upserts (safe for replay).
 - Nodes are created/updated before edges that reference them.
@@ -173,6 +177,11 @@ Encoding rules:
   - SetAttachment (tag `7`):
     - `attachment_key`
     - `attachment_value_opt`
+  - OpenPortal (tag `8`):
+    - `attachment_key` (the portal slot)
+    - `child_warp_id: 32`
+    - `child_root_node_id: 32`
+    - `portal_init`
 
 Implementation note:
 - These op tag bytes are part of the patch format for hashing and do not define replay ordering.
@@ -207,6 +216,16 @@ Implementation note:
     - `payload_bytes`
   - if Descend:
     - `child_warp_id: 32`
+
+### 3.6 portal_init
+
+`portal_init` encodes the initialization policy for `OpenPortal`:
+
+- `init_tag: u8`
+  - `0` = None (require child instance + root already exist)
+  - `1` = Empty (create root if missing)
+- if `init_tag == 1`:
+  - `root_node_type_id: 32` (the `NodeRecord.ty` for the created root node)
 
 ---
 

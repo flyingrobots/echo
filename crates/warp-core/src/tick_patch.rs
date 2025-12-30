@@ -15,7 +15,9 @@
 use blake3::Hasher;
 use thiserror::Error;
 
-use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
+use crate::attachment::{
+    AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue,
+};
 use crate::footprint::PortKey;
 use crate::graph::GraphStore;
 use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
@@ -90,6 +92,28 @@ impl Ord for SlotId {
 /// A canonical delta operation applied to the graph store.
 #[derive(Debug, Clone)]
 pub enum WarpOp {
+    /// Open a descended attachment portal atomically (Stage B1.1).
+    ///
+    /// This is the canonical authoring operation for descended attachments:
+    /// it is illegal for a replay/slice to observe a “dangling portal”
+    /// (`Descend(child_warp)` without a corresponding `WarpInstance`), or an
+    /// “orphan instance” (a `WarpInstance` whose `parent` slot does not point to it).
+    ///
+    /// Semantics:
+    /// - Ensure `WarpInstance(child_warp)` exists with `parent = Some(key)` and
+    ///   `root_node = child_root`.
+    /// - Ensure the child root node exists (via `init`).
+    /// - Set `Attachment[key] = Descend(child_warp)`.
+    OpenPortal {
+        /// Attachment slot key that will point to the child instance.
+        key: AttachmentKey,
+        /// Child instance identifier.
+        child_warp: WarpId,
+        /// Root node id within the child instance.
+        child_root: NodeId,
+        /// How to initialize/validate the child instance root.
+        init: PortalInit,
+    },
     /// Insert or replace warp instance metadata (Stage B1).
     UpsertWarpInstance {
         /// Instance metadata record.
@@ -137,6 +161,18 @@ pub enum WarpOp {
     },
 }
 
+/// Initialization policy for [`WarpOp::OpenPortal`].
+#[derive(Debug, Clone)]
+pub enum PortalInit {
+    /// Create a new child instance with only a root node (using `root_record`).
+    Empty {
+        /// Record to use when creating the child root node.
+        root_record: NodeRecord,
+    },
+    /// Do not create nodes; require that the child instance and root node already exist.
+    None,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct WarpOpKey {
     kind: u8,
@@ -148,14 +184,32 @@ struct WarpOpKey {
 impl WarpOp {
     fn sort_key(&self) -> WarpOpKey {
         match self {
+            Self::OpenPortal { key, .. } => {
+                let (owner_tag, plane_tag) = key.tag();
+                let (warp, local) = match key.owner {
+                    AttachmentOwner::Node(node) => ((node.warp_id).0, (node.local_id).0),
+                    AttachmentOwner::Edge(edge) => ((edge.warp_id).0, (edge.local_id).0),
+                };
+                WarpOpKey {
+                    kind: 1,
+                    warp,
+                    a: {
+                        let mut buf = [0u8; 32];
+                        buf[0] = owner_tag;
+                        buf[1] = plane_tag;
+                        buf
+                    },
+                    b: local,
+                }
+            }
             Self::UpsertWarpInstance { instance } => WarpOpKey {
-                kind: 1,
+                kind: 2,
                 warp: (instance.warp_id).0,
                 a: (instance.warp_id).0,
                 b: [0u8; 32],
             },
             Self::DeleteWarpInstance { warp_id } => WarpOpKey {
-                kind: 2,
+                kind: 3,
                 warp: warp_id.0,
                 a: warp_id.0,
                 b: [0u8; 32],
@@ -165,25 +219,25 @@ impl WarpOp {
                 from,
                 edge_id,
             } => WarpOpKey {
-                kind: 3,
+                kind: 4,
                 warp: warp_id.0,
                 a: from.0,
                 b: edge_id.0,
             },
             Self::DeleteNode { node } => WarpOpKey {
-                kind: 4,
-                warp: (node.warp_id).0,
-                a: (node.local_id).0,
-                b: [0u8; 32],
-            },
-            Self::UpsertNode { node, .. } => WarpOpKey {
                 kind: 5,
                 warp: (node.warp_id).0,
                 a: (node.local_id).0,
                 b: [0u8; 32],
             },
-            Self::UpsertEdge { warp_id, record } => WarpOpKey {
+            Self::UpsertNode { node, .. } => WarpOpKey {
                 kind: 6,
+                warp: (node.warp_id).0,
+                a: (node.local_id).0,
+                b: [0u8; 32],
+            },
+            Self::UpsertEdge { warp_id, record } => WarpOpKey {
+                kind: 7,
                 warp: warp_id.0,
                 a: record.from.0,
                 b: record.id.0,
@@ -196,7 +250,7 @@ impl WarpOp {
                     AttachmentOwner::Edge(edge) => ((edge.warp_id).0, (edge.local_id).0),
                 };
                 WarpOpKey {
-                    kind: 7,
+                    kind: 8,
                     warp,
                     a: {
                         let mut buf = [0u8; 32];
@@ -337,83 +391,230 @@ impl WarpTickPatchV1 {
     /// state (e.g., deleting a missing edge).
     pub fn apply_to_state(&self, state: &mut WarpState) -> Result<(), TickPatchError> {
         for op in &self.ops {
-            match op {
-                WarpOp::UpsertWarpInstance { instance } => {
-                    let store = state
-                        .stores
-                        .remove(&instance.warp_id)
-                        .unwrap_or_else(|| GraphStore::new(instance.warp_id));
-                    state.upsert_instance(instance.clone(), store);
-                }
-                WarpOp::DeleteWarpInstance { warp_id } => {
-                    if !state.delete_instance(warp_id) {
-                        return Err(TickPatchError::MissingWarp(*warp_id));
-                    }
-                }
-                WarpOp::UpsertNode { node, record } => {
-                    let Some(store) = state.store_mut(&node.warp_id) else {
-                        return Err(TickPatchError::MissingWarp(node.warp_id));
-                    };
-                    store.insert_node(node.local_id, record.clone());
-                }
-                WarpOp::DeleteNode { node } => {
-                    let Some(store) = state.store_mut(&node.warp_id) else {
-                        return Err(TickPatchError::MissingWarp(node.warp_id));
-                    };
-                    if !store.delete_node_cascade(node.local_id) {
-                        return Err(TickPatchError::MissingNode(*node));
-                    }
-                }
-                WarpOp::UpsertEdge { warp_id, record } => {
-                    let Some(store) = state.store_mut(warp_id) else {
-                        return Err(TickPatchError::MissingWarp(*warp_id));
-                    };
-                    store.upsert_edge_record(record.from, record.clone());
-                }
-                WarpOp::DeleteEdge {
-                    warp_id,
-                    from,
-                    edge_id,
-                } => {
-                    let Some(store) = state.store_mut(warp_id) else {
-                        return Err(TickPatchError::MissingWarp(*warp_id));
-                    };
-                    if !store.delete_edge_exact(*from, *edge_id) {
-                        return Err(TickPatchError::MissingEdge(EdgeKey {
-                            warp_id: *warp_id,
-                            local_id: *edge_id,
-                        }));
-                    }
-                }
-                WarpOp::SetAttachment { key, value } => match key.owner {
-                    AttachmentOwner::Node(node) => {
-                        if key.plane != crate::attachment::AttachmentPlane::Alpha {
-                            return Err(TickPatchError::InvalidAttachmentKey(*key));
-                        }
-                        let Some(store) = state.store_mut(&node.warp_id) else {
-                            return Err(TickPatchError::MissingWarp(node.warp_id));
-                        };
-                        if store.node(&node.local_id).is_none() {
-                            return Err(TickPatchError::MissingNode(node));
-                        }
-                        store.set_node_attachment(node.local_id, value.clone());
-                    }
-                    AttachmentOwner::Edge(edge) => {
-                        if key.plane != crate::attachment::AttachmentPlane::Beta {
-                            return Err(TickPatchError::InvalidAttachmentKey(*key));
-                        }
-                        let Some(store) = state.store_mut(&edge.warp_id) else {
-                            return Err(TickPatchError::MissingWarp(edge.warp_id));
-                        };
-                        if !store.edge_index.contains_key(&edge.local_id) {
-                            return Err(TickPatchError::MissingEdge(edge));
-                        }
-                        store.set_edge_attachment(edge.local_id, value.clone());
-                    }
-                },
-            }
+            apply_op_to_state(state, op)?;
         }
         Ok(())
+    }
+}
+
+fn apply_op_to_state(state: &mut WarpState, op: &WarpOp) -> Result<(), TickPatchError> {
+    match op {
+        WarpOp::OpenPortal {
+            key,
+            child_warp,
+            child_root,
+            init,
+        } => apply_open_portal(state, key, *child_warp, *child_root, init),
+        WarpOp::UpsertWarpInstance { instance } => {
+            let store = state
+                .stores
+                .remove(&instance.warp_id)
+                .unwrap_or_else(|| GraphStore::new(instance.warp_id));
+            state.upsert_instance(instance.clone(), store);
+            Ok(())
+        }
+        WarpOp::DeleteWarpInstance { warp_id } => {
+            if !state.delete_instance(warp_id) {
+                return Err(TickPatchError::MissingWarp(*warp_id));
+            }
+            Ok(())
+        }
+        WarpOp::UpsertNode { node, record } => {
+            let Some(store) = state.store_mut(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            store.insert_node(node.local_id, record.clone());
+            Ok(())
+        }
+        WarpOp::DeleteNode { node } => {
+            let Some(store) = state.store_mut(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            if !store.delete_node_cascade(node.local_id) {
+                return Err(TickPatchError::MissingNode(*node));
+            }
+            Ok(())
+        }
+        WarpOp::UpsertEdge { warp_id, record } => {
+            let Some(store) = state.store_mut(warp_id) else {
+                return Err(TickPatchError::MissingWarp(*warp_id));
+            };
+            store.upsert_edge_record(record.from, record.clone());
+            Ok(())
+        }
+        WarpOp::DeleteEdge {
+            warp_id,
+            from,
+            edge_id,
+        } => {
+            let Some(store) = state.store_mut(warp_id) else {
+                return Err(TickPatchError::MissingWarp(*warp_id));
+            };
+            if !store.delete_edge_exact(*from, *edge_id) {
+                return Err(TickPatchError::MissingEdge(EdgeKey {
+                    warp_id: *warp_id,
+                    local_id: *edge_id,
+                }));
+            }
+            Ok(())
+        }
+        WarpOp::SetAttachment { key, value } => apply_set_attachment(state, key, value.as_ref()),
+    }
+}
+
+fn apply_open_portal(
+    state: &mut WarpState,
+    key: &AttachmentKey,
+    child_warp: WarpId,
+    child_root: NodeId,
+    init: &PortalInit,
+) -> Result<(), TickPatchError> {
+    let parent_warp = validate_attachment_owner_exists(state, key)?;
+
+    // Ensure the child instance exists and is consistent with the portal key.
+    if let Some(existing) = state.instance(&child_warp) {
+        if existing.parent != Some(*key) || existing.root_node != child_root {
+            return Err(TickPatchError::PortalInvariantViolation);
+        }
+    } else {
+        match init {
+            PortalInit::Empty { root_record } => {
+                let mut store = GraphStore::new(child_warp);
+                store.insert_node(child_root, root_record.clone());
+                state.upsert_instance(
+                    WarpInstance {
+                        warp_id: child_warp,
+                        root_node: child_root,
+                        parent: Some(*key),
+                    },
+                    store,
+                );
+            }
+            PortalInit::None => return Err(TickPatchError::PortalInitRequired),
+        }
+    }
+
+    ensure_child_root(state, child_warp, child_root, init)?;
+
+    // Finally, set the portal attachment slot to point at the child warp id.
+    let Some(parent_store) = state.store_mut(&parent_warp) else {
+        return Err(TickPatchError::MissingWarp(parent_warp));
+    };
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            parent_store
+                .set_node_attachment(node.local_id, Some(AttachmentValue::Descend(child_warp)));
+        }
+        AttachmentOwner::Edge(edge) => {
+            parent_store
+                .set_edge_attachment(edge.local_id, Some(AttachmentValue::Descend(child_warp)));
+        }
+    }
+    Ok(())
+}
+
+fn validate_attachment_owner_exists(
+    state: &WarpState,
+    key: &AttachmentKey,
+) -> Result<WarpId, TickPatchError> {
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            if key.plane != AttachmentPlane::Alpha {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+            let Some(store) = state.store(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            if store.node(&node.local_id).is_none() {
+                return Err(TickPatchError::MissingNode(node));
+            }
+            Ok(node.warp_id)
+        }
+        AttachmentOwner::Edge(edge) => {
+            if key.plane != AttachmentPlane::Beta {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+            let Some(store) = state.store(&edge.warp_id) else {
+                return Err(TickPatchError::MissingWarp(edge.warp_id));
+            };
+            if !store.edge_index.contains_key(&edge.local_id) {
+                return Err(TickPatchError::MissingEdge(edge));
+            }
+            Ok(edge.warp_id)
+        }
+    }
+}
+
+fn ensure_child_root(
+    state: &mut WarpState,
+    child_warp: WarpId,
+    child_root: NodeId,
+    init: &PortalInit,
+) -> Result<(), TickPatchError> {
+    match init {
+        PortalInit::Empty { root_record } => {
+            let Some(store) = state.store_mut(&child_warp) else {
+                return Err(TickPatchError::MissingWarp(child_warp));
+            };
+            match store.node(&child_root) {
+                None => {
+                    store.insert_node(child_root, root_record.clone());
+                }
+                Some(existing) => {
+                    if existing != root_record {
+                        return Err(TickPatchError::PortalInvariantViolation);
+                    }
+                }
+            }
+            Ok(())
+        }
+        PortalInit::None => {
+            let Some(store) = state.store(&child_warp) else {
+                return Err(TickPatchError::MissingWarp(child_warp));
+            };
+            if store.node(&child_root).is_none() {
+                return Err(TickPatchError::MissingNode(NodeKey {
+                    warp_id: child_warp,
+                    local_id: child_root,
+                }));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn apply_set_attachment(
+    state: &mut WarpState,
+    key: &AttachmentKey,
+    value: Option<&AttachmentValue>,
+) -> Result<(), TickPatchError> {
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            if key.plane != AttachmentPlane::Alpha {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+            let Some(store) = state.store_mut(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            if store.node(&node.local_id).is_none() {
+                return Err(TickPatchError::MissingNode(node));
+            }
+            store.set_node_attachment(node.local_id, value.cloned());
+            Ok(())
+        }
+        AttachmentOwner::Edge(edge) => {
+            if key.plane != AttachmentPlane::Beta {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+            let Some(store) = state.store_mut(&edge.warp_id) else {
+                return Err(TickPatchError::MissingWarp(edge.warp_id));
+            };
+            if !store.edge_index.contains_key(&edge.local_id) {
+                return Err(TickPatchError::MissingEdge(edge));
+            }
+            store.set_edge_attachment(edge.local_id, value.cloned());
+            Ok(())
+        }
     }
 }
 
@@ -432,6 +633,12 @@ pub enum TickPatchError {
     /// Tried to set an attachment slot that is not valid in v1.
     #[error("invalid attachment key: {0:?}")]
     InvalidAttachmentKey(AttachmentKey),
+    /// `OpenPortal` requires an init policy when the child instance does not exist.
+    #[error("portal init required")]
+    PortalInitRequired,
+    /// `OpenPortal` invariants were violated (dangling portal / inconsistent parent chain / root mismatch).
+    #[error("portal invariant violation")]
+    PortalInvariantViolation,
 }
 
 fn compute_patch_digest_v2(
@@ -491,6 +698,18 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
     for op in ops {
         match op {
+            WarpOp::OpenPortal {
+                key,
+                child_warp,
+                child_root,
+                init,
+            } => {
+                h.update(&[8u8]);
+                encode_attachment_key(h, key);
+                h.update(&child_warp.0);
+                h.update(&child_root.0);
+                encode_portal_init(h, init);
+            }
             WarpOp::UpsertWarpInstance { instance } => {
                 h.update(&[1u8]);
                 h.update(&(instance.warp_id).0);
@@ -535,6 +754,18 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
                 encode_attachment_key(h, key);
                 encode_attachment_value_opt(h, value.as_ref());
             }
+        }
+    }
+}
+
+fn encode_portal_init(h: &mut Hasher, init: &PortalInit) {
+    match init {
+        PortalInit::None => {
+            h.update(&[0u8]);
+        }
+        PortalInit::Empty { root_record } => {
+            h.update(&[1u8]);
+            h.update(&(root_record.ty).0);
         }
     }
 }
@@ -636,6 +867,52 @@ fn encode_atom_payload(h: &mut Hasher, atom: &AtomPayload) {
 ///   for both replay ordering and `patch_digest` hashing.
 pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     let mut ops: Vec<WarpOp> = Vec::new();
+    let mut portal_warps: std::collections::BTreeSet<WarpId> = std::collections::BTreeSet::new();
+    let mut skip_node_upserts: std::collections::BTreeSet<NodeKey> =
+        std::collections::BTreeSet::new();
+    let mut skip_attachment_ops: std::collections::BTreeSet<AttachmentKey> =
+        std::collections::BTreeSet::new();
+
+    // Canonicalize portal authoring: when we observe a new descended instance that is
+    // linked via `parent` and whose parent slot is set to `Descend(child_warp)`,
+    // emit a single `OpenPortal` op instead of separate instance + attachment edits.
+    //
+    // This prevents slices from “forgetting the baby exists” by ensuring that
+    // portal creation and instance creation are inseparable at the patch level.
+    for (warp_id, inst_after) in &after.instances {
+        if before.instances.contains_key(warp_id) {
+            continue;
+        }
+        let Some(parent_key) = inst_after.parent else {
+            continue;
+        };
+        let Some(parent_value) = attachment_value_for_key(after, &parent_key) else {
+            continue;
+        };
+        if parent_value != &AttachmentValue::Descend(*warp_id) {
+            continue;
+        }
+        let Some(child_store) = after.store(warp_id) else {
+            continue;
+        };
+        let Some(root_record) = child_store.node(&inst_after.root_node) else {
+            continue;
+        };
+        ops.push(WarpOp::OpenPortal {
+            key: parent_key,
+            child_warp: *warp_id,
+            child_root: inst_after.root_node,
+            init: PortalInit::Empty {
+                root_record: root_record.clone(),
+            },
+        });
+        portal_warps.insert(*warp_id);
+        skip_node_upserts.insert(NodeKey {
+            warp_id: *warp_id,
+            local_id: inst_after.root_node,
+        });
+        skip_attachment_ops.insert(parent_key);
+    }
 
     // WarpInstances: deletions and upserts.
     for warp_id in before.instances.keys() {
@@ -645,9 +922,13 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     }
     for (warp_id, inst_after) in &after.instances {
         match before.instances.get(warp_id) {
-            None => ops.push(WarpOp::UpsertWarpInstance {
-                instance: inst_after.clone(),
-            }),
+            None => {
+                if !portal_warps.contains(warp_id) {
+                    ops.push(WarpOp::UpsertWarpInstance {
+                        instance: inst_after.clone(),
+                    });
+                }
+            }
             Some(inst_before) => {
                 if inst_before != inst_after {
                     ops.push(WarpOp::UpsertWarpInstance {
@@ -662,66 +943,123 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     let empty = GraphStore::default();
     for (warp_id, after_store) in &after.stores {
         let before_store = before.stores.get(warp_id).unwrap_or(&empty);
-        diff_instance(&mut ops, *warp_id, before_store, after_store);
+        diff_instance(
+            &mut ops,
+            *warp_id,
+            before_store,
+            after_store,
+            &skip_node_upserts,
+            &skip_attachment_ops,
+        );
     }
 
     ops.sort_by_key(WarpOp::sort_key);
     ops
 }
 
-fn diff_instance(ops: &mut Vec<WarpOp>, warp_id: WarpId, before: &GraphStore, after: &GraphStore) {
-    // Nodes (skeleton plane)
+fn diff_instance(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    skip_node_upserts: &std::collections::BTreeSet<NodeKey>,
+    skip_attachment_ops: &std::collections::BTreeSet<AttachmentKey>,
+) {
+    diff_nodes(ops, warp_id, before, after, skip_node_upserts);
+    diff_node_attachments(ops, warp_id, before, after, skip_attachment_ops);
+
+    // Edges (skeleton plane): map by EdgeId for stable diff independent of insertion order.
+    let before_edges = edges_by_id(before);
+    let after_edges = edges_by_id(after);
+    diff_edges(ops, warp_id, &before_edges, &after_edges);
+    diff_edge_attachments(
+        ops,
+        warp_id,
+        before,
+        after,
+        &after_edges,
+        skip_attachment_ops,
+    );
+}
+
+fn diff_nodes(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    skip_node_upserts: &std::collections::BTreeSet<NodeKey>,
+) {
     for (id, rec_before) in &before.nodes {
+        let node = NodeKey {
+            warp_id,
+            local_id: *id,
+        };
+        if skip_node_upserts.contains(&node) {
+            continue;
+        }
         let Some(rec_after) = after.nodes.get(id) else {
-            ops.push(WarpOp::DeleteNode {
-                node: NodeKey {
-                    warp_id,
-                    local_id: *id,
-                },
-            });
+            ops.push(WarpOp::DeleteNode { node });
             continue;
         };
         if rec_before != rec_after {
             ops.push(WarpOp::UpsertNode {
-                node: NodeKey {
-                    warp_id,
-                    local_id: *id,
-                },
+                node,
                 record: rec_after.clone(),
             });
         }
     }
     for (id, rec_after) in &after.nodes {
+        let node = NodeKey {
+            warp_id,
+            local_id: *id,
+        };
+        if skip_node_upserts.contains(&node) {
+            continue;
+        }
         if !before.nodes.contains_key(id) {
             ops.push(WarpOp::UpsertNode {
-                node: NodeKey {
-                    warp_id,
-                    local_id: *id,
-                },
+                node,
                 record: rec_after.clone(),
             });
         }
     }
+}
 
-    // Node attachments (α plane): diff only for nodes that exist in `after`.
+fn diff_node_attachments(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    skip_attachment_ops: &std::collections::BTreeSet<AttachmentKey>,
+) {
     for node_id in after.nodes.keys() {
         let before_val = before.node_attachment(node_id);
         let after_val = after.node_attachment(node_id);
-        if before_val != after_val {
-            ops.push(WarpOp::SetAttachment {
-                key: AttachmentKey::node_alpha(NodeKey {
-                    warp_id,
-                    local_id: *node_id,
-                }),
-                value: after_val.cloned(),
-            });
+        if before_val == after_val {
+            continue;
         }
-    }
 
-    // Edges (skeleton plane): map by EdgeId for stable diff independent of insertion order.
-    let before_edges = edges_by_id(before);
-    let after_edges = edges_by_id(after);
-    for (id, rec_before) in &before_edges {
+        let key = AttachmentKey::node_alpha(NodeKey {
+            warp_id,
+            local_id: *node_id,
+        });
+        if skip_attachment_ops.contains(&key) {
+            continue;
+        }
+        ops.push(WarpOp::SetAttachment {
+            key,
+            value: after_val.cloned(),
+        });
+    }
+}
+
+fn diff_edges(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before_edges: &std::collections::BTreeMap<ContentHash, EdgeRecord>,
+    after_edges: &std::collections::BTreeMap<ContentHash, EdgeRecord>,
+) {
+    for (id, rec_before) in before_edges {
         if !after_edges.contains_key(id) {
             ops.push(WarpOp::DeleteEdge {
                 warp_id,
@@ -730,7 +1068,8 @@ fn diff_instance(ops: &mut Vec<WarpOp>, warp_id: WarpId, before: &GraphStore, af
             });
         }
     }
-    for (id, rec_after) in &after_edges {
+
+    for (id, rec_after) in after_edges {
         match before_edges.get(id) {
             None => {
                 ops.push(WarpOp::UpsertEdge {
@@ -739,37 +1078,62 @@ fn diff_instance(ops: &mut Vec<WarpOp>, warp_id: WarpId, before: &GraphStore, af
                 });
             }
             Some(rec_before) => {
-                if rec_before != rec_after {
-                    if rec_before.from != rec_after.from {
-                        ops.push(WarpOp::DeleteEdge {
-                            warp_id,
-                            from: rec_before.from,
-                            edge_id: EdgeId(*id),
-                        });
-                    }
-                    ops.push(WarpOp::UpsertEdge {
+                if rec_before == rec_after {
+                    continue;
+                }
+                if rec_before.from != rec_after.from {
+                    ops.push(WarpOp::DeleteEdge {
                         warp_id,
-                        record: rec_after.clone(),
+                        from: rec_before.from,
+                        edge_id: EdgeId(*id),
                     });
                 }
+                ops.push(WarpOp::UpsertEdge {
+                    warp_id,
+                    record: rec_after.clone(),
+                });
             }
         }
     }
+}
 
-    // Edge attachments (β plane): diff only for edges that exist in `after`.
+fn diff_edge_attachments(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    after_edges: &std::collections::BTreeMap<ContentHash, EdgeRecord>,
+    skip_attachment_ops: &std::collections::BTreeSet<AttachmentKey>,
+) {
     for id in after_edges.keys() {
         let edge_id = EdgeId(*id);
         let before_val = before.edge_attachment(&edge_id);
         let after_val = after.edge_attachment(&edge_id);
-        if before_val != after_val {
-            ops.push(WarpOp::SetAttachment {
-                key: AttachmentKey::edge_beta(EdgeKey {
-                    warp_id,
-                    local_id: edge_id,
-                }),
-                value: after_val.cloned(),
-            });
+        if before_val == after_val {
+            continue;
         }
+
+        let key = AttachmentKey::edge_beta(EdgeKey {
+            warp_id,
+            local_id: edge_id,
+        });
+        if skip_attachment_ops.contains(&key) {
+            continue;
+        }
+        ops.push(WarpOp::SetAttachment {
+            key,
+            value: after_val.cloned(),
+        });
+    }
+}
+
+fn attachment_value_for_key<'a>(
+    state: &'a WarpState,
+    key: &AttachmentKey,
+) -> Option<&'a AttachmentValue> {
+    match key.owner {
+        AttachmentOwner::Node(node) => state.store(&node.warp_id)?.node_attachment(&node.local_id),
+        AttachmentOwner::Edge(edge) => state.store(&edge.warp_id)?.edge_attachment(&edge.local_id),
     }
 }
 
@@ -854,10 +1218,9 @@ mod tests {
         });
 
         let child_root = make_node_id("child-root");
-        let child_instance = WarpInstance {
+        let child_root_key = NodeKey {
             warp_id: child_warp,
-            root_node: child_root,
-            parent: Some(portal_key),
+            local_id: child_root,
         };
 
         let child_node = make_node_id("child-node");
@@ -872,25 +1235,17 @@ mod tests {
             [1u8; 32],
             TickCommitStatus::Committed,
             vec![],
-            vec![SlotId::Attachment(portal_key)],
-            vec![
-                WarpOp::UpsertWarpInstance {
-                    instance: child_instance,
-                },
-                WarpOp::UpsertNode {
-                    node: NodeKey {
-                        warp_id: root_warp,
-                        local_id: root_node,
-                    },
-                    record: NodeRecord {
-                        ty: make_type_id("RootTy"),
+            vec![SlotId::Attachment(portal_key), SlotId::Node(child_root_key)],
+            vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
                     },
                 },
-                WarpOp::SetAttachment {
-                    key: portal_key,
-                    value: Some(AttachmentValue::Descend(child_warp)),
-                },
-            ],
+            }],
         );
 
         // Tick 1: execute inside the descended instance; the engine enforces that

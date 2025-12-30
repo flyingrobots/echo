@@ -130,6 +130,7 @@ The shape is **flattened indirection**, not nested Rust structs:
 - Descent is `AttachmentValue::Descend(WarpId)` (not encoded inside bytes).
 - Each descended attachment points to a **WarpInstance** (a namespaced skeleton store),
   tracked in `warp_core::WarpState`.
+- Portals are authored atomically at the patch boundary (`OpenPortal`) so slices/replay cannot observe a dangling `Descend` link without the corresponding instance.
 
 Correctness law: execution inside a descended instance must READ the attachment
 keys in its descent chain (so changing a portal pointer deterministically

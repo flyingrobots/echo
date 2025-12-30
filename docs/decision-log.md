@@ -343,3 +343,18 @@ The following entries use a heading + bullets format for richer context.
   - Add a minimal slice helper test validating that descendant work pulls in the portal producer (Paper III slice closure).
 - Rationale: make recursion explicit, hashable, sliceable, and scheduler-visible while keeping matching/indexing skeleton-only within an instance.
 - Consequence: Echo can represent recursive WARP state via flattened indirection; descended-instance rewriting stays fast and deterministic; slicing remains trivial over `in_slots`/`out_slots` without decoding atoms.
+
+## 2025-12-30 — warp-core Stage B1.1: Atomic portals (OpenPortal) + merge/DAG slicing semantics
+
+- Context: Stage B1 made descended attachments explicit, but portal authoring could still be expressed as multiple independent edits across ticks (create instance vs set `Descend`), which risks slices that include the portal write but omit the instance creation history.
+- Decisions:
+  - Add a single canonical tick patch operation for portal authoring: `WarpOp::OpenPortal { key, child_warp, child_root, init }`.
+    - `OpenPortal` atomically establishes instance metadata and sets the `Descend(child_warp)` attachment slot.
+    - Patch replay validates “no dangling portal” and “no orphan instance” invariants.
+  - Update the patch diff constructor (`diff_state`) to emit `OpenPortal` for newly created descended instances when the `parent` slot is set to `Descend(child_warp)`, avoiding separate instance + attachment ops.
+  - Specify multi-parent merge semantics explicitly:
+    - merge commits must include an explicit merge patch that resolves all conflicting slot writes (including attachment slots); no implicit “parent order wins”.
+    - DAG slicing generalizes worldline slicing by treating merge patches as first-class resolution events.
+  - Add a canonical terminology doc to pin “instances/portals vs wormholes” and prevent future term collisions.
+- Rationale: Keep the Paper III replay boundary honest: the patch must be the boundary artifact, slices must not be able to omit required portal/instance creation history, and merges must be deterministically authored.
+- Consequence: Portal authoring becomes clean and inevitable instead of a long-term swamp; tooling can build an honest instance-zoom view over explicit portals; merge behavior is spec’d for future implementation work.

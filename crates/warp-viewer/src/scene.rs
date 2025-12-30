@@ -121,6 +121,10 @@ struct VizPayload {
     color: Option<[f32; 3]>,
 }
 
+/// Encode a visualization payload (position and color) into CBOR bytes.
+///
+/// Returns an empty `Vec` if serialization fails; the failure is logged and the
+/// caller's fallback behavior (default pos/color) remains valid.
 pub(crate) fn encode_viz_payload(pos: [f32; 3], color: [f32; 3]) -> Vec<u8> {
     let payload = VizPayload {
         pos: Some(pos),

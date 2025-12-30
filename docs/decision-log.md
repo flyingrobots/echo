@@ -366,3 +366,16 @@ The following entries use a heading + bullets format for richer context.
 - Consequence: Portal authoring becomes clean and inevitable instead of a long-term swamp; tooling can build an honest instance-zoom view over explicit portals; merge/DAG slicing semantics are specified (implementation work remains).
   - Docs: `docs/spec/SPEC-0002-descended-attachments-v1.md` (merge commits + DAG slicing), `docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md` (terminology lock), and `docs/branch-merge-playbook.md` (conflict resolution playbook).
   - Tests: `crates/warp-core/src/tick_patch.rs` (patch replay rejects dangling portals and orphan instances).
+
+## 2025-12-30 — THEORY.md: Foundations paraphrase + explicit divergence callouts
+
+- Context: Echo’s implementation is driven by the published AIΩN Foundations papers, but Echo also makes pragmatic runtime trade-offs (performance, determinism boundaries, cross-language replay).
+- Decisions:
+  - Add `docs/THEORY.md` as a paraphrase/tour of Papers I–IV (WARPs, deterministic ticks, tick patches/slicing, observer geometry).
+  - Whenever Echo intentionally diverges from the paper definitions, add an inline callout in the form:
+    - `> [!note]`
+    - `> Echo does this differently. It works like X because Y.`
+  - Commit the `assets/echo-white-radial.svg` brand asset and remove the local-only `assets/readme/` scratch directory.
+- Rationale: Readers should be able to move between the papers and the repo without guessing which parts are “paper law” vs “engine law,” and any deviation should be documented with rationale to keep the repo backlog honest.
+- Consequence: THEORY becomes an onboarding bridge and drift detector; future changes that diverge from the papers have a clear place to document rationale.
+  - Evidence: `c029c82`

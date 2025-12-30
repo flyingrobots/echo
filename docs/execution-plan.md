@@ -35,7 +35,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-30 — PR #159: Address CodeRabbit actionables (IN PROGRESS)
+> 2025-12-30 — THEORY.md paper alignment callouts (COMPLETED)
+
+- Goal: annotate the local THEORY paraphrase so readers can see where Echo intentionally diverges from the published papers.
+- Scope:
+  - Add `[!note]` callouts explaining “Echo does this differently … because …” where implementation differs.
+  - Commit `docs/THEORY.md` + the `assets/echo-white-radial.svg` brand asset; remove the local-only `assets/readme/` image scratchpad.
+- Exit criteria: THEORY doc is self-aware (differences + rationale); files pass hooks (SPDX guard, fmt/clippy/tests).
+- Evidence:
+  - Commit: `c029c82` (`docs/THEORY.md` + `assets/echo-white-radial.svg`)
+
+> 2025-12-30 — PR #159: Address CodeRabbit actionables (COMPLETED)
 
 - Goal: close the remaining review items on PR #159 (docs + demo hygiene).
 - Scope:
@@ -44,6 +54,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Clarify Paper I notation context (`U`, `π(U)`) in `docs/spec-warp-core.md`.
   - Minor demo hygiene: document init/update behavior in the port demo executor.
 - Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; CodeRabbit re-review clean.
+- Evidence:
+  - Merge: `f2d6a68` (PR #159 merged to `main`)
 
 > 2025-12-30 — Add WARP primer + wire into “Start here” (COMPLETED)
 

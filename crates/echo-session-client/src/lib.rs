@@ -294,9 +294,6 @@ fn run_read_loop(
                 break;
             }
         };
-        if frame_len == usize::MAX {
-            break;
-        }
         let mut rest = vec![0u8; len + 32];
         if let Err(err) = stream.read_exact(&mut rest) {
             tracing::debug!(error = %err, "read loop exiting: body read failed");

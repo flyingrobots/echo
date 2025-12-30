@@ -289,6 +289,50 @@ Crucial correctness law:
 - any match/exec inside a descended instance must READ the attachment keys in its descent chain
   (so changing a portal pointer deterministically invalidates matches)
 
+### 9.1 Worked example: descent-chain reads become `Footprint.a_read`
+
+The engine enforces the law in `Engine::apply_in_warp` by *injecting* the descent
+chain into the footprint before the candidate is enqueued:
+
+```rust
+let mut footprint = (rule.compute_footprint)(store, scope);
+// Stage B1 law: any match/exec inside a descended instance must READ
+// every attachment slot in the descent chain.
+for key in descent_stack {
+    footprint.a_read.insert(*key);
+}
+```
+
+This is intentionally independent of whether the rule decodes attachments:
+
+- it is a **reachability / meaning** dependency, not “data was parsed”
+- it makes portal changes invalidate matches deterministically, even when the rule
+  is otherwise “pure skeleton”
+
+Downstream effects:
+
+- `Footprint.a_read` contributes to the tick patch `in_slots` (as `SlotId::Attachment(key)`),
+  because `commit_with_receipt` derives conservative `in_slots/out_slots` from footprints.
+- This keeps Paper III slicing correct: uses within a descendant instance depend on the
+  portal chain slots that establish the instance.
+
+### 9.2 Worked example: Paper III slicing includes the portal chain
+
+`warp-core` ships a unit test that models the intended history shape:
+
+- tick 0: `OpenPortal` produces `SlotId::Attachment(portal_key)`
+- tick 1: an op inside the child instance produces a node slot and **reads** `portal_key`
+
+Worldline slicing for the child-produced node correctly returns both ticks (include the portal chain):
+
+```rust
+let worldline = [patch0_open_portal, patch1_child_write];
+let ticks = slice_worldline_indices(&worldline, SlotId::Node(child_node_key));
+assert_eq!(ticks, vec![0, 1]);
+```
+
+See: `crates/warp-core/src/tick_patch.rs` (`slice_includes_portal_chain_for_descended_instance`).
+
 ---
 
 ## 10. Where to read code (module tour)
@@ -310,7 +354,9 @@ Start here (in order):
 
 ---
 
-## 11. Quickstart example (minimal)
+## 11. Quickstart examples
+
+### 11.1 Minimal (single instance)
 
 For a working “known-good” bootstrap, use the demo helper:
 
@@ -344,3 +390,143 @@ assert_eq!(snapshot.decision_digest, receipt.digest());
 
 For provenance-grade outputs, use `commit_with_receipt` and store the `TickReceipt`
 and `WarpTickPatchV1` alongside the snapshot hash.
+
+### 11.2 Stage B1: portals + `apply_in_warp` + slicing
+
+The minimal “B1-shaped” workflow is:
+
+1) establish a portal (`OpenPortal`) from a node-owned attachment slot (Alpha plane) to a child `WarpId`  
+2) apply a rewrite inside the child warp using `Engine::apply_in_warp` with a `descent_stack` containing that portal key  
+3) verify the tick patch `in_slots` includes the portal slot, and slicing pulls in the portal-opening tick
+
+```rust
+use warp_core::{
+    slice_worldline_indices, ApplyResult, AttachmentKey, ConflictPolicy, Engine, Footprint,
+    NodeId, NodeKey, NodeRecord, PortalInit, SchedulerKind, SlotId, TickCommitStatus, WarpOp,
+    WarpState, WarpTickPatchV1, WarpInstance, POLICY_ID_NO_POLICY_V0, RewriteRule, make_node_id,
+    make_type_id, make_warp_id,
+};
+
+fn insert_child_node_rule(child_node: NodeId) -> RewriteRule {
+    RewriteRule {
+        id: [9u8; 32],
+        name: "demo/b1-insert-child-node",
+        left: warp_core::PatternGraph { nodes: vec![] },
+        matcher: |_store, _scope| true,
+        executor: move |store, _scope| {
+            store.insert_node(
+                child_node,
+                NodeRecord {
+                    ty: make_type_id("ChildTy"),
+                },
+            );
+        },
+        compute_footprint: move |_store, _scope| {
+            let mut fp = Footprint::default();
+            // Conservative: record the write so patch out_slots is slice-safe.
+            fp.n_write.insert_node(&child_node);
+            fp
+        },
+        factor_mask: 0,
+        conflict_policy: ConflictPolicy::Abort,
+        join_fn: None,
+    }
+}
+
+let root_warp = make_warp_id("root");
+let child_warp = make_warp_id("child");
+
+let root_node = make_node_id("root-node");
+let child_root = make_node_id("child-root");
+let child_node = make_node_id("child-node");
+
+let root_key = NodeKey {
+    warp_id: root_warp,
+    local_id: root_node,
+};
+let child_root_key = NodeKey {
+    warp_id: child_warp,
+    local_id: child_root,
+};
+let child_node_key = NodeKey {
+    warp_id: child_warp,
+    local_id: child_node,
+};
+
+// The portal lives in the node-owned (Alpha) attachment plane.
+let portal_key = AttachmentKey::node_alpha(root_key);
+
+// Step 0: build an initial multi-instance state via patch replay (no engine internals required).
+let mut state = WarpState::new();
+
+let init_root = WarpTickPatchV1::new(
+    POLICY_ID_NO_POLICY_V0,
+    [0u8; 32], // demo rule_pack_id
+    TickCommitStatus::Committed,
+    vec![],
+    vec![SlotId::Node(root_key)],
+    vec![
+        WarpOp::UpsertWarpInstance {
+            instance: WarpInstance {
+                warp_id: root_warp,
+                root_node: root_node,
+                parent: None,
+            },
+        },
+        WarpOp::UpsertNode {
+            node: root_key,
+            record: NodeRecord {
+                ty: make_type_id("RootTy"),
+            },
+        },
+    ],
+);
+init_root.apply_to_state(&mut state).unwrap();
+
+let open_portal = WarpTickPatchV1::new(
+    POLICY_ID_NO_POLICY_V0,
+    [0u8; 32],
+    TickCommitStatus::Committed,
+    vec![],
+    vec![SlotId::Attachment(portal_key), SlotId::Node(child_root_key)],
+    vec![WarpOp::OpenPortal {
+        key: portal_key,
+        child_warp,
+        child_root,
+        init: PortalInit::Empty {
+            root_record: NodeRecord {
+                ty: make_type_id("ChildRootTy"),
+            },
+        },
+    }],
+);
+open_portal.apply_to_state(&mut state).unwrap();
+
+// Step 1: initialize an engine from that multi-instance state.
+let mut engine = Engine::with_state(state, root_key, SchedulerKind::Radix, POLICY_ID_NO_POLICY_V0)
+    .unwrap();
+engine.register_rule(insert_child_node_rule(child_node)).unwrap();
+
+// Step 2: apply inside the child warp.
+let tx = engine.begin();
+let res = engine
+    .apply_in_warp(tx, child_warp, "demo/b1-insert-child-node", &child_root, &[portal_key])
+    .unwrap();
+assert!(matches!(res, ApplyResult::Applied));
+let (_snapshot, _receipt, patch1) = engine.commit_with_receipt(tx).unwrap();
+
+// The descent stack is enforced as an attachment read.
+assert!(patch1.in_slots().contains(&SlotId::Attachment(portal_key)));
+assert!(patch1.out_slots().contains(&SlotId::Node(child_node_key)));
+
+// Step 3: worldline slicing pulls in the portal chain.
+let worldline = vec![open_portal, patch1];
+let ticks = slice_worldline_indices(&worldline, SlotId::Node(child_node_key));
+assert_eq!(ticks, vec![0, 1]);
+```
+
+Notes:
+
+- `Engine::apply_in_warp(..., descent_stack)` is the *only* place the engine needs to “know about recursion”
+  for correctness: the hot path still matches within an instance skeleton only.
+- If you don’t record descent-chain reads, you can build a system that “looks right” but produces incorrect slices.

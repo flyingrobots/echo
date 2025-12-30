@@ -167,6 +167,64 @@ impl Engine {
         }
     }
 
+    /// Constructs an engine from an existing multi-instance [`WarpState`] (Stage B1).
+    ///
+    /// This constructor is primarily intended for:
+    /// - replaying a sequence of tick patches into a `WarpState`, then continuing execution,
+    /// - building multi-instance fixtures for tests/tools without exposing `WarpState` internals, and
+    /// - running rules against an externally-authored state (imported or synthesized).
+    ///
+    /// # Parameters
+    /// - `state`: pre-constructed multi-instance state.
+    /// - `root`: the root node for snapshot hashing and commits. This must refer to the root instance.
+    /// - `kind`: scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: policy identifier committed into `patch_digest` and `commit_id` v2.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp instance is not present
+    /// (missing store or missing instance metadata).
+    ///
+    /// Returns [`EngineError::InternalCorruption`] if the supplied `root` does not
+    /// match the root instance metadata (`WarpInstance.root_node`), or if the root
+    /// instance declares a `parent` (root instances must have `parent = None`).
+    pub fn with_state(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+    ) -> Result<Self, EngineError> {
+        let Some(root_instance) = state.instance(&root.warp_id) else {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        };
+        if root_instance.parent.is_some() {
+            return Err(EngineError::InternalCorruption(
+                "root warp instance must not declare a parent",
+            ));
+        }
+        if root_instance.root_node != root.local_id {
+            return Err(EngineError::InternalCorruption(
+                "Engine root must match WarpInstance.root_node",
+            ));
+        }
+        if state.store(&root.warp_id).is_none() {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        }
+
+        Ok(Self {
+            state,
+            rules: HashMap::new(),
+            rules_by_id: HashMap::new(),
+            compact_rule_ids: HashMap::new(),
+            rules_by_compact: HashMap::new(),
+            scheduler: DeterministicScheduler::new(kind),
+            policy_id,
+            tx_counter: 0,
+            live_txs: HashSet::new(),
+            current_root: root,
+            last_snapshot: None,
+        })
+    }
+
     /// Registers a rewrite rule so it can be referenced by name.
     ///
     /// # Errors

@@ -402,31 +402,40 @@ The minimal “B1-shaped” workflow is:
 ```rust
 use warp_core::{
     slice_worldline_indices, ApplyResult, AttachmentKey, ConflictPolicy, Engine, Footprint,
-    NodeId, NodeKey, NodeRecord, PortalInit, SchedulerKind, SlotId, TickCommitStatus, WarpOp,
-    WarpState, WarpTickPatchV1, WarpInstance, POLICY_ID_NO_POLICY_V0, RewriteRule, make_node_id,
-    make_type_id, make_warp_id,
+    GraphStore, NodeId, NodeKey, NodeRecord, PortalInit, SchedulerKind, SlotId, TickCommitStatus,
+    WarpOp, WarpState, WarpTickPatchV1, WarpInstance, POLICY_ID_NO_POLICY_V0, RewriteRule,
+    make_node_id, make_type_id, make_warp_id,
 };
 
-fn insert_child_node_rule(child_node: NodeId) -> RewriteRule {
+fn b1_rule_match(_store: &GraphStore, _scope: &NodeId) -> bool {
+    true
+}
+
+fn b1_rule_exec(store: &mut GraphStore, _scope: &NodeId) {
+    let child_node = make_node_id("child-node");
+    store.insert_node(
+        child_node,
+        NodeRecord {
+            ty: make_type_id("ChildTy"),
+        },
+    );
+}
+
+fn b1_rule_footprint(_store: &GraphStore, _scope: &NodeId) -> Footprint {
+    let mut fp = Footprint::default();
+    // Conservative: record the write so patch out_slots is slice-safe.
+    fp.n_write.insert_node(&make_node_id("child-node"));
+    fp
+}
+
+fn insert_child_node_rule() -> RewriteRule {
     RewriteRule {
         id: [9u8; 32],
         name: "demo/b1-insert-child-node",
         left: warp_core::PatternGraph { nodes: vec![] },
-        matcher: |_store, _scope| true,
-        executor: move |store, _scope| {
-            store.insert_node(
-                child_node,
-                NodeRecord {
-                    ty: make_type_id("ChildTy"),
-                },
-            );
-        },
-        compute_footprint: move |_store, _scope| {
-            let mut fp = Footprint::default();
-            // Conservative: record the write so patch out_slots is slice-safe.
-            fp.n_write.insert_node(&child_node);
-            fp
-        },
+        matcher: b1_rule_match,
+        executor: b1_rule_exec,
+        compute_footprint: b1_rule_footprint,
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
         join_fn: None,
@@ -505,7 +514,7 @@ open_portal.apply_to_state(&mut state).unwrap();
 // Step 1: initialize an engine from that multi-instance state.
 let mut engine = Engine::with_state(state, root_key, SchedulerKind::Radix, POLICY_ID_NO_POLICY_V0)
     .unwrap();
-engine.register_rule(insert_child_node_rule(child_node)).unwrap();
+engine.register_rule(insert_child_node_rule()).unwrap();
 
 // Step 2: apply inside the child warp.
 let tx = engine.begin();

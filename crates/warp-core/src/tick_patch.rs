@@ -303,23 +303,22 @@ impl WarpTickPatchV1 {
         commit_status: TickCommitStatus,
         mut in_slots: Vec<SlotId>,
         mut out_slots: Vec<SlotId>,
-        mut ops: Vec<WarpOp>,
+        ops: Vec<WarpOp>,
     ) -> Self {
         in_slots.sort();
         in_slots.dedup();
         out_slots.sort();
         out_slots.dedup();
-        ops.sort_by_key(WarpOp::sort_key);
-        ops.dedup_by(|a, b| {
-            if a.sort_key() == b.sort_key() {
-                // Last-wins: after stable sorting, equal-key ops preserve input order.
-                // Replace the retained op (`a`) with the later op (`b`) and drop `b`.
-                *a = b.clone();
-                true
-            } else {
-                false
+        let ops = {
+            let mut op_map: std::collections::BTreeMap<WarpOpKey, WarpOp> =
+                std::collections::BTreeMap::new();
+            for op in ops {
+                // Last-wins: if multiple ops share the same canonical sort key, keep the
+                // last op provided by the caller and drop earlier duplicates.
+                op_map.insert(op.sort_key(), op);
             }
-        });
+            op_map.into_values().collect::<Vec<_>>()
+        };
         let digest = compute_patch_digest_v2(
             policy_id,
             &rule_pack_id,
@@ -1205,6 +1204,51 @@ mod tests {
     use super::*;
 
     use crate::ident::{make_node_id, make_type_id, make_warp_id};
+
+    #[test]
+    fn new_dedupes_duplicate_ops_by_sort_key_last_wins() {
+        let warp_id = make_warp_id("dedupe-warp");
+        let node_id = make_node_id("dedupe-node");
+        let node = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        let op_a = WarpOp::UpsertNode {
+            node,
+            record: NodeRecord {
+                ty: make_type_id("A"),
+            },
+        };
+        let op_b = WarpOp::UpsertNode {
+            node,
+            record: NodeRecord {
+                ty: make_type_id("B"),
+            },
+        };
+
+        let patch = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![op_a, op_b],
+        );
+
+        let ops = patch.ops();
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(&ops[0], WarpOp::UpsertNode { .. }));
+        let WarpOp::UpsertNode {
+            node: got_node,
+            record,
+        } = &ops[0]
+        else {
+            return;
+        };
+        assert_eq!(got_node, &node);
+        assert_eq!(record.ty, make_type_id("B"));
+    }
 
     #[test]
     fn slice_includes_portal_chain_for_descended_instance() {

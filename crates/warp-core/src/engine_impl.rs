@@ -338,6 +338,7 @@ impl Engine {
         let rewrites_digest = compute_rewrites_digest(&reserved_rewrites);
 
         // Capture pre-state for delta patch construction.
+        // PERF: Full state clone; consider COW or incremental tracking for large graphs.
         let state_before = self.state.clone();
 
         self.apply_reserved_rewrites(reserved_rewrites)?;

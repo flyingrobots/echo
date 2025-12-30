@@ -8,6 +8,14 @@ use warp_core::{
     ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, MOTION_RULE_NAME,
 };
 
+fn extract_motion_payload(engine: &Engine, id: &NodeId) -> ([f32; 3], [f32; 3]) {
+    let payload = engine.node_attachment(id).expect("payload exists");
+    let AttachmentValue::Atom(payload) = payload else {
+        panic!("expected Atom payload for motion node attachment");
+    };
+    decode_motion_atom_payload(payload).expect("decode")
+}
+
 fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
     // Start from the demo engine (root + motion rule registered).
     let mut engine = warp_core::build_motion_demo_engine();
@@ -42,11 +50,7 @@ fn bench_motion_apply(c: &mut Criterion) {
             b.iter(|| {
                 let (engine, ids) = build_engine_with_n_entities(n);
                 // Optional quick sanity on the first entity to keep side effects visible.
-                let payload = engine.node_attachment(&ids[0]).expect("payload exists");
-                let AttachmentValue::Atom(payload) = payload else {
-                    panic!("expected Atom payload for motion node attachment");
-                };
-                let decoded = decode_motion_atom_payload(payload).expect("decode");
+                let decoded = extract_motion_payload(&engine, &ids[0]);
                 debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
                 debug_assert!(decoded.1.iter().all(|v| v.is_finite()));
                 black_box(engine);
@@ -78,11 +82,7 @@ fn bench_motion_apply(c: &mut Criterion) {
                     engine.commit(tx).expect("commit");
 
                     // Decode and validate the first entity's payload and black_box the result.
-                    let payload = engine.node_attachment(&ids[0]).expect("payload exists");
-                    let AttachmentValue::Atom(payload) = payload else {
-                        panic!("expected Atom payload for motion node attachment");
-                    };
-                    let decoded = decode_motion_atom_payload(payload).expect("decode");
+                    let decoded = extract_motion_payload(&engine, &ids[0]);
                     debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
                     debug_assert!(decoded.1.iter().all(|v| v.is_finite()));
                     black_box(decoded);

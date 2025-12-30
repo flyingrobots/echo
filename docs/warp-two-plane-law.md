@@ -35,7 +35,7 @@ This doc exists to prevent a recurring confusion:
 
 Conceptually, a WARP state is:
 
-```
+```text
 U := (G, A)
 ```
 
@@ -48,7 +48,7 @@ Where:
 
 `π` is the “forgetful projection” that drops attachments:
 
-```
+```text
 π : WarpState → SkeletonGraph
 π(G, A) = G
 ```

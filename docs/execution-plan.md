@@ -35,7 +35,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-30 — Add WARP primer + wire into “Start here” (IN PROGRESS)
+> 2025-12-30 — PR #159: Address CodeRabbit actionables (IN PROGRESS)
+
+- Goal: close the remaining review items on PR #159 (docs + demo hygiene).
+- Scope:
+  - Add Evidence blocks (commit SHAs) for completed 2025-12-30 entries below.
+  - Clarify “no hidden edges” enforcement references in `docs/guide/warp-primer.md`.
+  - Clarify Paper I notation context (`U`, `π(U)`) in `docs/spec-warp-core.md`.
+  - Minor demo hygiene: document init/update behavior in the port demo executor.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; CodeRabbit re-review clean.
+
+> 2025-12-30 — Add WARP primer + wire into “Start here” (COMPLETED)
 
 - Goal: make WARP approachable to newcomers and pin canonical “start here” docs order.
 - Scope:
@@ -43,6 +53,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Link it as step 1 from README + `docs/spec-warp-core.md`.
   - Keep formatting markdownlint-friendly (esp. MD022 heading spacing).
 - Exit criteria: docs read cleanly; CodeRabbit markdown nits avoided.
+- Evidence:
+  - Commit: `1b40f66` (docs primer + links)
+  - Docs: `docs/guide/warp-primer.md`, `docs/spec-warp-core.md`
+  - README: `README.md` (Start here list)
 
 > 2025-12-30 — PR #159: Address CodeRabbit majors (warp-core tour examples) (COMPLETED)
 
@@ -58,6 +72,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
     - no dangling `Descend(WarpId)` portals without a corresponding `WarpInstance`,
     - no orphan instances (`WarpInstance.parent` must be realized by an attachment slot).
 - Exit criteria: `cargo fmt --all`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
+- Evidence:
+  - Commits: `875690c`, `7a02123`, `846723d`, `27e490a`
+  - Docs: `docs/spec-warp-core.md` (Stage B1 quickstart + worked examples)
+  - Implementation: `crates/warp-core/src/engine_impl.rs`, `crates/warp-core/src/tick_patch.rs`
+  - Tests: portal invariant tests in `crates/warp-core/src/tick_patch.rs`
 
 > 2025-12-30 — Touch-ups (receipts/docs + wasm/ffi ergonomics + graph delete perf) (COMPLETED)
 
@@ -69,6 +88,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Eliminate `delete_node_cascade`’s `O(total_edges)` inbound scan by maintaining a reverse inbound index (`edges_to`) plus `EdgeId -> to` index.
   - Clarify `docs/spec-warp-tick-patch.md` that the section 1.2 op list is semantic and does not imply encoding tag order.
 - Exit criteria: `cargo fmt --all`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
+- Evidence:
+  - Commits: `8282a29`, `ef89bc7`, `a070374`, `31e0836`, `889932d`
+  - Implementation: `crates/warp-core/src/receipt.rs`, `crates/warp-wasm/src/lib.rs`, `crates/warp-ffi/src/lib.rs`, `crates/warp-core/src/graph.rs`
+  - Docs: `docs/spec-warp-tick-patch.md`
 
 > 2025-12-30 — Touch-ups: encapsulation + ergonomics + micro-perf (COMPLETED)
 
@@ -81,6 +104,10 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Make root-store mutation methods (`insert_node`, `set_node_attachment`) return `Result` and surface invariant violation (`UnknownWarp`) rather than silently dropping writes.
   - Improve diagnostics in motion benchmarks’ panic paths.
 - Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated.
+- Evidence:
+  - Commits: `31e0836`, `889932d`
+  - Implementation: `crates/warp-core/src/engine_impl.rs`, `crates/warp-core/src/graph.rs`, `crates/warp-core/src/tick_patch.rs`, `crates/warp-core/src/ident.rs`
+  - Benches: `crates/warp-benches/benches/motion_throughput.rs`
 
 > 2025-12-30 — Stage B1.1: Atomic portals + merge/DAG slicing semantics (COMPLETED)
 

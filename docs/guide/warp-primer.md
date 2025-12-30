@@ -98,6 +98,18 @@ This is how Echo avoids building a system that “looks like WARP” but produce
 
 Canonical statement: `docs/warp-two-plane-law.md`.
 
+Enforcement in `warp-core` is by construction:
+
+- The only engine-recognized “structure inside data” mechanism is `AttachmentValue::Descend(WarpId)` (explicit portals).
+  - `AtomPayload.bytes` are treated as opaque data; the engine never interprets them as skeleton structure.
+- Matching/indexing/scheduling operate on `GraphStore` skeleton structure.
+  - Attachments are only read/decoded if a rule explicitly calls attachment APIs.
+- Typed decode failure is deterministic at the rule boundary.
+  - For example, invalid motion payload bytes result in `ApplyResult::NoMatch` (rule does not apply):
+    `crates/warp-core/tests/engine_motion_negative_tests.rs`.
+- Attachment identity includes `type_id` at the deterministic boundary:
+  `crates/warp-core/tests/atom_payload_digest_tests.rs`.
+
 ---
 
 ## 3. “Graphs all the way down” without recursive Rust structs (Stage B1)
@@ -114,6 +126,10 @@ Echo’s solution is **flattened indirection**:
 
 That `Descend(...)` does not contain a graph.
 It points to another graph **instance** that lives alongside the current one.
+
+Terminology note: “portals/instances” are *state recursion*. “Wormholes” are a different concept
+(tick-range compression in the history/provenance plane). See
+`docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md`.
 
 ### 3.1 WarpInstances (namespaces / layers)
 
@@ -255,3 +271,4 @@ Recommended reading order:
 4) `docs/spec-merkle-commit.md` — state hashing + commit header semantics.
 5) `docs/spec-warp-tick-patch.md` — tick patch boundary artifact (delta ops, hashing).
 6) `docs/spec/SPEC-0002-descended-attachments-v1.md` — WarpInstances, portals, merge/DAG slicing semantics.
+   (Terminology note: wormholes are *history compression*, not state descent; see the terms doc above.)

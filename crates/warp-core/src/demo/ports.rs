@@ -26,6 +26,10 @@ fn port_executor(store: &mut GraphStore, scope: &NodeId) {
         return;
     }
 
+    // State machine:
+    // - missing attachment => initialize the motion payload (pos.x starts at 1.0)
+    // - existing Atom motion payload => increment pos.x by 1.0
+    // - any other attachment kind/type => no-op (rule does not apply)
     // Use motion payload layout; increment pos.x by 1.0
     let Some(attachment) = store.node_attachment_mut(scope) else {
         let pos = [1.0, 0.0, 0.0];

@@ -31,8 +31,8 @@ Related docs (recommended, in order):
 In Paper I notation, this is “WarpState `U`” and its projection `π(U)`:
 
 ```text
-U := (SkeletonGraph, Attachments)
-π(U) = SkeletonGraph
+U := (SkeletonGraph, Attachments)  // full state (both planes)
+π(U) = SkeletonGraph                // skeleton projection (hot path)
 ```
 
 The hot path is intentionally defined over `π(U)`:

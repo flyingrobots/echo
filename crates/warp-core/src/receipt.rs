@@ -139,7 +139,7 @@ fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
     }
     let mut hasher = Hasher::new();
     // Receipt format version tag.
-    hasher.update(&1u16.to_le_bytes());
+    hasher.update(&2u16.to_le_bytes());
     // Entry count.
     hasher.update(&(entries.len() as u64).to_le_bytes());
     for entry in entries {

@@ -35,7 +35,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-30 — Stage B1.1: Atomic portals + merge/DAG slicing semantics (IN PROGRESS)
+> 2025-12-30 — Stage B1.1: Atomic portals + merge/DAG slicing semantics (COMPLETED)
 
 - Goal: make descended attachments “slice-safe” by introducing an atomic portal authoring op (`OpenPortal`), then lock down merge semantics and terminology to prevent long-term drift.
 - Scope:
@@ -45,7 +45,6 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Document merge semantics (explicit conflict resolution) and DAG slicing algorithm.
   - Add a terminology law doc to pin “instance zoom vs wormholes”.
 - Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated.
-- Pending: refactor `diff_instance` in `crates/warp-core/src/tick_patch.rs` to satisfy `clippy::too_many_lines`.
 - Evidence:
   - Implementation:
     - `crates/warp-core/src/tick_patch.rs` (`WarpOp::OpenPortal`, replay validation, diff_state portal canonicalization)

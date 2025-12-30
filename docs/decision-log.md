@@ -351,6 +351,7 @@ The following entries use a heading + bullets format for richer context.
   - Add a single canonical tick patch operation for portal authoring: `WarpOp::OpenPortal { key, child_warp, child_root, init }`.
     - `OpenPortal` atomically establishes instance metadata and sets the `Descend(child_warp)` attachment slot.
     - Patch replay validates “no dangling portal” and “no orphan instance” invariants.
+  - Bump `TickReceipt` digest format version to `2u16` after switching scope encoding to instance-scoped `NodeKey` so receipts remain self-describing across format evolution.
   - Update the patch diff constructor (`diff_state`) to emit `OpenPortal` for newly created descended instances when the `parent` slot is set to `Descend(child_warp)`, avoiding separate instance + attachment ops.
   - Specify multi-parent merge semantics explicitly:
     - merge commits must include an explicit merge patch that resolves all conflicting slot writes (including attachment slots); no implicit “parent order wins”.

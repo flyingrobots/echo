@@ -15,10 +15,12 @@
 use blake3::Hasher;
 use thiserror::Error;
 
+use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
 use crate::footprint::PortKey;
 use crate::graph::GraphStore;
-use crate::ident::{EdgeId, Hash as ContentHash, NodeId};
+use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
+use crate::warp_state::{WarpInstance, WarpState};
 
 /// Commit status of a tick patch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,10 +43,12 @@ impl TickCommitStatus {
 /// Unversioned slot identifier for slicing and provenance bookkeeping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SlotId {
-    /// Full node record at `NodeId` (type id + optional atom payload).
-    Node(NodeId),
-    /// Full edge record at `EdgeId` (from/to/type + optional atom payload).
-    Edge(EdgeId),
+    /// Full node record at `NodeKey` (instance-scoped skeleton record).
+    Node(NodeKey),
+    /// Full edge record at `EdgeKey` (instance-scoped skeleton record).
+    Edge(EdgeKey),
+    /// Attachment slot (node/edge plane payload, including `Descend` links).
+    Attachment(AttachmentKey),
     /// Boundary port value (opaque key).
     Port(PortKey),
 }
@@ -54,7 +58,8 @@ impl SlotId {
         match self {
             Self::Node(_) => 1,
             Self::Edge(_) => 2,
-            Self::Port(_) => 3,
+            Self::Attachment(_) => 3,
+            Self::Port(_) => 4,
         }
     }
 }
@@ -72,8 +77,9 @@ impl Ord for SlotId {
             return tag_cmp;
         }
         match (*self, *other) {
-            (Self::Node(a), Self::Node(b)) => a.0.cmp(&b.0),
-            (Self::Edge(a), Self::Edge(b)) => a.0.cmp(&b.0),
+            (Self::Node(a), Self::Node(b)) => a.cmp(&b),
+            (Self::Edge(a), Self::Edge(b)) => a.cmp(&b),
+            (Self::Attachment(a), Self::Attachment(b)) => a.cmp(&b),
             (Self::Port(a), Self::Port(b)) => a.cmp(&b),
             // SAFETY: tag comparison above guarantees matching variants.
             _ => unreachable!("tag mismatch in SlotId::cmp"),
@@ -84,35 +90,57 @@ impl Ord for SlotId {
 /// A canonical delta operation applied to the graph store.
 #[derive(Debug, Clone)]
 pub enum WarpOp {
+    /// Insert or replace warp instance metadata (Stage B1).
+    UpsertWarpInstance {
+        /// Instance metadata record.
+        instance: WarpInstance,
+    },
+    /// Delete a warp instance and all its contents.
+    DeleteWarpInstance {
+        /// Instance identifier to delete.
+        warp_id: WarpId,
+    },
     /// Insert or replace a node record.
     UpsertNode {
-        /// Node identifier being inserted or replaced.
-        node: NodeId,
+        /// Node identifier being inserted or replaced (instance-scoped).
+        node: NodeKey,
         /// Full node record contents.
         record: NodeRecord,
     },
     /// Delete a node record.
     DeleteNode {
-        /// Node identifier being deleted.
-        node: NodeId,
+        /// Node identifier being deleted (instance-scoped).
+        node: NodeKey,
     },
     /// Insert or replace an edge record.
     UpsertEdge {
+        /// Instance containing the edge.
+        warp_id: WarpId,
         /// Full edge record contents.
         record: EdgeRecord,
     },
     /// Delete an edge record from the outbound edge list of `from`.
     DeleteEdge {
+        /// Instance containing the edge.
+        warp_id: WarpId,
         /// Source node bucket holding the edge.
         from: NodeId,
         /// Edge identifier being deleted.
         edge_id: EdgeId,
+    },
+    /// Set (or clear) an attachment slot value.
+    SetAttachment {
+        /// Attachment slot key.
+        key: AttachmentKey,
+        /// New value (`None` clears the slot).
+        value: Option<AttachmentValue>,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct WarpOpKey {
     kind: u8,
+    warp: ContentHash,
     a: ContentHash,
     b: ContentHash,
 }
@@ -120,26 +148,65 @@ struct WarpOpKey {
 impl WarpOp {
     fn sort_key(&self) -> WarpOpKey {
         match self {
-            Self::DeleteEdge { from, edge_id } => WarpOpKey {
+            Self::UpsertWarpInstance { instance } => WarpOpKey {
                 kind: 1,
+                warp: (instance.warp_id).0,
+                a: (instance.warp_id).0,
+                b: [0u8; 32],
+            },
+            Self::DeleteWarpInstance { warp_id } => WarpOpKey {
+                kind: 2,
+                warp: warp_id.0,
+                a: warp_id.0,
+                b: [0u8; 32],
+            },
+            Self::DeleteEdge {
+                warp_id,
+                from,
+                edge_id,
+            } => WarpOpKey {
+                kind: 3,
+                warp: warp_id.0,
                 a: from.0,
                 b: edge_id.0,
             },
             Self::DeleteNode { node } => WarpOpKey {
-                kind: 2,
-                a: node.0,
+                kind: 4,
+                warp: (node.warp_id).0,
+                a: (node.local_id).0,
                 b: [0u8; 32],
             },
             Self::UpsertNode { node, .. } => WarpOpKey {
-                kind: 3,
-                a: node.0,
+                kind: 5,
+                warp: (node.warp_id).0,
+                a: (node.local_id).0,
                 b: [0u8; 32],
             },
-            Self::UpsertEdge { record } => WarpOpKey {
-                kind: 4,
+            Self::UpsertEdge { warp_id, record } => WarpOpKey {
+                kind: 6,
+                warp: warp_id.0,
                 a: record.from.0,
                 b: record.id.0,
             },
+            Self::SetAttachment { key, .. } => {
+                let (owner_tag, plane_tag) = key.tag();
+                // Stable ordering: (kind, owner_tag, plane_tag, warp_id, local_id).
+                let (warp, local) = match key.owner {
+                    AttachmentOwner::Node(node) => ((node.warp_id).0, (node.local_id).0),
+                    AttachmentOwner::Edge(edge) => ((edge.warp_id).0, (edge.local_id).0),
+                };
+                WarpOpKey {
+                    kind: 7,
+                    warp,
+                    a: {
+                        let mut buf = [0u8; 32];
+                        buf[0] = owner_tag;
+                        buf[1] = plane_tag;
+                        buf
+                    },
+                    b: local,
+                }
+            }
         }
     }
 }
@@ -191,13 +258,15 @@ impl WarpTickPatchV1 {
         ops.sort_by_key(WarpOp::sort_key);
         ops.dedup_by(|a, b| {
             if a.sort_key() == b.sort_key() {
-                *b = a.clone();
+                // Last-wins: after stable sorting, equal-key ops preserve input order.
+                // Replace the retained op (`a`) with the later op (`b`) and drop `b`.
+                *a = b.clone();
                 true
             } else {
                 false
             }
         });
-        let digest = compute_patch_digest_v1(
+        let digest = compute_patch_digest_v2(
             policy_id,
             &rule_pack_id,
             commit_status,
@@ -261,30 +330,87 @@ impl WarpTickPatchV1 {
         self.digest
     }
 
-    /// Applies the patch delta to `store`.
+    /// Applies the patch delta to `state`.
     ///
     /// # Errors
     /// Returns an error if an operation is invalid for the current store
     /// state (e.g., deleting a missing edge).
-    pub fn apply_to_store(&self, store: &mut GraphStore) -> Result<(), TickPatchError> {
+    pub fn apply_to_state(&self, state: &mut WarpState) -> Result<(), TickPatchError> {
         for op in &self.ops {
             match op {
+                WarpOp::UpsertWarpInstance { instance } => {
+                    let store = state
+                        .stores
+                        .remove(&instance.warp_id)
+                        .unwrap_or_else(|| GraphStore::new(instance.warp_id));
+                    state.upsert_instance(instance.clone(), store);
+                }
+                WarpOp::DeleteWarpInstance { warp_id } => {
+                    if !state.delete_instance(warp_id) {
+                        return Err(TickPatchError::MissingWarp(*warp_id));
+                    }
+                }
                 WarpOp::UpsertNode { node, record } => {
-                    store.nodes.insert(*node, record.clone());
+                    let Some(store) = state.store_mut(&node.warp_id) else {
+                        return Err(TickPatchError::MissingWarp(node.warp_id));
+                    };
+                    store.insert_node(node.local_id, record.clone());
                 }
                 WarpOp::DeleteNode { node } => {
-                    if store.nodes.remove(node).is_none() {
+                    let Some(store) = state.store_mut(&node.warp_id) else {
+                        return Err(TickPatchError::MissingWarp(node.warp_id));
+                    };
+                    if !store.delete_node_cascade(node.local_id) {
                         return Err(TickPatchError::MissingNode(*node));
                     }
                 }
-                WarpOp::UpsertEdge { record } => {
+                WarpOp::UpsertEdge { warp_id, record } => {
+                    let Some(store) = state.store_mut(warp_id) else {
+                        return Err(TickPatchError::MissingWarp(*warp_id));
+                    };
                     store.upsert_edge_record(record.from, record.clone());
                 }
-                WarpOp::DeleteEdge { from, edge_id } => {
+                WarpOp::DeleteEdge {
+                    warp_id,
+                    from,
+                    edge_id,
+                } => {
+                    let Some(store) = state.store_mut(warp_id) else {
+                        return Err(TickPatchError::MissingWarp(*warp_id));
+                    };
                     if !store.delete_edge_exact(*from, *edge_id) {
-                        return Err(TickPatchError::MissingEdge(*edge_id));
+                        return Err(TickPatchError::MissingEdge(EdgeKey {
+                            warp_id: *warp_id,
+                            local_id: *edge_id,
+                        }));
                     }
                 }
+                WarpOp::SetAttachment { key, value } => match key.owner {
+                    AttachmentOwner::Node(node) => {
+                        if key.plane != crate::attachment::AttachmentPlane::Alpha {
+                            return Err(TickPatchError::InvalidAttachmentKey(*key));
+                        }
+                        let Some(store) = state.store_mut(&node.warp_id) else {
+                            return Err(TickPatchError::MissingWarp(node.warp_id));
+                        };
+                        if store.node(&node.local_id).is_none() {
+                            return Err(TickPatchError::MissingNode(node));
+                        }
+                        store.set_node_attachment(node.local_id, value.clone());
+                    }
+                    AttachmentOwner::Edge(edge) => {
+                        if key.plane != crate::attachment::AttachmentPlane::Beta {
+                            return Err(TickPatchError::InvalidAttachmentKey(*key));
+                        }
+                        let Some(store) = state.store_mut(&edge.warp_id) else {
+                            return Err(TickPatchError::MissingWarp(edge.warp_id));
+                        };
+                        if !store.edge_index.contains_key(&edge.local_id) {
+                            return Err(TickPatchError::MissingEdge(edge));
+                        }
+                        store.set_edge_attachment(edge.local_id, value.clone());
+                    }
+                },
             }
         }
         Ok(())
@@ -294,15 +420,21 @@ impl WarpTickPatchV1 {
 /// Errors produced while applying a tick patch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum TickPatchError {
+    /// Referenced a warp instance that did not exist.
+    #[error("missing warp: {0:?}")]
+    MissingWarp(WarpId),
     /// Tried to delete a node that did not exist.
     #[error("missing node: {0:?}")]
-    MissingNode(NodeId),
+    MissingNode(NodeKey),
     /// Tried to delete an edge that did not exist.
     #[error("missing edge: {0:?}")]
-    MissingEdge(EdgeId),
+    MissingEdge(EdgeKey),
+    /// Tried to set an attachment slot that is not valid in v1.
+    #[error("invalid attachment key: {0:?}")]
+    InvalidAttachmentKey(AttachmentKey),
 }
 
-fn compute_patch_digest_v1(
+fn compute_patch_digest_v2(
     policy_id: u32,
     rule_pack_id: &ContentHash,
     commit_status: TickCommitStatus,
@@ -312,7 +444,7 @@ fn compute_patch_digest_v1(
 ) -> ContentHash {
     let mut h = Hasher::new();
     // Patch format version.
-    h.update(&1u16.to_le_bytes());
+    h.update(&2u16.to_le_bytes());
     h.update(&policy_id.to_le_bytes());
     h.update(rule_pack_id);
     h.update(&[commit_status.code()]);
@@ -329,14 +461,20 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
         match slot {
             SlotId::Node(id) => {
                 h.update(&[1u8]);
-                h.update(&id.0);
+                h.update(&(id.warp_id).0);
+                h.update(&(id.local_id).0);
             }
             SlotId::Edge(id) => {
                 h.update(&[2u8]);
-                h.update(&id.0);
+                h.update(&(id.warp_id).0);
+                h.update(&(id.local_id).0);
+            }
+            SlotId::Attachment(key) => {
+                h.update(&[3u8]);
+                encode_attachment_key(h, key);
             }
             SlotId::Port(key) => {
-                h.update(&[3u8]);
+                h.update(&[4u8]);
                 h.update(&key.to_le_bytes());
             }
         }
@@ -353,117 +491,202 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
     for op in ops {
         match op {
-            WarpOp::UpsertNode { node, record } => {
+            WarpOp::UpsertWarpInstance { instance } => {
                 h.update(&[1u8]);
-                h.update(&node.0);
+                h.update(&(instance.warp_id).0);
+                h.update(&(instance.root_node).0);
+                encode_attachment_key_opt(h, instance.parent.as_ref());
+            }
+            WarpOp::DeleteWarpInstance { warp_id } => {
+                h.update(&[2u8]);
+                h.update(&warp_id.0);
+            }
+            WarpOp::UpsertNode { node, record } => {
+                h.update(&[3u8]);
+                h.update(&(node.warp_id).0);
+                h.update(&(node.local_id).0);
                 h.update(&(record.ty).0);
-                encode_atom_payload(h, record.payload.as_ref());
             }
             WarpOp::DeleteNode { node } => {
-                h.update(&[2u8]);
-                h.update(&node.0);
+                h.update(&[4u8]);
+                h.update(&(node.warp_id).0);
+                h.update(&(node.local_id).0);
             }
-            WarpOp::UpsertEdge { record } => {
-                h.update(&[3u8]);
+            WarpOp::UpsertEdge { warp_id, record } => {
+                h.update(&[5u8]);
+                h.update(&warp_id.0);
                 h.update(&(record.from).0);
                 h.update(&(record.id).0);
                 h.update(&(record.to).0);
                 h.update(&(record.ty).0);
-                encode_atom_payload(h, record.payload.as_ref());
             }
-            WarpOp::DeleteEdge { from, edge_id } => {
-                h.update(&[4u8]);
+            WarpOp::DeleteEdge {
+                warp_id,
+                from,
+                edge_id,
+            } => {
+                h.update(&[6u8]);
+                h.update(&warp_id.0);
                 h.update(&from.0);
                 h.update(&edge_id.0);
             }
+            WarpOp::SetAttachment { key, value } => {
+                h.update(&[7u8]);
+                encode_attachment_key(h, key);
+                encode_attachment_value_opt(h, value.as_ref());
+            }
         }
     }
 }
 
-fn encode_atom_payload(h: &mut Hasher, payload: Option<&crate::AtomPayload>) {
-    match payload {
+fn encode_attachment_key_opt(h: &mut Hasher, key: Option<&AttachmentKey>) {
+    match key {
         None => {
             h.update(&[0u8]);
         }
-        Some(atom) => {
+        Some(key) => {
             h.update(&[1u8]);
-            h.update(&(atom.type_id).0);
-            h.update(&(atom.bytes.len() as u64).to_le_bytes());
-            h.update(&atom.bytes);
+            encode_attachment_key(h, key);
         }
     }
 }
 
-/// Computes a canonical delta op list that transforms one in-memory store state into another.
+fn encode_attachment_key(h: &mut Hasher, key: &AttachmentKey) {
+    let (owner_tag, plane_tag) = key.tag();
+    h.update(&[owner_tag]);
+    h.update(&[plane_tag]);
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            h.update(&(node.warp_id).0);
+            h.update(&(node.local_id).0);
+        }
+        AttachmentOwner::Edge(edge) => {
+            h.update(&(edge.warp_id).0);
+            h.update(&(edge.local_id).0);
+        }
+    }
+}
+
+fn encode_attachment_value_opt(h: &mut Hasher, value: Option<&AttachmentValue>) {
+    match value {
+        None => {
+            h.update(&[0u8]);
+        }
+        Some(value) => {
+            h.update(&[1u8]);
+            encode_attachment_value(h, value);
+        }
+    }
+}
+
+fn encode_attachment_value(h: &mut Hasher, value: &AttachmentValue) {
+    match value {
+        AttachmentValue::Atom(atom) => {
+            h.update(&[1u8]);
+            encode_atom_payload(h, atom);
+        }
+        AttachmentValue::Descend(warp_id) => {
+            h.update(&[2u8]);
+            h.update(&warp_id.0);
+        }
+    }
+}
+
+fn encode_atom_payload(h: &mut Hasher, atom: &AtomPayload) {
+    h.update(&(atom.type_id).0);
+    h.update(&(atom.bytes.len() as u64).to_le_bytes());
+    h.update(&atom.bytes);
+}
+
+/// Computes a canonical delta op list that transforms one multi-instance state into another.
 ///
-/// This is the “diff” constructor used by the v0 engine to build a
-/// [`WarpTickPatchV1`]: the engine snapshots `store_before`, executes rewrites
-/// to produce `store_after`, then calls `diff_store(store_before, store_after)`
-/// to obtain a canonical set of delta operations (`WarpOp`) for replay.
+/// This is the engine’s “diff constructor” for [`WarpTickPatchV1`]. The engine:
+/// 1) snapshots `before`,
+/// 2) executes rewrites to produce `after`, then
+/// 3) calls `diff_state(before, after)` to obtain a canonical list of [`WarpOp`]
+///    edits suitable for deterministic replay and hashing (`patch_digest`).
+///
+/// Typical use cases:
+/// - Engine commit path: derive the tick’s delta patch without re-searching.
+/// - Tooling/tests: validate that two states differ only by a specific op set.
 ///
 /// # Required invariants
-/// This function assumes both `before` and `after` are *valid* [`GraphStore`]
-/// instances that satisfy the store invariants:
-/// - `nodes` contains at most one record per `NodeId`.
-/// - `edges_from` contains outbound edges whose `EdgeRecord.from` matches the
-///   bucket key used to store them (the “from bucket” invariant).
-/// - Each `EdgeId` is globally unique across the entire store (no duplicates in
-///   different buckets).
+/// Callers must provide internally consistent `WarpState` inputs:
+/// - Every `WarpInstance` in `instances` has a corresponding `GraphStore` in `stores`
+///   and `GraphStore.warp_id == WarpInstance.warp_id`.
+/// - Per-store referential integrity holds (edges reference existing nodes, etc).
+/// - Deletions are *cascading*: deleting a node/instance implicitly deletes its
+///   incident edges and its attachment slots. This function therefore does not emit
+///   explicit “clear attachment” ops for deleted owners.
 ///
-/// Ordering within each store is expected to be deterministic (`BTreeMap`
-/// iteration order), but the returned ops do **not** preserve any original
-/// mutation order; they are canonicalized for hashing/replay.
+/// # Returned ops (semantic meaning)
+/// - `UpsertWarpInstance` / `DeleteWarpInstance`: instance metadata changes.
+/// - `UpsertNode` / `DeleteNode`: skeleton-plane node record edits scoped to an instance.
+/// - `UpsertEdge` / `DeleteEdge`: skeleton-plane edge record edits scoped to an instance.
+/// - `SetAttachment`: attachment-plane slot edits (atoms and `Descend` links).
 ///
-/// # Semantics of returned ops
-/// - [`WarpOp::UpsertNode`]: ensure the node record at `node` matches `after`.
-///   Emitted when a node is new or its type/payload changed.
-/// - [`WarpOp::DeleteNode`]: remove a node record that existed in `before` but
-///   is absent in `after`.
-/// - [`WarpOp::UpsertEdge`]: ensure the edge record for `EdgeId` matches `after`.
-///   Emitted when an edge is new or any of its fields changed.
-/// - [`WarpOp::DeleteEdge`]: remove an edge record from the specified `from`
-///   bucket. Emitted when an edge is removed, and also when an edge’s `from`
-///   bucket changes (migration), in which case a `DeleteEdge(old_from, id)` is
-///   emitted before the corresponding `UpsertEdge(new_record)`.
+/// # Edge cases & performance
+/// - If the inputs are identical, returns an empty vector.
+/// - Complexity is linear in the number of nodes/edges/attachments across all instances,
+///   plus a per-instance edge id map build (`edges_by_id`).
 ///
-/// The returned list is sorted by the canonical op ordering key (`WarpOp::sort_key`) so it can be applied in
-/// deterministic order. Applying the returned ops to a store in the `before`
-/// state should yield a store equivalent to `after`.
-///
-/// (Note: `WarpOp::sort_key` is an internal ordering key; it is not itself part
-/// of the wire encoding or patch digest encoding.)
-///
-/// # Why diff vs. recording ops directly?
-/// `diff_store` is useful when the engine executes arbitrary user code (rule
-/// executors) that mutates the store and we want a deterministic, replayable
-/// delta patch without requiring the executor to emit canonical ops itself.
-///
-/// In the long run, recording canonical ops directly (or emitting a cheaper
-/// structural diff) can avoid the clone+diff cost, but `diff_store` is the
-/// simplest correct v0 boundary artifact.
-///
-/// # Edge cases and behavior
-/// - If `before` and `after` are identical, this returns an empty list.
-/// - This function does not validate the stores; if either store violates the
-///   invariants above, the resulting op list may be incomplete or replay may
-///   fail (e.g., deleting a missing edge).
-///
-/// # Performance characteristics
-/// This routine is `O(nodes + edges)` to walk both stores plus `O(edges log edges)`
-/// to build `EdgeId`-keyed maps. It allocates and clones edge/node records as
-/// needed for op payloads, so it is not intended for hot paths.
-pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp> {
+/// Determinism contract:
+/// - Instance iteration is deterministic (`BTreeMap`).
+/// - The returned ops are canonicalized by `WarpOp::sort_key` and are suitable
+///   for both replay ordering and `patch_digest` hashing.
+pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     let mut ops: Vec<WarpOp> = Vec::new();
 
-    // Nodes
+    // WarpInstances: deletions and upserts.
+    for warp_id in before.instances.keys() {
+        if !after.instances.contains_key(warp_id) {
+            ops.push(WarpOp::DeleteWarpInstance { warp_id: *warp_id });
+        }
+    }
+    for (warp_id, inst_after) in &after.instances {
+        match before.instances.get(warp_id) {
+            None => ops.push(WarpOp::UpsertWarpInstance {
+                instance: inst_after.clone(),
+            }),
+            Some(inst_before) => {
+                if inst_before != inst_after {
+                    ops.push(WarpOp::UpsertWarpInstance {
+                        instance: inst_after.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Per-instance skeleton and attachment-plane diffs.
+    let empty = GraphStore::default();
+    for (warp_id, after_store) in &after.stores {
+        let before_store = before.stores.get(warp_id).unwrap_or(&empty);
+        diff_instance(&mut ops, *warp_id, before_store, after_store);
+    }
+
+    ops.sort_by_key(WarpOp::sort_key);
+    ops
+}
+
+fn diff_instance(ops: &mut Vec<WarpOp>, warp_id: WarpId, before: &GraphStore, after: &GraphStore) {
+    // Nodes (skeleton plane)
     for (id, rec_before) in &before.nodes {
         let Some(rec_after) = after.nodes.get(id) else {
-            ops.push(WarpOp::DeleteNode { node: *id });
+            ops.push(WarpOp::DeleteNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: *id,
+                },
+            });
             continue;
         };
-        if rec_before.ty != rec_after.ty || rec_before.payload != rec_after.payload {
+        if rec_before != rec_after {
             ops.push(WarpOp::UpsertNode {
-                node: *id,
+                node: NodeKey {
+                    warp_id,
+                    local_id: *id,
+                },
                 record: rec_after.clone(),
             });
         }
@@ -471,18 +694,37 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
     for (id, rec_after) in &after.nodes {
         if !before.nodes.contains_key(id) {
             ops.push(WarpOp::UpsertNode {
-                node: *id,
+                node: NodeKey {
+                    warp_id,
+                    local_id: *id,
+                },
                 record: rec_after.clone(),
             });
         }
     }
 
-    // Edges: map by EdgeId for stable diffing independent of insertion order.
+    // Node attachments (α plane): diff only for nodes that exist in `after`.
+    for node_id in after.nodes.keys() {
+        let before_val = before.node_attachment(node_id);
+        let after_val = after.node_attachment(node_id);
+        if before_val != after_val {
+            ops.push(WarpOp::SetAttachment {
+                key: AttachmentKey::node_alpha(NodeKey {
+                    warp_id,
+                    local_id: *node_id,
+                }),
+                value: after_val.cloned(),
+            });
+        }
+    }
+
+    // Edges (skeleton plane): map by EdgeId for stable diff independent of insertion order.
     let before_edges = edges_by_id(before);
     let after_edges = edges_by_id(after);
     for (id, rec_before) in &before_edges {
         if !after_edges.contains_key(id) {
             ops.push(WarpOp::DeleteEdge {
+                warp_id,
                 from: rec_before.from,
                 edge_id: EdgeId(*id),
             });
@@ -492,6 +734,7 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
         match before_edges.get(id) {
             None => {
                 ops.push(WarpOp::UpsertEdge {
+                    warp_id,
                     record: rec_after.clone(),
                 });
             }
@@ -499,11 +742,13 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
                 if rec_before != rec_after {
                     if rec_before.from != rec_after.from {
                         ops.push(WarpOp::DeleteEdge {
+                            warp_id,
                             from: rec_before.from,
                             edge_id: EdgeId(*id),
                         });
                     }
                     ops.push(WarpOp::UpsertEdge {
+                        warp_id,
                         record: rec_after.clone(),
                     });
                 }
@@ -511,8 +756,21 @@ pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp>
         }
     }
 
-    ops.sort_by_key(WarpOp::sort_key);
-    ops
+    // Edge attachments (β plane): diff only for edges that exist in `after`.
+    for id in after_edges.keys() {
+        let edge_id = EdgeId(*id);
+        let before_val = before.edge_attachment(&edge_id);
+        let after_val = after.edge_attachment(&edge_id);
+        if before_val != after_val {
+            ops.push(WarpOp::SetAttachment {
+                key: AttachmentKey::edge_beta(EdgeKey {
+                    warp_id,
+                    local_id: edge_id,
+                }),
+                value: after_val.cloned(),
+            });
+        }
+    }
 }
 
 fn edges_by_id(store: &GraphStore) -> std::collections::BTreeMap<ContentHash, EdgeRecord> {
@@ -523,4 +781,136 @@ fn edges_by_id(store: &GraphStore) -> std::collections::BTreeMap<ContentHash, Ed
         }
     }
     out
+}
+
+/// Extracts a Paper III-style slice from a linear worldline payload.
+///
+/// This function implements the “unversioned slots, interpretive SSA” rule:
+/// a slot version is `slot@i`, where `i` is the index of the producing patch
+/// in the worldline payload `P = (μ0, …, μn-1)`.
+///
+/// Returns the set of tick indices (in ascending order) that must be retained
+/// to replay the dependency cone for `target` at the end of the worldline.
+pub fn slice_worldline_indices(patches: &[WarpTickPatchV1], target: SlotId) -> Vec<usize> {
+    // Build a producer index: slot -> sorted list of producing tick indices.
+    let mut producers: std::collections::BTreeMap<SlotId, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (tick, patch) in patches.iter().enumerate() {
+        for slot in patch.out_slots() {
+            producers.entry(*slot).or_default().push(tick);
+        }
+    }
+
+    let mut needed_ticks: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    let mut work: Vec<(SlotId, usize)> = vec![(target, patches.len())];
+    let mut seen: std::collections::BTreeSet<(SlotId, usize)> = std::collections::BTreeSet::new();
+
+    while let Some((slot, consumer_tick)) = work.pop() {
+        if !seen.insert((slot, consumer_tick)) {
+            continue;
+        }
+        let Some(ticks) = producers.get(&slot) else {
+            continue; // Value originates from U0 (or is absent); no producing patch.
+        };
+        let Some(producer_tick) = producer_before(ticks, consumer_tick) else {
+            continue;
+        };
+        if needed_ticks.insert(producer_tick) {
+            for in_slot in patches[producer_tick].in_slots() {
+                work.push((*in_slot, producer_tick));
+            }
+        }
+    }
+
+    needed_ticks.into_iter().collect()
+}
+
+fn producer_before(producers: &[usize], consumer_tick: usize) -> Option<usize> {
+    let insertion = match producers.binary_search(&consumer_tick) {
+        Ok(pos) | Err(pos) => pos,
+    };
+    if insertion == 0 {
+        None
+    } else {
+        Some(producers[insertion - 1])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::ident::{make_node_id, make_type_id, make_warp_id};
+
+    #[test]
+    fn slice_includes_portal_chain_for_descended_instance() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let portal_key = AttachmentKey::node_alpha(NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        });
+
+        let child_root = make_node_id("child-root");
+        let child_instance = WarpInstance {
+            warp_id: child_warp,
+            root_node: child_root,
+            parent: Some(portal_key),
+        };
+
+        let child_node = make_node_id("child-node");
+        let child_node_key = NodeKey {
+            warp_id: child_warp,
+            local_id: child_node,
+        };
+
+        // Tick 0: establish the portal by setting the root attachment slot to Descend(child).
+        let patch0 = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: child_instance,
+                },
+                WarpOp::UpsertNode {
+                    node: NodeKey {
+                        warp_id: root_warp,
+                        local_id: root_node,
+                    },
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+                WarpOp::SetAttachment {
+                    key: portal_key,
+                    value: Some(AttachmentValue::Descend(child_warp)),
+                },
+            ],
+        );
+
+        // Tick 1: execute inside the descended instance; the engine enforces that
+        // the descent chain attachment slot is read (in_slots includes portal_key).
+        let patch1 = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![SlotId::Attachment(portal_key)],
+            vec![SlotId::Node(child_node_key)],
+            vec![WarpOp::UpsertNode {
+                node: child_node_key,
+                record: NodeRecord {
+                    ty: make_type_id("ChildTy"),
+                },
+            }],
+        );
+
+        let worldline = [patch0, patch1];
+        let ticks = slice_worldline_indices(&worldline, SlotId::Node(child_node_key));
+        assert_eq!(ticks, vec![0, 1]);
+    }
 }

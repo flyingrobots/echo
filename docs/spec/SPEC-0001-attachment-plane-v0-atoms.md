@@ -2,9 +2,9 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # SPEC-0001: Attachment Plane v0 — Typed Atoms (Depth-0)
 
-Status: Draft (Ready to Implement)  
+Status: Accepted (Implemented)  
 Owner: Echo / WARP  
-Last reviewed: 2025-12-29
+Last reviewed: 2025-12-30
 
 ## Goal
 
@@ -64,8 +64,13 @@ Echo’s core rewrite hot path operates over `π(U)` unless a rule explicitly ch
 
 Nodes/edges MAY carry an attachment payload. If present, it MUST be a typed atom:
 
-- `NodeRecord.payload: Option<AtomPayload>`
-- `EdgeRecord.payload: Option<AtomPayload>`
+- `AttachmentValue::Atom(AtomPayload)`
+
+Representation rule:
+- Node/edge *records* (`NodeRecord`, `EdgeRecord`) are skeleton-only.
+- Attachments are stored separately in the attachment plane:
+  - node/α plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
+  - edge/β plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
 
 ### R2 — Payload type_id participates in canonical encoding
 
@@ -154,9 +159,4 @@ See: `crates/warp-core/src/attachment.rs`.
 
 ## Follow-ups (Stage B1)
 
-- Define the explicit indirection model for descended attachments:
-  - attachment-root reference types
-  - skeleton-visible “descend edges”
-  - invariants to preserve “no hidden edges”
-- Decide how descended attachments participate in footprints and slicing.
-
+- Stage B1 is specified in `docs/spec/SPEC-0002-descended-attachments-v1.md`.

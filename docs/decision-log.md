@@ -313,3 +313,33 @@ The following entries use a heading + bullets format for richer context.
   - Maintain a store invariant that `edges_from` contains no empty buckets (prune buckets when the last edge is removed) so `state_root` remains a function of graph content, not mutation history.
 - Rationale: Paper III boundary artifacts (delta patches) must stay replayable and scalable; committing to `policy_id` only makes sense if callers can set it explicitly; and replay must not devolve into quadratic behavior for large graphs.
 - Consequence: Patch replay performance scales with local bucket size; policy semantics are explicit at the boundary; and identical graph states hash identically regardless of whether they were reached via add/remove edge sequences.
+
+## 2025-12-29 — warp-core Stage B0: two-plane attachments as typed atoms
+
+- Context: Echo needed to align with the WARP papers’ two-plane semantics (SkeletonGraph + attachment plane) without slowing rewrite matching/indexing.
+- Decisions:
+  - Define attachment payloads as typed, opaque atoms: `AtomPayload { type_id: TypeId, bytes: Bytes }`.
+  - Keep node/edge records skeleton-only (`NodeRecord`, `EdgeRecord`); store attachment values separately in an attachment plane.
+  - Introduce a strict codec boundary (`Codec<T>`, `DecodeError`, `CodecRegistry`) for rules/views/tooling; core matching/indexing does not decode.
+  - Deterministic decode failure semantics (v0): type mismatch or strict decode failure ⇒ “rule does not apply”.
+  - Commit `type_id` into canonical encodings/digests (state_root and patch_digest) to prevent “same bytes, different meaning” collisions.
+  - Lock the law: no hidden edges in payload bytes (dependencies must be skeleton-visible).
+- Rationale: preserve determinism and performance while making attachment semantics explicit and safe.
+- Consequence: payload typing becomes a first-class boundary artifact; the rewrite hot path remains skeleton-only; future recursion can be layered without reinterpreting bytes as structure.
+
+## 2025-12-30 — warp-core Stage B1: WarpInstances + descended attachments (flattened indirection)
+
+- Context: Depth-0 atoms alone are “WARP graphs of depth 0”; to model “WARPs all the way down” we needed explicit recursion without recursive hot-path traversal.
+- Decisions:
+  - Introduce instance-scoped identity (`WarpId`, `NodeKey`, `EdgeKey`) and multi-instance state (`WarpState`, `WarpInstance`).
+  - Extend the attachment plane with explicit indirection: `AttachmentValue::Descend(WarpId)` (no encoding of structure inside bytes).
+  - Make attachment slots first-class resources for causality:
+    - `AttachmentKey` is a stable slot identity.
+    - Footprints/scheduler treat attachment reads/writes as conflict resources.
+    - Execution inside a descended instance must READ the descent-chain attachment keys.
+  - Update the deterministic boundary:
+    - `state_root` hashes reachable instance content across `Descend` links (skeleton + attachments + instance headers).
+    - tick patch ops include instance metadata and attachment edits; patch digest encoding bumped to v2.
+  - Add a minimal slice helper test validating that descendant work pulls in the portal producer (Paper III slice closure).
+- Rationale: make recursion explicit, hashable, sliceable, and scheduler-visible while keeping matching/indexing skeleton-only within an instance.
+- Consequence: Echo can represent recursive WARP state via flattened indirection; descended-instance rewriting stays fast and deterministic; slicing remains trivial over `in_slots`/`out_slots` without decoding atoms.

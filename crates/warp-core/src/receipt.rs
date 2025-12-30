@@ -16,7 +16,7 @@
 
 use blake3::Hasher;
 
-use crate::ident::{Hash, NodeId};
+use crate::ident::{Hash, NodeKey};
 use crate::tx::TxId;
 
 /// A tick receipt: the per-candidate outcomes for a single commit attempt.
@@ -112,7 +112,7 @@ pub struct TickReceiptEntry {
     /// Scope hash used in the scheduler’s sort key.
     pub scope_hash: Hash,
     /// Scope node supplied when `Engine::apply` was invoked.
-    pub scope: NodeId,
+    pub scope: NodeKey,
     /// Outcome of the candidate rewrite in this tick.
     pub disposition: TickReceiptDisposition,
 }
@@ -145,7 +145,8 @@ fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
     for entry in entries {
         hasher.update(&entry.rule_id);
         hasher.update(&entry.scope_hash);
-        hasher.update(&(entry.scope).0);
+        hasher.update(&(entry.scope.warp_id).0);
+        hasher.update(&(entry.scope.local_id).0);
         let code = match entry.disposition {
             TickReceiptDisposition::Applied => 1u8,
             TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => 2u8,
@@ -162,17 +163,24 @@ mod tests {
 
     #[test]
     fn receipt_digest_is_stable_for_same_entries() {
+        let warp_id = crate::ident::make_warp_id("receipt-test-warp");
         let entries = vec![
             TickReceiptEntry {
                 rule_id: [1u8; 32],
                 scope_hash: [2u8; 32],
-                scope: make_node_id("a"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("a"),
+                },
                 disposition: TickReceiptDisposition::Applied,
             },
             TickReceiptEntry {
                 rule_id: [3u8; 32],
                 scope_hash: [4u8; 32],
-                scope: make_node_id("b"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("b"),
+                },
                 disposition: TickReceiptDisposition::Rejected(
                     TickReceiptRejection::FootprintConflict,
                 ),

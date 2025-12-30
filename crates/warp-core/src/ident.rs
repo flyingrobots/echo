@@ -25,6 +25,14 @@ pub struct TypeId(pub Hash);
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct EdgeId(pub Hash);
 
+/// Strongly typed identifier for a WARP instance.
+///
+/// A `WarpId` namespaces node/edge ids for Stage B1 “flattened indirection”
+/// descended attachments: nodes and edges live in instance-scoped graphs
+/// addressed by `(warp_id, local_id)`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct WarpId(pub Hash);
+
 /// Produces a stable, domain‑separated type identifier (prefix `b"type:"`) using BLAKE3.
 pub fn make_type_id(label: &str) -> TypeId {
     let mut hasher = Hasher::new();
@@ -57,6 +65,32 @@ pub fn make_edge_id(label: &str) -> EdgeId {
     EdgeId(hasher.finalize().into())
 }
 
+/// Produces a stable, domain-separated warp identifier (prefix `b"warp:"`) using BLAKE3.
+pub fn make_warp_id(label: &str) -> WarpId {
+    let mut hasher = Hasher::new();
+    hasher.update(b"warp:");
+    hasher.update(label.as_bytes());
+    WarpId(hasher.finalize().into())
+}
+
+/// Instance-scoped identifier for a node.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct NodeKey {
+    /// Warp instance that namespaces the local node id.
+    pub warp_id: WarpId,
+    /// Local node identifier within the instance.
+    pub local_id: NodeId,
+}
+
+/// Instance-scoped identifier for an edge.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct EdgeKey {
+    /// Warp instance that namespaces the local edge id.
+    pub warp_id: WarpId,
+    /// Local edge identifier within the instance.
+    pub local_id: EdgeId,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,8 +101,12 @@ mod tests {
         let t = make_type_id(lbl).0;
         let n = make_node_id(lbl).0;
         let e = make_edge_id(lbl).0;
+        let w = make_warp_id(lbl).0;
         assert_ne!(t, n);
         assert_ne!(t, e);
+        assert_ne!(t, w);
         assert_ne!(n, e);
+        assert_ne!(n, w);
+        assert_ne!(e, w);
     }
 }

@@ -4,32 +4,60 @@
 
 This document precisely defines the two hashes produced by the engine when recording state and provenance.
 
-- state_root: BLAKE3 of the canonical encoding of the reachable graph under the current root.
+- state_root: BLAKE3 of the canonical encoding of the reachable WARP state under the current root (including attachments and descended instances).
 - commit hash (commit_id): BLAKE3 of a header that includes state_root, parent commit(s), the tick patch digest (boundary delta), plus a policy id.
 
-## 1. Canonical Graph Encoding (state_root)
+## 1. Canonical State Encoding (state_root)
 
-Inputs: GraphStore, root NodeId.
+Inputs: `WarpState`, root `NodeKey`.
 
 Deterministic traversal:
-- Reachability: BFS from root following outbound edges; only reachable nodes and edges are included.
-- Node order: ascending NodeId (lexicographic over 32-byte ids).
-- Edge order: for each source node, include only edges whose destination is reachable; sort by ascending EdgeId.
+- Reachability: deterministic BFS from the root `NodeKey` across instances:
+  - within an instance: follow outbound skeleton edges
+  - across instances: follow any `AttachmentValue::Descend(child_warp)` encountered on:
+    - reachable nodes (α plane), and
+    - reachable edges (β plane)
+  - descending enqueues the `WarpInstance.root_node` of `child_warp`
+- Warp order: reachable `WarpId` values in ascending order (lexicographic over 32-byte ids).
+- Node order: ascending `NodeId` within each warp (lexicographic over 32-byte ids), filtered to reachable nodes in that warp.
+- Edge order: per reachable source bucket, sort edges by ascending `EdgeId`, and include only edges whose destination node is reachable.
 
 Encoding (little-endian where applicable):
-- Root id: 32 bytes.
-- For each node (in order):
-  - node_id (32), node.ty (32), payload_atom.
-- For each source (in order):
-  - from_id (32), edge_count (u64 LE) of included edges.
-    - edge_count is a 64-bit little-endian integer and may be 0 when a source
-      node has no outbound edges included by reachability/ordering rules.
-  - For each edge (in order):
-    - edge.id (32), edge.ty (32), edge.to (32), payload_atom.
+- Root key:
+  - `root_warp_id: 32`
+  - `root_node_id: 32`
+- For each reachable warp (in order):
+  - Instance header:
+    - `warp_id: 32`
+    - `root_node_id: 32` (the instance-local root)
+    - `parent_key_opt`:
+      - `present: u8` (`0` = None, `1` = Some)
+      - when present: `attachment_key` (see below)
+  - For each reachable node in that warp (in order):
+    - `node_id: 32`
+    - `node_type_id: 32`
+    - `attachment_value_opt` for the node’s α-plane slot (see below)
+  - For each reachable source bucket in that warp (in order):
+    - `from_node_id: 32`
+    - `edge_count: u64 LE` (number of included edges after reachability filter)
+    - For each included edge (in order):
+      - `edge_id: 32`
+      - `edge_type_id: 32`
+      - `to_node_id: 32`
+      - `attachment_value_opt` for the edge’s β-plane slot (see below)
 
-Where `payload_atom` is encoded as:
-- `present: u8` (`0` = None, `1` = Some)
-- when present: `payload_type_id: 32`, `payload_len: u64 LE`, then raw bytes.
+Where:
+- `attachment_key` encodes the identity of an attachment slot:
+  - `owner_tag: u8` (`1` = Node, `2` = Edge)
+  - `plane_tag: u8` (`1` = Alpha, `2` = Beta)
+  - `owner_warp_id: 32`
+  - `owner_local_id: 32` (raw `NodeId` or `EdgeId` bytes)
+- `attachment_value_opt` encodes the value stored in an attachment slot:
+  - `present: u8` (`0` = None, `1` = Some)
+  - when present:
+    - `value_tag: u8` (`1` = Atom, `2` = Descend)
+    - if Atom: `payload_type_id: 32`, `payload_len: u64 LE`, then raw bytes
+    - if Descend: `child_warp_id: 32`
 
 Hash: blake3(encoding) → 32-byte digest.
 
@@ -50,7 +78,7 @@ Hash: blake3(encode(header)) → commit_id.
 `patch_digest` commits to the tick patch boundary artifact: a replayable delta
 patch with canonical ops and conservative in/out slot sets.
 
-Canonical encoding for the tick patch (v1) is defined in `docs/spec-warp-tick-patch.md`.
+Canonical encoding for the tick patch (v2) is defined in `docs/spec-warp-tick-patch.md`.
 
 ---
 

@@ -13,6 +13,13 @@
 //! In Paper I terms, these are `Atom(p)` payloads for some opaque `p`.
 //! In Echo, `p` is represented as the pair `(TypeId, Bytes)` to avoid “same
 //! bytes, different meaning” collisions at the deterministic boundary.
+//!
+//! Stage B1 extends this with **descended attachments** via flattened
+//! indirection:
+//! - Attachments remain opaque atoms by default (`AtomPayload`).
+//! - Attachments may also be `Descend(WarpId)` to refer to another instance.
+//! - Descend links are explicit (not encoded inside bytes), satisfying the
+//!   “no hidden edges” law.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -21,7 +28,95 @@ use std::marker::PhantomData;
 use bytes::Bytes;
 use thiserror::Error;
 
-use crate::ident::TypeId;
+use crate::ident::{EdgeKey, NodeKey, TypeId, WarpId};
+
+/// Attachment plane selector.
+///
+/// In Paper I notation, vertex attachments are `α` and edge attachments are `β`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AttachmentPlane {
+    /// Vertex/node attachment plane (`α`).
+    Alpha,
+    /// Edge attachment plane (`β`).
+    Beta,
+}
+
+impl AttachmentPlane {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::Alpha => 1,
+            Self::Beta => 2,
+        }
+    }
+}
+
+/// Owner identity for an attachment slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AttachmentOwner {
+    /// Attachment owned by a node.
+    Node(NodeKey),
+    /// Attachment owned by an edge.
+    Edge(EdgeKey),
+}
+
+impl AttachmentOwner {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::Node(_) => 1,
+            Self::Edge(_) => 2,
+        }
+    }
+}
+
+/// First-class identity for an attachment slot.
+///
+/// This is the key used for Stage B1 “descent chain” footprinting and slicing:
+/// changes to an attachment slot (especially `Descend`) must invalidate matches
+/// inside descendant instances deterministically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AttachmentKey {
+    /// Owner of the slot.
+    pub owner: AttachmentOwner,
+    /// Attachment plane selector.
+    pub plane: AttachmentPlane,
+}
+
+impl AttachmentKey {
+    /// Constructs a node-owned attachment key in the vertex/α plane.
+    #[must_use]
+    pub const fn node_alpha(node: NodeKey) -> Self {
+        Self {
+            owner: AttachmentOwner::Node(node),
+            plane: AttachmentPlane::Alpha,
+        }
+    }
+
+    /// Constructs an edge-owned attachment key in the edge/β plane.
+    #[must_use]
+    pub const fn edge_beta(edge: EdgeKey) -> Self {
+        Self {
+            owner: AttachmentOwner::Edge(edge),
+            plane: AttachmentPlane::Beta,
+        }
+    }
+
+    pub(crate) const fn tag(self) -> (u8, u8) {
+        (self.owner.tag(), self.plane.tag())
+    }
+}
+
+/// Attachment value stored in the attachment plane.
+///
+/// Depth-0 attachments are always [`AttachmentValue::Atom`].
+/// Stage B1 introduces [`AttachmentValue::Descend`] to model recursive WARPs as
+/// flattened indirection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AttachmentValue {
+    /// Depth-0 atom payload.
+    Atom(AtomPayload),
+    /// Flattened indirection to another WARP instance.
+    Descend(WarpId),
+}
 
 /// Typed, opaque payload attached to a node or edge.
 ///

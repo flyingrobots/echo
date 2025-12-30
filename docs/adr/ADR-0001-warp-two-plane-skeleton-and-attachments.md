@@ -22,7 +22,9 @@ Echo also requires that graph rewriting remain fast: core matching/indexing must
 
 ## Decision
 
-1) Echo’s core in-memory store is defined as **SkeletonGraph** (the skeleton plane / `π(U)`).
+1) Echo’s core in-memory storage separates **SkeletonGraph** (structure) from the attachment plane (payloads).
+
+The rewrite hot path is defined over the skeleton projection `π(U)` (matching/indexing does not decode attachments unless a rule explicitly opts in).
 
 2) Attachments exist but are represented as **typed atoms** by default (depth-0):
 
@@ -77,4 +79,3 @@ Cons:
 
 - SPEC for Attachment Plane v0 (Atoms): codec boundary, deterministic error semantics, canonical encoding rules.
 - Stage B1 proposal: descended attachments using explicit references/links (no hidden edges).
-

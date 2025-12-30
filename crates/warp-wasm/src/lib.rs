@@ -13,7 +13,7 @@ use std::rc::Rc;
 use js_sys::Uint8Array;
 use warp_core::{
     build_motion_demo_engine, decode_motion_atom_payload, encode_motion_atom_payload, make_node_id,
-    make_type_id, ApplyResult, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
+    make_type_id, ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
 };
 use wasm_bindgen::prelude::*;
 
@@ -155,13 +155,8 @@ impl WasmEngine {
         let entity_type = make_type_id("entity");
         let payload = encode_motion_atom_payload(position.components(), velocity.components());
 
-        engine.insert_node(
-            node_id,
-            NodeRecord {
-                ty: entity_type,
-                payload: Some(payload),
-            },
-        );
+        engine.insert_node(node_id, NodeRecord { ty: entity_type });
+        engine.set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)));
 
         Uint8Array::from(node_id.0.as_slice())
     }
@@ -210,8 +205,10 @@ impl WasmEngine {
     pub fn read_motion(&self, entity_id: &[u8]) -> Option<Box<[f32]>> {
         let engine = self.inner.borrow();
         let node_id = bytes_to_node_id(entity_id)?;
-        let record = engine.node(&node_id)?;
-        let payload = record.payload.as_ref()?;
+        let payload = engine.node_attachment(&node_id)?;
+        let AttachmentValue::Atom(payload) = payload else {
+            return None;
+        };
         let (position, velocity) = decode_motion_atom_payload(payload)?;
         let mut data = Vec::with_capacity(6);
         data.extend_from_slice(&position);

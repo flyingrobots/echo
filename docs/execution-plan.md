@@ -35,6 +35,42 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — Stage B1: WarpInstances + descended attachments (COMPLETED)
+
+- Goal: implement “WARPs all the way down” without recursive traversal in the rewrite hot path by modeling descent as flattened indirection (WarpInstances).
+- Scope:
+  - Introduce WarpInstances:
+    - `WarpId`
+    - `WarpInstance { warp_id, root_node, parent: Option<AttachmentKey> }`
+  - Make ids instance-scoped:
+    - `NodeKey { warp_id, local_id }`
+    - `EdgeKey { warp_id, local_id }`
+  - Upgrade attachments from depth-0 atoms to `AttachmentValue = Atom(AtomPayload) | Descend(WarpId)` and make attachment slots first-class:
+    - `AttachmentKey { owner: NodeKey|EdgeKey, plane: Alpha|Beta }`
+    - `SlotId::Attachment(AttachmentKey)` (tick patches + slicing)
+  - Enforce the Paper I/II “no hidden edges” and descent-chain correctness laws:
+    - Matching/indexing stays skeleton-only within an instance.
+    - Any match/exec within a descended instance must READ every `AttachmentKey` in the descent stack (so changing a descent pointer deterministically invalidates the match).
+  - Slicing integration: a demanded value in instance `W` must pull in the attachment chain (root → W) producers via `SetAttachment(...Descend...)` ops, with no decoding of atoms.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; new ADR + SPEC for Stage B1; decision log updated.
+- Evidence:
+  - Implementation:
+    - `crates/warp-core/src/warp_state.rs` (WarpState/WarpInstance)
+    - `crates/warp-core/src/attachment.rs` (AttachmentKey/Value incl. `Descend`)
+    - `crates/warp-core/src/snapshot.rs` (state_root reachability across instances via `Descend`)
+    - `crates/warp-core/src/engine_impl.rs` (apply_in_warp + descent_chain reads)
+    - `crates/warp-core/src/footprint.rs` + `crates/warp-core/src/scheduler.rs` (attachment conflicts)
+    - `crates/warp-core/src/tick_patch.rs` (SlotId::Attachment, instance ops, patch_digest v2)
+  - Docs:
+    - `docs/adr/ADR-0002-warp-instances-descended-attachments.md`
+    - `docs/spec/SPEC-0002-descended-attachments-v1.md`
+    - `docs/spec-warp-tick-patch.md` (updated to v2 encoding)
+    - `docs/spec-merkle-commit.md` (updated state_root encoding)
+    - `docs/warp-two-plane-law.md` (updated to reflect B1 reality)
+  - Tests:
+    - `crates/warp-core/src/tick_patch.rs` (portal-chain slice test)
+    - `crates/warp-core/src/scheduler.rs` (descent-chain conflict test)
+
 > 2025-12-29 — WARP two-plane semantics: typed atom attachments (COMPLETED)
 
 - Goal: align Echo’s `warp-core` implementation with Paper I/II “two-plane” semantics without slowing the rewrite hot path.

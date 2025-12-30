@@ -263,23 +263,11 @@ fn build_sample_graph() -> GraphStore {
     let worm_ty = make_type_id("wormhole");
 
     let world = make_node_id("world");
-    store.insert_node(
-        world,
-        NodeRecord {
-            ty: world_ty,
-            payload: None,
-        },
-    );
+    store.insert_node(world, NodeRecord { ty: world_ty });
 
     for i in 0..8u8 {
         let id = make_node_id(&format!("region-{i}"));
-        store.insert_node(
-            id,
-            NodeRecord {
-                ty: region_ty,
-                payload: None,
-            },
-        );
+        store.insert_node(id, NodeRecord { ty: region_ty });
         store.insert_edge(
             world,
             EdgeRecord {
@@ -287,18 +275,11 @@ fn build_sample_graph() -> GraphStore {
                 from: world,
                 to: id,
                 ty: region_ty,
-                payload: None,
             },
         );
         for j in 0..3u8 {
             let leaf = make_node_id(&format!("leaf-{i}-{j}"));
-            store.insert_node(
-                leaf,
-                NodeRecord {
-                    ty: leaf_ty,
-                    payload: None,
-                },
-            );
+            store.insert_node(leaf, NodeRecord { ty: leaf_ty });
             store.insert_edge(
                 id,
                 EdgeRecord {
@@ -306,7 +287,6 @@ fn build_sample_graph() -> GraphStore {
                     from: id,
                     to: leaf,
                     ty: leaf_ty,
-                    payload: None,
                 },
             );
         }
@@ -322,7 +302,6 @@ fn build_sample_graph() -> GraphStore {
                 from: a_id,
                 to: b_id,
                 ty: worm_ty,
-                payload: None,
             },
         );
         store.insert_edge(
@@ -332,7 +311,6 @@ fn build_sample_graph() -> GraphStore {
                 from: b_id,
                 to: a_id,
                 ty: worm_ty,
-                payload: None,
             },
         );
     }

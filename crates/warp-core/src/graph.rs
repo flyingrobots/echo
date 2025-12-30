@@ -3,19 +3,30 @@
 //! Minimal in-memory graph store used by the rewrite executor and tests.
 use std::collections::BTreeMap;
 
-use crate::ident::{EdgeId, NodeId};
+use crate::attachment::AttachmentValue;
+use crate::ident::{EdgeId, NodeId, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
 
 /// In-memory graph storage for the spike.
 ///
 /// The production engine will eventually swap in a content-addressed store,
 /// but this structure keeps the motion rewrite spike self-contained.
-#[derive(Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct GraphStore {
+    /// Warp instance identifier for this store (Stage B1).
+    pub(crate) warp_id: WarpId,
     /// Mapping from node identifiers to their materialised records.
     pub(crate) nodes: BTreeMap<NodeId, NodeRecord>,
     /// Mapping from source node to outbound edge records.
     pub(crate) edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>,
+    /// Attachment plane payloads for nodes (Paper I `α` plane).
+    ///
+    /// Entries are present only when the attachment is `Some(...)`.
+    pub(crate) node_attachments: BTreeMap<NodeId, AttachmentValue>,
+    /// Attachment plane payloads for edges (Paper I `β` plane).
+    ///
+    /// Entries are present only when the attachment is `Some(...)`.
+    pub(crate) edge_attachments: BTreeMap<EdgeId, AttachmentValue>,
     /// Reverse index of `EdgeId -> from NodeId`.
     ///
     /// This enables efficient edge migration/removal by id (used by tick patch replay),
@@ -23,7 +34,32 @@ pub struct GraphStore {
     pub(crate) edge_index: BTreeMap<EdgeId, NodeId>,
 }
 
+impl Default for GraphStore {
+    fn default() -> Self {
+        Self::new(crate::ident::make_warp_id("root"))
+    }
+}
+
 impl GraphStore {
+    /// Creates an empty store for `warp_id`.
+    #[must_use]
+    pub fn new(warp_id: WarpId) -> Self {
+        Self {
+            warp_id,
+            nodes: BTreeMap::new(),
+            edges_from: BTreeMap::new(),
+            node_attachments: BTreeMap::new(),
+            edge_attachments: BTreeMap::new(),
+            edge_index: BTreeMap::new(),
+        }
+    }
+
+    /// Returns the warp instance identifier for this store.
+    #[must_use]
+    pub fn warp_id(&self) -> WarpId {
+        self.warp_id
+    }
+
     /// Iterate over all nodes (id, record) in deterministic order.
     pub fn iter_nodes(&self) -> impl Iterator<Item = (&NodeId, &NodeRecord)> {
         self.nodes.iter()
@@ -39,6 +75,16 @@ impl GraphStore {
         self.nodes.get(id)
     }
 
+    /// Returns the node's attachment value (if any).
+    pub fn node_attachment(&self, id: &NodeId) -> Option<&AttachmentValue> {
+        self.node_attachments.get(id)
+    }
+
+    /// Returns a mutable reference to the node's attachment value (if any).
+    pub fn node_attachment_mut(&mut self, id: &NodeId) -> Option<&mut AttachmentValue> {
+        self.node_attachments.get_mut(id)
+    }
+
     /// Returns an iterator over edges that originate from the provided node.
     ///
     /// Edges are yielded in insertion order. For deterministic traversal
@@ -50,6 +96,44 @@ impl GraphStore {
     /// Returns a mutable reference to a node when it exists.
     pub fn node_mut(&mut self, id: &NodeId) -> Option<&mut NodeRecord> {
         self.nodes.get_mut(id)
+    }
+
+    /// Sets the node's attachment value.
+    ///
+    /// Passing `None` clears any existing attachment.
+    pub fn set_node_attachment(&mut self, id: NodeId, value: Option<AttachmentValue>) {
+        match value {
+            None => {
+                self.node_attachments.remove(&id);
+            }
+            Some(v) => {
+                self.node_attachments.insert(id, v);
+            }
+        }
+    }
+
+    /// Returns the edge's attachment value (if any).
+    pub fn edge_attachment(&self, id: &EdgeId) -> Option<&AttachmentValue> {
+        self.edge_attachments.get(id)
+    }
+
+    /// Returns a mutable reference to the edge's attachment value (if any).
+    pub fn edge_attachment_mut(&mut self, id: &EdgeId) -> Option<&mut AttachmentValue> {
+        self.edge_attachments.get_mut(id)
+    }
+
+    /// Sets the edge's attachment value.
+    ///
+    /// Passing `None` clears any existing attachment.
+    pub fn set_edge_attachment(&mut self, id: EdgeId, value: Option<AttachmentValue>) {
+        match value {
+            None => {
+                self.edge_attachments.remove(&id);
+            }
+            Some(v) => {
+                self.edge_attachments.insert(id, v);
+            }
+        }
     }
 
     /// Inserts or replaces a node in the store.
@@ -112,6 +196,50 @@ impl GraphStore {
         self.edges_from.entry(from).or_default().push(edge);
     }
 
+    /// Deletes a node and removes any attachments and incident edges.
+    ///
+    /// Returns `true` if the node existed and was removed.
+    pub(crate) fn delete_node_cascade(&mut self, node: NodeId) -> bool {
+        if self.nodes.remove(&node).is_none() {
+            return false;
+        }
+        self.node_attachments.remove(&node);
+
+        // Remove outgoing edges (the bucket).
+        if let Some(out_edges) = self.edges_from.remove(&node) {
+            for e in out_edges {
+                self.edge_index.remove(&e.id);
+                self.edge_attachments.remove(&e.id);
+            }
+        }
+
+        // Remove inbound edges (scan buckets).
+        let mut removed_edge_ids: Vec<EdgeId> = Vec::new();
+        let mut empty_buckets: Vec<NodeId> = Vec::new();
+        for (from, edges) in &mut self.edges_from {
+            let before = edges.len();
+            edges.retain(|e| {
+                if e.to == node {
+                    removed_edge_ids.push(e.id);
+                    false
+                } else {
+                    true
+                }
+            });
+            if before != edges.len() && edges.is_empty() {
+                empty_buckets.push(*from);
+            }
+        }
+        for from in empty_buckets {
+            self.edges_from.remove(&from);
+        }
+        for edge_id in removed_edge_ids {
+            self.edge_index.remove(&edge_id);
+            self.edge_attachments.remove(&edge_id);
+        }
+        true
+    }
+
     /// Deletes an edge from the specified bucket if it exists and matches the reverse index.
     ///
     /// Returns `true` if an edge was removed; returns `false` if the edge did not exist or
@@ -142,6 +270,7 @@ impl GraphStore {
         if bucket_is_empty {
             self.edges_from.remove(&from);
         }
+        self.edge_attachments.remove(&edge_id);
         true
     }
 }

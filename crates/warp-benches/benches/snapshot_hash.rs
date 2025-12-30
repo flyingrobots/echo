@@ -29,13 +29,7 @@ fn build_chain_engine(n: usize) -> Engine {
     let mut store = GraphStore::default();
     let root = make_node_id(ROOT_ID_STR);
     let world = make_type_id(WORLD_TYPE_STR);
-    store.insert_node(
-        root,
-        NodeRecord {
-            ty: world,
-            payload: None,
-        },
-    );
+    store.insert_node(root, NodeRecord { ty: world });
     // Insert N nodes and connect them in a chain so all are reachable.
     let entity_ty = make_type_id(ENTITY_TYPE_STR);
     let link_ty = make_type_id(LINK_TYPE_STR);
@@ -43,13 +37,7 @@ fn build_chain_engine(n: usize) -> Engine {
     for i in 0..n {
         let to_label = format!("{}{}", ENT_LABEL_PREFIX, i);
         let id = make_node_id(&to_label);
-        store.insert_node(
-            id,
-            NodeRecord {
-                ty: entity_ty,
-                payload: None,
-            },
-        );
+        store.insert_node(id, NodeRecord { ty: entity_ty });
         // Human-friendly edge id: <from>-to-<to>.
         let from_label = if i == 0 {
             ROOT_ID_STR.to_string()
@@ -64,7 +52,6 @@ fn build_chain_engine(n: usize) -> Engine {
                 from: chain_tail,
                 to: id,
                 ty: link_ty,
-                payload: None,
             },
         );
         chain_tail = id;

@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, HashMap};
 use rustc_hash::FxHashMap;
 
 use crate::footprint::Footprint;
-use crate::ident::{CompactRuleId, Hash, NodeId};
+use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeId, NodeKey};
 #[cfg(feature = "telemetry")]
 use crate::telemetry;
 use crate::tx::TxId;
@@ -24,13 +24,17 @@ use crate::tx::TxId;
 #[derive(Debug)]
 pub(crate) struct ActiveFootprints {
     /// Nodes written by reserved rewrites
-    nodes_written: GenSet<NodeId>,
+    nodes_written: GenSet<NodeKey>,
     /// Nodes read by reserved rewrites
-    nodes_read: GenSet<NodeId>,
+    nodes_read: GenSet<NodeKey>,
     /// Edges written by reserved rewrites
-    edges_written: GenSet<crate::ident::EdgeId>,
+    edges_written: GenSet<EdgeKey>,
     /// Edges read by reserved rewrites
-    edges_read: GenSet<crate::ident::EdgeId>,
+    edges_read: GenSet<EdgeKey>,
+    /// Attachments written by reserved rewrites
+    attachments_written: GenSet<crate::attachment::AttachmentKey>,
+    /// Attachments read by reserved rewrites
+    attachments_read: GenSet<crate::attachment::AttachmentKey>,
     /// Boundary ports touched (both `b_in` and `b_out`, since any intersection conflicts)
     ports: GenSet<crate::footprint::PortKey>,
 }
@@ -42,6 +46,8 @@ impl ActiveFootprints {
             nodes_read: GenSet::new(),
             edges_written: GenSet::new(),
             edges_read: GenSet::new(),
+            attachments_written: GenSet::new(),
+            attachments_read: GenSet::new(),
             ports: GenSet::new(),
         }
     }
@@ -70,7 +76,7 @@ pub(crate) struct PendingRewrite {
     /// Scope hash used for deterministic ordering (full 32 bytes).
     pub scope_hash: Hash,
     /// Scope node supplied when `apply` was invoked.
-    pub scope: NodeId,
+    pub scope: NodeKey,
     /// Footprint used for independence checks and conflict resolution.
     pub footprint: Footprint,
     /// State machine phase for the rewrite.
@@ -177,7 +183,11 @@ impl RadixScheduler {
         // Node writes conflict with prior writes OR reads
         for node_hash in pr.footprint.n_write.iter() {
             let node_id = NodeId(*node_hash);
-            if active.nodes_written.contains(node_id) || active.nodes_read.contains(node_id) {
+            let key = NodeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: node_id,
+            };
+            if active.nodes_written.contains(key) || active.nodes_read.contains(key) {
                 return true;
             }
         }
@@ -185,7 +195,11 @@ impl RadixScheduler {
         // Node reads conflict with prior writes (but NOT prior reads)
         for node_hash in pr.footprint.n_read.iter() {
             let node_id = NodeId(*node_hash);
-            if active.nodes_written.contains(node_id) {
+            let key = NodeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: node_id,
+            };
+            if active.nodes_written.contains(key) {
                 return true;
             }
         }
@@ -193,7 +207,11 @@ impl RadixScheduler {
         // Edge writes conflict with prior writes OR reads
         for edge_hash in pr.footprint.e_write.iter() {
             let edge_id = EdgeId(*edge_hash);
-            if active.edges_written.contains(edge_id) || active.edges_read.contains(edge_id) {
+            let key = EdgeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: edge_id,
+            };
+            if active.edges_written.contains(key) || active.edges_read.contains(key) {
                 return true;
             }
         }
@@ -201,7 +219,25 @@ impl RadixScheduler {
         // Edge reads conflict with prior writes (but NOT prior reads)
         for edge_hash in pr.footprint.e_read.iter() {
             let edge_id = EdgeId(*edge_hash);
-            if active.edges_written.contains(edge_id) {
+            let key = EdgeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: edge_id,
+            };
+            if active.edges_written.contains(key) {
+                return true;
+            }
+        }
+
+        // Attachment writes conflict with prior writes OR reads.
+        for key in pr.footprint.a_write.iter() {
+            if active.attachments_written.contains(*key) || active.attachments_read.contains(*key) {
+                return true;
+            }
+        }
+
+        // Attachment reads conflict with prior writes (but NOT prior reads).
+        for key in pr.footprint.a_read.iter() {
+            if active.attachments_written.contains(*key) {
                 return true;
             }
         }
@@ -226,16 +262,34 @@ impl RadixScheduler {
         use crate::ident::EdgeId;
 
         for node_hash in pr.footprint.n_write.iter() {
-            active.nodes_written.mark(NodeId(*node_hash));
+            active.nodes_written.mark(NodeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: NodeId(*node_hash),
+            });
         }
         for node_hash in pr.footprint.n_read.iter() {
-            active.nodes_read.mark(NodeId(*node_hash));
+            active.nodes_read.mark(NodeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: NodeId(*node_hash),
+            });
         }
         for edge_hash in pr.footprint.e_write.iter() {
-            active.edges_written.mark(EdgeId(*edge_hash));
+            active.edges_written.mark(EdgeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: EdgeId(*edge_hash),
+            });
         }
         for edge_hash in pr.footprint.e_read.iter() {
-            active.edges_read.mark(EdgeId(*edge_hash));
+            active.edges_read.mark(EdgeKey {
+                warp_id: pr.scope.warp_id,
+                local_id: EdgeId(*edge_hash),
+            });
+        }
+        for key in pr.footprint.a_write.iter() {
+            active.attachments_written.mark(*key);
+        }
+        for key in pr.footprint.a_read.iter() {
+            active.attachments_read.mark(*key);
         }
         for port_key in pr.footprint.b_in.keys() {
             active.ports.mark(*port_key);
@@ -690,7 +744,7 @@ impl DeterministicScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ident::make_node_id;
+    use crate::ident::{make_node_id, NodeKey, WarpId};
 
     // Test-only helper: pack a boundary port key from components.
     #[inline]
@@ -712,10 +766,21 @@ mod tests {
         out
     }
 
+    fn test_warp_id() -> WarpId {
+        crate::ident::make_warp_id("scheduler-test-warp")
+    }
+
+    fn scope_key(label: &str) -> NodeKey {
+        NodeKey {
+            warp_id: test_warp_id(),
+            local_id: make_node_id(label),
+        }
+    }
+
     #[test]
     fn drain_for_tx_returns_deterministic_order() {
         let tx = TxId::from_raw(1);
-        let scope = make_node_id("s");
+        let scope = scope_key("s");
         let mut sched = RadixScheduler::default();
 
         // Insert out of lexicographic order: (2,1), (1,2), (1,1)
@@ -746,7 +811,7 @@ mod tests {
     #[test]
     fn last_wins_dedupe() {
         let tx = TxId::from_raw(1);
-        let scope = make_node_id("s");
+        let scope = scope_key("s");
         let mut sched = RadixScheduler::default();
         let scope_h = h(5);
 
@@ -806,7 +871,7 @@ mod tests {
             rule_id: h(1),
             compact_rule: CompactRuleId(1),
             scope_hash: h(1),
-            scope: make_node_id("scope1"),
+            scope: scope_key("scope1"),
             footprint: Footprint {
                 factor_mask: 0b0001, // Set factor mask so independence check proceeds
                 ..Default::default()
@@ -820,7 +885,7 @@ mod tests {
             rule_id: h(2),
             compact_rule: CompactRuleId(2),
             scope_hash: h(2),
-            scope: make_node_id("scope2"),
+            scope: scope_key("scope2"),
             footprint: Footprint {
                 factor_mask: 0b0001, // Overlapping factor mask
                 ..Default::default()
@@ -858,7 +923,7 @@ mod tests {
             rule_id: h(1),
             compact_rule: CompactRuleId(1),
             scope_hash: h(1),
-            scope: make_node_id("scope1"),
+            scope: scope_key("scope1"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -872,7 +937,7 @@ mod tests {
             rule_id: h(2),
             compact_rule: CompactRuleId(2),
             scope_hash: h(2),
-            scope: make_node_id("scope2"),
+            scope: scope_key("scope2"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -910,7 +975,7 @@ mod tests {
             rule_id: h(1),
             compact_rule: CompactRuleId(1),
             scope_hash: h(1),
-            scope: make_node_id("scope1"),
+            scope: scope_key("scope1"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -924,7 +989,7 @@ mod tests {
             rule_id: h(2),
             compact_rule: CompactRuleId(2),
             scope_hash: h(2),
-            scope: make_node_id("scope2"),
+            scope: scope_key("scope2"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -960,7 +1025,7 @@ mod tests {
             rule_id: h(1),
             compact_rule: CompactRuleId(1),
             scope_hash: h(1),
-            scope: make_node_id("scope1"),
+            scope: scope_key("scope1"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -974,7 +1039,7 @@ mod tests {
             rule_id: h(2),
             compact_rule: CompactRuleId(2),
             scope_hash: h(2),
-            scope: make_node_id("scope2"),
+            scope: scope_key("scope2"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -1000,6 +1065,63 @@ mod tests {
     }
 
     #[test]
+    fn reserve_should_detect_descent_chain_attachment_conflict_across_instances() {
+        use crate::attachment::AttachmentKey;
+        use crate::ident::make_warp_id;
+
+        let tx = TxId::from_raw(1);
+        let mut sched = RadixScheduler::default();
+
+        let warp_root = make_warp_id("root");
+        let warp_child = make_warp_id("child");
+        let portal_owner = make_node_id("portal-node");
+        let portal_key = AttachmentKey::node_alpha(NodeKey {
+            warp_id: warp_root,
+            local_id: portal_owner,
+        });
+
+        // Rewrite in root instance: changes the portal attachment (write).
+        let mut rewrite_root = PendingRewrite {
+            rule_id: h(1),
+            compact_rule: CompactRuleId(1),
+            scope_hash: h(1),
+            scope: NodeKey {
+                warp_id: warp_root,
+                local_id: make_node_id("scope-root"),
+            },
+            footprint: Footprint {
+                factor_mask: 0b0001,
+                ..Default::default()
+            },
+            phase: RewritePhase::Matched,
+        };
+        rewrite_root.footprint.a_write.insert(portal_key);
+
+        // Rewrite in descendant instance: must READ the portal chain (descent stack).
+        let mut rewrite_child = PendingRewrite {
+            rule_id: h(2),
+            compact_rule: CompactRuleId(2),
+            scope_hash: h(2),
+            scope: NodeKey {
+                warp_id: warp_child,
+                local_id: make_node_id("scope-child"),
+            },
+            footprint: Footprint {
+                factor_mask: 0b0001,
+                ..Default::default()
+            },
+            phase: RewritePhase::Matched,
+        };
+        rewrite_child.footprint.a_read.insert(portal_key);
+
+        assert!(sched.reserve(tx, &mut rewrite_root));
+        assert!(
+            !sched.reserve(tx, &mut rewrite_child),
+            "descendant rewrite must conflict when the portal chain is written"
+        );
+    }
+
+    #[test]
     fn reserve_is_atomic_no_partial_marking_on_conflict() {
         // This test proves that if a conflict is detected, NO resources are marked.
         // We create a rewrite that has multiple resources, where one conflicts.
@@ -1013,7 +1135,7 @@ mod tests {
             rule_id: h(1),
             compact_rule: CompactRuleId(1),
             scope_hash: h(1),
-            scope: make_node_id("scope1"),
+            scope: scope_key("scope1"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -1033,7 +1155,7 @@ mod tests {
             rule_id: h(2),
             compact_rule: CompactRuleId(2),
             scope_hash: h(2),
-            scope: make_node_id("scope2"),
+            scope: scope_key("scope2"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -1054,7 +1176,7 @@ mod tests {
             rule_id: h(3),
             compact_rule: CompactRuleId(3),
             scope_hash: h(3),
-            scope: make_node_id("scope3"),
+            scope: scope_key("scope3"),
             footprint: Footprint {
                 factor_mask: 0b0001,
                 ..Default::default()
@@ -1085,7 +1207,7 @@ mod tests {
                 rule_id: h(1),
                 compact_rule: CompactRuleId(1),
                 scope_hash: h(1),
-                scope: make_node_id("s1"),
+                scope: scope_key("s1"),
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
@@ -1100,7 +1222,7 @@ mod tests {
                 rule_id: h(2),
                 compact_rule: CompactRuleId(2),
                 scope_hash: h(2),
-                scope: make_node_id("s2"),
+                scope: scope_key("s2"),
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
@@ -1115,7 +1237,7 @@ mod tests {
                 rule_id: h(3),
                 compact_rule: CompactRuleId(3),
                 scope_hash: h(3),
-                scope: make_node_id("s3"),
+                scope: scope_key("s3"),
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
@@ -1130,7 +1252,7 @@ mod tests {
                 rule_id: h(4),
                 compact_rule: CompactRuleId(4),
                 scope_hash: h(4),
-                scope: make_node_id("s4"),
+                scope: scope_key("s4"),
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
@@ -1180,7 +1302,7 @@ mod tests {
                 rule_id: h(i),
                 compact_rule: CompactRuleId(u32::from(i)),
                 scope_hash: h(i),
-                scope: make_node_id(&format!("prior_{i}")),
+                scope: scope_key(&format!("prior_{i}")),
                 footprint: Footprint {
                     factor_mask: 0b0001,
                     ..Default::default()
@@ -1205,7 +1327,7 @@ mod tests {
                 rule_id: h(200),
                 compact_rule: CompactRuleId(200),
                 scope_hash: h(200),
-                scope: make_node_id(&format!("test_{size}")),
+                scope: scope_key(&format!("test_{size}")),
                 footprint: Footprint {
                     factor_mask: 0b0001,
                     ..Default::default()
@@ -1237,7 +1359,7 @@ mod tests {
                     rule_id: h(i),
                     compact_rule: CompactRuleId(u32::from(i)),
                     scope_hash: h(i),
-                    scope: make_node_id(&format!("prior_{i}")),
+                    scope: scope_key(&format!("prior_{i}")),
                     footprint: Footprint {
                         factor_mask: 0b0001,
                         ..Default::default()
@@ -1274,7 +1396,7 @@ mod tests {
             rule_id: h(1),
             compact_rule: CompactRuleId(1),
             scope_hash: h(1),
-            scope: make_node_id("scope1"),
+            scope: scope_key("scope1"),
             footprint: Footprint::default(),
             phase: RewritePhase::Matched,
         };
@@ -1287,7 +1409,7 @@ mod tests {
             rule_id: h(2),
             compact_rule: CompactRuleId(2),
             scope_hash: h(2),
-            scope: make_node_id("scope2"),
+            scope: scope_key("scope2"),
             footprint: Footprint::default(),
             phase: RewritePhase::Matched,
         };

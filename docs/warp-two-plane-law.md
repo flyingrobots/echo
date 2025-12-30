@@ -27,7 +27,9 @@ This doc exists to prevent a recurring confusion:
 - canonical hashing (`state_root`)
 - slicing (Paper III) over `in_slots` / `out_slots`
 
-**In code today:** `warp_core::GraphStore` is the SkeletonGraph.
+**In code today:** the skeleton plane is stored in `warp_core::GraphStore`:
+- nodes: `GraphStore.nodes` (`NodeId -> NodeRecord`)
+- edges: `GraphStore.edges_from` (`NodeId -> Vec<EdgeRecord>`)
 
 ### WarpState
 
@@ -70,8 +72,11 @@ Where:
 
 **In code today:**
 
-- `NodeRecord.payload: Option<AtomPayload>`
-- `EdgeRecord.payload: Option<AtomPayload>`
+- `NodeRecord` / `EdgeRecord` are **skeleton-plane only** (no payload fields).
+- Attachments are stored separately on `GraphStore`:
+  - node/α plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
+  - edge/β plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
+- Depth-0 payloads are `AttachmentValue::Atom(AtomPayload)`.
 
 ---
 
@@ -115,16 +120,17 @@ but “silent partial effects” are forbidden.
 
 ---
 
-## Future: descended attachments (Stage B1)
+## Descended attachments (Stage B1)
 
-Echo will support “WARPs all the way down” by making descent **explicit and skeleton-visible**.
+Echo supports “WARPs all the way down” by making descent **explicit and skeleton-visible**.
 
-The planned shape is **flattened indirection**, not nested Rust structs:
+The shape is **flattened indirection**, not nested Rust structs:
 
-- attachments remain separate from the skeleton plane,
-- descent happens through explicit references / skeleton links,
-- matching/slicing can “see” the reference edges (no hidden structure).
+- Attachments remain separate from the skeleton plane (typed, opaque by default).
+- Descent is `AttachmentValue::Descend(WarpId)` (not encoded inside bytes).
+- Each descended attachment points to a **WarpInstance** (a namespaced skeleton store),
+  tracked in `warp_core::WarpState`.
 
-This keeps the hot path fast while enabling recursive WARP structure for tools,
-provenance, and multi-scale views.
-
+Correctness law: execution inside a descended instance must READ the attachment
+keys in its descent chain (so changing a portal pointer deterministically
+invalidates matches and scheduling decisions).

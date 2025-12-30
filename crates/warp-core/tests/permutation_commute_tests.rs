@@ -2,7 +2,9 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
-use warp_core::{encode_motion_atom_payload, make_node_id, make_type_id, GraphStore, NodeRecord};
+use warp_core::{
+    encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
+};
 mod common;
 use common::snapshot_hash_of;
 
@@ -14,13 +16,7 @@ fn n_permutation_commute_n3_and_n4() {
         let world_ty = make_type_id("world");
         let ent_ty = make_type_id("entity");
         let mut store = GraphStore::default();
-        store.insert_node(
-            root,
-            NodeRecord {
-                ty: world_ty,
-                payload: None,
-            },
-        );
+        store.insert_node(root, NodeRecord { ty: world_ty });
         let mut scopes = Vec::new();
         for i in 0..n {
             let id = make_node_id(&format!("entity-{i}"));
@@ -31,12 +27,13 @@ fn n_permutation_commute_n3_and_n4() {
                 3 => [1.0, 1.0, 0.0],
                 _ => unreachable!(),
             };
-            store.insert_node(
+            store.insert_node(id, NodeRecord { ty: ent_ty });
+            store.set_node_attachment(
                 id,
-                NodeRecord {
-                    ty: ent_ty,
-                    payload: Some(encode_motion_atom_payload([0.0, 0.0, 0.0], v)),
-                },
+                Some(AttachmentValue::Atom(encode_motion_atom_payload(
+                    [0.0, 0.0, 0.0],
+                    v,
+                ))),
             );
             // Connect entity to root so snapshot reachability includes it.
             let edge = warp_core::EdgeRecord {
@@ -44,7 +41,6 @@ fn n_permutation_commute_n3_and_n4() {
                 from: root,
                 to: id,
                 ty: make_type_id("contains"),
-                payload: None,
             };
             store.insert_edge(root, edge);
             scopes.push(id);

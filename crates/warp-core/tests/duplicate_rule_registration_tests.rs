@@ -20,13 +20,7 @@ fn registering_duplicate_rule_name_is_rejected() {
     let mut store = GraphStore::default();
     let root = make_node_id("dup-root");
     let world_ty = make_type_id("world");
-    store.insert_node(
-        root,
-        NodeRecord {
-            ty: world_ty,
-            payload: None,
-        },
-    );
+    store.insert_node(root, NodeRecord { ty: world_ty });
     let mut engine = Engine::new(store, root);
     engine.register_rule(warp_core::motion_rule()).unwrap();
     let err = engine.register_rule(warp_core::motion_rule()).unwrap_err();
@@ -43,13 +37,7 @@ fn registering_duplicate_rule_id_is_rejected() {
     let mut store = GraphStore::default();
     let root = make_node_id("dup-root2");
     let world_ty = make_type_id("world");
-    store.insert_node(
-        root,
-        NodeRecord {
-            ty: world_ty,
-            payload: None,
-        },
-    );
+    store.insert_node(root, NodeRecord { ty: world_ty });
     let mut engine = Engine::new(store, root);
     engine.register_rule(warp_core::motion_rule()).unwrap();
 

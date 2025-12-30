@@ -4,7 +4,7 @@
 #![allow(missing_docs)]
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
-    ApplyResult, Engine, EngineError, GraphStore, NodeRecord, MOTION_RULE_NAME,
+    ApplyResult, AttachmentValue, Engine, EngineError, GraphStore, NodeRecord, MOTION_RULE_NAME,
 };
 
 #[test]
@@ -14,13 +14,8 @@ fn motion_rule_updates_position_deterministically() {
     let payload = encode_motion_atom_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
 
     let mut store = GraphStore::default();
-    store.insert_node(
-        entity,
-        NodeRecord {
-            ty: entity_type,
-            payload: Some(payload),
-        },
-    );
+    store.insert_node(entity, NodeRecord { ty: entity_type });
+    store.set_node_attachment(entity, Some(AttachmentValue::Atom(payload)));
 
     let mut engine = Engine::new(store, entity);
     engine
@@ -37,13 +32,8 @@ fn motion_rule_updates_position_deterministically() {
     // Run a second engine with identical initial state and ensure hashes match.
     let mut store_b = GraphStore::default();
     let payload_b = encode_motion_atom_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
-    store_b.insert_node(
-        entity,
-        NodeRecord {
-            ty: entity_type,
-            payload: Some(payload_b),
-        },
-    );
+    store_b.insert_node(entity, NodeRecord { ty: entity_type });
+    store_b.set_node_attachment(entity, Some(AttachmentValue::Atom(payload_b)));
 
     let mut engine_b = Engine::new(store_b, entity);
     engine_b
@@ -57,13 +47,11 @@ fn motion_rule_updates_position_deterministically() {
     assert_eq!(hash_after_first_apply, snap_b.hash);
 
     // Ensure the position actually moved.
-    let node = engine
-        .node(&entity)
-        .expect("entity exists")
-        .payload
-        .as_ref()
-        .and_then(decode_motion_atom_payload)
-        .expect("payload decode");
+    let payload = engine.node_attachment(&entity).expect("payload present");
+    let AttachmentValue::Atom(payload) = payload else {
+        panic!("expected Atom payload, got {payload:?}");
+    };
+    let node = decode_motion_atom_payload(payload).expect("payload decode");
     assert_eq!(node.0, [1.5, 1.0, 3.25]);
     assert_eq!(node.1, [0.5, -1.0, 0.25]);
 }
@@ -74,13 +62,7 @@ fn motion_rule_no_match_on_missing_payload() {
     let entity_type = make_type_id("entity");
 
     let mut store = GraphStore::default();
-    store.insert_node(
-        entity,
-        NodeRecord {
-            ty: entity_type,
-            payload: None,
-        },
-    );
+    store.insert_node(entity, NodeRecord { ty: entity_type });
 
     let mut engine = Engine::new(store, entity);
     engine
@@ -95,7 +77,7 @@ fn motion_rule_no_match_on_missing_payload() {
     // Commit should be a no-op for state; hash remains identical and payload stays None.
     let snap = engine.commit(tx).expect("no-op commit");
     assert_eq!(snap.hash, before);
-    assert!(engine.node(&entity).unwrap().payload.is_none());
+    assert!(engine.node_attachment(&entity).is_none());
 }
 
 #[test]
@@ -105,13 +87,8 @@ fn motion_rule_twice_is_deterministic_across_engines() {
     let payload = encode_motion_atom_payload([1.0, 2.0, 3.0], [0.5, -1.0, 0.25]);
 
     let mut store_a = GraphStore::default();
-    store_a.insert_node(
-        entity,
-        NodeRecord {
-            ty: entity_type,
-            payload: Some(payload.clone()),
-        },
-    );
+    store_a.insert_node(entity, NodeRecord { ty: entity_type });
+    store_a.set_node_attachment(entity, Some(AttachmentValue::Atom(payload.clone())));
     let mut engine_a = Engine::new(store_a, entity);
     engine_a
         .register_rule(warp_core::motion_rule())
@@ -123,13 +100,8 @@ fn motion_rule_twice_is_deterministic_across_engines() {
     }
 
     let mut store_b = GraphStore::default();
-    store_b.insert_node(
-        entity,
-        NodeRecord {
-            ty: entity_type,
-            payload: Some(payload),
-        },
-    );
+    store_b.insert_node(entity, NodeRecord { ty: entity_type });
+    store_b.set_node_attachment(entity, Some(AttachmentValue::Atom(payload)));
     let mut engine_b = Engine::new(store_b, entity);
     engine_b
         .register_rule(warp_core::motion_rule())
@@ -149,12 +121,13 @@ fn apply_unknown_rule_returns_error() {
     let entity_type = make_type_id("entity");
 
     let mut store = GraphStore::default();
-    store.insert_node(
+    store.insert_node(entity, NodeRecord { ty: entity_type });
+    store.set_node_attachment(
         entity,
-        NodeRecord {
-            ty: entity_type,
-            payload: Some(encode_motion_atom_payload([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])),
-        },
+        Some(AttachmentValue::Atom(encode_motion_atom_payload(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ))),
     );
 
     let mut engine = Engine::new(store, entity);

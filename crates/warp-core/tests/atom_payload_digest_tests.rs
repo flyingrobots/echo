@@ -6,8 +6,8 @@
 use bytes::Bytes;
 
 use warp_core::{
-    make_node_id, make_type_id, AtomPayload, Engine, GraphStore, NodeRecord, TickCommitStatus,
-    WarpOp, WarpTickPatchV1,
+    make_node_id, make_type_id, make_warp_id, AtomPayload, AttachmentKey, AttachmentValue, Engine,
+    GraphStore, NodeKey, NodeRecord, TickCommitStatus, WarpInstance, WarpOp, WarpTickPatchV1,
 };
 
 #[test]
@@ -22,21 +22,11 @@ fn commit_hash_changes_when_payload_type_changes_even_if_bytes_match() {
     let payload_b = AtomPayload::new(make_type_id("payload/b"), bytes);
 
     let mut store_a = GraphStore::default();
-    store_a.insert_node(
-        root,
-        NodeRecord {
-            ty: node_ty,
-            payload: Some(payload_a),
-        },
-    );
+    store_a.insert_node(root, NodeRecord { ty: node_ty });
+    store_a.set_node_attachment(root, Some(AttachmentValue::Atom(payload_a)));
     let mut store_b = GraphStore::default();
-    store_b.insert_node(
-        root,
-        NodeRecord {
-            ty: node_ty,
-            payload: Some(payload_b),
-        },
-    );
+    store_b.insert_node(root, NodeRecord { ty: node_ty });
+    store_b.set_node_attachment(root, Some(AttachmentValue::Atom(payload_b)));
 
     let engine_a = Engine::new(store_a, root);
     let engine_b = Engine::new(store_b, root);
@@ -49,26 +39,45 @@ fn commit_hash_changes_when_payload_type_changes_even_if_bytes_match() {
 
 #[test]
 fn tick_patch_digest_changes_when_payload_type_changes_even_if_bytes_match() {
+    let warp_id = make_warp_id("patch-digest-payload-type-test");
+    let root = make_node_id("root");
     let node = make_node_id("node");
     let node_ty = make_type_id("entity");
     let bytes = Bytes::from_static(b"same-bytes");
 
-    let record_a = NodeRecord {
-        ty: node_ty,
-        payload: Some(AtomPayload::new(make_type_id("payload/a"), bytes.clone())),
+    let instance = WarpInstance {
+        warp_id,
+        root_node: root,
+        parent: None,
     };
-    let record_b = NodeRecord {
-        ty: node_ty,
-        payload: Some(AtomPayload::new(make_type_id("payload/b"), bytes)),
+    let node_key = NodeKey {
+        warp_id,
+        local_id: node,
     };
 
-    let op_a = WarpOp::UpsertNode {
-        node,
-        record: record_a,
+    let base_ops = vec![
+        WarpOp::UpsertWarpInstance {
+            instance: instance.clone(),
+        },
+        WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord { ty: node_ty },
+        },
+    ];
+
+    let op_a = WarpOp::SetAttachment {
+        key: AttachmentKey::node_alpha(node_key),
+        value: Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("payload/a"),
+            bytes.clone(),
+        ))),
     };
-    let op_b = WarpOp::UpsertNode {
-        node,
-        record: record_b,
+    let op_b = WarpOp::SetAttachment {
+        key: AttachmentKey::node_alpha(node_key),
+        value: Some(AttachmentValue::Atom(AtomPayload::new(
+            make_type_id("payload/b"),
+            bytes,
+        ))),
     };
 
     let policy_id = warp_core::POLICY_ID_NO_POLICY_V0;
@@ -79,7 +88,7 @@ fn tick_patch_digest_changes_when_payload_type_changes_even_if_bytes_match() {
         TickCommitStatus::Committed,
         Vec::new(),
         Vec::new(),
-        vec![op_a],
+        base_ops.iter().cloned().chain([op_a]).collect(),
     );
     let patch_b = WarpTickPatchV1::new(
         policy_id,
@@ -87,7 +96,7 @@ fn tick_patch_digest_changes_when_payload_type_changes_even_if_bytes_match() {
         TickCommitStatus::Committed,
         Vec::new(),
         Vec::new(),
-        vec![op_b],
+        base_ops.into_iter().chain([op_b]).collect(),
     );
 
     assert_ne!(

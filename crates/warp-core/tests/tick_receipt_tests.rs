@@ -4,9 +4,10 @@
 #![allow(missing_docs)]
 
 use warp_core::{
-    encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, ConflictPolicy, Engine,
-    Footprint, GraphStore, Hash, NodeId, NodeRecord, PatternGraph, RewriteRule,
-    TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId, MOTION_RULE_NAME,
+    encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, AttachmentValue,
+    ConflictPolicy, Engine, Footprint, GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph,
+    RewriteRule, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId, WarpId,
+    MOTION_RULE_NAME,
 };
 
 fn rule_id(name: &str) -> Hash {
@@ -38,7 +39,8 @@ fn compute_rewrites_digest(entries: &[TickReceiptEntry]) -> Hash {
     for entry in applied {
         hasher.update(&entry.rule_id);
         hasher.update(&entry.scope_hash);
-        hasher.update(&(entry.scope).0);
+        hasher.update(&(entry.scope.warp_id).0);
+        hasher.update(&(entry.scope.local_id).0);
     }
     hasher.finalize().into()
 }
@@ -68,13 +70,17 @@ fn fp_write_scope_and_other(_: &GraphStore, scope: &NodeId) -> Footprint {
     fp
 }
 
+fn root_warp_id() -> WarpId {
+    warp_core::make_warp_id("root")
+}
+
 /// Finds three synthetic rule ids (A, B, C) such that when applied to
 /// `(scope_a, scope_b, scope_a)` the deterministic scheduler order is `[A, B, C]`
 /// with `C` last.
 ///
 /// This ensures the first two candidates are accepted and the last candidate is
 /// rejected with two blockers for stable multi-blocker assertions.
-fn pick_rule_ids_for_blocker_test(scope_a: &NodeId, scope_b: &NodeId) -> (Hash, Hash, Hash) {
+fn pick_rule_ids_for_blocker_test(scope_a: &NodeKey, scope_b: &NodeKey) -> (Hash, Hash, Hash) {
     // Pick three distinct synthetic ids such that:
     // - the combined-write rule (C) sorts last by scope_hash
     // - the two single-write rules (A, B) sort before it
@@ -119,13 +125,8 @@ fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
     let payload = encode_motion_atom_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
 
     let mut store = GraphStore::default();
-    store.insert_node(
-        entity,
-        NodeRecord {
-            ty: entity_type,
-            payload: Some(payload),
-        },
-    );
+    store.insert_node(entity, NodeRecord { ty: entity_type });
+    store.set_node_attachment(entity, Some(AttachmentValue::Atom(payload)));
 
     let mut engine = Engine::new(store, entity);
     engine
@@ -204,12 +205,21 @@ fn commit_with_receipt_records_multi_blocker_causality() {
 
     let ty = make_type_id("entity");
     let mut store = GraphStore::default();
-    store.insert_node(scope_a, NodeRecord { ty, payload: None });
-    store.insert_node(scope_b, NodeRecord { ty, payload: None });
+    store.insert_node(scope_a, NodeRecord { ty });
+    store.insert_node(scope_b, NodeRecord { ty });
 
     let mut engine = Engine::new(store, scope_a);
 
-    let (id_a, id_b, id_c) = pick_rule_ids_for_blocker_test(&scope_a, &scope_b);
+    let warp_id = root_warp_id();
+    let scope_a_key = NodeKey {
+        warp_id,
+        local_id: scope_a,
+    };
+    let scope_b_key = NodeKey {
+        warp_id,
+        local_id: scope_b,
+    };
+    let (id_a, id_b, id_c) = pick_rule_ids_for_blocker_test(&scope_a_key, &scope_b_key);
 
     const RULE_A: &str = "test/write-scope-a";
     const RULE_B: &str = "test/write-scope-b";

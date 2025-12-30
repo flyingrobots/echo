@@ -14,7 +14,7 @@ use std::slice;
 
 use warp_core::{
     build_motion_demo_engine, decode_motion_atom_payload, encode_motion_atom_payload, make_node_id,
-    make_type_id, ApplyResult, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
+    make_type_id, ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
 };
 
 /// Opaque engine pointer exposed over the C ABI.
@@ -104,13 +104,12 @@ pub unsafe extern "C" fn warp_engine_spawn_motion_entity(
     let entity_type = make_type_id("entity");
     let payload = encode_motion_atom_payload([px, py, pz], [vx, vy, vz]);
 
-    engine.inner.insert_node(
-        node_id,
-        NodeRecord {
-            ty: entity_type,
-            payload: Some(payload),
-        },
-    );
+    engine
+        .inner
+        .insert_node(node_id, NodeRecord { ty: entity_type });
+    engine
+        .inner
+        .set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)));
 
     unsafe {
         (*out_handle).bytes = node_id.0;
@@ -210,13 +209,12 @@ pub unsafe extern "C" fn warp_engine_read_motion(
         Some(id) => id,
         None => return false,
     };
-    let record = match engine.inner.node(&node_id) {
-        Some(record) => record,
-        None => return false,
-    };
-    let payload = match record.payload.as_ref() {
-        Some(payload) => payload,
-        None => return false,
+    if engine.inner.node(&node_id).is_none() {
+        return false;
+    }
+    let payload = match engine.inner.node_attachment(&node_id) {
+        Some(AttachmentValue::Atom(payload)) => payload,
+        _ => return false,
     };
     let (position, velocity) = match decode_motion_atom_payload(payload) {
         Some(values) => values,

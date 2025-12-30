@@ -5,7 +5,7 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use std::{hint::black_box, time::Duration};
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
-    ApplyResult, Engine, NodeId, NodeRecord, MOTION_RULE_NAME,
+    ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, MOTION_RULE_NAME,
 };
 
 fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
@@ -21,13 +21,8 @@ fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
         let pos = [i as f32, 0.0, 0.0];
         let vel = [1.0, 0.0, 0.0];
         let payload = encode_motion_atom_payload(pos, vel);
-        engine.insert_node(
-            id,
-            NodeRecord {
-                ty,
-                payload: Some(payload),
-            },
-        );
+        engine.insert_node(id, NodeRecord { ty });
+        engine.set_node_attachment(id, Some(AttachmentValue::Atom(payload)));
         ids.push(id);
     }
     (engine, ids)
@@ -47,9 +42,11 @@ fn bench_motion_apply(c: &mut Criterion) {
             b.iter(|| {
                 let (engine, ids) = build_engine_with_n_entities(n);
                 // Optional quick sanity on the first entity to keep side effects visible.
-                let node = engine.node(&ids[0]).expect("node exists");
-                let decoded = decode_motion_atom_payload(node.payload.as_ref().expect("payload"))
-                    .expect("decode");
+                let payload = engine.node_attachment(&ids[0]).expect("payload exists");
+                let AttachmentValue::Atom(payload) = payload else {
+                    panic!("expected Atom payload for motion node attachment");
+                };
+                let decoded = decode_motion_atom_payload(payload).expect("decode");
                 debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
                 debug_assert!(decoded.1.iter().all(|v| v.is_finite()));
                 black_box(engine);
@@ -81,10 +78,11 @@ fn bench_motion_apply(c: &mut Criterion) {
                     engine.commit(tx).expect("commit");
 
                     // Decode and validate the first entity's payload and black_box the result.
-                    let node = engine.node(&ids[0]).expect("node exists");
-                    let decoded =
-                        decode_motion_atom_payload(node.payload.as_ref().expect("payload"))
-                            .expect("decode");
+                    let payload = engine.node_attachment(&ids[0]).expect("payload exists");
+                    let AttachmentValue::Atom(payload) = payload else {
+                        panic!("expected Atom payload for motion node attachment");
+                    };
+                    let decoded = decode_motion_atom_payload(payload).expect("decode");
                     debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
                     debug_assert!(decoded.1.iter().all(|v| v.is_finite()));
                     black_box(decoded);

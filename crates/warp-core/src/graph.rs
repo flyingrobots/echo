@@ -19,6 +19,11 @@ pub struct GraphStore {
     pub(crate) nodes: BTreeMap<NodeId, NodeRecord>,
     /// Mapping from source node to outbound edge records.
     pub(crate) edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>,
+    /// Reverse adjacency: mapping from destination node to inbound edge ids.
+    ///
+    /// This allows `delete_node_cascade` to remove inbound edges without scanning
+    /// every `edges_from` bucket (removal becomes `O(inbound_edges)`).
+    pub(crate) edges_to: BTreeMap<NodeId, Vec<EdgeId>>,
     /// Attachment plane payloads for nodes (Paper I `α` plane).
     ///
     /// Entries are present only when the attachment is `Some(...)`.
@@ -32,6 +37,11 @@ pub struct GraphStore {
     /// This enables efficient edge migration/removal by id (used by tick patch replay),
     /// avoiding `O(total_edges)` scans across all buckets.
     pub(crate) edge_index: BTreeMap<EdgeId, NodeId>,
+    /// Reverse index of `EdgeId -> to NodeId`.
+    ///
+    /// This enables efficient maintenance of [`GraphStore::edges_to`] during
+    /// edge migration and deletion.
+    pub(crate) edge_to_index: BTreeMap<EdgeId, NodeId>,
 }
 
 impl Default for GraphStore {
@@ -48,9 +58,11 @@ impl GraphStore {
             warp_id,
             nodes: BTreeMap::new(),
             edges_from: BTreeMap::new(),
+            edges_to: BTreeMap::new(),
             node_attachments: BTreeMap::new(),
             edge_attachments: BTreeMap::new(),
             edge_index: BTreeMap::new(),
+            edge_to_index: BTreeMap::new(),
         }
     }
 
@@ -174,7 +186,10 @@ impl GraphStore {
             edge.from = from;
         }
         let edge_id = edge.id;
-        if let Some(prev_from) = self.edge_index.insert(edge_id, from) {
+        let to = edge.to;
+        let prev_from = self.edge_index.insert(edge_id, from);
+        let prev_to = self.edge_to_index.insert(edge_id, to);
+        if let Some(prev_from) = prev_from {
             let bucket_is_empty = self.edges_from.get_mut(&prev_from).map_or_else(
                 || {
                     debug_assert!(
@@ -199,7 +214,33 @@ impl GraphStore {
                 self.edges_from.remove(&prev_from);
             }
         }
+        if let Some(prev_to) = prev_to {
+            let bucket_is_empty = self.edges_to.get_mut(&prev_to).map_or_else(
+                || {
+                    debug_assert!(
+                        false,
+                        "edge-to index referenced a missing bucket for edge id: {edge_id:?}"
+                    );
+                    false
+                },
+                |edges| {
+                    let before = edges.len();
+                    edges.retain(|id| *id != edge_id);
+                    if edges.len() == before {
+                        debug_assert!(
+                            false,
+                            "edge-to index referenced an edge missing from its bucket: {edge_id:?}"
+                        );
+                    }
+                    edges.is_empty()
+                },
+            );
+            if bucket_is_empty {
+                self.edges_to.remove(&prev_to);
+            }
+        }
         self.edges_from.entry(from).or_default().push(edge);
+        self.edges_to.entry(to).or_default().push(edge_id);
     }
 
     /// Deletes a node and removes any attachments and incident edges.
@@ -215,33 +256,71 @@ impl GraphStore {
         if let Some(out_edges) = self.edges_from.remove(&node) {
             for e in out_edges {
                 self.edge_index.remove(&e.id);
+                self.edge_to_index.remove(&e.id);
+                let remove_bucket = self.edges_to.get_mut(&e.to).map_or_else(
+                    || {
+                        debug_assert!(
+                            false,
+                            "edge-to index missing inbound bucket for edge id: {:?}",
+                            e.id
+                        );
+                        false
+                    },
+                    |edges| {
+                        edges.retain(|id| *id != e.id);
+                        edges.is_empty()
+                    },
+                );
+                if remove_bucket {
+                    self.edges_to.remove(&e.to);
+                }
                 self.edge_attachments.remove(&e.id);
             }
         }
 
-        // Remove inbound edges (scan buckets).
-        let mut removed_edge_ids: Vec<EdgeId> = Vec::new();
-        let mut empty_buckets: Vec<NodeId> = Vec::new();
-        for (from, edges) in &mut self.edges_from {
-            let before = edges.len();
-            edges.retain(|e| {
-                if e.to == node {
-                    removed_edge_ids.push(e.id);
-                    false
-                } else {
-                    true
+        // Remove inbound edges (reverse adjacency).
+        if let Some(inbound) = self.edges_to.remove(&node) {
+            for edge_id in inbound {
+                let Some(from) = self.edge_index.remove(&edge_id) else {
+                    debug_assert!(
+                        false,
+                        "edge index missing inbound edge id during delete_node_cascade: {edge_id:?}"
+                    );
+                    continue;
+                };
+                let Some(to) = self.edge_to_index.remove(&edge_id) else {
+                    debug_assert!(
+                        false,
+                        "edge-to index missing inbound edge id during delete_node_cascade: {edge_id:?}"
+                    );
+                    continue;
+                };
+                debug_assert_eq!(
+                    to, node,
+                    "inbound edge-to index desynced for edge id: {edge_id:?}"
+                );
+                let Some(edges) = self.edges_from.get_mut(&from) else {
+                    debug_assert!(
+                        false,
+                        "edge index referenced a missing bucket for inbound edge id: {edge_id:?}"
+                    );
+                    continue;
+                };
+                let before = edges.len();
+                edges.retain(|e| e.id != edge_id);
+                if edges.len() == before {
+                    debug_assert!(
+                        false,
+                        "edge index referenced an inbound edge missing from its bucket: {edge_id:?}"
+                    );
+                    continue;
                 }
-            });
-            if before != edges.len() && edges.is_empty() {
-                empty_buckets.push(*from);
+                let bucket_is_empty = edges.is_empty();
+                if bucket_is_empty {
+                    self.edges_from.remove(&from);
+                }
+                self.edge_attachments.remove(&edge_id);
             }
-        }
-        for from in empty_buckets {
-            self.edges_from.remove(&from);
-        }
-        for edge_id in removed_edge_ids {
-            self.edge_index.remove(&edge_id);
-            self.edge_attachments.remove(&edge_id);
         }
         true
     }
@@ -255,6 +334,13 @@ impl GraphStore {
             Some(current_from) if *current_from == from => {}
             _ => return false,
         }
+        let Some(to) = self.edge_to_index.get(&edge_id).copied() else {
+            debug_assert!(
+                false,
+                "edge-to index missing edge id referenced by edge_index: {edge_id:?}"
+            );
+            return false;
+        };
         let Some(edges) = self.edges_from.get_mut(&from) else {
             debug_assert!(
                 false,
@@ -273,10 +359,109 @@ impl GraphStore {
         }
         let bucket_is_empty = edges.is_empty();
         self.edge_index.remove(&edge_id);
+        self.edge_to_index.remove(&edge_id);
         if bucket_is_empty {
             self.edges_from.remove(&from);
         }
+        let remove_bucket = self.edges_to.get_mut(&to).map_or_else(
+            || {
+                debug_assert!(
+                    false,
+                    "edge-to index referenced a missing bucket for edge id: {edge_id:?}"
+                );
+                false
+            },
+            |edges| {
+                edges.retain(|id| *id != edge_id);
+                edges.is_empty()
+            },
+        );
+        if remove_bucket {
+            self.edges_to.remove(&to);
+        }
         self.edge_attachments.remove(&edge_id);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ident::{make_edge_id, make_node_id, make_type_id};
+
+    #[test]
+    fn delete_node_cascade_updates_reverse_indexes() {
+        let mut store = GraphStore::default();
+        let node_ty = make_type_id("node");
+        let edge_ty = make_type_id("edge");
+
+        let a = make_node_id("a");
+        let b = make_node_id("b");
+        let c = make_node_id("c");
+        store.insert_node(a, NodeRecord { ty: node_ty });
+        store.insert_node(b, NodeRecord { ty: node_ty });
+        store.insert_node(c, NodeRecord { ty: node_ty });
+
+        let e1 = make_edge_id("a->b");
+        let e2 = make_edge_id("c->b");
+        let e3 = make_edge_id("b->a");
+        let e4 = make_edge_id("a->c");
+        store.insert_edge(
+            a,
+            EdgeRecord {
+                id: e1,
+                from: a,
+                to: b,
+                ty: edge_ty,
+            },
+        );
+        store.insert_edge(
+            c,
+            EdgeRecord {
+                id: e2,
+                from: c,
+                to: b,
+                ty: edge_ty,
+            },
+        );
+        store.insert_edge(
+            b,
+            EdgeRecord {
+                id: e3,
+                from: b,
+                to: a,
+                ty: edge_ty,
+            },
+        );
+        store.insert_edge(
+            a,
+            EdgeRecord {
+                id: e4,
+                from: a,
+                to: c,
+                ty: edge_ty,
+            },
+        );
+
+        assert!(store.delete_node_cascade(b));
+        assert!(store.node(&b).is_none());
+
+        assert!(!store.has_edge(&e1));
+        assert!(!store.has_edge(&e2));
+        assert!(!store.has_edge(&e3));
+        assert!(store.has_edge(&e4));
+
+        assert!(!store.edge_index.contains_key(&e1));
+        assert!(!store.edge_to_index.contains_key(&e1));
+        assert!(!store.edge_index.contains_key(&e2));
+        assert!(!store.edge_to_index.contains_key(&e2));
+        assert!(!store.edge_index.contains_key(&e3));
+        assert!(!store.edge_to_index.contains_key(&e3));
+        assert_eq!(store.edge_index.get(&e4), Some(&a));
+        assert_eq!(store.edge_to_index.get(&e4), Some(&c));
+
+        assert!(!store.edges_to.contains_key(&b));
+        assert!(!store.edges_to.contains_key(&a));
+        assert_eq!(store.edges_to.get(&c), Some(&vec![e4]));
     }
 }

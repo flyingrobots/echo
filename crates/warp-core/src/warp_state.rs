@@ -78,12 +78,12 @@ impl WarpState {
     /// Inserts or replaces the store and metadata for a warp instance.
     ///
     /// This is primarily used by patch replay and construction utilities.
-    pub(crate) fn upsert_instance(&mut self, instance: WarpInstance, store: GraphStore) {
-        let mut store = store;
+    pub(crate) fn upsert_instance(&mut self, instance: WarpInstance, mut store: GraphStore) {
         debug_assert_eq!(
             store.warp_id, instance.warp_id,
             "GraphStore.warp_id must match WarpInstance.warp_id"
         );
+        // Canonicalize the store's warp id to the instance id (the instance metadata is the source of truth).
         store.warp_id = instance.warp_id;
         self.stores.insert(instance.warp_id, store);
         self.instances.insert(instance.warp_id, instance);
@@ -94,7 +94,11 @@ impl WarpState {
     /// Returns `true` if the instance existed.
     pub(crate) fn delete_instance(&mut self, warp_id: &WarpId) -> bool {
         let existed = self.instances.remove(warp_id).is_some();
-        let _ = self.stores.remove(warp_id);
+        let store_existed = self.stores.remove(warp_id).is_some();
+        debug_assert_eq!(
+            existed, store_existed,
+            "WarpState stores/instances desynced for warp_id: {warp_id:?}"
+        );
         existed
     }
 }

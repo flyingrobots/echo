@@ -111,7 +111,10 @@ pub struct TickReceiptEntry {
     pub rule_id: Hash,
     /// Scope hash used in the scheduler’s sort key.
     pub scope_hash: Hash,
-    /// Scope node supplied when `Engine::apply` was invoked.
+    /// Instance-scoped scope node supplied when `Engine::apply` was invoked.
+    ///
+    /// This is a [`NodeKey`]: it contains both the warp instance identifier
+    /// (`warp_id`) and the local node identifier within that instance (`local_id`).
     pub scope: NodeKey,
     /// Outcome of the candidate rewrite in this tick.
     pub disposition: TickReceiptDisposition,
@@ -145,8 +148,8 @@ fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
     for entry in entries {
         hasher.update(&entry.rule_id);
         hasher.update(&entry.scope_hash);
-        hasher.update(&(entry.scope.warp_id).0);
-        hasher.update(&(entry.scope.local_id).0);
+        hasher.update(entry.scope.warp_id.as_bytes());
+        hasher.update(entry.scope.local_id.as_bytes());
         let code = match entry.disposition {
             TickReceiptDisposition::Applied => 1u8,
             TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => 2u8,

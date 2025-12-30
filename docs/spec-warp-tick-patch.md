@@ -58,6 +58,8 @@ V2 op set (minimal but recursion-ready):
 - `DeleteEdge { warp_id: WarpId, from: NodeId, edge_id: EdgeId }`
 - `SetAttachment { key: AttachmentKey, value: Option<AttachmentValue> }`
 
+Note: the order of ops in this list is semantic only; the canonical encoding tag order is defined in section 3.2 and is authoritative.
+
 Semantic intent:
 - Ops are deterministic edits that, when applied in order, transform `U_i` into `U_{i+1}`.
 - Ops are a replay contract and must be stable across languages.

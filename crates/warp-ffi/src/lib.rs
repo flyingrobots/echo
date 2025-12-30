@@ -106,14 +106,11 @@ pub unsafe extern "C" fn warp_engine_spawn_motion_entity(
 
     if engine
         .inner
-        .insert_node(node_id, NodeRecord { ty: entity_type })
-        .is_err()
-    {
-        return false;
-    }
-    if engine
-        .inner
-        .set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)))
+        .insert_node_with_attachment(
+            node_id,
+            NodeRecord { ty: entity_type },
+            Some(AttachmentValue::Atom(payload)),
+        )
         .is_err()
     {
         return false;

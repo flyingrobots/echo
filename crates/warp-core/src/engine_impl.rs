@@ -590,6 +590,30 @@ impl Engine {
         store.set_node_attachment(id, value);
         Ok(())
     }
+
+    /// Inserts or replaces a node and sets its attachment value (if any) in the root instance.
+    ///
+    /// This is a convenience for bootstrapping/demo callers that want to avoid
+    /// partially-initialized nodes (node record inserted without its attachment)
+    /// if an engine invariant is violated.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    /// This indicates internal state corruption: the root warp store is expected
+    /// to exist after engine construction.
+    pub fn insert_node_with_attachment(
+        &mut self,
+        id: NodeId,
+        record: NodeRecord,
+        attachment: Option<AttachmentValue>,
+    ) -> Result<(), EngineError> {
+        let Some(store) = self.state.store_mut(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        store.insert_node(id, record);
+        store.set_node_attachment(id, attachment);
+        Ok(())
+    }
 }
 
 fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Footprint) -> bool {

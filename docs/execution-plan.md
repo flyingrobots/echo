@@ -35,6 +35,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — Touch-ups (receipts/docs + wasm/ffi ergonomics + graph delete perf) (COMPLETED)
+
+- Goal: address follow-up review nits and a concrete graph-store performance trap without changing deterministic semantics.
+- Scope:
+  - Clarify `TickReceiptEntry.scope` semantics (it is a `NodeKey`, not a `NodeId`) and keep receipt digest encoding stable.
+  - Make the WASM boundary less opaque: replace `ok()??` with explicit matches; log spawn failures behind `console-panic` and return a clear sentinel (`Uint8Array` length 0).
+  - Add `Engine::insert_node_with_attachment` for atomic bootstrapping of demo nodes (avoids partial init if an invariant is violated).
+  - Eliminate `delete_node_cascade`’s `O(total_edges)` inbound scan by maintaining a reverse inbound index (`edges_to`) plus `EdgeId -> to` index.
+  - Clarify `docs/spec-warp-tick-patch.md` that the section 1.2 op list is semantic and does not imply encoding tag order.
+- Exit criteria: `cargo fmt --all`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
+
 > 2025-12-30 — Touch-ups: encapsulation + ergonomics + micro-perf (COMPLETED)
 
 - Goal: address review touch-ups to keep public APIs stable, avoid internal field coupling, and remove sharp edges in docs/tests/benchmarks.

@@ -155,16 +155,15 @@ impl WasmEngine {
         let entity_type = make_type_id("entity");
         let payload = encode_motion_atom_payload(position.components(), velocity.components());
 
-        if engine
-            .insert_node(node_id, NodeRecord { ty: entity_type })
-            .is_err()
-        {
-            return Uint8Array::new_with_length(0);
-        }
-        if engine
-            .set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)))
-            .is_err()
-        {
+        if let Err(_err) = engine.insert_node_with_attachment(
+            node_id,
+            NodeRecord { ty: entity_type },
+            Some(AttachmentValue::Atom(payload)),
+        ) {
+            #[cfg(feature = "console-panic")]
+            web_sys::console::error_1(
+                &format!("spawn_motion_entity failed for node {node_id:?}: {_err:?}").into(),
+            );
             return Uint8Array::new_with_length(0);
         }
 
@@ -215,7 +214,11 @@ impl WasmEngine {
     pub fn read_motion(&self, entity_id: &[u8]) -> Option<Box<[f32]>> {
         let engine = self.inner.borrow();
         let node_id = bytes_to_node_id(entity_id)?;
-        let payload = engine.node_attachment(&node_id).ok()??;
+        let payload = match engine.node_attachment(&node_id) {
+            Ok(Some(value)) => value,
+            Ok(None) => return None,
+            Err(_) => return None,
+        };
         let AttachmentValue::Atom(payload) = payload else {
             return None;
         };

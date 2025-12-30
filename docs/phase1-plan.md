@@ -4,6 +4,11 @@
 
 Goal: deliver a deterministic Rust implementation of WARP powering the Echo runtime, with tangible demos at each milestone. This plan outlines task chains, dependencies, and expected demonstrations.
 
+Status (2025-12-30):
+
+- 1A (bootstrap) and 1B (rewrite executor spike) are effectively landed in `main` via `warp-core` (B0/B1: two-plane attachments + WarpInstances).
+- The next “engine-facing” milestone is 1C (Rhai/TS bindings) and the next “tooling-facing” milestone is completing the WARP View Protocol demo path (`docs/tasks.md`).
+
 ---
 
 ## Task Graph

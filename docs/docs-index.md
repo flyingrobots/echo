@@ -6,6 +6,7 @@
 | -------- | ------- |
 | `architecture-outline.md` | High-level architecture vision and principles |
 | `execution-plan.md` | Living plan of tasks, intent, and progress |
+| `guide/warp-primer.md` | Start here: newcomer-friendly primer for WARP in Echo |
 | `spec-branch-tree.md` | Branch tree, diffs, and timeline persistence |
 | `spec-codex-baby.md` | Event bus, bridges, backpressure, security |
 | `spec-temporal-bridge.md` | Cross-branch event lifecycle |
@@ -43,9 +44,10 @@
 | `release-criteria.md` | Phase transition checklist |
 
 ## Getting Started
-1. Read `architecture-outline.md`.
-2. Review `spec-branch-tree.md` + `spec-codex-baby.md` + `spec-temporal-bridge.md`.
-3. Consult `execution-plan.md` for current focus.
+1. Read `guide/warp-primer.md` (if you’re new to WARP / `warp-core`).
+2. Read `architecture-outline.md`.
+3. Review `spec-branch-tree.md` + `spec-codex-baby.md` + `spec-temporal-bridge.md`.
+4. Consult `execution-plan.md` for current focus.
 
 ## Phase Tags
 - Phase 0.0 — initial skeleton

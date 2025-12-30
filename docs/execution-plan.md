@@ -55,6 +55,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Evidence:
   - Commit: `c029c82` (`docs/THEORY.md` + `assets/echo-white-radial.svg`)
 
+> 2025-12-30 — Post-merge housekeeping: sync roadmap/checklists (COMPLETED)
+
+- Goal: keep the living roadmap accurate now that WARP Stage B1 landed and merged.
+- Scope:
+  - Mark completed items in the “Immediate Backlog” that are now delivered in `main`.
+  - Remove/replace references to non-existent paths (e.g. `packages/…`) with current Rust workspace paths.
+  - Update `docs/docs-index.md` “Getting Started” so it points at the current WARP entry path (`docs/guide/warp-primer.md`).
+- Exit criteria: roadmap reflects current repo structure; no “(IN PROGRESS)” entries for merged work.
+- Evidence:
+  - Commit: `a0e908a` (roadmap housekeeping)
+
 > 2025-12-30 — PR #159: Address CodeRabbit actionables (COMPLETED)
 
 - Goal: close the remaining review items on PR #159 (docs + demo hygiene).
@@ -751,22 +762,28 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - [x] Deterministic math module API surface (vectors, matrices, PRNG, fixed-point toggles).
 - [x] Deterministic math validation strategy.
 - [x] Branch merge conflict playbook.
-- [ ] Scaffold Rust workspace (`crates/warp-core`, `crates/warp-ffi`, `crates/warp-wasm`, `crates/warp-cli`).
+- [x] Scaffold Rust workspace (`crates/warp-core`, `crates/warp-ffi`, `crates/warp-wasm`, `crates/warp-cli`).
 - [ ] Port ECS archetype storage + branch diff engine to Rust.
-- [ ] Implement deterministic PRNG + math module in Rust.
-- [ ] Expose C ABI for host integrations and embed Rhai for scripting.
+- [x] Implement deterministic PRNG + math module in Rust.
+- [x] Expose C ABI for host integrations (`warp-ffi`).
+- [ ] Embed Rhai for scripting (deterministic sandbox + host modules).
 - [ ] Integrate Rhai runtime with deterministic sandboxing and host modules.
 - [ ] Adapt TypeScript CLI/inspector to Rust backend (WASM/FFI).
 - [ ] Archive TypeScript prototype under `/reference/` as spec baseline.
-- [ ] Add Rust CI jobs (cargo test, replay verification).
+- [x] Add Rust CI jobs (cargo test, replay verification).
+- [ ] Integrate roaring bitmaps into ECS dirty tracking.
+- [ ] Implement chunk epoch counters on mutation.
+- [ ] Add deterministic hashing module (canonical encode + BLAKE3).
+- [ ] Build DirtyChunkIndex pipeline from ECS to branch tree.
 
 ### Code Tasks (Phase 1 prep)
 - [x] Install & configure Vitest.
-- [ ] Set up `packages/echo-core/test/` helpers & fixtures layout.
+- [x] Install & configure Vitest.
+- [x] Set up `crates/warp-core/tests/common/` helpers & fixtures layout.
 - [ ] Write failing tests for entity ID allocation + recycling.
 - [ ] Prototype `TimelineFingerprint` hashing & equality tests.
-- [ ] Scaffold deterministic PRNG wrapper with tests.
-- [ ] Establish `cargo test` pipeline in CI (incoming GitHub Actions).
+- [x] Scaffold deterministic PRNG wrapper with tests.
+- [x] Establish `cargo test` pipeline in CI (incoming GitHub Actions).
 - [ ] Integrate roaring bitmaps into ECS dirty tracking.
 - [ ] Implement chunk epoch counters on mutation.
 - [ ] Add deterministic hashing module (canonical encode + BLAKE3).
@@ -805,11 +822,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Next Up Queue
 
-1. ECS storage implementation plan *(in progress)*
-2. Branch tree BlockStore abstraction design
-3. Temporal Bridge implementation plan
-4. Serialization protocol review
-5. Math validation cross-environment rollout
+1. WARP View Protocol demo path (`docs/tasks.md`)
+2. ECS storage implementation plan
+3. Branch tree BlockStore abstraction design
+4. Temporal Bridge implementation plan
+5. Confluence + serialization protocol review
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

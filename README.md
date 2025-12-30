@@ -2,20 +2,21 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 <p align="center">
-  <img alt="Echo" src="https://github.com/user-attachments/assets/3d147042-5139-4289-8c22-675899ce68ab" />
+  <img alt="ECHO" src="https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75" />
+
 </p>
 
-![Echo (6)](https://github.com/user-attachments/assets/2bb4d1cc-3f98-491c-a050-01e72bccffbc)
+---
 
 Echo is a **deterministic graph‑rewrite engine + tooling** for building simulations you can replay, verify, and synchronize without guessing.
 
 Instead of treating a game/simulation as a pile of mutable objects, Echo treats **state as a typed graph**. Each “tick” proposes a set of rewrites, executes them in a deterministic order, and emits **cryptographic hashes** of the resulting state and provenance so tools/peers can validate and converge.
 
-![Project Status](https://github.com/user-attachments/assets/eb0f1e94-71e8-45b0-95de-23030af95d12)
+## Project Status
 
 **Status:** active R&D. The deterministic core (`warp-core`) and a session/tooling pipeline are implemented; higher‑level “world / ECS / systems” layers and the full timeline tree mechanics are specced and landing incrementally.
 
-![Buckle Up](https://github.com/user-attachments/assets/da9a9056-76b8-4867-ae60-d4d9212c232a)
+## Buckle Up
 
 Start here:
 
@@ -25,7 +26,7 @@ Start here:
 - Architecture outline: [`docs/architecture-outline.md`](docs/architecture-outline.md)
 - Commit hashing spec: [`docs/spec-merkle-commit.md`](docs/spec-merkle-commit.md)
 
-![AIΩN Framework](https://github.com/user-attachments/assets/45ed62bb-f436-4918-bd6c-d5efd3d5e671)
+## AIΩN Framework
 
 Echo is part of the **AIΩN Framework**:
 
@@ -42,7 +43,7 @@ Research lineage (AIΩN Foundations series):
 
 ---
 
-![Why Echo_](https://github.com/user-attachments/assets/8e215c34-c2ce-46ac-af62-1a6974aa95ee)
+## Why?
 
 - **Determinism first:** same inputs → same ordered rewrites → same hashes.
 - **Provenance you can trust:** snapshots and commits are content‑addressed.
@@ -52,7 +53,7 @@ If you’re building anything that benefits from “Git‑like” properties for
 
 ---
 
-![What You Get](https://github.com/user-attachments/assets/00092ca4-33f2-48d9-b812-62a4935b58bf)
+## What It Does Right Now
 
 ### Core engine + math
 
@@ -95,7 +96,7 @@ For a deeper “tour” oriented around invariants and entry points, see
 
 ---
 
-![Quickstart](https://github.com/user-attachments/assets/d059c212-27ab-48ab-acbd-d4758e6a6d74)
+## Quickstart
 
 ### Requirements
 
@@ -148,30 +149,7 @@ make spec-000-dev
 
 ---
 
-## Determinism Contracts (Stuff You Must Not Break)
-
-Echo’s determinism story depends on a small number of “hard rules”. If you change any of these, you are changing identity.
-
-- **Rewrite execution order (core scheduler):**
-  - ordering key is lexicographic ascending: (`scope_hash`, `rule_id`, `nonce`)
-  - pending queue is drained deterministically (stable radix sort for large batches).
-- **Graph state hashing (`state_root`):**
-  - reachable‑only traversal from the root,
-  - nodes hashed in ascending id order,
-  - outbound edges sorted by edge id,
-  - payloads are length‑prefixed (u64 LE) then raw bytes.
-- **Commit hashing (`commit_id`):**
-  - versioned header including parents, `state_root`, and digests for plan/decisions/rewrites.
-  - empty list digests are computed as `blake3(0u64.to_le_bytes())` (length‑prefixed canonical empty).
-- **Wire protocol (session + tools):**
-  - canonical CBOR encoding with strict validation,
-  - JS‑ABI packet checksum is `blake3(header || payload)`.
-
-Specs live under `docs/` (start with `docs/architecture-outline.md` and `docs/spec-merkle-commit.md`).
-
----
-
-![Contributions](https://github.com/user-attachments/assets/8dbd9e6f-a39c-4ba1-b072-738d722d56c0)
+## Contributions
 
 - Start with `CONTRIBUTING.md` and `docs/execution-plan.md`.
 - Echo is docs‑driven: behavior changes should be reflected in specs and logged in `docs/decision-log.md`.
@@ -179,6 +157,6 @@ Specs live under `docs/` (start with `docs/architecture-outline.md` and `docs/sp
 
 ---
 
-![License](https://github.com/user-attachments/assets/50a01d02-53d7-48f2-865b-4791548438c6)
+## License
 
 Echo is dual‑licensed. See `LICENSE`, `LICENSE-APACHE`, `LICENSE-MIND-UCAL`, and `LEGAL.md` for details.

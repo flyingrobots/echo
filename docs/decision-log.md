@@ -388,3 +388,4 @@ The following entries use a heading + bullets format for richer context.
   - Keep formatting conservative (no trailing whitespace; blank lines around headings).
 - Rationale: Keep the “paper bridge” doc readable and reduce review noise without churn.
 - Consequence: Same technical content, slightly tighter prose; markdownlint nits avoided.
+  - Evidence: `22ba855`

@@ -13,10 +13,11 @@ If you only remember one thing:
 
 Related docs (recommended, in order):
 
-1. `docs/warp-two-plane-law.md` — project law for SkeletonGraph vs attachment plane.
-2. `docs/spec-merkle-commit.md` — state_root vs commit_id and what is committed.
-3. `docs/spec-warp-tick-patch.md` — tick patch boundary artifact (Paper III).
-4. `docs/spec/SPEC-0002-descended-attachments-v1.md` — WarpInstances / descended attachments (Stage B1).
+1. `docs/guide/warp-primer.md` — newcomer-friendly WARP overview (start here).
+2. `docs/warp-two-plane-law.md` — project law for SkeletonGraph vs attachment plane.
+3. `docs/spec-merkle-commit.md` — state_root vs commit_id and what is committed.
+4. `docs/spec-warp-tick-patch.md` — tick patch boundary artifact (Paper III).
+5. `docs/spec/SPEC-0002-descended-attachments-v1.md` — WarpInstances / descended attachments (Stage B1).
 
 ---
 

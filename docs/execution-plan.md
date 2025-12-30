@@ -35,7 +35,16 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2025-12-30 — PR #159: Address CodeRabbit majors (warp-core tour examples) (IN PROGRESS)
+> 2025-12-30 — Add WARP primer + wire into “Start here” (IN PROGRESS)
+
+- Goal: make WARP approachable to newcomers and pin canonical “start here” docs order.
+- Scope:
+  - Add `docs/guide/warp-primer.md`.
+  - Link it as step 1 from README + `docs/spec-warp-core.md`.
+  - Keep formatting markdownlint-friendly (esp. MD022 heading spacing).
+- Exit criteria: docs read cleanly; CodeRabbit markdown nits avoided.
+
+> 2025-12-30 — PR #159: Address CodeRabbit majors (warp-core tour examples) (COMPLETED)
 
 - Goal: close remaining “Major” review gaps by making Stage B1 behavior concrete and easy to adopt.
 - Scope:

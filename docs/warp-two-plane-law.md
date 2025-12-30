@@ -74,8 +74,8 @@ Where:
 
 - `NodeRecord` / `EdgeRecord` are **skeleton-plane only** (no payload fields).
 - Attachments are stored separately on `GraphStore`:
-  - node/α plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
-  - edge/β plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
+  - node-attachment plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
+  - edge-attachment plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
 - Depth-0 payloads are `AttachmentValue::Atom(AtomPayload)`.
 
 ---

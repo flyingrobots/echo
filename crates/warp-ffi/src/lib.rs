@@ -104,15 +104,23 @@ pub unsafe extern "C" fn warp_engine_spawn_motion_entity(
     let entity_type = make_type_id("entity");
     let payload = encode_motion_atom_payload([px, py, pz], [vx, vy, vz]);
 
-    engine
+    if engine
         .inner
-        .insert_node(node_id, NodeRecord { ty: entity_type });
-    engine
+        .insert_node(node_id, NodeRecord { ty: entity_type })
+        .is_err()
+    {
+        return false;
+    }
+    if engine
         .inner
-        .set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)));
+        .set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)))
+        .is_err()
+    {
+        return false;
+    }
 
     unsafe {
-        (*out_handle).bytes = node_id.0;
+        (*out_handle).bytes = *node_id.as_bytes();
     }
     true
 }
@@ -209,11 +217,11 @@ pub unsafe extern "C" fn warp_engine_read_motion(
         Some(id) => id,
         None => return false,
     };
-    if engine.inner.node(&node_id).is_none() {
+    if engine.inner.node(&node_id).ok().flatten().is_none() {
         return false;
     }
     let payload = match engine.inner.node_attachment(&node_id) {
-        Some(AttachmentValue::Atom(payload)) => payload,
+        Ok(Some(AttachmentValue::Atom(payload))) => payload,
         _ => return false,
     };
     let (position, velocity) = match decode_motion_atom_payload(payload) {

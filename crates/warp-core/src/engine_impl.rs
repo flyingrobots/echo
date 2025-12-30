@@ -124,6 +124,8 @@ impl Engine {
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
     /// - `root`: Root node id for snapshot hashing.
     /// - `kind`: Scheduler variant (Radix vs Legacy).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
@@ -133,6 +135,8 @@ impl Engine {
         kind: SchedulerKind,
         policy_id: u32,
     ) -> Self {
+        // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
+        // Any pre-existing `warp_id` on the store is overwritten.
         let root_warp = crate::ident::make_warp_id("root");
         let mut state = WarpState::new();
         let mut store = store;
@@ -532,45 +536,59 @@ impl Engine {
     }
 
     /// Returns a shared view of a node when it exists.
-    #[must_use]
-    pub fn node(&self, id: &NodeId) -> Option<&NodeRecord> {
-        self.state.store(&self.current_root.warp_id)?.node(id)
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    pub fn node(&self, id: &NodeId) -> Result<Option<&NodeRecord>, EngineError> {
+        let Some(store) = self.state.store(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        Ok(store.node(id))
     }
 
     /// Returns the node's attachment value (if any) in the root instance.
-    #[must_use]
-    pub fn node_attachment(&self, id: &NodeId) -> Option<&AttachmentValue> {
-        self.state
-            .store(&self.current_root.warp_id)?
-            .node_attachment(id)
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    pub fn node_attachment(&self, id: &NodeId) -> Result<Option<&AttachmentValue>, EngineError> {
+        let Some(store) = self.state.store(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        Ok(store.node_attachment(id))
     }
 
     /// Inserts or replaces a node directly inside the store.
     ///
     /// The spike uses this to create motion entities prior to executing rewrites.
-    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    /// This indicates internal state corruption: the root warp store is expected
+    /// to exist after engine construction.
+    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) -> Result<(), EngineError> {
         let Some(store) = self.state.store_mut(&self.current_root.warp_id) else {
-            debug_assert!(
-                false,
-                "missing root warp store: {:?}",
-                self.current_root.warp_id
-            );
-            return;
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
         };
         store.insert_node(id, record);
+        Ok(())
     }
 
     /// Sets the node's attachment value (if any) in the root instance.
-    pub fn set_node_attachment(&mut self, id: NodeId, value: Option<AttachmentValue>) {
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    /// This indicates internal state corruption: the root warp store is expected
+    /// to exist after engine construction.
+    pub fn set_node_attachment(
+        &mut self,
+        id: NodeId,
+        value: Option<AttachmentValue>,
+    ) -> Result<(), EngineError> {
         let Some(store) = self.state.store_mut(&self.current_root.warp_id) else {
-            debug_assert!(
-                false,
-                "missing root warp store: {:?}",
-                self.current_root.warp_id
-            );
-            return;
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
         };
         store.set_node_attachment(id, value);
+        Ok(())
     }
 }
 
@@ -636,8 +654,8 @@ fn compute_rewrites_digest(rewrites: &[PendingRewrite]) -> Hash {
     for r in rewrites {
         hasher.update(&r.rule_id);
         hasher.update(&r.scope_hash);
-        hasher.update(&(r.scope.warp_id).0);
-        hasher.update(&(r.scope.local_id).0);
+        hasher.update(r.scope.warp_id.as_bytes());
+        hasher.update(r.scope.local_id.as_bytes());
     }
     hasher.finalize().into()
 }
@@ -675,8 +693,8 @@ impl Engine {
 pub fn scope_hash(rule_id: &Hash, scope: &NodeKey) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(rule_id);
-    hasher.update(&(scope.warp_id).0);
-    hasher.update(&(scope.local_id).0);
+    hasher.update(scope.warp_id.as_bytes());
+    hasher.update(scope.local_id.as_bytes());
     hasher.finalize().into()
 }
 
@@ -754,8 +772,8 @@ mod tests {
         // Recompute expected value manually using the same inputs.
         let mut hasher = blake3::Hasher::new();
         hasher.update(&rule.id);
-        hasher.update(&warp_id.0);
-        hasher.update(&scope_node.0);
+        hasher.update(warp_id.as_bytes());
+        hasher.update(scope_node.as_bytes());
         let expected: Hash = hasher.finalize().into();
         assert_eq!(h1, expected);
     }

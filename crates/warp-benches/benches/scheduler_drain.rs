@@ -65,7 +65,9 @@ fn build_engine_with_entities(n: usize) -> (Engine, Vec<NodeId>) {
     for i in 0..n {
         let label = format!("{}{}", ENT_LABEL_PREFIX, i);
         let id = make_node_id(&label);
-        engine.insert_node(id, NodeRecord { ty });
+        engine
+            .insert_node(id, NodeRecord { ty })
+            .unwrap_or_else(|err| panic!("insert_node failed for node {id:?}: {err:?}"));
         ids.push(id);
     }
     (engine, ids)

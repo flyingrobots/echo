@@ -14,7 +14,9 @@ fn reserve_gate_aborts_second_on_port_conflict() {
     // Create an entity node under root that we’ll target.
     let entity = make_node_id("reserve-entity");
     let entity_ty = make_type_id("entity");
-    engine.insert_node(entity, NodeRecord { ty: entity_ty });
+    engine
+        .insert_node(entity, NodeRecord { ty: entity_ty })
+        .expect("insert_node");
 
     let tx = engine.begin();
     let _ = engine.apply(tx, warp_core::demo::ports::PORT_RULE_NAME, &entity);
@@ -22,7 +24,10 @@ fn reserve_gate_aborts_second_on_port_conflict() {
     let _snap = engine.commit(tx).expect("commit");
 
     // Exactly one executor should have run: pos.x == 1.0
-    let payload = engine.node_attachment(&entity).expect("payload present");
+    let payload = engine
+        .node_attachment(&entity)
+        .expect("node_attachment ok")
+        .expect("payload present");
     let AttachmentValue::Atom(payload) = payload else {
         panic!("expected Atom payload, got {payload:?}");
     };

@@ -14,6 +14,14 @@ pub type Hash = [u8; 32];
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NodeId(pub Hash);
 
+impl NodeId {
+    /// Returns the canonical byte representation of this id.
+    #[must_use]
+    pub fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
 /// Strongly typed identifier for the logical kind of a node or component.
 ///
 /// `TypeId` values are produced by [`make_type_id`] which hashes a label; using
@@ -32,6 +40,14 @@ pub struct EdgeId(pub Hash);
 /// addressed by `(warp_id, local_id)`.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct WarpId(pub Hash);
+
+impl WarpId {
+    /// Returns the canonical byte representation of this id.
+    #[must_use]
+    pub fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
 
 /// Produces a stable, domain‑separated type identifier (prefix `b"type:"`) using BLAKE3.
 pub fn make_type_id(label: &str) -> TypeId {

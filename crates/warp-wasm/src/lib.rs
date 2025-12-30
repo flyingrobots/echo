@@ -155,10 +155,20 @@ impl WasmEngine {
         let entity_type = make_type_id("entity");
         let payload = encode_motion_atom_payload(position.components(), velocity.components());
 
-        engine.insert_node(node_id, NodeRecord { ty: entity_type });
-        engine.set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)));
+        if engine
+            .insert_node(node_id, NodeRecord { ty: entity_type })
+            .is_err()
+        {
+            return Uint8Array::new_with_length(0);
+        }
+        if engine
+            .set_node_attachment(node_id, Some(AttachmentValue::Atom(payload)))
+            .is_err()
+        {
+            return Uint8Array::new_with_length(0);
+        }
 
-        Uint8Array::from(node_id.0.as_slice())
+        Uint8Array::from(node_id.as_bytes().as_slice())
     }
 
     #[wasm_bindgen]
@@ -205,7 +215,7 @@ impl WasmEngine {
     pub fn read_motion(&self, entity_id: &[u8]) -> Option<Box<[f32]>> {
         let engine = self.inner.borrow();
         let node_id = bytes_to_node_id(entity_id)?;
-        let payload = engine.node_attachment(&node_id)?;
+        let payload = engine.node_attachment(&node_id).ok()??;
         let AttachmentValue::Atom(payload) = payload else {
             return None;
         };

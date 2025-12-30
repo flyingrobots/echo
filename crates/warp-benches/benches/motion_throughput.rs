@@ -9,11 +9,21 @@ use warp_core::{
 };
 
 fn extract_motion_payload(engine: &Engine, id: &NodeId) -> ([f32; 3], [f32; 3]) {
-    let payload = engine.node_attachment(id).expect("payload exists");
+    let payload = engine
+        .node_attachment(id)
+        .unwrap_or_else(|err| panic!("node_attachment failed for node {id:?}: {err:?}"))
+        .unwrap_or_else(|| panic!("missing attachment for node {id:?}"));
     let AttachmentValue::Atom(payload) = payload else {
-        panic!("expected Atom payload for motion node attachment");
+        panic!("expected Atom attachment for node {id:?}, found {payload:?}");
     };
-    decode_motion_atom_payload(payload).expect("decode")
+    decode_motion_atom_payload(payload).unwrap_or_else(|| {
+        panic!(
+            "failed to decode motion atom payload for node {id:?} (type_id={:?}, len={}): expected type_id={:?}",
+            payload.type_id,
+            payload.bytes.len(),
+            warp_core::motion_payload_type_id(),
+        )
+    })
 }
 
 fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
@@ -29,8 +39,14 @@ fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
         let pos = [i as f32, 0.0, 0.0];
         let vel = [1.0, 0.0, 0.0];
         let payload = encode_motion_atom_payload(pos, vel);
-        engine.insert_node(id, NodeRecord { ty });
-        engine.set_node_attachment(id, Some(AttachmentValue::Atom(payload)));
+        engine
+            .insert_node(id, NodeRecord { ty })
+            .unwrap_or_else(|err| panic!("insert_node failed for node {id:?}: {err:?}"));
+        engine
+            .set_node_attachment(id, Some(AttachmentValue::Atom(payload)))
+            .unwrap_or_else(|err| {
+                panic!("set_node_attachment failed for node {id:?}: {err:?}");
+            });
         ids.push(id);
     }
     (engine, ids)

@@ -47,7 +47,10 @@ fn motion_rule_updates_position_deterministically() {
     assert_eq!(hash_after_first_apply, snap_b.hash);
 
     // Ensure the position actually moved.
-    let payload = engine.node_attachment(&entity).expect("payload present");
+    let payload = engine
+        .node_attachment(&entity)
+        .expect("node_attachment ok")
+        .expect("payload present");
     let AttachmentValue::Atom(payload) = payload else {
         panic!("expected Atom payload, got {payload:?}");
     };
@@ -77,7 +80,10 @@ fn motion_rule_no_match_on_missing_payload() {
     // Commit should be a no-op for state; hash remains identical and payload stays None.
     let snap = engine.commit(tx).expect("no-op commit");
     assert_eq!(snap.hash, before);
-    assert!(engine.node_attachment(&entity).is_none());
+    assert!(engine
+        .node_attachment(&entity)
+        .expect("node_attachment ok")
+        .is_none());
 }
 
 #[test]

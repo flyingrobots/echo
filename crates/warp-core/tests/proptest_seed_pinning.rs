@@ -58,7 +58,10 @@ fn proptest_seed_pinned_motion_updates() {
             prop_assert!(matches!(res, ApplyResult::Applied));
             engine.commit(tx).expect("commit");
 
-            let payload = engine.node_attachment(&entity).expect("payload present");
+            let payload = engine
+                .node_attachment(&entity)
+                .expect("node_attachment ok")
+                .expect("payload present");
             let AttachmentValue::Atom(payload) = payload else {
                 panic!("expected Atom payload, got {payload:?}");
             };

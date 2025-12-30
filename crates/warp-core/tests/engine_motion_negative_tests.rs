@@ -31,7 +31,10 @@ fn run_motion_once(pos: [f32; 3], vel: [f32; 3]) -> ([f32; 3], [f32; 3]) {
     let tx = engine.begin();
     let _ = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");
     engine.commit(tx).expect("commit");
-    let payload = engine.node_attachment(&ent).expect("payload present");
+    let payload = engine
+        .node_attachment(&ent)
+        .expect("node_attachment ok")
+        .expect("payload present");
     let AttachmentValue::Atom(payload) = payload else {
         panic!("expected Atom payload, got {payload:?}");
     };
@@ -62,7 +65,10 @@ fn motion_nan_propagates_and_rule_applies() {
     assert!(matches!(res, ApplyResult::Applied));
     engine.commit(tx).expect("commit");
 
-    let payload = engine.node_attachment(&ent).expect("payload present");
+    let payload = engine
+        .node_attachment(&ent)
+        .expect("node_attachment ok")
+        .expect("payload present");
     let AttachmentValue::Atom(payload) = payload else {
         panic!("expected Atom payload, got {payload:?}");
     };
@@ -103,7 +109,10 @@ fn motion_infinity_preserves_infinite_values() {
     assert!(matches!(res, ApplyResult::Applied));
     engine.commit(tx).expect("commit");
 
-    let payload = engine.node_attachment(&ent).expect("payload present");
+    let payload = engine
+        .node_attachment(&ent)
+        .expect("node_attachment ok")
+        .expect("payload present");
     let AttachmentValue::Atom(payload) = payload else {
         panic!("expected Atom payload, got {payload:?}");
     };
@@ -291,7 +300,10 @@ fn motion_exact_24_bytes_with_weird_bits_is_accepted_and_propagates() {
     assert!(matches!(res, ApplyResult::Applied));
     engine.commit(tx).unwrap();
     let (pos, vel) = {
-        let payload = engine.node_attachment(&ent).unwrap();
+        let payload = engine
+            .node_attachment(&ent)
+            .expect("node_attachment ok")
+            .expect("payload present");
         let AttachmentValue::Atom(payload) = payload else {
             panic!("expected Atom payload, got {payload:?}");
         };
@@ -323,7 +335,10 @@ fn motion_nan_idempotency_applies_twice_stays_nan() {
         engine.commit(tx).unwrap();
     }
     let (pos, vel) = {
-        let payload = engine.node_attachment(&ent).unwrap();
+        let payload = engine
+            .node_attachment(&ent)
+            .expect("node_attachment ok")
+            .expect("payload present");
         let AttachmentValue::Atom(payload) = payload else {
             panic!("expected Atom payload, got {payload:?}");
         };

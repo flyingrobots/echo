@@ -92,7 +92,7 @@ Validation invariants (post-apply):
 
 PortalInit (v1):
 - `Empty { root_record }` => create the child instance/root node if missing
-- `None` => require that the child instance/root node already exist
+- `RequireExisting` => require that the child instance/root node already exist
 
 ID note (recommended, not required by this spec): `child_warp` should be deterministically authorable without randomness, but MUST be recorded in the op for replay and verification.
 

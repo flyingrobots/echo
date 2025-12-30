@@ -222,7 +222,7 @@ Implementation note:
 `portal_init` encodes the initialization policy for `OpenPortal`:
 
 - `init_tag: u8`
-  - `0` = None (require child instance + root already exist)
+  - `0` = RequireExisting (require child instance + root already exist)
   - `1` = Empty (create root if missing)
 - if `init_tag == 1`:
   - `root_node_type_id: 32` (the `NodeRecord.ty` for the created root node)

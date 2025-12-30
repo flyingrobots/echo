@@ -67,6 +67,14 @@ impl WarpState {
         self.stores.get_mut(warp_id)
     }
 
+    /// Removes and returns the store for `warp_id` if it exists; otherwise returns a new empty store.
+    #[must_use]
+    pub(crate) fn take_or_create_store(&mut self, warp_id: WarpId) -> GraphStore {
+        self.stores
+            .remove(&warp_id)
+            .unwrap_or_else(|| GraphStore::new(warp_id))
+    }
+
     /// Inserts or replaces the store and metadata for a warp instance.
     ///
     /// This is primarily used by patch replay and construction utilities.

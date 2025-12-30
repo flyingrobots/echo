@@ -35,6 +35,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — Touch-ups: encapsulation + ergonomics + micro-perf (COMPLETED)
+
+- Goal: address review touch-ups to keep public APIs stable, avoid internal field coupling, and remove sharp edges in docs/tests/benchmarks.
+- Scope:
+  - Clarify attachment-plane terminology in `docs/warp-two-plane-law.md`.
+  - Improve worldline slice work-queue allocation (`Vec::with_capacity`) for large patch sets.
+  - Add small encapsulation helpers (`GraphStore::has_edge`, `WarpId::as_bytes`, `NodeId::as_bytes`) and update callers to avoid `.0` tuple-field indexing.
+  - Tighten `Engine` accessors: distinguish “unknown warp store” vs “missing node/attachment” via `Result<Option<...>, EngineError>`.
+  - Make root-store mutation methods (`insert_node`, `set_node_attachment`) return `Result` and surface invariant violation (`UnknownWarp`) rather than silently dropping writes.
+  - Improve diagnostics in motion benchmarks’ panic paths.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated.
+
 > 2025-12-30 — Stage B1.1: Atomic portals + merge/DAG slicing semantics (COMPLETED)
 
 - Goal: make descended attachments “slice-safe” by introducing an atomic portal authoring op (`OpenPortal`), then lock down merge semantics and terminology to prevent long-term drift.

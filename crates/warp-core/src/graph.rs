@@ -117,6 +117,12 @@ impl GraphStore {
         self.edge_attachments.get(id)
     }
 
+    /// Returns `true` if an edge with `edge_id` exists in the store.
+    #[must_use]
+    pub fn has_edge(&self, edge_id: &EdgeId) -> bool {
+        self.edge_index.contains_key(edge_id)
+    }
+
     /// Returns a mutable reference to the edge's attachment value (if any).
     pub fn edge_attachment_mut(&mut self, id: &EdgeId) -> Option<&mut AttachmentValue> {
         self.edge_attachments.get_mut(id)

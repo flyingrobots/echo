@@ -169,8 +169,8 @@ pub enum PortalInit {
         /// Record to use when creating the child root node.
         root_record: NodeRecord,
     },
-    /// Do not create nodes; require that the child instance and root node already exist.
-    None,
+    /// Require that the child instance and root node already exist.
+    RequireExisting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -182,6 +182,24 @@ struct WarpOpKey {
 }
 
 impl WarpOp {
+    /// Canonical replay ordering key for this operation.
+    ///
+    /// This ordering is used for two purposes:
+    /// - to define the deterministic replay order of a tick patch, and
+    /// - to define which operations are considered “the same” for patch construction
+    ///   (see [`WarpTickPatchV1::new`], which dedupes by this key with last-wins semantics).
+    ///
+    /// Ordering rationale (v2):
+    /// - Instance/portal operations sort before per-instance skeleton edits so that stores exist
+    ///   before nodes/edges/attachments are applied.
+    /// - Skeleton deletions sort before skeleton upserts (delete-before-upsert) to support
+    ///   within-tick replacement semantics for nodes/edges.
+    /// - Attachment writes sort last so they cannot reference missing skeleton elements.
+    ///
+    /// Note: `UpsertWarpInstance` sorts before `DeleteWarpInstance` even though node/edge ops
+    /// use delete-before-upsert. Patches are expected not to contain both operations for the
+    /// same `warp_id`; if they do, this ordering makes the resulting state (and any subsequent
+    /// invalid references) deterministic rather than silently ambiguous.
     fn sort_key(&self) -> WarpOpKey {
         match self {
             Self::OpenPortal { key, .. } => {
@@ -405,10 +423,7 @@ fn apply_op_to_state(state: &mut WarpState, op: &WarpOp) -> Result<(), TickPatch
             init,
         } => apply_open_portal(state, key, *child_warp, *child_root, init),
         WarpOp::UpsertWarpInstance { instance } => {
-            let store = state
-                .stores
-                .remove(&instance.warp_id)
-                .unwrap_or_else(|| GraphStore::new(instance.warp_id));
+            let store = state.take_or_create_store(instance.warp_id);
             state.upsert_instance(instance.clone(), store);
             Ok(())
         }
@@ -471,6 +486,7 @@ fn apply_open_portal(
     let parent_warp = validate_attachment_owner_exists(state, key)?;
 
     // Ensure the child instance exists and is consistent with the portal key.
+    let mut created_instance = false;
     if let Some(existing) = state.instance(&child_warp) {
         if existing.parent != Some(*key) || existing.root_node != child_root {
             return Err(TickPatchError::PortalInvariantViolation);
@@ -488,12 +504,15 @@ fn apply_open_portal(
                     },
                     store,
                 );
+                created_instance = true;
             }
-            PortalInit::None => return Err(TickPatchError::PortalInitRequired),
+            PortalInit::RequireExisting => return Err(TickPatchError::PortalInitRequired),
         }
     }
 
-    ensure_child_root(state, child_warp, child_root, init)?;
+    if !created_instance {
+        ensure_child_root(state, child_warp, child_root, init)?;
+    }
 
     // Finally, set the portal attachment slot to point at the child warp id.
     let Some(parent_store) = state.store_mut(&parent_warp) else {
@@ -512,15 +531,29 @@ fn apply_open_portal(
     Ok(())
 }
 
+fn validate_attachment_plane(key: &AttachmentKey) -> Result<(), TickPatchError> {
+    match key.owner {
+        AttachmentOwner::Node(_) => {
+            if key.plane != AttachmentPlane::Alpha {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+        }
+        AttachmentOwner::Edge(_) => {
+            if key.plane != AttachmentPlane::Beta {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_attachment_owner_exists(
     state: &WarpState,
     key: &AttachmentKey,
 ) -> Result<WarpId, TickPatchError> {
+    validate_attachment_plane(key)?;
     match key.owner {
         AttachmentOwner::Node(node) => {
-            if key.plane != AttachmentPlane::Alpha {
-                return Err(TickPatchError::InvalidAttachmentKey(*key));
-            }
             let Some(store) = state.store(&node.warp_id) else {
                 return Err(TickPatchError::MissingWarp(node.warp_id));
             };
@@ -530,13 +563,10 @@ fn validate_attachment_owner_exists(
             Ok(node.warp_id)
         }
         AttachmentOwner::Edge(edge) => {
-            if key.plane != AttachmentPlane::Beta {
-                return Err(TickPatchError::InvalidAttachmentKey(*key));
-            }
             let Some(store) = state.store(&edge.warp_id) else {
                 return Err(TickPatchError::MissingWarp(edge.warp_id));
             };
-            if !store.edge_index.contains_key(&edge.local_id) {
+            if !store.has_edge(&edge.local_id) {
                 return Err(TickPatchError::MissingEdge(edge));
             }
             Ok(edge.warp_id)
@@ -567,7 +597,7 @@ fn ensure_child_root(
             }
             Ok(())
         }
-        PortalInit::None => {
+        PortalInit::RequireExisting => {
             let Some(store) = state.store(&child_warp) else {
                 return Err(TickPatchError::MissingWarp(child_warp));
             };
@@ -587,11 +617,9 @@ fn apply_set_attachment(
     key: &AttachmentKey,
     value: Option<&AttachmentValue>,
 ) -> Result<(), TickPatchError> {
+    validate_attachment_plane(key)?;
     match key.owner {
         AttachmentOwner::Node(node) => {
-            if key.plane != AttachmentPlane::Alpha {
-                return Err(TickPatchError::InvalidAttachmentKey(*key));
-            }
             let Some(store) = state.store_mut(&node.warp_id) else {
                 return Err(TickPatchError::MissingWarp(node.warp_id));
             };
@@ -602,13 +630,10 @@ fn apply_set_attachment(
             Ok(())
         }
         AttachmentOwner::Edge(edge) => {
-            if key.plane != AttachmentPlane::Beta {
-                return Err(TickPatchError::InvalidAttachmentKey(*key));
-            }
             let Some(store) = state.store_mut(&edge.warp_id) else {
                 return Err(TickPatchError::MissingWarp(edge.warp_id));
             };
-            if !store.edge_index.contains_key(&edge.local_id) {
+            if !store.has_edge(&edge.local_id) {
                 return Err(TickPatchError::MissingEdge(edge));
             }
             store.set_edge_attachment(edge.local_id, value.cloned());
@@ -632,7 +657,7 @@ pub enum TickPatchError {
     /// Tried to set an attachment slot that is not valid in v1.
     #[error("invalid attachment key: {0:?}")]
     InvalidAttachmentKey(AttachmentKey),
-    /// `OpenPortal` requires an init policy when the child instance does not exist.
+    /// `OpenPortal` requires `PortalInit::Empty` when the child instance does not exist.
     #[error("portal init required")]
     PortalInitRequired,
     /// `OpenPortal` invariants were violated (dangling portal / inconsistent parent chain / root mismatch).
@@ -759,7 +784,7 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
 
 fn encode_portal_init(h: &mut Hasher, init: &PortalInit) {
     match init {
-        PortalInit::None => {
+        PortalInit::RequireExisting => {
             h.update(&[0u8]);
         }
         PortalInit::Empty { root_record } => {
@@ -939,9 +964,9 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     }
 
     // Per-instance skeleton and attachment-plane diffs.
-    let empty = GraphStore::default();
+    let empty = empty_graph_store();
     for (warp_id, after_store) in &after.stores {
-        let before_store = before.stores.get(warp_id).unwrap_or(&empty);
+        let before_store = before.stores.get(warp_id).unwrap_or(empty);
         diff_instance(
             &mut ops,
             *warp_id,
@@ -954,6 +979,11 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
 
     ops.sort_by_key(WarpOp::sort_key);
     ops
+}
+
+fn empty_graph_store() -> &'static GraphStore {
+    static EMPTY: std::sync::OnceLock<GraphStore> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(GraphStore::default)
 }
 
 fn diff_instance(
@@ -1165,7 +1195,9 @@ pub fn slice_worldline_indices(patches: &[WarpTickPatchV1], target: SlotId) -> V
     }
 
     let mut needed_ticks: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-    let mut work: Vec<(SlotId, usize)> = vec![(target, patches.len())];
+    let work_cap = core::cmp::max(1, patches.len() / 4);
+    let mut work: Vec<(SlotId, usize)> = Vec::with_capacity(work_cap);
+    work.push((target, patches.len()));
     let mut seen: std::collections::BTreeSet<(SlotId, usize)> = std::collections::BTreeSet::new();
 
     while let Some((slot, consumer_tick)) = work.pop() {

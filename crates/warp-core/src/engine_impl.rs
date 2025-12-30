@@ -6,15 +6,17 @@ use std::collections::{HashMap, HashSet};
 use blake3::Hasher;
 use thiserror::Error;
 
+use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
-use crate::ident::{CompactRuleId, EdgeId, Hash, NodeId};
+use crate::ident::{CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
-use crate::tick_patch::{diff_store, SlotId, TickCommitStatus, WarpTickPatchV1};
+use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
+use crate::warp_state::{WarpInstance, WarpState};
 
 /// Result of calling [`Engine::apply`].
 #[derive(Debug)]
@@ -46,6 +48,9 @@ pub enum EngineError {
     /// Internal invariant violated (engine state corruption).
     #[error("internal invariant violated: {0}")]
     InternalCorruption(&'static str),
+    /// Attempted to access a warp instance that does not exist.
+    #[error("unknown warp instance: {0:?}")]
+    UnknownWarp(WarpId),
 }
 
 /// Core rewrite engine used by the spike.
@@ -58,7 +63,7 @@ pub enum EngineError {
 /// a breaking change to snapshot identity and must be recorded in the
 /// determinism spec and tests.
 pub struct Engine {
-    store: GraphStore,
+    state: WarpState,
     rules: HashMap<&'static str, RewriteRule>,
     rules_by_id: HashMap<Hash, &'static str>,
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
@@ -72,7 +77,7 @@ pub struct Engine {
     policy_id: u32,
     tx_counter: u64,
     live_txs: HashSet<u64>,
-    current_root: NodeId,
+    current_root: NodeKey,
     last_snapshot: Option<Snapshot>,
 }
 
@@ -119,6 +124,8 @@ impl Engine {
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
     /// - `root`: Root node id for snapshot hashing.
     /// - `kind`: Scheduler variant (Radix vs Legacy).
     /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
@@ -128,8 +135,88 @@ impl Engine {
         kind: SchedulerKind,
         policy_id: u32,
     ) -> Self {
-        Self {
+        // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
+        // Any pre-existing `warp_id` on the store is overwritten.
+        let root_warp = crate::ident::make_warp_id("root");
+        let mut state = WarpState::new();
+        let mut store = store;
+        store.warp_id = root_warp;
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: root_warp,
+                root_node: root,
+                parent: None,
+            },
             store,
+        );
+        Self {
+            state,
+            rules: HashMap::new(),
+            rules_by_id: HashMap::new(),
+            compact_rule_ids: HashMap::new(),
+            rules_by_compact: HashMap::new(),
+            scheduler: DeterministicScheduler::new(kind),
+            policy_id,
+            tx_counter: 0,
+            live_txs: HashSet::new(),
+            current_root: NodeKey {
+                warp_id: root_warp,
+                local_id: root,
+            },
+            last_snapshot: None,
+        }
+    }
+
+    /// Constructs an engine from an existing multi-instance [`WarpState`] (Stage B1).
+    ///
+    /// This constructor is primarily intended for:
+    /// - replaying a sequence of tick patches into a `WarpState`, then continuing execution,
+    /// - building multi-instance fixtures for tests/tools without exposing `WarpState` internals, and
+    /// - running rules against an externally-authored state (imported or synthesized).
+    ///
+    /// **Important**: `Engine::with_state` initializes a clean execution environment:
+    /// the scheduler starts empty (no pending rewrites), there are no live transactions,
+    /// and `tx_counter` is reset to `0`. Transaction/scheduler state from any original
+    /// execution is intentionally not preserved.
+    ///
+    /// # Parameters
+    /// - `state`: pre-constructed multi-instance state.
+    /// - `root`: the root node for snapshot hashing and commits. This must refer to the root instance.
+    /// - `kind`: scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: policy identifier committed into `patch_digest` and `commit_id` v2.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp instance is not present
+    /// (missing store or missing instance metadata).
+    ///
+    /// Returns [`EngineError::InternalCorruption`] if the supplied `root` does not
+    /// match the root instance metadata (`WarpInstance.root_node`), or if the root
+    /// instance declares a `parent` (root instances must have `parent = None`).
+    pub fn with_state(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+    ) -> Result<Self, EngineError> {
+        let Some(root_instance) = state.instance(&root.warp_id) else {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        };
+        if root_instance.parent.is_some() {
+            return Err(EngineError::InternalCorruption(
+                "root warp instance must not declare a parent",
+            ));
+        }
+        if root_instance.root_node != root.local_id {
+            return Err(EngineError::InternalCorruption(
+                "Engine root must match WarpInstance.root_node",
+            ));
+        }
+        if state.store(&root.warp_id).is_none() {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        }
+
+        Ok(Self {
+            state,
             rules: HashMap::new(),
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
@@ -140,7 +227,7 @@ impl Engine {
             live_txs: HashSet::new(),
             current_root: root,
             last_snapshot: None,
-        }
+        })
     }
 
     /// Registers a rewrite rule so it can be referenced by name.
@@ -199,19 +286,57 @@ impl Engine {
         rule_name: &str,
         scope: &NodeId,
     ) -> Result<ApplyResult, EngineError> {
+        self.apply_in_warp(tx, self.current_root.warp_id, rule_name, scope, &[])
+    }
+
+    /// Queues a rewrite for execution within a specific warp instance.
+    ///
+    /// `descent_stack` is the chain of attachment slots (root → … → current)
+    /// that establishes reachability for this instance. For Stage B1
+    /// determinism, any match/exec inside a descended instance must record
+    /// READs of every `AttachmentKey` in this stack so that changing a descent
+    /// pointer deterministically invalidates the match.
+    ///
+    /// # Errors
+    /// Returns:
+    /// - [`EngineError::UnknownTx`] if `tx` is invalid or already closed.
+    /// - [`EngineError::UnknownRule`] if `rule_name` was not registered.
+    /// - [`EngineError::UnknownWarp`] if `warp_id` does not exist.
+    /// - [`EngineError::InternalCorruption`] if an internal rule table invariant is violated
+    ///   (should not occur when using the public registration APIs).
+    pub fn apply_in_warp(
+        &mut self,
+        tx: TxId,
+        warp_id: WarpId,
+        rule_name: &str,
+        scope: &NodeId,
+        descent_stack: &[AttachmentKey],
+    ) -> Result<ApplyResult, EngineError> {
         if tx.value() == 0 || !self.live_txs.contains(&tx.value()) {
             return Err(EngineError::UnknownTx);
         }
         let Some(rule) = self.rules.get(rule_name) else {
             return Err(EngineError::UnknownRule(rule_name.to_owned()));
         };
-        let matches = (rule.matcher)(&self.store, scope);
+        let Some(store) = self.state.store(&warp_id) else {
+            return Err(EngineError::UnknownWarp(warp_id));
+        };
+        let matches = (rule.matcher)(store, scope);
         if !matches {
             return Ok(ApplyResult::NoMatch);
         }
 
-        let scope_fp = scope_hash(&rule.id, scope);
-        let footprint = (rule.compute_footprint)(&self.store, scope);
+        let scope_key = NodeKey {
+            warp_id,
+            local_id: *scope,
+        };
+        let scope_fp = scope_hash(&rule.id, &scope_key);
+        let mut footprint = (rule.compute_footprint)(store, scope);
+        // Stage B1 law: any match/exec inside a descended instance must READ
+        // every attachment slot in the descent chain.
+        for key in descent_stack {
+            footprint.a_read.insert(*key);
+        }
         let Some(&compact_rule) = self.compact_rule_ids.get(&rule.id) else {
             return Err(EngineError::InternalCorruption(
                 "missing compact rule id for a registered rule",
@@ -223,7 +348,7 @@ impl Engine {
                 rule_id: rule.id,
                 compact_rule,
                 scope_hash: scope_fp,
-                scope: *scope,
+                scope: scope_key,
                 footprint,
                 phase: RewritePhase::Matched,
             },
@@ -280,12 +405,13 @@ impl Engine {
         let rewrites_digest = compute_rewrites_digest(&reserved_rewrites);
 
         // Capture pre-state for delta patch construction.
-        let store_before = self.store.clone();
+        // PERF: Full state clone; consider COW or incremental tracking for large graphs.
+        let state_before = self.state.clone();
 
         self.apply_reserved_rewrites(reserved_rewrites)?;
 
         // Delta tick patch (Paper III boundary artifact).
-        let ops = diff_store(&store_before, &self.store);
+        let ops = diff_state(&state_before, &self.state);
         let patch = WarpTickPatchV1::new(
             policy_id,
             rule_pack_id,
@@ -296,7 +422,7 @@ impl Engine {
         );
         let patch_digest = patch.digest();
 
-        let state_root = crate::snapshot::compute_state_root(&self.store, &self.current_root);
+        let state_root = crate::snapshot::compute_state_root(&self.state, &self.current_root);
         let parents: Vec<Hash> = self
             .last_snapshot
             .as_ref()
@@ -383,7 +509,12 @@ impl Engine {
                 },
             });
             if accepted {
-                extend_slots_from_footprint(&mut in_slots, &mut out_slots, &rewrite.footprint);
+                extend_slots_from_footprint(
+                    &mut in_slots,
+                    &mut out_slots,
+                    &rewrite.scope.warp_id,
+                    &rewrite.footprint,
+                );
                 reserved.push(rewrite);
                 reserved_entry_indices.push(entry_idx_u32);
             }
@@ -404,13 +535,24 @@ impl Engine {
     ) -> Result<(), EngineError> {
         for rewrite in rewrites {
             let id = rewrite.compact_rule;
-            let Some(rule) = self.rule_by_compact(id) else {
-                debug_assert!(false, "missing rule for compact id: {id:?}");
-                return Err(EngineError::InternalCorruption(
-                    "missing rule for compact id during commit",
-                ));
+            let executor = {
+                let Some(rule) = self.rule_by_compact(id) else {
+                    debug_assert!(false, "missing rule for compact id: {id:?}");
+                    return Err(EngineError::InternalCorruption(
+                        "missing rule for compact id during commit",
+                    ));
+                };
+                rule.executor
             };
-            (rule.executor)(&mut self.store, &rewrite.scope);
+            let Some(store) = self.state.store_mut(&rewrite.scope.warp_id) else {
+                debug_assert!(
+                    false,
+                    "missing store for warp id: {:?}",
+                    rewrite.scope.warp_id
+                );
+                return Err(EngineError::UnknownWarp(rewrite.scope.warp_id));
+            };
+            (executor)(store, &rewrite.scope.local_id);
         }
         Ok(())
     }
@@ -422,7 +564,7 @@ impl Engine {
         // same v2 commit hash shape (parents + state_root + patch_digest) but
         // with empty diagnostic digests. This makes it explicit that no rewrites
         // were applied while keeping the structure stable for callers/tools.
-        let state_root = compute_state_root(&self.store, &self.current_root);
+        let state_root = compute_state_root(&self.state, &self.current_root);
         let parents: Vec<Hash> = self
             .last_snapshot
             .as_ref()
@@ -457,16 +599,83 @@ impl Engine {
     }
 
     /// Returns a shared view of a node when it exists.
-    #[must_use]
-    pub fn node(&self, id: &NodeId) -> Option<&NodeRecord> {
-        self.store.node(id)
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    pub fn node(&self, id: &NodeId) -> Result<Option<&NodeRecord>, EngineError> {
+        let Some(store) = self.state.store(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        Ok(store.node(id))
+    }
+
+    /// Returns the node's attachment value (if any) in the root instance.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    pub fn node_attachment(&self, id: &NodeId) -> Result<Option<&AttachmentValue>, EngineError> {
+        let Some(store) = self.state.store(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        Ok(store.node_attachment(id))
     }
 
     /// Inserts or replaces a node directly inside the store.
     ///
     /// The spike uses this to create motion entities prior to executing rewrites.
-    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) {
-        self.store.insert_node(id, record);
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    /// This indicates internal state corruption: the root warp store is expected
+    /// to exist after engine construction.
+    pub fn insert_node(&mut self, id: NodeId, record: NodeRecord) -> Result<(), EngineError> {
+        let Some(store) = self.state.store_mut(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        store.insert_node(id, record);
+        Ok(())
+    }
+
+    /// Sets the node's attachment value (if any) in the root instance.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    /// This indicates internal state corruption: the root warp store is expected
+    /// to exist after engine construction.
+    pub fn set_node_attachment(
+        &mut self,
+        id: NodeId,
+        value: Option<AttachmentValue>,
+    ) -> Result<(), EngineError> {
+        let Some(store) = self.state.store_mut(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        store.set_node_attachment(id, value);
+        Ok(())
+    }
+
+    /// Inserts or replaces a node and sets its attachment value (if any) in the root instance.
+    ///
+    /// This is a convenience for bootstrapping/demo callers that want to avoid
+    /// partially-initialized nodes (node record inserted without its attachment)
+    /// if an engine invariant is violated.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the root warp store is missing.
+    /// This indicates internal state corruption: the root warp store is expected
+    /// to exist after engine construction.
+    pub fn insert_node_with_attachment(
+        &mut self,
+        id: NodeId,
+        record: NodeRecord,
+        attachment: Option<AttachmentValue>,
+    ) -> Result<(), EngineError> {
+        let Some(store) = self.state.store_mut(&self.current_root.warp_id) else {
+            return Err(EngineError::UnknownWarp(self.current_root.warp_id));
+        };
+        store.insert_node(id, record);
+        store.set_node_attachment(id, attachment);
+        Ok(())
     }
 }
 
@@ -499,6 +708,12 @@ fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Fo
     {
         return true;
     }
+    if a.a_write.intersects(&b.a_write)
+        || a.a_write.intersects(&b.a_read)
+        || b.a_write.intersects(&a.a_read)
+    {
+        return true;
+    }
     a.n_write.intersects(&b.n_write)
         || a.n_write.intersects(&b.n_read)
         || b.n_write.intersects(&a.n_read)
@@ -526,7 +741,8 @@ fn compute_rewrites_digest(rewrites: &[PendingRewrite]) -> Hash {
     for r in rewrites {
         hasher.update(&r.rule_id);
         hasher.update(&r.scope_hash);
-        hasher.update(&(r.scope).0);
+        hasher.update(r.scope.warp_id.as_bytes());
+        hasher.update(r.scope.local_id.as_bytes());
     }
     hasher.finalize().into()
 }
@@ -560,34 +776,57 @@ impl Engine {
 /// candidates by both the producing rule and the scoped node.
 ///
 /// Stable definition (v0):
-/// - `scope_hash := blake3(rule_id || scope_node_id)`
-pub fn scope_hash(rule_id: &Hash, scope: &NodeId) -> Hash {
+/// - `scope_hash := blake3(rule_id || warp_id || scope_node_id)`
+pub fn scope_hash(rule_id: &Hash, scope: &NodeKey) -> Hash {
     let mut hasher = Hasher::new();
     hasher.update(rule_id);
-    hasher.update(&scope.0);
+    hasher.update(scope.warp_id.as_bytes());
+    hasher.update(scope.local_id.as_bytes());
     hasher.finalize().into()
 }
 
 fn extend_slots_from_footprint(
     in_slots: &mut std::collections::BTreeSet<SlotId>,
     out_slots: &mut std::collections::BTreeSet<SlotId>,
+    warp_id: &WarpId,
     fp: &crate::footprint::Footprint,
 ) {
     for node_hash in fp.n_read.iter() {
-        in_slots.insert(SlotId::Node(NodeId(*node_hash)));
+        in_slots.insert(SlotId::Node(NodeKey {
+            warp_id: *warp_id,
+            local_id: NodeId(*node_hash),
+        }));
     }
     for node_hash in fp.n_write.iter() {
         let id = NodeId(*node_hash);
-        in_slots.insert(SlotId::Node(id));
-        out_slots.insert(SlotId::Node(id));
+        let key = NodeKey {
+            warp_id: *warp_id,
+            local_id: id,
+        };
+        in_slots.insert(SlotId::Node(key));
+        out_slots.insert(SlotId::Node(key));
     }
     for edge_hash in fp.e_read.iter() {
-        in_slots.insert(SlotId::Edge(EdgeId(*edge_hash)));
+        in_slots.insert(SlotId::Edge(crate::ident::EdgeKey {
+            warp_id: *warp_id,
+            local_id: EdgeId(*edge_hash),
+        }));
     }
     for edge_hash in fp.e_write.iter() {
         let id = EdgeId(*edge_hash);
-        in_slots.insert(SlotId::Edge(id));
-        out_slots.insert(SlotId::Edge(id));
+        let key = crate::ident::EdgeKey {
+            warp_id: *warp_id,
+            local_id: id,
+        };
+        in_slots.insert(SlotId::Edge(key));
+        out_slots.insert(SlotId::Edge(key));
+    }
+    for key in fp.a_read.iter() {
+        in_slots.insert(SlotId::Attachment(*key));
+    }
+    for key in fp.a_write.iter() {
+        in_slots.insert(SlotId::Attachment(*key));
+        out_slots.insert(SlotId::Attachment(*key));
     }
     for port_key in fp.b_in.keys() {
         in_slots.insert(SlotId::Port(*port_key));
@@ -601,20 +840,27 @@ fn extend_slots_from_footprint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attachment::{AttachmentKey, AttachmentValue};
     use crate::demo::motion::{motion_rule, MOTION_RULE_NAME};
     use crate::ident::{make_node_id, make_type_id};
-    use crate::payload::encode_motion_payload;
+    use crate::payload::encode_motion_atom_payload;
     use crate::record::NodeRecord;
 
     #[test]
     fn scope_hash_stable_for_rule_and_scope() {
         let rule = motion_rule();
-        let scope = make_node_id("scope-hash-entity");
+        let warp_id = crate::ident::make_warp_id("scope-hash-test-warp");
+        let scope_node = make_node_id("scope-hash-entity");
+        let scope = NodeKey {
+            warp_id,
+            local_id: scope_node,
+        };
         let h1 = super::scope_hash(&rule.id, &scope);
         // Recompute expected value manually using the same inputs.
         let mut hasher = blake3::Hasher::new();
         hasher.update(&rule.id);
-        hasher.update(&scope.0);
+        hasher.update(warp_id.as_bytes());
+        hasher.update(scope_node.as_bytes());
         let expected: Hash = hasher.finalize().into();
         assert_eq!(h1, expected);
     }
@@ -645,16 +891,11 @@ mod tests {
     fn tick_patch_replay_matches_post_state() {
         let entity = make_node_id("tick-patch-entity");
         let entity_type = make_type_id("entity");
-        let payload = encode_motion_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
+        let payload = encode_motion_atom_payload([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]);
 
         let mut store = GraphStore::default();
-        store.insert_node(
-            entity,
-            NodeRecord {
-                ty: entity_type,
-                payload: Some(payload),
-            },
-        );
+        store.insert_node(entity, NodeRecord { ty: entity_type });
+        store.set_node_attachment(entity, Some(AttachmentValue::Atom(payload)));
 
         let mut engine = Engine::new(store, entity);
         let register = engine.register_rule(motion_rule());
@@ -667,7 +908,7 @@ mod tests {
             "expected ApplyResult::Applied, got {applied:?}"
         );
 
-        let store_before = engine.store.clone();
+        let state_before = engine.state.clone();
         let committed = engine.commit_with_receipt(tx);
         assert!(
             committed.is_ok(),
@@ -676,16 +917,16 @@ mod tests {
         let Ok((snapshot, _receipt, patch)) = committed else {
             return;
         };
-        let store_after = engine.store.clone();
+        let state_after = engine.state.clone();
 
         // Replay patch delta from the captured pre-state and compare the resulting state root.
-        let mut store_replay = store_before;
-        let replay = patch.apply_to_store(&mut store_replay);
+        let mut state_replay = state_before;
+        let replay = patch.apply_to_state(&mut state_replay);
         assert!(replay.is_ok(), "patch replay failed: {replay:?}");
 
-        let root = entity;
-        let state_after = compute_state_root(&store_after, &root);
-        let state_replay = compute_state_root(&store_replay, &root);
+        let root = engine.current_root;
+        let state_after = compute_state_root(&state_after, &root);
+        let state_replay = compute_state_root(&state_replay, &root);
         assert_eq!(
             state_after, state_replay,
             "patch replay must match post-state"
@@ -704,8 +945,12 @@ mod tests {
             "commit hash v2 must commit to state_root + patch_digest (+ parents/policy)"
         );
 
-        // Conservative slots from footprint: motion writes the scoped node record.
-        assert!(patch.in_slots().contains(&SlotId::Node(entity)));
-        assert!(patch.out_slots().contains(&SlotId::Node(entity)));
+        // Conservative slots from footprint: motion writes the scoped node attachment (α plane).
+        let slot = SlotId::Attachment(AttachmentKey::node_alpha(NodeKey {
+            warp_id: root.warp_id,
+            local_id: entity,
+        }));
+        assert!(patch.in_slots().contains(&slot));
+        assert!(patch.out_slots().contains(&slot));
     }
 }

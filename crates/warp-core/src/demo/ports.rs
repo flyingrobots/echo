@@ -2,11 +2,15 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Demo rule that reserves a boundary input port, used to exercise the
 //! reservation gate and independence checks.
+use crate::attachment::AttachmentValue;
 use crate::engine_impl::Engine;
-use crate::footprint::{pack_port_key, Footprint, IdSet, PortSet};
+use crate::footprint::{pack_port_key, AttachmentSet, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
-use crate::payload::{decode_motion_payload, encode_motion_payload};
+use crate::payload::{
+    decode_motion_payload, encode_motion_atom_payload, encode_motion_payload,
+    motion_payload_type_id,
+};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 
@@ -18,26 +22,47 @@ fn port_matcher(_: &GraphStore, _: &NodeId) -> bool {
 }
 
 fn port_executor(store: &mut GraphStore, scope: &NodeId) {
-    if let Some(node) = store.node_mut(scope) {
-        // Use motion payload layout; increment pos.x by 1.0
-        if let Some(bytes) = &mut node.payload {
-            if let Some((mut pos, vel)) = decode_motion_payload(bytes) {
-                pos[0] += 1.0;
-                *bytes = encode_motion_payload(pos, vel);
-            }
-        } else {
-            let pos = [1.0, 0.0, 0.0];
-            let vel = [0.0, 0.0, 0.0];
-            node.payload = Some(encode_motion_payload(pos, vel));
-        }
+    if store.node(scope).is_none() {
+        return;
+    }
+
+    // State machine:
+    // - missing attachment => initialize the motion payload (pos.x starts at 1.0)
+    // - existing Atom motion payload => increment pos.x by 1.0
+    // - any other attachment kind/type => no-op (rule does not apply)
+    // Use motion payload layout; increment pos.x by 1.0
+    let Some(attachment) = store.node_attachment_mut(scope) else {
+        let pos = [1.0, 0.0, 0.0];
+        let vel = [0.0, 0.0, 0.0];
+        store.set_node_attachment(
+            *scope,
+            Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
+        );
+        return;
+    };
+
+    let AttachmentValue::Atom(payload) = attachment else {
+        return;
+    };
+    if payload.type_id != motion_payload_type_id() {
+        return;
+    }
+    if let Some((mut pos, vel)) = decode_motion_payload(&payload.bytes) {
+        pos[0] += 1.0;
+        payload.bytes = encode_motion_payload(pos, vel);
     }
 }
 
 fn compute_port_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut n_write = IdSet::default();
+    let mut a_write = AttachmentSet::default();
     let mut b_in = PortSet::default();
     if store.node(scope).is_some() {
         n_write.insert_node(scope);
+        a_write.insert(crate::AttachmentKey::node_alpha(crate::NodeKey {
+            warp_id: store.warp_id(),
+            local_id: *scope,
+        }));
         b_in.insert(pack_port_key(scope, 0, true));
     }
     Footprint {
@@ -45,6 +70,8 @@ fn compute_port_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
         n_write,
         e_read: IdSet::default(),
         e_write: IdSet::default(),
+        a_read: AttachmentSet::default(),
+        a_write,
         b_in,
         b_out: PortSet::default(),
         factor_mask: 0,
@@ -94,13 +121,7 @@ pub fn build_port_demo_engine() -> Engine {
     let mut store = GraphStore::default();
     let root_id = make_node_id("world-root-ports");
     let root_type = make_type_id("world");
-    store.insert_node(
-        root_id,
-        NodeRecord {
-            ty: root_type,
-            payload: None,
-        },
-    );
+    store.insert_node(root_id, NodeRecord { ty: root_type });
     let mut engine = Engine::new(store, root_id);
     engine
         .register_rule(port_rule())

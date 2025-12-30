@@ -35,6 +35,150 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2025-12-30 — PR #159: Address CodeRabbit actionables (IN PROGRESS)
+
+- Goal: close the remaining review items on PR #159 (docs + demo hygiene).
+- Scope:
+  - Add Evidence blocks (commit SHAs) for completed 2025-12-30 entries below.
+  - Clarify “no hidden edges” enforcement references in `docs/guide/warp-primer.md`.
+  - Clarify Paper I notation context (`U`, `π(U)`) in `docs/spec-warp-core.md`.
+  - Minor demo hygiene: document init/update behavior in the port demo executor.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; CodeRabbit re-review clean.
+
+> 2025-12-30 — Add WARP primer + wire into “Start here” (COMPLETED)
+
+- Goal: make WARP approachable to newcomers and pin canonical “start here” docs order.
+- Scope:
+  - Add `docs/guide/warp-primer.md`.
+  - Link it as step 1 from README + `docs/spec-warp-core.md`.
+  - Keep formatting markdownlint-friendly (esp. MD022 heading spacing).
+- Exit criteria: docs read cleanly; CodeRabbit markdown nits avoided.
+- Evidence:
+  - Commit: `1b40f66` (docs primer + links)
+  - Docs: `docs/guide/warp-primer.md`, `docs/spec-warp-core.md`
+  - README: `README.md` (Start here list)
+
+> 2025-12-30 — PR #159: Address CodeRabbit majors (warp-core tour examples) (COMPLETED)
+
+- Goal: close remaining “Major” review gaps by making Stage B1 behavior concrete and easy to adopt.
+- Scope:
+  - Expand `docs/spec-warp-core.md` with a worked Stage B1 example showing:
+    - portal authoring (`OpenPortal`) + `Descend(WarpId)` semantics,
+    - `Engine::apply_in_warp` usage with a `descent_stack`,
+    - how descent-chain reads become `Footprint.a_read` and therefore `in_slots`,
+    - Paper III worldline slicing that includes the portal chain.
+  - Add a minimal `Engine` constructor for initializing from an existing `WarpState` (needed to make examples concrete without exposing internals).
+  - Close remaining review gaps on portal invariants by enforcing and testing:
+    - no dangling `Descend(WarpId)` portals without a corresponding `WarpInstance`,
+    - no orphan instances (`WarpInstance.parent` must be realized by an attachment slot).
+- Exit criteria: `cargo fmt --all`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
+- Evidence:
+  - Commits: `875690c`, `7a02123`, `846723d`, `27e490a`
+  - Docs: `docs/spec-warp-core.md` (Stage B1 quickstart + worked examples)
+  - Implementation: `crates/warp-core/src/engine_impl.rs`, `crates/warp-core/src/tick_patch.rs`
+  - Tests: portal invariant tests in `crates/warp-core/src/tick_patch.rs`
+
+> 2025-12-30 — Touch-ups (receipts/docs + wasm/ffi ergonomics + graph delete perf) (COMPLETED)
+
+- Goal: address follow-up review nits and a concrete graph-store performance trap without changing deterministic semantics.
+- Scope:
+  - Clarify `TickReceiptEntry.scope` semantics (it is a `NodeKey`, not a `NodeId`) and keep receipt digest encoding stable.
+  - Make the WASM boundary less opaque: replace `ok()??` with explicit matches; log spawn failures behind `console-panic` and return a clear sentinel (`Uint8Array` length 0).
+  - Add `Engine::insert_node_with_attachment` for atomic bootstrapping of demo nodes (avoids partial init if an invariant is violated).
+  - Eliminate `delete_node_cascade`’s `O(total_edges)` inbound scan by maintaining a reverse inbound index (`edges_to`) plus `EdgeId -> to` index.
+  - Clarify `docs/spec-warp-tick-patch.md` that the section 1.2 op list is semantic and does not imply encoding tag order.
+- Exit criteria: `cargo fmt --all`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
+- Evidence:
+  - Commits: `8282a29`, `ef89bc7`, `a070374`, `31e0836`, `889932d`
+  - Implementation: `crates/warp-core/src/receipt.rs`, `crates/warp-wasm/src/lib.rs`, `crates/warp-ffi/src/lib.rs`, `crates/warp-core/src/graph.rs`
+  - Docs: `docs/spec-warp-tick-patch.md`
+
+> 2025-12-30 — Touch-ups: encapsulation + ergonomics + micro-perf (COMPLETED)
+
+- Goal: address review touch-ups to keep public APIs stable, avoid internal field coupling, and remove sharp edges in docs/tests/benchmarks.
+- Scope:
+  - Clarify attachment-plane terminology in `docs/warp-two-plane-law.md`.
+  - Improve worldline slice work-queue allocation (`Vec::with_capacity`) for large patch sets.
+  - Add small encapsulation helpers (`GraphStore::has_edge`, `WarpId::as_bytes`, `NodeId::as_bytes`) and update callers to avoid `.0` tuple-field indexing.
+  - Tighten `Engine` accessors: distinguish “unknown warp store” vs “missing node/attachment” via `Result<Option<...>, EngineError>`.
+  - Make root-store mutation methods (`insert_node`, `set_node_attachment`) return `Result` and surface invariant violation (`UnknownWarp`) rather than silently dropping writes.
+  - Improve diagnostics in motion benchmarks’ panic paths.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated.
+- Evidence:
+  - Commits: `31e0836`, `889932d`
+  - Implementation: `crates/warp-core/src/engine_impl.rs`, `crates/warp-core/src/graph.rs`, `crates/warp-core/src/tick_patch.rs`, `crates/warp-core/src/ident.rs`
+  - Benches: `crates/warp-benches/benches/motion_throughput.rs`
+
+> 2025-12-30 — Stage B1.1: Atomic portals + merge/DAG slicing semantics (COMPLETED)
+
+- Goal: make descended attachments “slice-safe” by introducing an atomic portal authoring op (`OpenPortal`), then lock down merge semantics and terminology to prevent long-term drift.
+- Scope:
+  - Add `WarpOp::OpenPortal { key, child_warp, child_root, init }` as the canonical portal authoring operation.
+  - Update patch replay validation to forbid dangling portals / orphan instances.
+  - Update `diff_state` to emit `OpenPortal` for new descended instances, preventing portal/instance creation from being separable across ticks.
+  - Document merge semantics (explicit conflict resolution) and DAG slicing algorithm.
+  - Add a terminology law doc to pin “instance zoom vs wormholes”.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated.
+- Evidence:
+  - Implementation:
+    - `crates/warp-core/src/tick_patch.rs` (`WarpOp::OpenPortal`, replay validation, diff_state portal canonicalization)
+  - Docs:
+    - `docs/adr/ADR-0002-warp-instances-descended-attachments.md` (atomic portals + merge law)
+    - `docs/spec/SPEC-0002-descended-attachments-v1.md` (OpenPortal + merge/DAG slicing + zoom tooling note)
+    - `docs/spec-warp-tick-patch.md` (OpenPortal op encoding)
+    - `docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md` (terminology law)
+
+> 2025-12-30 — Stage B1: WarpInstances + descended attachments (COMPLETED)
+
+- Goal: implement “WARPs all the way down” without recursive traversal in the rewrite hot path by modeling descent as flattened indirection (WarpInstances).
+- Scope:
+  - Introduce WarpInstances:
+    - `WarpId`
+    - `WarpInstance { warp_id, root_node, parent: Option<AttachmentKey> }`
+  - Make ids instance-scoped:
+    - `NodeKey { warp_id, local_id }`
+    - `EdgeKey { warp_id, local_id }`
+  - Upgrade attachments from depth-0 atoms to `AttachmentValue = Atom(AtomPayload) | Descend(WarpId)` and make attachment slots first-class:
+    - `AttachmentKey { owner: NodeKey|EdgeKey, plane: Alpha|Beta }`
+    - `SlotId::Attachment(AttachmentKey)` (tick patches + slicing)
+  - Enforce the Paper I/II “no hidden edges” and descent-chain correctness laws:
+    - Matching/indexing stays skeleton-only within an instance.
+    - Any match/exec within a descended instance must READ every `AttachmentKey` in the descent stack (so changing a descent pointer deterministically invalidates the match).
+  - Slicing integration: a demanded value in instance `W` must pull in the attachment chain (root → W) producers via `SetAttachment(...Descend...)` ops, with no decoding of atoms.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; new ADR + SPEC for Stage B1; decision log updated.
+- Evidence:
+  - Implementation:
+    - `crates/warp-core/src/warp_state.rs` (WarpState/WarpInstance)
+    - `crates/warp-core/src/attachment.rs` (AttachmentKey/Value incl. `Descend`)
+    - `crates/warp-core/src/snapshot.rs` (state_root reachability across instances via `Descend`)
+    - `crates/warp-core/src/engine_impl.rs` (apply_in_warp + descent_chain reads)
+    - `crates/warp-core/src/footprint.rs` + `crates/warp-core/src/scheduler.rs` (attachment conflicts)
+    - `crates/warp-core/src/tick_patch.rs` (SlotId::Attachment, instance ops, patch_digest v2)
+  - Docs:
+    - `docs/adr/ADR-0002-warp-instances-descended-attachments.md`
+    - `docs/spec/SPEC-0002-descended-attachments-v1.md`
+    - `docs/spec-warp-tick-patch.md` (updated to v2 encoding)
+    - `docs/spec-merkle-commit.md` (updated state_root encoding)
+    - `docs/warp-two-plane-law.md` (updated to reflect B1 reality)
+  - Tests:
+    - `crates/warp-core/src/tick_patch.rs` (portal-chain slice test)
+    - `crates/warp-core/src/scheduler.rs` (descent-chain conflict test)
+
+> 2025-12-29 — WARP two-plane semantics: typed atom attachments (COMPLETED)
+
+- Goal: align Echo’s `warp-core` implementation with Paper I/II “two-plane” semantics without slowing the rewrite hot path.
+- Scope:
+  - Treat `GraphStore` as the **SkeletonGraph** (π(U)): the structure used for matching, rewriting, scheduling, slicing, and hashing.
+  - Model attachment-plane payloads as **typed atoms** (depth-0): `AtomPayload { type_id: TypeId, bytes: Bytes }`.
+  - Update snapshot hashing + tick patch canonical encoding so payload `type_id` participates in digests (no “same bytes, different meaning” collisions).
+  - Introduce a minimal codec boundary (`Codec<T>` + registry concept) for typed decode/encode at rule/view boundaries; core matching/indexing remains skeleton-only unless a rule explicitly decodes.
+  - Document the project laws (“no hidden edges in payload bytes”, “skeleton rewrites never decode attachments”) and record the decision in ADR + SPEC form.
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; docs guard updated (`docs/decision-log.md` + new ADR/SPEC + law doc).
+- Evidence:
+  - Implementation: `crates/warp-core/src/attachment.rs`, `crates/warp-core/src/record.rs`, `crates/warp-core/src/snapshot.rs`, `crates/warp-core/src/tick_patch.rs`.
+  - Docs: `docs/warp-two-plane-law.md`, `docs/adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md`, `docs/spec/SPEC-0001-attachment-plane-v0-atoms.md`.
+  - Tests: new digest/type-id assertions in `crates/warp-core/tests/atom_payload_digest_tests.rs`; workspace tests + clippy rerun green.
+
 > 2025-12-29 — Follow-up: tick patch hygiene (COMPLETED)
 
 - Goal: clean up `tick_patch` sharp edges so the patch boundary stays deterministic, well-documented, and resistant to misuse.

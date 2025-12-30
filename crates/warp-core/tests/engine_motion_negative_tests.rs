@@ -10,20 +10,19 @@
 //! invalid payload size results in `ApplyResult::NoMatch` at the apply boundary.
 use bytes::Bytes;
 use warp_core::{
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
-    GraphStore, NodeRecord, MOTION_RULE_NAME,
+    decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
+    motion_payload_type_id, ApplyResult, AtomPayload, AttachmentValue, Engine, GraphStore,
+    NodeRecord, MOTION_RULE_NAME,
 };
 
 fn run_motion_once(pos: [f32; 3], vel: [f32; 3]) -> ([f32; 3], [f32; 3]) {
     let ent = make_node_id("case");
     let ty = make_type_id("entity");
     let mut store = GraphStore::default();
-    store.insert_node(
+    store.insert_node(ent, NodeRecord { ty });
+    store.set_node_attachment(
         ent,
-        NodeRecord {
-            ty,
-            payload: Some(encode_motion_payload(pos, vel)),
-        },
+        Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
     );
     let mut engine = Engine::new(store, ent);
     engine
@@ -32,8 +31,14 @@ fn run_motion_once(pos: [f32; 3], vel: [f32; 3]) -> ([f32; 3], [f32; 3]) {
     let tx = engine.begin();
     let _ = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");
     engine.commit(tx).expect("commit");
-    let node = engine.node(&ent).expect("node exists");
-    decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode")
+    let payload = engine
+        .node_attachment(&ent)
+        .expect("node_attachment ok")
+        .expect("payload present");
+    let AttachmentValue::Atom(payload) = payload else {
+        panic!("expected Atom payload, got {payload:?}");
+    };
+    decode_motion_atom_payload(payload).expect("decode")
 }
 
 #[test]
@@ -44,12 +49,10 @@ fn motion_nan_propagates_and_rule_applies() {
     let vel = [0.0, f32::NAN, 2.0];
 
     let mut store = GraphStore::default();
-    store.insert_node(
+    store.insert_node(ent, NodeRecord { ty });
+    store.set_node_attachment(
         ent,
-        NodeRecord {
-            ty,
-            payload: Some(encode_motion_payload(pos, vel)),
-        },
+        Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
     );
 
     let mut engine = Engine::new(store, ent);
@@ -62,9 +65,14 @@ fn motion_nan_propagates_and_rule_applies() {
     assert!(matches!(res, ApplyResult::Applied));
     engine.commit(tx).expect("commit");
 
-    let node = engine.node(&ent).expect("node exists");
-    let (new_pos, new_vel) =
-        decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
+    let payload = engine
+        .node_attachment(&ent)
+        .expect("node_attachment ok")
+        .expect("payload present");
+    let AttachmentValue::Atom(payload) = payload else {
+        panic!("expected Atom payload, got {payload:?}");
+    };
+    let (new_pos, new_vel) = decode_motion_atom_payload(payload).expect("decode");
 
     // NaN arithmetic propagates; check using is_nan rather than bitwise.
     assert!(new_pos[0].is_nan(), "pos.x should be NaN after update");
@@ -85,12 +93,10 @@ fn motion_infinity_preserves_infinite_values() {
     let vel = [1.0, 2.0, 3.0];
 
     let mut store = GraphStore::default();
-    store.insert_node(
+    store.insert_node(ent, NodeRecord { ty });
+    store.set_node_attachment(
         ent,
-        NodeRecord {
-            ty,
-            payload: Some(encode_motion_payload(pos, vel)),
-        },
+        Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
     );
 
     let mut engine = Engine::new(store, ent);
@@ -103,9 +109,14 @@ fn motion_infinity_preserves_infinite_values() {
     assert!(matches!(res, ApplyResult::Applied));
     engine.commit(tx).expect("commit");
 
-    let node = engine.node(&ent).expect("node exists");
-    let (new_pos, new_vel) =
-        decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
+    let payload = engine
+        .node_attachment(&ent)
+        .expect("node_attachment ok")
+        .expect("payload present");
+    let AttachmentValue::Atom(payload) = payload else {
+        panic!("expected Atom payload, got {payload:?}");
+    };
+    let (new_pos, new_vel) = decode_motion_atom_payload(payload).expect("decode");
 
     assert!(new_pos[0].is_infinite() && new_pos[0].is_sign_positive());
     assert_eq!(new_pos[1].to_bits(), 3.0f32.to_bits());
@@ -121,12 +132,13 @@ fn motion_invalid_payload_size_returns_nomatch() {
     let ent = make_node_id("bad-payload-size");
     let ty = make_type_id("entity");
     let mut store = GraphStore::default();
-    store.insert_node(
+    store.insert_node(ent, NodeRecord { ty });
+    store.set_node_attachment(
         ent,
-        NodeRecord {
-            ty,
-            payload: Some(Bytes::from(vec![0u8; 10])),
-        },
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            motion_payload_type_id(),
+            Bytes::from(vec![0u8; 10]),
+        ))),
     );
     let mut engine = Engine::new(store, ent);
     engine
@@ -231,12 +243,13 @@ fn motion_zero_length_payload_returns_nomatch() {
     let ent = make_node_id("bad-size-0");
     let ty = make_type_id("entity");
     let mut store = GraphStore::default();
-    store.insert_node(
+    store.insert_node(ent, NodeRecord { ty });
+    store.set_node_attachment(
         ent,
-        NodeRecord {
-            ty,
-            payload: Some(Bytes::from(vec![])),
-        },
+        Some(AttachmentValue::Atom(AtomPayload::new(
+            motion_payload_type_id(),
+            Bytes::from(vec![]),
+        ))),
     );
     let mut engine = Engine::new(store, ent);
     engine.register_rule(warp_core::motion_rule()).unwrap();
@@ -251,12 +264,13 @@ fn motion_boundary_payload_sizes() {
         let ent = make_node_id(&format!("bad-size-{}", len));
         let ty = make_type_id("entity");
         let mut store = GraphStore::default();
-        store.insert_node(
+        store.insert_node(ent, NodeRecord { ty });
+        store.set_node_attachment(
             ent,
-            NodeRecord {
-                ty,
-                payload: Some(Bytes::from(vec![0u8; len])),
-            },
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                motion_payload_type_id(),
+                Bytes::from(vec![0u8; len]),
+            ))),
         );
         let mut engine = Engine::new(store, ent);
         engine.register_rule(warp_core::motion_rule()).unwrap();
@@ -273,17 +287,12 @@ fn motion_boundary_payload_sizes() {
 #[test]
 fn motion_exact_24_bytes_with_weird_bits_is_accepted_and_propagates() {
     // 24 bytes of 0xFF -> three NaNs for pos, three NaNs for vel
-    let weird = Bytes::from(vec![0xFFu8; 24]);
+    let weird = AtomPayload::new(motion_payload_type_id(), Bytes::from(vec![0xFFu8; 24]));
     let ent = make_node_id("weird-24");
     let ty = make_type_id("entity");
     let mut store = GraphStore::default();
-    store.insert_node(
-        ent,
-        NodeRecord {
-            ty,
-            payload: Some(weird),
-        },
-    );
+    store.insert_node(ent, NodeRecord { ty });
+    store.set_node_attachment(ent, Some(AttachmentValue::Atom(weird)));
     let mut engine = Engine::new(store, ent);
     engine.register_rule(warp_core::motion_rule()).unwrap();
     let tx = engine.begin();
@@ -291,8 +300,14 @@ fn motion_exact_24_bytes_with_weird_bits_is_accepted_and_propagates() {
     assert!(matches!(res, ApplyResult::Applied));
     engine.commit(tx).unwrap();
     let (pos, vel) = {
-        let node = engine.node(&ent).unwrap();
-        decode_motion_payload(node.payload.as_ref().unwrap()).unwrap()
+        let payload = engine
+            .node_attachment(&ent)
+            .expect("node_attachment ok")
+            .expect("payload present");
+        let AttachmentValue::Atom(payload) = payload else {
+            panic!("expected Atom payload, got {payload:?}");
+        };
+        decode_motion_atom_payload(payload).unwrap()
     };
     assert!(pos.iter().all(|v| v.is_nan()));
     assert!(vel.iter().all(|v| v.is_nan()));
@@ -303,15 +318,13 @@ fn motion_nan_idempotency_applies_twice_stays_nan() {
     let ent = make_node_id("nan-twice");
     let ty = make_type_id("entity");
     let mut store = GraphStore::default();
-    store.insert_node(
+    store.insert_node(ent, NodeRecord { ty });
+    store.set_node_attachment(
         ent,
-        NodeRecord {
-            ty,
-            payload: Some(encode_motion_payload(
-                [f32::NAN, f32::NAN, f32::NAN],
-                [0.0, 0.0, 0.0],
-            )),
-        },
+        Some(AttachmentValue::Atom(encode_motion_atom_payload(
+            [f32::NAN, f32::NAN, f32::NAN],
+            [0.0, 0.0, 0.0],
+        ))),
     );
     let mut engine = Engine::new(store, ent);
     engine.register_rule(warp_core::motion_rule()).unwrap();
@@ -322,8 +335,14 @@ fn motion_nan_idempotency_applies_twice_stays_nan() {
         engine.commit(tx).unwrap();
     }
     let (pos, vel) = {
-        let node = engine.node(&ent).unwrap();
-        decode_motion_payload(node.payload.as_ref().unwrap()).unwrap()
+        let payload = engine
+            .node_attachment(&ent)
+            .expect("node_attachment ok")
+            .expect("payload present");
+        let AttachmentValue::Atom(payload) = payload else {
+            panic!("expected Atom payload, got {payload:?}");
+        };
+        decode_motion_atom_payload(payload).unwrap()
     };
     assert!(pos.iter().all(|v| v.is_nan()));
     assert_eq!(vel, [0.0, 0.0, 0.0]);

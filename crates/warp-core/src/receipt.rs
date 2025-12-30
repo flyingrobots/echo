@@ -16,7 +16,7 @@
 
 use blake3::Hasher;
 
-use crate::ident::{Hash, NodeId};
+use crate::ident::{Hash, NodeKey};
 use crate::tx::TxId;
 
 /// A tick receipt: the per-candidate outcomes for a single commit attempt.
@@ -111,8 +111,11 @@ pub struct TickReceiptEntry {
     pub rule_id: Hash,
     /// Scope hash used in the scheduler’s sort key.
     pub scope_hash: Hash,
-    /// Scope node supplied when `Engine::apply` was invoked.
-    pub scope: NodeId,
+    /// Instance-scoped scope node supplied when `Engine::apply` was invoked.
+    ///
+    /// This is a [`NodeKey`]: it contains both the warp instance identifier
+    /// (`warp_id`) and the local node identifier within that instance (`local_id`).
+    pub scope: NodeKey,
     /// Outcome of the candidate rewrite in this tick.
     pub disposition: TickReceiptDisposition,
 }
@@ -139,13 +142,14 @@ fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
     }
     let mut hasher = Hasher::new();
     // Receipt format version tag.
-    hasher.update(&1u16.to_le_bytes());
+    hasher.update(&2u16.to_le_bytes());
     // Entry count.
     hasher.update(&(entries.len() as u64).to_le_bytes());
     for entry in entries {
         hasher.update(&entry.rule_id);
         hasher.update(&entry.scope_hash);
-        hasher.update(&(entry.scope).0);
+        hasher.update(entry.scope.warp_id.as_bytes());
+        hasher.update(entry.scope.local_id.as_bytes());
         let code = match entry.disposition {
             TickReceiptDisposition::Applied => 1u8,
             TickReceiptDisposition::Rejected(TickReceiptRejection::FootprintConflict) => 2u8,
@@ -158,21 +162,28 @@ fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ident::make_node_id;
+    use crate::ident::{make_node_id, make_warp_id};
 
     #[test]
     fn receipt_digest_is_stable_for_same_entries() {
+        let warp_id = crate::ident::make_warp_id("receipt-test-warp");
         let entries = vec![
             TickReceiptEntry {
                 rule_id: [1u8; 32],
                 scope_hash: [2u8; 32],
-                scope: make_node_id("a"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("a"),
+                },
                 disposition: TickReceiptDisposition::Applied,
             },
             TickReceiptEntry {
                 rule_id: [3u8; 32],
                 scope_hash: [4u8; 32],
-                scope: make_node_id("b"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("b"),
+                },
                 disposition: TickReceiptDisposition::Rejected(
                     TickReceiptRejection::FootprintConflict,
                 ),
@@ -182,5 +193,36 @@ mod tests {
         let digest_b = compute_tick_receipt_digest(&entries);
         assert_eq!(digest_a, digest_b);
         assert_ne!(digest_a, *crate::constants::DIGEST_LEN0_U64);
+    }
+
+    #[test]
+    fn receipt_digest_includes_warp_id() {
+        let warp_id_a = make_warp_id("receipt-test-warp-a");
+        let warp_id_b = make_warp_id("receipt-test-warp-b");
+        let node = make_node_id("receipt-test-node");
+
+        let entries_a = vec![TickReceiptEntry {
+            rule_id: [1u8; 32],
+            scope_hash: [2u8; 32],
+            scope: NodeKey {
+                warp_id: warp_id_a,
+                local_id: node,
+            },
+            disposition: TickReceiptDisposition::Applied,
+        }];
+
+        let entries_b = vec![TickReceiptEntry {
+            rule_id: [1u8; 32],
+            scope_hash: [2u8; 32],
+            scope: NodeKey {
+                warp_id: warp_id_b,
+                local_id: node,
+            },
+            disposition: TickReceiptDisposition::Applied,
+        }];
+
+        let digest_a = compute_tick_receipt_digest(&entries_a);
+        let digest_b = compute_tick_receipt_digest(&entries_b);
+        assert_ne!(digest_a, digest_b);
     }
 }

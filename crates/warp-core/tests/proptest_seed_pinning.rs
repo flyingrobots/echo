@@ -6,8 +6,8 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config as PropConfig, RngAlgorithm, TestRng, TestRunner};
 
 use warp_core::{
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
-    GraphStore, NodeRecord, MOTION_RULE_NAME,
+    decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
+    ApplyResult, AttachmentValue, Engine, GraphStore, NodeRecord, MOTION_RULE_NAME,
 };
 
 // Demonstrates how to pin a deterministic seed for property tests so failures
@@ -42,12 +42,10 @@ fn proptest_seed_pinned_motion_updates() {
             let entity_ty = make_type_id("entity");
 
             let mut store = GraphStore::default();
-            store.insert_node(
+            store.insert_node(entity, NodeRecord { ty: entity_ty });
+            store.set_node_attachment(
                 entity,
-                NodeRecord {
-                    ty: entity_ty,
-                    payload: Some(encode_motion_payload(pos, vel)),
-                },
+                Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
             );
 
             let mut engine = Engine::new(store, entity);
@@ -60,9 +58,14 @@ fn proptest_seed_pinned_motion_updates() {
             prop_assert!(matches!(res, ApplyResult::Applied));
             engine.commit(tx).expect("commit");
 
-            let node = engine.node(&entity).expect("node exists");
-            let (new_pos, new_vel) =
-                decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
+            let payload = engine
+                .node_attachment(&entity)
+                .expect("node_attachment ok")
+                .expect("payload present");
+            let AttachmentValue::Atom(payload) = payload else {
+                panic!("expected Atom payload, got {payload:?}");
+            };
+            let (new_pos, new_vel) = decode_motion_atom_payload(payload).expect("decode");
 
             // Velocity is preserved; position += vel * dt (dt = 1.0).
             for i in 0..3 {

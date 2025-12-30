@@ -16,8 +16,10 @@
 //!   sorted by ascending `EdgeId` before being encoded.
 //! - Encoding is fixed-size and architecture-independent:
 //!   - All ids (`NodeId`, `TypeId`, `EdgeId`) are raw 32-byte values.
-//!   - Payloads are prefixed by an 8-byte little-endian length, followed by the
-//!     exact payload bytes (or length `0` with no payload).
+//!   - Payloads are encoded as:
+//!     - 1 byte presence tag (`0` = None, `1` = Some)
+//!     - when present: payload `type_id` (32 bytes), then 8-byte little-endian
+//!       length, then the exact payload bytes.
 //! - The root id is included first to bind the subgraph identity.
 //!
 //! Notes
@@ -31,10 +33,11 @@ use std::collections::{BTreeSet, VecDeque};
 
 use blake3::Hasher;
 
-use crate::graph::GraphStore;
-use crate::ident::{Hash, NodeId};
+use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
+use crate::ident::{Hash, NodeKey, WarpId};
 use crate::record::EdgeRecord;
 use crate::tx::TxId;
+use crate::warp_state::WarpState;
 
 /// Snapshot returned after a successful commit.
 ///
@@ -44,7 +47,7 @@ use crate::tx::TxId;
 #[derive(Debug, Clone)]
 pub struct Snapshot {
     /// Node identifier that serves as the root of the snapshot.
-    pub root: NodeId,
+    pub root: NodeKey,
     /// Canonical commit hash derived from `state_root` + metadata (see below).
     pub hash: Hash,
     /// Parent snapshot hashes (empty for initial commit, 1 for linear history, 2+ for merges).
@@ -71,88 +74,128 @@ pub struct Snapshot {
     pub tx: TxId,
 }
 
-/// Computes a canonical hash for the current graph state.
-///
-/// Algorithm
-/// 1) Update with `root` id bytes.
-/// 2) For each `(node_id, node)` in `store.nodes` (ascending by `node_id`):
-///    - Update with `node_id`, `node.ty`.
-///    - Update with 8-byte LE payload length, then payload bytes (if any).
-/// 3) For each `(from, edges)` in `store.edges_from` (ascending by `from`):
-///    - Update with `from` id and edge count (8-byte LE).
-///    - Sort `edges` by `edge.id` ascending and for each edge:
-///      - Update with `edge.id`, `edge.ty`, `edge.to`.
-///      - Update with 8-byte LE payload length, then payload bytes (if any).
-pub(crate) fn compute_snapshot_hash(store: &GraphStore, root: &NodeId) -> Hash {
-    // 1) Determine reachable subgraph using a deterministic BFS over outgoing edges.
-    let mut reachable: BTreeSet<NodeId> = BTreeSet::new();
-    let mut queue: VecDeque<NodeId> = VecDeque::new();
-    reachable.insert(*root);
+/// Computes the canonical state root hash (graph only).
+pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
+    // 1) Determine reachable nodes across instances via deterministic BFS:
+    // - follow skeleton edges within an instance
+    // - follow any `Descend(WarpId)` attachments on reachable nodes/edges
+    let mut reachable_nodes: BTreeSet<NodeKey> = BTreeSet::new();
+    let mut reachable_warps: BTreeSet<WarpId> = BTreeSet::new();
+    let mut queue: VecDeque<NodeKey> = VecDeque::new();
+
+    reachable_nodes.insert(*root);
+    reachable_warps.insert(root.warp_id);
     queue.push_back(*root);
+
     while let Some(current) = queue.pop_front() {
-        for edge in store.edges_from(&current) {
-            if reachable.insert(edge.to) {
-                queue.push_back(edge.to);
+        let Some(store) = state.store(&current.warp_id) else {
+            debug_assert!(
+                false,
+                "reachable traversal referenced missing warp store: {:?}",
+                current.warp_id
+            );
+            continue;
+        };
+
+        for edge in store.edges_from(&current.local_id) {
+            let to = NodeKey {
+                warp_id: current.warp_id,
+                local_id: edge.to,
+            };
+            if reachable_nodes.insert(to) {
+                queue.push_back(to);
             }
+
+            if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id) {
+                enqueue_descend(
+                    state,
+                    *child_warp,
+                    &mut reachable_warps,
+                    &mut reachable_nodes,
+                    &mut queue,
+                );
+            }
+        }
+
+        if let Some(AttachmentValue::Descend(child_warp)) = store.node_attachment(&current.local_id)
+        {
+            enqueue_descend(
+                state,
+                *child_warp,
+                &mut reachable_warps,
+                &mut reachable_nodes,
+                &mut queue,
+            );
         }
     }
 
+    // 2) Hash reachable instance content in canonical order.
     let mut hasher = Hasher::new();
-    hasher.update(&root.0);
+    hasher.update(&(root.warp_id).0);
+    hasher.update(&(root.local_id).0);
 
-    // 2) Hash nodes in ascending NodeId order but only if reachable.
-    for (node_id, node) in &store.nodes {
-        if !reachable.contains(node_id) {
+    for warp_id in &reachable_warps {
+        let Some(instance) = state.instance(warp_id) else {
+            debug_assert!(false, "missing warp instance metadata: {warp_id:?}");
             continue;
-        }
-        hasher.update(&node_id.0);
-        hasher.update(&(node.ty).0);
-        match &node.payload {
-            Some(payload) => {
-                hasher.update(&(payload.len() as u64).to_le_bytes());
-                hasher.update(payload);
+        };
+        let Some(store) = state.store(warp_id) else {
+            debug_assert!(false, "missing warp store for instance: {warp_id:?}");
+            continue;
+        };
+
+        // Instance header: bind metadata into the deterministic boundary.
+        hasher.update(&(instance.warp_id).0);
+        hasher.update(&(instance.root_node).0);
+        hash_attachment_key_opt(&mut hasher, instance.parent.as_ref());
+
+        // Nodes: ascending NodeId order, filtered to reachable nodes in this warp.
+        for (node_id, node) in &store.nodes {
+            let key = NodeKey {
+                warp_id: *warp_id,
+                local_id: *node_id,
+            };
+            if !reachable_nodes.contains(&key) {
+                continue;
             }
-            None => {
-                hasher.update(&0u64.to_le_bytes());
+            hasher.update(&node_id.0);
+            hasher.update(&(node.ty).0);
+            hash_attachment_value_opt(&mut hasher, store.node_attachment(node_id));
+        }
+
+        // Edges: per reachable source node bucket, sorted by EdgeId, filtered to reachable targets.
+        for (from, edges) in &store.edges_from {
+            let from_key = NodeKey {
+                warp_id: *warp_id,
+                local_id: *from,
+            };
+            if !reachable_nodes.contains(&from_key) {
+                continue;
+            }
+
+            let mut sorted_edges: Vec<&EdgeRecord> = edges
+                .iter()
+                .filter(|e| {
+                    reachable_nodes.contains(&NodeKey {
+                        warp_id: *warp_id,
+                        local_id: e.to,
+                    })
+                })
+                .collect();
+            sorted_edges.sort_by(|a, b| a.id.0.cmp(&b.id.0));
+
+            hasher.update(&from.0);
+            hasher.update(&(sorted_edges.len() as u64).to_le_bytes());
+            for edge in sorted_edges {
+                hasher.update(&(edge.id).0);
+                hasher.update(&(edge.ty).0);
+                hasher.update(&(edge.to).0);
+                hash_attachment_value_opt(&mut hasher, store.edge_attachment(&edge.id));
             }
         }
     }
 
-    // 3) Hash outgoing edges per reachable source, sorted by EdgeId, and only
-    // include edges whose destination is also reachable.
-    for (from, edges) in &store.edges_from {
-        if !reachable.contains(from) {
-            continue;
-        }
-        // Filter to reachable targets first; length counts included edges only.
-        let mut sorted_edges: Vec<&EdgeRecord> =
-            edges.iter().filter(|e| reachable.contains(&e.to)).collect();
-        sorted_edges.sort_by(|a, b| a.id.0.cmp(&b.id.0));
-
-        hasher.update(&from.0);
-        hasher.update(&(sorted_edges.len() as u64).to_le_bytes());
-        for edge in sorted_edges {
-            hasher.update(&(edge.id).0);
-            hasher.update(&(edge.ty).0);
-            hasher.update(&(edge.to).0);
-            match &edge.payload {
-                Some(payload) => {
-                    hasher.update(&(payload.len() as u64).to_le_bytes());
-                    hasher.update(payload);
-                }
-                None => {
-                    hasher.update(&0u64.to_le_bytes());
-                }
-            }
-        }
-    }
     hasher.finalize().into()
-}
-
-/// Computes the canonical state root hash (graph only) using the same
-/// reachable‑only traversal as `compute_snapshot_hash`.
-pub(crate) fn compute_state_root(store: &GraphStore, root: &NodeId) -> Hash {
-    compute_snapshot_hash(store, root)
 }
 
 /// Computes the final commit hash from the state root and metadata digests.
@@ -213,3 +256,86 @@ pub(crate) fn compute_commit_hash_v2(
 // Tests for commit header encoding and hashing live under PR-09
 // (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
 // to keep PR-10 scope to README/docs/CI and avoid duplicate content.
+
+fn enqueue_descend(
+    state: &WarpState,
+    child_warp: WarpId,
+    reachable_warps: &mut BTreeSet<WarpId>,
+    reachable_nodes: &mut BTreeSet<NodeKey>,
+    queue: &mut VecDeque<NodeKey>,
+) {
+    reachable_warps.insert(child_warp);
+    let Some(child) = state.instance(&child_warp) else {
+        debug_assert!(
+            false,
+            "descend referenced missing warp instance metadata: {child_warp:?}"
+        );
+        return;
+    };
+    let child_root = NodeKey {
+        warp_id: child_warp,
+        local_id: child.root_node,
+    };
+    if reachable_nodes.insert(child_root) {
+        queue.push_back(child_root);
+    }
+}
+
+fn hash_attachment_key_opt(hasher: &mut Hasher, key: Option<&AttachmentKey>) {
+    match key {
+        None => {
+            hasher.update(&[0u8]);
+        }
+        Some(key) => {
+            hasher.update(&[1u8]);
+            hash_attachment_key(hasher, key);
+        }
+    }
+}
+
+fn hash_attachment_key(hasher: &mut Hasher, key: &AttachmentKey) {
+    let (owner_tag, plane_tag) = key.tag();
+    hasher.update(&[owner_tag]);
+    hasher.update(&[plane_tag]);
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            hasher.update(&(node.warp_id).0);
+            hasher.update(&(node.local_id).0);
+        }
+        AttachmentOwner::Edge(edge) => {
+            hasher.update(&(edge.warp_id).0);
+            hasher.update(&(edge.local_id).0);
+        }
+    }
+}
+
+fn hash_attachment_value_opt(hasher: &mut Hasher, value: Option<&AttachmentValue>) {
+    match value {
+        None => {
+            hasher.update(&[0u8]);
+        }
+        Some(value) => {
+            hasher.update(&[1u8]);
+            hash_attachment_value(hasher, value);
+        }
+    }
+}
+
+fn hash_attachment_value(hasher: &mut Hasher, value: &AttachmentValue) {
+    match value {
+        AttachmentValue::Atom(atom) => {
+            hasher.update(&[1u8]);
+            hash_atom_payload(hasher, atom);
+        }
+        AttachmentValue::Descend(warp_id) => {
+            hasher.update(&[2u8]);
+            hasher.update(&warp_id.0);
+        }
+    }
+}
+
+fn hash_atom_payload(hasher: &mut Hasher, atom: &AtomPayload) {
+    hasher.update(&(atom.type_id).0);
+    hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
+    hasher.update(&atom.bytes);
+}

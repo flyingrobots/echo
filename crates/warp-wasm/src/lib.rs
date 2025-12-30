@@ -12,8 +12,8 @@ use std::rc::Rc;
 
 use js_sys::Uint8Array;
 use warp_core::{
-    build_motion_demo_engine, decode_motion_payload, encode_motion_payload, make_node_id,
-    make_type_id, ApplyResult, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
+    build_motion_demo_engine, decode_motion_atom_payload, encode_motion_atom_payload, make_node_id,
+    make_type_id, ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
 };
 use wasm_bindgen::prelude::*;
 
@@ -153,17 +153,21 @@ impl WasmEngine {
         let mut engine = self.inner.borrow_mut();
         let node_id = make_node_id(label);
         let entity_type = make_type_id("entity");
-        let payload = encode_motion_payload(position.components(), velocity.components());
+        let payload = encode_motion_atom_payload(position.components(), velocity.components());
 
-        engine.insert_node(
+        if let Err(_err) = engine.insert_node_with_attachment(
             node_id,
-            NodeRecord {
-                ty: entity_type,
-                payload: Some(payload),
-            },
-        );
+            NodeRecord { ty: entity_type },
+            Some(AttachmentValue::Atom(payload)),
+        ) {
+            #[cfg(feature = "console-panic")]
+            web_sys::console::error_1(
+                &format!("spawn_motion_entity failed for node {node_id:?}: {_err:?}").into(),
+            );
+            return Uint8Array::new_with_length(0);
+        }
 
-        Uint8Array::from(node_id.0.as_slice())
+        Uint8Array::from(node_id.as_bytes().as_slice())
     }
 
     #[wasm_bindgen]
@@ -210,9 +214,15 @@ impl WasmEngine {
     pub fn read_motion(&self, entity_id: &[u8]) -> Option<Box<[f32]>> {
         let engine = self.inner.borrow();
         let node_id = bytes_to_node_id(entity_id)?;
-        let record = engine.node(&node_id)?;
-        let payload = record.payload.as_ref()?;
-        let (position, velocity) = decode_motion_payload(payload)?;
+        let payload = match engine.node_attachment(&node_id) {
+            Ok(Some(value)) => value,
+            Ok(None) => return None,
+            Err(_) => return None,
+        };
+        let AttachmentValue::Atom(payload) = payload else {
+            return None;
+        };
+        let (position, velocity) = decode_motion_atom_payload(payload)?;
         let mut data = Vec::with_capacity(6);
         data.extend_from_slice(&position);
         data.extend_from_slice(&velocity);

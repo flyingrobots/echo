@@ -38,6 +38,7 @@
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
 pub mod math;
 
+mod attachment;
 mod constants;
 /// Demo implementations showcasing engine capabilities (e.g., motion rule).
 pub mod demo;
@@ -54,8 +55,14 @@ mod scheduler;
 mod snapshot;
 mod tick_patch;
 mod tx;
+mod warp_state;
 
 // Re-exports for stable public API
+/// Attachment-plane atoms and codec boundaries.
+pub use attachment::{
+    AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
+    CodecRegistry, DecodeError, ErasedCodec, RegistryError,
+};
 /// Canonical digests (e.g., empty inputs, empty length-prefixed lists).
 pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64, POLICY_ID_NO_POLICY_V0};
 /// Demo helpers and constants for the motion rule.
@@ -75,9 +82,15 @@ pub use footprint::{pack_port_key, Footprint, PortKey};
 /// In-memory graph store used by the engine spike.
 pub use graph::GraphStore;
 /// Core identifier types and constructors for nodes, types, and edges.
-pub use ident::{make_edge_id, make_node_id, make_type_id, EdgeId, Hash, NodeId, TypeId};
+pub use ident::{
+    make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeId, EdgeKey, Hash, NodeId, NodeKey,
+    TypeId, WarpId,
+};
 /// Motion payload encoding/decoding helpers.
-pub use payload::{decode_motion_payload, encode_motion_payload};
+pub use payload::{
+    decode_motion_atom_payload, decode_motion_payload, encode_motion_atom_payload,
+    encode_motion_payload, motion_payload_type_id,
+};
 /// Tick receipts for deterministic commits (accepted vs rejected rewrites).
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 /// Graph node and edge record types.
@@ -91,6 +104,11 @@ pub use scheduler::SchedulerKind;
 /// Immutable deterministic snapshot.
 pub use snapshot::Snapshot;
 /// Tick patch boundary artifacts (Paper III): replayable delta ops + slot sets.
-pub use tick_patch::{SlotId, TickCommitStatus, TickPatchError, WarpOp, WarpTickPatchV1};
+pub use tick_patch::{
+    slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
+    WarpTickPatchV1,
+};
 /// Transaction identifier type.
 pub use tx::TxId;
+/// Stage B1 multi-instance state types (`WarpInstances`).
+pub use warp_state::{WarpInstance, WarpState};

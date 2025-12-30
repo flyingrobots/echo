@@ -1,9 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Canonical payload encoding for the motion demo.
+
+use std::sync::OnceLock;
+
 use bytes::Bytes;
 
+use crate::attachment::AtomPayload;
+use crate::ident::{make_type_id, TypeId};
+
 const POSITION_VELOCITY_BYTES: usize = 24;
+
+static MOTION_PAYLOAD_TYPE_ID: OnceLock<TypeId> = OnceLock::new();
+
+/// Returns the canonical payload `TypeId` for the motion demo atom payload.
+///
+/// This is used as the attachment-plane `type_id` for motion component bytes.
+/// It is cached after the first call to avoid repeated hashing overhead.
+#[must_use]
+pub fn motion_payload_type_id() -> TypeId {
+    *MOTION_PAYLOAD_TYPE_ID.get_or_init(|| make_type_id("payload/motion/v0"))
+}
 
 /// Serialises a 3D position + velocity pair into the canonical payload.
 ///
@@ -22,6 +39,17 @@ pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
         buf.extend_from_slice(&value.to_le_bytes());
     }
     Bytes::from(buf)
+}
+
+/// Serialises motion data into a typed atom payload (`AtomPayload`).
+///
+/// Equivalent to `AtomPayload { type_id: motion_payload_type_id(), bytes: encode_motion_payload(...) }`.
+#[must_use]
+pub fn encode_motion_atom_payload(position: [f32; 3], velocity: [f32; 3]) -> AtomPayload {
+    AtomPayload::new(
+        motion_payload_type_id(),
+        encode_motion_payload(position, velocity),
+    )
 }
 
 /// Deserialises a canonical motion payload into `(position, velocity)` arrays.
@@ -43,6 +71,18 @@ pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     let position = [floats[0], floats[1], floats[2]];
     let velocity = [floats[3], floats[4], floats[5]];
     Some((position, velocity))
+}
+
+/// Deserialises a typed atom payload into `(position, velocity)` arrays.
+///
+/// Returns `None` if the payload `type_id` is not `motion_payload_type_id()` or
+/// if the underlying bytes do not match the canonical motion encoding.
+#[must_use]
+pub fn decode_motion_atom_payload(payload: &AtomPayload) -> Option<([f32; 3], [f32; 3])> {
+    if payload.type_id != motion_payload_type_id() {
+        return None;
+    }
+    decode_motion_payload(&payload.bytes)
 }
 
 #[cfg(test)]

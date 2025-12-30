@@ -2,11 +2,15 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Demo motion rule: advances position by velocity stored in payload.
 
+use crate::attachment::AttachmentValue;
 use crate::engine_impl::Engine;
-use crate::footprint::{Footprint, IdSet};
+use crate::footprint::{AttachmentSet, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
-use crate::payload::{decode_motion_payload, encode_motion_payload};
+use crate::payload::{
+    decode_motion_atom_payload, decode_motion_payload, encode_motion_payload,
+    motion_payload_type_id,
+};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 // Build-time generated canonical ids (domain-separated).
@@ -30,24 +34,28 @@ include!(concat!(env!("OUT_DIR"), "/rule_ids.rs"));
 pub const MOTION_RULE_NAME: &str = "motion/update";
 
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
-    if let Some(node) = store.node_mut(scope) {
-        if let Some(payload) = &mut node.payload {
-            if let Some((mut pos, vel)) = decode_motion_payload(payload) {
-                pos[0] += vel[0];
-                pos[1] += vel[1];
-                pos[2] += vel[2];
-                *payload = encode_motion_payload(pos, vel);
-            }
-        }
+    if store.node(scope).is_none() {
+        return;
+    }
+    let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
+        return;
+    };
+    if payload.type_id != motion_payload_type_id() {
+        return;
+    }
+    if let Some((mut pos, vel)) = decode_motion_payload(&payload.bytes) {
+        pos[0] += vel[0];
+        pos[1] += vel[1];
+        pos[2] += vel[2];
+        payload.bytes = encode_motion_payload(pos, vel);
     }
 }
 
 fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
-    store
-        .node(scope)
-        .and_then(|n| n.payload.as_ref())
-        .and_then(decode_motion_payload)
-        .is_some()
+    matches!(
+        store.node_attachment(scope),
+        Some(AttachmentValue::Atom(payload)) if decode_motion_atom_payload(payload).is_some()
+    )
 }
 
 /// Deterministic rule id bytes for `rule:motion/update`.
@@ -80,18 +88,23 @@ pub fn motion_rule() -> RewriteRule {
 }
 
 fn compute_motion_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
-    // Motion updates the payload on the scoped node only (write), no edges/ports.
-    let mut n_write = IdSet::default();
+    // Motion updates only the node's attachment payload (α plane).
+    let mut a_write = AttachmentSet::default();
     if store.node(scope).is_some() {
-        n_write.insert_node(scope);
+        a_write.insert(crate::AttachmentKey::node_alpha(crate::NodeKey {
+            warp_id: store.warp_id(),
+            local_id: *scope,
+        }));
     }
     Footprint {
         n_read: IdSet::default(),
-        n_write,
+        n_write: IdSet::default(),
         e_read: IdSet::default(),
         e_write: IdSet::default(),
-        b_in: crate::footprint::PortSet::default(),
-        b_out: crate::footprint::PortSet::default(),
+        a_read: AttachmentSet::default(),
+        a_write,
+        b_in: PortSet::default(),
+        b_out: PortSet::default(),
         factor_mask: 0,
     }
 }
@@ -113,13 +126,7 @@ pub fn build_motion_demo_engine() -> Engine {
     let mut store = GraphStore::default();
     let root_id = make_node_id("world-root");
     let root_type = make_type_id("world");
-    store.insert_node(
-        root_id,
-        NodeRecord {
-            ty: root_type,
-            payload: None,
-        },
-    );
+    store.insert_node(root_id, NodeRecord { ty: root_type });
 
     let mut engine = Engine::new(store, root_id);
     engine
@@ -153,24 +160,19 @@ mod tests {
         let ty = make_type_id("entity");
         let pos = [10.0, -2.0, 3.5];
         let vel = [0.125, 2.0, -1.5];
-        let payload = encode_motion_payload(pos, vel);
-        store.insert_node(
-            ent,
-            NodeRecord {
-                ty,
-                payload: Some(payload),
-            },
-        );
+        let payload = crate::encode_motion_atom_payload(pos, vel);
+        store.insert_node(ent, NodeRecord { ty });
+        store.set_node_attachment(ent, Some(AttachmentValue::Atom(payload)));
 
         // Run executor directly and validate position math and encoded bytes.
         motion_executor(&mut store, &ent);
-        let Some(rec) = store.node(&ent) else {
+        let Some(_rec) = store.node(&ent) else {
             unreachable!("entity present");
         };
-        let Some(bytes) = rec.payload.as_ref() else {
+        let Some(AttachmentValue::Atom(bytes)) = store.node_attachment(&ent) else {
             unreachable!("payload present");
         };
-        let Some((new_pos, new_vel)) = decode_motion_payload(bytes) else {
+        let Some((new_pos, new_vel)) = decode_motion_atom_payload(bytes) else {
             unreachable!("payload decode");
         };
         // Compare component-wise using exact bit equality for deterministic values.
@@ -181,9 +183,9 @@ mod tests {
         }
         // Encoding round-trip should match re-encoding of updated values exactly.
         let expected_bytes = encode_motion_payload(new_pos, new_vel);
-        let Some(bytes) = rec.payload.as_ref() else {
+        let Some(AttachmentValue::Atom(bytes)) = store.node_attachment(&ent) else {
             unreachable!("payload present after executor");
         };
-        assert_eq!(bytes, &expected_bytes);
+        assert_eq!(bytes.bytes, expected_bytes);
     }
 }

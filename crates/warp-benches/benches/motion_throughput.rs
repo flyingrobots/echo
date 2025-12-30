@@ -4,9 +4,27 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::{hint::black_box, time::Duration};
 use warp_core::{
-    decode_motion_payload, encode_motion_payload, make_node_id, make_type_id, ApplyResult, Engine,
-    NodeId, NodeRecord, MOTION_RULE_NAME,
+    decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
+    ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, MOTION_RULE_NAME,
 };
+
+fn extract_motion_payload(engine: &Engine, id: &NodeId) -> ([f32; 3], [f32; 3]) {
+    let payload = engine
+        .node_attachment(id)
+        .unwrap_or_else(|err| panic!("node_attachment failed for node {id:?}: {err:?}"))
+        .unwrap_or_else(|| panic!("missing attachment for node {id:?}"));
+    let AttachmentValue::Atom(payload) = payload else {
+        panic!("expected Atom attachment for node {id:?}, found {payload:?}");
+    };
+    decode_motion_atom_payload(payload).unwrap_or_else(|| {
+        panic!(
+            "failed to decode motion atom payload for node {id:?} (type_id={:?}, len={}): expected type_id={:?}",
+            payload.type_id,
+            payload.bytes.len(),
+            warp_core::motion_payload_type_id(),
+        )
+    })
+}
 
 fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
     // Start from the demo engine (root + motion rule registered).
@@ -20,14 +38,15 @@ fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
         let id = make_node_id(&label);
         let pos = [i as f32, 0.0, 0.0];
         let vel = [1.0, 0.0, 0.0];
-        let payload = encode_motion_payload(pos, vel);
-        engine.insert_node(
-            id,
-            NodeRecord {
-                ty,
-                payload: Some(payload),
-            },
-        );
+        let payload = encode_motion_atom_payload(pos, vel);
+        engine
+            .insert_node(id, NodeRecord { ty })
+            .unwrap_or_else(|err| panic!("insert_node failed for node {id:?}: {err:?}"));
+        engine
+            .set_node_attachment(id, Some(AttachmentValue::Atom(payload)))
+            .unwrap_or_else(|err| {
+                panic!("set_node_attachment failed for node {id:?}: {err:?}");
+            });
         ids.push(id);
     }
     (engine, ids)
@@ -47,9 +66,7 @@ fn bench_motion_apply(c: &mut Criterion) {
             b.iter(|| {
                 let (engine, ids) = build_engine_with_n_entities(n);
                 // Optional quick sanity on the first entity to keep side effects visible.
-                let node = engine.node(&ids[0]).expect("node exists");
-                let decoded =
-                    decode_motion_payload(node.payload.as_ref().expect("payload")).expect("decode");
+                let decoded = extract_motion_payload(&engine, &ids[0]);
                 debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
                 debug_assert!(decoded.1.iter().all(|v| v.is_finite()));
                 black_box(engine);
@@ -81,9 +98,7 @@ fn bench_motion_apply(c: &mut Criterion) {
                     engine.commit(tx).expect("commit");
 
                     // Decode and validate the first entity's payload and black_box the result.
-                    let node = engine.node(&ids[0]).expect("node exists");
-                    let decoded = decode_motion_payload(node.payload.as_ref().expect("payload"))
-                        .expect("decode");
+                    let decoded = extract_motion_payload(&engine, &ids[0]);
                     debug_assert!(decoded.0.iter().all(|v| v.is_finite()));
                     debug_assert!(decoded.1.iter().all(|v| v.is_finite()));
                     black_box(decoded);

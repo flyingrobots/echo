@@ -12,6 +12,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::attachment::AttachmentKey;
 use crate::ident::{EdgeId, Hash, NodeId};
 
 /// Packed 64‑bit key for a boundary port.
@@ -95,6 +96,38 @@ impl PortSet {
     }
 }
 
+/// Ordered set of attachment slots.
+#[derive(Debug, Clone, Default)]
+pub struct AttachmentSet(BTreeSet<AttachmentKey>);
+
+impl AttachmentSet {
+    /// Inserts an attachment key.
+    pub fn insert(&mut self, key: AttachmentKey) {
+        let _ = self.0.insert(key);
+    }
+
+    /// Returns an iterator over attachment keys.
+    pub fn iter(&self) -> impl Iterator<Item = &AttachmentKey> {
+        self.0.iter()
+    }
+
+    /// Returns true if any element is shared with `other`.
+    pub fn intersects(&self, other: &Self) -> bool {
+        let mut a = self.0.iter();
+        let mut b = other.0.iter();
+        let mut va = a.next();
+        let mut vb = b.next();
+        while let (Some(x), Some(y)) = (va, vb) {
+            match x.cmp(y) {
+                core::cmp::Ordering::Less => va = a.next(),
+                core::cmp::Ordering::Greater => vb = b.next(),
+                core::cmp::Ordering::Equal => return true,
+            }
+        }
+        false
+    }
+}
+
 /// Footprint capturing the read/write sets and factor mask of a rewrite.
 #[derive(Debug, Clone, Default)]
 pub struct Footprint {
@@ -106,6 +139,10 @@ pub struct Footprint {
     pub e_read: IdSet,
     /// Edges written/created/deleted by the rewrite.
     pub e_write: IdSet,
+    /// Attachment slots read by the rewrite.
+    pub a_read: AttachmentSet,
+    /// Attachment slots written by the rewrite.
+    pub a_write: AttachmentSet,
     /// Boundary input ports touched.
     pub b_in: PortSet,
     /// Boundary output ports touched.
@@ -135,6 +172,12 @@ impl Footprint {
         if self.e_write.intersects(&other.e_write)
             || self.e_write.intersects(&other.e_read)
             || other.e_write.intersects(&self.e_read)
+        {
+            return false;
+        }
+        if self.a_write.intersects(&other.a_write)
+            || self.a_write.intersects(&other.a_read)
+            || other.a_write.intersects(&self.a_read)
         {
             return false;
         }

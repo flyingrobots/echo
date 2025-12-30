@@ -49,7 +49,7 @@ These tables are intentionally “backlog-driving”: they identify what exists 
 
 | Paper I concept | Echo status | Touchpoints (today) | Backlog / next step | Deviation notes |
 | --- | --- | --- | --- | --- |
-| WARP graph = atom **or** skeleton-with-attachments | Partial (skeleton + opaque payloads) | `crates/warp-core/src/graph.rs`, `crates/warp-core/src/record.rs` | Decide whether recursive “attachments are WARPs” become first-class types or remain a payload encoding convention | Current engine spike treats “attachments” as bytes; may be enough for game engines if payload schemas are disciplined. |
+| WARP graph = atom **or** skeleton-with-attachments | Partial (skeleton + typed atom attachments) | `crates/warp-core/src/graph.rs`, `crates/warp-core/src/record.rs`, `crates/warp-core/src/attachment.rs`, `docs/warp-two-plane-law.md` | Stage B1: represent descended attachments via explicit indirection (skeleton-visible links / refs), not “hidden graphs inside bytes” | Echo v0 treats attachments as **typed atoms** (`AtomPayload { type_id, bytes }`) and commits the payload `type_id` into boundary digests. Full “WARPs all the way down” (descended attachments) is not implemented yet by design. |
 | Depth / finite unfoldings | Not implemented explicitly | (N/A; conceptual) | If observers/tools need “unfold to depth k”, define a canonical encoding for nested payloads and add tooling helpers | Might stay in the tooling layer, not the core engine. |
 | Morphisms / category framing | Not implemented explicitly | (Docs only) | Identify which morphism fragments matter for engine/tooling APIs (likely: stable IDs + isomorphism criteria for hashing) | Echo currently uses hashes + canonical encodings as “practical morphisms”. |
 
@@ -98,12 +98,13 @@ These tables are intentionally “backlog-driving”: they identify what exists 
 **Relevance to Echo:**
 
 - Echo’s “everything is a graph” story is Paper I’s substrate claim.
-- Echo’s current engine spike (`warp-core`) implements a *flat* typed graph store (`GraphStore` with node/edge records + payload bytes).
-- The WARP “attachments are themselves graphs” concept is currently represented *implicitly* (payload bytes can encode nested graphs / structured payloads), not as a first-class recursive structure in Rust types.
+- Echo’s current engine spike (`warp-core`) implements a *flat* skeleton graph (`GraphStore`) plus **depth-0 attachments** as typed atoms (`AtomPayload { type_id, bytes }`).
+- The WARP “attachments are themselves graphs” concept is **not implemented yet**. Echo’s project law forbids treating payload bytes as “hidden edges”; descended attachments must be represented via explicit, skeleton-visible indirection when implemented (Stage B1).
 
 **Echo touchpoints:**
 
-- `crates/warp-core/src/graph.rs` + `crates/warp-core/src/record.rs` are the current concrete “graph store” substrate.
+- `crates/warp-core/src/graph.rs` is the current SkeletonGraph implementation.
+- `crates/warp-core/src/record.rs` + `crates/warp-core/src/attachment.rs` define node/edge records and depth-0 typed atom attachments.
 - `crates/echo-graph` is the canonical *tool/wire* graph shape.
 
 ## Paper II — Deterministic evolution: ticks, footprints, and receipts

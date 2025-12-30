@@ -15,10 +15,14 @@
 use blake3::Hasher;
 use thiserror::Error;
 
+use crate::attachment::{
+    AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue,
+};
 use crate::footprint::PortKey;
 use crate::graph::GraphStore;
-use crate::ident::{EdgeId, Hash as ContentHash, NodeId};
+use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
+use crate::warp_state::{WarpInstance, WarpState};
 
 /// Commit status of a tick patch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,10 +45,12 @@ impl TickCommitStatus {
 /// Unversioned slot identifier for slicing and provenance bookkeeping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SlotId {
-    /// Full node record at `NodeId` (type id + payload bytes).
-    Node(NodeId),
-    /// Full edge record at `EdgeId` (from/to/type/payload).
-    Edge(EdgeId),
+    /// Full node record at `NodeKey` (instance-scoped skeleton record).
+    Node(NodeKey),
+    /// Full edge record at `EdgeKey` (instance-scoped skeleton record).
+    Edge(EdgeKey),
+    /// Attachment slot (node/edge plane payload, including `Descend` links).
+    Attachment(AttachmentKey),
     /// Boundary port value (opaque key).
     Port(PortKey),
 }
@@ -54,7 +60,8 @@ impl SlotId {
         match self {
             Self::Node(_) => 1,
             Self::Edge(_) => 2,
-            Self::Port(_) => 3,
+            Self::Attachment(_) => 3,
+            Self::Port(_) => 4,
         }
     }
 }
@@ -72,8 +79,9 @@ impl Ord for SlotId {
             return tag_cmp;
         }
         match (*self, *other) {
-            (Self::Node(a), Self::Node(b)) => a.0.cmp(&b.0),
-            (Self::Edge(a), Self::Edge(b)) => a.0.cmp(&b.0),
+            (Self::Node(a), Self::Node(b)) => a.cmp(&b),
+            (Self::Edge(a), Self::Edge(b)) => a.cmp(&b),
+            (Self::Attachment(a), Self::Attachment(b)) => a.cmp(&b),
             (Self::Port(a), Self::Port(b)) => a.cmp(&b),
             // SAFETY: tag comparison above guarantees matching variants.
             _ => unreachable!("tag mismatch in SlotId::cmp"),
@@ -84,62 +92,193 @@ impl Ord for SlotId {
 /// A canonical delta operation applied to the graph store.
 #[derive(Debug, Clone)]
 pub enum WarpOp {
+    /// Open a descended attachment portal atomically (Stage B1.1).
+    ///
+    /// This is the canonical authoring operation for descended attachments:
+    /// it is illegal for a replay/slice to observe a “dangling portal”
+    /// (`Descend(child_warp)` without a corresponding `WarpInstance`), or an
+    /// “orphan instance” (a `WarpInstance` whose `parent` slot does not point to it).
+    ///
+    /// Semantics:
+    /// - Ensure `WarpInstance(child_warp)` exists with `parent = Some(key)` and
+    ///   `root_node = child_root`.
+    /// - Ensure the child root node exists (via `init`).
+    /// - Set `Attachment[key] = Descend(child_warp)`.
+    OpenPortal {
+        /// Attachment slot key that will point to the child instance.
+        key: AttachmentKey,
+        /// Child instance identifier.
+        child_warp: WarpId,
+        /// Root node id within the child instance.
+        child_root: NodeId,
+        /// How to initialize/validate the child instance root.
+        init: PortalInit,
+    },
+    /// Insert or replace warp instance metadata (Stage B1).
+    UpsertWarpInstance {
+        /// Instance metadata record.
+        instance: WarpInstance,
+    },
+    /// Delete a warp instance and all its contents.
+    DeleteWarpInstance {
+        /// Instance identifier to delete.
+        warp_id: WarpId,
+    },
     /// Insert or replace a node record.
     UpsertNode {
-        /// Node identifier being inserted or replaced.
-        node: NodeId,
+        /// Node identifier being inserted or replaced (instance-scoped).
+        node: NodeKey,
         /// Full node record contents.
         record: NodeRecord,
     },
     /// Delete a node record.
     DeleteNode {
-        /// Node identifier being deleted.
-        node: NodeId,
+        /// Node identifier being deleted (instance-scoped).
+        node: NodeKey,
     },
     /// Insert or replace an edge record.
     UpsertEdge {
+        /// Instance containing the edge.
+        warp_id: WarpId,
         /// Full edge record contents.
         record: EdgeRecord,
     },
     /// Delete an edge record from the outbound edge list of `from`.
     DeleteEdge {
+        /// Instance containing the edge.
+        warp_id: WarpId,
         /// Source node bucket holding the edge.
         from: NodeId,
         /// Edge identifier being deleted.
         edge_id: EdgeId,
     },
+    /// Set (or clear) an attachment slot value.
+    SetAttachment {
+        /// Attachment slot key.
+        key: AttachmentKey,
+        /// New value (`None` clears the slot).
+        value: Option<AttachmentValue>,
+    },
+}
+
+/// Initialization policy for [`WarpOp::OpenPortal`].
+#[derive(Debug, Clone)]
+pub enum PortalInit {
+    /// Create a new child instance with only a root node (using `root_record`).
+    Empty {
+        /// Record to use when creating the child root node.
+        root_record: NodeRecord,
+    },
+    /// Require that the child instance and root node already exist.
+    RequireExisting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct WarpOpKey {
     kind: u8,
+    warp: ContentHash,
     a: ContentHash,
     b: ContentHash,
 }
 
 impl WarpOp {
+    /// Canonical replay ordering key for this operation.
+    ///
+    /// This ordering is used for two purposes:
+    /// - to define the deterministic replay order of a tick patch, and
+    /// - to define which operations are considered “the same” for patch construction
+    ///   (see [`WarpTickPatchV1::new`], which dedupes by this key with last-wins semantics).
+    ///
+    /// Ordering rationale (v2):
+    /// - Instance/portal operations sort before per-instance skeleton edits so that stores exist
+    ///   before nodes/edges/attachments are applied.
+    /// - Skeleton deletions sort before skeleton upserts (delete-before-upsert) to support
+    ///   within-tick replacement semantics for nodes/edges.
+    /// - Attachment writes sort last so they cannot reference missing skeleton elements.
+    ///
+    /// Note: `UpsertWarpInstance` sorts before `DeleteWarpInstance` even though node/edge ops
+    /// use delete-before-upsert. Patches are expected not to contain both operations for the
+    /// same `warp_id`; if they do, this ordering makes the resulting state (and any subsequent
+    /// invalid references) deterministic rather than silently ambiguous.
     fn sort_key(&self) -> WarpOpKey {
         match self {
-            Self::DeleteEdge { from, edge_id } => WarpOpKey {
-                kind: 1,
+            Self::OpenPortal { key, .. } => {
+                let (owner_tag, plane_tag) = key.tag();
+                let (warp, local) = match key.owner {
+                    AttachmentOwner::Node(node) => ((node.warp_id).0, (node.local_id).0),
+                    AttachmentOwner::Edge(edge) => ((edge.warp_id).0, (edge.local_id).0),
+                };
+                WarpOpKey {
+                    kind: 1,
+                    warp,
+                    a: {
+                        let mut buf = [0u8; 32];
+                        buf[0] = owner_tag;
+                        buf[1] = plane_tag;
+                        buf
+                    },
+                    b: local,
+                }
+            }
+            Self::UpsertWarpInstance { instance } => WarpOpKey {
+                kind: 2,
+                warp: (instance.warp_id).0,
+                a: (instance.warp_id).0,
+                b: [0u8; 32],
+            },
+            Self::DeleteWarpInstance { warp_id } => WarpOpKey {
+                kind: 3,
+                warp: warp_id.0,
+                a: warp_id.0,
+                b: [0u8; 32],
+            },
+            Self::DeleteEdge {
+                warp_id,
+                from,
+                edge_id,
+            } => WarpOpKey {
+                kind: 4,
+                warp: warp_id.0,
                 a: from.0,
                 b: edge_id.0,
             },
             Self::DeleteNode { node } => WarpOpKey {
-                kind: 2,
-                a: node.0,
+                kind: 5,
+                warp: (node.warp_id).0,
+                a: (node.local_id).0,
                 b: [0u8; 32],
             },
             Self::UpsertNode { node, .. } => WarpOpKey {
-                kind: 3,
-                a: node.0,
+                kind: 6,
+                warp: (node.warp_id).0,
+                a: (node.local_id).0,
                 b: [0u8; 32],
             },
-            Self::UpsertEdge { record } => WarpOpKey {
-                kind: 4,
+            Self::UpsertEdge { warp_id, record } => WarpOpKey {
+                kind: 7,
+                warp: warp_id.0,
                 a: record.from.0,
                 b: record.id.0,
             },
+            Self::SetAttachment { key, .. } => {
+                let (owner_tag, plane_tag) = key.tag();
+                // Stable ordering: (kind, owner_tag, plane_tag, warp_id, local_id).
+                let (warp, local) = match key.owner {
+                    AttachmentOwner::Node(node) => ((node.warp_id).0, (node.local_id).0),
+                    AttachmentOwner::Edge(edge) => ((edge.warp_id).0, (edge.local_id).0),
+                };
+                WarpOpKey {
+                    kind: 8,
+                    warp,
+                    a: {
+                        let mut buf = [0u8; 32];
+                        buf[0] = owner_tag;
+                        buf[1] = plane_tag;
+                        buf
+                    },
+                    b: local,
+                }
+            }
         }
     }
 }
@@ -182,22 +321,23 @@ impl WarpTickPatchV1 {
         commit_status: TickCommitStatus,
         mut in_slots: Vec<SlotId>,
         mut out_slots: Vec<SlotId>,
-        mut ops: Vec<WarpOp>,
+        ops: Vec<WarpOp>,
     ) -> Self {
         in_slots.sort();
         in_slots.dedup();
         out_slots.sort();
         out_slots.dedup();
-        ops.sort_by_key(WarpOp::sort_key);
-        ops.dedup_by(|a, b| {
-            if a.sort_key() == b.sort_key() {
-                *b = a.clone();
-                true
-            } else {
-                false
+        let ops = {
+            let mut op_map: std::collections::BTreeMap<WarpOpKey, WarpOp> =
+                std::collections::BTreeMap::new();
+            for op in ops {
+                // Last-wins: if multiple ops share the same canonical sort key, keep the
+                // last op provided by the caller and drop earlier duplicates.
+                op_map.insert(op.sort_key(), op);
             }
-        });
-        let digest = compute_patch_digest_v1(
+            op_map.into_values().collect::<Vec<_>>()
+        };
+        let digest = compute_patch_digest_v2(
             policy_id,
             &rule_pack_id,
             commit_status,
@@ -261,48 +401,330 @@ impl WarpTickPatchV1 {
         self.digest
     }
 
-    /// Applies the patch delta to `store`.
+    /// Applies the patch delta to `state`.
     ///
     /// # Errors
     /// Returns an error if an operation is invalid for the current store
     /// state (e.g., deleting a missing edge).
-    pub fn apply_to_store(&self, store: &mut GraphStore) -> Result<(), TickPatchError> {
+    pub fn apply_to_state(&self, state: &mut WarpState) -> Result<(), TickPatchError> {
         for op in &self.ops {
-            match op {
-                WarpOp::UpsertNode { node, record } => {
-                    store.nodes.insert(*node, record.clone());
+            apply_op_to_state(state, op)?;
+        }
+        validate_portal_invariants(state)?;
+        Ok(())
+    }
+}
+
+fn validate_portal_invariants(state: &WarpState) -> Result<(), TickPatchError> {
+    // 1) No orphan instances: every instance that declares a parent slot must be reachable
+    // via that slot (`AttachmentValue::Descend(warp_id)`).
+    for (warp_id, instance) in state.iter_instances() {
+        let Some(parent) = instance.parent else {
+            continue;
+        };
+        // Ensure the parent key is well-formed and its owner exists.
+        let _parent_warp = validate_attachment_owner_exists(state, &parent)?;
+        match attachment_value_for_key(state, &parent) {
+            Some(AttachmentValue::Descend(child_warp)) if *child_warp == *warp_id => {}
+            _ => return Err(TickPatchError::PortalInvariantViolation),
+        }
+    }
+
+    // 2) No dangling portals: every `Descend(warp_id)` attachment must refer to an existing
+    // instance whose `parent` points back at this exact attachment slot.
+    for (warp_id, store) in state.iter_stores() {
+        for (node_id, value) in store.iter_node_attachments() {
+            if let AttachmentValue::Descend(child_warp) = value {
+                let key = AttachmentKey::node_alpha(NodeKey {
+                    warp_id: *warp_id,
+                    local_id: *node_id,
+                });
+                validate_descend_target(state, key, *child_warp)?;
+            }
+        }
+        for (edge_id, value) in store.iter_edge_attachments() {
+            if let AttachmentValue::Descend(child_warp) = value {
+                let key = AttachmentKey::edge_beta(EdgeKey {
+                    warp_id: *warp_id,
+                    local_id: *edge_id,
+                });
+                validate_descend_target(state, key, *child_warp)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_descend_target(
+    state: &WarpState,
+    key: AttachmentKey,
+    child_warp: WarpId,
+) -> Result<(), TickPatchError> {
+    let Some(child_instance) = state.instance(&child_warp) else {
+        return Err(TickPatchError::PortalInvariantViolation);
+    };
+    if child_instance.parent != Some(key) {
+        return Err(TickPatchError::PortalInvariantViolation);
+    }
+    if state.store(&child_warp).is_none() {
+        return Err(TickPatchError::PortalInvariantViolation);
+    }
+    Ok(())
+}
+
+fn apply_op_to_state(state: &mut WarpState, op: &WarpOp) -> Result<(), TickPatchError> {
+    match op {
+        WarpOp::OpenPortal {
+            key,
+            child_warp,
+            child_root,
+            init,
+        } => apply_open_portal(state, key, *child_warp, *child_root, init),
+        WarpOp::UpsertWarpInstance { instance } => {
+            let store = state.take_or_create_store(instance.warp_id);
+            state.upsert_instance(instance.clone(), store);
+            Ok(())
+        }
+        WarpOp::DeleteWarpInstance { warp_id } => {
+            if !state.delete_instance(warp_id) {
+                return Err(TickPatchError::MissingWarp(*warp_id));
+            }
+            Ok(())
+        }
+        WarpOp::UpsertNode { node, record } => {
+            let Some(store) = state.store_mut(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            store.insert_node(node.local_id, record.clone());
+            Ok(())
+        }
+        WarpOp::DeleteNode { node } => {
+            let Some(store) = state.store_mut(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            if !store.delete_node_cascade(node.local_id) {
+                return Err(TickPatchError::MissingNode(*node));
+            }
+            Ok(())
+        }
+        WarpOp::UpsertEdge { warp_id, record } => {
+            let Some(store) = state.store_mut(warp_id) else {
+                return Err(TickPatchError::MissingWarp(*warp_id));
+            };
+            store.upsert_edge_record(record.from, record.clone());
+            Ok(())
+        }
+        WarpOp::DeleteEdge {
+            warp_id,
+            from,
+            edge_id,
+        } => {
+            let Some(store) = state.store_mut(warp_id) else {
+                return Err(TickPatchError::MissingWarp(*warp_id));
+            };
+            if !store.delete_edge_exact(*from, *edge_id) {
+                return Err(TickPatchError::MissingEdge(EdgeKey {
+                    warp_id: *warp_id,
+                    local_id: *edge_id,
+                }));
+            }
+            Ok(())
+        }
+        WarpOp::SetAttachment { key, value } => apply_set_attachment(state, key, value.as_ref()),
+    }
+}
+
+fn apply_open_portal(
+    state: &mut WarpState,
+    key: &AttachmentKey,
+    child_warp: WarpId,
+    child_root: NodeId,
+    init: &PortalInit,
+) -> Result<(), TickPatchError> {
+    let parent_warp = validate_attachment_owner_exists(state, key)?;
+
+    // Ensure the child instance exists and is consistent with the portal key.
+    let mut created_instance = false;
+    if let Some(existing) = state.instance(&child_warp) {
+        if existing.parent != Some(*key) || existing.root_node != child_root {
+            return Err(TickPatchError::PortalInvariantViolation);
+        }
+    } else {
+        match init {
+            PortalInit::Empty { root_record } => {
+                let mut store = GraphStore::new(child_warp);
+                store.insert_node(child_root, root_record.clone());
+                state.upsert_instance(
+                    WarpInstance {
+                        warp_id: child_warp,
+                        root_node: child_root,
+                        parent: Some(*key),
+                    },
+                    store,
+                );
+                created_instance = true;
+            }
+            PortalInit::RequireExisting => return Err(TickPatchError::PortalInitRequired),
+        }
+    }
+
+    if !created_instance {
+        ensure_child_root(state, child_warp, child_root, init)?;
+    }
+
+    // Finally, set the portal attachment slot to point at the child warp id.
+    let Some(parent_store) = state.store_mut(&parent_warp) else {
+        return Err(TickPatchError::MissingWarp(parent_warp));
+    };
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            parent_store
+                .set_node_attachment(node.local_id, Some(AttachmentValue::Descend(child_warp)));
+        }
+        AttachmentOwner::Edge(edge) => {
+            parent_store
+                .set_edge_attachment(edge.local_id, Some(AttachmentValue::Descend(child_warp)));
+        }
+    }
+    Ok(())
+}
+
+fn validate_attachment_plane(key: &AttachmentKey) -> Result<(), TickPatchError> {
+    match key.owner {
+        AttachmentOwner::Node(_) => {
+            if key.plane != AttachmentPlane::Alpha {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+        }
+        AttachmentOwner::Edge(_) => {
+            if key.plane != AttachmentPlane::Beta {
+                return Err(TickPatchError::InvalidAttachmentKey(*key));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_attachment_owner_exists(
+    state: &WarpState,
+    key: &AttachmentKey,
+) -> Result<WarpId, TickPatchError> {
+    validate_attachment_plane(key)?;
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            let Some(store) = state.store(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            if store.node(&node.local_id).is_none() {
+                return Err(TickPatchError::MissingNode(node));
+            }
+            Ok(node.warp_id)
+        }
+        AttachmentOwner::Edge(edge) => {
+            let Some(store) = state.store(&edge.warp_id) else {
+                return Err(TickPatchError::MissingWarp(edge.warp_id));
+            };
+            if !store.has_edge(&edge.local_id) {
+                return Err(TickPatchError::MissingEdge(edge));
+            }
+            Ok(edge.warp_id)
+        }
+    }
+}
+
+fn ensure_child_root(
+    state: &mut WarpState,
+    child_warp: WarpId,
+    child_root: NodeId,
+    init: &PortalInit,
+) -> Result<(), TickPatchError> {
+    match init {
+        PortalInit::Empty { root_record } => {
+            let Some(store) = state.store_mut(&child_warp) else {
+                return Err(TickPatchError::MissingWarp(child_warp));
+            };
+            match store.node(&child_root) {
+                None => {
+                    store.insert_node(child_root, root_record.clone());
                 }
-                WarpOp::DeleteNode { node } => {
-                    if store.nodes.remove(node).is_none() {
-                        return Err(TickPatchError::MissingNode(*node));
-                    }
-                }
-                WarpOp::UpsertEdge { record } => {
-                    store.upsert_edge_record(record.from, record.clone());
-                }
-                WarpOp::DeleteEdge { from, edge_id } => {
-                    if !store.delete_edge_exact(*from, *edge_id) {
-                        return Err(TickPatchError::MissingEdge(*edge_id));
+                Some(existing) => {
+                    if existing != root_record {
+                        return Err(TickPatchError::PortalInvariantViolation);
                     }
                 }
             }
+            Ok(())
         }
-        Ok(())
+        PortalInit::RequireExisting => {
+            let Some(store) = state.store(&child_warp) else {
+                return Err(TickPatchError::MissingWarp(child_warp));
+            };
+            if store.node(&child_root).is_none() {
+                return Err(TickPatchError::MissingNode(NodeKey {
+                    warp_id: child_warp,
+                    local_id: child_root,
+                }));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn apply_set_attachment(
+    state: &mut WarpState,
+    key: &AttachmentKey,
+    value: Option<&AttachmentValue>,
+) -> Result<(), TickPatchError> {
+    validate_attachment_plane(key)?;
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            let Some(store) = state.store_mut(&node.warp_id) else {
+                return Err(TickPatchError::MissingWarp(node.warp_id));
+            };
+            if store.node(&node.local_id).is_none() {
+                return Err(TickPatchError::MissingNode(node));
+            }
+            store.set_node_attachment(node.local_id, value.cloned());
+            Ok(())
+        }
+        AttachmentOwner::Edge(edge) => {
+            let Some(store) = state.store_mut(&edge.warp_id) else {
+                return Err(TickPatchError::MissingWarp(edge.warp_id));
+            };
+            if !store.has_edge(&edge.local_id) {
+                return Err(TickPatchError::MissingEdge(edge));
+            }
+            store.set_edge_attachment(edge.local_id, value.cloned());
+            Ok(())
+        }
     }
 }
 
 /// Errors produced while applying a tick patch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum TickPatchError {
+    /// Referenced a warp instance that did not exist.
+    #[error("missing warp: {0:?}")]
+    MissingWarp(WarpId),
     /// Tried to delete a node that did not exist.
     #[error("missing node: {0:?}")]
-    MissingNode(NodeId),
+    MissingNode(NodeKey),
     /// Tried to delete an edge that did not exist.
     #[error("missing edge: {0:?}")]
-    MissingEdge(EdgeId),
+    MissingEdge(EdgeKey),
+    /// Tried to set an attachment slot that is not valid in v1.
+    #[error("invalid attachment key: {0:?}")]
+    InvalidAttachmentKey(AttachmentKey),
+    /// `OpenPortal` requires `PortalInit::Empty` when the child instance does not exist.
+    #[error("portal init required")]
+    PortalInitRequired,
+    /// `OpenPortal` invariants were violated (dangling portal / inconsistent parent chain / root mismatch).
+    #[error("portal invariant violation")]
+    PortalInvariantViolation,
 }
 
-fn compute_patch_digest_v1(
+fn compute_patch_digest_v2(
     policy_id: u32,
     rule_pack_id: &ContentHash,
     commit_status: TickCommitStatus,
@@ -312,7 +734,7 @@ fn compute_patch_digest_v1(
 ) -> ContentHash {
     let mut h = Hasher::new();
     // Patch format version.
-    h.update(&1u16.to_le_bytes());
+    h.update(&2u16.to_le_bytes());
     h.update(&policy_id.to_le_bytes());
     h.update(rule_pack_id);
     h.update(&[commit_status.code()]);
@@ -329,14 +751,20 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
         match slot {
             SlotId::Node(id) => {
                 h.update(&[1u8]);
-                h.update(&id.0);
+                h.update(&(id.warp_id).0);
+                h.update(&(id.local_id).0);
             }
             SlotId::Edge(id) => {
                 h.update(&[2u8]);
-                h.update(&id.0);
+                h.update(&(id.warp_id).0);
+                h.update(&(id.local_id).0);
+            }
+            SlotId::Attachment(key) => {
+                h.update(&[3u8]);
+                encode_attachment_key(h, key);
             }
             SlotId::Port(key) => {
-                h.update(&[3u8]);
+                h.update(&[4u8]);
                 h.update(&key.to_le_bytes());
             }
         }
@@ -353,168 +781,448 @@ fn encode_ops(h: &mut Hasher, ops: &[WarpOp]) {
     h.update(&(ops.len() as u64).to_le_bytes());
     for op in ops {
         match op {
-            WarpOp::UpsertNode { node, record } => {
+            WarpOp::OpenPortal {
+                key,
+                child_warp,
+                child_root,
+                init,
+            } => {
+                h.update(&[8u8]);
+                encode_attachment_key(h, key);
+                h.update(&child_warp.0);
+                h.update(&child_root.0);
+                encode_portal_init(h, init);
+            }
+            WarpOp::UpsertWarpInstance { instance } => {
                 h.update(&[1u8]);
-                h.update(&node.0);
+                h.update(&(instance.warp_id).0);
+                h.update(&(instance.root_node).0);
+                encode_attachment_key_opt(h, instance.parent.as_ref());
+            }
+            WarpOp::DeleteWarpInstance { warp_id } => {
+                h.update(&[2u8]);
+                h.update(&warp_id.0);
+            }
+            WarpOp::UpsertNode { node, record } => {
+                h.update(&[3u8]);
+                h.update(&(node.warp_id).0);
+                h.update(&(node.local_id).0);
                 h.update(&(record.ty).0);
-                match &record.payload {
-                    Some(payload) => {
-                        h.update(&(payload.len() as u64).to_le_bytes());
-                        h.update(payload);
-                    }
-                    None => {
-                        h.update(&0u64.to_le_bytes());
-                    }
-                }
             }
             WarpOp::DeleteNode { node } => {
-                h.update(&[2u8]);
-                h.update(&node.0);
+                h.update(&[4u8]);
+                h.update(&(node.warp_id).0);
+                h.update(&(node.local_id).0);
             }
-            WarpOp::UpsertEdge { record } => {
-                h.update(&[3u8]);
+            WarpOp::UpsertEdge { warp_id, record } => {
+                h.update(&[5u8]);
+                h.update(&warp_id.0);
                 h.update(&(record.from).0);
                 h.update(&(record.id).0);
                 h.update(&(record.to).0);
                 h.update(&(record.ty).0);
-                match &record.payload {
-                    Some(payload) => {
-                        h.update(&(payload.len() as u64).to_le_bytes());
-                        h.update(payload);
-                    }
-                    None => {
-                        h.update(&0u64.to_le_bytes());
-                    }
-                }
             }
-            WarpOp::DeleteEdge { from, edge_id } => {
-                h.update(&[4u8]);
+            WarpOp::DeleteEdge {
+                warp_id,
+                from,
+                edge_id,
+            } => {
+                h.update(&[6u8]);
+                h.update(&warp_id.0);
                 h.update(&from.0);
                 h.update(&edge_id.0);
+            }
+            WarpOp::SetAttachment { key, value } => {
+                h.update(&[7u8]);
+                encode_attachment_key(h, key);
+                encode_attachment_value_opt(h, value.as_ref());
             }
         }
     }
 }
 
-/// Computes a canonical delta op list that transforms one in-memory store state into another.
+fn encode_portal_init(h: &mut Hasher, init: &PortalInit) {
+    match init {
+        PortalInit::RequireExisting => {
+            h.update(&[0u8]);
+        }
+        PortalInit::Empty { root_record } => {
+            h.update(&[1u8]);
+            h.update(&(root_record.ty).0);
+        }
+    }
+}
+
+fn encode_attachment_key_opt(h: &mut Hasher, key: Option<&AttachmentKey>) {
+    match key {
+        None => {
+            h.update(&[0u8]);
+        }
+        Some(key) => {
+            h.update(&[1u8]);
+            encode_attachment_key(h, key);
+        }
+    }
+}
+
+fn encode_attachment_key(h: &mut Hasher, key: &AttachmentKey) {
+    let (owner_tag, plane_tag) = key.tag();
+    h.update(&[owner_tag]);
+    h.update(&[plane_tag]);
+    match key.owner {
+        AttachmentOwner::Node(node) => {
+            h.update(&(node.warp_id).0);
+            h.update(&(node.local_id).0);
+        }
+        AttachmentOwner::Edge(edge) => {
+            h.update(&(edge.warp_id).0);
+            h.update(&(edge.local_id).0);
+        }
+    }
+}
+
+fn encode_attachment_value_opt(h: &mut Hasher, value: Option<&AttachmentValue>) {
+    match value {
+        None => {
+            h.update(&[0u8]);
+        }
+        Some(value) => {
+            h.update(&[1u8]);
+            encode_attachment_value(h, value);
+        }
+    }
+}
+
+fn encode_attachment_value(h: &mut Hasher, value: &AttachmentValue) {
+    match value {
+        AttachmentValue::Atom(atom) => {
+            h.update(&[1u8]);
+            encode_atom_payload(h, atom);
+        }
+        AttachmentValue::Descend(warp_id) => {
+            h.update(&[2u8]);
+            h.update(&warp_id.0);
+        }
+    }
+}
+
+fn encode_atom_payload(h: &mut Hasher, atom: &AtomPayload) {
+    h.update(&(atom.type_id).0);
+    h.update(&(atom.bytes.len() as u64).to_le_bytes());
+    h.update(&atom.bytes);
+}
+
+/// Computes a canonical delta op list that transforms one multi-instance state into another.
 ///
-/// This is the “diff” constructor used by the v0 engine to build a
-/// [`WarpTickPatchV1`]: the engine snapshots `store_before`, executes rewrites
-/// to produce `store_after`, then calls `diff_store(store_before, store_after)`
-/// to obtain a canonical set of delta operations (`WarpOp`) for replay.
+/// This is the engine’s “diff constructor” for [`WarpTickPatchV1`]. The engine:
+/// 1) snapshots `before`,
+/// 2) executes rewrites to produce `after`, then
+/// 3) calls `diff_state(before, after)` to obtain a canonical list of [`WarpOp`]
+///    edits suitable for deterministic replay and hashing (`patch_digest`).
+///
+/// Typical use cases:
+/// - Engine commit path: derive the tick’s delta patch without re-searching.
+/// - Tooling/tests: validate that two states differ only by a specific op set.
 ///
 /// # Required invariants
-/// This function assumes both `before` and `after` are *valid* [`GraphStore`]
-/// instances that satisfy the store invariants:
-/// - `nodes` contains at most one record per `NodeId`.
-/// - `edges_from` contains outbound edges whose `EdgeRecord.from` matches the
-///   bucket key used to store them (the “from bucket” invariant).
-/// - Each `EdgeId` is globally unique across the entire store (no duplicates in
-///   different buckets).
+/// Callers must provide internally consistent `WarpState` inputs:
+/// - Every `WarpInstance` in `instances` has a corresponding `GraphStore` in `stores`
+///   and `GraphStore.warp_id == WarpInstance.warp_id`.
+/// - Per-store referential integrity holds (edges reference existing nodes, etc).
+/// - Deletions are *cascading*: deleting a node/instance implicitly deletes its
+///   incident edges and its attachment slots. This function therefore does not emit
+///   explicit “clear attachment” ops for deleted owners.
 ///
-/// Ordering within each store is expected to be deterministic (`BTreeMap`
-/// iteration order), but the returned ops do **not** preserve any original
-/// mutation order; they are canonicalized for hashing/replay.
+/// # Returned ops (semantic meaning)
+/// - `UpsertWarpInstance` / `DeleteWarpInstance`: instance metadata changes.
+/// - `UpsertNode` / `DeleteNode`: skeleton-plane node record edits scoped to an instance.
+/// - `UpsertEdge` / `DeleteEdge`: skeleton-plane edge record edits scoped to an instance.
+/// - `SetAttachment`: attachment-plane slot edits (atoms and `Descend` links).
 ///
-/// # Semantics of returned ops
-/// - [`WarpOp::UpsertNode`]: ensure the node record at `node` matches `after`.
-///   Emitted when a node is new or its type/payload changed.
-/// - [`WarpOp::DeleteNode`]: remove a node record that existed in `before` but
-///   is absent in `after`.
-/// - [`WarpOp::UpsertEdge`]: ensure the edge record for `EdgeId` matches `after`.
-///   Emitted when an edge is new or any of its fields changed.
-/// - [`WarpOp::DeleteEdge`]: remove an edge record from the specified `from`
-///   bucket. Emitted when an edge is removed, and also when an edge’s `from`
-///   bucket changes (migration), in which case a `DeleteEdge(old_from, id)` is
-///   emitted before the corresponding `UpsertEdge(new_record)`.
+/// # Edge cases & performance
+/// - If the inputs are identical, returns an empty vector.
+/// - Complexity is linear in the number of nodes/edges/attachments across all instances,
+///   plus a per-instance edge id map build (`edges_by_id`).
 ///
-/// The returned list is sorted by the canonical op ordering key (`WarpOp::sort_key`) so it can be applied in
-/// deterministic order. Applying the returned ops to a store in the `before`
-/// state should yield a store equivalent to `after`.
-///
-/// (Note: `WarpOp::sort_key` is an internal ordering key; it is not itself part
-/// of the wire encoding or patch digest encoding.)
-///
-/// # Why diff vs. recording ops directly?
-/// `diff_store` is useful when the engine executes arbitrary user code (rule
-/// executors) that mutates the store and we want a deterministic, replayable
-/// delta patch without requiring the executor to emit canonical ops itself.
-///
-/// In the long run, recording canonical ops directly (or emitting a cheaper
-/// structural diff) can avoid the clone+diff cost, but `diff_store` is the
-/// simplest correct v0 boundary artifact.
-///
-/// # Edge cases and behavior
-/// - If `before` and `after` are identical, this returns an empty list.
-/// - This function does not validate the stores; if either store violates the
-///   invariants above, the resulting op list may be incomplete or replay may
-///   fail (e.g., deleting a missing edge).
-///
-/// # Performance characteristics
-/// This routine is `O(nodes + edges)` to walk both stores plus `O(edges log edges)`
-/// to build `EdgeId`-keyed maps. It allocates and clones edge/node records as
-/// needed for op payloads, so it is not intended for hot paths.
-pub(crate) fn diff_store(before: &GraphStore, after: &GraphStore) -> Vec<WarpOp> {
+/// Determinism contract:
+/// - Instance iteration is deterministic (`BTreeMap`).
+/// - The returned ops are canonicalized by `WarpOp::sort_key` and are suitable
+///   for both replay ordering and `patch_digest` hashing.
+pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     let mut ops: Vec<WarpOp> = Vec::new();
+    let mut portal_warps: std::collections::BTreeSet<WarpId> = std::collections::BTreeSet::new();
+    let mut skip_node_upserts: std::collections::BTreeSet<NodeKey> =
+        std::collections::BTreeSet::new();
+    let mut skip_attachment_ops: std::collections::BTreeSet<AttachmentKey> =
+        std::collections::BTreeSet::new();
 
-    // Nodes
-    for (id, rec_before) in &before.nodes {
-        let Some(rec_after) = after.nodes.get(id) else {
-            ops.push(WarpOp::DeleteNode { node: *id });
+    // Canonicalize portal authoring: when we observe a new descended instance that is
+    // linked via `parent` and whose parent slot is set to `Descend(child_warp)`,
+    // emit a single `OpenPortal` op instead of separate instance + attachment edits.
+    //
+    // This prevents slices from “forgetting the baby exists” by ensuring that
+    // portal creation and instance creation are inseparable at the patch level.
+    for (warp_id, inst_after) in &after.instances {
+        if before.instances.contains_key(warp_id) {
+            continue;
+        }
+        let Some(parent_key) = inst_after.parent else {
             continue;
         };
-        if rec_before.ty != rec_after.ty || rec_before.payload != rec_after.payload {
-            ops.push(WarpOp::UpsertNode {
-                node: *id,
-                record: rec_after.clone(),
-            });
+        let Some(parent_value) = attachment_value_for_key(after, &parent_key) else {
+            continue;
+        };
+        if parent_value != &AttachmentValue::Descend(*warp_id) {
+            continue;
         }
-    }
-    for (id, rec_after) in &after.nodes {
-        if !before.nodes.contains_key(id) {
-            ops.push(WarpOp::UpsertNode {
-                node: *id,
-                record: rec_after.clone(),
-            });
-        }
+        let Some(child_store) = after.store(warp_id) else {
+            continue;
+        };
+        let Some(root_record) = child_store.node(&inst_after.root_node) else {
+            continue;
+        };
+        ops.push(WarpOp::OpenPortal {
+            key: parent_key,
+            child_warp: *warp_id,
+            child_root: inst_after.root_node,
+            init: PortalInit::Empty {
+                root_record: root_record.clone(),
+            },
+        });
+        portal_warps.insert(*warp_id);
+        skip_node_upserts.insert(NodeKey {
+            warp_id: *warp_id,
+            local_id: inst_after.root_node,
+        });
+        skip_attachment_ops.insert(parent_key);
     }
 
-    // Edges: map by EdgeId for stable diffing independent of insertion order.
-    let before_edges = edges_by_id(before);
-    let after_edges = edges_by_id(after);
-    for (id, rec_before) in &before_edges {
-        if !after_edges.contains_key(id) {
-            ops.push(WarpOp::DeleteEdge {
-                from: rec_before.from,
-                edge_id: EdgeId(*id),
-            });
+    // WarpInstances: deletions and upserts.
+    for warp_id in before.instances.keys() {
+        if !after.instances.contains_key(warp_id) {
+            ops.push(WarpOp::DeleteWarpInstance { warp_id: *warp_id });
         }
     }
-    for (id, rec_after) in &after_edges {
-        match before_edges.get(id) {
+    for (warp_id, inst_after) in &after.instances {
+        match before.instances.get(warp_id) {
             None => {
-                ops.push(WarpOp::UpsertEdge {
-                    record: rec_after.clone(),
-                });
+                if !portal_warps.contains(warp_id) {
+                    ops.push(WarpOp::UpsertWarpInstance {
+                        instance: inst_after.clone(),
+                    });
+                }
             }
-            Some(rec_before) => {
-                if rec_before != rec_after {
-                    if rec_before.from != rec_after.from {
-                        ops.push(WarpOp::DeleteEdge {
-                            from: rec_before.from,
-                            edge_id: EdgeId(*id),
-                        });
-                    }
-                    ops.push(WarpOp::UpsertEdge {
-                        record: rec_after.clone(),
+            Some(inst_before) => {
+                if inst_before != inst_after {
+                    ops.push(WarpOp::UpsertWarpInstance {
+                        instance: inst_after.clone(),
                     });
                 }
             }
         }
     }
 
+    // Per-instance skeleton and attachment-plane diffs.
+    let empty = empty_graph_store();
+    for (warp_id, after_store) in &after.stores {
+        let before_store = before.stores.get(warp_id).unwrap_or(empty);
+        diff_instance(
+            &mut ops,
+            *warp_id,
+            before_store,
+            after_store,
+            &skip_node_upserts,
+            &skip_attachment_ops,
+        );
+    }
+
     ops.sort_by_key(WarpOp::sort_key);
     ops
+}
+
+fn empty_graph_store() -> &'static GraphStore {
+    static EMPTY: std::sync::OnceLock<GraphStore> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(GraphStore::default)
+}
+
+fn diff_instance(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    skip_node_upserts: &std::collections::BTreeSet<NodeKey>,
+    skip_attachment_ops: &std::collections::BTreeSet<AttachmentKey>,
+) {
+    diff_nodes(ops, warp_id, before, after, skip_node_upserts);
+    diff_node_attachments(ops, warp_id, before, after, skip_attachment_ops);
+
+    // Edges (skeleton plane): map by EdgeId for stable diff independent of insertion order.
+    let before_edges = edges_by_id(before);
+    let after_edges = edges_by_id(after);
+    diff_edges(ops, warp_id, &before_edges, &after_edges);
+    diff_edge_attachments(
+        ops,
+        warp_id,
+        before,
+        after,
+        &after_edges,
+        skip_attachment_ops,
+    );
+}
+
+fn diff_nodes(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    skip_node_upserts: &std::collections::BTreeSet<NodeKey>,
+) {
+    for (id, rec_before) in &before.nodes {
+        let node = NodeKey {
+            warp_id,
+            local_id: *id,
+        };
+        if skip_node_upserts.contains(&node) {
+            continue;
+        }
+        let Some(rec_after) = after.nodes.get(id) else {
+            ops.push(WarpOp::DeleteNode { node });
+            continue;
+        };
+        if rec_before != rec_after {
+            ops.push(WarpOp::UpsertNode {
+                node,
+                record: rec_after.clone(),
+            });
+        }
+    }
+    for (id, rec_after) in &after.nodes {
+        let node = NodeKey {
+            warp_id,
+            local_id: *id,
+        };
+        if skip_node_upserts.contains(&node) {
+            continue;
+        }
+        if !before.nodes.contains_key(id) {
+            ops.push(WarpOp::UpsertNode {
+                node,
+                record: rec_after.clone(),
+            });
+        }
+    }
+}
+
+fn diff_node_attachments(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    skip_attachment_ops: &std::collections::BTreeSet<AttachmentKey>,
+) {
+    for node_id in after.nodes.keys() {
+        let before_val = before.node_attachment(node_id);
+        let after_val = after.node_attachment(node_id);
+        if before_val == after_val {
+            continue;
+        }
+
+        let key = AttachmentKey::node_alpha(NodeKey {
+            warp_id,
+            local_id: *node_id,
+        });
+        if skip_attachment_ops.contains(&key) {
+            continue;
+        }
+        ops.push(WarpOp::SetAttachment {
+            key,
+            value: after_val.cloned(),
+        });
+    }
+}
+
+fn diff_edges(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before_edges: &std::collections::BTreeMap<ContentHash, EdgeRecord>,
+    after_edges: &std::collections::BTreeMap<ContentHash, EdgeRecord>,
+) {
+    for (id, rec_before) in before_edges {
+        if !after_edges.contains_key(id) {
+            ops.push(WarpOp::DeleteEdge {
+                warp_id,
+                from: rec_before.from,
+                edge_id: EdgeId(*id),
+            });
+        }
+    }
+
+    for (id, rec_after) in after_edges {
+        match before_edges.get(id) {
+            None => {
+                ops.push(WarpOp::UpsertEdge {
+                    warp_id,
+                    record: rec_after.clone(),
+                });
+            }
+            Some(rec_before) => {
+                if rec_before == rec_after {
+                    continue;
+                }
+                if rec_before.from != rec_after.from {
+                    ops.push(WarpOp::DeleteEdge {
+                        warp_id,
+                        from: rec_before.from,
+                        edge_id: EdgeId(*id),
+                    });
+                }
+                ops.push(WarpOp::UpsertEdge {
+                    warp_id,
+                    record: rec_after.clone(),
+                });
+            }
+        }
+    }
+}
+
+fn diff_edge_attachments(
+    ops: &mut Vec<WarpOp>,
+    warp_id: WarpId,
+    before: &GraphStore,
+    after: &GraphStore,
+    after_edges: &std::collections::BTreeMap<ContentHash, EdgeRecord>,
+    skip_attachment_ops: &std::collections::BTreeSet<AttachmentKey>,
+) {
+    for id in after_edges.keys() {
+        let edge_id = EdgeId(*id);
+        let before_val = before.edge_attachment(&edge_id);
+        let after_val = after.edge_attachment(&edge_id);
+        if before_val == after_val {
+            continue;
+        }
+
+        let key = AttachmentKey::edge_beta(EdgeKey {
+            warp_id,
+            local_id: edge_id,
+        });
+        if skip_attachment_ops.contains(&key) {
+            continue;
+        }
+        ops.push(WarpOp::SetAttachment {
+            key,
+            value: after_val.cloned(),
+        });
+    }
+}
+
+fn attachment_value_for_key<'a>(
+    state: &'a WarpState,
+    key: &AttachmentKey,
+) -> Option<&'a AttachmentValue> {
+    match key.owner {
+        AttachmentOwner::Node(node) => state.store(&node.warp_id)?.node_attachment(&node.local_id),
+        AttachmentOwner::Edge(edge) => state.store(&edge.warp_id)?.edge_attachment(&edge.local_id),
+    }
 }
 
 fn edges_by_id(store: &GraphStore) -> std::collections::BTreeMap<ContentHash, EdgeRecord> {
@@ -525,4 +1233,439 @@ fn edges_by_id(store: &GraphStore) -> std::collections::BTreeMap<ContentHash, Ed
         }
     }
     out
+}
+
+/// Extracts a Paper III-style slice from a linear worldline payload.
+///
+/// This function implements the “unversioned slots, interpretive SSA” rule:
+/// a slot version is `slot@i`, where `i` is the index of the producing patch
+/// in the worldline payload `P = (μ0, …, μn-1)`.
+///
+/// Returns the set of tick indices (in ascending order) that must be retained
+/// to replay the dependency cone for `target` at the end of the worldline.
+pub fn slice_worldline_indices(patches: &[WarpTickPatchV1], target: SlotId) -> Vec<usize> {
+    // Build a producer index: slot -> sorted list of producing tick indices.
+    let mut producers: std::collections::BTreeMap<SlotId, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (tick, patch) in patches.iter().enumerate() {
+        for slot in patch.out_slots() {
+            producers.entry(*slot).or_default().push(tick);
+        }
+    }
+
+    let mut needed_ticks: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    let work_cap = core::cmp::max(1, patches.len() / 4);
+    let mut work: Vec<(SlotId, usize)> = Vec::with_capacity(work_cap);
+    work.push((target, patches.len()));
+    let mut seen: std::collections::BTreeSet<(SlotId, usize)> = std::collections::BTreeSet::new();
+
+    while let Some((slot, consumer_tick)) = work.pop() {
+        if !seen.insert((slot, consumer_tick)) {
+            continue;
+        }
+        let Some(ticks) = producers.get(&slot) else {
+            continue; // Value originates from U0 (or is absent); no producing patch.
+        };
+        let Some(producer_tick) = producer_before(ticks, consumer_tick) else {
+            continue;
+        };
+        if needed_ticks.insert(producer_tick) {
+            for in_slot in patches[producer_tick].in_slots() {
+                work.push((*in_slot, producer_tick));
+            }
+        }
+    }
+
+    needed_ticks.into_iter().collect()
+}
+
+fn producer_before(producers: &[usize], consumer_tick: usize) -> Option<usize> {
+    let insertion = match producers.binary_search(&consumer_tick) {
+        Ok(pos) | Err(pos) => pos,
+    };
+    if insertion == 0 {
+        None
+    } else {
+        Some(producers[insertion - 1])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::ident::{make_node_id, make_type_id, make_warp_id};
+
+    #[test]
+    fn new_dedupes_duplicate_ops_by_sort_key_last_wins() {
+        let warp_id = make_warp_id("dedupe-warp");
+        let node_id = make_node_id("dedupe-node");
+        let node = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        let op_a = WarpOp::UpsertNode {
+            node,
+            record: NodeRecord {
+                ty: make_type_id("A"),
+            },
+        };
+        let op_b = WarpOp::UpsertNode {
+            node,
+            record: NodeRecord {
+                ty: make_type_id("B"),
+            },
+        };
+
+        let patch = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![op_a, op_b],
+        );
+
+        let ops = patch.ops();
+        assert_eq!(ops.len(), 1);
+        assert!(matches!(&ops[0], WarpOp::UpsertNode { .. }));
+        let WarpOp::UpsertNode {
+            node: got_node,
+            record,
+        } = &ops[0]
+        else {
+            return;
+        };
+        assert_eq!(got_node, &node);
+        assert_eq!(record.ty, make_type_id("B"));
+    }
+
+    #[test]
+    fn slice_includes_portal_chain_for_descended_instance() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let portal_key = AttachmentKey::node_alpha(NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        });
+
+        let child_root = make_node_id("child-root");
+        let child_root_key = NodeKey {
+            warp_id: child_warp,
+            local_id: child_root,
+        };
+
+        let child_node = make_node_id("child-node");
+        let child_node_key = NodeKey {
+            warp_id: child_warp,
+            local_id: child_node,
+        };
+
+        // Tick 0: establish the portal by setting the root attachment slot to Descend(child).
+        let patch0 = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key), SlotId::Node(child_root_key)],
+            vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+        );
+
+        // Tick 1: execute inside the descended instance; the engine enforces that
+        // the descent chain attachment slot is read (in_slots includes portal_key).
+        let patch1 = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![SlotId::Attachment(portal_key)],
+            vec![SlotId::Node(child_node_key)],
+            vec![WarpOp::UpsertNode {
+                node: child_node_key,
+                record: NodeRecord {
+                    ty: make_type_id("ChildTy"),
+                },
+            }],
+        );
+
+        let worldline = [patch0, patch1];
+        let ticks = slice_worldline_indices(&worldline, SlotId::Node(child_node_key));
+        assert_eq!(ticks, vec![0, 1]);
+    }
+
+    #[test]
+    fn apply_to_state_rejects_dangling_portal_set_attachment() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        // Dangling portal: sets Descend(child) without creating the child instance.
+        let dangling = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key)],
+            vec![WarpOp::SetAttachment {
+                key: portal_key,
+                value: Some(AttachmentValue::Descend(child_warp)),
+            }],
+        );
+        assert!(matches!(
+            dangling.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn apply_to_state_rejects_orphan_instance_missing_portal() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        // Orphan instance: create child metadata that declares a parent portal key
+        // without establishing the portal slot value.
+        let orphan = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![WarpOp::UpsertWarpInstance {
+                instance: WarpInstance {
+                    warp_id: child_warp,
+                    root_node: make_node_id("child-root"),
+                    parent: Some(portal_key),
+                },
+            }],
+        );
+        assert!(matches!(
+            orphan.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn apply_to_state_rejects_delete_instance_without_clearing_portal() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let child_root = make_node_id("child-root");
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        let open = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key)],
+            vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+        );
+        assert!(open.apply_to_state(&mut state).is_ok());
+
+        // Dangling portal: delete the child instance but forget to clear the portal slot.
+        let delete_child = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![WarpOp::DeleteWarpInstance {
+                warp_id: child_warp,
+            }],
+        );
+        assert!(matches!(
+            delete_child.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn apply_to_state_rejects_clear_portal_without_deleting_instance() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let child_root = make_node_id("child-root");
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        let open = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key)],
+            vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+        );
+        assert!(open.apply_to_state(&mut state).is_ok());
+
+        // Orphan instance: clear the portal slot while leaving the child instance metadata present.
+        let clear_portal = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![WarpOp::SetAttachment {
+                key: portal_key,
+                value: None,
+            }],
+        );
+        assert!(matches!(
+            clear_portal.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
+    }
 }

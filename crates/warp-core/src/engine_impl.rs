@@ -174,6 +174,11 @@ impl Engine {
     /// - building multi-instance fixtures for tests/tools without exposing `WarpState` internals, and
     /// - running rules against an externally-authored state (imported or synthesized).
     ///
+    /// **Important**: `Engine::with_state` initializes a clean execution environment:
+    /// the scheduler starts empty (no pending rewrites), there are no live transactions,
+    /// and `tx_counter` is reset to `0`. Transaction/scheduler state from any original
+    /// execution is intentionally not preserved.
+    ///
     /// # Parameters
     /// - `state`: pre-constructed multi-instance state.
     /// - `root`: the root node for snapshot hashing and commits. This must refer to the root instance.

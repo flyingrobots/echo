@@ -45,6 +45,9 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
     - how descent-chain reads become `Footprint.a_read` and therefore `in_slots`,
     - Paper III worldline slicing that includes the portal chain.
   - Add a minimal `Engine` constructor for initializing from an existing `WarpState` (needed to make examples concrete without exposing internals).
+  - Close remaining review gaps on portal invariants by enforcing and testing:
+    - no dangling `Descend(WarpId)` portals without a corresponding `WarpInstance`,
+    - no orphan instances (`WarpInstance.parent` must be realized by an attachment slot).
 - Exit criteria: `cargo fmt --all`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green.
 
 > 2025-12-30 — Touch-ups (receipts/docs + wasm/ffi ergonomics + graph delete perf) (COMPLETED)

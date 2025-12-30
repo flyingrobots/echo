@@ -410,8 +410,67 @@ impl WarpTickPatchV1 {
         for op in &self.ops {
             apply_op_to_state(state, op)?;
         }
+        validate_portal_invariants(state)?;
         Ok(())
     }
+}
+
+fn validate_portal_invariants(state: &WarpState) -> Result<(), TickPatchError> {
+    // 1) No orphan instances: every instance that declares a parent slot must be reachable
+    // via that slot (`AttachmentValue::Descend(warp_id)`).
+    for (warp_id, instance) in state.iter_instances() {
+        let Some(parent) = instance.parent else {
+            continue;
+        };
+        // Ensure the parent key is well-formed and its owner exists.
+        let _parent_warp = validate_attachment_owner_exists(state, &parent)?;
+        match attachment_value_for_key(state, &parent) {
+            Some(AttachmentValue::Descend(child_warp)) if *child_warp == *warp_id => {}
+            _ => return Err(TickPatchError::PortalInvariantViolation),
+        }
+    }
+
+    // 2) No dangling portals: every `Descend(warp_id)` attachment must refer to an existing
+    // instance whose `parent` points back at this exact attachment slot.
+    for (warp_id, store) in state.iter_stores() {
+        for (node_id, value) in store.iter_node_attachments() {
+            if let AttachmentValue::Descend(child_warp) = value {
+                let key = AttachmentKey::node_alpha(NodeKey {
+                    warp_id: *warp_id,
+                    local_id: *node_id,
+                });
+                validate_descend_target(state, key, *child_warp)?;
+            }
+        }
+        for (edge_id, value) in store.iter_edge_attachments() {
+            if let AttachmentValue::Descend(child_warp) = value {
+                let key = AttachmentKey::edge_beta(EdgeKey {
+                    warp_id: *warp_id,
+                    local_id: *edge_id,
+                });
+                validate_descend_target(state, key, *child_warp)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_descend_target(
+    state: &WarpState,
+    key: AttachmentKey,
+    child_warp: WarpId,
+) -> Result<(), TickPatchError> {
+    let Some(child_instance) = state.instance(&child_warp) else {
+        return Err(TickPatchError::PortalInvariantViolation);
+    };
+    if child_instance.parent != Some(key) {
+        return Err(TickPatchError::PortalInvariantViolation);
+    }
+    if state.store(&child_warp).is_none() {
+        return Err(TickPatchError::PortalInvariantViolation);
+    }
+    Ok(())
 }
 
 fn apply_op_to_state(state: &mut WarpState, op: &WarpOp) -> Result<(), TickPatchError> {
@@ -1343,5 +1402,270 @@ mod tests {
         let worldline = [patch0, patch1];
         let ticks = slice_worldline_indices(&worldline, SlotId::Node(child_node_key));
         assert_eq!(ticks, vec![0, 1]);
+    }
+
+    #[test]
+    fn apply_to_state_rejects_dangling_portal_set_attachment() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        // Dangling portal: sets Descend(child) without creating the child instance.
+        let dangling = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key)],
+            vec![WarpOp::SetAttachment {
+                key: portal_key,
+                value: Some(AttachmentValue::Descend(child_warp)),
+            }],
+        );
+        assert!(matches!(
+            dangling.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn apply_to_state_rejects_orphan_instance_missing_portal() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        // Orphan instance: create child metadata that declares a parent portal key
+        // without establishing the portal slot value.
+        let orphan = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![WarpOp::UpsertWarpInstance {
+                instance: WarpInstance {
+                    warp_id: child_warp,
+                    root_node: make_node_id("child-root"),
+                    parent: Some(portal_key),
+                },
+            }],
+        );
+        assert!(matches!(
+            orphan.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn apply_to_state_rejects_delete_instance_without_clearing_portal() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let child_root = make_node_id("child-root");
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        let open = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key)],
+            vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+        );
+        assert!(open.apply_to_state(&mut state).is_ok());
+
+        // Dangling portal: delete the child instance but forget to clear the portal slot.
+        let delete_child = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![WarpOp::DeleteWarpInstance {
+                warp_id: child_warp,
+            }],
+        );
+        assert!(matches!(
+            delete_child.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
+    }
+
+    #[test]
+    fn apply_to_state_rejects_clear_portal_without_deleting_instance() {
+        let root_warp = make_warp_id("root");
+        let child_warp = make_warp_id("child");
+
+        let root_node = make_node_id("root-node");
+        let root_key = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+        let portal_key = AttachmentKey::node_alpha(root_key);
+
+        let child_root = make_node_id("child-root");
+
+        let mut state = WarpState::new();
+        let init_root = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Node(root_key)],
+            vec![
+                WarpOp::UpsertWarpInstance {
+                    instance: WarpInstance {
+                        warp_id: root_warp,
+                        root_node,
+                        parent: None,
+                    },
+                },
+                WarpOp::UpsertNode {
+                    node: root_key,
+                    record: NodeRecord {
+                        ty: make_type_id("RootTy"),
+                    },
+                },
+            ],
+        );
+        assert!(init_root.apply_to_state(&mut state).is_ok());
+
+        let open = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![SlotId::Attachment(portal_key)],
+            vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+        );
+        assert!(open.apply_to_state(&mut state).is_ok());
+
+        // Orphan instance: clear the portal slot while leaving the child instance metadata present.
+        let clear_portal = WarpTickPatchV1::new(
+            crate::POLICY_ID_NO_POLICY_V0,
+            [1u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![WarpOp::SetAttachment {
+                key: portal_key,
+                value: None,
+            }],
+        );
+        assert!(matches!(
+            clear_portal.apply_to_state(&mut state),
+            Err(TickPatchError::PortalInvariantViolation)
+        ));
     }
 }

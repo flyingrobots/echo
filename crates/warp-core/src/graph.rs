@@ -92,6 +92,14 @@ impl GraphStore {
         self.node_attachments.get(id)
     }
 
+    /// Iterate over all node attachment entries (id, value) in deterministic order.
+    ///
+    /// The attachment plane stores entries only when a value exists (`Some`);
+    /// this iterator yields those present values.
+    pub fn iter_node_attachments(&self) -> impl Iterator<Item = (&NodeId, &AttachmentValue)> {
+        self.node_attachments.iter()
+    }
+
     /// Returns a mutable reference to the node's attachment value (if any).
     pub fn node_attachment_mut(&mut self, id: &NodeId) -> Option<&mut AttachmentValue> {
         self.node_attachments.get_mut(id)
@@ -127,6 +135,14 @@ impl GraphStore {
     /// Returns the edge's attachment value (if any).
     pub fn edge_attachment(&self, id: &EdgeId) -> Option<&AttachmentValue> {
         self.edge_attachments.get(id)
+    }
+
+    /// Iterate over all edge attachment entries (id, value) in deterministic order.
+    ///
+    /// The attachment plane stores entries only when a value exists (`Some`);
+    /// this iterator yields those present values.
+    pub fn iter_edge_attachments(&self) -> impl Iterator<Item = (&EdgeId, &AttachmentValue)> {
+        self.edge_attachments.iter()
     }
 
     /// Returns `true` if an edge with `edge_id` exists in the store.

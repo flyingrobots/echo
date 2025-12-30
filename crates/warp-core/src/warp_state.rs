@@ -62,6 +62,16 @@ impl WarpState {
         self.stores.get(warp_id)
     }
 
+    /// Iterate over all instance metadata entries in deterministic order.
+    pub(crate) fn iter_instances(&self) -> impl Iterator<Item = (&WarpId, &WarpInstance)> {
+        self.instances.iter()
+    }
+
+    /// Iterate over all stores in deterministic order.
+    pub(crate) fn iter_stores(&self) -> impl Iterator<Item = (&WarpId, &GraphStore)> {
+        self.stores.iter()
+    }
+
     /// Returns a mutable skeleton store for `warp_id` (if present).
     pub fn store_mut(&mut self, warp_id: &WarpId) -> Option<&mut GraphStore> {
         self.stores.get_mut(warp_id)

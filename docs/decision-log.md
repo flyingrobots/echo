@@ -329,6 +329,7 @@ The following entries use a heading + bullets format for richer context.
   - Lock the law: no hidden edges in payload bytes (dependencies must be skeleton-visible).
 - Rationale: preserve determinism and performance while making attachment semantics explicit and safe.
 - Consequence: payload typing becomes a first-class boundary artifact; the rewrite hot path remains skeleton-only; future recursion can be layered without reinterpreting bytes as structure.
+  - Docs: `docs/spec/SPEC-0001-attachment-plane-v0-atoms.md` (spec) and `docs/warp-two-plane-law.md` (project law).
 
 ## 2025-12-30 — warp-core Stage B1: WarpInstances + descended attachments (flattened indirection)
 
@@ -346,6 +347,7 @@ The following entries use a heading + bullets format for richer context.
   - Add a minimal slice helper test validating that descendant work pulls in the portal producer (Paper III slice closure).
 - Rationale: make recursion explicit, hashable, sliceable, and scheduler-visible while keeping matching/indexing skeleton-only within an instance.
 - Consequence: Echo can represent recursive WARP state via flattened indirection; descended-instance rewriting stays fast and deterministic; slicing remains trivial over `in_slots`/`out_slots` without decoding atoms.
+  - Docs: `docs/spec/SPEC-0002-descended-attachments-v1.md` (spec), `docs/spec-merkle-commit.md` (state_root reachability), and `docs/spec-warp-tick-patch.md` (patch digest v2 / portal ops).
 
 ## 2025-12-30 — warp-core Stage B1.1: Atomic portals (OpenPortal) + merge/DAG slicing semantics
 
@@ -361,4 +363,6 @@ The following entries use a heading + bullets format for richer context.
     - DAG slicing generalizes worldline slicing by treating merge patches as first-class resolution events.
   - Add a canonical terminology doc to pin “instances/portals vs wormholes” and prevent future term collisions.
 - Rationale: Keep the Paper III replay boundary honest: the patch must be the boundary artifact, slices must not be able to omit required portal/instance creation history, and merges must be deterministically authored.
-- Consequence: Portal authoring becomes clean and inevitable instead of a long-term swamp; tooling can build an honest instance-zoom view over explicit portals; merge behavior is spec’d for future implementation work.
+- Consequence: Portal authoring becomes clean and inevitable instead of a long-term swamp; tooling can build an honest instance-zoom view over explicit portals; merge/DAG slicing semantics are specified (implementation work remains).
+  - Docs: `docs/spec/SPEC-0002-descended-attachments-v1.md` (merge commits + DAG slicing), `docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md` (terminology lock), and `docs/branch-merge-playbook.md` (conflict resolution playbook).
+  - Tests: `crates/warp-core/src/tick_patch.rs` (patch replay rejects dangling portals and orphan instances).

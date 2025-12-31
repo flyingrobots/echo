@@ -3,7 +3,7 @@
 set -euo pipefail
 
 # 1) PRNG coupling guard (existing logic)
-PRNG_FILE="crates/rmg-core/src/math/prng.rs"
+PRNG_FILE="crates/warp-core/src/math/prng.rs"
 if git diff --cached --name-only | grep -qx "$PRNG_FILE"; then
   DIFF=$(git diff --cached -- "$PRNG_FILE" || true)
   if echo "$DIFF" | grep -E '^(\+|-)\s*(fn\s+next_u64|fn\s+from_seed_u64|fn\s+from_seed\(|fn\s+next_int\()' >/dev/null; then
@@ -76,31 +76,47 @@ if [[ -n "$RUST_CHANGED" ]]; then
   echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when Rust files change.' >&2; exit 1; }
 fi
 
-# 5) Lockfile guard: ensure lockfile version is v3 (current cargo format)
+# 5) Task list guard: prevent contradictory duplicated checklist items
+if [[ -f scripts/check_task_lists.sh ]]; then
+  if [[ ! -x scripts/check_task_lists.sh ]]; then
+    echo "pre-commit: scripts/check_task_lists.sh exists but is not executable. Run: chmod +x scripts/check_task_lists.sh" >&2
+    exit 1
+  fi
+  if echo "$STAGED" | grep -E '^(WASM-TASKS\\.md|docs/tasks\\.md)$' >/dev/null; then
+    scripts/check_task_lists.sh || { echo 'pre-commit: task list conflicts detected.' >&2; exit 1; }
+  fi
+fi
+
+# 6) Lockfile guard: ensure lockfile version matches the pinned Cargo format
 if [[ -f Cargo.lock ]]; then
   # Normalize detected lockfile version (strip quotes/CR/whitespace)
   VER_LINE=$(grep -n '^version = ' Cargo.lock | head -n1 | awk -F'= ' '{print $2}' | tr -d '\r' | tr -d '"' | xargs)
-  if [[ "$VER_LINE" != "3" ]]; then
+  # Cargo 1.90.0 emits lockfile format v4.
+  if [[ "$VER_LINE" != "4" ]]; then
     # Determine pinned toolchain (normalize), fallback to rust-toolchain.toml if unset
     _PINNED_RAW="${PINNED:-}"
     if [[ -z "$_PINNED_RAW" ]]; then
       _PINNED_RAW=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
     fi
     PINNED_NORM=$(printf "%s" "$_PINNED_RAW" | tr -d '\r' | xargs)
-    echo "pre-commit: Cargo.lock must be lockfile format v3 (found '$VER_LINE')." >&2
+    echo "pre-commit: Cargo.lock must be lockfile format v4 (found '$VER_LINE')." >&2
     echo "Run: cargo +${PINNED_NORM} generate-lockfile" >&2
     exit 1
   fi
 fi
 
-# 6) Targeted clippy + check for changed crates (fast-ish)
+# 7) Targeted clippy + check for changed crates (fast-ish)
 CRATES=$(echo "$STAGED" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u)
 for c in $CRATES; do
-  cargo clippy -p "$c" --all-targets -- -D warnings -D missing_docs
-  cargo check -p "$c" --quiet
+  if [[ -f "crates/${c}/Cargo.toml" ]]; then
+    cargo clippy -p "$c" --all-targets -- -D warnings -D missing_docs
+    cargo check -p "$c" --quiet
+  else
+    echo "pre-commit: skipping ${c}: missing crates/${c}/Cargo.toml" >&2
+  fi
 done
 
-# 7) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR MIND-UCAL-1.0)
+# 8) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR MIND-UCAL-1.0)
 if [[ -x scripts/ensure_spdx.sh ]]; then
   scripts/ensure_spdx.sh || exit 1
 fi

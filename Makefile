@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 SHELL := /bin/bash
@@ -71,8 +71,8 @@ bench-open:
 	fi
 
 bench-report: vendor-d3
-	@echo "Running benches (rmg-benches)..."
-	cargo bench -p rmg-benches
+	@echo "Running benches (warp-benches)..."
+	cargo bench -p warp-benches
 	@echo "Starting local server on :$(BENCH_PORT) and opening dashboard..."
 	@mkdir -p target
 	@if [ -f target/bench_http.pid ] && ps -p $$(cat target/bench_http.pid) >/dev/null 2>&1; then \
@@ -117,8 +117,8 @@ bench-stop:
 
 # Bake a standalone HTML with inline data that works over file://
 bench-bake: vendor-d3
-	@echo "Running benches (rmg-benches)..."
-	cargo bench -p rmg-benches
+	@echo "Running benches (warp-benches)..."
+	cargo bench -p warp-benches
 	@echo "Baking inline report..."
 	@python3 scripts/bench_bake.py --out docs/benchmarks/report-inline.html
 	@echo "Opening inline report..."
@@ -126,3 +126,16 @@ bench-bake: vendor-d3
 
 bench-open-inline:
 	@open docs/benchmarks/report-inline.html
+
+# Spec-000 (WASM) helpers
+.PHONY: spec-000-dev spec-000-build
+
+spec-000-dev:
+	@command -v trunk >/dev/null 2>&1 || { echo "Error: trunk not found. Install: cargo install trunk" >&2; exit 1; }
+	@test -d specs/spec-000-rewrite || { echo "Error: specs/spec-000-rewrite not found" >&2; exit 1; }
+	@cd specs/spec-000-rewrite && trunk serve
+
+spec-000-build:
+	@command -v trunk >/dev/null 2>&1 || { echo "Error: trunk not found. Install: cargo install trunk" >&2; exit 1; }
+	@test -d specs/spec-000-rewrite || { echo "Error: specs/spec-000-rewrite not found" >&2; exit 1; }
+	@cd specs/spec-000-rewrite && trunk build --release

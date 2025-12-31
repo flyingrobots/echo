@@ -1,0 +1,99 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Spec-000: Everything Is a Rewrite</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- NOTE: CSS is kept inline for the Phase 0 scaffold; extract to a dedicated file once the UI stabilizes. -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f1116;
+        --panel: #161a22;
+        --accent: #4cc2ff;
+        --text: #e9edf5;
+        --muted: #7f8aa3;
+      }
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        background: radial-gradient(circle at 20% 20%, rgba(76, 194, 255, 0.08), transparent 30%),
+          radial-gradient(circle at 80% 10%, rgba(255, 121, 198, 0.07), transparent 25%),
+          var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 48px 24px 64px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        letter-spacing: -0.5px;
+      }
+      .subtitle {
+        color: var(--muted);
+        margin: 0 0 24px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        padding: 20px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      }
+      .metric {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+      .label {
+        color: var(--muted);
+      }
+      .value {
+        font-weight: 700;
+        color: var(--accent);
+        font-size: 18px;
+      }
+      button {
+        background: var(--accent);
+        color: #0b0d12;
+        border: none;
+        border-radius: 10px;
+        padding: 10px 16px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 120ms ease, box-shadow 120ms ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 20px rgba(76, 194, 255, 0.35);
+      }
+      .note {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .spec {
+        white-space: pre-wrap;
+        font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco,
+          "Cascadia Mono", "Segoe UI Mono", "Roboto Mono", monospace;
+        font-size: 13px;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 10px;
+        padding: 12px;
+        overflow-x: auto;
+        max-height: 360px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Trunk will compile the crate to WASM and inject the correct JS/WASM bundle. -->
+    <link data-trunk rel="rust" href="Cargo.toml" data-cargo-features="wasm" />
+  </body>
+</html>

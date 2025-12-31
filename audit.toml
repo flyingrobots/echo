@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+# cargo-audit configuration
+
+[advisories]
+ignore = [
+    # paste is unmaintained; pulled transitively via wgpu/metal. Track wgpu issue
+    # for dependency replacement/patch. Ignore warning to keep CI green until
+    # upstream publishes a fix.
+    "RUSTSEC-2024-0436",
+]
+
+[output]
+format = "human"

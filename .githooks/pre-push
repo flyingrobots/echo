@@ -27,8 +27,8 @@ cargo test --workspace
 # MSRV lane removed: policy is stable everywhere.
 
 # Rustdoc warnings guard (public crates)
-required_crates=(rmg-core rmg-geom)
-optional_crates=(rmg-ffi rmg-wasm)
+required_crates=(warp-core warp-geom)
+optional_crates=(warp-ffi warp-wasm)
 missing_required=0
 
 for krate in "${required_crates[@]}"; do

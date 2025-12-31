@@ -17,7 +17,7 @@
 
 Unlike traditional game engines, which manage state through mutable object hierarchies and event loops, Echo represents the entire simulation state as a typed graph. This graph evolves through **deterministic rewrite rules**—mathematical transformations that guarantee identical results across platforms, replays, and simulations.
 
-At Echo's core is the _**Recursive Meta‑Graph**_ (RMG). In Echo, _everything_ is a graph. Nodes are graphs, meaning a "player" is a complex subgraph with its own internal graph structure, not just an object. Edges are graphs, too, and can also have their own internal graphs, allowing expressiveness that carries structure and provenance. And most importantly, rules are graph rewrites. Echo updates the simulation by finding specific patterns in the RMG and replacing them with new ones. Every frame, the RMG is replaced by a new RMG, an _echo_ of the state that came before it.
+At Echo's core is the _**WARP graph**_ (WARP). In Echo, _everything_ is a graph. Nodes are graphs, meaning a "player" is a complex subgraph with its own internal graph structure, not just an object. Edges are graphs, too, and can also have their own internal graphs, allowing expressiveness that carries structure and provenance. And most importantly, rules are graph rewrites. Echo updates the simulation by finding specific patterns in the WARP and replacing them with new ones. Every frame, the WARP is replaced by a new WARP, an _echo_ of the state that came before it.
 
 ### Why bother? Aren't game engines a solved problem? We got Unreal/Unity...
 
@@ -436,8 +436,8 @@ The graph is a straight line. The future is deterministic. **And Echo is how we 
 
 ## Code References
 
-- Implementation: `crates/rmg-core/src/scheduler.rs:142-277`
-- Benchmarks: `crates/rmg-benches/benches/scheduler_drain.rs`
+- Implementation: `crates/warp-core/src/scheduler.rs:142-277`
+- Benchmarks: `crates/warp-benches/benches/scheduler_drain.rs`
 - Dashboard: `docs/benchmarks/report-inline.html`
 - PR: [Pending on branch `repo/tidy`]
 

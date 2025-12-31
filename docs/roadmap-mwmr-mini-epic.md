@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # MWMR Concurrency Mini‑Epic Roadmap (Footprints, Reserve Gate, Telemetry)
 
-Status: Active • Owner: rmg-core • Created: 2025-10-27
+Status: Active • Owner: warp-core • Created: 2025-10-27
 
 
 ## Outcomes
@@ -51,7 +51,7 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 
 - [x] build.rs generates const family id for `rule:motion/update` (domain‑separated)
 - [ ] Generalize generator (src/gen/rule_ids.rs) and runtime assert test to catch drift
-- [ ] Lua FFI registration: `register_rule{name, match, exec, ?id, ?revision}`; engine computes if omitted
+- [ ] Rhai rule registration: `register_rule{name, match, exec, ?id, ?revision}`; engine computes if omitted
 - [ ] Revision ID = blake3("rule-rev:<lang>:canon-ast-v1" || canonical AST bytes)
 
 ---
@@ -87,6 +87,6 @@ Status: Active • Owner: rmg-core • Created: 2025-10-27
 ## Links
 
 - Spec: `docs/spec-mwmr-concurrency.md`
-- Tests: `crates/rmg-core/tests/footprint_independence_tests.rs`, `crates/rmg-core/tests/property_commute_tests.rs`
-- Engine: `crates/rmg-core/src/engine_impl.rs`, `crates/rmg-core/src/scheduler.rs`
-- Build: `crates/rmg-core/build.rs`
+- Tests: `crates/warp-core/tests/footprint_independence_tests.rs`, `crates/warp-core/tests/property_commute_tests.rs`
+- Engine: `crates/warp-core/src/engine_impl.rs`, `crates/warp-core/src/scheduler.rs`
+- Build: `crates/warp-core/build.rs`

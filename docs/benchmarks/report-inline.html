@@ -317,7 +317,7 @@
           miss.append('div').html(
             `Some results were not found. Ensure you:<br>` +
             `1) Serve repo root (e.g., run <code>make bench-serve</code> from the repo root),<br>` +
-            `2) Run <code>cargo bench -p rmg-benches</code> to generate <code>target/criterion</code> results,<br>` +
+            `2) Run <code>cargo bench -p warp-benches</code> to generate <code>target/criterion</code> results,<br>` +
             `3) If serving from a different base, pass <code>?root=../../</code> or the correct base.`
           );
           const ul = miss.append('ul');

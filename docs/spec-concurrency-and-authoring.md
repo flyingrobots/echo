@@ -2,13 +2,13 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Concurrency & Authoring Specification (Phase 0.75)
 
-Clarifies Echo’s deterministic concurrency model and how Lua/Rust developers author gameplay systems at Unity-scale without sacrificing replay guarantees.
+Clarifies Echo’s deterministic concurrency model and how Rhai/Rust developers author gameplay systems at Unity-scale without sacrificing replay guarantees.
 
 ---
 
 ## Core Principles
 - **Parallelism lives in the Rust core** (scheduler, ECS, branch tree).
-- **Scripting remains single-threaded** (Lua sandbox per branch/world).
+- **Scripting remains single-threaded** (Rhai sandbox per branch/world).
 - **All side effects traverse Codex’s Baby**; no direct threaded mutations from scripts.
 - **Adapters may use threads internally** but must commit results deterministically at tick boundaries.
 
@@ -24,22 +24,24 @@ Clarifies Echo’s deterministic concurrency model and how Lua/Rust developers a
 
 ---
 
-## Lua Execution Model
-- Each branch/world owns one Lua VM.
-- Scheduler phases (`pre_update`, `update`, `post_update`) call into Lua sequentially.
-- Coroutine usage allowed intra-VM but cannot mutate world state across threads; resumed within the tick.
-- GC runs in stepped deterministic mode with fixed budget per tick.
-- Lua “async” tasks emit events; e.g., `echo.delay(seconds, fn)` enqueues an event to Codex’s Baby targeting future Chronos.
+## Rhai Execution Model
+- Each branch/world owns one Rhai engine + AST set.
+- Scheduler phases (`pre_update`, `update`, `post_update`) call into Rhai sequentially.
+- Rhai tasks stay single-threaded; no host threads spawned from scripts.
+- GC/engine budgeting runs in deterministic steps per tick.
+- Rhai “async” helpers emit events; e.g., `echo::delay(seconds, callback)` enqueues an event to Codex’s Baby targeting future Chronos.
+- Note: `echo::delay(...)` and `echo::emit(...)` are **Echo-provided host functions** registered into the Rhai engine; they are not built-in Rhai constructs.
 
 ### Deterministic Async Example
-```lua
-function on_start()
-  echo.delay(3.0, function()
-    echo.emit("spawn_particle", {pos = self.pos})
-  end)
-end
+
+```rhai
+fn on_start() {
+    echo::delay(3.0, || {
+        echo::emit("spawn_particle", #{ pos: this.pos });
+    });
+}
 ```
-- `echo.delay` schedules a timed event with `chronos + seconds * tickRate`.
+- `echo::delay` schedules a timed event with `chronos + seconds * tickRate`.
 - Replay reproduces identical scheduling.
 
 ---
@@ -57,11 +59,11 @@ end
 
 | Layer | Language | Purpose |
 | ----- | -------- | ------- |
-| Lua scripts | Lua 5.4 | Gameplay logic, event handlers, component queries |
+| Rhai scripts | Rhai | Gameplay logic, event handlers, component queries |
 | Rust plugins | Rust (plugin system) | New systems/components, AI planners, deterministic subsystems |
 | Native adapters | C (via C ABI) | Custom renderers, physics backends |
 
-- Lua authors interact via `EchoWorldAPI` in scripting mode.
+- Rhai authors interact via `EchoWorldAPI` in scripting mode.
 - Rust plugin authors register systems/components with deterministic access declarations.
 - C adapters communicate through FFI, respecting capability tokens.
 
@@ -69,7 +71,7 @@ end
 
 ## Determinism Rules Summary
 - Only core scheduler launches parallel jobs; scripts remain single-threaded.
-- Lua async → scheduled events; no OS threads.
+- Rhai async → scheduled events; no OS threads.
 - All mutations route through Codex’s Baby and ECS APIs.
 - Adapter threads must synchronize and canonicalize outputs before commit.
 - Replay (`echo replay --verify`) detects divergences caused by nondeterministic plugins/adapters.

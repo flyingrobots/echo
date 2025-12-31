@@ -20,12 +20,12 @@ Although its applications span far beyond games, we’ll view it through the len
 Traditional engines manage state via **mutable object hierarchies** and **event loops**.  
 Echo represents the *entire* simulation as a **typed graph** that evolves through **deterministic rewrite rules**—mathematical transformations that guarantee **bit-identical results** across platforms, replays, and networked peers.
 
-At Echo’s core lies the **Recursive Meta-Graph (RMG)**:  
+At Echo’s core lies the **WARP graph (WARP)**:  
 - **Nodes are graphs** (a “player” is a subgraph with its own internal structure).  
 - **Edges are graphs** (carry provenance and nested state).  
 - **Rules are graph rewrites** (pattern-match → replace).  
 
-Every frame the RMG is replaced by a new RMG—an **echo** of the previous state.
+Every frame the WARP is replaced by a new WARP—an **echo** of the previous state.
 
 ### Why bother? Aren’t Unreal/Unity “solved”?
 
@@ -331,8 +331,8 @@ When you can execute **30,000 deterministic rewrites per frame** and still hit *
 
 ## Code References
 
-- **Implementation**: crates/rmg-core/src/scheduler.rs (see `radix_sort`, `drain_in_order`)
-- **Benchmarks**: crates/rmg-benches/benches/scheduler_drain.rs
+- **Implementation**: crates/warp-core/src/scheduler.rs (see `radix_sort`, `drain_in_order`)
+- **Benchmarks**: crates/warp-benches/benches/scheduler_drain.rs
 - **Dashboard**: docs/benchmarks/report-inline.html
 - **PR**: pending on branch repo/tidy
 

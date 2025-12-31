@@ -29,7 +29,7 @@ This document contains prompts for future work addressing gaps identified during
 >
 > 4. **Add to CI**: Ensure these tests run on every commit to catch future regressions
 >
-> The goal is **100% confidence** that we haven't introduced any ordering divergence from the original BTreeMap semantics. Location: `crates/rmg-core/src/scheduler.rs` and new test file `crates/rmg-core/tests/scheduler_determinism.rs`"
+> The goal is **100% confidence** that we haven't introduced any ordering divergence from the original BTreeMap semantics. Location: `crates/warp-core/src/scheduler.rs` and new test file `crates/warp-core/tests/scheduler_determinism.rs`"
 
 ---
 
@@ -37,7 +37,7 @@ This document contains prompts for future work addressing gaps identified during
 
 **Prompt for next session:**
 
-> "Please examine `crates/rmg-core/src/scheduler.rs` and provide a **comprehensive technical explanation** of the radix sort implementation, suitable for documentation or a blog post. Specifically explain:
+> "Please examine `crates/warp-core/src/scheduler.rs` and provide a **comprehensive technical explanation** of the radix sort implementation, suitable for documentation or a blog post. Specifically explain:
 >
 > 1. **Why 20 passes?**
 >    - We have 32 bytes (scope_be32) + 4 bytes (rule_id) + 4 bytes (nonce) = 40 bytes total
@@ -164,7 +164,7 @@ This document contains prompts for future work addressing gaps identified during
 >    - **Mitigation**: Per-transaction GenSet or early-out if footprint is empty
 >
 > For each scenario:
-> 1. **Create a benchmark** in `crates/rmg-benches/benches/scheduler_adversarial.rs`
+> 1. **Create a benchmark** in `crates/warp-benches/benches/scheduler_adversarial.rs`
 > 2. **Measure degradation** compared to best-case (e.g., how much slower?)
 > 3. **Implement mitigation** if degradation is >2x
 > 4. **Re-benchmark** to prove mitigation works

@@ -1,9 +1,12 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 # cargo-deny configuration for Echo workspace
 
 [licenses]
 # Explicit allowlist of common permissive licenses used in our deps.
+# Note: Cargo.lock does not record license metadata; cargo-deny evaluates
+# license expressions from registry metadata (crates.io / git) plus license
+# files when needed.
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
@@ -16,6 +19,17 @@ allow = [
     "MIT-0",
     "Unicode-3.0",
     "Unlicense",
+    "Zlib",
+    "OFL-1.1",
+    "MPL-2.0",
+    # Required by aws-lc-sys' license expression when pulled in via rustls.
+    # Dependency chain: echo-session-ws-gateway -> axum-server[tls-rustls] -> rustls -> aws-lc-sys.
+    # Verify: cargo tree -p echo-session-ws-gateway -e normal | rg '(axum-server|rustls|aws-lc-sys)'
+    "OpenSSL",
+    # Required by epaint_default_fonts (via egui/epaint in warp-viewer).
+    # Dependency chain: warp-viewer -> egui -> epaint -> epaint_default_fonts.
+    # Verify: cargo tree -p warp-viewer -e normal | rg '(egui|epaint_default_fonts)'
+    "Ubuntu-font-1.0",
 ]
 
 # Modernized for cargo-deny >=0.14.21 (PR #611):
@@ -33,6 +47,13 @@ confidence-threshold = 0.8
 # Warn on multiple versions, but don't fail CI for now.
 multiple-versions = "warn"
 wildcards = "deny"
+
+[advisories]
+ignore = [
+    # wgpu transitively depends on paste 1.0.15; upstream is unmaintained but
+    # tracked in wgpu#5185. Safe to ignore until wgpu publishes a replacement.
+    "RUSTSEC-2024-0436",
+]
 
 [sources]
 unknown-registry = "deny"

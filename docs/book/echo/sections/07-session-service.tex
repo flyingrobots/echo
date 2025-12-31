@@ -1,0 +1,80 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\section{Echo Session Service and WARP Viewer Sync}
+\label{sec:session-service}
+
+Echo’s editor constellation streams WARP state from the engine to tools over a gapless, deterministic protocol. This section documents the session service, the wire format, and how the WARP Viewer consumes snapshots/diffs to stay in lockstep.
+
+For a role-level summary of how the Engine, Session Host, and client apps
+share responsibility for WARP streaming, see the generic consumer contract in
+Section~\ref{sec:warp-stream-consumers} and
+Table~\ref{tab:warp-role-summary}.
+
+\subsection{Roles}
+\begin{itemize}
+  \item \textbf{Engine / Session Service}: authoritative owner of the WARP; emits snapshots and diffs over a Unix socket; guarantees ordered, gapless epochs.
+  \item \textbf{WARP Viewer}: connects to the service, receives frames, applies structural ops, renders the graph; treats any epoch gap/hash mismatch as a protocol error.
+  \item \textbf{Other tools}: inspectors, profilers, etc., use the same frames and can render or analyze the graph identically.
+\end{itemize}
+
+\subsection{Wire Types (from \texttt{echo-graph} / \texttt{echo-session-proto})}
+\begin{itemize}
+  \item \textbf{EpochId}: monotonically increasing tick id.
+  \item \textbf{WarpFrame}: either \texttt{Snapshot} or \texttt{Diff}.
+  \item \textbf{Snapshot}: \texttt{\{ epoch, graph: RenderGraph, state\_hash? \}} (first frame after connect).
+  \item \textbf{Diff}: \texttt{\{ from\_epoch, to\_epoch, ops: Vec<WarpOp>, state\_hash? \}} with \texttt{to = from + 1} in live streams.
+  \item \textbf{WarpOp}: structural graph mutations (Add/Update/Remove node/edge with payload patches).
+  \item \textbf{Notification}: info/warn/error scoped to Global/Session/WARP/Local; carried alongside WarpFrame.
+\end{itemize}
+
+\subsection{Protocol Invariants}
+\begin{itemize}
+  \item First frame must be a Snapshot.
+  \item Live stream is gapless: \texttt{diff.from\_epoch == local\_epoch}, \texttt{diff.to\_epoch == local\_epoch + 1}. Any violation = protocol error + disconnect.
+  \item Optional state hashes are computed over canonical RenderGraph (sorted, CBOR) with blake3; mismatch = error.
+  \item Late join/reconnect: service sends a fresh Snapshot (or Snapshot + diffs if it can resume); viewer resets to the Snapshot epoch.
+\end{itemize}
+
+\subsection{Viewer Apply Loop (gapless)}
+\begin{verbatim}
+Snapshot(s):
+  wire_graph = s.graph
+  epoch = s.epoch
+  scene = scene_from_wire(wire_graph)
+  if hash provided -> verify
+  screen = View
+
+Diff(d):
+  assert d.from == epoch
+  assert d.to   == epoch + 1
+  for op in d.ops: wire_graph.apply_op(op)
+  epoch = d.to
+  if hash provided -> verify
+  scene = scene_from_wire(wire_graph)
+\end{verbatim}
+
+\subsection{Service Emit Loop}
+\begin{enumerate}
+  \item On client connect: send \textbf{Snapshot} of current epoch, then begin diffs.
+  \item On each tick: compute structural ops from epoch $k$ to $k+1$, emit \textbf{Diff} with \texttt{state\_hash} of post-state.
+  \item Ordering is the transport contract: one socket, ordered CBOR frames, length-prefixed.
+\end{enumerate}
+
+\subsection{Failure Handling}
+\begin{itemize}
+  \item Any gap or hash mismatch: surface an error toast/banner; drop the connection; prompt reconnect.
+  \item Socket read/parse failure: drop connection; return to Title screen.
+\end{itemize}
+
+\subsection{Why Structural Ops (not rule replay)}
+\begin{itemize}
+  \item Viewer stays lightweight and version-tolerant; no need to ship rule code.
+  \item Determinism is preserved because ops are applied in recorded order with hashes to verify.
+\end{itemize}
+
+\subsection{Next Steps}
+\begin{itemize}
+  \item Engine emitter: send real RenderGraph snapshots/diffs using \texttt{echo-graph} types.
+  \item Viewer: improve \texttt{scene\_from\_wire} to honor payload-driven layout/appearance.
+  \item Add resume-from-epoch handshake (\texttt{WarpHello}) to support reconnect without full snapshot when logs are retained.
+\end{itemize}

@@ -22,12 +22,12 @@ Benchmarks in Echo are not just about measuring performance—they're about:
 
 ### 1. Create the Benchmark File
 
-Create a new benchmark in `crates/rmg-benches/benches/`:
+Create a new benchmark in `crates/warp-benches/benches/`:
 
 ```rust
-// crates/rmg-benches/benches/my_feature.rs
+// crates/warp-benches/benches/my_feature.rs
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use rmg_core::*; // Import what you need
+use warp_core::*; // Import what you need
 
 fn bench_my_feature(c: &mut Criterion) {
     let mut group = c.benchmark_group("my_feature");
@@ -68,7 +68,7 @@ criterion_main!(benches);
 
 ### 2. Register in Cargo.toml
 
-Add to `crates/rmg-benches/Cargo.toml`:
+Add to `crates/warp-benches/Cargo.toml`:
 
 ```toml
 [[bench]]
@@ -80,7 +80,7 @@ harness = false  # Required for Criterion
 
 ```bash
 # Run just your benchmark
-cargo bench -p rmg-benches --bench my_feature
+cargo bench -p warp-benches --bench my_feature
 
 # Results go to: target/criterion/my_feature/{n}/new/estimates.json
 ```
@@ -187,7 +187,7 @@ Brief description of what you're measuring and why.
 ## What Was Added
 
 ### Benchmark Implementation
-- File: `crates/rmg-benches/benches/my_feature.rs`
+- File: `crates/warp-benches/benches/my_feature.rs`
 - Measures: [specific metric]
 - Input sizes: 10, 100, 1K, 3K, 10K, 30K
 - Key design choices: [why you set it up this way]
@@ -223,7 +223,7 @@ Brief description of what you're measuring and why.
 
 ```bash
 # Quick test
-cargo bench -p rmg-benches --bench my_feature
+cargo bench -p warp-benches --bench my_feature
 
 # Full dashboard
 make bench-bake
@@ -375,11 +375,11 @@ Currently benchmarks run manually. To add CI gating:
 2. Regression check comparing to baseline
 3. Fail CI if performance degrades >10%
 
-See TODO in `crates/rmg-benches/benches/scheduler_drain.rs:11`.
+See TODO in `crates/warp-benches/benches/scheduler_drain.rs:11`.
 
 ## Questions?
 
-- Check existing benchmarks in `crates/rmg-benches/benches/`
+- Check existing benchmarks in `crates/warp-benches/benches/`
 - Read [Criterion.rs User Guide](https://bheisler.github.io/criterion.rs/book/)
 - Look at `docs/benchmarks/RESERVE_BENCHMARK.md` for a complete example
 
@@ -389,7 +389,7 @@ Before considering your benchmark "done":
 
 - [ ] Rust benchmark file created with proper Criterion setup
 - [ ] Registered in `Cargo.toml` with `harness = false`
-- [ ] Runs successfully: `cargo bench -p rmg-benches --bench my_feature`
+- [ ] Runs successfully: `cargo bench -p warp-benches --bench my_feature`
 - [ ] JSON artifacts generated in `target/criterion/`
 - [ ] Added to `docs/benchmarks/index.html` GROUPS array
 - [ ] Added to `scripts/bench_bake.py` GROUPS list

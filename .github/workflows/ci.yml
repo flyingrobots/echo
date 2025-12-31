@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 name: CI
 
@@ -56,8 +56,8 @@ jobs:
             .
       - name: cargo test (workspace)
         run: cargo test --workspace
-      - name: PRNG golden regression (rmg-core)
-        run: cargo test -p rmg-core --features golden_prng -- tests::next_int_golden_regression
+      - name: PRNG golden regression (warp-core)
+        run: cargo test -p warp-core --features golden_prng -- tests::next_int_golden_regression
 
   test-musl:
     name: Tests (musl)
@@ -75,10 +75,10 @@ jobs:
         with:
           workspaces: |
             .
-      # Intentionally test only rmg-core under MUSL; rmg-wasm targets wasm32
-      # (wasm-bindgen/js-sys) and rmg-ffi has separate cross-compilation concerns.
-      - name: cargo test (rmg-core, musl)
-        run: cargo test -p rmg-core --target x86_64-unknown-linux-musl
+      # Intentionally test only warp-core under MUSL; warp-wasm targets wasm32
+      # (wasm-bindgen/js-sys) and warp-ffi has separate cross-compilation concerns.
+      - name: cargo test (warp-core, musl)
+        run: cargo test -p warp-core --target x86_64-unknown-linux-musl
 
   docs:
     name: Docs Guard
@@ -112,6 +112,53 @@ jobs:
             exit 1;
           }
 
+  rust-version:
+    name: Rust Version Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Check workspace rust-version declarations
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/check_rust_versions.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Rust version checker self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/check_rust_versions_test.sh
+
+  task-lists:
+    name: Task Lists Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check task lists for contradictions
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/check_task_lists.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Task list checker self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/check_task_lists_test.sh
+
   # MSRV job removed per policy: use @stable everywhere
 
   rustdoc:
@@ -123,29 +170,16 @@ jobs:
           submodules: false
       - uses: dtolnay/rust-toolchain@1.90.0
       - uses: Swatinem/rust-cache@v2
-      - name: rustdoc warnings gate (rmg-core)
-        run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-core --no-deps
-      - name: rustdoc warnings gate (rmg-geom)
-        run: RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-geom --no-deps
-      - name: rustdoc warnings gate (rmg-ffi)
+      - name: rustdoc warnings gate (warp-core)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-core --no-deps
+      - name: rustdoc warnings gate (warp-geom)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-geom --no-deps
+      - name: rustdoc warnings gate (warp-ffi)
         run: |
-          if [ -f crates/rmg-ffi/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-ffi --no-deps; fi
-      - name: rustdoc warnings gate (rmg-wasm)
+          if [ -f crates/warp-ffi/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p warp-ffi --no-deps; fi
+      - name: rustdoc warnings gate (warp-wasm)
         run: |
-          if [ -f crates/rmg-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p rmg-wasm --no-deps; fi
-
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.90.0
-      - name: Install cargo-audit (latest)
-        run: cargo install cargo-audit --locked
-      - name: Run cargo audit
-        env:
-          CARGO_TERM_COLOR: always
-        run: cargo audit --deny warnings
+          if [ -f crates/warp-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p warp-wasm --no-deps; fi
 
   deny:
     name: Dependency Policy (cargo-deny)
@@ -154,5 +188,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Pre-fetch crates (locked)
+        run: cargo fetch --locked
+      - name: cargo-audit runner self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/run_cargo_audit_test.sh
       - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@76cd80eb775d7bbbd2d80292136d74d39e1b4918 # v2.0.14

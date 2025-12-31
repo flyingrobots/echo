@@ -53,13 +53,22 @@ should_skip() {
       return 1
     }
     
-    is_source_code() {
-      local f="$1"
-      case "$f" in
-        *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart) return 0 ;; 
-        *) return 1 ;; 
-      esac
-    }
+is_source_code() {
+  local f="$1"
+  case "$f" in
+    *.rs|*.js|*.ts|*.py|*.sh|*.bash|*.c|*.h|*.cpp|*.hpp|*.go|*.java|*.kt|*.scala|*.swift|*.dart|*.wgsl|*.hlsl|*.glsl) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_dual_licensed_material() {
+  local f="$1"
+
+  case "$f" in
+    *.md|*.html|*.xml|*.tex|*.sty|*.cls) return 0 ;;
+    *) return 1 ;;
+  esac
+}
     
     get_comment_style() {
       local f="$1"
@@ -76,10 +85,10 @@ get_header_content() {
   local style="$2"
   local license_line
   
-  if is_source_code "$f"; then
-    license_line="$CODE_LICENSE"
-  else
+  if is_dual_licensed_material "$f"; then
     license_line="$DUAL_LICENSE"
+  else
+    license_line="$CODE_LICENSE"
   fi
 
   case "$style" in

@@ -1,0 +1,206 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Pure-ish session frame handling: apply snapshots/diffs and raise toasts.
+
+use std::time::Instant;
+
+use echo_app_core::toast::{ToastKind, ToastScope, ToastService};
+use echo_graph::WarpFrame;
+
+use crate::{
+    core::{Screen, UiState},
+    scene::scene_from_wire,
+    viewer_state::ViewerState,
+};
+
+pub struct FrameOutcome {
+    pub desync: Option<String>,
+    pub enter_view: bool,
+}
+
+/// Apply a batch of WARP frames; returns a desync reason if we should drop the connection.
+pub(crate) fn process_frames(
+    ui: &mut UiState,
+    viewer: &mut ViewerState,
+    toasts: &mut ToastService,
+    frames: impl IntoIterator<Item = WarpFrame>,
+) -> FrameOutcome {
+    let mut outcome = FrameOutcome {
+        desync: None,
+        enter_view: false,
+    };
+    for frame in frames {
+        match frame {
+            WarpFrame::Snapshot(s) => {
+                viewer.wire_graph = s.graph;
+                viewer.epoch = Some(s.epoch);
+                viewer.history.append(viewer.wire_graph.clone(), s.epoch);
+                viewer.graph = scene_from_wire(&viewer.wire_graph);
+                if !matches!(ui.screen, Screen::View) {
+                    outcome.enter_view = true;
+                    ui.connect_log
+                        .push("Session started. Receiving WARP stream...".into());
+                }
+                if let Some(expected) = s.state_hash {
+                    match viewer.wire_graph.compute_hash() {
+                        Ok(actual) if actual != expected => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "Snapshot hash mismatch",
+                                Some(format!("expected {:?}, got {:?}", expected, actual)),
+                                std::time::Duration::from_secs(6),
+                                Instant::now(),
+                            );
+                            outcome.desync =
+                                Some("Desynced (snapshot hash mismatch) — reconnect".into());
+                            return outcome;
+                        }
+                        Err(e) => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "Snapshot hash compute failed",
+                                Some(format!("{e:#}")),
+                                std::time::Duration::from_secs(6),
+                                Instant::now(),
+                            );
+                            outcome.desync = Some("Desynced (hash compute) — reconnect".into());
+                            return outcome;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            WarpFrame::Diff(d) => {
+                let Some(epoch) = viewer.epoch else {
+                    toasts.push(
+                        ToastKind::Error,
+                        ToastScope::Local,
+                        "Diff received before snapshot",
+                        None,
+                        std::time::Duration::from_secs(6),
+                        Instant::now(),
+                    );
+                    continue;
+                };
+                if d.to_epoch <= epoch {
+                    // Duplicate/stale frame (e.g., local publisher receiving its own broadcast).
+                    continue;
+                }
+                if d.from_epoch != epoch || d.to_epoch != epoch + 1 {
+                    toasts.push(
+                        ToastKind::Error,
+                        ToastScope::Local,
+                        "Protocol violation: non-sequential diff",
+                        Some(format!(
+                            "from={}, to={}, local={}",
+                            d.from_epoch, d.to_epoch, epoch
+                        )),
+                        std::time::Duration::from_secs(8),
+                        Instant::now(),
+                    );
+                    outcome.desync = Some("Desynced (gap) — reconnect".into());
+                    return outcome;
+                }
+                for op in d.ops {
+                    if let Err(err) = viewer.wire_graph.apply_op(op) {
+                        toasts.push(
+                            ToastKind::Error,
+                            ToastScope::Local,
+                            "Failed applying WARP op",
+                            Some(format!("{err:#}")),
+                            std::time::Duration::from_secs(8),
+                            Instant::now(),
+                        );
+                        outcome.desync = Some("Desynced (apply failed) — reconnect".into());
+                        return outcome;
+                    }
+                }
+                viewer.epoch = Some(d.to_epoch);
+                if let Some(expected) = d.state_hash {
+                    match viewer.wire_graph.compute_hash() {
+                        Ok(actual) if actual != expected => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "State hash mismatch",
+                                Some(format!("expected {:?}, got {:?}", expected, actual)),
+                                std::time::Duration::from_secs(8),
+                                Instant::now(),
+                            );
+                            outcome.desync = Some("Desynced (hash mismatch) — reconnect".into());
+                            return outcome;
+                        }
+                        Err(e) => {
+                            toasts.push(
+                                ToastKind::Error,
+                                ToastScope::Local,
+                                "State hash compute failed",
+                                Some(format!("{e:#}")),
+                                std::time::Duration::from_secs(8),
+                                Instant::now(),
+                            );
+                            outcome.desync = Some("Desynced (hash compute) — reconnect".into());
+                            return outcome;
+                        }
+                        _ => {}
+                    }
+                }
+                viewer.history.append(viewer.wire_graph.clone(), d.to_epoch);
+                viewer.graph = scene_from_wire(&viewer.wire_graph);
+                outcome.enter_view = true;
+            }
+        }
+    }
+    outcome
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui_state::{self, UiEvent};
+    use echo_graph::{RenderGraph, WarpDiff, WarpFrame, WarpSnapshot};
+
+    #[test]
+    fn snapshot_enters_view() {
+        let mut ui = UiState::new();
+        let mut viewer = ViewerState::default();
+        let mut toasts = ToastService::new(8);
+        let snap = WarpFrame::Snapshot(WarpSnapshot {
+            epoch: 0,
+            graph: RenderGraph::default(),
+            state_hash: None,
+        });
+        let outcome = process_frames(&mut ui, &mut viewer, &mut toasts, [snap]);
+        assert!(outcome.enter_view);
+        assert!(outcome.desync.is_none());
+        if outcome.enter_view {
+            ui = ui_state::reduce(&ui, UiEvent::EnterView).0;
+        }
+        assert!(matches!(ui.screen, Screen::View));
+    }
+
+    #[test]
+    fn gap_diff_desyncs() {
+        let mut ui = UiState::new();
+        let mut viewer = ViewerState::default();
+        let mut toasts = ToastService::new(8);
+        // first set epoch via snapshot
+        let snap = WarpFrame::Snapshot(WarpSnapshot {
+            epoch: 0,
+            graph: RenderGraph::default(),
+            state_hash: None,
+        });
+        let _ = process_frames(&mut ui, &mut viewer, &mut toasts, [snap]);
+        // gap diff
+        let diff = WarpFrame::Diff(WarpDiff {
+            from_epoch: 2,
+            to_epoch: 3,
+            ops: vec![],
+            state_hash: None,
+        });
+        let outcome = process_frames(&mut ui, &mut viewer, &mut toasts, [diff]);
+        assert!(outcome.desync.is_some());
+    }
+}

@@ -6,6 +6,8 @@
 | -------- | ------- |
 | `architecture-outline.md` | High-level architecture vision and principles |
 | `execution-plan.md` | Living plan of tasks, intent, and progress |
+| `guide/warp-primer.md` | Start here: newcomer-friendly primer for WARP in Echo |
+| `guide/wvp-demo.md` | Demo: run the session hub + 2 viewers (publisher/subscriber) |
 | `spec-branch-tree.md` | Branch tree, diffs, and timeline persistence |
 | `spec-codex-baby.md` | Event bus, bridges, backpressure, security |
 | `spec-temporal-bridge.md` | Cross-branch event lifecycle |
@@ -18,9 +20,17 @@
 | `spec-plugin-system.md` | Plugin discovery, namespace isolation, capabilities |
 | `spec-concurrency-and-authoring.md` | Parallel core & single-threaded scripting model |
 | `spec-networking.md` | Deterministic event replication modes |
+| `aion-papers-bridge.md` | Map AIΩN Foundations (WARP papers) onto Echo’s backlog and document deviations |
+| `warp-two-plane-law.md` | Project law: define SkeletonGraph vs attachment plane, π(U), depth-0 atoms, and “no hidden edges” |
+| `adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md` | ADR: formalize two-plane representation (SkeletonGraph + Attachment Plane) and the core invariants |
+| `adr/ADR-0002-warp-instances-descended-attachments.md` | ADR: WarpInstances and descended attachments via flattened indirection (no hidden edges, no recursive hot path) |
+| `spec/SPEC-0001-attachment-plane-v0-atoms.md` | Spec: attachment plane v0 (typed atoms), codec boundary, and deterministic decode failure semantics |
+| `spec/SPEC-0002-descended-attachments-v1.md` | Spec: descended attachments v1 (WarpInstances, SlotId::Attachment, descent-chain footprint law, worldline slicing) |
+| `architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md` | Canonical terminology: WarpState vs SkeletonGraph, instances/portals, and wormholes (reserved for history compression) |
 | `phase1-plan.md` | Phase 1 implementation roadmap & demo targets |
-| `spec-rmg-core.md` | Recursive Meta Graph core format and runtime |
-| `spec-rmg-confluence.md` | Global graph synchronization (Confluence) |
+| `spec-warp-core.md` | WARP core format and runtime |
+| `spec-warp-tick-patch.md` | Tick patch boundary artifact (delta ops, in/out slots, patch_digest) |
+| `spec-warp-confluence.md` | Global WARP graph synchronization (Confluence) |
 | `spec-ecs-storage.md` | ECS storage (archetypes, chunks, COW) |
 | `math-validation-plan.md` | Deterministic math coverage |
 | `scheduler-benchmarks.md` | Scheduler performance scenarios |
@@ -35,9 +45,10 @@
 | `release-criteria.md` | Phase transition checklist |
 
 ## Getting Started
-1. Read `architecture-outline.md`.
-2. Review `spec-branch-tree.md` + `spec-codex-baby.md` + `spec-temporal-bridge.md`.
-3. Consult `execution-plan.md` for current focus.
+1. Read `guide/warp-primer.md` (if you’re new to WARP / `warp-core`).
+2. Read `architecture-outline.md`.
+3. Review `spec-branch-tree.md` + `spec-codex-baby.md` + `spec-temporal-bridge.md`.
+4. Consult `execution-plan.md` for current focus.
 
 ## Phase Tags
 - Phase 0.0 — initial skeleton

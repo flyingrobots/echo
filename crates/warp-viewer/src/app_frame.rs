@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Per-frame tick and window-event handling for the App.
+
+use crate::{
+    app::App,
+    core::Screen,
+    render, session_logic,
+    ui::{draw_connecting_screen, draw_error_screen, draw_title_screen, draw_view_hud},
+    ui_state,
+};
+use echo_app_core::{
+    render_port::RenderPort,
+    toast::{ToastKind, ToastScope},
+};
+use echo_session_client::tool::SessionPort;
+use echo_session_proto::{NotifyKind, NotifyScope};
+use glam::{Quat, Vec3};
+use std::time::Instant;
+
+const FREE_CAMERA_CONTROLS: bool = false; // set true for debug free-fly
+
+impl App {
+    pub fn frame(&mut self) {
+        let (win, width_px, height_px, raw_input) = {
+            let Some(vp) = self.viewports.get_mut(0) else {
+                // No viewport available; nothing to draw this frame.
+                return;
+            };
+            let raw = vp.egui_state.take_egui_input(vp.window);
+            (vp.window, vp.gpu.config.width, vp.gpu.config.height, raw)
+        };
+
+        for n in SessionPort::drain_notifications(&mut self.session, 64) {
+            let kind = match n.kind {
+                NotifyKind::Info => ToastKind::Info,
+                NotifyKind::Warn => ToastKind::Warn,
+                NotifyKind::Error => ToastKind::Error,
+            };
+            let scope = match n.scope {
+                NotifyScope::Global => ToastScope::Global,
+                NotifyScope::Session(_) => ToastScope::Session,
+                NotifyScope::Warp(_) => ToastScope::Session,
+                NotifyScope::Local => ToastScope::Local,
+            };
+            self.toasts.push(
+                kind,
+                scope,
+                n.title,
+                n.body,
+                std::time::Duration::from_secs(8),
+                Instant::now(),
+            );
+        }
+
+        let frames = SessionPort::drain_frames(&mut self.session, 64);
+        let outcome = if self.wvp.receive_enabled {
+            session_logic::process_frames(&mut self.ui, &mut self.viewer, &mut self.toasts, frames)
+        } else {
+            // Still drain frames to avoid unbounded buffering, but don't apply them.
+            session_logic::FrameOutcome {
+                desync: None,
+                enter_view: false,
+            }
+        };
+        if outcome.enter_view {
+            self.apply_ui_event(ui_state::UiEvent::EnterView);
+        }
+        if let Some(reason) = outcome.desync {
+            SessionPort::clear_streams(&mut self.session);
+            self.apply_ui_event(ui_state::UiEvent::ShowError(reason));
+        }
+
+        let now = Instant::now();
+        let dt = now
+            .saturating_duration_since(self.viewer.last_frame)
+            .as_secs_f32()
+            .min(0.05);
+        self.viewer.last_frame = now;
+        self.toasts.retain_visible(now);
+        let visible_toasts = self.toasts.visible(now);
+        let aspect = width_px as f32 / height_px as f32;
+
+        if matches!(self.ui.screen, Screen::View) {
+            if FREE_CAMERA_CONTROLS {
+                let speed = if self
+                    .viewer
+                    .keys
+                    .contains(&egui_winit::winit::keyboard::KeyCode::ShiftLeft)
+                    || self
+                        .viewer
+                        .keys
+                        .contains(&egui_winit::winit::keyboard::KeyCode::ShiftRight)
+                {
+                    420.0
+                } else {
+                    160.0
+                };
+                let mut mv = Vec3::ZERO;
+                use egui_winit::winit::keyboard::KeyCode::*;
+                if self.viewer.keys.contains(&KeyW) {
+                    mv.z += speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyS) {
+                    mv.z -= speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyA) {
+                    mv.x -= speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyD) {
+                    mv.x += speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyQ) {
+                    mv.y -= speed * dt;
+                }
+                if self.viewer.keys.contains(&KeyE) {
+                    mv.y += speed * dt;
+                }
+                self.viewer.camera.move_relative(mv);
+            }
+
+            self.viewer.graph.step_layout(dt);
+            self.handle_pointer(dt, aspect, width_px, height_px, win);
+        }
+
+        let radius = self.viewer.graph.bounding_radius();
+        let view_proj = self.viewer.camera.view_proj(aspect, radius);
+
+        let debug_arc_screen = self.debug_arc_screen(width_px, height_px, win, view_proj);
+
+        let prev_vsync = self.viewer.vsync;
+
+        let egui_ctx = self.egui_ctx.clone();
+        let full_output = egui_ctx.run(raw_input, |ctx| match self.ui.screen.clone() {
+            Screen::Title => draw_title_screen(ctx, self),
+            Screen::Connecting => draw_connecting_screen(ctx, &self.ui.connect_log),
+            Screen::Error(msg) => draw_error_screen(ctx, self, &msg),
+            Screen::View => draw_view_hud(ctx, self, &visible_toasts, &debug_arc_screen),
+        });
+
+        self.publish_wvp(Instant::now());
+
+        let vp = self.viewports.get_mut(0).unwrap();
+        vp.egui_state
+            .handle_platform_output(win, full_output.platform_output);
+
+        {
+            let gpu = &mut vp.gpu;
+            if self.viewer.vsync != prev_vsync {
+                gpu.set_vsync(self.viewer.vsync);
+            }
+        }
+
+        let paint_jobs = self
+            .egui_ctx
+            .tessellate(full_output.shapes, full_output.pixels_per_point);
+        let textures_delta = full_output.textures_delta;
+
+        let screen_desc = {
+            let gpu = &vp.gpu;
+            egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [gpu.config.width, gpu.config.height],
+                pixels_per_point: win.scale_factor() as f32,
+            }
+        };
+
+        let render_out = render::render_frame(
+            vp,
+            &mut self.viewer,
+            view_proj,
+            radius,
+            paint_jobs,
+            textures_delta,
+            screen_desc,
+            debug_arc_screen,
+        );
+
+        self.viewer.perf.push(render_out.frame_ms);
+
+        vp.render_port.request_redraw();
+    }
+
+    fn publish_wvp(&mut self, now: Instant) {
+        if !self.wvp.publish_enabled {
+            return;
+        }
+
+        let warp_id = self.ui.warp_id;
+        let state_hash = self.viewer.wire_graph.compute_hash().ok();
+
+        if !self.wvp.snapshot_published {
+            let frame = echo_graph::WarpFrame::Snapshot(echo_graph::WarpSnapshot {
+                epoch: self.wvp.publish_epoch,
+                graph: self.viewer.wire_graph.clone(),
+                state_hash,
+            });
+            if let Err(err) = self.session.publish_warp_frame(warp_id, frame) {
+                self.toasts.push(
+                    ToastKind::Error,
+                    ToastScope::Local,
+                    "Publish snapshot failed",
+                    Some(format!("{err:#}")),
+                    std::time::Duration::from_secs(8),
+                    now,
+                );
+                return;
+            }
+            self.wvp.snapshot_published = true;
+            self.wvp.pending_ops.clear();
+            self.viewer.epoch = Some(self.wvp.publish_epoch);
+            return;
+        }
+
+        if self.wvp.pending_ops.is_empty() {
+            return;
+        }
+
+        let from_epoch = self.wvp.publish_epoch;
+        let to_epoch = from_epoch.saturating_add(1);
+        let ops = self.wvp.pending_ops.clone();
+        let frame = echo_graph::WarpFrame::Diff(echo_graph::WarpDiff {
+            from_epoch,
+            to_epoch,
+            ops,
+            state_hash,
+        });
+        if let Err(err) = self.session.publish_warp_frame(warp_id, frame) {
+            self.toasts.push(
+                ToastKind::Error,
+                ToastScope::Local,
+                "Publish diff failed",
+                Some(format!("{err:#}")),
+                std::time::Duration::from_secs(8),
+                now,
+            );
+            return;
+        }
+        self.wvp.publish_epoch = to_epoch;
+        self.wvp.pending_ops.clear();
+        self.viewer.epoch = Some(to_epoch);
+    }
+
+    fn handle_pointer(
+        &mut self,
+        dt: f32,
+        aspect: f32,
+        width_px: u32,
+        height_px: u32,
+        win: &egui_winit::winit::window::Window,
+    ) {
+        let pointer = self.egui_ctx.input(|i| i.pointer.clone());
+        let win_size = glam::Vec2::new(width_px as f32, height_px as f32);
+        let pixels_per_point = win.scale_factor() as f32;
+        let to_ndc = |pos: egui::Pos2| {
+            let px = glam::Vec2::new(pos.x * pixels_per_point, pos.y * pixels_per_point);
+            let ndc = (px / win_size) * 2.0 - glam::Vec2::splat(1.0);
+            glam::Vec2::new(ndc.x, -ndc.y)
+        };
+
+        let radius = self.viewer.graph.bounding_radius();
+        let arcball_vec = |ndc: glam::Vec2| {
+            let mut v = glam::Vec3::new(ndc.x, ndc.y, 0.0);
+            let d = (ndc.x * ndc.x + ndc.y * ndc.y).min(1.0);
+            v.z = (1.0 - d).max(0.0).sqrt();
+            v.normalize_or_zero()
+        };
+
+        if pointer.secondary_down() && !self.egui_ctx.is_using_pointer() {
+            if let Some(pos) = pointer.interact_pos() {
+                let ndc = to_ndc(pos);
+                let dir = self.viewer.camera.pick_ray(ndc, aspect);
+                let oc = self.viewer.camera.pos;
+                let b = oc.dot(dir);
+                let c = oc.length_squared() - radius * radius;
+                let disc = b * b - c;
+                if disc >= 0.0 {
+                    let t = -b - disc.sqrt();
+                    if t > 0.0 {
+                        let hit = oc + dir * t;
+                        let v = arcball_vec(ndc);
+                        self.viewer.arc_active = true;
+                        self.viewer.arc_last = Some(v);
+                        self.viewer.arc_last_hit = Some(hit);
+                        self.viewer.arc_curr_hit = Some(hit);
+                    }
+                }
+            }
+        } else if !pointer.secondary_down() {
+            self.viewer.arc_active = false;
+            self.viewer.arc_last = None;
+            self.viewer.arc_last_hit = None;
+            self.viewer.arc_curr_hit = None;
+        }
+
+        if self.viewer.arc_active {
+            if let (Some(last), Some(pos)) = (self.viewer.arc_last, pointer.interact_pos()) {
+                let ndc = to_ndc(pos);
+                let curr = arcball_vec(ndc);
+                let dir = self.viewer.camera.pick_ray(ndc, aspect);
+                let oc = self.viewer.camera.pos;
+                let b = oc.dot(dir);
+                let c = oc.length_squared() - radius * radius;
+                let disc = b * b - c;
+                if disc >= 0.0 {
+                    let t = -b - disc.sqrt();
+                    if t > 0.0 {
+                        let hit = oc + dir * t;
+                        self.viewer.arc_curr_hit = Some(hit);
+                    }
+                }
+                if curr.length_squared() > 0.0 && last.length_squared() > 0.0 {
+                    let axis = last.cross(curr);
+                    let dot = last.dot(curr).clamp(-1.0, 1.0);
+                    let angle = dot.acos();
+                    if axis.length_squared() > 0.0 && angle.is_finite() {
+                        let dq = Quat::from_axis_angle(axis.normalize(), angle);
+                        self.viewer.graph_rot = dq * self.viewer.graph_rot;
+                        let dt = dt.max(1e-6);
+                        if angle < 1e-6 {
+                            self.viewer.graph_ang_vel = Vec3::ZERO;
+                        } else {
+                            self.viewer.graph_ang_vel = axis.normalize() * (angle / dt);
+                        }
+                    }
+                }
+                self.viewer.arc_last = Some(curr);
+            }
+        } else {
+            let w = self.viewer.graph_ang_vel;
+            let w_len = w.length();
+            if w_len > 1e-4 {
+                let angle = w_len * dt;
+                let dq = Quat::from_axis_angle(w / w_len, angle);
+                self.viewer.graph_rot = dq * self.viewer.graph_rot;
+                let decay = (-self.viewer.graph_damping * dt).exp();
+                self.viewer.graph_ang_vel *= decay;
+            }
+        }
+
+        if FREE_CAMERA_CONTROLS && pointer.primary_down() && !self.egui_ctx.is_using_pointer() {
+            let delta = self.egui_ctx.input(|i| i.pointer.delta());
+            let d = glam::Vec2::new(delta.x, delta.y);
+            self.viewer.camera.rotate_by_mouse(
+                d,
+                self.viewer.debug_invert_cam_x,
+                self.viewer.debug_invert_cam_y,
+            );
+        }
+    }
+
+    fn debug_arc_screen(
+        &self,
+        width_px: u32,
+        height_px: u32,
+        win: &egui_winit::winit::window::Window,
+        view_proj: glam::Mat4,
+    ) -> Option<(egui::Pos2, egui::Pos2)> {
+        if !self.viewer.debug_show_arc {
+            return None;
+        }
+        if let (Some(a), Some(b)) = (self.viewer.arc_last_hit, self.viewer.arc_curr_hit) {
+            let proj = |p: Vec3| {
+                let v = view_proj * p.extend(1.0);
+                if v.w.abs() < 1e-5 {
+                    return None;
+                }
+                let ndc = v.truncate() / v.w;
+                Some(ndc)
+            };
+            if let (Some(na), Some(nb)) = (proj(a), proj(b)) {
+                let w = width_px as f32 / win.scale_factor() as f32;
+                let h = height_px as f32 / win.scale_factor() as f32;
+                let to_screen = |n: Vec3| egui::Pos2 {
+                    x: (n.x * 0.5 + 0.5) * w,
+                    y: (-n.y * 0.5 + 0.5) * h,
+                };
+                return Some((to_screen(na), to_screen(nb)));
+            }
+        }
+        None
+    }
+}

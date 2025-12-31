@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# RMG MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
+# WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
 
-Status: Draft • Date: 2025-10-27 • Owner: rmg-core
+Status: Draft • Date: 2025-10-27 • Owner: warp-core
 
 ## Why
 
@@ -70,7 +70,7 @@ Ordering & determinism
 
 ## Rule Identity & Hot-Load
 
-- Family ID (stable): `blake3("rule-family:v1" || fully_qualified_name)` — compile-time const in Rust; computed once on load in Lua.
+- Family ID (stable): `blake3("rule-family:v1" || fully_qualified_name)` — compile-time const in Rust; computed once on load in Rhai.
 - Revision ID (dynamic): `blake3("rule-rev:<lang>:canon-ast-v1" || canonical AST graph bytes)` — flips on semantic changes; used for hot‑reload/peer compatibility; not in scheduling keys.
 
 ## Performance Targets
@@ -114,5 +114,4 @@ Phase 2 (Optimization)
 Phase 3 (Real demo)
 - Multiplayer confluence demo (zero desync), time‑travel fork/merge, inspector visualization of footprints/conflicts
 
-References: confluence skeleton v5, RMG math confluence, offset-graph arena notes
-
+References: confluence skeleton v5, WARP math confluence, offset-graph arena notes

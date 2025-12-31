@@ -1,0 +1,154 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\section{Low-Level Networking: JS-ABI Wire Protocol}
+\label{sec:js-abi-wire}
+
+Echo’s engine and tools communicate over a small, deterministic wire protocol
+called \emph{JS-ABI v1.0}. This section describes the on-the-wire framing: how
+bytes are grouped into packets, how integrity is checked, and how the CBOR
+payloads (OpEnvelopes) fit into the story.
+
+Detailed rationale, test vectors, and the deterministic encoding profile live
+in the JS-ABI architecture documents (ADR-0013 and ARCH-0013); here we focus on
+the subset needed to reason about Echo’s engine, session service, and tools.
+The way the session service uses this framing is described in
+Section~\ref{sec:warp-stream-consumers} and in more detail for tools in
+Section~\ref{sec:session-service} (Session Service) and
+Section~\ref{sec:warp-viewer} (WARP Viewer) in the Editor Tools volume.
+
+\subsection{Packet Framing Overview}
+
+Every JS-ABI packet has three parts:
+
+\begin{itemize}
+  \item A fixed-size \textbf{header} (12 bytes).
+  \item A variable-size \textbf{payload} (Canonical CBOR OpEnvelope).
+  \item A fixed-size \textbf{checksum} (32 bytes, BLAKE3-256).
+\end{itemize}
+
+Formally:
+\[
+  \mathrm{PACKET}
+  = \mathrm{HEADER} \parallel \mathrm{PAYLOAD} \parallel \mathrm{CHECKSUM}.
+\]
+
+\noindent
+All multi-byte integers in the header are big-endian (network byte order).
+
+\subsection{Header Fields}
+
+\begin{table}[h]
+  \centering
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    \textbf{Field} & \textbf{Size (bytes)} & \textbf{Description} \\
+    \midrule
+    \texttt{MAGIC}   & 4  & Protocol signature (\texttt{0x4a495421} = ``JIT!'') \\
+    \texttt{VERSION} & 2  & Wire protocol version (\texttt{0x0001} for v1.0) \\
+    \texttt{FLAGS}   & 2  & Reserved feature bits (compression, streaming, \dots) \\
+    \texttt{LENGTH}  & 4  & Length of the payload in bytes (\(N\)) \\
+    \midrule
+    \textbf{Total} & \textbf{12} &  \\
+    \bottomrule
+  \end{tabular}
+  \caption{JS-ABI v1.0 header layout.}
+  \label{tab:js-abi-header}
+\end{table}
+
+The payload immediately follows the header and contains a single CBOR
+\texttt{OpEnvelope} (Section~\ref{sec:js-abi-op-envelope}); the checksum covers
+both header and payload.
+
+\subsection{OpEnvelope Payloads}
+\label{sec:js-abi-op-envelope}
+
+The payload is always a deterministically encoded Canonical CBOR map with the
+following logical shape:
+
+\begin{verbatim}
+op-envelope = {
+  "op": tstr,   ; operation name (e.g. "handshake", "error", "warp_stream")
+  "ts": uint,   ; logical timestamp (kernel clock, authoritative on server)
+  "payload": any
+}
+\end{verbatim}
+
+The \texttt{op} field selects a concrete payload schema (handshake, error,
+WARP stream, \dots). The \texttt{ts} field is the kernel logical timestamp; the
+server is the sole authority for WAL-participating timestamps.
+
+Canonical CBOR rules (definite lengths only, preferred integer encodings,
+canonical map ordering, no tags) are enforced at the encoder and decoder. Any
+deviation is treated as non-compliant for WAL, hashing, or deterministic
+replay.
+
+\subsection{End-to-End Byte Layout (TikZ Overview)}
+
+Figure~\ref{fig:js-abi-packet-layout} sketches a single packet on the wire.
+
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}[
+    >=latex,
+    node distance=0pt,
+    field/.style={
+      rectangle,
+      draw,
+      very thick,
+      minimum height=1.0cm,
+      align=center,
+      font=\footnotesize,
+      fill=gray!5,
+    }
+  ]
+
+  % Header fields
+  \node[field, minimum width=2.2cm] (magic)   {MAGIC\\[2pt]\scriptsize 4 B};
+  \node[field, minimum width=1.7cm, right=0pt of magic] (ver)  {VERSION\\[2pt]\scriptsize 2 B};
+  \node[field, minimum width=1.7cm, right=0pt of ver]   (flags){FLAGS\\[2pt]\scriptsize 2 B};
+  \node[field, minimum width=2.2cm, right=0pt of flags] (len)  {LENGTH\\[2pt]\scriptsize 4 B};
+
+  \node[below=4pt of len.south east, anchor=north east, font=\scriptsize] {HEADER (12 B)};
+
+  % Payload
+  \node[field, minimum width=5.8cm, right=0.4cm of len] (payload) {PAYLOAD\\[2pt]\scriptsize CBOR OpEnvelope ($N$ B)};
+
+  % Checksum
+  \node[field, minimum width=3.0cm, right=0.4cm of payload] (chk) {CHECKSUM\\[2pt]\scriptsize BLAKE3-256\\(32 B)};
+
+  % Braces / labels
+  \node[above=6pt of magic.north, font=\scriptsize] {Fixed-size header};
+  \node[above=6pt of payload.north, font=\scriptsize] {Deterministic CBOR};
+  \node[above=6pt of chk.north, font=\scriptsize] {Integrity};
+
+  \end{tikzpicture}
+  \caption{JS-ABI v1.0 packet layout: header + payload + checksum.}
+  \label{fig:js-abi-packet-layout}
+\end{figure}
+
+\subsection{Parsing and Verification Flow}
+
+A compliant implementation follows a fixed sequence when reading from a
+byte stream:
+
+\begin{enumerate}
+  \item \textbf{Read header} (12 bytes) and validate:
+    \begin{itemize}
+      \item \texttt{MAGIC} matches the expected signature.
+      \item \texttt{VERSION} is supported.
+      \item \texttt{FLAGS} are either zero or a negotiated subset.
+    \end{itemize}
+  \item \textbf{Read payload} of length \texttt{LENGTH} into a buffer.
+  \item \textbf{Read checksum} (32 bytes).
+  \item \textbf{Compute BLAKE3-256} over
+    \(\mathrm{HEADER} \parallel \mathrm{PAYLOAD}\).
+  \item \textbf{Compare} the result with the received checksum:
+    mismatch $\Rightarrow$ reject the packet (data corruption).
+  \item \textbf{Decode CBOR} payload into \texttt{OpEnvelope}, enforcing
+    the Canonical CBOR subset.
+\end{enumerate}
+
+Only packets that pass all of these checks are admitted into the kernel (for
+write-ahead logging and deterministic replay). Tools that sit ``at the edge''
+of the system may provide more lenient modes for debugging, but those modes
+are outside JS-ABI v1.0 compliance.

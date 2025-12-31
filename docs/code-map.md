@@ -6,33 +6,33 @@
 
 ## Crates
 
-- rmg-core — deterministic graph rewriting engine (Rust)
-  - Public API aggregator: `crates/rmg-core/src/lib.rs`
-  - Identifiers & hashing: `crates/rmg-core/src/ident.rs`
-  - Node/edge records: `crates/rmg-core/src/record.rs`
-  - In-memory graph store: `crates/rmg-core/src/graph.rs`
-  - Rules and patterns: `crates/rmg-core/src/rule.rs`
-  - Transactions: `crates/rmg-core/src/tx.rs`
-  - Deterministic scheduler: `crates/rmg-core/src/scheduler.rs`
-  - Snapshots + hashing: `crates/rmg-core/src/snapshot.rs`
-  - Payload codecs (demo): `crates/rmg-core/src/payload.rs`
-  - Engine implementation: `crates/rmg-core/src/engine_impl.rs`
-  - Demo rule: `crates/rmg-core/src/demo/motion.rs`
-  - Deterministic math: `crates/rmg-core/src/math/*`
-  - Tests (integration): `crates/rmg-core/tests/*`
+- warp-core — deterministic graph rewriting engine (Rust)
+  - Public API aggregator: `crates/warp-core/src/lib.rs`
+  - Identifiers & hashing: `crates/warp-core/src/ident.rs`
+  - Node/edge records: `crates/warp-core/src/record.rs`
+  - In-memory graph store: `crates/warp-core/src/graph.rs`
+  - Rules and patterns: `crates/warp-core/src/rule.rs`
+  - Transactions: `crates/warp-core/src/tx.rs`
+  - Deterministic scheduler: `crates/warp-core/src/scheduler.rs`
+  - Snapshots + hashing: `crates/warp-core/src/snapshot.rs`
+  - Payload codecs (demo): `crates/warp-core/src/payload.rs`
+  - Engine implementation: `crates/warp-core/src/engine_impl.rs`
+  - Demo rule: `crates/warp-core/src/demo/motion.rs`
+  - Deterministic math: `crates/warp-core/src/math/*`
+  - Tests (integration): `crates/warp-core/tests/*`
 
-- rmg-ffi — C ABI for host integrations
-  - `crates/rmg-ffi/src/lib.rs`
+- warp-ffi — C ABI for host integrations
+  - `crates/warp-ffi/src/lib.rs`
 
-- rmg-wasm — wasm-bindgen bindings
-  - `crates/rmg-wasm/src/lib.rs`
+- warp-wasm — wasm-bindgen bindings
+  - `crates/warp-wasm/src/lib.rs`
 
-- rmg-cli — CLI scaffolding
-  - `crates/rmg-cli/src/main.rs`
+- warp-cli — CLI scaffolding
+  - `crates/warp-cli/src/main.rs`
 
 ## Specs → Code
 
-- RMG core model — docs/spec-rmg-core.md → `ident.rs`, `record.rs`, `graph.rs`, `rule.rs`, `engine_impl.rs`, `snapshot.rs`, `scheduler.rs`
+- WARP core model — docs/spec-warp-core.md → `ident.rs`, `record.rs`, `graph.rs`, `rule.rs`, `engine_impl.rs`, `snapshot.rs`, `scheduler.rs`
 - Scheduler — docs/spec-scheduler.md → `scheduler.rs`, `engine_impl.rs`
 - ECS storage (future) — docs/spec-ecs-storage.md → new `ecs/*` modules (TBD)
 - Serialization — docs/spec-serialization-protocol.md → `snapshot.rs` (hashing), future codecs
@@ -56,4 +56,4 @@
 
 - Start with `README.md` and `docs/docs-index.md`.
 - For engine flow, read `engine_impl.rs` (apply → schedule → commit → snapshot).
-- For demo behavior, see `demo/motion.rs` and tests under `crates/rmg-core/tests/*`.
+- For demo behavior, see `demo/motion.rs` and tests under `crates/warp-core/tests/*`.

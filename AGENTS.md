@@ -7,7 +7,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 ## Core Principles
 - **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/architecture-outline.md` before touching runtime code.
 - **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, memorials) or other durable repo artifacts (e.g. `docs/decision-log.md`).
-- **Docstrings Aren't Optional**: Public APIs across crates (`rmg-core`, `rmg-ffi`, `rmg-wasm`, etc.) must carry rustdoc comments that explain intent, invariants, and usage. Treat missing docs as a failing test.
+- **Docstrings Aren't Optional**: Public APIs across crates (`warp-core`, `warp-ffi`, `warp-wasm`, etc.) must carry rustdoc comments that explain intent, invariants, and usage. Treat missing docs as a failing test.
 - **Determinism First**: Avoid introducing sources of nondeterminism without a mitigation plan.
 - **Temporal Mindset**: Think in timelines—branching, merging, entropy budgets. Feature work should map to Chronos/Kairos/Aion axes where appropriate.
 
@@ -42,6 +42,10 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - Formatting: pre-commit auto-fixes with `cargo fmt` by default. Set `ECHO_AUTO_FMT=0` to run check-only instead.
 - Toolchain: pre-commit verifies your active toolchain matches `rust-toolchain.toml`.
 - Docs Guard: when core API files change, the hook requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors the CI check).
+- SPDX header policy (source): every source file must start with exactly:
+  - `// SPDX-License-Identifier: Apache-2.0`
+  - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
+  Use the repository scripts/hooks; do not add dual-license headers to code.
 
 ## Git Real
 1. **NEVER** use `--force` with any git command. If you think you need it, stop and ask the human for help.

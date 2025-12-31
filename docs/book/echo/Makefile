@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 # Makefile for How Echo Works LaTeX Guide
 
@@ -13,7 +13,7 @@ PDF_LOGOS := graphics/ECHO.pdf graphics/ECHO_chunky.pdf
 MASTER_TEX := main.tex
 MASTER_PDF := main.pdf
 
-BOOKLETS_TEX := booklet-01-orientation.tex booklet-02-core.tex booklet-03-math.tex booklet-04-ops.tex
+BOOKLETS_TEX := booklet-01-orientation.tex booklet-02-core.tex booklet-03-math.tex booklet-04-ops.tex booklet-05-tools.tex
 BOOKLETS_PDF := $(BOOKLETS_TEX:.tex=.pdf)
 
 all: master booklets

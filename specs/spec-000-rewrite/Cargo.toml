@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "spec-000-rewrite"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+description = "Living spec (Spec-000) for Echo/JITOS: Leptos + Trunk WASM demo scaffold"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["echo", "warp", "wasm", "leptos", "spec"]
+categories = ["wasm", "web-programming", "visualization"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.8.15", features = ["csr"] }
+console_error_panic_hook = "0.1"
+wasm-bindgen = { version = "0.2", optional = true }
+
+[features]
+default = []
+wasm = ["wasm-bindgen"]

@@ -3,9 +3,9 @@
 
 \chapter{Deterministic Scheduler Flow}
 
-\begin{figure}[h]
+\begin{figure}[htbp]
     \centering
-    \begin{tikzpicture}[node distance=1.8cm and 1.8cm, >=stealth]
+\begin{tikzpicture}[node distance=1.8cm and 1.8cm, >=stealth, scale=0.85, every node/.style={transform shape}]
         \tikzstyle{lane}=[rectangle, rounded corners, draw, fill=gray!10, inner sep=6pt]
         \tikzstyle{sstep}=[rectangle, rounded corners, draw, fill=white, inner sep=6pt]
         \node[lane] (ingest) {Enqueue rules (scope, rule id)};
@@ -29,7 +29,7 @@
         \node[sstep, above=0.9cm of conflict] (paradox) {Paradox guard hooks};
         \draw[dashed] (drain) -- (paradox);
     \end{tikzpicture}
-    \caption{Codex’s Baby (radix scheduler) keeps ordering stable via bucketed drains; conflicts are resolved deterministically before commits.}
+    \caption[Radix scheduler flow]{Codex’s Baby (radix scheduler) keeps ordering stable via bucketed drains;\\ conflicts are resolved deterministically before commits.}
 \end{figure}
 
 Key invariants:

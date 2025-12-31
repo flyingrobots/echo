@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "warp-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+description = "Echo core: deterministic typed graph rewriting engine"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "ecs", "deterministic", "graph"]
+categories = ["game-engines", "data-structures"]
+build = "build.rs"
+
+[dependencies]
+blake3 = "1.0"
+bytes = "1.0"
+thiserror = "1.0"
+hex = { version = "0.4", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+rustc-hash = "2.1.1"
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+proptest = { version = "1.5" }
+
+[features]
+default = []
+# Optional regression check for PRNG sequences; off by default to avoid
+# freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
+golden_prng = []
+telemetry = ["serde", "serde_json", "hex"]
+
+[build-dependencies]
+blake3 = "1.0"

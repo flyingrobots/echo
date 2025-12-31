@@ -8,7 +8,7 @@ stable release, security fixes will land directly on `main` and be included in
 the next tagged version.
 
 ## Reporting a Vulnerability
-Please email **security@echoengine.dev** with details. Include:
+Please email **security@flyingrobots.dev** with details. Include:
 - Description of the issue and potential impact.
 - Steps to reproduce or proof-of-concept.
 - Suggested remediation if available.

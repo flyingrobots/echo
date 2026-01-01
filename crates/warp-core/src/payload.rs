@@ -233,6 +233,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn q32_32_decoder_accepts_v0_and_quantizes_deterministically() {
+        let pos = [1.0, 0.5, -1.0];
+        let vel = [2.0, -0.25, 0.0];
+
+        let payload = encode_motion_atom_payload_v0(pos, vel);
+        let (p_raw, v_raw) =
+            decode_motion_atom_payload_q32_32(&payload).expect("v0 atom payload should decode");
+
+        for i in 0..3 {
+            assert_eq!(p_raw[i], crate::math::fixed_q32_32::from_f32(pos[i]));
+            assert_eq!(v_raw[i], crate::math::fixed_q32_32::from_f32(vel[i]));
+        }
+    }
+
+    #[test]
     fn round_trip_v0_ok() {
         let pos = [1.0, 2.0, 3.0];
         let vel = [0.5, -1.0, 0.25];

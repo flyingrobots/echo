@@ -8,7 +8,7 @@ use crate::footprint::{AttachmentSet, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, Hash, NodeId};
 use crate::payload::{
-    decode_motion_atom_payload, decode_motion_payload, encode_motion_payload,
+    decode_motion_atom_payload, decode_motion_atom_payload_q32_32, encode_motion_payload_q32_32,
     motion_payload_type_id,
 };
 use crate::record::NodeRecord;
@@ -20,8 +20,12 @@ include!(concat!(env!("OUT_DIR"), "/rule_ids.rs"));
 ///
 /// Pass this name to [`Engine::apply`] to execute the motion update rule,
 /// which advances an entity's position by its velocity. Operates on nodes
-/// whose payload is a valid 24-byte motion encoding (position + velocity as
-/// 6 × f32 little-endian).
+/// whose payload is a valid motion encoding.
+///
+/// Canonical payload encoding is v2:
+/// - 6 × `i64` Q32.32 little-endian (48 bytes).
+/// - Legacy v0 decoding is supported for compatibility:
+///   6 × `f32` little-endian (24 bytes).
 ///
 /// Example usage (in tests):
 /// ```ignore
@@ -33,6 +37,40 @@ include!(concat!(env!("OUT_DIR"), "/rule_ids.rs"));
 /// ```
 pub const MOTION_RULE_NAME: &str = "motion/update";
 
+#[cfg(feature = "det_fixed")]
+mod motion_scalar_backend {
+    use crate::math::scalar::DFix64;
+
+    pub(super) type MotionScalar = DFix64;
+
+    pub(super) fn scalar_from_raw(raw: i64) -> MotionScalar {
+        MotionScalar::from_raw(raw)
+    }
+
+    pub(super) fn scalar_to_raw(value: MotionScalar) -> i64 {
+        value.raw()
+    }
+}
+
+#[cfg(not(feature = "det_fixed"))]
+mod motion_scalar_backend {
+    use crate::math::fixed_q32_32;
+    use crate::math::scalar::F32Scalar;
+    use crate::math::Scalar;
+
+    pub(super) type MotionScalar = F32Scalar;
+
+    pub(super) fn scalar_from_raw(raw: i64) -> MotionScalar {
+        MotionScalar::from_f32(fixed_q32_32::to_f32(raw))
+    }
+
+    pub(super) fn scalar_to_raw(value: MotionScalar) -> i64 {
+        fixed_q32_32::from_f32(value.to_f32())
+    }
+}
+
+use motion_scalar_backend::{scalar_from_raw, scalar_to_raw};
+
 fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
     if store.node(scope).is_none() {
         return;
@@ -40,15 +78,40 @@ fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
     let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
         return;
     };
-    if payload.type_id != motion_payload_type_id() {
+
+    let Some((pos_raw, vel_raw)) = decode_motion_atom_payload_q32_32(payload) else {
         return;
+    };
+
+    let mut pos = [
+        scalar_from_raw(pos_raw[0]),
+        scalar_from_raw(pos_raw[1]),
+        scalar_from_raw(pos_raw[2]),
+    ];
+    let vel = [
+        scalar_from_raw(vel_raw[0]),
+        scalar_from_raw(vel_raw[1]),
+        scalar_from_raw(vel_raw[2]),
+    ];
+
+    for i in 0..3 {
+        pos[i] = pos[i] + vel[i];
     }
-    if let Some((mut pos, vel)) = decode_motion_payload(&payload.bytes) {
-        pos[0] += vel[0];
-        pos[1] += vel[1];
-        pos[2] += vel[2];
-        payload.bytes = encode_motion_payload(pos, vel);
-    }
+
+    let new_pos_raw = [
+        scalar_to_raw(pos[0]),
+        scalar_to_raw(pos[1]),
+        scalar_to_raw(pos[2]),
+    ];
+    let vel_out_raw = [
+        scalar_to_raw(vel[0]),
+        scalar_to_raw(vel[1]),
+        scalar_to_raw(vel[2]),
+    ];
+
+    // Always upgrade to the canonical v2 payload encoding on write.
+    payload.type_id = motion_payload_type_id();
+    payload.bytes = encode_motion_payload_q32_32(new_pos_raw, vel_out_raw);
 }
 
 fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
@@ -63,9 +126,9 @@ const MOTION_RULE_ID: Hash = MOTION_UPDATE_FAMILY_ID;
 
 /// Returns a rewrite rule that updates entity positions based on velocity.
 ///
-/// This rule matches any node containing a valid 24-byte motion payload
-/// (position + velocity encoded as 6 × f32 little-endian) and updates the
-/// position by adding the velocity component-wise.
+/// This rule matches any node containing a valid motion payload and updates
+/// the position by adding the velocity component-wise under deterministic
+/// scalar semantics.
 ///
 /// Register this rule with [`Engine::register_rule`], then apply it with
 /// [`Engine::apply`] using [`MOTION_RULE_NAME`].
@@ -182,7 +245,8 @@ mod tests {
             assert_eq!(new_pos[i].to_bits(), expected);
         }
         // Encoding round-trip should match re-encoding of updated values exactly.
-        let expected_bytes = encode_motion_payload(new_pos, new_vel);
+        assert_eq!(bytes.type_id, motion_payload_type_id());
+        let expected_bytes = crate::encode_motion_payload(new_pos, new_vel);
         let Some(AttachmentValue::Atom(bytes)) = store.node_attachment(&ent) else {
             unreachable!("payload present after executor");
         };

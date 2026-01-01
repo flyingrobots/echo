@@ -39,6 +39,9 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use crate::math::trig;
 
+#[cfg(feature = "det_fixed")]
+use crate::math::fixed_q32_32;
+
 /// Deterministic scalar arithmetic and basic transcendentals.
 ///
 /// This trait abstracts the numeric core used by Echo so that engine code can
@@ -267,8 +270,8 @@ pub struct DFix64 {
 
 #[cfg(feature = "det_fixed")]
 impl DFix64 {
-    const FRAC_BITS: u32 = 32;
-    const ONE_RAW: i64 = 1_i64 << Self::FRAC_BITS;
+    const FRAC_BITS: u32 = fixed_q32_32::FRAC_BITS;
+    const ONE_RAW: i64 = fixed_q32_32::ONE_RAW;
 
     /// The fixed-point zero value.
     pub const ZERO: Self = Self { raw: 0 };
@@ -276,13 +279,18 @@ impl DFix64 {
     /// The fixed-point one value.
     pub const ONE: Self = Self { raw: Self::ONE_RAW };
 
+    /// Constructs a fixed-point value from a raw Q32.32 integer.
+    ///
+    /// This is an exact conversion (no scaling or rounding). `raw` is interpreted as
+    /// `real_value = raw / 2^32`.
+    #[must_use]
+    pub const fn from_raw(raw: i64) -> Self {
+        Self { raw }
+    }
+
     /// Returns the underlying Q32.32 raw storage value.
     pub const fn raw(self) -> i64 {
         self.raw
-    }
-
-    const fn from_raw(raw: i64) -> Self {
-        Self { raw }
     }
 
     #[allow(clippy::option_if_let_else)]
@@ -312,30 +320,6 @@ impl DFix64 {
             i64::MAX
         } else {
             -a
-        }
-    }
-
-    fn round_shift_right_u128(value: u128, shift: u32) -> u128 {
-        if shift == 0 {
-            return value;
-        }
-        if shift >= 128 {
-            return 0;
-        }
-
-        let q = value >> shift;
-        let mask = (1_u128 << shift) - 1;
-        let r = value & mask;
-        let half = 1_u128 << (shift - 1);
-
-        if r > half {
-            q + 1
-        } else if r < half {
-            q
-        } else if (q & 1) == 1 {
-            q + 1
-        } else {
-            q
         }
     }
 
@@ -393,95 +377,6 @@ impl DFix64 {
 
         Self::saturate_i128_to_i64(signed)
     }
-
-    fn from_f32_bits(value: f32) -> i64 {
-        if value.is_nan() {
-            return 0;
-        }
-        if value == f32::INFINITY {
-            return i64::MAX;
-        }
-        if value == f32::NEG_INFINITY {
-            return i64::MIN;
-        }
-
-        let bits = value.to_bits();
-        let sign = (bits >> 31) != 0;
-        let exp_u8 = u8::try_from((bits >> 23) & 0xff).map_or(0, |v| v);
-        let exp = i32::from(exp_u8);
-        let mant = bits & 0x7fffff;
-
-        if exp == 0 && mant == 0 {
-            return 0;
-        }
-
-        let mantissa: u128 = if exp == 0 {
-            // subnormal: exponent is fixed at -126, no implicit 1.
-            u128::from(mant)
-        } else {
-            // normal: implicit leading 1.
-            u128::from((1_u32 << 23) | mant)
-        };
-
-        // value = mantissa * 2^(exp - 127 - 23)
-        // scaled = value * 2^32 = mantissa * 2^(exp - 127 + 9)
-        // For subnormals exp is treated as 1 - 127 = -126.
-        let unbiased = if exp == 0 { -126 } else { exp - 127 };
-        let shift = unbiased + 9;
-
-        // Produce the signed fixed-point raw value, saturating if needed.
-        let abs_raw: i128 = if shift >= 0 {
-            let shift_u = u32::try_from(shift).map_or(u32::MAX, |v| v);
-            if shift_u > 103 {
-                i128::MAX
-            } else {
-                let mantissa_i128 = i128::try_from(mantissa).map_or(i128::MAX, |v| v);
-                mantissa_i128 << shift_u
-            }
-        } else {
-            let rshift = u32::try_from(-shift).map_or(u32::MAX, |v| v);
-            let rounded = Self::round_shift_right_u128(mantissa, rshift);
-            i128::try_from(rounded).map_or(i128::MAX, |v| v)
-        };
-
-        let signed_raw = if sign { -abs_raw } else { abs_raw };
-        Self::saturate_i128_to_i64(signed_raw)
-    }
-
-    fn to_f32_bits(value: i64) -> f32 {
-        if value == 0 {
-            return 0.0;
-        }
-
-        let sign = value.is_negative();
-        let abs: u64 = value.unsigned_abs();
-        if abs == 0 {
-            // Canonicalize -0.0 to +0.0.
-            return 0.0;
-        }
-
-        let k = 63_u32.saturating_sub(abs.leading_zeros());
-        let mut exp = i32::try_from(k).map_or(i32::MAX, |v| v) - 32;
-        let mut sig: u128 = if k > 23 {
-            let rshift = k - 23;
-            Self::round_shift_right_u128(u128::from(abs), rshift)
-        } else {
-            let lshift = 23 - k;
-            u128::from(abs) << lshift
-        };
-
-        // Handle rounding overflow (e.g., 1.111.. rounds up to 10.000..).
-        if sig >= (1_u128 << 24) {
-            sig >>= 1;
-            exp = exp.saturating_add(1);
-        }
-
-        let exp_field = u32::try_from(exp + 127).map_or(0, |v| v);
-        let mantissa = u32::try_from(sig & ((1_u128 << 23) - 1)).map_or(0, |v| v);
-        let sign_bit = u32::from(sign);
-        let bits = (sign_bit << 31) | (exp_field << 23) | mantissa;
-        f32::from_bits(bits)
-    }
 }
 
 #[cfg(feature = "det_fixed")]
@@ -510,11 +405,11 @@ impl Scalar for DFix64 {
     }
 
     fn from_f32(value: f32) -> Self {
-        Self::from_raw(Self::from_f32_bits(value))
+        Self::from_raw(fixed_q32_32::from_f32(value))
     }
 
     fn to_f32(self) -> f32 {
-        Self::to_f32_bits(self.raw)
+        fixed_q32_32::to_f32(self.raw)
     }
 }
 

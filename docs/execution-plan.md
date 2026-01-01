@@ -35,10 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2026-01-01 — Deterministic fixed-point lane (`DFix64`) + CI coverage (IN PROGRESS)
+> 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
+
+- Goal: move the motion demo payload to a deterministic Q32.32 fixed-point encoding (v2) while preserving decode compatibility for the legacy v0 `f32` payload; port the motion executor to use the `Scalar` abstraction and upgrade v0 payloads to v2 on write.
+- Evidence: `cargo test -p warp-core` green; `cargo test -p warp-core --features det_fixed` green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` green; `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs` green.
+
+> 2026-01-01 — Deterministic fixed-point lane (`DFix64`) + CI coverage (COMPLETED)
 
 - Goal: land a deterministic fixed-point scalar backend (`DFix64`, Q32.32) behind a `det_fixed` feature flag, add a dedicated test suite, and extend CI with explicit `--features det_fixed` lanes (including MUSL) so we continuously exercise cross-platform behavior.
-- Exit criteria: `cargo test -p warp-core --features det_fixed` green; `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs` green; CI has a det_fixed test lane and a musl+det_fixed lane.
+- Evidence: commit `57d2ec3` plus the above motion work continues to validate the det_fixed lane in CI.
 
 > 2026-01-01 — Implement deterministic `F32Scalar` trig (COMPLETED)
 

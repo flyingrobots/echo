@@ -93,6 +93,17 @@ gh api "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" --paginate > "$RAW"
 
 # Filter: top-level comments pinned to the current PR head commit.
 jq --arg commit "$HEAD7" '
+  def has_ack_marker(s):
+    (s | type) == "string" and (s | contains("✅ Addressed in commit"));
+
+  # Replies are returned in the same list, with `in_reply_to_id` set.
+  # Treat a top-level comment as "acknowledged" if either:
+  # - the comment body itself contains the marker, OR
+  # - any reply to it contains the marker.
+  def ack_by_reply:
+    reduce .[] as $c ({}; if ($c.in_reply_to_id != null and has_ack_marker($c.body)) then .[($c.in_reply_to_id | tostring)] = true else . end);
+
+  ($replies := ack_by_reply) |
   [ .[] |
     select(.in_reply_to_id == null and .commit_id[0:7] == $commit) |
     {
@@ -102,7 +113,7 @@ jq --arg commit "$HEAD7" '
       current_commit: (.commit_id[0:7]),
       original_commit: (.original_commit_id[0:7]),
       is_stale: (.commit_id != .original_commit_id),
-      has_ack: (.body | contains("✅ Addressed in commit")),
+      has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
       priority: (
         if (.body | contains("🔴 Critical")) then "P0"
         elif (.body | contains("🟠 Major")) then "P1"
@@ -218,4 +229,3 @@ if [[ -n "$OUT" ]]; then
   mkdir -p "$(dirname "$OUT")"
   cp "$REPORT" "$OUT"
 fi
-

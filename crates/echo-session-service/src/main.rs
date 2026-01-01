@@ -37,6 +37,7 @@ mod tests {
     use super::*;
     use echo_graph::{RenderGraph, WarpDiff, WarpFrame, WarpSnapshot};
     use echo_session_proto::{wire::decode_message, HandshakePayload, NotifyKind};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::time::{timeout, Duration};
 
     async fn add_conn(hub: &Arc<Mutex<HubState>>) -> (u64, tokio::sync::mpsc::Receiver<Vec<u8>>) {
@@ -52,6 +53,92 @@ mod tests {
             },
         );
         (id, rx)
+    }
+
+    async fn wait_for_conn(hub: &Arc<Mutex<HubState>>, conn_id: u64) {
+        timeout(Duration::from_secs(1), async {
+            loop {
+                if hub.lock().await.conns.contains_key(&conn_id) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("conn registered");
+    }
+
+    async fn spawn_loopback_client(hub: &Arc<Mutex<HubState>>) -> (u64, TestClient) {
+        let (server_end, client_end) = UnixStream::pair().expect("unix pair");
+        let expected_id = hub.lock().await.next_conn_id;
+        let hub_state = hub.clone();
+        tokio::spawn(async move {
+            let _ = handle_client(server_end, hub_state).await;
+        });
+        wait_for_conn(hub, expected_id).await;
+        (expected_id, TestClient::new(client_end))
+    }
+
+    async fn wait_for_subscription(hub: &Arc<Mutex<HubState>>, warp_id: WarpId, conn_id: u64) {
+        timeout(Duration::from_secs(1), async {
+            loop {
+                let is_subscribed = hub
+                    .lock()
+                    .await
+                    .streams
+                    .get(&warp_id)
+                    .is_some_and(|stream| stream.subscribers.contains(&conn_id));
+                if is_subscribed {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("subscription registered");
+    }
+
+    async fn recv_packet(reader: &mut tokio::io::ReadHalf<UnixStream>) -> Vec<u8> {
+        let mut header = [0u8; 12];
+        reader.read_exact(&mut header).await.expect("read header");
+        let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
+        let rest_len = len.checked_add(32).expect("packet length overflow");
+        let mut rest = vec![0u8; rest_len];
+        reader
+            .read_exact(&mut rest)
+            .await
+            .expect("read payload+checksum");
+        let mut pkt = Vec::with_capacity(12 + rest.len());
+        pkt.extend_from_slice(&header);
+        pkt.extend_from_slice(&rest);
+        pkt
+    }
+
+    struct TestClient {
+        reader: tokio::io::ReadHalf<UnixStream>,
+        writer: tokio::io::WriteHalf<UnixStream>,
+    }
+
+    impl TestClient {
+        fn new(stream: UnixStream) -> Self {
+            let (reader, writer) = tokio::io::split(stream);
+            Self { reader, writer }
+        }
+
+        async fn send(&mut self, msg: Message) {
+            let pkt = encode_message(msg, 0).expect("encode message");
+            self.writer.write_all(&pkt).await.expect("write packet");
+        }
+
+        async fn recv(&mut self) -> (Message, u64) {
+            let pkt = recv_packet(&mut self.reader).await;
+            let (msg, ts, _) = decode_message(&pkt).expect("decode packet");
+            (msg, ts)
+        }
+
+        async fn recv_timeout(&mut self, dur: Duration) -> Option<(Message, u64)> {
+            (timeout(dur, self.recv()).await).ok()
+        }
     }
 
     #[tokio::test]
@@ -176,6 +263,144 @@ mod tests {
         assert!(
             rx_sub.try_recv().is_err(),
             "no packet should be sent on gap"
+        );
+    }
+
+    #[tokio::test]
+    async fn loopback_warp_stream_happy_path_and_errors() {
+        let hub = Arc::new(Mutex::new(HubState::default()));
+
+        let (_producer_id, mut producer) = spawn_loopback_client(&hub).await;
+        let (subscriber_id, mut subscriber) = spawn_loopback_client(&hub).await;
+        let (_attacker_id, mut attacker) = spawn_loopback_client(&hub).await;
+
+        subscriber
+            .send(Message::SubscribeWarp { warp_id: 42 })
+            .await;
+        wait_for_subscription(&hub, 42, subscriber_id).await;
+
+        producer
+            .send(Message::WarpStream {
+                warp_id: 42,
+                frame: WarpFrame::Snapshot(WarpSnapshot {
+                    epoch: 0,
+                    graph: RenderGraph::default(),
+                    state_hash: None,
+                }),
+            })
+            .await;
+
+        let (msg, ts_snap) = subscriber
+            .recv_timeout(Duration::from_secs(1))
+            .await
+            .expect("snapshot delivered");
+        match msg {
+            Message::WarpStream { warp_id, frame } => {
+                assert_eq!(warp_id, 42);
+                let WarpFrame::Snapshot(snap) = frame else {
+                    panic!("expected snapshot");
+                };
+                assert_eq!(snap.epoch, 0);
+            }
+            other => panic!("expected warp stream, got {:?}", other),
+        }
+
+        producer
+            .send(Message::WarpStream {
+                warp_id: 42,
+                frame: WarpFrame::Diff(WarpDiff {
+                    from_epoch: 0,
+                    to_epoch: 1,
+                    ops: vec![],
+                    state_hash: None,
+                }),
+            })
+            .await;
+
+        let (msg, ts_diff) = subscriber
+            .recv_timeout(Duration::from_secs(1))
+            .await
+            .expect("diff delivered");
+        assert!(
+            ts_diff > ts_snap,
+            "expected monotonic ts for delivered stream frames"
+        );
+        match msg {
+            Message::WarpStream { warp_id, frame } => {
+                assert_eq!(warp_id, 42);
+                let WarpFrame::Diff(diff) = frame else {
+                    panic!("expected diff");
+                };
+                assert_eq!(diff.from_epoch, 0);
+                assert_eq!(diff.to_epoch, 1);
+            }
+            other => panic!("expected warp stream, got {:?}", other),
+        }
+
+        // Attacker cannot publish (producer already claimed ownership).
+        attacker
+            .send(Message::WarpStream {
+                warp_id: 42,
+                frame: WarpFrame::Diff(WarpDiff {
+                    from_epoch: 1,
+                    to_epoch: 2,
+                    ops: vec![],
+                    state_hash: None,
+                }),
+            })
+            .await;
+
+        let (msg, _ts) = attacker
+            .recv_timeout(Duration::from_secs(1))
+            .await
+            .expect("attacker error delivered");
+        match msg {
+            Message::Error(payload) => {
+                assert_eq!(payload.name, "E_FORBIDDEN_PUBLISH");
+                assert_eq!(payload.code, 403);
+            }
+            other => panic!("expected error, got {:?}", other),
+        }
+
+        assert!(
+            subscriber
+                .recv_timeout(Duration::from_millis(150))
+                .await
+                .is_none(),
+            "subscriber should not receive attacker frames"
+        );
+
+        // Gapful diff from the producer should be rejected, and should not be broadcast.
+        producer
+            .send(Message::WarpStream {
+                warp_id: 42,
+                frame: WarpFrame::Diff(WarpDiff {
+                    from_epoch: 9,
+                    to_epoch: 10,
+                    ops: vec![],
+                    state_hash: None,
+                }),
+            })
+            .await;
+
+        let (msg, _ts) = producer
+            .recv_timeout(Duration::from_secs(1))
+            .await
+            .expect("producer gap error delivered");
+        match msg {
+            Message::Error(payload) => {
+                assert_eq!(payload.name, "E_WARP_EPOCH_GAP");
+                assert_eq!(payload.code, 409);
+            }
+            other => panic!("expected error, got {:?}", other),
+        }
+
+        assert!(
+            subscriber
+                .recv_timeout(Duration::from_millis(150))
+                .await
+                .is_none(),
+            "subscriber should not receive gapful frames"
         );
     }
 

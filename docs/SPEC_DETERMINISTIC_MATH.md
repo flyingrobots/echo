@@ -52,3 +52,32 @@ An audit of `warp-core` identified the following risks:
 - [x] Canonicalize `NaN` payloads (`F32Scalar::new`).
 - [x] Flush subnormals to `+0.0` (`F32Scalar::new`).
 - [x] Replace `sin`/`cos` with deterministic approximation (`warp_core::math::trig` LUT backend).
+
+## 5. Local Validation (CI parity)
+
+Echo’s deterministic-math CI lanes are intentionally “boring”: they run the same commands you
+should run locally before proposing changes to scalar backends or transcendentals.
+
+### Default lane (`det_float`)
+
+The default `warp-core` build uses the float32-backed lane (`F32Scalar`) and the deterministic
+trig backend (`warp_core::math::trig`).
+
+- `cargo test -p warp-core`
+- `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs`
+
+### Fixed-point lane (`det_fixed`)
+
+`DFix64` (Q32.32) is currently feature-gated so we can evolve it without destabilizing the
+default runtime surface.
+
+- `cargo test -p warp-core --features det_fixed`
+- `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs`
+
+### MUSL (Linux portability lane)
+
+CI also runs `warp-core` under MUSL to catch portability and toolchain drift.
+
+- Install: `sudo apt-get update && sudo apt-get install -y musl-tools`
+- Test (float lane): `cargo test -p warp-core --target x86_64-unknown-linux-musl`
+- Test (fixed lane): `cargo test -p warp-core --features det_fixed --target x86_64-unknown-linux-musl`

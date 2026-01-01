@@ -35,6 +35,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-01 — Deterministic fixed-point lane (`DFix64`) + CI coverage (IN PROGRESS)
+
+- Goal: land a deterministic fixed-point scalar backend (`DFix64`, Q32.32) behind a `det_fixed` feature flag, add a dedicated test suite, and extend CI with explicit `--features det_fixed` lanes (including MUSL) so we continuously exercise cross-platform behavior.
+- Exit criteria: `cargo test -p warp-core --features det_fixed` green; `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs` green; CI has a det_fixed test lane and a musl+det_fixed lane.
+
 > 2026-01-01 — Implement deterministic `F32Scalar` trig (COMPLETED)
 
 - Goal: replace `F32Scalar::{sin,cos,sin_cos}`’s platform transcendentals with a deterministic LUT-backed backend, check in the LUT, and promote the existing trig test scaffold into a cross-platform golden-vector suite.

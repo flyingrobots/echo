@@ -10,5 +10,5 @@
 - [x] Session-service wiring: publish endpoint, validate owner + gapless epochs, rebroadcast to subscribers; explicit error codes.
 - [x] Client wiring: bidirectional tool connection (receive + publish); surface authority/epoch errors as notifications.
 - [x] Demo path: doc for one session-service + two viewers (publisher + subscriber) showing shared WARP changes (`docs/guide/wvp-demo.md`).
-- [ ] Tests: protocol conformance (authority rejection, gapless enforcement, dirty-loop behavior, toggle respect) and integration test with two clients + server loopback.
+- [x] Tests: protocol conformance (authority rejection, gapless enforcement, dirty-loop behavior, toggle respect) and integration test with two clients + server loopback. (Tracking: #169)
 - [x] Docs sync: update execution-plan intents and decision-log entries as slices land.

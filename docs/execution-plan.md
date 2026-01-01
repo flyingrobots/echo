@@ -35,15 +35,25 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2026-01-01 — PR #167: deterministic math follow-ups + CodeRabbit actionables (IN PROGRESS)
+> 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
 
-- Goal: address all CodeRabbit review comments on PR #167 with minimal churn, keep the PR tightly scoped to deterministic math + warp-core motion payload work, and log any determinism-relevant decisions in `docs/decision-log.md`.
+- Goal: prevent WVP demo regressions by pinning protocol invariants (snapshot-first, gapless epochs, authority enforcement) in automated tests.
 - Scope:
-  - Remove unrelated diff noise (e.g., ws-gateway/dashboard changes) so CodeRabbit feedback stays focused on deterministic math.
-  - Apply warp-core review nits (docs, invariants, casts, magic constants, test assertions).
-  - Resolve the deterministic trig golden mismatch by enforcing exact odd-symmetry for sine and updating the affected vector.
-- Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; CodeRabbit review is “Approved” or has no remaining actionable requests.
-- Evidence (local): commits `cf46533`, `834beca`, `975fb76`, `30896c4`, `1f5215c`; `cargo test -p warp-core` + `--features det_fixed` green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` + `--features det_fixed` green. Next: push updates and wait for CodeRabbit re-review on PR #167 (reviewDecision currently “CHANGES_REQUESTED”).
+  - Add a `UnixStream::pair()` loopback test for `echo-session-service` that exercises handshake, subscribe, and publish error cases without binding a real UDS path.
+  - Add `warp-viewer` unit tests for publish gating and publish-state transitions (snapshot-first, epoch monotonicity, pending ops clearing).
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; tests document the demo invariants.
+- Tracking: GitHub issue #169.
+- Evidence:
+  - PR #175 (loopback tests + publish behavior pinned; follow-up hardening for defensive test checks)
+
+> 2026-01-01 — PR #167: deterministic math follow-ups + merge `main` (IN PROGRESS)
+
+- Goal: address all CodeRabbit review comments on PR #167 with minimal churn, keep the PR tightly scoped to deterministic math + warp-core motion payload work, and restore mergeability by merging `main` and resolving docs guard conflicts.
+- Scope:
+  - Resolve merge conflicts from `origin/main` in `docs/decision-log.md` and `docs/execution-plan.md` while preserving both the WVP hardening timeline and the deterministic math timeline.
+  - Keep deterministic trig guardrails stable (`scripts/check_no_raw_trig.sh`) so raw platform trig calls cannot sneak back into runtime math code.
+- Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; PR is mergeable and CI stays green.
+- Evidence (local): PR head includes deterministic trig + motion payload fixes up through `f3ca59b`; CodeRabbit reviewDecision is approved and CI is green on PR #167. Next: finish the merge commit + rerun local checks after resolving the docs conflicts.
 
 > 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
 

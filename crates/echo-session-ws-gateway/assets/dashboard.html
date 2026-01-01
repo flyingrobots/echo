@@ -459,7 +459,7 @@
     </style>
   </head>
   <body>
-    <aside class="drawer" id="drawer" aria-hidden="true">
+    <aside class="drawer" id="drawer" aria-hidden="true" inert>
       <header>
         <div class="brand">Echo Tools</div>
         <button class="btn" type="button" id="drawer-close">Close</button>
@@ -721,6 +721,8 @@
           if (!drawer || !backdrop) return;
           drawer.classList.toggle("open", v);
           drawer.setAttribute("aria-hidden", v ? "false" : "true");
+          if (v) drawer.removeAttribute("inert");
+          else drawer.setAttribute("inert", "");
           backdrop.setAttribute("aria-hidden", v ? "false" : "true");
         }
 
@@ -780,9 +782,25 @@
       const history = [];
       const maxPoints = 90;
       let lastSample = null;
+      let tickInFlight = false;
 
       async function fetchMetrics() {
-        const res = await fetch("/api/metrics", { cache: "no-store" });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        let res;
+        try {
+          res = await fetch("/api/metrics", {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            throw new Error("metrics timeout");
+          }
+          throw err;
+        } finally {
+          clearTimeout(timeoutId);
+        }
         if (!res.ok) throw new Error(`metrics HTTP ${res.status}`);
         return await res.json();
       }
@@ -934,6 +952,8 @@
       let lastOk = null;
 
       async function tick() {
+        if (tickInFlight) return;
+        tickInFlight = true;
         try {
           const m = await fetchMetrics();
           updateHeader(m);
@@ -965,6 +985,7 @@
           }
           lastOk = false;
         } finally {
+          tickInFlight = false;
           setTimeout(tick, 1000);
         }
       }

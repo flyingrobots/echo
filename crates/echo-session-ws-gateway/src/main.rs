@@ -50,7 +50,7 @@ const JS_ABI_OVERHEAD_BYTES: usize = JS_ABI_HEADER_BYTES + JS_ABI_HASH_BYTES;
 type TaskResult<T> = std::result::Result<T, JoinError>;
 
 const DASHBOARD_HTML: &str = include_str!("../assets/dashboard.html");
-const D3_JS: &[u8] = include_bytes!("../../../docs/benchmarks/vendor/d3.v7.min.js");
+const D3_JS: &[u8] = include_bytes!("../assets/vendor/d3.v7.min.js");
 const OPEN_PROPS_CSS: &[u8] = include_bytes!("../assets/vendor/open-props.min.css");
 const OPEN_PROPS_NORMALIZE_CSS: &[u8] = include_bytes!("../assets/vendor/normalize.min.css");
 const OPEN_PROPS_BUTTONS_CSS: &[u8] = include_bytes!("../assets/vendor/buttons.min.css");
@@ -598,7 +598,7 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
     warps.dedup();
 
     let mut backoff = Duration::from_millis(250);
-    loop {
+    'reconnect: loop {
         let now_ms: u64 = state
             .start_instant
             .elapsed()
@@ -655,7 +655,9 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
             warn!(?err, "hub observer: handshake send failed");
             let mut metrics = state.metrics.lock().await;
             metrics.observe_hub_observer_error(err.to_string());
-            continue;
+            time::sleep(backoff).await;
+            backoff = (backoff * 2).min(Duration::from_secs(3));
+            continue 'reconnect;
         }
 
         for warp_id in &warps {
@@ -663,7 +665,9 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
                 warn!(?err, warp_id, "hub observer: subscribe send failed");
                 let mut metrics = state.metrics.lock().await;
                 metrics.observe_hub_observer_error(err.to_string());
-                continue;
+                time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_secs(3));
+                continue 'reconnect;
             }
         }
 

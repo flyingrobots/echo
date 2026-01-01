@@ -52,6 +52,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Vendor Open Props CSS into the gateway and serve it under `/vendor/*.css` for offline use.
   - Add Playwright smoke tests that exercise the dashboard and optionally regenerate the screenshot used in `docs/guide/wvp-demo.md`.
 - Exit criteria: `cargo clippy -p echo-session-ws-gateway --all-targets -- -D warnings` green; `pnpm exec playwright test` green; updated screenshot checked in.
+- Evidence:
+  - PR #176 (Echo session dashboard + Playwright smoke)
+  - Dashboard: `crates/echo-session-ws-gateway/assets/dashboard.html`
+  - Vendor CSS: `crates/echo-session-ws-gateway/assets/vendor/`
+  - Gateway routes: `crates/echo-session-ws-gateway/src/main.rs`
+  - e2e: `e2e/session-dashboard.spec.ts`
+  - Docs screenshot: `docs/assets/wvp/session-dashboard.png`
+  - Demo guide: `docs/guide/wvp-demo.md`
 
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 

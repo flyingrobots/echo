@@ -15,6 +15,8 @@ async function delay(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// NOTE: This has an inherent TOCTOU race: the port is freed before the gateway
+// binds to it, so another process could claim it between close() and spawn().
 async function getFreePort(): Promise<number> {
   const server = net.createServer()
   await new Promise<void>((resolve, reject) => {
@@ -37,7 +39,7 @@ async function waitForFile(path: string, timeoutMs: number) {
     if (existsSync(path)) {
       try {
         const s = await stat(path)
-        if (s.isSocket() || s.size >= 0) return
+        if (s.isSocket()) return
       } catch {
         // keep polling
       }
@@ -214,18 +216,25 @@ test.describe('Session Dashboard (gateway + hub observer)', () => {
       }
 
       // Poll metrics until we see warp activity reflected.
+      let lastMetrics: any = null
+      let observed = false
       const start = Date.now()
       while (Date.now() - start < 20_000) {
         const res = await fetch(`${baseUrl}/api/metrics`, { cache: 'no-store' })
         const m: any = await res.json()
+        lastMetrics = m
         const w1 = (m.warps || []).find((w: any) => w.warp_id === 1)
         if (w1 && w1.snapshot_count >= 1 && w1.diff_count >= 1 && (w1.last_epoch == null || w1.last_epoch >= 1)) {
           expect(m.hub_observer).toBeTruthy()
           expect(m.hub_observer.enabled).toBe(true)
           expect(m.hub_observer.rx_frames).toBeGreaterThan(0)
+          observed = true
           break
         }
         await delay(150)
+      }
+      if (!observed) {
+        throw new Error(`timed out waiting for warp activity in /api/metrics (last=${JSON.stringify(lastMetrics)})`)
       }
 
       // UI should render the warp row once D3 is present.

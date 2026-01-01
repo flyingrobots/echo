@@ -16,7 +16,7 @@ cargo run -p echo-session-ws-gateway -- \
 
 Then open:
 
-- `http://localhost:8787/dashboard` (D3 dashboard)
+- `http://localhost:8787/dashboard` (session dashboard)
 - `http://localhost:8787/api/metrics` (JSON metrics)
 - `ws://localhost:8787/ws` (WebSocket endpoint)
 

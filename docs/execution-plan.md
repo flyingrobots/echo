@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-01 — Issue #180: Paper VI notes + capability matrix (IN PROGRESS)
+
+- Goal: turn “Pulse” time/determinism/tooling insights into durable artifacts (Paper VI notes + a crisp ownership matrix for Echo).
+- Scope:
+  - Add `docs/capability-ownership-matrix.md` (template + first pass).
+  - Extend Paper VI notes in `aion-paper-06` (HostTime/HistoryTime, decision records, multi-clock streams, replay integrity hooks).
+- Exit criteria: matrix + notes are concrete enough to guide near-term implementation choices and future tool UX.
+- Tracking: GitHub issue #180.
+
 > 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
 
 - Goal: prevent WVP demo regressions by pinning protocol invariants (snapshot-first, gapless epochs, authority enforcement) in automated tests.

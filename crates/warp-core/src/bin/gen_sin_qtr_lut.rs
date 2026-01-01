@@ -16,6 +16,10 @@ use std::f64::consts::FRAC_PI_2;
 
 fn main() {
     // MUST match `warp_core::math::trig_lut::SIN_QTR_SEGMENTS` (currently 1024).
+    //
+    // Note: `SIN_QTR_SEGMENTS` is `pub(crate)` inside `warp-core`, so this tool
+    // cannot reference it directly without widening visibility. Keep this in
+    // lockstep with `crates/warp-core/src/math/trig_lut.rs`.
     const SEGMENTS: usize = 1024;
     const N: usize = SEGMENTS + 1;
     let mut bits: [u32; N] = [0; N];
@@ -48,4 +52,5 @@ fn main() {
     }
 
     println!("];");
+    println!("const _: [(); SIN_QTR_SEGMENTS + 1] = [(); SIN_QTR_LUT_BITS.len()];");
 }

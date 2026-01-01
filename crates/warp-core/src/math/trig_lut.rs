@@ -154,8 +154,37 @@ pub(crate) const SIN_QTR_LUT_BITS: [u32; SIN_QTR_SEGMENTS + 1] = [
 /// Looks up a quarter-wave `sin` sample as `f32`.
 ///
 /// Valid indices are `0..=SIN_QTR_SEGMENTS`.
+///
+/// # Determinism
+/// This function returns the exact `f32` bit-pattern stored in
+/// [`SIN_QTR_LUT_BITS`]; callers should treat it as a stable, deterministic
+/// oracle (not a recomputation).
 #[inline]
 pub(crate) fn sin_qtr_sample(index: usize) -> f32 {
     debug_assert!(index <= SIN_QTR_SEGMENTS);
     f32::from_bits(SIN_QTR_LUT_BITS[index])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lut_length_and_endpoints_are_correct() {
+        assert_eq!(SIN_QTR_LUT_BITS.len(), SIN_QTR_SEGMENTS + 1);
+        assert_eq!(SIN_QTR_LUT_BITS[0], 0.0_f32.to_bits());
+        assert_eq!(SIN_QTR_LUT_BITS[SIN_QTR_SEGMENTS], 1.0_f32.to_bits());
+    }
+
+    #[test]
+    fn lut_is_finite_and_monotonic_non_decreasing() {
+        let mut prev = f32::from_bits(SIN_QTR_LUT_BITS[0]);
+        assert!(prev.is_finite());
+        for &bits in &SIN_QTR_LUT_BITS[1..] {
+            let cur = f32::from_bits(bits);
+            assert!(cur.is_finite());
+            assert!(cur >= prev);
+            prev = cur;
+        }
+    }
 }

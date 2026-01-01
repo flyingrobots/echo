@@ -6,7 +6,9 @@ use core::f32::consts::FRAC_PI_2;
 use warp_core::math::{Mat4, Vec3};
 
 fn approx_eq3(a: [f32; 3], b: [f32; 3]) {
-    const ABS_TOL: f32 = 1e-7;
+    // Deterministic trig backend is LUT/interpolation-based, so allow a small
+    // absolute tolerance (≈ 1–2 ulp at unit scale).
+    const ABS_TOL: f32 = 2e-7;
     const REL_TOL: f32 = 1e-6;
     for i in 0..3 {
         let ai = a[i];

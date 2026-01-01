@@ -159,6 +159,23 @@ jobs:
           set -euo pipefail
           bash scripts/tests/check_task_lists_test.sh
 
+  deterministic-math-guard:
+    name: Deterministic Math Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Forbid raw trig in warp-core math
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/check_no_raw_trig.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+
   # MSRV job removed per policy: use @stable everywhere
 
   rustdoc:

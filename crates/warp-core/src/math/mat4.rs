@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
+use crate::math::trig;
 use crate::math::{Quat, Vec3};
 
 /// Column-major 4×4 matrix matching Echo’s deterministic math layout.
@@ -64,7 +65,7 @@ impl Mat4 {
     /// looking down the +X axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_x(angle: f32) -> Self {
-        let (s_raw, c_raw) = angle.sin_cos();
+        let (s_raw, c_raw) = trig::sin_cos_f32(angle);
         let s = if s_raw == 0.0 { 0.0 } else { s_raw };
         let c = if c_raw == 0.0 { 0.0 } else { c_raw };
         let ns = if s == 0.0 { 0.0 } else { -s };
@@ -79,7 +80,7 @@ impl Mat4 {
     /// looking down the +Y axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_y(angle: f32) -> Self {
-        let (s_raw, c_raw) = angle.sin_cos();
+        let (s_raw, c_raw) = trig::sin_cos_f32(angle);
         let s = if s_raw == 0.0 { 0.0 } else { s_raw };
         let c = if c_raw == 0.0 { 0.0 } else { c_raw };
         let ns = if s == 0.0 { 0.0 } else { -s };
@@ -94,7 +95,7 @@ impl Mat4 {
     /// looking down the +Z axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_z(angle: f32) -> Self {
-        let (s_raw, c_raw) = angle.sin_cos();
+        let (s_raw, c_raw) = trig::sin_cos_f32(angle);
         let s = if s_raw == 0.0 { 0.0 } else { s_raw };
         let c = if c_raw == 0.0 { 0.0 } else { c_raw };
         let ns = if s == 0.0 { 0.0 } else { -s };

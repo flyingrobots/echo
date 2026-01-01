@@ -172,9 +172,8 @@ fn test_sin_cos_error_budget_wip() {
     let mut worst_angle: f32 = 0.0;
 
     let step = TAU / 4096.0;
-    let mut angle: f32 = -2.0 * TAU;
-
-    while angle <= 2.0 * TAU {
+    for i in 0..=16_384_u32 {
+        let angle = -2.0 * TAU + (i as f32) * step;
         let (s, c) = deterministic_sin_cos_f32(angle);
 
         // Reference: f64 trig, then cast down to float32. This is a measurement
@@ -194,8 +193,6 @@ fn test_sin_cos_error_budget_wip() {
 
         max_abs = max_abs.max((s - s_ref).abs());
         max_abs = max_abs.max((c - c_ref).abs());
-
-        angle += step;
     }
 
     eprintln!("wip trig error: max_ulp={max_ulp} max_abs={max_abs} at angle={worst_angle}");

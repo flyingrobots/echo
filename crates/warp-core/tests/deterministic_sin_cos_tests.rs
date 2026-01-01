@@ -162,7 +162,8 @@ fn test_trig_known_angle_golden_bits() {
 }
 
 #[test]
-#[ignore = "Reference uses platform libm; keep ignored unless auditing error budgets"]
+// TODO(#115): Replace libm-derived reference with a deterministic oracle and pin an explicit budget.
+#[ignore = "Reference uses platform libm (see #115); keep ignored unless auditing error budgets"]
 fn test_sin_cos_error_budget_wip() {
     // NOTE: This test intentionally measures error against a high-precision-ish
     // reference, but does not yet pin an explicit budget. Once the deterministic

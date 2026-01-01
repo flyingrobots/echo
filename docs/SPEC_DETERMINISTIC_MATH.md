@@ -38,17 +38,17 @@ Implementations of `Eq` for floating-point types **must** be reflexive.
 
 An audit of `warp-core` identified the following risks:
 
-*   **Hardware Transcendentals:** `F32Scalar::sin/cos` currently delegate to `f32::sin/cos`. **Risk:** High. These vary across libc/hardware implementations.
-    *   *Action:* Replace with deterministic software implementation (Issue #115).
+*   **Hardware Transcendentals:** `F32Scalar::sin/cos` previously delegated to `f32::sin/cos`. **Risk:** High (varies across libc/hardware implementations).
+    *   *Status:* Implemented deterministic LUT-backed trig in `warp_core::math::trig` (Issue #115).
 *   **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
     *   *Risk:* Subnormal handling (DAZ/FTZ) depends on CPU flags.
-    *   *Action:* `F32Scalar::new` (result wrapper) needs to explicitly flush subnormals.
+    *   *Status:* `F32Scalar::new` flushes subnormals to `+0.0` at construction and after operations.
 *   **NaN Propagation:** `f32` ops produce hardware-specific NaN payloads.
-    *   *Action:* `F32Scalar::new` must sanitize NaNs.
+    *   *Status:* `F32Scalar::new` canonicalizes NaNs to `0x7fc0_0000`.
 
 ## 4. Implementation Checklist
 
 - [x] Canonicalize `-0.0` to `+0.0` (PR #123).
-- [ ] Canonicalize `NaN` payloads (Planned).
-- [ ] Flush subnormals to `+0.0` (Planned).
-- [ ] Replace `sin`/`cos` with deterministic approximation (Planned).
+- [x] Canonicalize `NaN` payloads (`F32Scalar::new`).
+- [x] Flush subnormals to `+0.0` (`F32Scalar::new`).
+- [x] Replace `sin`/`cos` with deterministic approximation (`warp_core::math::trig` LUT backend).

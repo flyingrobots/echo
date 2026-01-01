@@ -14,12 +14,10 @@
 //! - Core transcendentals: sin, cos (angles in radians).
 //!
 //! Out of scope for this commit:
-//! - Subnormal flushing (to be handled by concrete float wrappers in a
-//!   follow-up task).
-//! - Lookup-table or polynomial-backed trig implementations (tracked separately;
-//!   this trait only declares the API).
-//! - Concrete backends: `F32Scalar` and `DFix64` will implement this trait in
-//!   subsequent changes.
+//! - Additional scalar backends (e.g., fixed-point `DFix64`).
+//! - More advanced deterministic transcendental backends (e.g., higher-order
+//!   interpolation or polynomial approximations) beyond the initial LUT-backed
+//!   implementation.
 //!
 //! Determinism contract:
 //! - Operations must be pure and total for all valid inputs of the
@@ -29,10 +27,16 @@
 //! - Trigonometric functions interpret arguments as radians and must be
 //!   consistent across platforms for identical inputs (e.g., via LUT/polynomial
 //!   in later work).
+//!
+//! Implementation note:
+//! - `F32Scalar::{sin,cos,sin_cos}` are implemented using a deterministic
+//!   LUT-backed approximation in `warp_core::math::trig`.
 
 use core::cmp::Ordering;
 use core::fmt;
 use core::ops::{Add, Div, Mul, Neg, Sub};
+
+use crate::math::trig;
 
 /// Deterministic scalar arithmetic and basic transcendentals.
 ///
@@ -95,7 +99,7 @@ pub struct F32Scalar {
     ///
     /// # Invariant
     /// This field is private to enforce canonicalization via `new()`.
-    /// It must NEVER contain `-0.0`, non-canonical NaNs, or subnormals (future).
+    /// It must NEVER contain `-0.0`, non-canonical NaNs, or subnormals.
     value: f32,
 }
 
@@ -183,15 +187,18 @@ impl Scalar for F32Scalar {
     }
 
     fn sin(self) -> Self {
-        Self::new(self.value.sin())
+        let (s, _) = trig::sin_cos_f32(self.value);
+        Self::new(s)
     }
 
     fn cos(self) -> Self {
-        Self::new(self.value.cos())
+        let (_, c) = trig::sin_cos_f32(self.value);
+        Self::new(c)
     }
 
     fn sin_cos(self) -> (Self, Self) {
-        (Self::new(self.value.sin()), Self::new(self.value.cos()))
+        let (s, c) = trig::sin_cos_f32(self.value);
+        (Self::new(s), Self::new(c))
     }
 
     fn from_f32(value: f32) -> Self {

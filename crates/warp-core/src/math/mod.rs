@@ -12,6 +12,8 @@ mod mat4;
 mod prng;
 mod quat;
 pub mod scalar;
+mod trig;
+mod trig_lut;
 mod vec3;
 
 #[doc(inline)]

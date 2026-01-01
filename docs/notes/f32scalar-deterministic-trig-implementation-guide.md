@@ -4,6 +4,14 @@
 
 This document is a step-by-step, code-oriented guide for implementing a deterministic `sin`, `cos`, and `sin_cos` backend for `warp_core::math::scalar::F32Scalar`.
 
+## Status
+
+As of **2026-01-01**, this LUT-backed backend is implemented on the `F32Scalar/sin-cos` branch:
+
+- Implementation: `crates/warp-core/src/math/trig.rs`
+- LUT data: `crates/warp-core/src/math/trig_lut.rs`
+- Tests: `crates/warp-core/tests/deterministic_sin_cos_tests.rs`
+
 It is written to match the current test scaffolding on the `F32Scalar/sin-cos` branch:
 
 - `crates/warp-core/tests/deterministic_sin_cos_tests.rs`
@@ -17,10 +25,10 @@ The spec/policy drivers for this work live here:
 
 ## Goal
 
-Replace the current hardware/libc-backed trig:
+Replace the hardware/libc-backed trig:
 
-- `F32Scalar::sin()` delegates to `f32::sin()`
-- `F32Scalar::cos()` delegates to `f32::cos()`
+- `F32Scalar::sin()` **must not** delegate to `f32::sin()`
+- `F32Scalar::cos()` **must not** delegate to `f32::cos()`
 
 …with an implementation that is **bit-stable across supported platforms** (native + WASM) while keeping `F32Scalar`’s canonicalization invariants.
 
@@ -300,4 +308,3 @@ Downsides:
 - `F32Scalar::sin/cos/sin_cos` no longer call hardware/libc trig.
 - `cargo test -p warp-core --test deterministic_sin_cos_tests` passes with **no ignored tests**.
 - Determinism policy docs are updated and explain the chosen approximation + error budget.
-

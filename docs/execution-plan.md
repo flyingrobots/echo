@@ -35,10 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-01 — Implement deterministic `F32Scalar` trig (COMPLETED)
+
+- Goal: replace `F32Scalar::{sin,cos,sin_cos}`’s platform transcendentals with a deterministic LUT-backed backend, check in the LUT, and promote the existing trig test scaffold into a cross-platform golden-vector suite.
+- Evidence: `cargo test -p warp-core` green; `cargo test -p warp-core --test deterministic_sin_cos_tests` green (error-budget audit test remains `#[ignore]`); `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` green.
+
 > 2025-12-30 — Branch maintenance: resurrect `F32Scalar/sin-cos` (COMPLETED)
 
-- Goal: merge `main` into the legacy deterministic trig test branch without commits, resolve the `rmg-core`→`warp-core` rename conflict, and leave the WIP test compiling (ignored by default).
-- Evidence: `cargo test -p warp-core --test deterministic_sin_cos_tests -- --ignored` passes; merge is intentionally left uncommitted.
+- Goal: merge `main` into the legacy deterministic trig test branch, resolve the `rmg-core`→`warp-core` rename conflict, and leave the WIP test compiling (ignored by default).
+- Evidence: merge commit `6cfa64d` (“Merge branch 'main' into F32Scalar/sin-cos”); `cargo test -p warp-core --test deterministic_sin_cos_tests` passes (ignored test remains opt-in).
 
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 

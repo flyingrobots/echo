@@ -35,6 +35,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-01 — PR hygiene: standardize CodeRabbitAI review triage (COMPLETED)
+
+- Goal: make CodeRabbitAI review loops cheap and unambiguous by codifying how we extract actionable comments from the current PR head diff.
+- Scope:
+  - Add mandatory procedures under `docs/procedures/` for PR submission and review comment extraction.
+  - Add a helper script `.github/scripts/extract-actionable-comments.sh` to automate “stale vs fresh” bucketing and produce a Markdown report.
+- Exit criteria: a contributor can run one command and get a clean actionables list without re-reading the entire PR history.
+
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 
 - Goal: complete the WARP View Protocol demo path (publisher + subscriber) by adding outbound publish support to `echo-session-client` and wiring publish/subscribe toggles + a dirty publish loop in `warp-viewer`.

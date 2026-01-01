@@ -1,0 +1,984 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Echo — Session Dashboard</title>
+    <link rel="stylesheet" href="/vendor/normalize.min.css" />
+    <link rel="stylesheet" href="/vendor/open-props.min.css" />
+    <link rel="stylesheet" href="/vendor/buttons.min.css" />
+    <link rel="stylesheet" href="/vendor/theme.dark.switch.min.css" />
+    <link rel="stylesheet" href="/vendor/theme.light.switch.min.css" />
+    <style>
+      :where(html) {
+        --app-max: 1100px;
+        --nav-h: 56px;
+
+        --border: color-mix(in srgb, var(--surface-3) 60%, transparent);
+        --card: var(--surface-2);
+        --card-2: color-mix(in srgb, var(--surface-2) 65%, var(--surface-1));
+
+        --ok: var(--green-3);
+        --warn: var(--orange-3);
+        --bad: var(--red-3);
+
+        --focus: 0 0 0 3px color-mix(in srgb, var(--link) 40%, transparent);
+      }
+
+      :where(body) {
+        margin: 0;
+        min-height: 100%;
+        background: var(--surface-1);
+        color: var(--text-1);
+        font-family: var(--font-sans);
+        line-height: var(--font-lineheight-3);
+      }
+
+      :where(a) {
+        color: var(--link);
+        text-decoration: none;
+      }
+      :where(a:hover) {
+        text-decoration: underline;
+      }
+
+      :where(code, .mono) {
+        font-family: var(--font-mono);
+      }
+
+      :where(.container) {
+        max-width: var(--app-max);
+        margin: 0 auto;
+        padding: 0 var(--size-4);
+      }
+
+      :where(.topbar) {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        backdrop-filter: blur(10px);
+        background: color-mix(in srgb, var(--surface-1) 70%, transparent);
+        border-bottom: 1px solid var(--border);
+      }
+
+      :where(.topbar-inner) {
+        height: var(--nav-h);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--size-3);
+      }
+
+      :where(.brand) {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--size-2);
+        font-weight: var(--font-weight-8);
+        letter-spacing: var(--font-letterspacing-0);
+      }
+
+      :where(.nav) {
+        display: flex;
+        align-items: center;
+        gap: var(--size-3);
+      }
+
+      :where(.nav a) {
+        padding: 6px 10px;
+        border-radius: var(--radius-2);
+        color: var(--text-2);
+      }
+
+      :where(.nav a[aria-current='page']) {
+        color: var(--text-1);
+        background: color-mix(in srgb, var(--surface-2) 85%, transparent);
+        border: 1px solid var(--border);
+      }
+
+      :where(.right) {
+        display: flex;
+        align-items: center;
+        gap: var(--size-2);
+      }
+
+      :where(.pill) {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 2px 10px;
+        border-radius: var(--radius-round);
+        font-size: var(--font-size-0);
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--surface-2) 75%, transparent);
+        color: var(--text-2);
+        font-variant-numeric: tabular-nums;
+        user-select: none;
+      }
+
+      :where(.pill.ok) {
+        border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+        color: color-mix(in srgb, var(--ok) 80%, var(--text-1));
+      }
+
+      :where(.pill.bad) {
+        border-color: color-mix(in srgb, var(--bad) 50%, transparent);
+        color: color-mix(in srgb, var(--bad) 80%, var(--text-1));
+      }
+
+      :where(main) {
+        padding: var(--size-5) 0 var(--size-8);
+      }
+
+      :where(.hero) {
+        display: grid;
+        gap: var(--size-2);
+        margin: var(--size-5) 0 var(--size-4);
+      }
+
+      :where(.hero h1) {
+        margin: 0;
+        font-size: var(--font-size-5);
+        letter-spacing: var(--font-letterspacing-0);
+      }
+
+      :where(.hero p) {
+        margin: 0;
+        color: var(--text-2);
+      }
+
+      :where(.grid) {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: var(--size-3);
+      }
+
+      :where(.card) {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-3);
+        box-shadow: var(--shadow-2);
+        padding: var(--size-4);
+        overflow: hidden;
+      }
+
+      :where(.card-header) {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--size-3);
+        margin-bottom: var(--size-3);
+      }
+
+      :where(.card h2, .card h3) {
+        margin: 0;
+        font-size: var(--font-size-1);
+        letter-spacing: var(--font-letterspacing-1);
+      }
+
+      :where(.card-subtitle) {
+        color: var(--text-2);
+        font-size: var(--font-size-0);
+      }
+
+      :where(.metric-list) {
+        display: grid;
+        gap: 6px;
+        margin-top: var(--size-2);
+      }
+
+      :where(.metric) {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--size-3);
+        font-size: var(--font-size-0);
+        font-variant-numeric: tabular-nums;
+      }
+
+      :where(.metric .label) {
+        color: var(--text-2);
+      }
+
+      :where(.span-4) {
+        grid-column: span 4;
+      }
+      :where(.span-6) {
+        grid-column: span 6;
+      }
+      :where(.span-12) {
+        grid-column: span 12;
+      }
+
+      :where(#chart) {
+        height: 240px;
+      }
+
+      :where(.table-wrap) {
+        overflow: auto;
+        border-radius: var(--radius-2);
+        border: 1px solid var(--border);
+      }
+
+      :where(table) {
+        width: 100%;
+        border-collapse: collapse;
+        background: color-mix(in srgb, var(--card) 85%, var(--surface-1));
+      }
+
+      :where(th, td) {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        font-size: var(--font-size-0);
+        font-variant-numeric: tabular-nums;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      :where(th) {
+        position: sticky;
+        top: 0;
+        background: var(--card-2);
+        color: var(--text-2);
+        font-weight: var(--font-weight-6);
+        text-transform: uppercase;
+        letter-spacing: var(--font-letterspacing-2);
+        font-size: var(--font-size-00);
+      }
+
+      :where(.toast-region) {
+        position: fixed;
+        right: var(--size-4);
+        bottom: var(--size-4);
+        z-index: 100;
+        display: grid;
+        gap: var(--size-2);
+        width: min(420px, calc(100vw - 2 * var(--size-4)));
+        pointer-events: none;
+      }
+
+      :where(.toast) {
+        pointer-events: auto;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--link);
+        border-radius: var(--radius-3);
+        box-shadow: var(--shadow-4);
+        padding: var(--size-3) var(--size-3);
+        display: grid;
+        gap: 6px;
+      }
+
+      :where(.toast[data-kind='warn']) {
+        border-left-color: var(--warn);
+      }
+
+      :where(.toast[data-kind='error']) {
+        border-left-color: var(--bad);
+      }
+
+      :where(.toast-title) {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--size-2);
+        font-weight: var(--font-weight-7);
+      }
+
+      :where(.toast-body) {
+        color: var(--text-2);
+        font-size: var(--font-size-0);
+      }
+
+      :where(.drawer-backdrop) {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 150ms var(--ease-2);
+        z-index: 40;
+      }
+
+      :where(.drawer) {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: min(360px, 92vw);
+        background: var(--surface-2);
+        border-right: 1px solid var(--border);
+        box-shadow: var(--shadow-6);
+        transform: translateX(-100%);
+        transition: transform 180ms var(--ease-3);
+        z-index: 50;
+        display: grid;
+        grid-template-rows: var(--nav-h) 1fr;
+      }
+
+      :where(.drawer.open) {
+        transform: translateX(0);
+      }
+
+      :where(.drawer.open + .drawer-backdrop) {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      :where(.drawer header) {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 var(--size-4);
+        border-bottom: 1px solid var(--border);
+      }
+
+      :where(.drawer nav) {
+        padding: var(--size-4);
+        display: grid;
+        gap: var(--size-2);
+        align-content: start;
+      }
+
+      :where(.drawer a) {
+        padding: 10px 12px;
+        border-radius: var(--radius-2);
+        border: 1px solid transparent;
+        background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+      }
+
+      :where(.drawer a:hover) {
+        border-color: var(--border);
+        text-decoration: none;
+      }
+
+      :where(dialog) {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-3);
+        box-shadow: var(--shadow-6);
+        padding: 0;
+        width: min(720px, calc(100vw - 2 * var(--size-4)));
+      }
+
+      :where(dialog::backdrop) {
+        background: rgba(0, 0, 0, 0.55);
+      }
+
+      :where(details.menu) {
+        position: relative;
+      }
+
+      :where(details.menu > summary) {
+        list-style: none;
+      }
+
+      :where(details.menu > summary::-webkit-details-marker) {
+        display: none;
+      }
+
+      :where(details.menu[open] > summary.btn) {
+        box-shadow: var(--shadow-3);
+      }
+
+      :where(.menu-panel) {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 10px);
+        min-width: 240px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-3);
+        box-shadow: var(--shadow-5);
+        padding: var(--size-2);
+        display: grid;
+        gap: 4px;
+      }
+
+      :where(.menu-panel a, .menu-panel button) {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      :where(.menu-divider) {
+        height: 1px;
+        background: var(--border);
+        margin: 4px 0;
+      }
+
+      :where(.dialog-body) {
+        padding: var(--size-5);
+        display: grid;
+        gap: var(--size-3);
+      }
+
+      :where(.dialog-actions) {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--size-2);
+        padding: var(--size-4) var(--size-5);
+        border-top: 1px solid var(--border);
+        background: color-mix(in srgb, var(--surface-1) 65%, transparent);
+      }
+
+      :where(.style-probe) {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      :where(#probe-ws) {
+        color: var(--link);
+      }
+      :where(#probe-uds) {
+        color: var(--green-3);
+      }
+      :where(#probe-grid) {
+        color: color-mix(in srgb, var(--surface-4) 70%, transparent);
+      }
+
+      @media (max-width: 980px) {
+        :where(.span-4) {
+          grid-column: span 12;
+        }
+        :where(.span-6) {
+          grid-column: span 12;
+        }
+        :where(.nav) {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        :where(.drawer, .drawer-backdrop) {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <aside class="drawer" id="drawer" aria-hidden="true">
+      <header>
+        <div class="brand">Echo Tools</div>
+        <button class="btn" type="button" id="drawer-close">Close</button>
+      </header>
+      <nav aria-label="Tools">
+        <a href="/dashboard" aria-current="page">Session Dashboard</a>
+        <a href="/api/metrics" target="_blank" rel="noopener">Metrics JSON</a>
+      </nav>
+    </aside>
+    <div class="drawer-backdrop" id="drawer-backdrop" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="topbar-inner container">
+        <div class="left" style="display: flex; align-items: center; gap: var(--size-3)">
+          <button class="btn" type="button" id="drawer-open" aria-label="Open tools menu">Menu</button>
+          <div class="brand">Echo</div>
+          <nav class="nav" aria-label="Tools">
+            <a href="/dashboard" aria-current="page">Session</a>
+            <a href="/api/metrics" target="_blank" rel="noopener">Metrics</a>
+          </nav>
+        </div>
+        <div class="right">
+          <span class="pill mono" id="status-pill">connecting…</span>
+          <span class="pill mono" id="uptime-pill">uptime: —</span>
+          <details class="menu" id="tools-menu">
+            <summary class="btn">Tools</summary>
+            <div class="menu-panel" role="menu">
+              <a class="btn" href="/dashboard" aria-current="page" role="menuitem">Session Dashboard</a>
+              <a class="btn" href="/api/metrics" target="_blank" rel="noopener" role="menuitem">Metrics JSON</a>
+              <div class="menu-divider" role="separator"></div>
+              <button class="btn" type="button" id="about-open-menu" role="menuitem">About</button>
+            </div>
+          </details>
+          <button class="btn" type="button" id="theme-toggle">Theme</button>
+          <button class="btn" type="button" id="about-open">About</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <div class="hero">
+        <h1>Echo — Session Dashboard</h1>
+        <p>
+          Live metrics from <code>echo-session-ws-gateway</code>. This is a lightweight “is the WVP
+          pipeline alive?” view: frames, bytes, connections, and per-<code>warp_id</code> epoch
+          progress.
+        </p>
+      </div>
+
+      <div class="grid">
+        <section class="card span-4" aria-label="Connections">
+          <div class="card-header">
+            <h2>Connections</h2>
+            <div class="card-subtitle mono">/api/metrics</div>
+          </div>
+          <div class="metric-list">
+            <div class="metric">
+              <span class="label">active</span><span class="value mono" id="m-active">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">total</span><span class="value mono" id="m-total">—</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card span-4" aria-label="Frames">
+          <div class="card-header">
+            <h2>Frames</h2>
+            <div class="card-subtitle mono">count</div>
+          </div>
+          <div class="metric-list">
+            <div class="metric">
+              <span class="label">ws→uds</span><span class="value mono" id="m-ws-frames">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">uds→ws</span><span class="value mono" id="m-uds-frames">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">invalid ws</span><span class="value mono" id="m-invalid">—</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card span-4" aria-label="Bytes">
+          <div class="card-header">
+            <h2>Bytes</h2>
+            <div class="card-subtitle mono">total</div>
+          </div>
+          <div class="metric-list">
+            <div class="metric">
+              <span class="label">ws→uds</span><span class="value mono" id="m-ws-bytes">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">uds→ws</span><span class="value mono" id="m-uds-bytes">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">decode errs</span><span class="value mono" id="m-decode">—</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card span-6" aria-label="Hub Observer">
+          <div class="card-header">
+            <h2>Hub Observer</h2>
+            <div class="card-subtitle">metrics-only UDS subscriber</div>
+          </div>
+          <div class="metric-list">
+            <div class="metric">
+              <span class="label">state</span><span class="value mono" id="o-state">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">rx frames</span><span class="value mono" id="o-frames">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">rx bytes</span><span class="value mono" id="o-bytes">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">decode errs</span><span class="value mono" id="o-decode">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">attempts</span><span class="value mono" id="o-attempts">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">failures</span><span class="value mono" id="o-failures">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">warps</span><span class="value mono" id="o-warps">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">last err</span><span class="value mono" id="o-error">—</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card span-6" aria-label="Frames per second">
+          <div class="card-header">
+            <h2>Throughput</h2>
+            <div class="card-subtitle mono" id="m-last-update">last update: —</div>
+          </div>
+          <div class="card-subtitle" style="margin-bottom: var(--size-3)">
+            Frames/sec (computed client-side from counter deltas)
+          </div>
+          <div id="chart"></div>
+        </section>
+
+        <section class="card span-12" aria-label="WARP Streams">
+          <div class="card-header">
+            <h2>WARP Streams</h2>
+            <div class="card-subtitle">
+              Derived from observed protocol messages (non-authoritative).
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>warp_id</th>
+                  <th>subs</th>
+                  <th>pubs</th>
+                  <th>last</th>
+                  <th>epoch</th>
+                  <th>ts</th>
+                  <th>state_hash</th>
+                  <th>snap</th>
+                  <th>diff</th>
+                </tr>
+              </thead>
+              <tbody id="warp-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-relevant="additions"></div>
+
+    <dialog id="about-dialog">
+      <div class="dialog-body">
+        <h2 style="margin: 0">About</h2>
+        <div class="card-subtitle">
+          This dashboard is served by <code>echo-session-ws-gateway</code> and shows best-effort,
+          observed WVP traffic (including an optional built-in hub observer).
+        </div>
+        <div class="card-subtitle">
+          Endpoints:
+          <ul style="margin: 0; padding-left: 18px">
+            <li><code>/dashboard</code> — UI</li>
+            <li><code>/api/metrics</code> — JSON metrics</li>
+            <li><code>/ws</code> — browser WebSocket gateway</li>
+          </ul>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn" type="button" id="about-close">Close</button>
+      </div>
+    </dialog>
+
+    <div class="style-probe" aria-hidden="true">
+      <span id="probe-ws">ws</span>
+      <span id="probe-uds">uds</span>
+      <span id="probe-grid">grid</span>
+    </div>
+
+    <script>
+      function toast(kind, title, body) {
+        const region = document.getElementById("toast-region");
+        if (!region) return;
+        const el = document.createElement("div");
+        el.className = "toast";
+        el.dataset.kind = kind || "info";
+
+        const header = document.createElement("div");
+        header.className = "toast-title";
+
+        const t = document.createElement("div");
+        t.textContent = title || "Notice";
+
+        const close = document.createElement("button");
+        close.className = "btn";
+        close.type = "button";
+        close.textContent = "Dismiss";
+        close.addEventListener("click", () => el.remove());
+
+        header.append(t, close);
+
+        const b = document.createElement("div");
+        b.className = "toast-body";
+        b.textContent = body || "";
+
+        el.append(header, b);
+        region.prepend(el);
+
+        window.setTimeout(() => el.remove(), 6000);
+      }
+
+      function setTheme(theme) {
+        document.documentElement.setAttribute("data-theme", theme);
+        try {
+          localStorage.setItem("echo.theme", theme);
+        } catch (_) {}
+      }
+
+      (function initTheme() {
+        try {
+          const saved = localStorage.getItem("echo.theme");
+          if (saved === "light" || saved === "dark") setTheme(saved);
+        } catch (_) {}
+      })();
+
+      (function initChrome() {
+        const drawer = document.getElementById("drawer");
+        const backdrop = document.getElementById("drawer-backdrop");
+        const open = document.getElementById("drawer-open");
+        const close = document.getElementById("drawer-close");
+        const themeToggle = document.getElementById("theme-toggle");
+        const toolsMenu = document.getElementById("tools-menu");
+
+        function setDrawerOpen(v) {
+          if (!drawer || !backdrop) return;
+          drawer.classList.toggle("open", v);
+          drawer.setAttribute("aria-hidden", v ? "false" : "true");
+          backdrop.setAttribute("aria-hidden", v ? "false" : "true");
+        }
+
+        open?.addEventListener("click", () => setDrawerOpen(true));
+        close?.addEventListener("click", () => setDrawerOpen(false));
+        backdrop?.addEventListener("click", () => setDrawerOpen(false));
+        document.addEventListener("keydown", (e) => {
+          if (e.key === "Escape") setDrawerOpen(false);
+        });
+
+        document.addEventListener("click", (e) => {
+          if (!(toolsMenu instanceof HTMLElement)) return;
+          if (!toolsMenu.hasAttribute("open")) return;
+          if (!toolsMenu.contains(e.target)) toolsMenu.removeAttribute("open");
+        });
+
+        themeToggle?.addEventListener("click", () => {
+          const cur = document.documentElement.getAttribute("data-theme") || "dark";
+          setTheme(cur === "dark" ? "light" : "dark");
+          toast("info", "Theme", `Switched to ${cur === "dark" ? "light" : "dark"}.`);
+        });
+
+        const about = document.getElementById("about-dialog");
+        function showAbout() {
+          toolsMenu?.removeAttribute("open");
+          if (about && typeof about.showModal === "function") about.showModal();
+        }
+
+        document.getElementById("about-open")?.addEventListener("click", showAbout);
+        document.getElementById("about-open-menu")?.addEventListener("click", showAbout);
+        document.getElementById("about-close")?.addEventListener("click", () => about?.close());
+      })();
+
+      function fmtBytes(n) {
+        const units = ["B", "KiB", "MiB", "GiB"];
+        let v = n;
+        let i = 0;
+        while (v >= 1024 && i < units.length - 1) {
+          v /= 1024;
+          i++;
+        }
+        return `${v.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+      }
+
+      function setText(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      }
+
+      function cssColor(id, fallback) {
+        const el = document.getElementById(id);
+        if (!el) return fallback;
+        const c = getComputedStyle(el).color;
+        return c && c !== "rgba(0, 0, 0, 0)" ? c : fallback;
+      }
+
+      const history = [];
+      const maxPoints = 90;
+      let lastSample = null;
+
+      async function fetchMetrics() {
+        const res = await fetch("/api/metrics", { cache: "no-store" });
+        if (!res.ok) throw new Error(`metrics HTTP ${res.status}`);
+        return await res.json();
+      }
+
+      function updateHeader(m) {
+        setText("m-active", String(m.active_connections));
+        setText("m-total", String(m.total_connections));
+
+        setText("m-ws-frames", String(m.ws_to_uds.frames));
+        setText("m-uds-frames", String(m.uds_to_ws.frames));
+        setText("m-invalid", String(m.invalid_ws_frames));
+
+        setText("m-ws-bytes", fmtBytes(m.ws_to_uds.bytes));
+        setText("m-uds-bytes", fmtBytes(m.uds_to_ws.bytes));
+        setText("m-decode", String(m.decode_errors));
+
+        const uptimeSec = Math.floor(m.uptime_ms / 1000);
+        const mm = String(Math.floor(uptimeSec / 60)).padStart(2, "0");
+        const ss = String(uptimeSec % 60).padStart(2, "0");
+        document.getElementById("uptime-pill").textContent = `uptime: ${mm}:${ss}`;
+
+        const o = m.hub_observer;
+        if (o) {
+          const state = !o.enabled ? "disabled" : o.connected ? "connected" : "disconnected";
+          setText("o-state", state);
+          setText("o-frames", String(o.rx_frames));
+          setText("o-bytes", fmtBytes(o.rx_bytes));
+          setText("o-decode", String(o.decode_errors));
+          setText("o-attempts", String(o.connect_attempts));
+          setText("o-failures", String(o.connect_failures));
+          setText("o-warps", (o.subscribed_warps || []).join(", ") || "—");
+          setText("o-error", o.last_error ? String(o.last_error).slice(0, 96) : "—");
+        }
+      }
+
+      function updateWarps(m) {
+        if (typeof window.d3 === "undefined") return;
+        const rows = (m.warps || []).slice().sort((a, b) => a.warp_id - b.warp_id);
+        const tbody = d3.select("#warp-rows");
+        const tr = tbody.selectAll("tr").data(rows, (d) => d.warp_id);
+
+        tr.exit().remove();
+
+        const trEnter = tr.enter().append("tr");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "warp_id");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "subscribers");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "publishers");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "last_frame");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "last_epoch");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "last_ts");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "last_state_hash");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "snapshot_count");
+        trEnter.append("td").attr("class", "mono").attr("data-k", "diff_count");
+
+        const merged = trEnter.merge(tr);
+        merged.select('[data-k="warp_id"]').text((d) => d.warp_id);
+        merged.select('[data-k="subscribers"]').text((d) => d.subscribers);
+        merged.select('[data-k="publishers"]').text((d) => d.publishers);
+        merged.select('[data-k="last_frame"]').text((d) => d.last_frame || "—");
+        merged.select('[data-k="last_epoch"]').text((d) => (d.last_epoch == null ? "—" : d.last_epoch));
+        merged.select('[data-k="last_ts"]').text((d) => (d.last_ts == null ? "—" : d.last_ts));
+        merged
+          .select('[data-k="last_state_hash"]')
+          .text((d) => (d.last_state_hash ? d.last_state_hash.slice(0, 16) + "…" : "—"));
+        merged.select('[data-k="snapshot_count"]').text((d) => d.snapshot_count);
+        merged.select('[data-k="diff_count"]').text((d) => d.diff_count);
+      }
+
+      function renderChart() {
+        if (typeof window.d3 === "undefined") return;
+        const container = d3.select("#chart");
+        const w = Math.max(720, container.node().clientWidth || 720);
+        const h = 240;
+        const margin = { top: 10, right: 20, bottom: 26, left: 50 };
+        const innerW = w - margin.left - margin.right;
+        const innerH = h - margin.top - margin.bottom;
+
+        container.selectAll("*").remove();
+        const svg = container
+          .append("svg")
+          .attr("viewBox", `0 0 ${w} ${h}`)
+          .attr("width", "100%")
+          .attr("height", h);
+        const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const x = d3.scaleLinear().domain([0, Math.max(1, history.length - 1)]).range([0, innerW]);
+        const yMax = Math.max(1, d3.max(history, (d) => Math.max(d.wsFps, d.udsFps)) || 1);
+        const y = d3.scaleLinear().domain([0, yMax * 1.1]).range([innerH, 0]).nice();
+
+        const grid = cssColor("probe-grid", "#2b2f36");
+        const wsColor = cssColor("probe-ws", "#6aa0ff");
+        const udsColor = cssColor("probe-uds", "#2ecc71");
+
+        g.append("g")
+          .attr("stroke", grid)
+          .attr("stroke-opacity", 0.5)
+          .selectAll("line.h")
+          .data(y.ticks(5))
+          .join("line")
+          .attr("x1", 0)
+          .attr("x2", innerW)
+          .attr("y1", (d) => y(d))
+          .attr("y2", (d) => y(d));
+
+        g.append("g").attr("transform", `translate(0,${innerH})`).call(d3.axisBottom(x).ticks(6));
+        g.append("g").call(d3.axisLeft(y).ticks(5));
+
+        const line = (key) =>
+          d3
+            .line()
+            .x((d, i) => x(i))
+            .y((d) => y(d[key]));
+
+        g.append("path")
+          .datum(history)
+          .attr("fill", "none")
+          .attr("stroke", wsColor)
+          .attr("stroke-width", 2)
+          .attr("d", line("wsFps"));
+
+        g.append("path")
+          .datum(history)
+          .attr("fill", "none")
+          .attr("stroke", udsColor)
+          .attr("stroke-width", 2)
+          .attr("d", line("udsFps"));
+      }
+
+      function pushSample(m) {
+        const now = performance.now();
+        const wsFrames = m.ws_to_uds.frames;
+        const udsFrames = m.uds_to_ws.frames;
+
+        if (!lastSample) {
+          lastSample = { t: now, wsFrames, udsFrames };
+          return;
+        }
+
+        const dt = Math.max(0.001, (now - lastSample.t) / 1000);
+        const wsFps = (wsFrames - lastSample.wsFrames) / dt;
+        const udsFps = (udsFrames - lastSample.udsFrames) / dt;
+        lastSample = { t: now, wsFrames, udsFrames };
+
+        history.push({ wsFps, udsFps });
+        while (history.length > maxPoints) history.shift();
+      }
+
+      let lastToastAt = 0;
+      let lastOk = null;
+
+      async function tick() {
+        try {
+          const m = await fetchMetrics();
+          updateHeader(m);
+          pushSample(m);
+          updateWarps(m);
+          renderChart();
+
+          const pill = document.getElementById("status-pill");
+          pill.classList.remove("bad");
+          pill.classList.add("ok");
+          pill.textContent = "ok";
+          setText("m-last-update", `last update: ${new Date().toLocaleTimeString()}`);
+
+          if (lastOk === false) {
+            toast("info", "Recovered", "Metrics endpoint is responding again.");
+          }
+          lastOk = true;
+        } catch (err) {
+          const pill = document.getElementById("status-pill");
+          pill.classList.remove("ok");
+          pill.classList.add("bad");
+          pill.textContent = "error";
+          setText("m-last-update", `last update: error (${String(err)})`);
+
+          const now = Date.now();
+          if (now - lastToastAt > 8000) {
+            toast("error", "Metrics error", String(err));
+            lastToastAt = now;
+          }
+          lastOk = false;
+        } finally {
+          setTimeout(tick, 1000);
+        }
+      }
+
+      tick();
+
+      // Load D3 from the gateway so the dashboard works offline (but don't gate
+      // polling on it; header metrics should still render if D3 fails).
+      (function () {
+        const s = document.createElement("script");
+        s.src = "/vendor/d3.v7.min.js";
+        s.onerror = () => console.warn("d3 load failed; charts disabled");
+        document.head.appendChild(s);
+      })();
+    </script>
+  </body>
+</html>

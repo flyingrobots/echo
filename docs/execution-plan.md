@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-01 — Demo 1 follow-up: embedded session dashboard baseline (COMPLETED)
+
+- Goal: keep the “run a binary, open a page” dashboard workflow stable while standardizing styling and keeping docs screenshots honest.
+- Scope:
+  - Serve a static dashboard from `echo-session-ws-gateway` (`/dashboard`) plus `/api/metrics`.
+  - Vendor Open Props CSS into the gateway and serve it under `/vendor/*.css` for offline use.
+  - Add Playwright smoke tests that exercise the dashboard and optionally regenerate the screenshot used in `docs/guide/wvp-demo.md`.
+- Exit criteria: `cargo clippy -p echo-session-ws-gateway --all-targets -- -D warnings` green; `pnpm exec playwright test` green; updated screenshot checked in.
+
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 
 - Goal: complete the WARP View Protocol demo path (publisher + subscriber) by adding outbound publish support to `echo-session-client` and wiring publish/subscribe toggles + a dirty publish loop in `warp-viewer`.

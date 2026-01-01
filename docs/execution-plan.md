@@ -35,12 +35,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2026-01-01 — Demo 1 follow-up: make dashboard smoke tests self-contained (IN PROGRESS)
+> 2026-01-01 — Demo 1 follow-up: make dashboard smoke tests self-contained (COMPLETED)
 
 - Goal: ensure the Playwright “Session Dashboard” smoke test can build and run all required binaries from a clean checkout.
 - Scope:
   - Add a tiny `echo-session-client` example (`publish_pulse`) used by the e2e test to generate deterministic, gapless snapshot+diff traffic.
 - Exit criteria: `pnpm exec playwright test` no longer depends on local stashes / untracked artifacts.
+- Evidence:
+  - `pnpm exec playwright test e2e/session-dashboard.spec.ts` (green)
 
 > 2026-01-01 — Demo 1 follow-up: embedded session dashboard baseline (COMPLETED)
 

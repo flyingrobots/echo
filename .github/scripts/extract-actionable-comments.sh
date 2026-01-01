@@ -103,7 +103,7 @@ jq --arg commit "$HEAD7" '
   def ack_by_reply:
     reduce .[] as $c ({}; if ($c.in_reply_to_id != null and has_ack_marker($c.body)) then .[($c.in_reply_to_id | tostring)] = true else . end);
 
-  ($replies := ack_by_reply) |
+  (ack_by_reply) as $replies |
   [ .[] |
     select(.in_reply_to_id == null and .commit_id[0:7] == $commit) |
     {

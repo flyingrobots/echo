@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-01 — PR #167: deterministic math follow-ups + CodeRabbit actionables (IN PROGRESS)
+
+- Goal: address all CodeRabbit review comments on PR #167 with minimal churn, keep the PR tightly scoped to deterministic math + warp-core motion payload work, and log any determinism-relevant decisions in `docs/decision-log.md`.
+- Scope:
+  - Remove unrelated diff noise (e.g., ws-gateway/dashboard changes) so CodeRabbit feedback stays focused on deterministic math.
+  - Apply warp-core review nits (docs, invariants, casts, magic constants, test assertions).
+  - Resolve the deterministic trig golden mismatch by enforcing exact odd-symmetry for sine and updating the affected vector.
+- Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; CodeRabbit review is “Approved” or has no remaining actionable requests.
+
 > 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
 
 - Goal: move the motion demo payload to a deterministic Q32.32 fixed-point encoding (v2) while preserving decode compatibility for the legacy v0 `f32` payload; port the motion executor to use the `Scalar` abstraction and upgrade v0 payloads to v2 on write.

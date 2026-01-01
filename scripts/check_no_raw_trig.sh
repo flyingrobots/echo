@@ -17,6 +17,12 @@ cd "$ROOT"
 # - trig.rs / trig_lut.rs: the deterministic backend + data
 target_dir="crates/warp-core/src/math"
 
+if [[ ! -d "$target_dir" ]]; then
+  echo "Error: determinism guard target directory not found: $target_dir" >&2
+  echo "If the warp-core math module moved, update scripts/check_no_raw_trig.sh accordingly." >&2
+  exit 1
+fi
+
 if command -v rg >/dev/null 2>&1; then
   matches="$(
     rg -n --no-heading --color never '\.(sin|cos|sin_cos)\(' "$target_dir" \

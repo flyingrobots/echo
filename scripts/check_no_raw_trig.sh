@@ -29,7 +29,7 @@ else
   # CI runners may not have ripgrep installed by default; fall back to `grep`.
   # This is slower than rg but still deterministic and portable.
   matches="$(
-    find "$target_dir" -maxdepth 1 -type f -name '*.rs' \
+    find "$target_dir" -type f -name '*.rs' \
       ! -name 'scalar.rs' ! -name 'trig.rs' ! -name 'trig_lut.rs' -print0 \
       | xargs -0 grep -nE '\.(sin|cos|sin_cos)\(' \
       || true

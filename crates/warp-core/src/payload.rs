@@ -51,6 +51,7 @@ pub fn motion_payload_type_id() -> TypeId {
 /// - `NaN` → `0`
 /// - `+∞`/`-∞` → saturated extrema
 #[inline]
+#[must_use]
 pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V2_BYTES);
     for value in position.into_iter().chain(velocity.into_iter()) {
@@ -67,6 +68,7 @@ pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
 ///
 /// Layout (little-endian): 6 × `f32` = 24 bytes.
 #[inline]
+#[must_use]
 pub fn encode_motion_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V0_BYTES);
     for value in position.into_iter().chain(velocity.into_iter()) {
@@ -80,6 +82,7 @@ pub fn encode_motion_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> Bytes
 /// Layout is identical to [`encode_motion_payload`], but callers supply pre-scaled
 /// Q32.32 raw integers directly.
 #[inline]
+#[must_use]
 pub fn encode_motion_payload_q32_32(position_raw: [i64; 3], velocity_raw: [i64; 3]) -> Bytes {
     let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V2_BYTES);
     for raw in position_raw.into_iter().chain(velocity_raw.into_iter()) {
@@ -177,6 +180,7 @@ fn decode_motion_payload_q32_32_v0(bytes: &Bytes) -> Option<([i64; 3], [i64; 3])
 ///
 /// Returns `None` if the payload does not match either canonical encoding or if any
 /// chunk cannot be converted (invalid input).
+#[must_use]
 pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     if bytes.len() == MOTION_PAYLOAD_V2_BYTES {
         return decode_motion_payload_v2(bytes);
@@ -227,14 +231,6 @@ pub fn decode_motion_atom_payload_q32_32(payload: &AtomPayload) -> Option<([i64;
 )]
 mod tests {
     use super::*;
-
-    fn encode_motion_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
-        let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V0_BYTES);
-        for v in position.into_iter().chain(velocity.into_iter()) {
-            buf.extend_from_slice(&v.to_le_bytes());
-        }
-        Bytes::from(buf)
-    }
 
     #[test]
     fn round_trip_v0_ok() {

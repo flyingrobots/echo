@@ -14,12 +14,6 @@ cargo run -p echo-session-ws-gateway -- \
   --tls-cert cert.pem --tls-key key.pem
 ```
 
-Then open:
-
-- `http://localhost:8787/dashboard` (D3 dashboard)
-- `http://localhost:8787/api/metrics` (JSON metrics)
-- `ws://localhost:8787/ws` (WebSocket endpoint)
-
 ## Features
 
 - Binary WS frames → JS-ABI packets over UDS

@@ -16,6 +16,7 @@ cd "$ROOT"
 # - scalar.rs: the sanctioned wrapper surface
 # - trig.rs / trig_lut.rs: the deterministic backend + data
 target_dir="crates/warp-core/src/math"
+pattern='\\.(sin|cos|sin_cos)[[:space:]]*\\('
 
 if [[ ! -d "$target_dir" ]]; then
   echo "Error: determinism guard target directory not found: $target_dir" >&2
@@ -23,21 +24,41 @@ if [[ ! -d "$target_dir" ]]; then
   exit 1
 fi
 
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: this script must run inside a git work tree (for deterministic file enumeration)." >&2
+  exit 1
+fi
+
+files=()
+while IFS= read -r -d '' path; do
+  case "$path" in
+    *.rs)
+      base="${path##*/}"
+      if [[ "$base" == "scalar.rs" || "$base" == "trig.rs" || "$base" == "trig_lut.rs" ]]; then
+        continue
+      fi
+      files+=("$path")
+      ;;
+  esac
+done < <(git ls-files -z -- "$target_dir")
+
+if [[ ${#files[@]} -eq 0 ]]; then
+  echo "Error: no Rust source files found under $target_dir (did paths change?)" >&2
+  exit 1
+fi
+
 if command -v rg >/dev/null 2>&1; then
   matches="$(
-    rg -n --no-heading --color never '\.(sin|cos|sin_cos)\(' "$target_dir" \
-      --glob '!scalar.rs' \
-      --glob '!trig.rs' \
-      --glob '!trig_lut.rs' \
+    printf '%s\0' "${files[@]}" \
+      | xargs -0 rg -n --no-heading --color never "$pattern" \
       || true
   )"
 else
   # CI runners may not have ripgrep installed by default; fall back to `grep`.
-  # This is slower than rg but still deterministic and portable.
+  # Both lanes use the same `git ls-files` input set to avoid drift.
   matches="$(
-    find "$target_dir" -type f -name '*.rs' \
-      ! -name 'scalar.rs' ! -name 'trig.rs' ! -name 'trig_lut.rs' -print0 \
-      | xargs -0 grep -nE '\.(sin|cos|sin_cos)\(' \
+    printf '%s\0' "${files[@]}" \
+      | xargs -0 grep -nE "$pattern" \
       || true
   )"
 fi
@@ -48,4 +69,8 @@ if [[ -n "$matches" ]]; then
   exit 1
 fi
 
-echo "ok: no raw trig calls found in $target_dir"
+tool="grep"
+if command -v rg >/dev/null 2>&1; then
+  tool="rg"
+fi
+echo "ok: no raw trig calls found in $target_dir (scanned ${#files[@]} files; tool=$tool)"

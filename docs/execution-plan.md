@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
+
+- Goal: prevent WVP demo regressions by pinning protocol invariants (snapshot-first, gapless epochs, authority enforcement) in automated tests.
+- Scope:
+  - Add a `UnixStream::pair()` loopback test for `echo-session-service` that exercises handshake, subscribe, and publish error cases without binding a real UDS path.
+  - Add `warp-viewer` unit tests for publish gating and publish-state transitions (snapshot-first, epoch monotonicity, pending ops clearing).
+- Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; tests document the demo invariants.
+- Tracking: GitHub issue #169.
+
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 
 - Goal: complete the WARP View Protocol demo path (publisher + subscriber) by adding outbound publish support to `echo-session-client` and wiring publish/subscribe toggles + a dirty publish loop in `warp-viewer`.

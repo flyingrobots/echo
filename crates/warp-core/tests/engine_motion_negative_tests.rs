@@ -43,7 +43,11 @@ fn run_motion_once_with_payload(payload: AtomPayload) -> (warp_core::TypeId, [f3
         .expect("register motion rule");
 
     let tx = engine.begin();
-    let _ = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");
+    let res = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");
+    assert!(
+        matches!(res, ApplyResult::Applied),
+        "expected Applied, got {res:?}"
+    );
     engine.commit(tx).expect("commit");
 
     let payload = engine

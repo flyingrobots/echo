@@ -3,7 +3,7 @@
 
 #![allow(missing_docs)]
 
-use std::f32;
+use std::f32::consts::TAU;
 
 use warp_core::math::scalar::F32Scalar;
 use warp_core::math::Scalar;
@@ -101,10 +101,10 @@ fn test_trig_special_cases_golden_bits() {
 
 #[test]
 fn test_trig_outputs_are_canonical_over_sample_range() {
-    let step = f32::consts::TAU / 1024.0;
-    let mut angle: f32 = -f32::consts::TAU;
+    let step = TAU / 1024.0;
+    let mut angle: f32 = -TAU;
 
-    while angle <= f32::consts::TAU {
+    while angle <= TAU {
         let (s, c) = deterministic_sin_cos_f32(angle);
 
         assert_canonical_f32(s);
@@ -139,7 +139,7 @@ fn test_trig_known_angle_golden_bits() {
         // 2pi
         (0x40c9_0fdb, 0x0000_0000, 0x3f80_0000),
         // -pi/8
-        (0xbec9_0fdb, 0xbec3_ef16, 0x3f6c_835e),
+        (0xbec9_0fdb, 0xbec3_ef15, 0x3f6c_835e),
     ];
 
     for (angle_bits, expected_sin_bits, expected_cos_bits) in vectors {
@@ -173,10 +173,10 @@ fn test_sin_cos_error_budget_wip() {
     let mut max_abs: f32 = 0.0;
     let mut worst_angle: f32 = 0.0;
 
-    let step = f32::consts::TAU / 4096.0;
-    let mut angle: f32 = -2.0 * f32::consts::TAU;
+    let step = TAU / 4096.0;
+    let mut angle: f32 = -2.0 * TAU;
 
-    while angle <= 2.0 * f32::consts::TAU {
+    while angle <= 2.0 * TAU {
         let (s, c) = deterministic_sin_cos_f32(angle);
 
         // Reference: f64 trig, then cast down to float32. This is a measurement

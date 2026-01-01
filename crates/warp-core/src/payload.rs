@@ -141,6 +141,9 @@ fn decode_motion_payload_q32_32_v0(bytes: &Bytes) -> Option<([i64; 3], [i64; 3])
 /// - v0: 6 × `f32` little-endian (24 bytes)
 /// - v2: 6 × `i64` Q32.32 little-endian (48 bytes)
 ///
+/// **Note:** This function dispatches by byte length alone. When `type_id` is
+/// available, prefer [`decode_motion_atom_payload`] for unambiguous routing.
+///
 /// Returns `None` if the payload does not match either canonical encoding or if any
 /// chunk cannot be converted (invalid input).
 pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {

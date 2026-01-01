@@ -16,6 +16,30 @@ pub(crate) const FRAC_BITS: u32 = 32;
 #[cfg(feature = "det_fixed")]
 pub(crate) const ONE_RAW: i64 = 1_i64 << FRAC_BITS;
 
+fn round_shift_right_u64(value: u64, shift: u32) -> u64 {
+    if shift == 0 {
+        return value;
+    }
+    if shift >= 64 {
+        return 0;
+    }
+
+    let q = value >> shift;
+    let mask = (1_u64 << shift) - 1;
+    let r = value & mask;
+    let half = 1_u64 << (shift - 1);
+
+    if r > half {
+        q + 1
+    } else if r < half {
+        q
+    } else if (q & 1) == 1 {
+        q + 1
+    } else {
+        q
+    }
+}
+
 fn round_shift_right_u128(value: u128, shift: u32) -> u128 {
     if shift == 0 {
         return value;
@@ -69,7 +93,9 @@ pub(crate) fn from_f32(value: f32) -> i64 {
 
     let bits = value.to_bits();
     let sign = (bits >> 31) != 0;
-    let exp_u8 = u8::try_from((bits >> 23) & 0xff).map_or(0, |v| v);
+    // Masking yields a value in 0..=255.
+    #[allow(clippy::cast_possible_truncation)]
+    let exp_u8 = ((bits >> 23) & 0xff) as u8;
     let exp = i32::from(exp_u8);
     let mant = bits & 0x7fffff;
 
@@ -77,36 +103,37 @@ pub(crate) fn from_f32(value: f32) -> i64 {
         return 0;
     }
 
-    let mantissa: u128 = if exp == 0 {
+    let mantissa: u64 = if exp == 0 {
         // subnormal: exponent is fixed at -126, no implicit 1.
-        u128::from(mant)
+        u64::from(mant)
     } else {
         // normal: implicit leading 1.
-        u128::from((1_u32 << 23) | mant)
+        u64::from((1_u32 << 23) | mant)
     };
-
-    let frac_i32 = i32::try_from(FRAC_BITS).map_or(i32::MAX, |v| v);
 
     // value = mantissa * 2^(exp - 127 - 23)
     // scaled = value * 2^FRAC_BITS = mantissa * 2^(exp - 127 + (FRAC_BITS - 23))
     // For subnormals exp is treated as 1 - 127 = -126.
     let unbiased = if exp == 0 { -126 } else { exp - 127 };
+    #[allow(clippy::cast_possible_wrap)]
+    let frac_i32 = FRAC_BITS as i32;
     let shift = unbiased + (frac_i32 - 23);
 
     // Produce the signed fixed-point raw value, saturating if needed.
     let abs_raw: i128 = if shift >= 0 {
-        let shift_u = u32::try_from(shift).map_or(u32::MAX, |v| v);
+        // `shift` is non-negative in this branch; unsigned_abs preserves the value.
+        let shift_u = shift.unsigned_abs();
         // mantissa is ~24 bits; shifting beyond 103 would exceed i128's range.
         if shift_u > 103 {
             i128::MAX
         } else {
-            let mantissa_i128 = i128::try_from(mantissa).map_or(i128::MAX, |v| v);
-            mantissa_i128 << shift_u
+            i128::from(mantissa) << shift_u
         }
     } else {
-        let rshift = u32::try_from(-shift).map_or(u32::MAX, |v| v);
-        let rounded = round_shift_right_u128(mantissa, rshift);
-        i128::try_from(rounded).map_or(i128::MAX, |v| v)
+        // Safe: shift is negative; `unsigned_abs` handles the i32::MIN case.
+        let rshift = shift.unsigned_abs();
+        let rounded = round_shift_right_u64(mantissa, rshift);
+        i128::from(rounded)
     };
 
     let signed_raw = if sign { -abs_raw } else { abs_raw };
@@ -132,8 +159,10 @@ pub(crate) fn to_f32(raw: i64) -> f32 {
     // If raw's highest set bit is at position k, then:
     // abs ∈ [2^k, 2^(k+1)) and value = abs * 2^-32 has exponent (k - 32).
     let k = 63_u32.saturating_sub(abs.leading_zeros());
-    let frac_i32 = i32::try_from(FRAC_BITS).map_or(i32::MAX, |v| v);
-    let mut exp = i32::try_from(k).map_or(i32::MAX, |v| v) - frac_i32;
+    #[allow(clippy::cast_possible_wrap)]
+    let frac_i32 = FRAC_BITS as i32;
+    #[allow(clippy::cast_possible_wrap)]
+    let mut exp = (k as i32) - frac_i32;
 
     // Build a 24-bit significand (including the implicit leading 1) with
     // ties-to-even rounding, then drop the implicit bit into the mantissa field.
@@ -151,8 +180,10 @@ pub(crate) fn to_f32(raw: i64) -> f32 {
         exp = exp.saturating_add(1);
     }
 
-    let exp_field = u32::try_from(exp + 127).map_or(0, |v| v);
-    let mantissa = u32::try_from(sig & ((1_u128 << 23) - 1)).map_or(0, |v| v);
+    #[allow(clippy::cast_sign_loss)]
+    let exp_field = (exp + 127) as u32;
+    #[allow(clippy::cast_possible_truncation)]
+    let mantissa = (sig & ((1_u128 << 23) - 1)) as u32;
     let bits = (u32::from(sign) << 31) | (exp_field << 23) | mantissa;
     f32::from_bits(bits)
 }

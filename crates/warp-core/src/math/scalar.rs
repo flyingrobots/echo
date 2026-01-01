@@ -348,6 +348,7 @@ impl DFix64 {
     fn div_raw(a: i64, b: i64) -> i64 {
         if b == 0 {
             if a == 0 {
+                // Determinism policy: 0/0 → 0 (not NaN) to preserve integer semantics.
                 return 0;
             }
             return if a.is_negative() { i64::MIN } else { i64::MAX };

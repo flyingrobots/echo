@@ -17,6 +17,16 @@ use core::f32;
 
 use super::trig_lut::{sin_qtr_sample, SIN_QTR_SEGMENTS_F32};
 
+/// Canonicalizes signed zero (`-0.0`) to `+0.0` without affecting non-zero values.
+#[inline]
+pub(crate) fn canonicalize_zero(value: f32) -> f32 {
+    if value == 0.0 {
+        0.0
+    } else {
+        value
+    }
+}
+
 /// Deterministic `sin` and `cos` for `f32` radians.
 ///
 /// - For non-finite inputs (NaN/±∞), returns `(NaN, NaN)` (caller canonicalizes).
@@ -26,7 +36,16 @@ pub(crate) fn sin_cos_f32(angle: f32) -> (f32, f32) {
         return (f32::NAN, f32::NAN);
     }
 
-    let r = angle.rem_euclid(f32::consts::TAU);
+    // Enforce exact symmetry for sine:
+    // - `sin(-x)` must be the exact negation of `sin(x)` bit-for-bit.
+    // - `cos(-x)` must match `cos(x)` bit-for-bit.
+    //
+    // For negative angles, `rem_euclid` would map into `[0, TAU)` near the upper
+    // boundary, changing the interpolation path and potentially introducing a
+    // 1-ULP asymmetry. We avoid that by reducing `abs(angle)` and applying the
+    // sign at the end.
+    let sign_sin = angle.is_sign_negative();
+    let r = angle.abs().rem_euclid(f32::consts::TAU);
 
     // Range-split into quadrants using comparisons to avoid the subtle
     // rounding hazard where `r / (PI/2)` can round up to 4.0 at the top edge.
@@ -43,13 +62,19 @@ pub(crate) fn sin_cos_f32(angle: f32) -> (f32, f32) {
     let s = sin_qtr_interp(a);
     let c = sin_qtr_interp(f32::consts::FRAC_PI_2 - a);
 
-    match quadrant {
+    let (mut s, c) = match quadrant {
         0 => (s, c),
         1 => (c, -s),
         2 => (-s, -c),
         // 3
         _ => (-c, s),
+    };
+
+    if sign_sin {
+        s = -s;
     }
+
+    (canonicalize_zero(s), canonicalize_zero(c))
 }
 
 #[inline]

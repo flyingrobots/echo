@@ -152,6 +152,8 @@ pub(crate) const SIN_QTR_LUT_BITS: [u32; SIN_QTR_SEGMENTS + 1] = [
 ];
 
 /// Looks up a quarter-wave `sin` sample as `f32`.
+///
+/// Valid indices are `0..=SIN_QTR_SEGMENTS`.
 #[inline]
 pub(crate) fn sin_qtr_sample(index: usize) -> f32 {
     debug_assert!(index <= SIN_QTR_SEGMENTS);

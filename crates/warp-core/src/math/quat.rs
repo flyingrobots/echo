@@ -51,16 +51,8 @@ impl Quat {
         let norm_axis = axis.scale(1.0 / len);
         let half = angle * 0.5;
         let (sin_half_raw, cos_half_raw) = trig::sin_cos_f32(half);
-        let sin_half = if sin_half_raw == 0.0 {
-            0.0
-        } else {
-            sin_half_raw
-        };
-        let cos_half = if cos_half_raw == 0.0 {
-            0.0
-        } else {
-            cos_half_raw
-        };
+        let sin_half = trig::canonicalize_zero(sin_half_raw);
+        let cos_half = trig::canonicalize_zero(cos_half_raw);
         let scaled = norm_axis.scale(sin_half);
         Self::new(
             scaled.component(0),

@@ -65,9 +65,7 @@ impl Mat4 {
     /// looking down the +X axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_x(angle: f32) -> Self {
-        let (s_raw, c_raw) = trig::sin_cos_f32(angle);
-        let s = trig::canonicalize_zero(s_raw);
-        let c = trig::canonicalize_zero(c_raw);
+        let (s, c) = trig::sin_cos_f32(angle);
         let ns = trig::canonicalize_zero(-s);
         Self::new([
             1.0, 0.0, 0.0, 0.0, 0.0, c, s, 0.0, 0.0, ns, c, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -80,9 +78,7 @@ impl Mat4 {
     /// looking down the +Y axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_y(angle: f32) -> Self {
-        let (s_raw, c_raw) = trig::sin_cos_f32(angle);
-        let s = trig::canonicalize_zero(s_raw);
-        let c = trig::canonicalize_zero(c_raw);
+        let (s, c) = trig::sin_cos_f32(angle);
         let ns = trig::canonicalize_zero(-s);
         Self::new([
             c, 0.0, ns, 0.0, 0.0, 1.0, 0.0, 0.0, s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -95,9 +91,7 @@ impl Mat4 {
     /// looking down the +Z axis toward the origin. See
     /// [`Mat4::rotation_from_euler`] for the full convention.
     pub fn rotation_z(angle: f32) -> Self {
-        let (s_raw, c_raw) = trig::sin_cos_f32(angle);
-        let s = trig::canonicalize_zero(s_raw);
-        let c = trig::canonicalize_zero(c_raw);
+        let (s, c) = trig::sin_cos_f32(angle);
         let ns = trig::canonicalize_zero(-s);
         Self::new([
             c, s, 0.0, 0.0, ns, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,

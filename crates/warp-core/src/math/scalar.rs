@@ -293,18 +293,14 @@ impl DFix64 {
         self.raw
     }
 
-    #[allow(clippy::option_if_let_else)]
     fn saturate_i128_to_i64(value: i128) -> i64 {
-        match i64::try_from(value) {
-            Ok(v) => v,
-            Err(_) => {
-                if value.is_negative() {
-                    i64::MIN
-                } else {
-                    i64::MAX
-                }
+        i64::try_from(value).unwrap_or_else(|_| {
+            if value.is_negative() {
+                i64::MIN
+            } else {
+                i64::MAX
             }
-        }
+        })
     }
 
     fn saturating_add_raw(a: i64, b: i64) -> i64 {

@@ -34,6 +34,10 @@ pub fn motion_payload_type_id() -> TypeId {
 
 /// Serialises a 3D position + velocity pair into the canonical motion payload.
 ///
+/// **Breaking change from v0:** This function now produces the v2 encoding (48 bytes Q32.32).
+/// Legacy v0 payloads (24 bytes f32) remain readable via [`decode_motion_payload`], but new
+/// writes always use v2.
+///
 /// The canonical format is Q32.32 fixed-point stored as six `i64` values (little-endian).
 /// This provides a stable, cross-platform, cross-language wire encoding even when callers
 /// originate values as `f32`.
@@ -52,6 +56,21 @@ pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
     for value in position.into_iter().chain(velocity.into_iter()) {
         let raw = crate::math::fixed_q32_32::from_f32(value);
         buf.extend_from_slice(&raw.to_le_bytes());
+    }
+    Bytes::from(buf)
+}
+
+/// Serialises a 3D position + velocity pair into the legacy v0 motion payload encoding.
+///
+/// This is retained for compatibility testing and migration tooling. New writes inside
+/// the deterministic runtime should prefer the canonical v2 encoder ([`encode_motion_payload`]).
+///
+/// Layout (little-endian): 6 × `f32` = 24 bytes.
+#[inline]
+pub fn encode_motion_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
+    let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V0_BYTES);
+    for value in position.into_iter().chain(velocity.into_iter()) {
+        buf.extend_from_slice(&value.to_le_bytes());
     }
     Bytes::from(buf)
 }
@@ -77,6 +96,18 @@ pub fn encode_motion_atom_payload(position: [f32; 3], velocity: [f32; 3]) -> Ato
     AtomPayload::new(
         motion_payload_type_id(),
         encode_motion_payload(position, velocity),
+    )
+}
+
+/// Serialises motion data into a typed legacy v0 atom payload (`AtomPayload`).
+///
+/// This produces the legacy 24-byte 6×f32 encoding (`payload/motion/v0`). New writes in the
+/// deterministic runtime should prefer the canonical v2 encoder ([`encode_motion_atom_payload`]).
+#[must_use]
+pub fn encode_motion_atom_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> AtomPayload {
+    AtomPayload::new(
+        motion_payload_type_id_v0(),
+        encode_motion_payload_v0(position, velocity),
     )
 }
 

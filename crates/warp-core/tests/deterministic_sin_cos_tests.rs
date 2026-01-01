@@ -102,9 +102,8 @@ fn test_trig_special_cases_golden_bits() {
 #[test]
 fn test_trig_outputs_are_canonical_over_sample_range() {
     let step = TAU / 1024.0;
-    let mut angle: f32 = -TAU;
-
-    while angle <= TAU {
+    for i in 0..=2048_u32 {
+        let angle = -TAU + (i as f32) * step;
         let (s, c) = deterministic_sin_cos_f32(angle);
 
         assert_canonical_f32(s);
@@ -114,8 +113,6 @@ fn test_trig_outputs_are_canonical_over_sample_range() {
             assert!(!s.is_nan(), "sin must be finite for finite angle={angle}");
             assert!(!c.is_nan(), "cos must be finite for finite angle={angle}");
         }
-
-        angle += step;
     }
 }
 

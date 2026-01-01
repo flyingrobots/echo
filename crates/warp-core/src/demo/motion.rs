@@ -264,11 +264,7 @@ mod tests {
     }
 
     fn encode_motion_payload_v0_bytes(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
-        let mut buf = Vec::with_capacity(24);
-        for v in position.into_iter().chain(velocity.into_iter()) {
-            buf.extend_from_slice(&v.to_le_bytes());
-        }
-        Bytes::from(buf)
+        crate::payload::encode_motion_payload_v0(position, velocity)
     }
 
     #[test]

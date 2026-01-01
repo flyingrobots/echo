@@ -13,9 +13,11 @@
 //! - linearly interpolate between adjacent samples
 //! - apply quadrant symmetries to reconstruct full-wave `sin` and `cos`
 
-use core::f32;
+use core::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use super::trig_lut::{sin_qtr_sample, SIN_QTR_SEGMENTS_F32};
+
+const FRAC_3PI_2: f32 = 3.0 * FRAC_PI_2;
 
 /// Canonicalizes signed zero (`-0.0`) to `+0.0` without affecting non-zero values.
 #[inline]
@@ -45,22 +47,22 @@ pub(crate) fn sin_cos_f32(angle: f32) -> (f32, f32) {
     // 1-ULP asymmetry. We avoid that by reducing `abs(angle)` and applying the
     // sign at the end.
     let sign_sin = angle.is_sign_negative();
-    let r = angle.abs().rem_euclid(f32::consts::TAU);
+    let r = angle.abs().rem_euclid(TAU);
 
     // Range-split into quadrants using comparisons to avoid the subtle
     // rounding hazard where `r / (PI/2)` can round up to 4.0 at the top edge.
-    let (quadrant, a) = if r < f32::consts::FRAC_PI_2 {
+    let (quadrant, a) = if r < FRAC_PI_2 {
         (0_u8, r)
-    } else if r < f32::consts::PI {
-        (1_u8, r - f32::consts::FRAC_PI_2)
-    } else if r < (3.0 * f32::consts::FRAC_PI_2) {
-        (2_u8, r - f32::consts::PI)
+    } else if r < PI {
+        (1_u8, r - FRAC_PI_2)
+    } else if r < FRAC_3PI_2 {
+        (2_u8, r - PI)
     } else {
-        (3_u8, r - (3.0 * f32::consts::FRAC_PI_2))
+        (3_u8, r - FRAC_3PI_2)
     };
 
     let s = sin_qtr_interp(a);
-    let c = sin_qtr_interp(f32::consts::FRAC_PI_2 - a);
+    let c = sin_qtr_interp(FRAC_PI_2 - a);
 
     let (mut s, c) = match quadrant {
         0 => (s, c),
@@ -81,11 +83,11 @@ pub(crate) fn sin_cos_f32(angle: f32) -> (f32, f32) {
 fn sin_qtr_interp(angle_qtr: f32) -> f32 {
     // `angle_qtr` should always be within [0, PI/2] here, but keep behavior
     // defined even if upstream range reduction changes.
-    if !(0.0..=f32::consts::FRAC_PI_2).contains(&angle_qtr) {
+    if !(0.0..=FRAC_PI_2).contains(&angle_qtr) {
         return f32::NAN;
     }
 
-    let t = angle_qtr * SIN_QTR_SEGMENTS_F32 / f32::consts::FRAC_PI_2;
+    let t = angle_qtr * SIN_QTR_SEGMENTS_F32 / FRAC_PI_2;
 
     if t >= SIN_QTR_SEGMENTS_F32 {
         // Inclusive endpoint (PI/2) maps to exactly 1.0.

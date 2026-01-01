@@ -50,9 +50,7 @@ impl Quat {
         let len = len_sq.sqrt();
         let norm_axis = axis.scale(1.0 / len);
         let half = angle * 0.5;
-        let (sin_half_raw, cos_half_raw) = trig::sin_cos_f32(half);
-        let sin_half = trig::canonicalize_zero(sin_half_raw);
-        let cos_half = trig::canonicalize_zero(cos_half_raw);
+        let (sin_half, cos_half) = trig::sin_cos_f32(half);
         let scaled = norm_axis.scale(sin_half);
         Self::new(
             scaled.component(0),

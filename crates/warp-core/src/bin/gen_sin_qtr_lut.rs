@@ -12,16 +12,17 @@
 //! - The checked-in table is the source of truth for determinism; this tool is
 //!   purely for maintenance and review.
 
-use std::f64;
+use std::f64::consts::FRAC_PI_2;
 
 fn main() {
+    // MUST match `warp_core::math::trig_lut::SIN_QTR_SEGMENTS` (currently 1024).
     const SEGMENTS: usize = 1024;
     const N: usize = SEGMENTS + 1;
     let mut bits: [u32; N] = [0; N];
 
     let denom = SEGMENTS as f64;
     for (i, slot) in bits.iter_mut().enumerate() {
-        let a = (i as f64) * (f64::consts::FRAC_PI_2) / denom;
+        let a = (i as f64) * FRAC_PI_2 / denom;
         let s = a.sin();
         let f = s as f32;
         *slot = f.to_bits();

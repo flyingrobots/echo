@@ -39,7 +39,7 @@ Implementations of `Eq` for floating-point types **must** be reflexive.
 An audit of `warp-core` identified the following risks:
 
 *   **Hardware Transcendentals:** `F32Scalar::sin/cos` previously delegated to `f32::sin/cos`. **Risk:** High (varies across libc/hardware implementations).
-  *   *Status:* Implemented deterministic LUT-backed trig in `warp_core::math::trig` (Issue #115).
+  *   *Status:* Implemented deterministic LUT-backed trig in `warp_core::math::trig` (Issue #107).
 *   **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
   *   *Risk:* Subnormal handling (DAZ/FTZ) depends on CPU flags.
   *   *Status:* `F32Scalar::new` flushes subnormals to `+0.0` at construction and after operations.

@@ -43,7 +43,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Apply warp-core review nits (docs, invariants, casts, magic constants, test assertions).
   - Resolve the deterministic trig golden mismatch by enforcing exact odd-symmetry for sine and updating the affected vector.
 - Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; CodeRabbit review is “Approved” or has no remaining actionable requests.
-- Evidence (local): commits `cf46533`, `834beca`, `5b410f1`, `c95e5d2`; `cargo test -p warp-core` + `--features det_fixed` green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` + `--features det_fixed` green. Next: push branch updates and wait for CodeRabbit re-review on PR #167.
+- Evidence (local): commits `cf46533`, `834beca`, `975fb76`, `30896c4`, `1f5215c`; `cargo test -p warp-core` + `--features det_fixed` green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` + `--features det_fixed` green. Next: push updates and wait for CodeRabbit re-review on PR #167 (reviewDecision currently “CHANGES_REQUESTED”).
 
 > 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
 

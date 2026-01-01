@@ -16,7 +16,9 @@ cd "$ROOT"
 # - scalar.rs: the sanctioned wrapper surface
 # - trig.rs / trig_lut.rs: the deterministic backend + data
 target_dir="crates/warp-core/src/math"
-pattern='\\.(sin|cos|sin_cos)[[:space:]]*\\('
+# Match method calls like `.sin(`, allowing optional whitespace before the `(`.
+# Use explicit character classes to keep the regex compatible across `rg` and `grep`.
+pattern='[.](sin|cos|sin_cos)[[:space:]]*[(]'
 
 if [[ ! -d "$target_dir" ]]; then
   echo "Error: determinism guard target directory not found: $target_dir" >&2
@@ -48,19 +50,25 @@ if [[ ${#files[@]} -eq 0 ]]; then
 fi
 
 if command -v rg >/dev/null 2>&1; then
-  matches="$(
-    printf '%s\0' "${files[@]}" \
-      | xargs -0 rg -n --no-heading --color never "$pattern" \
-      || true
-  )"
+  set +e
+  matches="$(rg -n --no-heading --color never "$pattern" -- "${files[@]}")"
+  status=$?
+  set -e
+  if [[ $status -gt 1 ]]; then
+    echo "$matches" >&2
+    exit $status
+  fi
 else
   # CI runners may not have ripgrep installed by default; fall back to `grep`.
   # Both lanes use the same `git ls-files` input set to avoid drift.
-  matches="$(
-    printf '%s\0' "${files[@]}" \
-      | xargs -0 grep -nE "$pattern" \
-      || true
-  )"
+  set +e
+  matches="$(grep -nE "$pattern" -- "${files[@]}")"
+  status=$?
+  set -e
+  if [[ $status -gt 1 ]]; then
+    echo "$matches" >&2
+    exit $status
+  fi
 fi
 
 if [[ -n "$matches" ]]; then

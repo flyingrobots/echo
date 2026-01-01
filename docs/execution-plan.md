@@ -43,6 +43,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Add `warp-viewer` unit tests for publish gating and publish-state transitions (snapshot-first, epoch monotonicity, pending ops clearing).
 - Exit criteria: `cargo test --workspace` + `cargo clippy --workspace --all-targets -- -D warnings -D missing_docs` green; tests document the demo invariants.
 - Tracking: GitHub issue #169.
+- Evidence:
+  - PR #175 (loopback tests + publish behavior pinned; follow-up hardening for defensive test checks)
 
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 

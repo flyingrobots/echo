@@ -449,6 +449,10 @@ mod tests {
         app.wvp.snapshot_published = true;
         app.wvp.publish_epoch = 12;
 
+        assert!(
+            !app.viewer.wire_graph.nodes.is_empty(),
+            "App::new must construct a non-empty sample wire graph for publish tests"
+        );
         let node_id = app.viewer.wire_graph.nodes[0].id;
         app.wvp.pending_ops.push(WarpOp::UpdateNode {
             id: node_id,

@@ -102,7 +102,8 @@ mod tests {
         let mut header = [0u8; 12];
         reader.read_exact(&mut header).await.expect("read header");
         let len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
-        let mut rest = vec![0u8; len + 32];
+        let rest_len = len.checked_add(32).expect("packet length overflow");
+        let mut rest = vec![0u8; rest_len];
         reader
             .read_exact(&mut rest)
             .await

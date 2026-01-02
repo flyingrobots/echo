@@ -155,6 +155,13 @@ make spec-000-dev
 - Echo is docs‑driven: behavior changes should be reflected in specs and logged in `docs/decision-log.md`.
 - Determinism is sacred: avoid wall‑clock time, uncontrolled randomness, and unspecified iteration order.
 
+## Workflows
+
+Echo has a few “official workflows” (policy + blessed scripts/entrypoints), documented here:
+
+- [`docs/workflows.md`](docs/workflows.md) — contributor playbook (PR policy, docs guard, `cargo xtask`, scheduled automations)
+- [`docs/dependency-dags.md`](docs/dependency-dags.md) — issue + milestone dependency DAGs (DOT/SVG) and how to regenerate them
+
 ---
 
 ## License

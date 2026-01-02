@@ -380,3 +380,105 @@ impl App {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use echo_graph::{NodeData, NodeDataPatch, WarpOp};
+    use echo_session_proto::Message;
+
+    #[test]
+    fn publish_disabled_sends_nothing() {
+        let mut app = App::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.session.set_sender(tx);
+
+        app.wvp.publish_enabled = false;
+        app.publish_wvp(Instant::now());
+
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn publish_sends_snapshot_once_then_waits_for_ops() {
+        let mut app = App::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.session.set_sender(tx);
+
+        app.ui.warp_id = 7;
+        app.wvp.publish_enabled = true;
+        app.wvp.snapshot_published = false;
+        app.wvp.publish_epoch = 0;
+        app.wvp.pending_ops.push(WarpOp::RemoveNode { id: 999 });
+
+        app.publish_wvp(Instant::now());
+
+        let msg = rx.try_recv().expect("snapshot message sent");
+        match msg {
+            Message::WarpStream { warp_id, frame } => {
+                assert_eq!(warp_id, 7);
+                match frame {
+                    echo_graph::WarpFrame::Snapshot(snap) => {
+                        assert_eq!(snap.epoch, 0);
+                    }
+                    other => panic!("expected snapshot, got {:?}", other),
+                }
+            }
+            other => panic!("expected warp stream, got {:?}", other),
+        }
+
+        assert!(app.wvp.snapshot_published);
+        assert!(
+            app.wvp.pending_ops.is_empty(),
+            "snapshot clears pending ops"
+        );
+
+        // With no pending ops, another call should not send anything.
+        app.publish_wvp(Instant::now());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn publish_sends_diff_and_advances_epoch() {
+        let mut app = App::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.session.set_sender(tx);
+
+        app.ui.warp_id = 9;
+        app.wvp.publish_enabled = true;
+        app.wvp.snapshot_published = true;
+        app.wvp.publish_epoch = 12;
+
+        assert!(
+            !app.viewer.wire_graph.nodes.is_empty(),
+            "App::new must construct a non-empty sample wire graph for publish tests"
+        );
+        let node_id = app.viewer.wire_graph.nodes[0].id;
+        app.wvp.pending_ops.push(WarpOp::UpdateNode {
+            id: node_id,
+            data: NodeDataPatch::Replace(NodeData { raw: vec![1, 2, 3] }),
+        });
+
+        app.publish_wvp(Instant::now());
+
+        let msg = rx.try_recv().expect("diff message sent");
+        match msg {
+            Message::WarpStream { warp_id, frame } => {
+                assert_eq!(warp_id, 9);
+                match frame {
+                    echo_graph::WarpFrame::Diff(diff) => {
+                        assert_eq!(diff.from_epoch, 12);
+                        assert_eq!(diff.to_epoch, 13);
+                        assert_eq!(diff.ops.len(), 1);
+                    }
+                    other => panic!("expected diff, got {:?}", other),
+                }
+            }
+            other => panic!("expected warp stream, got {:?}", other),
+        }
+
+        assert_eq!(app.wvp.publish_epoch, 13);
+        assert!(app.wvp.pending_ops.is_empty(), "diff clears pending ops");
+        assert_eq!(app.viewer.epoch, Some(13));
+    }
+}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-use crate::math::{Mat4, Vec3, EPSILON};
+use crate::math::{trig, Mat4, Vec3, EPSILON};
 
 /// Quaternion stored as `(x, y, z, w)` with deterministic float32 rounding.
 ///
@@ -50,7 +50,7 @@ impl Quat {
         let len = len_sq.sqrt();
         let norm_axis = axis.scale(1.0 / len);
         let half = angle * 0.5;
-        let (sin_half, cos_half) = half.sin_cos();
+        let (sin_half, cos_half) = trig::sin_cos_f32(half);
         let scaled = norm_axis.scale(sin_half);
         Self::new(
             scaled.component(0),

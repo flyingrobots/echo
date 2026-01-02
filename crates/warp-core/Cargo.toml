@@ -26,6 +26,7 @@ rustc-hash = "2.1.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 proptest = { version = "1.5" }
+libm = "0.2"
 
 [features]
 default = []
@@ -33,6 +34,12 @@ default = []
 # freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
 golden_prng = []
 telemetry = ["serde", "serde_json", "hex"]
+
+# Scalar backend lanes (CI/test orchestration).
+# - `det_float`: default float32-backed lane using `F32Scalar`.
+# - `det_fixed`: fixed-point Q32.32 lane using `DFix64` (experimental, test-only).
+det_float = []
+det_fixed = []
 
 [build-dependencies]
 blake3 = "1.0"

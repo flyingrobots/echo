@@ -124,7 +124,7 @@ Let:
 
 Independent of k! ✅
 
-**Vec<Footprint>-based (old):**
+**`Vec<Footprint>`-based (old):**
 - Best case (factor_mask filter): **O(k)**
 - Average case: **O(k × m)**
 - Worst case: **O(k × m)**
@@ -167,7 +167,7 @@ GenSet uses `FxHashMap`:
 
 **Reality so far:**
 - This test suggests roughly linear-ish scaling in m but is too noisy to confirm complexity or speedup magnitude.
-- No direct measurement against the previous Vec<Footprint> baseline yet.
+- No direct measurement against the previous `Vec<Footprint>` baseline yet.
 - Independence from k is by algorithm design, not directly benchmarked here.
 
 **Honest Assessment:**
@@ -193,7 +193,7 @@ GenSet uses `FxHashMap`:
 ## What's Still Missing
 
 1. **Direct Performance Comparison**
-   - Need benchmark of old Vec<Footprint> approach vs new GenSet approach
+   - Need benchmark of old `Vec<Footprint>` approach vs new GenSet approach
    - Currently only have theoretical analysis
    - Claim is "10-100x faster" but not empirically validated
 

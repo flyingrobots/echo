@@ -6,6 +6,7 @@
 
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
+| 2026-01-02 | Docs tooling: VitePress upgrade | Upgrade the pinned docs site generator from `vitepress@0.1.1` to a modern stable VitePress release, and update docs/tooling notes so contributors use a supported Node version. | The current VitePress pin is too old to run on modern Node (e.g., Node 25 breaks old `fs.rmdir({ recursive: true })` usage). | `pnpm docs:build` and `pnpm docs:dev` become reliable for contributors on current Node toolchains; docs link hygiene remains enforceable. |
 | 2026-01-02 | Deterministic trig audit oracle (issue #177) | Replace the ignored trig “error budget” test’s platform-libm reference with a deterministic oracle using the pure-Rust `libm` crate, and pin explicit thresholds (max abs error vs f64 oracle + max ULP vs f32-rounded oracle for |ref| ≥ 0.25). | Cross-platform determinism requires that CI measurements never depend on host libc/libm behavior. Separating absolute-error budgeting (good near zero) from a gated ULP budget (meaningful away from zero) yields stable, interpretable guardrails for the LUT-backed trig backend. | The trig audit test is no longer `#[ignore]` and runs in CI; changes to the trig backend that worsen accuracy will fail fast with a concrete pinned budget. |
 | 2026-01-01 | Paper VI + roadmap hygiene (issue #180) | Add and maintain a Capability Ownership Matrix doc as a first-class artifact, alongside time-travel determinism notes, to keep ownership/determinism/provenance boundaries explicit. | As Echo grows, “who owns what” drifts silently; writing it down early prevents nondeterminism from leaking into the kernel and keeps tool/replay requirements grounded. | Future design and implementation work references the matrix for boundary decisions; specs and tooling tasks can be triaged against explicit determinism/provenance expectations. |
 | 2026-01-01 | WVP demo hardening: review nits follow-up | Demo 1 — Tighten loopback/publish tests to be defensively correct (overflow-safe packet sizing and explicit non-empty graph assertion) in response to CodeRabbit review feedback. | Even test-only code should not encode obvious footguns (unchecked `len + 32`) or rely on undocumented invariants without asserting them. | The test suite remains robust under adversarial framing and continues to document WVP demo assumptions explicitly. |
@@ -259,7 +260,7 @@ The following entries use a heading + bullets format for richer context.
 ## 2025-11-02 — PR-12: benches constants + documentation
 
 - Context: Pedantic review flagged magic strings, ambiguous labels, and unclear throughput semantics in benches.
-- Decision: Extract constants for ids/types; clarify edge ids as `<from>-to-<to>`; switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; retain blake3 exact patch pin `=1.8.2` with trimmed features to stay consistent with CI policy.
+- Decision: Extract constants for ids/types; clarify edge ids as ``<from>-to-<to>`` (in docs/code); switch `snapshot_hash` to `iter_batched`; add module-level docs and comments on throughput and BatchSize; retain blake3 exact patch pin `=1.8.2` with trimmed features to stay consistent with CI policy.
 - Rationale: Improve maintainability and readability while keeping dependency policy coherent and deterministic.
 - Consequence: Benches read as executable docs; CI docs guard updated accordingly.
 
@@ -309,7 +310,7 @@ The following entries use a heading + bullets format for richer context.
 - Decisions:
   - Makefile: portable opener detection (open/xdg-open/powershell) for `bench-open`/`bench-report`.
   - Added `scheduler_adversarial` Criterion bench exercising FxHashMap under forced collisions vs random keys; added `rustc-hash` to benches dev-deps.
-  - Introduced pluggable scheduler selection (`SchedulerKind`: Radix vs Legacy) with Radix default; Legacy path retains BTreeMap drain + Vec<Footprint> independence for apples-to-apples comparisons.
+  - Introduced pluggable scheduler selection (`SchedulerKind`: Radix vs Legacy) with Radix default; Legacy path retains BTreeMap drain + `Vec<Footprint>` independence for apples-to-apples comparisons.
   - Added sandbox helpers (`EchoConfig`, `build_engine`, `run_pair_determinism`) for spinning up isolated Echo instances and per-step Radix vs Legacy determinism checks.
   - Documentation clarifications: collision-risk assumption and follow-up note in `docs/scheduler-reserve-complexity.md`; softened reserve validation claims and merge gating for the “10–100x” claim in `docs/scheduler-reserve-validation.md`; fixed radix note fences and `RewriteThin.handle` doc to `usize`.
   - warp-math: documented \DPO macro parameters; fixed `warp-rulial-distance.tex` date to be deterministic.

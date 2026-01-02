@@ -65,7 +65,7 @@ Hash: blake3(encoding) → 32-byte digest.
 
 Header fields (v2):
 - version: u16 = 2
-- parents: Vec<Hash> (length u64 LE, then each 32-byte hash). Genesis commits
+- parents: `Vec<Hash>` (length u64 LE, then each 32-byte hash). Genesis commits
   have zero parents (length = 0).
 - state_root: 32 bytes (from section 1)
 - patch_digest: 32 bytes (digest of the tick patch boundary delta)

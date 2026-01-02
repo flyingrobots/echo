@@ -74,7 +74,7 @@ reserve(tx, pending_rewrite):
 3. **Counting the Loops:** 12 total (6 conflict checks, 6 marks), each over disjoint footprint subsets.
 4. **Follow-up:** Add adversarial-collision benchmarks and evaluate collision-resistant hashers before claiming worst-case O(1) in production.
 
-## Previous Implementation (Vec<Footprint>-based)
+## Previous Implementation (`Vec<Footprint>`-based)
 
 ### Code Structure
 ```
@@ -116,7 +116,7 @@ independent(a, b):
 
 ## Comparison
 
-| Metric | GenSet (New) | Vec<Footprint> (Old) |
+| Metric | GenSet (New) | `Vec<Footprint>` (Old) |
 |--------|--------------|----------------------|
 | **Best Case** | O(1) (early conflict) | O(k) (factor_mask filter) |
 | **Avg Case** | O(m) | O(k × m) |

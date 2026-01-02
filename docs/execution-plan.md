@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Docs tooling: upgrade VitePress (IN PROGRESS)
+
+- Goal: make the docs site build reliably on modern Node by upgrading the pinned VitePress version (currently `vitepress@0.1.1`).
+- Scope:
+  - Upgrade `vitepress` dependency and regenerate the lockfile.
+  - Keep docs config compatible; fix any breaking changes in `docs/.vitepress/config.ts`.
+  - Verify `pnpm docs:build` works (and `pnpm docs:dev` starts) on a modern Node.
+- Exit criteria: `pnpm docs:build` is green; docs tooling requirements are documented; PR opened and linked to an issue.
+
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
 - Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.

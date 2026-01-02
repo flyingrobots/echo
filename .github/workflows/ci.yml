@@ -42,6 +42,23 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets -- -D warnings -D missing_docs
 
+  clippy-det-fixed:
+    name: Clippy (det_fixed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo clippy (warp-core, det_fixed)
+        run: cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs
+
   test:
     name: Tests
     runs-on: ubuntu-latest
@@ -79,6 +96,70 @@ jobs:
       # (wasm-bindgen/js-sys) and warp-ffi has separate cross-compilation concerns.
       - name: cargo test (warp-core, musl)
         run: cargo test -p warp-core --target x86_64-unknown-linux-musl
+
+  test-macos:
+    name: Tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo test (warp-core)
+        run: cargo test -p warp-core
+
+  test-macos-det-fixed:
+    name: Tests (macOS, det_fixed)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo test (warp-core, det_fixed)
+        run: cargo test -p warp-core --features det_fixed
+
+  test-det-fixed:
+    name: Tests (det_fixed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo test (warp-core, det_fixed)
+        run: cargo test -p warp-core --features det_fixed
+
+  test-musl-det-fixed:
+    name: Tests (musl, det_fixed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo test (warp-core, musl, det_fixed)
+        run: cargo test -p warp-core --features det_fixed --target x86_64-unknown-linux-musl
 
   docs:
     name: Docs Guard
@@ -158,6 +239,23 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/tests/check_task_lists_test.sh
+
+  deterministic-math-guard:
+    name: Deterministic Math Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Forbid raw trig in warp-core math
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/check_no_raw_trig.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
 
   # MSRV job removed per policy: use @stable everywhere
 

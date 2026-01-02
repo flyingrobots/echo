@@ -38,17 +38,46 @@ Implementations of `Eq` for floating-point types **must** be reflexive.
 
 An audit of `warp-core` identified the following risks:
 
-*   **Hardware Transcendentals:** `F32Scalar::sin/cos` currently delegate to `f32::sin/cos`. **Risk:** High. These vary across libc/hardware implementations.
-    *   *Action:* Replace with deterministic software implementation (Issue #115).
+*   **Hardware Transcendentals:** `F32Scalar::sin/cos` previously delegated to `f32::sin/cos`. **Risk:** High (varies across libc/hardware implementations).
+  *   *Status:* Implemented deterministic LUT-backed trig in `warp_core::math::trig` (Issue #107).
 *   **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
-    *   *Risk:* Subnormal handling (DAZ/FTZ) depends on CPU flags.
-    *   *Action:* `F32Scalar::new` (result wrapper) needs to explicitly flush subnormals.
+  *   *Risk:* Subnormal handling (DAZ/FTZ) depends on CPU flags.
+  *   *Status:* `F32Scalar::new` flushes subnormals to `+0.0` at construction and after operations.
 *   **NaN Propagation:** `f32` ops produce hardware-specific NaN payloads.
-    *   *Action:* `F32Scalar::new` must sanitize NaNs.
+  *   *Status:* `F32Scalar::new` canonicalizes NaNs to `0x7fc0_0000`.
 
 ## 4. Implementation Checklist
 
 - [x] Canonicalize `-0.0` to `+0.0` (PR #123).
-- [ ] Canonicalize `NaN` payloads (Planned).
-- [ ] Flush subnormals to `+0.0` (Planned).
-- [ ] Replace `sin`/`cos` with deterministic approximation (Planned).
+- [x] Canonicalize `NaN` payloads (`F32Scalar::new`).
+- [x] Flush subnormals to `+0.0` (`F32Scalar::new`).
+- [x] Replace `sin`/`cos` with deterministic approximation (`warp_core::math::trig` LUT backend).
+
+## 5. Local Validation (CI parity)
+
+Echo’s deterministic-math CI lanes are intentionally “boring”: they run the same commands you
+should run locally before proposing changes to scalar backends or transcendentals.
+
+### Default lane (`det_float`)
+
+The default `warp-core` build uses the float32-backed lane (`F32Scalar`) and the deterministic
+trig backend (`warp_core::math::trig`).
+
+- `cargo test -p warp-core`
+- `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs`
+
+### Fixed-point lane (`det_fixed`)
+
+`DFix64` (Q32.32) is currently feature-gated so we can evolve it without destabilizing the
+default runtime surface.
+
+- `cargo test -p warp-core --features det_fixed`
+- `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs`
+
+### MUSL (Linux portability lane)
+
+CI also runs `warp-core` under MUSL to catch portability and toolchain drift.
+
+- Install: `sudo apt-get update && sudo apt-get install -y musl-tools`
+- Test (float lane): `cargo test -p warp-core --target x86_64-unknown-linux-musl`
+- Test (fixed lane): `cargo test -p warp-core --features det_fixed --target x86_64-unknown-linux-musl`

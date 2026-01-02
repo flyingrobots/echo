@@ -89,7 +89,8 @@ pub use ident::{
 /// Motion payload encoding/decoding helpers.
 pub use payload::{
     decode_motion_atom_payload, decode_motion_payload, encode_motion_atom_payload,
-    encode_motion_payload, motion_payload_type_id,
+    encode_motion_atom_payload_v0, encode_motion_payload, encode_motion_payload_q32_32,
+    encode_motion_payload_v0, motion_payload_type_id, motion_payload_type_id_v0,
 };
 /// Tick receipts for deterministic commits (accepted vs rejected rewrites).
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};

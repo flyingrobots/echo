@@ -6,8 +6,9 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config as PropConfig, RngAlgorithm, TestRng, TestRunner};
 
 use warp_core::{
-    decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
-    ApplyResult, AttachmentValue, Engine, GraphStore, NodeRecord, MOTION_RULE_NAME,
+    decode_motion_atom_payload, decode_motion_payload, encode_motion_atom_payload,
+    encode_motion_payload, make_node_id, make_type_id, ApplyResult, AttachmentValue, Engine,
+    GraphStore, NodeRecord, MOTION_RULE_NAME,
 };
 
 // Demonstrates how to pin a deterministic seed for property tests so failures
@@ -67,10 +68,22 @@ fn proptest_seed_pinned_motion_updates() {
             };
             let (new_pos, new_vel) = decode_motion_atom_payload(payload).expect("decode");
 
-            // Velocity is preserved; position += vel * dt (dt = 1.0).
+            // Payloads are canonicalized to Q32.32 at the boundary, so the effective
+            // inputs and outputs are the fixed-point quantized values.
+            let (pos_q, vel_q) = decode_motion_payload(&encode_motion_payload(pos, vel))
+                .expect("encode/decode canonical inputs");
+            let updated_pos = [
+                pos_q[0] + vel_q[0],
+                pos_q[1] + vel_q[1],
+                pos_q[2] + vel_q[2],
+            ];
+            let (expected_pos, expected_vel) =
+                decode_motion_payload(&encode_motion_payload(updated_pos, vel_q))
+                    .expect("encode/decode canonical outputs");
+
             for i in 0..3 {
-                prop_assert_eq!(new_vel[i].to_bits(), vel[i].to_bits());
-                prop_assert_eq!(new_pos[i].to_bits(), (pos[i] + vel[i]).to_bits());
+                prop_assert_eq!(new_vel[i].to_bits(), expected_vel[i].to_bits());
+                prop_assert_eq!(new_pos[i].to_bits(), expected_pos[i].to_bits());
             }
             Ok(())
         })

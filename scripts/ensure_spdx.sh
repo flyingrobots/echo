@@ -43,7 +43,7 @@ should_skip() {
   [[ ! -f "$f" ]] && return 0
   
   case "$f" in
-        target/*|node_modules/*|vendor/*|docs/benchmarks/vendor/*|dist/*|.cache/*) return 0 ;;
+        target/*|node_modules/*|vendor/*|docs/benchmarks/vendor/*|crates/*/assets/vendor/*|dist/*|.cache/*) return 0 ;;
         .git/*|.idea/*|.vscode/*|.DS_Store) return 0 ;;
         *.png|*.jpg|*.jpeg|*.gif|*.webp|*.svg|*.ico|*.pdf|*.woff|*.woff2|*.ttf|*.eot|*.map) return 0 ;;
         *.lock|package-lock.json|yarn.lock|Cargo.lock) return 0 ;;

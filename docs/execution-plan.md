@@ -45,6 +45,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Run the tool against at least one PR to confirm output format and any required auth/config.
 - Exit criteria: documented “how to run” steps for the tool; confidence that we can repeatably extract issues from PR comments for subsequent PRs.
 
+> 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
+
+- Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.
+- Scope:
+  - Use a pure-Rust oracle (`libm`) so the reference is not host libc/libm dependent.
+  - Measure both:
+    - absolute error vs the f64 oracle (robust near zero),
+    - ULP distance vs the f32-rounded oracle (applied only when |ref| ≥ 0.25 so ULPs remain meaningful).
+  - Remove the repo-root scratchpad `freaky_numbers.rs` if it is not used by any crate/tests.
+- Exit criteria: `cargo test -p warp-core --test deterministic_sin_cos_tests` is green with the audit test enabled by default; budgets are documented in `docs/decision-log.md`.
+- Tracking: GitHub issue #177.
+
 > 2026-01-01 — Issue #180: Paper VI notes + capability matrix (IN PROGRESS)
 
 - Goal: turn “Pulse” time/determinism/tooling insights into durable artifacts (Paper VI notes + a crisp ownership matrix for Echo).
@@ -62,6 +74,30 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Add a helper script `.github/scripts/extract-actionable-comments.sh` to automate review comment bucketing and produce a Markdown report.
 - Exit criteria: a contributor can run one command and get a clean actionables list without re-reading the entire PR history.
 
+> 2026-01-01 — T2 (#168): embedded session dashboard baseline (COMPLETED)
+
+- Goal: keep the “run a binary, open a page” dashboard workflow stable while standardizing styling and keeping docs screenshots honest.
+- Scope:
+  - Serve a static dashboard from `echo-session-ws-gateway` (`/dashboard`) plus `/api/metrics`.
+  - Vendor Open Props CSS into the gateway and serve it under `/vendor/*.css` for offline use.
+  - Add Playwright smoke tests that exercise the dashboard and optionally regenerate the screenshot used in `docs/guide/wvp-demo.md`.
+- Exit criteria: `cargo clippy -p echo-session-ws-gateway --all-targets -- -D warnings` green; `pnpm exec playwright test` green; updated screenshot checked in.
+- Evidence:
+  - PR #176 (session dashboard + Playwright smoke + screenshot regen)
+  - Dashboard: `crates/echo-session-ws-gateway/assets/dashboard.html`
+  - Routes: `crates/echo-session-ws-gateway/src/main.rs`
+  - e2e: `e2e/session-dashboard.spec.ts`
+  - Docs screenshot: `docs/assets/wvp/session-dashboard.png`
+
+> 2026-01-01 — T2 (#168): make dashboard smoke tests self-contained (COMPLETED)
+
+- Goal: ensure the Playwright “Session Dashboard” smoke test can build and run all required binaries from a clean checkout.
+- Scope:
+  - Add a tiny `echo-session-client` example (`publish_pulse`) used by the e2e test to generate deterministic, gapless snapshot+diff traffic.
+- Exit criteria: `pnpm exec playwright test` no longer depends on local stashes / untracked artifacts.
+- Evidence:
+  - `pnpm exec playwright test e2e/session-dashboard.spec.ts` (green)
+
 > 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
 
 - Goal: prevent WVP demo regressions by pinning protocol invariants (snapshot-first, gapless epochs, authority enforcement) in automated tests.
@@ -72,6 +108,35 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Tracking: GitHub issue #169.
 - Evidence:
   - PR #175 (loopback tests + publish behavior pinned; follow-up hardening for defensive test checks)
+
+> 2026-01-01 — PR #167: deterministic math follow-ups + merge `main` (COMPLETED)
+
+- Goal: address all CodeRabbit review comments on PR #167 with minimal churn, keep the PR tightly scoped to deterministic math + warp-core motion payload work, and restore mergeability by merging `main` and resolving docs guard conflicts.
+- Scope:
+  - Resolve merge conflicts from `origin/main` in `docs/decision-log.md` and `docs/execution-plan.md` while preserving both the WVP hardening timeline and the deterministic math timeline.
+  - Keep deterministic trig guardrails stable (`scripts/check_no_raw_trig.sh`) so raw platform trig calls cannot sneak back into runtime math code.
+- Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; PR is mergeable and CI stays green.
+- Evidence: merged to `main` as PR #167 (merge commit `54d7626`; closes #165).
+
+> 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
+
+- Goal: move the motion demo payload to a deterministic Q32.32 fixed-point encoding (v2) while preserving decode compatibility for the legacy v0 `f32` payload; port the motion executor to use the `Scalar` abstraction and upgrade v0 payloads to v2 on write.
+- Evidence: `cargo test -p warp-core` green; `cargo test -p warp-core --features det_fixed` green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` green; `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs` green.
+
+> 2026-01-01 — Deterministic fixed-point lane (`DFix64`) + CI coverage (COMPLETED)
+
+- Goal: land a deterministic fixed-point scalar backend (`DFix64`, Q32.32) behind a `det_fixed` feature flag, add a dedicated test suite, and extend CI with explicit `--features det_fixed` lanes (including MUSL) so we continuously exercise cross-platform behavior.
+- Evidence: commit `57d2ec3` plus the above motion work continues to validate the det_fixed lane in CI.
+
+> 2026-01-01 — Implement deterministic `F32Scalar` trig (COMPLETED)
+
+- Goal: replace `F32Scalar::{sin,cos,sin_cos}`’s platform transcendentals with a deterministic LUT-backed backend, check in the LUT, and promote the existing trig test scaffold into a cross-platform golden-vector suite.
+- Evidence: `cargo test -p warp-core` green; `cargo test -p warp-core --test deterministic_sin_cos_tests` green (error-budget audit test remains `#[ignore]`); `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` green.
+
+> 2025-12-30 — Branch maintenance: resurrect `F32Scalar/sin-cos` (COMPLETED)
+
+- Goal: merge `main` into the legacy deterministic trig test branch, resolve the `rmg-core`→`warp-core` rename conflict, and leave the WIP test compiling (ignored by default).
+- Evidence: merge commit `6cfa64d` (“Merge branch 'main' into F32Scalar/sin-cos”); `cargo test -p warp-core --test deterministic_sin_cos_tests` passes (ignored test remains opt-in).
 
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 

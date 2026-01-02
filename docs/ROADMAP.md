@@ -52,6 +52,11 @@ These milestones are tracked in GitHub alongside the M* milestones. They are a p
 
 Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used. Refresh cadence: update weekly or before each planning cycle.
 
+Note:
+
+- Some PRs (especially docs-only / repo maintenance / workflow hygiene) are intentionally **un-milestoned**.
+- Those items should still be tracked in Project 9 (and linked to an issue when non-trivial), but they do not represent a “ship milestone” outcome.
+
 | Issue Name | # | Milestone | Priority | Estimate | Blocked By | Blocking | Parent | Children | Remarks |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |
 | Benchmarks & CI Regression Gates | 22 | M1 – Golden Tests | P1 | 13h+ |  | #42,#43,#44,#45,#46 |  | 42,43,44,45,46 | Umbrella for perf pipeline |

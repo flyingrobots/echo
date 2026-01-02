@@ -20,7 +20,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - `packages/echo-core`: Runtime core (ECS, scheduler, Codex’s Baby, timelines).
 - `apps/playground`: Vite sandbox and inspector (future).
 - `docs/`: Specs, diagrams, memorials.
-- `docs/legacy`: Preserved artifacts from the Caverns era.
+- `docs/notes`: Working notes and explorations (non-authoritative).
 
 ## Working Agreement
 - Keep `main` pristine. Feature work belongs on branches named `echo/<feature>` or `timeline/<experiment>`.

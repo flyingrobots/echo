@@ -2,6 +2,14 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Deterministic Math Validation Plan
 
+Status: this document may lag behind the current Rust-first implementation.
+Treat it as a checklist of *ideas*, not a CI contract.
+
+If you’re looking for what we actually enforce today, start with:
+
+- Policy (normative): [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH)
+- Claims / budgets: [/warp-math-claims](/warp-math-claims)
+
 Goal: ensure Echo’s math module produces identical results across environments (Node, browsers, potential native wrappers) in both float32 and fixed-point modes.
 
 ---

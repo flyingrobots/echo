@@ -35,14 +35,24 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2026-01-02 — Docs tooling: upgrade VitePress (IN PROGRESS)
+> 2026-01-02 — Docs tooling: upgrade VitePress (COMPLETED)
 
-- Goal: make the docs site build reliably on modern Node by upgrading the pinned VitePress version (currently `vitepress@0.1.1`).
+- Goal: make the docs site build reliably on modern Node by upgrading the pinned VitePress version (was `vitepress@0.1.1`).
 - Scope:
   - Upgrade `vitepress` dependency and regenerate the lockfile.
   - Keep docs config compatible; fix any breaking changes in `docs/.vitepress/config.ts`.
   - Verify `pnpm docs:build` works (and `pnpm docs:dev` starts) on a modern Node.
 - Exit criteria: `pnpm docs:build` is green; docs tooling requirements are documented; PR opened and linked to an issue.
+
+> 2026-01-02 — Docs usability pass: onboarding + navigation (IN PROGRESS)
+
+- Goal: make the docs site actually usable for newcomers (clear “what is Echo”, clear guided paths, fewer dead ends).
+- Scope:
+  - Add a “Start Here” guide and make it the primary entry point.
+  - Reshape `/docs-index` into a curated map (not a raw inventory dump).
+  - Ensure key pages render correctly under VitePress without YAML frontmatter.
+  - Purge confusing legacy references that don’t help new readers.
+- Exit criteria: Home + Start Here + Docs Map tell a coherent story, and `pnpm docs:build` remains green.
 
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
@@ -890,7 +900,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 | Date | Decision | Context | Follow-up |
 | ---- | -------- | ------- | --------- |
-| 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
+| 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from legacy prototypes to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
 | 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Rhai scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
 | 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in warp-core | Extend coverage to browser environments and fixed-point mode |

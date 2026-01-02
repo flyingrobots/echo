@@ -2,10 +2,18 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Architecture Specification (Draft)
 
+If you’re new here, start with:
+
+- [/guide/start-here](/guide/start-here)
+- [/guide/warp-primer](/guide/warp-primer)
+
+This document is a high-level architecture and “why” artifact. Some sections are aspirational and
+will lag behind the current Rust-first implementation; prefer WARP specs for the runtime boundary.
+
 ## Vision
 - Reimagine a battle-tested ECS core into **Echo**, a renderer-agnostic spine that survives browsers, native shells, and whatever 2125 invents next.
 - Empower teams to build 2D, 3D, or abstract simulations with the same spine, swapping adapters instead of rewriting gameplay.
-- Combine modern ergonomics (TypeScript, ES modules, first-class docs) with ruthless performance discipline so the engine scales from hobby jams to production.
+- Combine modern ergonomics (Rust-first core, clean public surfaces, first-class docs) with ruthless performance discipline so the engine scales from hobby jams to production.
 - Preserve institutional memory—document why choices exist, what legacy quirks inspired them, and how to extend or override any piece.
 
 ## Cultural Principles
@@ -148,10 +156,10 @@
 - Which temporal mechanics graduate into core APIs versus sample-game features?
 
 ## Appendices
-- **Glossary**: Mapping of Echo terminology (World, System Graph, Codex’s Baby) to legacy Caverns names.
+- **Glossary**: Mapping of Echo terminology (World, System Graph, Codex’s Baby) to legacy prototype terminology.
 - **Reference Architectures**: Snapshots from Unity DOTS, Bevy, Godot Servers, and custom ECS implementations for comparative insight.
 - **Profiling Plan**: Target frame budgets, benchmark scenarios, and instrumentation strategy for unit and integration testing.
-- **Compatibility Notes**: Guidance for migrating Caverns prototypes, bridging Mootools utilities, and reintroducing box2d/pixi demos on modern footing.
+- **Compatibility Notes**: Guidance for migrating legacy prototypes, bridging Mootools utilities, and reintroducing box2d/pixi demos on modern footing.
 - **Data Structure Sketches**: (pending) diagrams for archetype arena, branch tree, Codex’s Baby queues.
 - **Temporal Mechanic Catalogue**: (pending) curated list of déjà vu, Mandela artifacts, paradox mitigation, multiverse puzzles.
 - **Repository Layout (Draft)**:

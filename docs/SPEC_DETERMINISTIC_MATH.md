@@ -1,12 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-//! Math Determinism Specification & Policy.
-//!
-//! Defines the strict policies Echo enforces to guarantee bit-perfect determinism across all
-//! supported platforms. This spec takes precedence over hardware defaults.
-
 # Policy: Strictly Deterministic Math
+
+This document is **normative**: if it conflicts with other docs, this wins.
+For background hazards and motivation, see [/DETERMINISTIC_MATH](/DETERMINISTIC_MATH).
 
 All math within the simulation loop (`warp-core`) must adhere to these rules.
 

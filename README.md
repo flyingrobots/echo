@@ -20,6 +20,7 @@ Instead of treating a game/simulation as a pile of mutable objects, Echo treats 
 
 Start here:
 
+- Start Here: [`docs/guide/start-here.md`](docs/guide/start-here.md)
 - WARP primer: [`docs/guide/warp-primer.md`](docs/guide/warp-primer.md)
 - Project tour: [`docs/notes/project-tour-2025-12-28.md`](docs/notes/project-tour-2025-12-28.md)
 - AIΩN bridge doc: [`docs/aion-papers-bridge.md`](docs/aion-papers-bridge.md)
@@ -127,6 +128,19 @@ Run the docs site (VitePress):
 
 ```bash
 make docs
+```
+
+Directly (useful when debugging):
+
+```bash
+pnpm install
+pnpm docs:dev
+```
+
+CI-style build (includes link checking):
+
+```bash
+pnpm docs:build
 ```
 
 Run the session hub:

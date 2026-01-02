@@ -48,6 +48,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Exit criteria: PR is open + green (new CI job passes); artifacts are present on failure; `ci.yml` change is documented in `docs/decision-log.md`.
 - Tracking: GitHub issue #215.
 
+> 2026-01-02 — PR triage pipeline: start with PR #179 (IN PROGRESS)
+
+- Goal: sync to PR #179 and validate the tooling for pulling PR review comments and extracting actionable issues (including human reviewer notes), so we can systematically close review feedback across the open PR queue and merge cleanly once approved.
+- Scope:
+  - Checkout PR #179’s branch locally.
+  - Identify where the tool pulls PR comments from (GitHub API / `gh` CLI / local refs) and what comment types it includes (issue comments, review comments, review summaries).
+  - Ensure the report is attributable (comment author is included) so non-CodeRabbit actionables are not lost.
+  - Ensure “✅ Addressed in commit …” ack markers cannot be spoofed by templated bot text (require a human-authored ack with a real PR commit SHA).
+  - Run the tool against at least one PR to confirm output format and any required auth/config.
+- Exit criteria: documented “how to run” steps for the tool; confidence that we can repeatably extract issues from PR comments for subsequent PRs.
+
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
 - Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.
@@ -68,6 +79,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Extend Paper VI notes in `aion-paper-06` (HostTime/HistoryTime, decision records, multi-clock streams, replay integrity hooks).
 - Exit criteria: matrix + notes are concrete enough to guide near-term implementation choices and future tool UX.
 - Tracking: GitHub issue #180.
+
+> 2026-01-01 — PR hygiene: standardize CodeRabbitAI review triage (COMPLETED)
+
+- Goal: make CodeRabbitAI review loops cheap and unambiguous by codifying how we extract actionable comments from the current PR head diff.
+- Scope:
+  - Add mandatory procedures under `docs/procedures/` for PR submission and review comment extraction.
+  - Add a helper script `.github/scripts/extract-actionable-comments.sh` to automate review comment bucketing and produce a Markdown report.
+- Exit criteria: a contributor can run one command and get a clean actionables list without re-reading the entire PR history.
 
 > 2026-01-01 — T2 (#168): embedded session dashboard baseline (COMPLETED)
 

@@ -37,6 +37,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - Keep `main` pristine. Create feature branches like `echo/<feature>` or `timeline/<experiment>`.
 - Before starting work, ensure `git status` is clean. If not, resolve or coordinate with the human operator.
 - Before each session, update the “Today’s Intent” section in `docs/execution-plan.md` so future collaborators can follow the timeline.
+- PR review loops are procedural: follow `docs/procedures/PR-SUBMISSION-REVIEW-LOOP.md` and use `docs/procedures/EXTRACT-PR-COMMENTS.md` to extract actionable CodeRabbitAI feedback per round.
 
 ## Testing Expectations
 - Write tests before or alongside code changes.

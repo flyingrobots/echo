@@ -5,16 +5,16 @@
 This document has been **split** to reduce drift and make scope explicit.
 
 Doc map:
-- `docs/scheduler.md`
+- [docs/scheduler.md](./scheduler.md)
 
 Current (implemented) benchmarks:
-- `docs/scheduler-performance-warp-core.md`
+- [docs/scheduler-performance-warp-core.md](./scheduler-performance-warp-core.md)
 
 Future (planned) system-scheduler benchmarks:
-- `docs/spec-scheduler.md` (planned benchmark scenarios; spec-only today)
+- [docs/spec-scheduler.md](./spec-scheduler.md) (planned benchmark scenarios; spec-only today)
 
 ---
 
 The detailed benchmark plan content now lives in:
-- `docs/scheduler-performance-warp-core.md` (warp-core)
-- `docs/spec-scheduler.md` (planned system scheduler scenarios)
+- [docs/scheduler-performance-warp-core.md](./scheduler-performance-warp-core.md) (warp-core)
+- [docs/spec-scheduler.md](./spec-scheduler.md) (planned system scheduler scenarios)

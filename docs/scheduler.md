@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduling in Echo (Doc Map)
 
-Echo currently has **two different “scheduler” concepts** that often get conflated in docs:
+Echo currently has **two different “scheduler” concepts** that are often conflated in docs:
 
 1) **WARP rewrite scheduler (implemented today)** — lives in Rust `warp-core` and is responsible for:
    - deterministic draining/ordering of pending rewrites, and

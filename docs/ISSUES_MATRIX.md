@@ -14,6 +14,8 @@ Reference: GitHub docs “REST API endpoints for issue dependencies” (see `iss
 
 ### Common `gh api` recipes
 
+Auth note: `gh api` uses your authenticated GitHub token (via `gh auth login` or `GH_TOKEN` env var). You do not need to manually add an `Authorization:` header unless you are reproducing these requests with another client (like `curl`).
+
 List dependencies an issue is blocked by:
 
 ```bash
@@ -32,16 +34,27 @@ gh api \
   repos/flyingrobots/echo/issues/<ISSUE_NUMBER>/dependencies/blocking
 ```
 
+Note: the `blocked_by` and `blocking` relationships are inverses. Adding “issue A blocked by issue B” is equivalent to adding “issue B blocking issue A”. Choose the direction that matches your workflow.
+
 Add a “blocked by” dependency (make `<ISSUE_NUMBER>` blocked by `<BLOCKING_ISSUE_NUMBER>`):
 
 ```bash
-BLOCKING_ISSUE_ID=$(
+set -euo pipefail
+
+# Optional (only needed if you are not already authenticated via `gh auth login` or `GH_TOKEN`):
+# -H "Authorization: Bearer <YOUR-TOKEN>"
+BLOCKING_ISSUE_ID="$(
   gh api \
     -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" \
     repos/flyingrobots/echo/issues/<BLOCKING_ISSUE_NUMBER> \
     --jq .id
-)
+)" || { echo "Failed to fetch blocking issue ID" >&2; exit 1; }
+
+if [[ -z "$BLOCKING_ISSUE_ID" ]]; then
+  echo "BLOCKING_ISSUE_ID is empty; verify auth and jq extraction." >&2
+  exit 1
+fi
 
 gh api \
   -X POST \
@@ -57,6 +70,8 @@ Remove a “blocked by” dependency:
 gh api \
   -X DELETE \
   -H "Accept: application/vnd.github+json" \
+  # Optional (only needed if you are not already authenticated via `gh auth login` or `GH_TOKEN`):
+  # -H "Authorization: Bearer <YOUR-TOKEN>" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   repos/flyingrobots/echo/issues/<ISSUE_NUMBER>/dependencies/blocked_by/<BLOCKING_ISSUE_ID>
 ```

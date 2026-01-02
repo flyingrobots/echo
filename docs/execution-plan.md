@@ -35,6 +35,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
+
+- Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.
+- Scope:
+  - Use a pure-Rust oracle (`libm`) so the reference is not host libc/libm dependent.
+  - Measure both:
+    - absolute error vs the f64 oracle (robust near zero),
+    - ULP distance vs the f32-rounded oracle (applied only when |ref| ≥ 0.25 so ULPs remain meaningful).
+  - Remove the repo-root scratchpad `freaky_numbers.rs` if it is not used by any crate/tests.
+- Exit criteria: `cargo test -p warp-core --test deterministic_sin_cos_tests` is green with the audit test enabled by default; budgets are documented in `docs/decision-log.md`.
+- Tracking: GitHub issue #177.
+
 > 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
 
 - Goal: prevent WVP demo regressions by pinning protocol invariants (snapshot-first, gapless epochs, authority enforcement) in automated tests.

@@ -4956,6 +4956,7 @@ dependencies = [
  "blake3",
  "bytes",
  "hex",
+ "libm",
  "proptest",
  "rustc-hash 2.1.1",
  "serde",

@@ -30,14 +30,15 @@
 | `phase1-plan.md` | Phase 1 implementation roadmap & demo targets |
 | `spec-warp-core.md` | WARP core format and runtime |
 | `scheduler.md` | Doc map: warp-core rewrite scheduler vs planned system scheduler |
+| `scheduler-warp-core.md` | Canonical doc: warp-core rewrite scheduler (`reserve()` / drain) |
 | `spec-scheduler.md` | Planned ECS/system scheduler spec (not yet implemented) |
 | `spec-warp-tick-patch.md` | Tick patch boundary artifact (delta ops, in/out slots, patch_digest) |
 | `spec-warp-confluence.md` | Global WARP graph synchronization (Confluence) |
 | `spec-ecs-storage.md` | ECS storage (archetypes, chunks, COW) |
 | `math-validation-plan.md` | Deterministic math coverage |
 | `scheduler-benchmarks.md` | Scheduler performance scenarios |
-| `scheduler-reserve-validation.md` | Evidence: `reserve()` correctness + determinism (warp-core) |
-| `scheduler-reserve-complexity.md` | Analysis: `reserve()` time complexity (warp-core) |
+| `scheduler-reserve-validation.md` | Redirect: merged into `scheduler-warp-core.md` |
+| `scheduler-reserve-complexity.md` | Redirect: merged into `scheduler-warp-core.md` |
 | `testing-and-replay-plan.md` | Replay, golden hashes, entropy tests |
 | `runtime-diagnostics-plan.md` | Logging, tracing, inspector streams |
 | `codex-instrumentation.md` | CB metrics and telemetry hooks |

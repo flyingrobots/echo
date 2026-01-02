@@ -14,6 +14,7 @@ export default defineConfig({
       {
         text: 'Guides',
         items: [
+          { text: 'Echo (ELI5)', link: '/guide/eli5' },
           { text: 'WARP Primer', link: '/guide/warp-primer' },
           { text: 'WVP Demo', link: '/guide/wvp-demo' },
           { text: 'Collision Tour', link: '/guide/collision-tour' }
@@ -74,6 +75,7 @@ export default defineConfig({
         {
           text: 'Guide',
           items: [
+            { text: 'Echo (ELI5)', link: '/guide/eli5' },
             { text: 'Start Here', link: '/guide/start-here' },
             { text: 'WARP Primer', link: '/guide/warp-primer' },
             { text: 'WVP Demo', link: '/guide/wvp-demo' },

@@ -8,6 +8,7 @@ and each tick applies deterministic rewrite rules to that graph.
 
 ## Start Here (5–15 minutes)
 
+- Newcomer (no-programming) intro: [/guide/eli5](/guide/eli5)
 - Start Here guide: [/guide/start-here](/guide/start-here)
 - WARP primer: [/guide/warp-primer](/guide/warp-primer)
 - Architecture overview (draft, but the source of truth for intent): [/architecture-outline](/architecture-outline)

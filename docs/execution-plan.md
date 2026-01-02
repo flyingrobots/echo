@@ -49,6 +49,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Goal: make the docs site actually usable for newcomers (clear “what is Echo”, clear guided paths, fewer dead ends).
 - Scope:
   - Add a “Start Here” guide and make it the primary entry point.
+  - Add an “ELI5” spiral on-ramp for non-programmers, and link it as the first step.
   - Reshape `/docs-index` into a curated map (not a raw inventory dump).
   - Ensure key pages render correctly under VitePress without YAML frontmatter.
   - Purge confusing legacy references that don’t help new readers.

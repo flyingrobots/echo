@@ -7,6 +7,7 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 
 ## Start Here
 
+- Echo (ELI5 spiral on-ramp): [/guide/eli5](/guide/eli5)
 - Start Here guide: [/guide/start-here](/guide/start-here)
 - WARP primer (newcomer-friendly): [/guide/warp-primer](/guide/warp-primer)
 - Architecture overview (draft, but the intent source of truth): [/architecture-outline](/architecture-outline)

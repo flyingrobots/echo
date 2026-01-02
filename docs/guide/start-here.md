@@ -18,6 +18,12 @@ ECS is a *useful storage and API layer*, but the deeper “ground truth” model
 
 ## Recommended Reading Paths
 
+### If you’re not a programmer (or don’t want code yet)
+
+1. Echo, explained like you’re not a programmer: [/guide/eli5](/guide/eli5)
+2. Start Here (this page): [/guide/start-here](/guide/start-here)
+3. WARP primer (newcomer-friendly, but more precise): [/guide/warp-primer](/guide/warp-primer)
+
 ### If you’re new to WARP / graph-rewrite simulation
 
 1. WARP primer: [/guide/warp-primer](/guide/warp-primer)

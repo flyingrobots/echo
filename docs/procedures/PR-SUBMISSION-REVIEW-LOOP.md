@@ -14,6 +14,7 @@ It is deliberately operational: follow it step-by-step and avoid “interpretati
 2. No admin bypass merges to skip required reviews.
 3. CI green is required but not sufficient — review approval is a separate gate.
 4. Iterate in small commits to reduce review ambiguity.
+5. Every PR must reference a GitHub Issue in the PR body with closing keywords (e.g., `Closes #123`).
 
 ---
 
@@ -53,6 +54,12 @@ gh pr checks <PR_NUMBER> --watch
 
 Then wait for CodeRabbitAI to comment. Do not merge “because CI is green”.
 
+If CodeRabbitAI doesn’t respond within a reasonable time (or you see a failing status like “Review rate limit exceeded”):
+
+1. Check PR checks for rate limit/error details.
+2. Post `@coderabbitai review` on the PR to re-trigger.
+3. If it still fails, wait and retry (or escalate to repo admins if it persists).
+
 ---
 
 ### Step 3 — Extract actionable review feedback (required)
@@ -69,10 +76,10 @@ The outcome of this step should be a bucketed list of actionable items (P0/P1/P2
 
 Work one bucket at a time:
 
-- P0: correctness / determinism / security
-- P1: major design/API drift
-- P2: minor issues / maintainability
-- P3: nits
+- P0: correctness / determinism / security (CodeRabbitAI: 🔴 Critical)
+- P1: major design/API drift (CodeRabbitAI: 🟠 Major)
+- P2: minor issues / maintainability (CodeRabbitAI: 🟡 Minor)
+- P3: nits (CodeRabbitAI: 🔵 Trivial / nitpicks)
 
 For each batch:
 
@@ -115,4 +122,6 @@ Sometimes the “changes requested” status lingers even after an approving rev
 
 Post this comment on the PR:
 
+```text
 @coderabbitai Please review the latest commit and clear the "changes requested" status since you have already approved the changes.
+```

@@ -178,9 +178,9 @@ cat "$TMPFILE" | jq --arg head "$LATEST_COMMIT" '
     line,
     path,
     priority: (
-      if (.body | test("\\\\bP0\\\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
-      elif (.body | test("\\\\bP1\\\\b|badge/P1-|🟠|Major"; "i")) then "P1"
-      elif (.body | test("\\\\bP2\\\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
+      if (.body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
+      elif (.body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
+      elif (.body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
       else "P3"
       end
     ),

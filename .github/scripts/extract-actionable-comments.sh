@@ -165,6 +165,10 @@ if [[ "$REPO" != */* || "$REPO" == */*/* || -z "$OWNER" || -z "$NAME" || "$OWNER
 fi
 
 HEAD_SHA="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
+if [[ -z "$HEAD_SHA" || ! "$HEAD_SHA" =~ ^[0-9a-f]{7,}$ ]]; then
+  echo "Error: Failed to determine PR head commit SHA for ${REPO}#${PR_NUMBER}" >&2
+  exit 1
+fi
 HEAD7="${HEAD_SHA:0:7}"
 
 TS="$(date +%s)"
@@ -189,200 +193,197 @@ if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
 fi
 
 # Normalize review-thread comments (top-level only) and detect ack markers in replies.
-jq --arg head "$HEAD7" '
-  def has_ack_marker(s):
-    (s | type) == "string" and (s | contains("✅ Addressed in commit"));
+FILTER_COMMON="/tmp/pr-${PR_NUMBER}-jq-common-${TS}.jq"
+FILTER_REVIEW="/tmp/pr-${PR_NUMBER}-jq-review-thread-${TS}.jq"
+FILTER_CONVERSATION="/tmp/pr-${PR_NUMBER}-jq-conversation-${TS}.jq"
+FILTER_REVIEWS="/tmp/pr-${PR_NUMBER}-jq-review-summaries-${TS}.jq"
+FILTER_REVIEW_FULL="/tmp/pr-${PR_NUMBER}-jq-review-thread-full-${TS}.jq"
+FILTER_CONVERSATION_FULL="/tmp/pr-${PR_NUMBER}-jq-conversation-full-${TS}.jq"
+FILTER_REVIEWS_FULL="/tmp/pr-${PR_NUMBER}-jq-review-summaries-full-${TS}.jq"
 
-  def normalize_title(body):
-    ((body
-      | split("\n")
-      | map(select(. != ""))
-      | .[0] // "UNTITLED"
-    )
-    | gsub("\\*\\*"; "")
-    | .[0:80]);
+cat > "$FILTER_COMMON" <<'JQ'
+def has_ack_marker(s):
+  (s | type) == "string" and (s | contains("✅ Addressed in commit"));
 
-  def priority_from_body(body):
-    if (body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
-    elif (body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
-    elif (body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
-    else "P3"
-    end;
+def normalize_title(body):
+  ((body
+    | split("\n")
+    | map(select(. != ""))
+    | .[0] // "UNTITLED"
+  )
+  | gsub("\\*\\*"; "")
+  | .[0:80]);
 
-  # Replies are returned in the same list, with `in_reply_to_id` set.
-  def ack_by_reply:
-    reduce .[] as $c ({}; if ($c.in_reply_to_id != null and has_ack_marker($c.body)) then .[($c.in_reply_to_id | tostring)] = true else . end);
+def priority_from_body(body):
+  if (body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
+  elif (body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
+  elif (body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
+  else "P3"
+  end;
 
-  (ack_by_reply) as $replies |
-  [ .[]
-    | select(.in_reply_to_id == null)
-    | {
-        id,
-        author: (.user.login // "unknown"),
-        author_is_bot: (
-          (.user.type // "") == "Bot"
-          or ((.user.login // "") | endswith("[bot]"))
-        ),
-        url: .html_url,
-        source: "review_thread",
-        path,
-        line,
-        position,
-        original_position,
-        head_commit: $head,
-        comment_commit: (.commit_id[0:7]),
-        original_commit: (.original_commit_id[0:7]),
-        is_on_head: (.commit_id[0:7] == $head),
-        is_visible_on_head_diff: (.position != null),
-        is_outdated: (.position == null),
-        is_moved: (.commit_id != .original_commit_id),
-        has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
-        is_actionable: true,
-        priority: priority_from_body(.body),
-        title: normalize_title(.body),
-        body: .body
-      }
-  ]
-' "$RAW_REVIEW" > "$LATEST_REVIEW"
+def likely_actionable(body):
+  (body | type) == "string"
+  and (body | test("\\bP[0-3]\\b|\\bTODO\\b|\\bFIXME\\b|\\bnit\\b|suggest|\\bshould\\b|\\bconsider\\b|blocker|\\bbug\\b|error|fail|typo|rename|missing|clarify|doc(s|ument)?|\\btests?\\b|panic|crash|security|\\bdetermin"; "i"));
+JQ
+
+cat > "$FILTER_REVIEW" <<'JQ'
+# Replies are returned in the same list, with `in_reply_to_id` set.
+def ack_by_reply:
+  reduce .[] as $c ({}; if ($c.in_reply_to_id != null and has_ack_marker($c.body)) then .[($c.in_reply_to_id | tostring)] = true else . end);
+
+(ack_by_reply) as $replies |
+[ .[]
+  | select(.in_reply_to_id == null)
+  | {
+      id,
+      author: (.user.login // "unknown"),
+      author_is_bot: (
+        (.user.type // "") == "Bot"
+        or ((.user.login // "") | endswith("[bot]"))
+      ),
+      url: .html_url,
+      source: "review_thread",
+      path,
+      line,
+      position,
+      original_position,
+      head_commit: $head,
+      comment_commit: (.commit_id[0:7]),
+      original_commit: (.original_commit_id[0:7]),
+      is_on_head: (.commit_id[0:7] == $head),
+      is_visible_on_head_diff: (.position != null),
+      is_outdated: (.position == null),
+      is_moved: (.commit_id != .original_commit_id),
+      has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
+      is_actionable: true,
+      priority: priority_from_body(.body),
+      title: normalize_title(.body),
+      body: .body
+    }
+]
+JQ
+
+cat "$FILTER_COMMON" "$FILTER_REVIEW" > "$FILTER_REVIEW_FULL"
+jq --arg head "$HEAD7" -f "$FILTER_REVIEW_FULL" "$RAW_REVIEW" > "$LATEST_REVIEW"
 
 if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
-  jq '
-    def has_ack_marker(s):
-      (s | type) == "string" and (s | contains("✅ Addressed in commit"));
+  cat > "$FILTER_CONVERSATION" <<'JQ'
+def is_html_comment(body):
+  (body | type) == "string"
+  and (body | test("^\\s*<!--"));
 
-    def normalize_title(body):
-      ((body
-        | split("\n")
-        | map(select(. != ""))
-        | .[0] // "UNTITLED"
-      )
-      | gsub("\\*\\*"; "")
-      | .[0:80]);
-
-    def priority_from_body(body):
-      if (body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
-      elif (body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
-      elif (body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
-      else "P3"
-      end;
-
-    def is_html_comment(body):
-      (body | type) == "string"
-      and (body | test("^\\s*<!--"));
-
-    def likely_actionable(body):
-      (body | type) == "string"
-      and (body | test("\\bP[0-3]\\b|\\bTODO\\b|\\bFIXME\\b|\\bnit\\b|suggest|\\bshould\\b|\\bconsider\\b|blocker|\\bbug\\b|error|fail|typo|rename|missing|clarify|doc(s|ument)?|\\btests?\\b|panic|crash|security|determin"; "i"));
-
-    [ .[]
-      | select((.body // "") | gsub("\\s+"; "") | length > 0)
-      | select(is_html_comment(.body) | not)
-      | {
-          id,
-          author: (.user.login // "unknown"),
-          author_is_bot: (
-            (.user.type // "") == "Bot"
-            or ((.user.login // "") | endswith("[bot]"))
-          ),
-          url: .html_url,
-          source: "conversation",
-          path: null,
-          line: null,
-          position: null,
-          original_position: null,
-          head_commit: null,
-          comment_commit: null,
-          original_commit: null,
-          is_on_head: false,
-          is_visible_on_head_diff: false,
-          is_outdated: false,
-          is_moved: false,
-          has_ack: has_ack_marker(.body),
-          is_actionable: likely_actionable(.body),
-          priority: priority_from_body(.body),
-          title: normalize_title(.body),
-          body: .body
-        }
-    ]
-  ' "$RAW_CONVERSATION" > "$LATEST_CONVERSATION"
+[ .[]
+  | select((.body // "") | gsub("\\s+"; "") | length > 0)
+  | select(is_html_comment(.body) | not)
+  | {
+      id,
+      author: (.user.login // "unknown"),
+      author_is_bot: (
+        (.user.type // "") == "Bot"
+        or ((.user.login // "") | endswith("[bot]"))
+      ),
+      url: .html_url,
+      source: "conversation",
+      path: null,
+      line: null,
+      position: null,
+      original_position: null,
+      head_commit: null,
+      comment_commit: null,
+      original_commit: null,
+      is_on_head: false,
+      is_visible_on_head_diff: false,
+      is_outdated: false,
+      is_moved: false,
+      has_ack: has_ack_marker(.body),
+      is_actionable: likely_actionable(.body),
+      priority: priority_from_body(.body),
+      title: normalize_title(.body),
+      body: .body
+    }
+]
+JQ
+  cat "$FILTER_COMMON" "$FILTER_CONVERSATION" > "$FILTER_CONVERSATION_FULL"
+  jq -f "$FILTER_CONVERSATION_FULL" "$RAW_CONVERSATION" > "$LATEST_CONVERSATION"
 else
   printf '%s\n' '[]' > "$LATEST_CONVERSATION"
 fi
 
 if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
-  jq '
-    def has_ack_marker(s):
-      (s | type) == "string" and (s | contains("✅ Addressed in commit"));
-
-    def normalize_title(body):
-      ((body
-        | split("\n")
-        | map(select(. != ""))
-        | .[0] // "UNTITLED"
-      )
-      | gsub("\\*\\*"; "")
-      | .[0:80]);
-
-    def priority_from_body(body):
-      if (body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
-      elif (body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
-      elif (body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
-      else "P3"
-      end;
-
-    def likely_actionable(body):
-      (body | type) == "string"
-      and (body | test("\\bP[0-3]\\b|\\bTODO\\b|\\bFIXME\\b|\\bnit\\b|suggest|\\bshould\\b|\\bconsider\\b|blocker|\\bbug\\b|error|fail|typo|rename|missing|clarify|doc(s|ument)?|\\btests?\\b|panic|crash|security|determin"; "i"));
-
-    [ .[]
-      | select((.body // "") | gsub("\\s+"; "") | length > 0)
-      | {
-          id,
-          author: (.user.login // "unknown"),
-          author_is_bot: (
-            (.user.type // "") == "Bot"
-            or ((.user.login // "") | endswith("[bot]"))
-          ),
-          url: .html_url,
-          source: "review_summary",
-          review_state: (.state // "UNKNOWN"),
-          path: null,
-          line: null,
-          position: null,
-          original_position: null,
-          head_commit: null,
-          comment_commit: null,
-          original_commit: null,
-          is_on_head: false,
-          is_visible_on_head_diff: false,
-          is_outdated: false,
-          is_moved: false,
-          has_ack: has_ack_marker(.body),
-          is_actionable: ((.state // "") == "CHANGES_REQUESTED" or likely_actionable(.body)),
-          priority: priority_from_body(.body),
-          title: normalize_title(.body),
-          body: .body
-        }
-    ]
-  ' "$RAW_REVIEWS" > "$LATEST_REVIEWS"
+  cat > "$FILTER_REVIEWS" <<'JQ'
+[ .[]
+  | select((.body // "") | gsub("\\s+"; "") | length > 0)
+  | {
+      id,
+      author: (.user.login // "unknown"),
+      author_is_bot: (
+        (.user.type // "") == "Bot"
+        or ((.user.login // "") | endswith("[bot]"))
+      ),
+      url: .html_url,
+      source: "review_summary",
+      review_state: (.state // "UNKNOWN"),
+      path: null,
+      line: null,
+      position: null,
+      original_position: null,
+      head_commit: null,
+      comment_commit: null,
+      original_commit: null,
+      is_on_head: false,
+      is_visible_on_head_diff: false,
+      is_outdated: false,
+      is_moved: false,
+      has_ack: has_ack_marker(.body),
+      is_actionable: ((.state // "") == "CHANGES_REQUESTED" or likely_actionable(.body)),
+      priority: priority_from_body(.body),
+      title: normalize_title(.body),
+      body: .body
+    }
+]
+JQ
+  cat "$FILTER_COMMON" "$FILTER_REVIEWS" > "$FILTER_REVIEWS_FULL"
+  jq -f "$FILTER_REVIEWS_FULL" "$RAW_REVIEWS" > "$LATEST_REVIEWS"
 else
   printf '%s\n' '[]' > "$LATEST_REVIEWS"
 fi
 
 jq -s 'add' "$LATEST_REVIEW" "$LATEST_CONVERSATION" "$LATEST_REVIEWS" > "$LATEST_ALL"
 
-total_count="$(jq 'length' "$LATEST_ALL")"
-total_actionable_count="$(jq '[.[] | select(.is_actionable == true)] | length' "$LATEST_ALL")"
-needs_attention_count="$(jq '[.[] | select(.is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
-needs_attention_human_count="$(jq '[.[] | select(.is_actionable == true and .has_ack == false and .author_is_bot == false)] | length' "$LATEST_ALL")"
-needs_attention_bot_count="$(jq '[.[] | select(.is_actionable == true and .has_ack == false and .author_is_bot == true)] | length' "$LATEST_ALL")"
-on_head_attention_count="$(jq '[.[] | select(.source == "review_thread" and .is_visible_on_head_diff == true and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
-outdated_attention_count="$(jq '[.[] | select(.source == "review_thread" and .is_outdated == true and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
-conversation_attention_count="$(jq '[.[] | select(.source == "conversation" and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
-review_summary_attention_count="$(jq '[.[] | select(.source == "review_summary" and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
-unclassified_count="$(jq '[.[] | select(.is_actionable == false and .has_ack == false)] | length' "$LATEST_ALL")"
-moved_count="$(jq '[.[] | select(.source == "review_thread" and .is_moved == true)] | length' "$LATEST_ALL")"
-ack_count="$(jq '[.[] | select(.has_ack == true)] | length' "$LATEST_ALL")"
+if ! IFS=$'\t' read -r \
+  total_count \
+  total_actionable_count \
+  needs_attention_count \
+  needs_attention_human_count \
+  needs_attention_bot_count \
+  on_head_attention_count \
+  outdated_attention_count \
+  conversation_attention_count \
+  review_summary_attention_count \
+  unclassified_count \
+  moved_count \
+  ack_count \
+  < <(
+    jq -r '
+      [
+        length,
+        ([.[] | select(.is_actionable == true)] | length),
+        ([.[] | select(.is_actionable == true and .has_ack == false)] | length),
+        ([.[] | select(.is_actionable == true and .has_ack == false and .author_is_bot == false)] | length),
+        ([.[] | select(.is_actionable == true and .has_ack == false and .author_is_bot == true)] | length),
+        ([.[] | select(.source == "review_thread" and .is_visible_on_head_diff == true and .is_actionable == true and .has_ack == false)] | length),
+        ([.[] | select(.source == "review_thread" and .is_outdated == true and .is_actionable == true and .has_ack == false)] | length),
+        ([.[] | select(.source == "conversation" and .is_actionable == true and .has_ack == false)] | length),
+        ([.[] | select(.source == "review_summary" and .is_actionable == true and .has_ack == false)] | length),
+        ([.[] | select(.is_actionable == false and .has_ack == false)] | length),
+        ([.[] | select(.source == "review_thread" and .is_moved == true)] | length),
+        ([.[] | select(.has_ack == true)] | length)
+      ] | @tsv
+    ' "$LATEST_ALL"
+  ); then
+  echo "Error: Failed to compute report counts from: ${LATEST_ALL}" >&2
+  exit 1
+fi
 
 {
   echo "# PR Review Actionables — PR #${PR_NUMBER}"

@@ -56,6 +56,7 @@ To widen the net beyond inline review threads, you can include:
 
 Note:
 - Conversation comments and review summaries are not diff-positioned like review threads, so the script applies a simple “likely actionable” heuristic and emits a separate “Unclassified” bucket for anything that doesn’t match.
+- For those non-thread sources, the script treats **human-authored** items as actionable; bot-authored summaries/status comments are included for context but are not counted as “Needs attention” (they can’t be reliably acked the same way review-thread replies can).
 
 ### Step 1: Identify the PR head commit (the current diff)
 

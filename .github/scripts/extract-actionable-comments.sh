@@ -310,13 +310,15 @@ def is_html_comment(body):
 [ .[]
   | select((.body // "") | gsub("\\s+"; "") | length > 0)
   | select(is_html_comment(.body) | not)
+  | (.user // {}) as $u
+  | (
+      ($u.type // "") == "Bot"
+      or (($u.login // "") | endswith("[bot]"))
+    ) as $is_bot
   | {
       id,
-      author: (.user.login // "unknown"),
-      author_is_bot: (
-        (.user.type // "") == "Bot"
-        or ((.user.login // "") | endswith("[bot]"))
-      ),
+      author: ($u.login // "unknown"),
+      author_is_bot: $is_bot,
       url: .html_url,
       source: "conversation",
       path: null,
@@ -330,8 +332,8 @@ def is_html_comment(body):
       is_visible_on_head_diff: false,
       is_outdated: false,
       is_moved: false,
-      has_ack: has_ack_marker(.body; .user),
-      is_actionable: likely_actionable(.body),
+      has_ack: has_ack_marker(.body; $u),
+      is_actionable: (($is_bot | not) and likely_actionable(.body)),
       priority: priority_from_body(.body),
       title: normalize_title(.body),
       body: .body
@@ -348,13 +350,15 @@ if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
   cat > "$FILTER_REVIEWS" <<'JQ'
 [ .[]
   | select((.body // "") | gsub("\\s+"; "") | length > 0)
+  | (.user // {}) as $u
+  | (
+      ($u.type // "") == "Bot"
+      or (($u.login // "") | endswith("[bot]"))
+    ) as $is_bot
   | {
       id,
-      author: (.user.login // "unknown"),
-      author_is_bot: (
-        (.user.type // "") == "Bot"
-        or ((.user.login // "") | endswith("[bot]"))
-      ),
+      author: ($u.login // "unknown"),
+      author_is_bot: $is_bot,
       url: .html_url,
       source: "review_summary",
       review_state: (.state // "UNKNOWN"),
@@ -369,8 +373,11 @@ if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
       is_visible_on_head_diff: false,
       is_outdated: false,
       is_moved: false,
-      has_ack: has_ack_marker(.body; .user),
-      is_actionable: ((.state // "") == "CHANGES_REQUESTED" or likely_actionable(.body)),
+      has_ack: has_ack_marker(.body; $u),
+      is_actionable: (
+        (($is_bot | not) and ((.state // "") == "CHANGES_REQUESTED"))
+        or (($is_bot | not) and likely_actionable(.body))
+      ),
       priority: priority_from_body(.body),
       title: normalize_title(.body),
       body: .body

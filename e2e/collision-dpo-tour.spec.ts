@@ -36,8 +36,9 @@ test.describe('Collision DPO Tour (static HTML)', () => {
 
   test('prev/next navigation toggles carousel mode', async ({ page }) => {
     await page.goto(fileUrl('docs/collision-dpo-tour.html'))
-    const firstRule = page.locator('.rule').first()
-    const nextBtn = firstRule.locator('.pager .btn', { hasText: 'Next' })
+    const firstRule = page.locator('.rule').filter({ has: page.locator('.pager') }).first()
+    await expect(firstRule).toBeVisible()
+    const nextBtn = firstRule.locator('.pager .btn', { hasText: 'Next' }).first()
     await expect(nextBtn).toBeVisible()
     // Initially all slides are visible
     const figs = firstRule.locator('.step-grid figure')
@@ -51,4 +52,3 @@ test.describe('Collision DPO Tour (static HTML)', () => {
     expect(hiddenCount).toBeGreaterThan(0)
   })
 })
-

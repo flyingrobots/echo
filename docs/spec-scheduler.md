@@ -2,7 +2,12 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Scheduler Specification (Phase 0)
 
-This document defines the scheduling engine that coordinates systems, branching timelines, and Codex’s Baby across the fixed-timestep loop. It supplements the architecture outline and will guide the first implementation in `@echo/core`.
+This document defines the **planned** ECS-style system scheduler (systems + phases + a dependency DAG) for Echo core.
+
+**Status (2026-01-02): spec only.** The implemented scheduler in this repo today is the `warp-core` rewrite scheduler (`reserve()` / deterministic drain).
+
+Start here for the doc map:
+- `docs/scheduler.md`
 
 ---
 

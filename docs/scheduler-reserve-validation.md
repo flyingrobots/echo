@@ -2,7 +2,10 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler `reserve()` Implementation Validation
 
-This document provides **empirical proof** for claims about the scheduler's reserve() implementation.
+This document summarizes evidence for the correctness properties we claim about the `warp-core` rewrite scheduler’s `reserve()` implementation.
+
+Doc map:
+- `docs/scheduler.md`
 
 ## Questions Answered
 
@@ -15,12 +18,14 @@ This document provides **empirical proof** for claims about the scheduler's rese
 
 ## 1. Atomic Reservation (No Race Conditions)
 
-### Test: `reserve_is_atomic_no_partial_marking_on_conflict` (scheduler.rs:840-902)
+### Test: `reserve_is_atomic_no_partial_marking_on_conflict`
 
 **What it proves:**
 - If a conflict is detected, **ZERO resources are marked**
 - No partial state corruption
 - Subsequent reserves see clean state
+
+**Where it lives:** `crates/warp-core/src/scheduler.rs` (unit test)
 
 **Test Design:**
 ```
@@ -59,12 +64,14 @@ for node in n_write {
 
 ## 2. Determinism Preserved
 
-### Test: `reserve_determinism_same_sequence_same_results` (scheduler.rs:905-979)
+### Test: `reserve_determinism_same_sequence_same_results`
 
 **What it proves:**
 - Same sequence of reserves → identical accept/reject decisions
 - Independent of internal implementation changes
 - Run 5 times → same results every time
+
+**Where it lives:** `crates/warp-core/src/scheduler.rs` (unit test)
 
 **Test Sequence:**
 ```
@@ -140,7 +147,7 @@ GenSet uses `FxHashMap`:
 
 ## 4. Performance Claims: Measured Results
 
-### Test: `reserve_scaling_is_linear_in_footprint_size` (scheduler.rs:982-1084)
+### Test: `reserve_scaling_is_linear_in_footprint_size`
 
 **Methodology:**
 1. Reserve k=100 independent rewrites (creates active set)
@@ -222,3 +229,11 @@ GenSet uses `FxHashMap`:
 **Recommendation:** Merge only after either (a) removing the “10–100x faster” claim from PR title/description, or (b) providing benchmark evidence against the previous implementation. Include the caution above in the PR description/commit message. Add a checklist item to block release until baseline vs. new benchmarks are captured with error bars.
 
 **Good enough for merge?** Yes, with caveats in commit message about theoretical vs measured performance.
+
+---
+
+## Related Benchmarks
+
+For higher-signal performance data than unit-test timing, use Criterion benches:
+- `crates/warp-benches/benches/scheduler_drain.rs`
+- `crates/warp-benches/benches/scheduler_adversarial.rs`

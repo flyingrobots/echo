@@ -2,11 +2,38 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler Benchmark Plan (Phase 0)
 
-Objective: validate the scheduler design under realistic workloads before full implementation. These notes outline benchmark scenarios, metrics, and tooling.
+This document is intentionally split into two benchmark tracks, because Echo has two “scheduler” concepts:
+
+1) **WARP rewrite scheduler (implemented today, Rust `warp-core`)** — we already have Criterion benches.
+2) **Echo system scheduler (planned, `@echo/core`)** — scenarios remain useful, but are future work.
+
+For the canonical doc map, see `docs/scheduler.md`.
 
 ---
 
-## Scenarios
+## Track A — WARP Rewrite Scheduler (warp-core, implemented)
+
+### Current benches
+
+- Drain throughput: `crates/warp-benches/benches/scheduler_drain.rs`
+  - Measures apply/enqueue/drain costs with a no-op rule to isolate scheduler overhead.
+- Adversarial hashing notes: `crates/warp-benches/benches/scheduler_adversarial.rs`
+  - Benchmarks hash-table collision behavior relevant to `reserve()`’s GenSet approach.
+
+### Suggested additions (when needed)
+- A dedicated `reserve()` microbench (vary `k` reserved rewrites and `m` footprint size).
+- A baseline comparison bench (historical Vec<Footprint> vs current GenSet) if we ever resurrect the old implementation behind a feature flag for measurement.
+
+---
+
+## Track B — Echo System Scheduler (future, planned)
+
+Objective: validate the **system scheduler spec** under realistic workloads before implementation.
+The scenarios below are still useful, but they apply to `docs/spec-scheduler.md` (systems + phases + DAG), not `warp-core`.
+
+---
+
+### Scenarios
 
 1. **Flat Update Loop**
    - 10, 50, 100 systems in the `update` phase with no dependencies.
@@ -32,20 +59,18 @@ Objective: validate the scheduler design under realistic workloads before full i
 
 ---
 
-## Metrics
+### Metrics
 - Average and max time per phase (pre, update, post, render_prep, timeline_flush).
 - Overhead vs pure system execution (scheduler time / total time).
 - Number of batches formed (parallel planning).
 - Cycle detection latency (time to detect graph updates).
-- Entropy/timeline flush cost (simulate Diff persistence stub).
-
+- Entropy/timeline flush cost (simulate diff persistence stub).
 
 ---
 
 ## Tooling
-*Phase 1 target – planned Criterion infrastructure; implementation pending.*
-- Use Criterion for Rust benchmarks with statistical analysis.
-- Benchmarks live in `tests/benchmarks/scheduler.rs` (or similar crate structure).
+*Future-facing. The `warp-core` benches already use Criterion; this section refers to the system scheduler track.*
+- Use Criterion for statistical benchmarking (or a JS benchmark harness if implemented in TS first).
 - Output results as JSON for inspector consumption.
 - Reuse deterministic math PRNG for synthetic workload generation.
 
@@ -53,7 +78,7 @@ Objective: validate the scheduler design under realistic workloads before full i
 
 
 ## Tasks
-- [ ] TODO: Implement scheduler benchmark harness (tracked for Phase 1 once Criterion benches land).
+- [ ] Implement system-scheduler benchmark harness once the system scheduler exists.
 - [ ] Implement mock system descriptors for each scenario.
 - [ ] Integrate with timeline fingerprint to simulate branches.
 - [ ] Record baseline numbers in docs and add to decision log.

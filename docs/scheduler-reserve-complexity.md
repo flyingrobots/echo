@@ -2,6 +2,11 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Scheduler `reserve()` Time Complexity Analysis
 
+This document applies to the `warp-core` rewrite scheduler (`crates/warp-core/src/scheduler.rs`), not the planned ECS/system scheduler.
+
+Doc map:
+- `docs/scheduler.md`
+
 ## Current Implementation (GenSet-based)
 
 ### Code Structure (scheduler.rs)

@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Docs consolidation: scheduler doc map (issue #210) (IN PROGRESS)
+
+- Goal: reduce confusion between the implemented `warp-core` rewrite scheduler and the planned Echo ECS/system scheduler.
+- Scope:
+  - Add a scheduler landing doc (`docs/scheduler.md`) that maps “which doc should I read?”
+  - Update scheduler docs to clearly label scope/status and link back to the landing page.
+  - Keep changes documentation-only.
+- Exit criteria: scheduler docs are self-consistent and discoverable from `docs/docs-index.md`.
+
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
 - Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.

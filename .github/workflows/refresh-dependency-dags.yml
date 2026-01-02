@@ -51,6 +51,8 @@ jobs:
           body: |
             Automated refresh of dependency DAG artifacts under `docs/assets/dags/`.
 
+            ${{ vars.DAG_REFRESH_ISSUE && format('Refs #{0}', vars.DAG_REFRESH_ISSUE) || '' }}
+
             Notes:
             - Edges are defined in `docs/assets/dags/deps-config.json`.
             - Generated via `cargo xtask dags --fetch --render --snapshot-label none`.

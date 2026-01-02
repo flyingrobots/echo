@@ -44,7 +44,8 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Add a repo generator (`scripts/generate-dependency-dags.js`) plus a config file (`docs/assets/dags/deps-config.json`) so the diagrams can be regenerated and extended deterministically.
   - Expose the generator via `cargo xtask` for a consistent repo tooling entrypoint.
   - Add a scheduled GitHub Action that refreshes the DAGs (PR only if outputs change).
-  - Keep the diagrams explicitly “planning sketches” (not a replacement for GitHub Project state or native dependency edges).
+  - Add `docs/workflows.md` and link it from README + AGENTS so contributors can discover the official entrypoints (`make`, `cargo xtask`, CI automation).
+- Keep the diagrams explicitly “planning sketches” (not a replacement for GitHub Project state or native dependency edges).
 - Exit criteria: both DAGs render locally via Graphviz (`dot -Tsvg …`) and the doc index links to `docs/dependency-dags.md`.
 
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)

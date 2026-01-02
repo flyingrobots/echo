@@ -78,4 +78,9 @@ Automation:
   - workflow file: `.github/workflows/refresh-dependency-dags.yml`
   - uses `--snapshot-label none` to avoid “date churn” diffs
 
+Issue linkage for automation PRs:
+- If you enforce strict PR↔Issue linkage, create a single tracking issue (example: “Automate dependency DAG refresh”) and set a repository Actions variable:
+  - `DAG_REFRESH_ISSUE=<issue-number>`
+- The workflow will include `Refs #<issue-number>` in the PR body when `DAG_REFRESH_ISSUE` is set.
+
 If you add new issues/milestones that should appear in the graph, update `docs/assets/dags/deps-config.json` (and consider annotating edges with confidence).

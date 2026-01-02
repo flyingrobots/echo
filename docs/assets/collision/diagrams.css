@@ -58,6 +58,7 @@ svg { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'H
 /* Picture-in-picture world view */
 .pip { position: absolute; right: 12px; top: 12px; width: 32%; max-width: 240px; border: 1px solid #3356a6; background: #0b1020; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.35); overflow: hidden; }
 .pip img { width: 100%; display: block; }
+.pip img.hidden { display: none; }
 .pip-tabs { display: flex; gap: 0; border-bottom: 1px solid #2a3c72; }
 .pip-tabs .tab { flex: 1; text-align: center; font-size: 11px; color: var(--muted); padding: 6px 4px; cursor: pointer; background: #121a33; }
 .pip-tabs .tab.active { color: var(--text); background: #1b2446; }

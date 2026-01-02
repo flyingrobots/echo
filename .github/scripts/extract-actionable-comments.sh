@@ -20,6 +20,14 @@ Purpose:
   Review threads are grouped by staleness; all sources support a lightweight ack
   convention via: ✅ Addressed in commit <sha>
 
+Ack sources:
+  - Review-thread replies: a human reply to a specific review-thread comment.
+  - PR conversation “round ack”: a single PR timeline comment per fix round that includes:
+      ✅ Addressed in commit <sha>
+      Acked review threads:
+      - discussion_r<REVIEW_COMMENT_ID>
+      - ...
+
 Outputs:
   - Writes a Markdown report to stdout by default.
   - Also writes raw JSON + intermediate artifacts to /tmp.
@@ -193,9 +201,9 @@ if [[ -z "$VALID_COMMITS_JSON" || "$VALID_COMMITS_JSON" == "[]" ]]; then
 fi
 
 fetch_paginated_json "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" "$RAW_REVIEW" "$RAW_REVIEW_ERR"
-if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
-  fetch_paginated_json "repos/${OWNER}/${NAME}/issues/${PR_NUMBER}/comments" "$RAW_CONVERSATION" "$RAW_CONVERSATION_ERR"
-fi
+# Always fetch PR conversation comments for round-ack detection.
+# They are only included in the report when --include-conversation/--all-sources is set.
+fetch_paginated_json "repos/${OWNER}/${NAME}/issues/${PR_NUMBER}/comments" "$RAW_CONVERSATION" "$RAW_CONVERSATION_ERR"
 if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
   fetch_paginated_json "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/reviews" "$RAW_REVIEWS" "$RAW_REVIEWS_ERR"
 fi
@@ -208,6 +216,7 @@ FILTER_REVIEWS="/tmp/pr-${PR_NUMBER}-jq-review-summaries-${TS}.jq"
 FILTER_REVIEW_FULL="/tmp/pr-${PR_NUMBER}-jq-review-thread-full-${TS}.jq"
 FILTER_CONVERSATION_FULL="/tmp/pr-${PR_NUMBER}-jq-conversation-full-${TS}.jq"
 FILTER_REVIEWS_FULL="/tmp/pr-${PR_NUMBER}-jq-review-summaries-full-${TS}.jq"
+FILTER_ACK_ROUND="/tmp/pr-${PR_NUMBER}-jq-ack-round-${TS}.jq"
 
 cat > "$FILTER_COMMON" <<'JQ'
 def is_bot_user(u):
@@ -239,6 +248,27 @@ def has_ack_marker(body; user):
     | $c != null
     and ($valid_commits | index($c)) != null
   );
+
+# Extract review-thread comment ids referenced in a PR-timeline “round ack” comment.
+#
+# Supported forms (designed to be copy/paste-friendly):
+# - `discussion_r2658147649` (matches GitHub review thread anchors)
+# - `id=2658147649` (matches this script’s `[id=...]` output)
+#
+# We intentionally do NOT try to infer ids from arbitrary large integers; ack targets must be explicit.
+def acked_review_thread_ids(body):
+  if (body | type) != "string" then []
+  else
+    (
+      [
+        (body | scan("discussion_r[0-9]{6,}") | map(sub("^discussion_r"; ""))),
+        (body | scan("id=[0-9]{6,}") | map(sub("^id="; "")))
+      ]
+      | add
+      | map(select(length > 0))
+      | unique
+    )
+  end;
 
 def normalize_title(body):
   ((body
@@ -289,7 +319,10 @@ def ack_by_reply:
       is_visible_on_head_diff: (.position != null),
       is_outdated: (.position == null),
       is_moved: (.commit_id != .original_commit_id),
-      has_ack: ($replies[(.id | tostring)] // false),
+      has_ack: (
+        ($replies[(.id | tostring)] // false)
+        or ($acked_by_round[(.id | tostring)] // false)
+      ),
       is_actionable: true,
       priority: priority_from_body(.body),
       title: normalize_title(.body),
@@ -298,8 +331,20 @@ def ack_by_reply:
 ]
 JQ
 
+cat > "$FILTER_ACK_ROUND" <<'JQ'
+[
+  .[]
+  | (.user // {}) as $u
+  | select(has_ack_marker(.body; $u))
+  | acked_review_thread_ids(.body)[]
+]
+| reduce .[] as $id ({}; .[$id] = true)
+JQ
+cat "$FILTER_COMMON" "$FILTER_ACK_ROUND" > "${FILTER_ACK_ROUND}.full"
+ACKED_BY_ROUND_JSON="$(jq -c --argjson valid_commits "$VALID_COMMITS_JSON" -f "${FILTER_ACK_ROUND}.full" "$RAW_CONVERSATION")"
+
 cat "$FILTER_COMMON" "$FILTER_REVIEW" > "$FILTER_REVIEW_FULL"
-jq --arg head "$HEAD7" --argjson valid_commits "$VALID_COMMITS_JSON" -f "$FILTER_REVIEW_FULL" "$RAW_REVIEW" > "$LATEST_REVIEW"
+jq --arg head "$HEAD7" --argjson valid_commits "$VALID_COMMITS_JSON" --argjson acked_by_round "$ACKED_BY_ROUND_JSON" -f "$FILTER_REVIEW_FULL" "$RAW_REVIEW" > "$LATEST_REVIEW"
 
 if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
   cat > "$FILTER_CONVERSATION" <<'JQ'
@@ -496,6 +541,22 @@ fi
   ' "$LATEST_ALL"
   echo
 
+  echo "## Suggested Round Ack Comment (post once per fix round)"
+  echo
+  echo "Post a single PR conversation comment after pushing your fixes (reduces notification spam vs replying to every thread)."
+  echo
+  echo '```text'
+  echo "✅ Addressed in commit <sha>"
+  echo
+  echo "Acked review threads:"
+  jq -r '
+    .[]
+    | select(.source == "review_thread" and .is_actionable == true and .has_ack == false)
+    | " - discussion_r\(.id)"
+  ' "$LATEST_ALL"
+  echo '```'
+  echo
+
   echo "## Acknowledged"
   echo
   jq -r '
@@ -508,7 +569,9 @@ fi
   echo "## Notes"
   echo
   echo "- \"Outdated\" means the review thread comment is no longer visible on the current head diff; it may still be actionable."
-  echo "- Use \`✅ Addressed in commit <sha>\` replies (or edits) to close the loop and keep future extraction cheap."
+  echo "- Use \`✅ Addressed in commit <sha>\` to close the loop and keep future extraction cheap."
+  echo "  - Prefer a single PR conversation “round ack” comment listing \`discussion_r<id>\` targets (1 per fix round)."
+  echo "  - Review-thread replies also work, but can create a notification flood."
   echo "- Conversation comments + review summaries are only included when requested; they are not diff-positioned like review threads."
   echo
 

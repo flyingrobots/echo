@@ -95,7 +95,7 @@ echo "Pushing branch: $head_branch"
 git push -u origin "$head_branch"
 
 pr_title="docs: dependency DAG automation + workflows (#${issue_number})"
-pr_body=$'Implements dependency DAG generation + automation, and documents contributor workflows.\n\nCloses #'\"${issue_number}\"$'\n\nTest Plan:\n- cargo xtask dags --snapshot-label none\n- cargo xtask dags --snapshot-label rolling --no-render\n'
+pr_body=$'Implements dependency DAG generation + automation, and documents contributor workflows.\n\nCloses #'"${issue_number}"$'\n\nTest Plan:\n- cargo xtask dags --snapshot-label none\n- cargo xtask dags --snapshot-label rolling --no-render\n'
 
 echo "Opening PR: $head_branch -> $base_branch"
 gh pr create --base "$base_branch" --head "$head_branch" --title "$pr_title" --body "$pr_body"

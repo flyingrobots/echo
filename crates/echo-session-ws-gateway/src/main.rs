@@ -3,26 +3,37 @@
 //! WebSocket ↔ Unix socket bridge for the Echo session service.
 //! Browsers speak WebSocket; the bridge forwards binary JS-ABI frames to the Unix bus.
 
-use std::{collections::HashSet, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{anyhow, Context, Result};
 use axum::body::Bytes;
 use axum::{
     extract::ws::{Message, WebSocket},
     extract::{ConnectInfo, State, WebSocketUpgrade},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{Html, IntoResponse},
     routing::get,
-    Router,
+    Json, Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use clap::Parser;
+use echo_session_proto::{
+    wire::{decode_message as decode_session_message, encode_message as encode_session_message},
+    HandshakePayload, Message as SessionMessage,
+};
 use futures_util::{SinkExt, StreamExt};
+use serde::Serialize;
 use tokio::task::JoinError;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
-    sync::mpsc,
+    sync::{mpsc, Mutex},
     time::{self, Duration},
 };
 use tracing::{error, info, warn};
@@ -37,6 +48,412 @@ const JS_ABI_HASH_BYTES: usize = 32;
 /// JS-ABI framing overhead: header + trailing hash/checksum bytes.
 const JS_ABI_OVERHEAD_BYTES: usize = JS_ABI_HEADER_BYTES + JS_ABI_HASH_BYTES;
 type TaskResult<T> = std::result::Result<T, JoinError>;
+
+const DASHBOARD_HTML: &str = include_str!("../assets/dashboard.html");
+const D3_JS: &[u8] = include_bytes!("../assets/vendor/d3.v7.min.js");
+const OPEN_PROPS_CSS: &[u8] = include_bytes!("../assets/vendor/open-props.min.css");
+const OPEN_PROPS_NORMALIZE_CSS: &[u8] = include_bytes!("../assets/vendor/normalize.min.css");
+const OPEN_PROPS_BUTTONS_CSS: &[u8] = include_bytes!("../assets/vendor/buttons.min.css");
+const OPEN_PROPS_THEME_DARK_CSS: &[u8] =
+    include_bytes!("../assets/vendor/theme.dark.switch.min.css");
+const OPEN_PROPS_THEME_LIGHT_CSS: &[u8] =
+    include_bytes!("../assets/vendor/theme.light.switch.min.css");
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SessionDirection {
+    WsToUds,
+    UdsToWs,
+}
+
+#[derive(Debug)]
+struct ConnMetrics {
+    peer: SocketAddr,
+    subscribed_warps: HashSet<u64>,
+    published_warps: HashSet<u64>,
+    last_seen_ms: u64,
+}
+
+impl ConnMetrics {
+    fn new(peer: SocketAddr, now_ms: u64) -> Self {
+        Self {
+            peer,
+            subscribed_warps: HashSet::new(),
+            published_warps: HashSet::new(),
+            last_seen_ms: now_ms,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct WarpMetrics {
+    subscribers: HashSet<u64>,
+    publishers: HashSet<u64>,
+    last_epoch: Option<u64>,
+    last_frame: Option<&'static str>,
+    last_ts: Option<u64>,
+    last_state_hash: Option<[u8; 32]>,
+    snapshot_count: u64,
+    diff_count: u64,
+    last_update_ms: u64,
+}
+
+#[derive(Debug, Default, Serialize, Clone, Copy)]
+struct MessageCounters {
+    handshake: u64,
+    handshake_ack: u64,
+    subscribe_warp: u64,
+    warp_stream: u64,
+    notification: u64,
+    error: u64,
+}
+
+#[derive(Debug, Default)]
+struct HubObserverMetrics {
+    enabled: bool,
+    connected: bool,
+    connect_attempts: u64,
+    connect_failures: u64,
+    rx_bytes: u64,
+    rx_frames: u64,
+    decode_errors: u64,
+    last_connect_ms: u64,
+    last_seen_ms: u64,
+    last_error: Option<String>,
+    subscribed_warps: Vec<u64>,
+}
+
+#[derive(Debug, Default)]
+struct GatewayMetrics {
+    next_conn_id: u64,
+    total_connections: u64,
+    active_connections: usize,
+
+    ws_to_uds_bytes: u64,
+    ws_to_uds_frames: u64,
+    uds_to_ws_bytes: u64,
+    uds_to_ws_frames: u64,
+
+    invalid_ws_frames: u64,
+    decode_errors: u64,
+
+    messages: MessageCounters,
+
+    hub_observer: HubObserverMetrics,
+    connections: HashMap<u64, ConnMetrics>,
+    warps: HashMap<u64, WarpMetrics>,
+}
+
+#[derive(Debug, Serialize)]
+struct DirectionCounters {
+    bytes: u64,
+    frames: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct WarpMetricsResponse {
+    warp_id: u64,
+    subscribers: usize,
+    publishers: usize,
+    last_epoch: Option<u64>,
+    last_frame: Option<&'static str>,
+    last_ts: Option<u64>,
+    last_state_hash: Option<String>,
+    snapshot_count: u64,
+    diff_count: u64,
+    last_update_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct ConnMetricsResponse {
+    conn_id: u64,
+    peer: String,
+    subscribed_warps: Vec<u64>,
+    published_warps: Vec<u64>,
+    last_seen_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct HubObserverMetricsResponse {
+    enabled: bool,
+    connected: bool,
+    connect_attempts: u64,
+    connect_failures: u64,
+    rx_bytes: u64,
+    rx_frames: u64,
+    decode_errors: u64,
+    last_connect_ms: u64,
+    last_seen_ms: u64,
+    last_error: Option<String>,
+    subscribed_warps: Vec<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct MetricsResponse {
+    started_at_unix_ms: u64,
+    uptime_ms: u64,
+    active_connections: usize,
+    total_connections: u64,
+
+    ws_to_uds: DirectionCounters,
+    uds_to_ws: DirectionCounters,
+
+    invalid_ws_frames: u64,
+    decode_errors: u64,
+    messages: MessageCounters,
+
+    hub_observer: HubObserverMetricsResponse,
+    warps: Vec<WarpMetricsResponse>,
+    connections: Vec<ConnMetricsResponse>,
+}
+
+impl GatewayMetrics {
+    fn alloc_conn(&mut self, peer: SocketAddr, now_ms: u64) -> u64 {
+        let conn_id = self.next_conn_id;
+        self.next_conn_id = self.next_conn_id.wrapping_add(1);
+        self.total_connections = self.total_connections.wrapping_add(1);
+        self.active_connections = self.active_connections.saturating_add(1);
+        self.connections
+            .insert(conn_id, ConnMetrics::new(peer, now_ms));
+        conn_id
+    }
+
+    fn remove_conn(&mut self, conn_id: u64) {
+        self.active_connections = self.active_connections.saturating_sub(1);
+        let Some(conn) = self.connections.remove(&conn_id) else {
+            return;
+        };
+
+        for warp_id in conn.subscribed_warps {
+            if let Some(warp) = self.warps.get_mut(&warp_id) {
+                warp.subscribers.remove(&conn_id);
+            }
+        }
+        for warp_id in conn.published_warps {
+            if let Some(warp) = self.warps.get_mut(&warp_id) {
+                warp.publishers.remove(&conn_id);
+            }
+        }
+    }
+
+    fn touch_conn(&mut self, conn_id: u64, now_ms: u64) {
+        if let Some(conn) = self.connections.get_mut(&conn_id) {
+            conn.last_seen_ms = now_ms;
+        }
+    }
+
+    fn observe_warp_frame(
+        &mut self,
+        warp_id: u64,
+        frame: &echo_session_proto::WarpFrame,
+        ts: u64,
+        now_ms: u64,
+    ) {
+        let entry = self.warps.entry(warp_id).or_default();
+        entry.last_ts = Some(ts);
+        entry.last_update_ms = now_ms;
+        match frame {
+            echo_session_proto::WarpFrame::Snapshot(snapshot) => {
+                entry.snapshot_count += 1;
+                entry.last_frame = Some("snapshot");
+                entry.last_epoch = Some(snapshot.epoch);
+                entry.last_state_hash = snapshot.state_hash;
+            }
+            echo_session_proto::WarpFrame::Diff(diff) => {
+                entry.diff_count += 1;
+                entry.last_frame = Some("diff");
+                entry.last_epoch = Some(diff.to_epoch);
+                entry.last_state_hash = diff.state_hash;
+            }
+        }
+    }
+
+    fn observe_message(
+        &mut self,
+        conn_id: u64,
+        direction: SessionDirection,
+        msg: &SessionMessage,
+        ts: u64,
+        now_ms: u64,
+    ) {
+        self.touch_conn(conn_id, now_ms);
+
+        match msg {
+            SessionMessage::Handshake(_) => self.messages.handshake += 1,
+            SessionMessage::HandshakeAck(_) => self.messages.handshake_ack += 1,
+            SessionMessage::Notification(_) => self.messages.notification += 1,
+            SessionMessage::Error(_) => self.messages.error += 1,
+            SessionMessage::SubscribeWarp { warp_id } => {
+                self.messages.subscribe_warp += 1;
+                if let Some(conn) = self.connections.get_mut(&conn_id) {
+                    conn.subscribed_warps.insert(*warp_id);
+                }
+                self.warps
+                    .entry(*warp_id)
+                    .or_default()
+                    .subscribers
+                    .insert(conn_id);
+            }
+            SessionMessage::WarpStream { warp_id, frame } => {
+                self.messages.warp_stream += 1;
+
+                self.observe_warp_frame(*warp_id, frame, ts, now_ms);
+
+                match direction {
+                    SessionDirection::WsToUds => {
+                        if let Some(conn) = self.connections.get_mut(&conn_id) {
+                            conn.published_warps.insert(*warp_id);
+                        }
+                        self.warps
+                            .entry(*warp_id)
+                            .or_default()
+                            .publishers
+                            .insert(conn_id);
+                    }
+                    SessionDirection::UdsToWs => {
+                        // Receiving a WARP frame implies subscription, even if we missed a
+                        // preceding SubscribeWarp (or decode errors prevented us from seeing it).
+                        if let Some(conn) = self.connections.get_mut(&conn_id) {
+                            conn.subscribed_warps.insert(*warp_id);
+                        }
+                        self.warps
+                            .entry(*warp_id)
+                            .or_default()
+                            .subscribers
+                            .insert(conn_id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn observe_hub_observer_connect_attempt(&mut self) {
+        self.hub_observer.connect_attempts = self.hub_observer.connect_attempts.wrapping_add(1);
+    }
+
+    fn observe_hub_observer_connected(&mut self, now_ms: u64) {
+        self.hub_observer.connected = true;
+        self.hub_observer.last_connect_ms = now_ms;
+        self.hub_observer.last_error = None;
+    }
+
+    fn observe_hub_observer_disconnected(&mut self) {
+        self.hub_observer.connected = false;
+    }
+
+    fn observe_hub_observer_error(&mut self, err: String) {
+        self.hub_observer.connect_failures = self.hub_observer.connect_failures.wrapping_add(1);
+        self.hub_observer.connected = false;
+        self.hub_observer.last_error = Some(err);
+    }
+
+    fn observe_hub_observer_packet(&mut self, pkt_len: usize, now_ms: u64) {
+        self.hub_observer.rx_frames = self.hub_observer.rx_frames.wrapping_add(1);
+        self.hub_observer.rx_bytes = self
+            .hub_observer
+            .rx_bytes
+            .wrapping_add(pkt_len.try_into().unwrap_or(u64::MAX));
+        self.hub_observer.last_seen_ms = now_ms;
+    }
+
+    fn observe_hub_observer_decode_error(&mut self) {
+        self.hub_observer.decode_errors = self.hub_observer.decode_errors.wrapping_add(1);
+    }
+
+    fn observe_hub_message(&mut self, msg: &SessionMessage, ts: u64, now_ms: u64) {
+        if let SessionMessage::WarpStream { warp_id, frame } = msg {
+            self.observe_warp_frame(*warp_id, frame, ts, now_ms);
+        }
+    }
+
+    fn snapshot(&self, started_at_unix_ms: u64, uptime_ms: u64) -> MetricsResponse {
+        let mut warps: Vec<WarpMetricsResponse> = self
+            .warps
+            .iter()
+            .map(|(&warp_id, w)| WarpMetricsResponse {
+                warp_id,
+                subscribers: w.subscribers.len(),
+                publishers: w.publishers.len(),
+                last_epoch: w.last_epoch,
+                last_frame: w.last_frame,
+                last_ts: w.last_ts,
+                last_state_hash: w.last_state_hash.map(hex32),
+                snapshot_count: w.snapshot_count,
+                diff_count: w.diff_count,
+                last_update_ms: w.last_update_ms,
+            })
+            .collect();
+        warps.sort_by_key(|w| w.warp_id);
+
+        let mut connections: Vec<ConnMetricsResponse> = self
+            .connections
+            .iter()
+            .map(|(&conn_id, c)| {
+                let mut subscribed_warps: Vec<u64> = c.subscribed_warps.iter().copied().collect();
+                subscribed_warps.sort_unstable();
+                let mut published_warps: Vec<u64> = c.published_warps.iter().copied().collect();
+                published_warps.sort_unstable();
+
+                ConnMetricsResponse {
+                    conn_id,
+                    peer: c.peer.to_string(),
+                    subscribed_warps,
+                    published_warps,
+                    last_seen_ms: c.last_seen_ms,
+                }
+            })
+            .collect();
+        connections.sort_by_key(|c| c.conn_id);
+
+        let mut subscribed_warps = self.hub_observer.subscribed_warps.clone();
+        subscribed_warps.sort_unstable();
+        subscribed_warps.dedup();
+
+        let hub_observer = HubObserverMetricsResponse {
+            enabled: self.hub_observer.enabled,
+            connected: self.hub_observer.connected,
+            connect_attempts: self.hub_observer.connect_attempts,
+            connect_failures: self.hub_observer.connect_failures,
+            rx_bytes: self.hub_observer.rx_bytes,
+            rx_frames: self.hub_observer.rx_frames,
+            decode_errors: self.hub_observer.decode_errors,
+            last_connect_ms: self.hub_observer.last_connect_ms,
+            last_seen_ms: self.hub_observer.last_seen_ms,
+            last_error: self.hub_observer.last_error.clone(),
+            subscribed_warps,
+        };
+
+        MetricsResponse {
+            started_at_unix_ms,
+            uptime_ms,
+            active_connections: self.active_connections,
+            total_connections: self.total_connections,
+            ws_to_uds: DirectionCounters {
+                bytes: self.ws_to_uds_bytes,
+                frames: self.ws_to_uds_frames,
+            },
+            uds_to_ws: DirectionCounters {
+                bytes: self.uds_to_ws_bytes,
+                frames: self.uds_to_ws_frames,
+            },
+            invalid_ws_frames: self.invalid_ws_frames,
+            decode_errors: self.decode_errors,
+            messages: self.messages,
+            hub_observer,
+            warps,
+            connections,
+        }
+    }
+}
+
+fn hex32(bytes: [u8; 32]) -> String {
+    const LUT: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(64);
+    for b in bytes {
+        out.push(LUT[(b >> 4) as usize] as char);
+        out.push(LUT[(b & 0x0f) as usize] as char);
+    }
+    out
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Echo session WebSocket gateway")]
@@ -59,6 +476,12 @@ struct Args {
     /// TLS private key (PEM). If provided, cert must also be provided.
     #[arg(long)]
     tls_key: Option<PathBuf>,
+    /// Disable the built-in hub observer (a metrics-only UDS subscriber).
+    #[arg(long)]
+    no_observer: bool,
+    /// Warp IDs to subscribe for metrics (repeatable or comma-delimited).
+    #[arg(long, value_delimiter = ',', default_value = "1")]
+    observe_warp: Vec<u64>,
 }
 
 #[derive(Clone)]
@@ -66,6 +489,9 @@ struct AppState {
     unix_socket: PathBuf,
     max_frame_bytes: usize,
     allow_origins: Option<HashSet<String>>,
+    started_at_unix_ms: u64,
+    start_instant: Instant,
+    metrics: Arc<Mutex<GatewayMetrics>>,
 }
 
 #[tokio::main]
@@ -82,13 +508,51 @@ async fn main() -> Result<()> {
         Some(args.allow_origin.iter().cloned().collect())
     };
 
+    let started_at_unix_ms: u64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(0);
+
+    let metrics = Arc::new(Mutex::new(GatewayMetrics::default()));
+
     let state = Arc::new(AppState {
         unix_socket: args.unix_socket.clone(),
         max_frame_bytes: args.max_frame_bytes,
         allow_origins,
+        started_at_unix_ms,
+        start_instant: Instant::now(),
+        metrics,
     });
 
+    {
+        let mut metrics = state.metrics.lock().await;
+        metrics.hub_observer.enabled = !args.no_observer;
+        metrics.hub_observer.subscribed_warps = args.observe_warp.clone();
+    }
+
+    if !args.no_observer {
+        let observer_state = state.clone();
+        let warps = args.observe_warp.clone();
+        tokio::spawn(async move {
+            run_hub_observer(observer_state, warps).await;
+        });
+    }
+
     let app = Router::new()
+        .route("/", get(dashboard_handler))
+        .route("/dashboard", get(dashboard_handler))
+        .route("/vendor/d3.v7.min.js", get(d3_handler))
+        .route("/vendor/open-props.min.css", get(open_props_handler))
+        .route("/vendor/normalize.min.css", get(normalize_handler))
+        .route("/vendor/buttons.min.css", get(buttons_handler))
+        .route("/vendor/theme.dark.switch.min.css", get(theme_dark_handler))
+        .route(
+            "/vendor/theme.light.switch.min.css",
+            get(theme_light_handler),
+        )
+        .route("/api/metrics", get(metrics_handler))
         .route("/ws", get(ws_handler))
         .with_state(state);
 
@@ -126,6 +590,260 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
+    let mut warps: Vec<u64> = warp_ids;
+    warps.sort_unstable();
+    warps.dedup();
+
+    let mut backoff = Duration::from_millis(250);
+    'reconnect: loop {
+        let now_ms: u64 = state
+            .start_instant
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
+
+        {
+            let mut metrics = state.metrics.lock().await;
+            metrics.observe_hub_observer_connect_attempt();
+            metrics.hub_observer.subscribed_warps = warps.clone();
+        }
+
+        let socket_path = state.unix_socket.clone();
+        let stream =
+            match time::timeout(Duration::from_secs(2), UnixStream::connect(&socket_path)).await {
+                Ok(Ok(stream)) => {
+                    backoff = Duration::from_millis(250);
+                    stream
+                }
+                Ok(Err(err)) => {
+                    warn!(
+                        ?err,
+                        path = %socket_path.display(),
+                        "hub observer: failed to connect to unix socket"
+                    );
+                    let mut metrics = state.metrics.lock().await;
+                    metrics.observe_hub_observer_error(err.to_string());
+                    time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(3));
+                    continue;
+                }
+                Err(_) => {
+                    warn!(
+                        path = %socket_path.display(),
+                        "hub observer: timed out connecting to unix socket"
+                    );
+                    let mut metrics = state.metrics.lock().await;
+                    metrics.observe_hub_observer_error("connect timeout".into());
+                    time::sleep(backoff).await;
+                    backoff = (backoff * 2).min(Duration::from_secs(3));
+                    continue;
+                }
+            };
+
+        {
+            let mut metrics = state.metrics.lock().await;
+            metrics.observe_hub_observer_connected(now_ms);
+        }
+
+        let (mut reader, mut writer) = tokio::io::split(stream);
+
+        if let Err(err) = hub_observer_send_handshake(&mut writer).await {
+            warn!(?err, "hub observer: handshake send failed");
+            let mut metrics = state.metrics.lock().await;
+            metrics.observe_hub_observer_error(err.to_string());
+            time::sleep(backoff).await;
+            backoff = (backoff * 2).min(Duration::from_secs(3));
+            continue 'reconnect;
+        }
+
+        for warp_id in &warps {
+            if let Err(err) = hub_observer_send_subscribe(&mut writer, *warp_id).await {
+                warn!(?err, warp_id, "hub observer: subscribe send failed");
+                let mut metrics = state.metrics.lock().await;
+                metrics.observe_hub_observer_error(err.to_string());
+                time::sleep(backoff).await;
+                backoff = (backoff * 2).min(Duration::from_secs(3));
+                continue 'reconnect;
+            }
+        }
+
+        let max_len = state.max_frame_bytes;
+        let read_result = hub_observer_read_loop(&mut reader, state.clone(), max_len).await;
+
+        {
+            let mut metrics = state.metrics.lock().await;
+            metrics.observe_hub_observer_disconnected();
+            if let Err(err) = &read_result {
+                metrics.hub_observer.last_error = Some(err.to_string());
+            }
+        }
+
+        if let Err(err) = read_result {
+            warn!(?err, "hub observer: read loop exited with error");
+        }
+
+        time::sleep(backoff).await;
+        backoff = (backoff * 2).min(Duration::from_secs(3));
+    }
+}
+
+async fn hub_observer_send_handshake(writer: &mut tokio::io::WriteHalf<UnixStream>) -> Result<()> {
+    let payload = HandshakePayload {
+        client_version: 1,
+        capabilities: vec!["observer".into()],
+        agent_id: Some("echo-session-ws-gateway".into()),
+        session_meta: None,
+    };
+    let pkt = encode_session_message(SessionMessage::Handshake(payload), 0)
+        .context("encode handshake")?;
+    writer.write_all(&pkt).await.context("write handshake")?;
+    Ok(())
+}
+
+async fn hub_observer_send_subscribe(
+    writer: &mut tokio::io::WriteHalf<UnixStream>,
+    warp_id: u64,
+) -> Result<()> {
+    let pkt = encode_session_message(SessionMessage::SubscribeWarp { warp_id }, 0)
+        .context("encode subscribe_warp")?;
+    writer
+        .write_all(&pkt)
+        .await
+        .context("write subscribe_warp")?;
+    Ok(())
+}
+
+async fn hub_observer_read_loop(
+    reader: &mut tokio::io::ReadHalf<UnixStream>,
+    state: Arc<AppState>,
+    max_len: usize,
+) -> Result<()> {
+    let mut buf = vec![0u8; 16 * 1024];
+    let mut acc: Vec<u8> = Vec::with_capacity(32 * 1024);
+    let max_acc = max_len
+        .saturating_add(JS_ABI_OVERHEAD_BYTES)
+        .saturating_add(buf.len());
+
+    loop {
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        acc.extend_from_slice(&buf[..n]);
+        if acc.len() > max_acc {
+            return Err(anyhow!(
+                "accumulator overflow ({} > {}): malformed upstream framing",
+                acc.len(),
+                max_acc
+            ));
+        }
+        while let Some(pkt) = try_extract_frame(&mut acc, max_len)? {
+            let now_ms: u64 = state
+                .start_instant
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX);
+
+            let decoded = decode_session_message(&pkt);
+            {
+                let mut metrics = state.metrics.lock().await;
+                metrics.observe_hub_observer_packet(pkt.len(), now_ms);
+                match decoded {
+                    Ok((msg, ts, _)) => metrics.observe_hub_message(&msg, ts, now_ms),
+                    Err(_) => metrics.observe_hub_observer_decode_error(),
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn dashboard_handler() -> Html<&'static str> {
+    Html(DASHBOARD_HTML)
+}
+
+fn static_bytes(content_type: &'static str, body: Bytes) -> (HeaderMap, Bytes) {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    (headers, body)
+}
+
+async fn d3_handler() -> impl IntoResponse {
+    static_bytes(
+        "application/javascript; charset=utf-8",
+        Bytes::from_static(D3_JS),
+    )
+}
+
+async fn open_props_handler() -> impl IntoResponse {
+    static_bytes(
+        "text/css; charset=utf-8",
+        Bytes::from_static(OPEN_PROPS_CSS),
+    )
+}
+
+async fn normalize_handler() -> impl IntoResponse {
+    static_bytes(
+        "text/css; charset=utf-8",
+        Bytes::from_static(OPEN_PROPS_NORMALIZE_CSS),
+    )
+}
+
+async fn buttons_handler() -> impl IntoResponse {
+    static_bytes(
+        "text/css; charset=utf-8",
+        Bytes::from_static(OPEN_PROPS_BUTTONS_CSS),
+    )
+}
+
+async fn theme_dark_handler() -> impl IntoResponse {
+    static_bytes(
+        "text/css; charset=utf-8",
+        Bytes::from_static(OPEN_PROPS_THEME_DARK_CSS),
+    )
+}
+
+async fn theme_light_handler() -> impl IntoResponse {
+    static_bytes(
+        "text/css; charset=utf-8",
+        Bytes::from_static(OPEN_PROPS_THEME_LIGHT_CSS),
+    )
+}
+
+async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let uptime_ms: u64 = state
+        .start_instant
+        .elapsed()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX);
+
+    let snapshot = {
+        let metrics = state.metrics.lock().await;
+        metrics.snapshot(state.started_at_unix_ms, uptime_ms)
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, max-age=0"),
+    );
+    // Make this endpoint easy to consume from local docs or other dev servers.
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    (headers, Json(snapshot))
 }
 
 async fn ws_handler(
@@ -176,6 +894,17 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
         }
     };
 
+    let conn_id = {
+        let now_ms: u64 = state
+            .start_instant
+            .elapsed()
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        let mut metrics = state.metrics.lock().await;
+        metrics.alloc_conn(peer, now_ms)
+    };
+
     let (mut ws_tx, mut ws_rx) = socket.split();
     let (mut uds_reader, mut uds_writer) = tokio::io::split(unix);
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
@@ -192,6 +921,8 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
     // UDS -> WS task: frame and forward packets
     let max_len = state.max_frame_bytes;
     let out_tx_clone = out_tx.clone();
+    let metrics_uds_to_ws = state.metrics.clone();
+    let start_instant_uds_to_ws = state.start_instant;
     let uds_to_ws = tokio::spawn(async move {
         let mut buf = vec![0u8; 16 * 1024];
         let mut acc: Vec<u8> = Vec::with_capacity(32 * 1024);
@@ -212,6 +943,33 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
                 ));
             }
             while let Some(pkt) = try_extract_frame(&mut acc, max_len)? {
+                let now_ms: u64 = start_instant_uds_to_ws
+                    .elapsed()
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u64::MAX);
+                let decoded = decode_session_message(&pkt);
+                {
+                    let mut metrics = metrics_uds_to_ws.lock().await;
+                    metrics.uds_to_ws_frames = metrics.uds_to_ws_frames.wrapping_add(1);
+                    metrics.uds_to_ws_bytes = metrics
+                        .uds_to_ws_bytes
+                        .wrapping_add(pkt.len().try_into().unwrap_or(u64::MAX));
+
+                    match decoded {
+                        Ok((msg, ts, _)) => metrics.observe_message(
+                            conn_id,
+                            SessionDirection::UdsToWs,
+                            &msg,
+                            ts,
+                            now_ms,
+                        ),
+                        Err(_) => {
+                            metrics.decode_errors = metrics.decode_errors.wrapping_add(1);
+                            metrics.touch_conn(conn_id, now_ms);
+                        }
+                    }
+                }
                 if out_tx_clone
                     .send(Message::Binary(pkt.into()))
                     .await
@@ -227,13 +985,51 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
     // WS -> UDS task: validate and forward binary frames
     let max_len_ws = state.max_frame_bytes;
     let pong_tx = out_tx.clone();
+    let metrics_ws_to_uds = state.metrics.clone();
+    let start_instant_ws_to_uds = state.start_instant;
     let ws_to_uds = tokio::spawn(async move {
         while let Some(msg) = ws_rx.next().await {
             match msg {
                 Ok(Message::Binary(data)) => {
                     if let Err(err) = validate_frame(&data, max_len_ws) {
+                        let now_ms: u64 = start_instant_ws_to_uds
+                            .elapsed()
+                            .as_millis()
+                            .try_into()
+                            .unwrap_or(u64::MAX);
+                        let mut metrics = metrics_ws_to_uds.lock().await;
+                        metrics.invalid_ws_frames = metrics.invalid_ws_frames.wrapping_add(1);
+                        metrics.touch_conn(conn_id, now_ms);
                         warn!(?err, ?peer, "invalid frame from client");
                         break;
+                    }
+
+                    let now_ms: u64 = start_instant_ws_to_uds
+                        .elapsed()
+                        .as_millis()
+                        .try_into()
+                        .unwrap_or(u64::MAX);
+                    let decoded = decode_session_message(&data);
+                    {
+                        let mut metrics = metrics_ws_to_uds.lock().await;
+                        metrics.ws_to_uds_frames = metrics.ws_to_uds_frames.wrapping_add(1);
+                        metrics.ws_to_uds_bytes = metrics
+                            .ws_to_uds_bytes
+                            .wrapping_add(data.len().try_into().unwrap_or(u64::MAX));
+
+                        match decoded {
+                            Ok((msg, ts, _)) => metrics.observe_message(
+                                conn_id,
+                                SessionDirection::WsToUds,
+                                &msg,
+                                ts,
+                                now_ms,
+                            ),
+                            Err(_) => {
+                                metrics.decode_errors = metrics.decode_errors.wrapping_add(1);
+                                metrics.touch_conn(conn_id, now_ms);
+                            }
+                        }
                     }
                     if let Err(err) = uds_writer.write_all(&data).await {
                         warn!(?err, "failed to write to uds");
@@ -349,6 +1145,11 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
             log_void_task_result("ws_to_uds", peer, ws_to_uds.await);
             log_result_task_result("uds_to_ws", peer, uds_to_ws.await);
         }
+    }
+
+    {
+        let mut metrics = state.metrics.lock().await;
+        metrics.remove_conn(conn_id);
     }
 }
 

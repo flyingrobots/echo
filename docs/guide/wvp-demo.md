@@ -96,6 +96,29 @@ Expected behavior:
 - On subscribe, the hub sends the latest snapshot for `warp_id = 1` (if any exists).
 - As the publisher pulses, the subscriber’s rendered graph updates.
 
+## Optional: Session Dashboard (Gateway + Observer)
+
+For a quick, browser-openable “is the pipeline alive?” view (frames, bytes, per-`warp_id` epoch progress),
+run the WebSocket gateway and open its built-in dashboard:
+
+```bash
+cargo run -p echo-session-ws-gateway -- --unix-socket /tmp/echo-session.sock
+```
+
+- Dashboard: `http://localhost:8787/dashboard`
+- JSON metrics: `http://localhost:8787/api/metrics`
+
+The gateway includes a built-in **hub observer** (UDS subscriber) so the dashboard can show hub activity
+even when there are zero `/ws` browser clients.
+
+![Echo session dashboard (served by echo-session-ws-gateway)](../assets/wvp/session-dashboard.png)
+
+To regenerate the screenshot from the Playwright e2e test:
+
+```bash
+ECHO_CAPTURE_DASHBOARD_SCREENSHOT=1 pnpm exec playwright test e2e/session-dashboard.spec.ts
+```
+
 ## Common Failure Modes (And What They Mean)
 
 ### `E_FORBIDDEN_PUBLISH` (403)
@@ -129,4 +152,3 @@ Fix:
 
 - The viewer connection assumes “one WARP stream per socket”; changing `warp_id` requires reconnect.
 - There is no explicit resync request message yet; resync is done by re-subscribing (hub sends latest snapshot) or reconnecting.
-

@@ -261,8 +261,8 @@ def acked_review_thread_ids(body):
   else
     (
       [
-        (body | scan("discussion_r[0-9]{6,}") | map(sub("^discussion_r"; ""))),
-        (body | scan("id=[0-9]{6,}") | map(sub("^id="; "")))
+        ([body | scan("discussion_r[0-9]{6,}") ] | map(sub("^discussion_r"; ""))),
+        ([body | scan("id=[0-9]{6,}") ] | map(sub("^id="; "")))
       ]
       | add
       | map(select(length > 0))

@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Issue #214: strict Origin allowlist semantics (IN PROGRESS)
+
+- Goal: keep `echo-session-ws-gateway`’s `--allow-origin` behavior strict and make that policy obvious to operators and contributors.
+- Scope:
+  - Document “strict allowlist” behavior in `crates/echo-session-ws-gateway/README.md` (missing `Origin` is rejected when `--allow-origin` is configured).
+  - Add a unit test in `crates/echo-session-ws-gateway/src/main.rs` that locks the behavior (missing `Origin` rejected only when allowlist is present).
+- Exit criteria: issue #214 is closed by a small PR; `cargo test -p echo-session-ws-gateway` is green.
+- Tracking: GitHub issue #214.
+
 > 2026-01-02 — Issue #215: CI Playwright dashboard smoke job (IN PROGRESS)
 
 - Goal: add a GitHub Actions job that runs the Playwright Session Dashboard smoke test on PRs/pushes and publishes artifacts so embedded-tooling regressions can’t silently land.

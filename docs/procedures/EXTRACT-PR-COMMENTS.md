@@ -286,8 +286,10 @@ Prefer the helper script, which understands ack markers in replies and can print
 If CodeRabbitAI approved but GitHub still shows “changes requested”, nudge the bot:
 
 ```text
-@coderabbitai Please review the latest commit and clear the "changes requested" status since you have already approved the changes.
+@coderabbitai Please re-review the latest commit and submit a new approval to update the review status.
 ```
+
+Note: CodeRabbitAI can’t “dismiss” its own prior review; it updates the PR status by submitting a new review after re-reviewing the latest commit.
 
 ---
 

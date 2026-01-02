@@ -84,7 +84,7 @@ fetch_paginated_json() {
 }
 
 PR_NUMBER="${1:-}"
-shift || true
+shift || true # Prevent set -e exit when $1 is absent (no remaining args to shift).
 if [[ -z "${PR_NUMBER}" ]]; then
   usage >&2
   exit 2
@@ -171,7 +171,7 @@ if [[ -z "$HEAD_SHA" || ! "$HEAD_SHA" =~ ^[0-9a-f]{7,}$ ]]; then
 fi
 HEAD7="${HEAD_SHA:0:7}"
 
-TS="$(date +%s)"
+TS="$(date +%s)-$$"
 RAW_COMMITS="/tmp/pr-${PR_NUMBER}-commits-${TS}.json"
 RAW_COMMITS_ERR="/tmp/pr-${PR_NUMBER}-commits-${TS}.err"
 RAW_REVIEW="/tmp/pr-${PR_NUMBER}-review-comments-${TS}.json"
@@ -308,7 +308,7 @@ def is_html_comment(body):
   and (body | test("^\\s*<!--"));
 
 [ .[]
-  | select((.body // "") | gsub("\\s+"; "") | length > 0)
+  | select((.body // "") | test("\\S"))
   | select(is_html_comment(.body) | not)
   | (.user // {}) as $u
   | (
@@ -349,7 +349,7 @@ fi
 if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
   cat > "$FILTER_REVIEWS" <<'JQ'
 [ .[]
-  | select((.body // "") | gsub("\\s+"; "") | length > 0)
+  | select((.body // "") | test("\\S"))
   | (.user // {}) as $u
   | (
       ($u.type // "") == "Bot"

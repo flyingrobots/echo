@@ -22,7 +22,7 @@ This page is a landing map: “which scheduler doc should I read?”
 | --- | --- | --- |
 | Understand determinism + rewrite scheduling in Rust | `docs/spec-warp-core.md` | `docs/scheduler-warp-core.md` |
 | Validate `reserve()` correctness / determinism properties | `docs/scheduler-reserve-validation.md` | `crates/warp-core/src/scheduler.rs` tests + `crates/warp-core/tests/*` |
-| Benchmark rewrite scheduler throughput | `docs/scheduler-benchmarks.md` | `crates/warp-benches/benches/scheduler_drain.rs` |
+| Benchmark rewrite scheduler throughput | `docs/scheduler-performance-warp-core.md` | `crates/warp-benches/benches/scheduler_drain.rs` |
 | Understand the planned ECS/system scheduler | `docs/spec-scheduler.md` | `docs/spec-concurrency-and-authoring.md`, `docs/spec-codex-baby.md` |
 
 ---
@@ -38,7 +38,7 @@ Key operations (high-level):
 Related docs:
 - Spec context: `docs/spec-warp-core.md`
 - Canonical warp-core scheduler doc: `docs/scheduler-warp-core.md`
-- Bench plan + current benches: `docs/scheduler-benchmarks.md`
+- Bench plan + current benches: `docs/scheduler-performance-warp-core.md`
 
 ---
 

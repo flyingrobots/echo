@@ -42,6 +42,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Add a scheduler landing doc (`docs/scheduler.md`) that maps “which doc should I read?”
   - Update scheduler docs to clearly label scope/status and link back to the landing page.
   - Merge the `reserve()` validation/complexity satellites into a single canonical warp-core scheduler doc (`docs/scheduler-warp-core.md`) and leave redirects behind.
+  - Consolidate scheduler benchmark notes into a single canonical warp-core performance doc (`docs/scheduler-performance-warp-core.md`) and leave a redirect behind.
   - Keep changes documentation-only.
 - Exit criteria: scheduler docs are self-consistent and discoverable from `docs/docs-index.md`.
 

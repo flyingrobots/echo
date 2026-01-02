@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+name: CodeRabbit
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  approval-gate:
+    name: Approval Gate
+    runs-on: ubuntu-latest
+    # The PR object isn't present on some review-related events (e.g. if the review
+    # was on a PR from a fork with limited permissions), so guard defensively.
+    if: github.event.pull_request != null
+    steps:
+      - name: Require CodeRabbit approval on PR head
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const pull_number = context.payload.pull_request.number
+            const headSha = context.payload.pull_request.head.sha
+
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            })
+
+            const botLogin = 'coderabbitai[bot]'
+            const botReviews = reviews.filter((r) => r.user?.login === botLogin)
+
+            if (botReviews.length === 0) {
+              core.setFailed(
+                `No ${botLogin} review found. Post "@coderabbitai review" on the PR and wait for an approval.`
+              )
+              return
+            }
+
+            botReviews.sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at))
+            const latest = botReviews[botReviews.length - 1]
+            const state = latest.state
+
+            if (state !== 'APPROVED') {
+              core.setFailed(
+                `${botLogin} review state is ${state}; merge is blocked until it is APPROVED.`
+              )
+              return
+            }
+
+            if (latest.commit_id !== headSha) {
+              core.setFailed(
+                `${botLogin} approved commit ${latest.commit_id}, but PR head is ${headSha}. ` +
+                  `Ask for a re-review: "@coderabbitai review".`
+              )
+              return
+            }
+
+            core.info(`${botLogin} approved the PR head commit (${headSha}).`)

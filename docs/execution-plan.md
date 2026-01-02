@@ -35,6 +35,16 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Issue #219: enforce CodeRabbit approval as a merge gate (IN PROGRESS)
+
+- Goal: make “don’t merge until CodeRabbit approves” an enforced rule, not a social norm.
+- Scope:
+  - Add a lightweight GitHub Actions workflow that runs on `pull_request` + `pull_request_review` events and reports a stable status check.
+  - Require that check in the `main` ruleset so merges are blocked until CodeRabbitAI has approved the PR head commit.
+  - Remove any bypass path that allows merging without satisfying the CodeRabbit gate.
+- Exit criteria: a PR without a CodeRabbitAI approval is not mergeable; once CodeRabbitAI approves the head commit, the PR becomes mergeable without manual workflow re-runs.
+- Tracking: GitHub issue #219.
+
 > 2026-01-02 — Issue #214: strict Origin allowlist semantics (IN PROGRESS)
 
 - Goal: keep `echo-session-ws-gateway`’s `--allow-origin` behavior strict and make that policy obvious to operators and contributors.

@@ -11,9 +11,10 @@ Current (implemented) benchmarks:
 - `docs/scheduler-performance-warp-core.md`
 
 Future (planned) system-scheduler benchmarks:
-- `docs/spec-scheduler.md` (scenarios to be re-homed once the system scheduler exists)
+- `docs/spec-scheduler.md` (planned benchmark scenarios; spec-only today)
 
 ---
 
 The detailed benchmark plan content now lives in:
 - `docs/scheduler-performance-warp-core.md` (warp-core)
+- `docs/spec-scheduler.md` (planned system scheduler scenarios)

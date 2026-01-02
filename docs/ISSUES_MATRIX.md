@@ -4,6 +4,63 @@
 
 This table mirrors the current state of active issues in Project 9 with our plan-aligned milestones and relationships. Native GitHub dependencies represent "blocked by"/"blocking"; we no longer use custom text fields for these. The Project board remains the live system of record for status.
 
+## Managing Issue Dependencies (Blocked By / Blocking)
+
+Echo uses **native GitHub issue dependencies** to track “blocked by” relationships (not custom text fields).
+
+Practical note: the GitHub GraphQL API exposes dependency data/events, but dependency *mutation* is easiest via the **REST API**. In practice, we use `gh api` as the most scriptable interface.
+
+Reference: GitHub docs “REST API endpoints for issue dependencies” (see `issues/issue-dependencies` in the REST docs).
+
+### Common `gh api` recipes
+
+List dependencies an issue is blocked by:
+
+```bash
+gh api \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  repos/flyingrobots/echo/issues/<ISSUE_NUMBER>/dependencies/blocked_by
+```
+
+List dependencies an issue is blocking:
+
+```bash
+gh api \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  repos/flyingrobots/echo/issues/<ISSUE_NUMBER>/dependencies/blocking
+```
+
+Add a “blocked by” dependency (make `<ISSUE_NUMBER>` blocked by `<BLOCKING_ISSUE_NUMBER>`):
+
+```bash
+BLOCKING_ISSUE_ID=$(
+  gh api \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    repos/flyingrobots/echo/issues/<BLOCKING_ISSUE_NUMBER> \
+    --jq .id
+)
+
+gh api \
+  -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  repos/flyingrobots/echo/issues/<ISSUE_NUMBER>/dependencies/blocked_by \
+  -f issue_id="$BLOCKING_ISSUE_ID"
+```
+
+Remove a “blocked by” dependency:
+
+```bash
+gh api \
+  -X DELETE \
+  -H "Accept: application/vnd.github+json" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  repos/flyingrobots/echo/issues/<ISSUE_NUMBER>/dependencies/blocked_by/<BLOCKING_ISSUE_ID>
+```
+
 | Issue Name | Issue # | Milestone | Priority | Estimate | Blocked By | Blocking | Parent | Children | Remarks |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |
 | Benchmarks & CI Regression Gates | 22 | M1 – Golden Tests | P1 | 13h+ |  | #42,#43,#44,#45,#46 |  | 42,43,44,45,46 | Umbrella for perf pipeline |

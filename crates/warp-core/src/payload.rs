@@ -9,34 +9,84 @@ use bytes::Bytes;
 use crate::attachment::AtomPayload;
 use crate::ident::{make_type_id, TypeId};
 
-const POSITION_VELOCITY_BYTES: usize = 24;
+const MOTION_PAYLOAD_V0_BYTES: usize = 24;
+const MOTION_PAYLOAD_V2_BYTES: usize = 48;
 
-static MOTION_PAYLOAD_TYPE_ID: OnceLock<TypeId> = OnceLock::new();
+static MOTION_PAYLOAD_TYPE_ID_V0: OnceLock<TypeId> = OnceLock::new();
+static MOTION_PAYLOAD_TYPE_ID_V2: OnceLock<TypeId> = OnceLock::new();
 
-/// Returns the canonical payload `TypeId` for the motion demo atom payload.
+/// Returns the legacy motion payload `TypeId` (`payload/motion/v0`).
+///
+/// This format stores six little-endian `f32` values (position + velocity).
+#[must_use]
+pub fn motion_payload_type_id_v0() -> TypeId {
+    *MOTION_PAYLOAD_TYPE_ID_V0.get_or_init(|| make_type_id("payload/motion/v0"))
+}
+
+/// Returns the canonical payload `TypeId` for the motion demo atom payload (`payload/motion/v2`).
 ///
 /// This is used as the attachment-plane `type_id` for motion component bytes.
 /// It is cached after the first call to avoid repeated hashing overhead.
 #[must_use]
 pub fn motion_payload_type_id() -> TypeId {
-    *MOTION_PAYLOAD_TYPE_ID.get_or_init(|| make_type_id("payload/motion/v0"))
+    *MOTION_PAYLOAD_TYPE_ID_V2.get_or_init(|| make_type_id("payload/motion/v2"))
 }
 
-/// Serialises a 3D position + velocity pair into the canonical payload.
+/// Serialises a 3D position + velocity pair into the canonical motion payload.
 ///
-/// Note: Values are encoded verbatim as `f32` little‑endian bytes; callers are
-/// responsible for ensuring finiteness if deterministic behaviour is required
-/// (NaN bit patterns compare unequal across some platforms).
+/// **Breaking change from v0:** This function now produces the v2 encoding (48 bytes Q32.32).
+/// Legacy v0 payloads (24 bytes f32) remain readable via [`decode_motion_payload`], but new
+/// writes always use v2.
+///
+/// The canonical format is Q32.32 fixed-point stored as six `i64` values (little-endian).
+/// This provides a stable, cross-platform, cross-language wire encoding even when callers
+/// originate values as `f32`.
 ///
 /// Layout (little‑endian):
-/// - bytes 0..12: position [x, y, z] as 3 × f32
-/// - bytes 12..24: velocity [vx, vy, vz] as 3 × f32
-///   Always 24 bytes.
+/// - bytes 0..24: position [x, y, z] as 3 × i64 (Q32.32)
+/// - bytes 24..48: velocity [vx, vy, vz] as 3 × i64 (Q32.32)
+///   Always 48 bytes.
+///
+/// Non-finite inputs are mapped deterministically:
+/// - `NaN` → `0`
+/// - `+∞`/`-∞` → saturated extrema
 #[inline]
+#[must_use]
 pub fn encode_motion_payload(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
-    let mut buf = Vec::with_capacity(POSITION_VELOCITY_BYTES);
+    let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V2_BYTES);
+    for value in position.into_iter().chain(velocity.into_iter()) {
+        let raw = crate::math::fixed_q32_32::from_f32(value);
+        buf.extend_from_slice(&raw.to_le_bytes());
+    }
+    Bytes::from(buf)
+}
+
+/// Serialises a 3D position + velocity pair into the legacy v0 motion payload encoding.
+///
+/// This is retained for compatibility testing and migration tooling. New writes inside
+/// the deterministic runtime should prefer the canonical v2 encoder ([`encode_motion_payload`]).
+///
+/// Layout (little-endian): 6 × `f32` = 24 bytes.
+#[inline]
+#[must_use]
+pub fn encode_motion_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> Bytes {
+    let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V0_BYTES);
     for value in position.into_iter().chain(velocity.into_iter()) {
         buf.extend_from_slice(&value.to_le_bytes());
+    }
+    Bytes::from(buf)
+}
+
+/// Serialises a Q32.32 raw position + velocity pair into the canonical motion payload.
+///
+/// Layout is identical to [`encode_motion_payload`], but callers supply pre-scaled
+/// Q32.32 raw integers directly.
+#[inline]
+#[must_use]
+pub fn encode_motion_payload_q32_32(position_raw: [i64; 3], velocity_raw: [i64; 3]) -> Bytes {
+    let mut buf = Vec::with_capacity(MOTION_PAYLOAD_V2_BYTES);
+    for raw in position_raw.into_iter().chain(velocity_raw.into_iter()) {
+        buf.extend_from_slice(&raw.to_le_bytes());
     }
     Bytes::from(buf)
 }
@@ -52,16 +102,20 @@ pub fn encode_motion_atom_payload(position: [f32; 3], velocity: [f32; 3]) -> Ato
     )
 }
 
-/// Deserialises a canonical motion payload into `(position, velocity)` arrays.
+/// Serialises motion data into a typed legacy v0 atom payload (`AtomPayload`).
 ///
-/// Expects exactly 24 bytes laid out as six little-endian `f32` values in
-/// the order: position `[x, y, z]` followed by velocity `[vx, vy, vz]`.
-///
-/// Returns `None` if `bytes.len() != 24` or if any 4-byte chunk cannot be
-/// converted into an `f32` (invalid input). On success, returns two `[f32; 3]`
-/// arrays representing position and velocity respectively.
-pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
-    if bytes.len() != POSITION_VELOCITY_BYTES {
+/// This produces the legacy 24-byte 6×f32 encoding (`payload/motion/v0`). New writes in the
+/// deterministic runtime should prefer the canonical v2 encoder ([`encode_motion_atom_payload`]).
+#[must_use]
+pub fn encode_motion_atom_payload_v0(position: [f32; 3], velocity: [f32; 3]) -> AtomPayload {
+    AtomPayload::new(
+        motion_payload_type_id_v0(),
+        encode_motion_payload_v0(position, velocity),
+    )
+}
+
+fn decode_motion_payload_v0(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
+    if bytes.len() != MOTION_PAYLOAD_V0_BYTES {
         return None;
     }
     let mut floats = [0f32; 6];
@@ -73,16 +127,99 @@ pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
     Some((position, velocity))
 }
 
-/// Deserialises a typed atom payload into `(position, velocity)` arrays.
-///
-/// Returns `None` if the payload `type_id` is not `motion_payload_type_id()` or
-/// if the underlying bytes do not match the canonical motion encoding.
-#[must_use]
-pub fn decode_motion_atom_payload(payload: &AtomPayload) -> Option<([f32; 3], [f32; 3])> {
-    if payload.type_id != motion_payload_type_id() {
+fn decode_motion_payload_v2(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
+    if bytes.len() != MOTION_PAYLOAD_V2_BYTES {
         return None;
     }
-    decode_motion_payload(&payload.bytes)
+    let mut floats = [0f32; 6];
+    for (index, chunk) in bytes.chunks_exact(8).enumerate() {
+        let raw = i64::from_le_bytes(chunk.try_into().ok()?);
+        floats[index] = crate::math::fixed_q32_32::to_f32(raw);
+    }
+    let position = [floats[0], floats[1], floats[2]];
+    let velocity = [floats[3], floats[4], floats[5]];
+    Some((position, velocity))
+}
+
+fn decode_motion_payload_q32_32_v2(bytes: &Bytes) -> Option<([i64; 3], [i64; 3])> {
+    if bytes.len() != MOTION_PAYLOAD_V2_BYTES {
+        return None;
+    }
+    let mut raw = [0_i64; 6];
+    for (index, chunk) in bytes.chunks_exact(8).enumerate() {
+        raw[index] = i64::from_le_bytes(chunk.try_into().ok()?);
+    }
+    let position = [raw[0], raw[1], raw[2]];
+    let velocity = [raw[3], raw[4], raw[5]];
+    Some((position, velocity))
+}
+
+fn decode_motion_payload_q32_32_v0(bytes: &Bytes) -> Option<([i64; 3], [i64; 3])> {
+    let (pos, vel) = decode_motion_payload_v0(bytes)?;
+    let position = [
+        crate::math::fixed_q32_32::from_f32(pos[0]),
+        crate::math::fixed_q32_32::from_f32(pos[1]),
+        crate::math::fixed_q32_32::from_f32(pos[2]),
+    ];
+    let velocity = [
+        crate::math::fixed_q32_32::from_f32(vel[0]),
+        crate::math::fixed_q32_32::from_f32(vel[1]),
+        crate::math::fixed_q32_32::from_f32(vel[2]),
+    ];
+    Some((position, velocity))
+}
+
+/// Deserialises a canonical motion payload into `(position, velocity)` arrays.
+///
+/// Supports two encodings:
+/// - v0: 6 × `f32` little-endian (24 bytes)
+/// - v2: 6 × `i64` Q32.32 little-endian (48 bytes)
+///
+/// **Note:** This function dispatches by byte length alone. When `type_id` is
+/// available, prefer [`decode_motion_atom_payload`] for unambiguous routing.
+///
+/// Returns `None` if the payload does not match either canonical encoding or if any
+/// chunk cannot be converted (invalid input).
+#[must_use]
+pub fn decode_motion_payload(bytes: &Bytes) -> Option<([f32; 3], [f32; 3])> {
+    if bytes.len() == MOTION_PAYLOAD_V2_BYTES {
+        return decode_motion_payload_v2(bytes);
+    }
+    if bytes.len() == MOTION_PAYLOAD_V0_BYTES {
+        return decode_motion_payload_v0(bytes);
+    }
+    None
+}
+
+/// Deserialises a typed atom payload into `(position, velocity)` arrays.
+///
+/// Returns `None` if the payload `type_id` is not a supported motion payload type id
+/// or if the underlying bytes do not match the canonical motion encoding.
+#[must_use]
+pub fn decode_motion_atom_payload(payload: &AtomPayload) -> Option<([f32; 3], [f32; 3])> {
+    if payload.type_id == motion_payload_type_id() {
+        return decode_motion_payload_v2(&payload.bytes);
+    }
+    if payload.type_id == motion_payload_type_id_v0() {
+        return decode_motion_payload_v0(&payload.bytes);
+    }
+    None
+}
+
+/// Deserialises a typed atom payload into Q32.32 raw `(position, velocity)` arrays.
+///
+/// This is the canonical form used by deterministic motion logic:
+/// - v2 payloads decode directly to raw integers.
+/// - v0 payloads decode through f32 and are deterministically quantized to Q32.32.
+#[must_use]
+pub fn decode_motion_atom_payload_q32_32(payload: &AtomPayload) -> Option<([i64; 3], [i64; 3])> {
+    if payload.type_id == motion_payload_type_id() {
+        return decode_motion_payload_q32_32_v2(&payload.bytes);
+    }
+    if payload.type_id == motion_payload_type_id_v0() {
+        return decode_motion_payload_q32_32_v0(&payload.bytes);
+    }
+    None
 }
 
 #[cfg(test)]
@@ -96,11 +233,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn round_trip_ok() {
+    fn q32_32_decoder_accepts_v0_and_quantizes_deterministically() {
+        let pos = [1.0, 0.5, -1.0];
+        let vel = [2.0, -0.25, 0.0];
+
+        let payload = encode_motion_atom_payload_v0(pos, vel);
+        let (p_raw, v_raw) =
+            decode_motion_atom_payload_q32_32(&payload).expect("v0 atom payload should decode");
+
+        for i in 0..3 {
+            assert_eq!(p_raw[i], crate::math::fixed_q32_32::from_f32(pos[i]));
+            assert_eq!(v_raw[i], crate::math::fixed_q32_32::from_f32(vel[i]));
+        }
+    }
+
+    #[test]
+    fn round_trip_v0_ok() {
         let pos = [1.0, 2.0, 3.0];
         let vel = [0.5, -1.0, 0.25];
-        let bytes = encode_motion_payload(pos, vel);
-        let (p, v) = decode_motion_payload(&bytes).expect("24-byte payload");
+        let bytes = encode_motion_payload_v0(pos, vel);
+        let (p, v) = decode_motion_payload(&bytes).expect("v0 payload");
         for i in 0..3 {
             assert_eq!(p[i].to_bits(), pos[i].to_bits());
             assert_eq!(v[i].to_bits(), vel[i].to_bits());
@@ -108,10 +260,44 @@ mod tests {
     }
 
     #[test]
+    fn round_trip_v2_ok_for_exact_values() {
+        let pos = [1.0, 2.0, 3.0];
+        let vel = [0.5, -1.0, 0.25];
+        let bytes = encode_motion_payload(pos, vel);
+        assert_eq!(bytes.len(), MOTION_PAYLOAD_V2_BYTES);
+        let (p, v) = decode_motion_payload(&bytes).expect("v2 payload");
+        assert_eq!(p, pos);
+        assert_eq!(v, vel);
+    }
+
+    #[test]
+    fn q32_32_round_trip_matches_v2_bytes() {
+        let pos = [1.0, 2.0, 3.0];
+        let vel = [0.5, -1.0, 0.25];
+        let raw_pos = [
+            crate::math::fixed_q32_32::from_f32(pos[0]),
+            crate::math::fixed_q32_32::from_f32(pos[1]),
+            crate::math::fixed_q32_32::from_f32(pos[2]),
+        ];
+        let raw_vel = [
+            crate::math::fixed_q32_32::from_f32(vel[0]),
+            crate::math::fixed_q32_32::from_f32(vel[1]),
+            crate::math::fixed_q32_32::from_f32(vel[2]),
+        ];
+        let a = encode_motion_payload(pos, vel);
+        let b = encode_motion_payload_q32_32(raw_pos, raw_vel);
+        assert_eq!(a, b);
+    }
+
+    #[test]
     fn reject_wrong_len() {
         let b = Bytes::from_static(&[0u8; 23]);
         assert!(decode_motion_payload(&b).is_none());
         let b = Bytes::from_static(&[0u8; 25]);
+        assert!(decode_motion_payload(&b).is_none());
+        let b = Bytes::from_static(&[0u8; 47]);
+        assert!(decode_motion_payload(&b).is_none());
+        let b = Bytes::from_static(&[0u8; 49]);
         assert!(decode_motion_payload(&b).is_none());
     }
 }

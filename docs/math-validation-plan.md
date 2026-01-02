@@ -2,78 +2,149 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Deterministic Math Validation Plan
 
-Goal: ensure Echo’s math module produces identical results across environments (Node, browsers, potential native wrappers) in both float32 and fixed-point modes.
+Goal: ensure `warp-core`’s deterministic math produces **bit-identical** results across platforms and build configurations, and that we catch regressions (especially in scalar canonicalization and transcendental approximations) in CI.
 
 ---
 
-## Test Matrix
+## Scope & Source of Truth
 
-| Mode | Environment | Notes |
-| ---- | ----------- | ----- |
-| float32 | Node.js (V8) | Baseline CI target |
-| float32 | Chromium | Browser check via Playwright |
-| float32 | WebKit | Detect discrepancies in trig functions |
-| fixed32 | Node.js | Validate fixed-point operations |
-| float32 | Deno / Bun (optional) | Wider coverage if adopted |
+- **In-scope:** `crates/warp-core/src/math/*` and its public surfaces (`F32Scalar`, `DFix64`, `Vec3`, `Mat4`, `Quat`, `Prng`, deterministic trig backend, etc.).
+- **Out-of-scope (for now):** JS runtime determinism (Chromium/WebKit/Node) and TypeScript bindings. Those are future layers; the canonical reference implementation is Rust `warp-core`.
+- **Policy + invariants:** see `docs/SPEC_DETERMINISTIC_MATH.md` (normative policy) and `docs/DETERMINISTIC_MATH.md` (hazard catalog).
 
 ---
 
-## Test Categories
+## Lanes (What We Validate)
 
-1. **Scalar Operations**
-   - Clamp, approx, conversions (deg/rad).
-   - Sin/cos approximations vs reference table.
+Echo currently has two deterministic-math lanes:
 
-2. **Vector/Matrix Arithmetic**
-   - Addition/subtraction, dot/cross, length/normalize.
-   - Matrix multiplication, inversion, transformVec.
+| Lane | Build config | Target behavior |
+| ---- | ------------ | --------------- |
+| **Float lane** | default | `F32Scalar` + deterministic trig backend |
+| **Fixed lane** | `--features det_fixed` | `DFix64` (Q32.32 fixed-point) |
 
-3. **Quaternion Operations**
-   - Multiplication, slerp, to/from rotation matrices.
-
-4. **Transforms**
-   - Compose/decompose transform, ensure round-trip fidelity.
-
-5. **PRNG**
-   - Sequence reproducibility across environments (same seed -> same numbers).
-   - Jump consistency (forked streams diverge predictably).
-
-6. **Stack Allocation**
-   - Ensure MathStack pushes/pops deterministically (guard misuse).
+Targets we actively care about (and already exercise in CI):
+- Linux glibc (default lane)
+- Linux musl (portability lane)
+- macOS (spot-check lane)
 
 ---
 
-## Tooling
+## Validation Principles
 
-- Rust harness (in `warp-core/tests/math_validation.rs`) validates scalar/vector/matrix/quaternion + PRNG behavior against JSON fixtures.
-- Provide deterministic reference values generated offline (e.g., via high-precision Python or Rust) stored in fixtures.
-- Next step: mirror the fixtures in Vitest with snapshot-style comparisons for the TypeScript layer.
-- For cross-environment checks, add Playwright-driven tests that run the same suite in headless Chromium/WebKit (call into math module via bundled script).
-- Fixed-point tests compare against integer expectations.
+**Determinism-first (preferred):**
+- Use **exact** equality and bit-level checks whenever we can.
+- Treat “epsilon” tests as a last resort, and isolate them behind explicit “budget” thresholds with a stable, deterministic oracle.
 
 ---
 
-## Tolerances
+## What We Test Today (Reality Check)
 
-- Float32 comparisons use epsilon `1e-6`.
-- Trig functions might require looser tolerance `1e-5` depending on environment (document deviations).
-- Fixed-point exact equality expected (integer comparisons).
+This plan is considered “up to date” when these concrete checks exist and stay green:
+
+### 1) Scalar canonicalization invariants
+`F32Scalar` must enforce:
+- `-0.0 → +0.0`
+- NaNs canonicalized to the project’s chosen payload
+- subnormals flushed to `+0.0`
+- reflexive `Eq` (including `NaN == NaN`)
+
+See tests:
+- `crates/warp-core/tests/math_scalar_tests.rs`
+- `crates/warp-core/tests/determinism_policy_tests.rs`
+- `crates/warp-core/tests/nan_exhaustive_tests.rs`
+
+### 2) Deterministic transcendental surface (sin/cos)
+We validate two separate things:
+- **Bit-level stability** (golden vectors): ensure outputs don’t change across platforms.
+- **Approximation error** (budgeted audit): ensure the LUT-backed trig doesn’t drift beyond pinned error budgets.
+
+See tests:
+- `crates/warp-core/tests/deterministic_sin_cos_tests.rs`
+
+Note: the “audit” flavor may be `#[ignore]` depending on whether it uses a deterministic oracle; run ignored tests explicitly when present.
+
+### 3) Vector/matrix/quaternion behavior
+We validate correctness and invariants for the math types that `warp-core` actually ships today:
+- `Vec3` operations (dot/cross/normalize/etc.)
+- `Mat4` rotation/multiply/transform behavior
+- `Quat` multiplication/normalization/to-mat4 behavior
+
+See tests:
+- `crates/warp-core/tests/math_validation.rs`
+- `crates/warp-core/tests/math_rotation_tests.rs`
+- `crates/warp-core/tests/mat4_mul_tests.rs`
+
+### 4) PRNG determinism
+We validate the PRNG is stable and regression-tested with golden sequences:
+- `crates/warp-core/tests/math_validation.rs`
+- CI also runs a targeted golden regression (see `.github/workflows/ci.yml`).
+
+### 5) Fixed-point lane correctness (`det_fixed`)
+`DFix64` is feature-gated; its tests must be run under `--features det_fixed`.
+
+See tests:
+- `crates/warp-core/tests/dfix64_tests.rs`
 
 ---
 
-## Tasks
+## How To Run The Math Validation Locally
 
-- [x] Generate reference fixtures (JSON) for scalar/vector/matrix/quaternion/PRNG cases.
-- [x] Implement Rust-based validation suite (`cargo test -p warp-core --test math_validation`).
-- [ ] Mirror fixtures in Vitest to cover the TypeScript bindings (float32 mode).
-- [ ] Integrate Playwright smoke tests for browser verification.
-- [ ] Add CI job running math tests across environments.
-- [ ] Document any environment-specific deviations in decision log.
+Baseline (float lane):
+
+```sh
+cargo test -p warp-core
+```
+
+Run the “math validation” suite explicitly:
+
+```sh
+cargo test -p warp-core --test math_validation
+```
+
+Run deterministic trig golden tests explicitly:
+
+```sh
+cargo test -p warp-core --test deterministic_sin_cos_tests
+```
+
+Run ignored tests (only when you intend to run audits):
+
+```sh
+cargo test -p warp-core --test deterministic_sin_cos_tests -- --ignored
+```
+
+Fixed-point lane:
+
+```sh
+cargo test -p warp-core --features det_fixed
+```
+
+MUSL portability lane:
+
+```sh
+cargo test -p warp-core --target x86_64-unknown-linux-musl
+cargo test -p warp-core --features det_fixed --target x86_64-unknown-linux-musl
+```
 
 ---
 
-## Open Questions
+## CI Coverage (Where It Runs)
 
-- Should we bundle deterministic trig lookup tables for browsers with inconsistent `Math.sin/cos`?
-- How to expose failure info to designers (e.g., CLI command to run math diagnostics)?
-- Do we need wasm acceleration for fixed-point operations (profile results first)?
+- See `.github/workflows/ci.yml` for current lanes.
+- CI intentionally runs “boring” commands that contributors can reproduce locally.
+
+---
+
+## Guards (Non-test Determinism Enforcement)
+
+In addition to tests, we also enforce “no raw platform trig” via a repo guard script:
+- `scripts/check_no_raw_trig.sh`
+
+---
+
+## Future Work (Optional / Not Yet Implemented)
+
+- Cross-runtime determinism tests for JS (Chromium/WebKit) once TS/WASM bindings are in scope.
+- A `warp-cli` command to run math diagnostics and report pinned budgets (useful for designers and CI triage).
+- Additional scalar backends (e.g., a deterministic `libm`-based float lane, or tighter fixed-point trig).

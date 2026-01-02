@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Docs audit: purge/merge/splurge pass (IN PROGRESS)
+
+- Goal: audit Echo docs for staleness and overlap, then decide which docs should be purged, merged, or expanded (starting with `docs/math-validation-plan.md`).
+- Scope:
+  - Refresh `docs/math-validation-plan.md` to match the current deterministic math implementation and CI coverage.
+  - Produce a short audit memo listing candidate docs to purge/merge/splurge with rationale.
+  - Keep changes single-purpose: documentation only (no runtime changes).
+- Exit criteria: audit memo committed + updated math validation plan; PR opened (tracked under issue #208).
+
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
 - Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.

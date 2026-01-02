@@ -2,14 +2,24 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Deterministic Math Module Specification (Phase 0)
 
-Echo’s math module underpins every deterministic system: physics proxies, animation, AI, and branch reconciliation. This spec defines the numeric modes, core types, API surface, and PRNG strategy.
+Echo’s math module underpins every deterministic system: physics proxies, animation, AI, and branch reconciliation.
+
+**Status (2026-01-02): legacy draft + partial reality.**
+- This document started life as a JS/TypeScript-oriented Phase 0 draft.
+- The canonical implementation today is Rust `warp-core` (`crates/warp-core/src/math/*`).
+- The normative determinism policy is `docs/SPEC_DETERMINISTIC_MATH.md`.
+- Validation and CI lanes are tracked in `docs/math-validation-plan.md`.
+
+Treat this spec as a **design sketch for future bindings** (TS/WASM/FFI) and an inventory of desired API shape, not as a statement that the JS implementation exists.
 
 ---
 
 ## Goals
-- Provide deterministic vector/matrix/quaternion operations across platforms (browser, Node, native wrappers).
-- Support dual numeric modes: float32 clamped and fixed-point (configurable).
-- Expose seeded PRNG services that integrate with timeline branching and Codex’s Baby.
+- Provide deterministic vector/matrix/quaternion operations across platforms (at minimum: Linux/macOS, and eventually WASM/JS bindings).
+- Support dual numeric modes via scalar backends:
+  - float lane (`F32Scalar`, default)
+  - fixed-point lane (`DFix64`, feature-gated today)
+- Expose seeded PRNG services suitable for replay and branching.
 - Offer allocation-aware APIs (avoid heap churn) for hot loops.
 - Surface profiling hooks (NaN guards, range checks) in development builds.
 
@@ -19,18 +29,17 @@ Echo’s math module underpins every deterministic system: physics proxies, anim
 
 ### Float32 Mode (default)
 
-- All operations clamp to IEEE 754 float32 using `Math.fround`.
-- Inputs converted to float32 before computation; outputs stored in float32 buffers (`Float32Array`).
-- Stable across JS engines as long as `Math.fround` available (polyfill for older runtimes).
+- **Rust source of truth:** `F32Scalar` wraps `f32` and enforces canonicalization invariants (NaNs, signed zero, subnormals) at construction and after operations.
+- **Transcendentals:** `sin`/`cos` are provided via a deterministic software backend (`warp_core::math::trig`), not platform/libm.
+- **Bindings note:** if/when we ship TS/WASM bindings, they must match Rust’s outputs and invariants; “just `Math.fround`” is not sufficient to guarantee cross-engine determinism for transcendentals or NaN payload behavior.
 
 ### Fixed-Point Mode (opt-in)
 
-- 32.32 fixed-point representation using BigInt internally, surfaced as wrapper `Fixed` type.
-- Configured via engine options (`mathMode: "float32" | "fixed32"`).
-- Useful for deterministic networking or hardware without stable float operations.
-- Bridges through helper functions: `fixed.fromFloat`, `fixed.toFloat`, `fixed.mul`, `fixed.div`.
+- **Rust source of truth:** `DFix64` is Q32.32 fixed-point stored in `i64` and is currently feature-gated behind `det_fixed` so we can evolve it without destabilizing the default lane.
+- **Non-finite mapping:** conversions from float inputs must be deterministic (e.g., NaN → 0, ±∞ saturate) and are covered by tests.
+- **Bindings note:** future TS bindings should treat Rust fixtures as canonical; JS `BigInt` fixed-point is a possible implementation strategy, but not a correctness authority.
 
-Mode chosen at engine init; math module provides factory returning mode-specific implementations. The Rust runtime already exposes the float32 primitives in `warp_core::math`, so FFI/WASM adapters can reuse a single source of truth while TypeScript bindings converge on the same fixtures.
+Mode should be chosen at engine init (or build feature selection), with a clear policy for serialization/hashing so deterministic replay remains stable.
 
 ---
 

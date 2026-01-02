@@ -35,6 +35,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Issue #215: CI Playwright dashboard smoke job (IN PROGRESS)
+
+- Goal: add a GitHub Actions job that runs the Playwright Session Dashboard smoke test on PRs/pushes and publishes artifacts so embedded-tooling regressions can’t silently land.
+- Scope:
+  - Extend `.github/workflows/ci.yml` with a Playwright job that:
+    - installs Node + pnpm (pinned to `package.json`),
+    - installs Chromium via `playwright install`,
+    - runs `pnpm exec playwright test e2e/session-dashboard.spec.ts`,
+    - uploads `playwright-report/` and `test-results/` as artifacts (even on failure).
+  - Keep `ECHO_CAPTURE_DASHBOARD_SCREENSHOT` disabled in CI (CI should not mutate tracked files); rely on Playwright attachments/artifacts for visual inspection.
+- Exit criteria: PR is open + green (new CI job passes); artifacts are present on failure; `ci.yml` change is documented in `docs/decision-log.md`.
+- Tracking: GitHub issue #215.
+
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
 - Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.

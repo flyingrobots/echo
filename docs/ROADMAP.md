@@ -29,6 +29,23 @@ This roadmap reconciles our current plan with GitHub milestones, issues, and the
 - M4 – Determinism Proof & Publish 0.1 (Target: cross‑OS proof + 0.1 release)
   - Prove determinism across OSes; finalize docs; publish warp‑core/geom 0.1
 
+### Tooling & Time Travel Track (T*/TT*/S*/W*)
+
+These milestones are tracked in GitHub alongside the M* milestones. They are a parallel track focused on deterministic tooling, time travel semantics, and view/query surfaces.
+
+- T2 – Embedded Tooling UI Baseline (Target: ship a stable embedded dashboard baseline + deterministic screenshot evidence)
+  - Open Props baseline for embedded dashboards served from binaries
+  - Playwright screenshot capture wired into docs (regenerable evidence)
+- TT0 – Time Model Spec Lock (Target: formalize TimeStreams/cursors/admission as HistoryTime)
+  - TimeStreams + stream cursors model
+  - Admission decisions as history artifacts (admission_digest / receipts)
+  - Wormholes/catch-up semantics (compression vs replay)
+- TT1 – Streams Inspector Frame (Target: first tool that can inspect backlogs + admission decisions)
+- TT2 – Time Travel MVP (Target: pause/rewind/buffer/catch-up loop in tooling)
+- TT3 – Rulial Diff / Worldline Compare (Target: side-by-side run diff + first-divergence UX)
+- S1 – Deterministic Rhai Surface (Target: replayable scripting sandbox w/ claims/effects boundary)
+- W1 – Wesley as a Boundary Grammar (Target: hashable view artifacts + schema pinning for replay integrity)
+
 ---
 
 ## Issue Table (live snapshot)
@@ -50,6 +67,14 @@ Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent
 | Implement 'inspect' | 50 | M2.2 – Playground Slice | P2 | 5h |  |  |  |  |  |
 | Docs/man pages | 51 | M2.2 – Playground Slice | P2 | 5h |  |  |  |  | Tie docs to CLI UX |
 | README+docs (defaults & toggles) | 41 | M4 – Determinism Proof & Publish 0.1 | P2 | 3h |  |  |  |  | Docs polish before 0.1 |
+| Deterministic trig: pin error budget + deterministic oracle for audit test | 177 | M4 – Determinism Proof & Publish 0.1 |  |  |  |  |  |  | Cross-OS determinism gate; keep oracle host-independent |
+| T2: Embedded tooling UI baseline (Open Props + screenshot regen) | 168 | T2 – Embedded Tooling UI Baseline |  |  |  |  |  |  | Embedded dashboard baseline + Playwright evidence |
+| TT0: Time model spec lock (TimeStreams + admission digests) | 166 | TT0 – Time Model Spec Lock |  |  |  |  |  |  | Spec lock for time model primitives (streams/cursors/admission) |
+| TT1: StreamsFrame inspector support (backlog + cursors + admission decisions) | 170 | TT1 – Streams Inspector Frame |  |  |  |  |  |  | Inspector scaffolding for stream backlogs and admission decisions |
+| TT2: Time Travel MVP (pause/rewind/buffer/catch-up) | 171 | TT2 – Time Travel MVP |  |  |  |  |  |  | Pause/rewind UX + buffering policies |
+| TT3: Rulial diff / worldline compare MVP | 172 | TT3 – Rulial Diff / Worldline Compare |  |  |  |  |  |  | Side-by-side run comparison tooling |
+| S1: Deterministic Rhai surface (sandbox + claims/effects) | 173 | S1 – Deterministic Rhai Surface |  |  |  |  |  |  | Deterministic sandbox boundary for scripts |
+| W1: Wesley as a boundary grammar (hashable view artifacts) | 174 | W1 – Wesley as a Boundary Grammar |  |  |  |  |  |  | Hashable grammar + pinned semantics for replay integrity |
 | Spec: Commit/Manifest Signing | 20 | Backlog |  |  |  |  |  |  | Keep under Backlog until publish plan is firm |
 | Spec: Security Contexts (FFI/WASM/CLI) | 21 | Backlog |  |  |  |  |  |  | Backlog (security track) |
 | Plugin ABI (C) v0 | 26 | Backlog |  |  |  |  |  |  | Track in separate ABI milestone later |

@@ -472,6 +472,8 @@ if ! IFS=$'\t' read -r \
   exit 1
 fi
 
+review_thread_attention_count="$((on_head_attention_count + outdated_attention_count))"
+
 {
   echo "# PR Review Actionables — PR #${PR_NUMBER}"
   echo
@@ -541,21 +543,24 @@ fi
   ' "$LATEST_ALL"
   echo
 
-  echo "## Suggested Round Ack Comment (post once per fix round)"
-  echo
-  echo "Post a single PR conversation comment after pushing your fixes (reduces notification spam vs replying to every thread)."
-  echo
-  echo '```text'
-  echo "✅ Addressed in commit <sha>"
-  echo
-  echo "Acked review threads:"
-  jq -r '
-    .[]
-    | select(.source == "review_thread" and .is_actionable == true and .has_ack == false)
-    | " - discussion_r\(.id)"
-  ' "$LATEST_ALL"
-  echo '```'
-  echo
+  if [[ "$review_thread_attention_count" -gt 0 ]]; then
+    echo "## Suggested Round Ack Comment (post once per fix round)"
+    echo
+    echo "Post a single PR conversation comment after pushing your fixes (reduces notification spam vs replying to every thread)."
+    echo
+    echo '```text'
+    echo "✅ Addressed in commit <sha>"
+    echo
+    echo "Acked review threads:"
+    jq -r '
+      .[]
+      | select(.source == "review_thread" and .is_actionable == true and .has_ack == false)
+      | " - discussion_r\(.id)"
+    ' "$LATEST_ALL"
+    echo '```'
+    echo
+  fi
+
 
   echo "## Acknowledged"
   echo

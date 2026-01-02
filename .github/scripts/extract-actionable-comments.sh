@@ -288,6 +288,7 @@ total_count="$(jq 'length' "$LATEST")"
   echo "- Raw comments: \`${RAW}\`"
   echo "- Filtered latest: \`${LATEST}\`"
   echo "- Report: \`${REPORT}\`"
+  echo "- Note: artifacts are intentionally left in \`/tmp\` for debugging; your OS typically cleans \`/tmp\` periodically."
 } | tee "$REPORT"
 
 if [[ -n "$OUT" ]]; then

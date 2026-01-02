@@ -47,6 +47,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Exit criteria: `cargo test -p warp-core --test deterministic_sin_cos_tests` is green with the audit test enabled by default; budgets are documented in `docs/decision-log.md`.
 - Tracking: GitHub issue #177.
 
+> 2026-01-01 — Issue #180: Paper VI notes + capability matrix (IN PROGRESS)
+
+- Goal: turn “Pulse” time/determinism/tooling insights into durable artifacts (Paper VI notes + a crisp ownership matrix for Echo).
+- Scope:
+  - Add `docs/capability-ownership-matrix.md` (template + first pass).
+  - Extend Paper VI notes in `aion-paper-06` (HostTime/HistoryTime, decision records, multi-clock streams, replay integrity hooks).
+- Exit criteria: matrix + notes are concrete enough to guide near-term implementation choices and future tool UX.
+- Tracking: GitHub issue #180.
+
 > 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
 
 - Goal: prevent WVP demo regressions by pinning protocol invariants (snapshot-first, gapless epochs, authority enforcement) in automated tests.
@@ -58,14 +67,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Evidence:
   - PR #175 (loopback tests + publish behavior pinned; follow-up hardening for defensive test checks)
 
-> 2026-01-01 — PR #167: deterministic math follow-ups + merge `main` (IN PROGRESS)
+> 2026-01-01 — PR #167: deterministic math follow-ups + merge `main` (COMPLETED)
 
 - Goal: address all CodeRabbit review comments on PR #167 with minimal churn, keep the PR tightly scoped to deterministic math + warp-core motion payload work, and restore mergeability by merging `main` and resolving docs guard conflicts.
 - Scope:
   - Resolve merge conflicts from `origin/main` in `docs/decision-log.md` and `docs/execution-plan.md` while preserving both the WVP hardening timeline and the deterministic math timeline.
   - Keep deterministic trig guardrails stable (`scripts/check_no_raw_trig.sh`) so raw platform trig calls cannot sneak back into runtime math code.
 - Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; PR is mergeable and CI stays green.
-- Evidence (local): PR head includes deterministic trig + motion payload fixes up through `f3ca59b`; CodeRabbit reviewDecision is approved and CI is green on PR #167. Next: finish the merge commit + rerun local checks after resolving the docs conflicts.
+- Evidence: merged to `main` as PR #167 (merge commit `54d7626`; closes #165).
 
 > 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
 

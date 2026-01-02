@@ -467,7 +467,12 @@ struct Args {
     /// Maximum frame payload in bytes (binary WS message must match exact frame length)
     #[arg(long, default_value_t = 8 * 1024 * 1024)]
     max_frame_bytes: usize,
-    /// Optional allowed Origin values (repeatable). If none provided, all origins are accepted.
+    /// Optional allowed Origin values (repeatable).
+    ///
+    /// If none provided, all origins are accepted.
+    ///
+    /// If one or more `--allow-origin` values are provided, the gateway requires the request to
+    /// include an `Origin` header and rejects requests without an `Origin` header.
     #[arg(long)]
     allow_origin: Vec<String>,
     /// TLS certificate (PEM). If provided, key must also be provided.
@@ -1239,6 +1244,58 @@ async fn load_tls(cert_path: PathBuf, key_path: PathBuf) -> Result<RustlsConfig>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_state_allowing(origins: &[&str]) -> Arc<AppState> {
+        let allow_origins = if origins.is_empty() {
+            None
+        } else {
+            Some(origins.iter().map(|s| (*s).to_string()).collect())
+        };
+        Arc::new(AppState {
+            unix_socket: PathBuf::from("/tmp/echo-session.sock"),
+            max_frame_bytes: 1024,
+            allow_origins,
+            started_at_unix_ms: 0,
+            start_instant: Instant::now(),
+            metrics: Arc::new(Mutex::new(GatewayMetrics::default())),
+        })
+    }
+
+    #[test]
+    fn origin_allowed_accepts_missing_origin_when_no_allowlist_configured() {
+        let state = test_state_allowing(&[]);
+        let headers = HeaderMap::new();
+        assert!(origin_allowed(&state, &headers));
+    }
+
+    #[test]
+    fn origin_allowed_rejects_missing_origin_when_allowlist_configured() {
+        let state = test_state_allowing(&["http://127.0.0.1:8787"]);
+        let headers = HeaderMap::new();
+        assert!(!origin_allowed(&state, &headers));
+    }
+
+    #[test]
+    fn origin_allowed_rejects_non_matching_origin() {
+        let state = test_state_allowing(&["http://127.0.0.1:8787"]);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://evil.invalid"),
+        );
+        assert!(!origin_allowed(&state, &headers));
+    }
+
+    #[test]
+    fn origin_allowed_accepts_matching_origin() {
+        let state = test_state_allowing(&["http://127.0.0.1:8787"]);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:8787"),
+        );
+        assert!(origin_allowed(&state, &headers));
+    }
 
     fn make_frame(payload_len: usize) -> Vec<u8> {
         let mut buf = vec![0u8; JS_ABI_HEADER_BYTES + payload_len + JS_ABI_HASH_BYTES];

@@ -1,0 +1,212 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Echo Collision DPO Tour</title>
+    <style>
+      @import url('./assets/collision/diagrams.css');
+      body { background:#0b1020; color:#dfe7ff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, sans-serif; line-height:1.5; padding: 24px; }
+      a { color:#8ab4ff; }
+      h1,h2 { margin: 0.6em 0 0.3em; }
+      .section { margin: 28px 0 8px; padding-left: 10px; border-left: 3px solid #3356a6; color:#dfe7ff; }
+      .section small { color:#9fb0d6; font-weight: normal; }
+      .rule { margin: 16px 0 40px; }
+      .step-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap:16px; align-items:start; }
+      figure { margin:0; background:#121a33; border-radius:8px; padding:12px; position: relative; overflow: hidden; }
+      figcaption { font-size: 12px; color:#9fb0d6; margin-top:8px; }
+      img { width:100%; height:auto; display:block; border-radius:6px; background:#121a33; }
+      .explain { margin-top: 12px; background:#101732; border:1px solid #2a3c72; border-radius:8px; padding:12px 14px; }
+      .explain p { margin: 0 0 8px; color:#dfe7ff; }
+      .explain ul { margin: 6px 0 0 18px; color:#9fb0d6; }
+      .explain li { margin: 3px 0; }
+    </style>
+  </head>
+  <body>
+    <h1>Collision / CCD — DPO Rule Tour</h1>
+    <p>Each rule shown as LHS → Interface K → RHS. See the legend for visual semantics.</p>
+    <p><a href="./assets/collision/legend.svg">Legend</a> • <a href="/spec-geom-collision">Spec</a></p>
+
+    <div class="rule" id="graph-overview">
+      <h2>Graph Anatomy (Everything Is a Graph)</h2>
+      <div class="step-grid">
+        <figure class="fade-seed has-overlay">
+          <img src="./assets/collision/graph_collision_overview.svg" alt="Collision Subgraph Overview" />
+          <figcaption>Overview — typed nodes and edges for one colliding pair at tick n.</figcaption>
+          <div class="overlay"><strong>Node/Edge Graph</strong><div class="ov-t">Entities, components, temporal proxies, potential pair, contact, TOI, event — all first‑class nodes linked by typed edges (has_component, has_proxy, pair_of, contact_of, event_of, produced_in).</div></div>
+          <div class="slide-explain">
+            <p>
+              This is the literal graph Echo maintains. Derived artifacts (proxies, pairs, contacts, events) are not hidden engine buffers —
+              they are nodes that tools can query, branch, replay, and merge deterministically. The same initial facts and policies yield the
+              same subgraph and the same snapshot hash on every peer.
+            </p>
+          </div>
+        </figure>
+      </div>
+    </div>
+
+    <h2 class="section">How Things Move <small>(time-aware proxies)</small></h2>
+    <div class="rule" id="build-temporal-proxy">
+      <h2>BuildTemporalProxy (pre_update)</h2>
+      <div class="step-grid">
+        <figure class="fade-seed" data-pip="./assets/collision/pip/build_proxy_step1.svg" data-graph="./assets/collision/pip/graph_build_proxy_step1.svg">
+          <img src="./assets/collision/dpo_build_temporal_proxy_step1.svg" alt="BuildTemporalProxy Step 1" />
+          <figcaption>Step 1 — LHS: Collider + Transform (+ Velocity) at Tick n</figcaption>
+          <div class="slide-explain">
+            <p>
+              We gather the collider’s <strong>Transform</strong> (and optional <strong>Velocity</strong>) at tick <em>n</em>. In Echo this input is
+              explicit graph state, not a transient engine struct. Chronos gives us a fixed <code>dt</code>, so the motion window
+              for the upcoming tick is well-defined and reproducible.
+            </p>
+            <ul>
+              <li><strong>Different:</strong> many engines pull from mutable component state ad‑hoc; here we read typed nodes bound to a specific tick.</li>
+              <li><strong>Determinism:</strong> same <code>dt</code> and same components ⇒ same inputs on every peer/branch.</li>
+            </ul>
+          </div>
+        </figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/build_proxy_step2.svg" data-graph="./assets/collision/pip/graph_build_proxy_step2.svg">
+          <img src="./assets/collision/dpo_build_temporal_proxy_step2.svg" alt="BuildTemporalProxy Step 2" />
+          <figcaption>Step 2 — Interface K</figcaption>
+          <div class="slide-explain">
+            <p>
+              The DPO <strong>Interface K</strong> shows what is preserved between LHS and RHS: collider + transform + tick.
+              This is how we say “the world keeps these facts while we add the proxy.”
+            </p>
+            <ul>
+              <li><strong>Different:</strong> Echo makes the preserved context explicit; typical engines merge implicit state in-place.</li>
+            </ul>
+          </div>
+        </figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/build_proxy_step3.svg" data-graph="./assets/collision/pip/graph_build_proxy_step3.svg">
+          <img src="./assets/collision/dpo_build_temporal_proxy_step3.svg" alt="BuildTemporalProxy Step 3" />
+          <figcaption>Step 3 — RHS: TemporalProxy(e,n) added</figcaption>
+          <div class="slide-explain">
+            <p>
+              We add a <strong>TemporalProxy</strong> with a fat AABB that encloses motion over [start,end]. Padding is derived from
+              velocity and quantized policy, so two peers derive the same box. The proxy links back to the entity and <em>Tick n</em>.
+            </p>
+            <ul>
+              <li><strong>Different:</strong> broad‑phase caches become first‑class graph nodes with stable IDs.</li>
+              <li><strong>Determinism:</strong> quantized padding + stable insertion order ⇒ identical proxy sets.</li>
+            </ul>
+          </div>
+        </figure>
+      </div>
+      <div class="explain">
+        <p>
+          This rule deterministically derives a <strong>TemporalProxy</strong> for each collider at tick <em>n</em>.
+          The proxy’s “fat AABB” encloses the body over the whole tick window [start,end], so fast movers can’t tunnel between broad‑phase sweeps.
+          The proxy is a typed node in the graph (not an opaque engine cache) and is linked back to the entity and the producing tick.
+        </p>
+        <ul>
+          <li><strong>Different from typical engines:</strong> broad‑phase buffers are usually internal and mutation‑ordered; in Echo they are explicit graph nodes, created by a rewrite with a stable scope and ID.</li>
+          <li><strong>Determinism:</strong> proxy size and padding are computed from quantized policy values; insert order is sorted by ID, so peers/branches build identical proxy sets.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2 class="section">How Collision Works <small>(broad → narrow → events)</small></h2>
+    <div class="rule" id="broad-phase-pairing">
+      <h2>BroadPhasePairing (update)</h2>
+      <div class="step-grid">
+        <figure class="fade-seed" data-pip="./assets/collision/pip/pairing_step1.svg" data-graph="./assets/collision/pip/graph_pairing_step1.svg"><img src="./assets/collision/dpo_broad_phase_pairing_step1.svg" alt="BroadPhasePairing Step 1" /><figcaption>Step 1 — LHS: overlapping proxies</figcaption><div class="slide-explain"><p>We test <strong>fat AABB</strong> overlap on proxies built for the full tick window. Overlap means the pair is a candidate for narrow phase.</p><ul><li><strong>Different:</strong> the candidate condition is a graph fact, not an opaque boolean.</li><li><strong>Determinism:</strong> identical proxies ⇒ identical overlap set.</li></ul></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/pairing_step2.svg" data-graph="./assets/collision/pip/graph_pairing_step2.svg"><img src="./assets/collision/dpo_broad_phase_pairing_step2.svg" alt="BroadPhasePairing Step 2" /><figcaption>Step 2 — K: proxies preserved</figcaption><div class="slide-explain"><p>The proxies themselves are preserved (K). This makes the rule commute with other rules that may also read them this tick.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/pairing_step3.svg" data-graph="./assets/collision/pip/graph_pairing_step3.svg"><img src="./assets/collision/dpo_broad_phase_pairing_step3.svg" alt="BroadPhasePairing Step 3" /><figcaption>Step 3 — RHS: PotentialPair added</figcaption><div class="slide-explain"><p>We mint a <strong>PotentialPair</strong> with canonical <code>PairId</code> = H(min(A,B)||max(A,B)||branch) and back‑refs to proxies.</p><ul><li><strong>Different:</strong> pair lists are reproducible data, not engine iteration order.</li><li><strong>Determinism:</strong> output list is sorted strictly; peers/branches match.</li></ul></div></figure>
+      </div>
+      <div class="explain">
+        <p>
+          The broad phase converts overlapping proxies into <strong>PotentialPair</strong> nodes. Each pair gets a canonical
+          <code>PairId</code> = H(min(A,B) || max(A,B) || branch) and edges back to the proxies. The emitted list is
+          sorted deterministically, which makes network replication and timeline diffs trivial.
+        </p>
+        <ul>
+          <li><strong>Different:</strong> most engines keep an internal unsorted array of candidate pairs; Echo materializes pairs as graph facts, with stable IDs and ordering.</li>
+          <li><strong>Determinism:</strong> ties in AABB endpoints break on IDs; output is strictly sorted, so two peers converge on identical pair order.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="rule" id="narrow-phase-discrete">
+      <h2>NarrowPhaseDiscrete (update)</h2>
+      <div class="step-grid">
+        <figure class="fade-seed" data-pip="./assets/collision/pip/discrete_step1.svg" data-graph="./assets/collision/pip/graph_discrete_step1.svg"><img src="./assets/collision/dpo_narrow_phase_discrete_step1.svg" alt="NarrowPhaseDiscrete Step 1" /><figcaption>Step 1 — LHS: discrete overlap @ end pose</figcaption><div class="slide-explain"><p>For low‑speed pairs, we evaluate shapes at the end pose of tick <em>n</em>. If they overlap, we proceed to build a manifold.</p><ul><li><strong>Different:</strong> thresholding policy is data; no hidden time‑step heuristics.</li></ul></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/discrete_step2.svg" data-graph="./assets/collision/pip/graph_discrete_step2.svg"><img src="./assets/collision/dpo_narrow_phase_discrete_step2.svg" alt="NarrowPhaseDiscrete Step 2" /><figcaption>Step 2 — K: pair preserved</figcaption><div class="slide-explain"><p>We keep the <strong>PotentialPair</strong> (K). The narrow phase acts as a pure derivation from pair+poses.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/discrete_step3.svg" data-graph="./assets/collision/pip/graph_discrete_step3.svg"><img src="./assets/collision/dpo_narrow_phase_discrete_step3.svg" alt="NarrowPhaseDiscrete Step 3" /><figcaption>Step 3 — RHS: Contact with Manifold added</figcaption><div class="slide-explain"><p>We create a <strong>Contact</strong> with a reduced <strong>Manifold</strong> (2–4 points). Points are canonicalized by feature IDs to ensure reproducible ordering.</p><ul><li><strong>Different:</strong> engine doesn’t call your code mid‑narrow; it records facts you can read consistently.</li><li><strong>Determinism:</strong> centralized tolerances + ordering.</li></ul></div></figure>
+      </div>
+      <div class="explain">
+        <p>
+          For low‑speed pairs, we evaluate shapes at end‑of‑tick poses and, if intersecting, create a <strong>Contact</strong> with a
+          deterministically ordered <strong>Manifold</strong> (2–4 clipped points). The contact attaches to the pair and to the producing tick.
+          Manifold point ordering and feature IDs are canonicalized to remove platform drift.
+        </p>
+        <ul>
+          <li><strong>Different:</strong> instead of imperative callbacks that mutate scripts, Echo records contacts as first‑class nodes; scripts read them after rules run.</li>
+          <li><strong>Determinism:</strong> manifold reduction, feature selection, and floating‑point tolerances are centralized and quantized.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="rule" id="narrow-phase-ccd">
+      <h2>NarrowPhaseCCD (update)</h2>
+      <div class="step-grid">
+        <figure class="fade-seed" data-pip="./assets/collision/pip/ccd_step1.svg" data-graph="./assets/collision/pip/graph_ccd_step1.svg"><img src="./assets/collision/dpo_narrow_phase_ccd_step1.svg" alt="NarrowPhaseCCD Step 1" /><figcaption>Step 1 — LHS: CCD policy triggers</figcaption><div class="slide-explain"><p>Policy flags fast motion/small features (or material‑required CCD). We will compute a <strong>Toi</strong> in [0,1] before creating a contact.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/ccd_step2.svg" data-graph="./assets/collision/pip/graph_ccd_step2.svg"><img src="./assets/collision/dpo_narrow_phase_ccd_step2.svg" alt="NarrowPhaseCCD Step 2" /><figcaption>Step 2 — K: pair preserved</figcaption><div class="slide-explain"><p>We keep the pair (K) and run <strong>conservative advancement</strong> or a swept primitive test to find the impact time.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/ccd_step3.svg" data-graph="./assets/collision/pip/graph_ccd_step3.svg"><img src="./assets/collision/dpo_narrow_phase_ccd_step3.svg" alt="NarrowPhaseCCD Step 3" /><figcaption>Step 3 — RHS: Toi + Contact added</figcaption><div class="slide-explain"><p>We emit a <strong>Toi</strong> node with quantized <em>s</em> and a <strong>Contact</strong> at the impact pose. Quantization and iteration caps are recorded to make this stable.</p></div></figure>
+      </div>
+      <div class="explain">
+        <p>
+          When a policy indicates high motion or small features, we run <strong>CCD</strong>: conservative advancement for general convex
+          shapes or closed‑form sweeps for spheres/capsules. We emit a <strong>Toi</strong> node with quantized <em>s ∈ [0,1]</em> and a <strong>Contact</strong>
+          at the impact pose. Because <em>s</em> is quantized and the rule scopes are stable, peers compute the same TOI and contact set.
+        </p>
+        <ul>
+          <li><strong>Different:</strong> CCD outputs are persisted as graph data (Toi + Contact), not transient solver state; branches and replays see identical values.</li>
+          <li><strong>Determinism:</strong> iteration caps, policy thresholds, and <em>s</em> quantization are recorded; identical inputs yield identical <em>s</em>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="rule" id="contact-events">
+      <h2>ContactEvents (post_update)</h2>
+      <div class="step-grid">
+        <figure class="fade-seed" data-pip="./assets/collision/pip/events_step1.svg" data-graph="./assets/collision/pip/graph_events_step1.svg"><img src="./assets/collision/dpo_contact_events_step1.svg" alt="ContactEvents Step 1" /><figcaption>Step 1 — LHS: contact states n-1 vs n</figcaption><div class="slide-explain"><p>We stage previous and current <strong>Contact</strong> facts for the pair to compute Begin/Persist/End.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/events_step2.svg" data-graph="./assets/collision/pip/graph_events_step2.svg"><img src="./assets/collision/dpo_contact_events_step2.svg" alt="ContactEvents Step 2" /><figcaption>Step 2 — K: contacts preserved</figcaption><div class="slide-explain"><p><strong>K</strong> keeps both contact nodes in scope so event construction is a pure comparison, not in‑place mutation.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/events_step3.svg" data-graph="./assets/collision/pip/graph_events_step3.svg"><img src="./assets/collision/dpo_contact_events_step3.svg" alt="ContactEvents Step 3" /><figcaption>Step 3 — RHS: ContactEvent added</figcaption><div class="slide-explain"><p>We create a <strong>ContactEvent</strong> (Begin/Persist/End) sorted by (<em>toi_s</em>, <code>ContactId</code>). Events are nodes that tools and scripts can consume deterministically.</p></div></figure>
+      </div>
+      <div class="explain">
+        <p>
+          We diff previous vs current <strong>Contact</strong> nodes and create a <strong>ContactEvent</strong> (Begin/Persist/End) ordered by
+          (<em>toi_s</em>, <code>ContactId</code>). Events are regular nodes and flow through the Temporal Bridge to tools, replay, or networking.
+        </p>
+        <ul>
+          <li><strong>Different:</strong> engines typically invoke user callbacks in engine order; Echo records events as data first, then tooling/scripts consume them deterministically.</li>
+          <li><strong>Determinism:</strong> strict sort order; event payloads are value objects that hash the same on every peer.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2 class="section">How We Keep It Clean <small>(deterministic GC)</small></h2>
+    <div class="rule" id="gc-ephemeral">
+      <h2>GC Ephemeral (timeline_flush)</h2>
+      <div class="step-grid">
+        <figure class="fade-seed" data-pip="./assets/collision/pip/gc_step1.svg" data-graph="./assets/collision/pip/graph_gc_step1.svg"><img src="./assets/collision/dpo_gc_ephemeral_step1.svg" alt="GC Ephemeral Step 1" /><figcaption>Step 1 — LHS: ephemeral nodes</figcaption><div class="slide-explain"><p>Before flush, the frame has proxies, pairs, TOIs and optional per‑tick contacts. They’re marked ephemeral.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/gc_step2.svg" data-graph="./assets/collision/pip/graph_gc_step2.svg"><img src="./assets/collision/dpo_gc_ephemeral_step2.svg" alt="GC Ephemeral Step 2" /><figcaption>Step 2 — Selection</figcaption><div class="slide-explain"><p>We deterministically select unreferenced, older artifacts for deletion. The retention policy is configured and recorded.</p></div></figure>
+        <figure class="fade-seed" data-pip="./assets/collision/pip/gc_step3.svg" data-graph="./assets/collision/pip/graph_gc_step3.svg"><img src="./assets/collision/dpo_gc_ephemeral_step3.svg" alt="GC Ephemeral Step 3" /><figcaption>Step 3 — RHS: nodes deleted</figcaption><div class="slide-explain"><p>We remove the selected nodes in a stable ID order. Snapshots after flush are identical across peers/branches.</p></div></figure>
+      </div>
+      <div class="explain">
+        <p>
+          Broad‑phase proxies, potential pairs, transient TOIs and, optionally, per‑tick contacts are <strong>ephemeral</strong>. At
+          <em>timeline_flush</em> we delete them in a deterministic order. We keep only the high‑value artifacts (Aion‑tagged events, metrics) for tools and audits.
+        </p>
+        <ul>
+          <li><strong>Different:</strong> many engines leak implicit caches across frames; Echo models and cleans them explicitly as graph data.</li>
+          <li><strong>Determinism:</strong> GC order is sorted by ID; post‑flush snapshots are identical across branches and peers.</li>
+        </ul>
+      </div>
+    </div>
+
+    <script src="./assets/collision/animate.js"></script>
+  </body>
+  </html>

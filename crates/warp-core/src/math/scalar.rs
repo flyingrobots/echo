@@ -14,12 +14,11 @@
 //! - Core transcendentals: sin, cos (angles in radians).
 //!
 //! Out of scope for this commit:
-//! - Subnormal flushing (to be handled by concrete float wrappers in a
-//!   follow-up task).
-//! - Lookup-table or polynomial-backed trig implementations (tracked separately;
-//!   this trait only declares the API).
-//! - Concrete backends: `F32Scalar` and `DFix64` will implement this trait in
-//!   subsequent changes.
+//! - Scalar backend selection plumbing across the whole engine (feature gates
+//!   exist, but wiring generic engine code to switch lanes is follow-up work).
+//! - More advanced deterministic transcendental backends (e.g., higher-order
+//!   interpolation or polynomial approximations) beyond the initial LUT-backed
+//!   implementation.
 //!
 //! Determinism contract:
 //! - Operations must be pure and total for all valid inputs of the
@@ -29,10 +28,19 @@
 //! - Trigonometric functions interpret arguments as radians and must be
 //!   consistent across platforms for identical inputs (e.g., via LUT/polynomial
 //!   in later work).
+//!
+//! Implementation note:
+//! - `F32Scalar::{sin,cos,sin_cos}` are implemented using a deterministic
+//!   LUT-backed approximation in `warp_core::math::trig`.
 
 use core::cmp::Ordering;
 use core::fmt;
 use core::ops::{Add, Div, Mul, Neg, Sub};
+
+use crate::math::trig;
+
+#[cfg(feature = "det_fixed")]
+use crate::math::fixed_q32_32;
 
 /// Deterministic scalar arithmetic and basic transcendentals.
 ///
@@ -95,7 +103,7 @@ pub struct F32Scalar {
     ///
     /// # Invariant
     /// This field is private to enforce canonicalization via `new()`.
-    /// It must NEVER contain `-0.0`, non-canonical NaNs, or subnormals (future).
+    /// It must NEVER contain `-0.0`, non-canonical NaNs, or subnormals.
     value: f32,
 }
 
@@ -183,15 +191,18 @@ impl Scalar for F32Scalar {
     }
 
     fn sin(self) -> Self {
-        Self::new(self.value.sin())
+        let (s, _) = trig::sin_cos_f32(self.value);
+        Self::new(s)
     }
 
     fn cos(self) -> Self {
-        Self::new(self.value.cos())
+        let (_, c) = trig::sin_cos_f32(self.value);
+        Self::new(c)
     }
 
     fn sin_cos(self) -> (Self, Self) {
-        (Self::new(self.value.sin()), Self::new(self.value.cos()))
+        let (s, c) = trig::sin_cos_f32(self.value);
+        (Self::new(s), Self::new(c))
     }
 
     fn from_f32(value: f32) -> Self {
@@ -235,5 +246,211 @@ impl Neg for F32Scalar {
     type Output = Self;
     fn neg(self) -> Self {
         Self::new(-self.value)
+    }
+}
+
+/// Deterministic fixed-point scalar with Q32.32 encoding stored in an `i64`.
+///
+/// The underlying integer stores the value scaled by `2^32`:
+///
+/// ```text
+/// real_value = raw / 2^32
+/// ```
+///
+/// # Determinism contract
+///
+/// - All arithmetic is performed in integer space with saturating overflow.
+/// - Multiplication/division use round-to-nearest, ties-to-even semantics.
+/// - `from_f32` is deterministic and does not rely on platform transcendentals.
+#[cfg(feature = "det_fixed")]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct DFix64 {
+    raw: i64,
+}
+
+#[cfg(feature = "det_fixed")]
+impl DFix64 {
+    const FRAC_BITS: u32 = fixed_q32_32::FRAC_BITS;
+    const ONE_RAW: i64 = fixed_q32_32::ONE_RAW;
+
+    /// The fixed-point zero value.
+    pub const ZERO: Self = Self { raw: 0 };
+
+    /// The fixed-point one value.
+    pub const ONE: Self = Self { raw: Self::ONE_RAW };
+
+    /// Constructs a fixed-point value from a raw Q32.32 integer.
+    ///
+    /// This is an exact conversion (no scaling or rounding). `raw` is interpreted as
+    /// `real_value = raw / 2^32`.
+    #[must_use]
+    pub const fn from_raw(raw: i64) -> Self {
+        Self { raw }
+    }
+
+    /// Returns the underlying Q32.32 raw storage value.
+    pub const fn raw(self) -> i64 {
+        self.raw
+    }
+
+    fn saturate_i128_to_i64(value: i128) -> i64 {
+        i64::try_from(value).unwrap_or_else(|_| {
+            if value.is_negative() {
+                i64::MIN
+            } else {
+                i64::MAX
+            }
+        })
+    }
+
+    fn saturating_add_raw(a: i64, b: i64) -> i64 {
+        Self::saturate_i128_to_i64(i128::from(a) + i128::from(b))
+    }
+
+    fn saturating_sub_raw(a: i64, b: i64) -> i64 {
+        Self::saturate_i128_to_i64(i128::from(a) - i128::from(b))
+    }
+
+    fn saturating_neg_raw(a: i64) -> i64 {
+        if a == i64::MIN {
+            i64::MAX
+        } else {
+            -a
+        }
+    }
+
+    fn mul_raw(a: i64, b: i64) -> i64 {
+        let prod = i128::from(a) * i128::from(b);
+        let abs: u128 = prod.unsigned_abs();
+        let q = abs >> Self::FRAC_BITS;
+        let r = abs & ((1_u128 << Self::FRAC_BITS) - 1);
+        let half = 1_u128 << (Self::FRAC_BITS - 1);
+
+        let mut rounded = q;
+        if r > half || (r == half && (q & 1) == 1) {
+            rounded = rounded.saturating_add(1);
+        }
+
+        let rounded_i128 = i128::try_from(rounded).map_or(i128::MAX, |v| v);
+        let signed = if prod.is_negative() {
+            -rounded_i128
+        } else {
+            rounded_i128
+        };
+
+        Self::saturate_i128_to_i64(signed)
+    }
+
+    fn div_raw(a: i64, b: i64) -> i64 {
+        if b == 0 {
+            if a == 0 {
+                // Determinism policy: 0/0 → 0 (not NaN) to preserve integer semantics.
+                return 0;
+            }
+            return if a.is_negative() { i64::MIN } else { i64::MAX };
+        }
+
+        let num = i128::from(a) << Self::FRAC_BITS;
+        let den = i128::from(b);
+
+        let abs_num: u128 = num.unsigned_abs();
+        let abs_den: u128 = den.unsigned_abs();
+
+        let q = abs_num / abs_den;
+        let r = abs_num % abs_den;
+
+        let mut rounded = q;
+        let twice_r = r.saturating_mul(2);
+        if twice_r > abs_den || (twice_r == abs_den && (q & 1) == 1) {
+            rounded = rounded.saturating_add(1);
+        }
+
+        let rounded_i128 = i128::try_from(rounded).map_or(i128::MAX, |v| v);
+        let signed = if (a < 0) ^ (b < 0) {
+            -rounded_i128
+        } else {
+            rounded_i128
+        };
+
+        Self::saturate_i128_to_i64(signed)
+    }
+}
+
+#[cfg(feature = "det_fixed")]
+impl Scalar for DFix64 {
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    fn one() -> Self {
+        Self::ONE
+    }
+
+    fn sin(self) -> Self {
+        let (s, _) = crate::math::trig::sin_cos_f32(self.to_f32());
+        Self::from_f32(s)
+    }
+
+    fn cos(self) -> Self {
+        let (_, c) = crate::math::trig::sin_cos_f32(self.to_f32());
+        Self::from_f32(c)
+    }
+
+    fn sin_cos(self) -> (Self, Self) {
+        let (s, c) = crate::math::trig::sin_cos_f32(self.to_f32());
+        (Self::from_f32(s), Self::from_f32(c))
+    }
+
+    fn from_f32(value: f32) -> Self {
+        Self::from_raw(fixed_q32_32::from_f32(value))
+    }
+
+    fn to_f32(self) -> f32 {
+        fixed_q32_32::to_f32(self.raw)
+    }
+}
+
+#[cfg(feature = "det_fixed")]
+impl Add for DFix64 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self::from_raw(Self::saturating_add_raw(self.raw, rhs.raw))
+    }
+}
+
+#[cfg(feature = "det_fixed")]
+impl Sub for DFix64 {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        Self::from_raw(Self::saturating_sub_raw(self.raw, rhs.raw))
+    }
+}
+
+#[cfg(feature = "det_fixed")]
+impl Mul for DFix64 {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        Self::from_raw(Self::mul_raw(self.raw, rhs.raw))
+    }
+}
+
+#[cfg(feature = "det_fixed")]
+impl Div for DFix64 {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self {
+        Self::from_raw(Self::div_raw(self.raw, rhs.raw))
+    }
+}
+
+#[cfg(feature = "det_fixed")]
+impl Neg for DFix64 {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self::from_raw(Self::saturating_neg_raw(self.raw))
     }
 }

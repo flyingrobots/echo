@@ -55,6 +55,35 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Evidence:
   - PR #175 (loopback tests + publish behavior pinned; follow-up hardening for defensive test checks)
 
+> 2026-01-01 — PR #167: deterministic math follow-ups + merge `main` (IN PROGRESS)
+
+- Goal: address all CodeRabbit review comments on PR #167 with minimal churn, keep the PR tightly scoped to deterministic math + warp-core motion payload work, and restore mergeability by merging `main` and resolving docs guard conflicts.
+- Scope:
+  - Resolve merge conflicts from `origin/main` in `docs/decision-log.md` and `docs/execution-plan.md` while preserving both the WVP hardening timeline and the deterministic math timeline.
+  - Keep deterministic trig guardrails stable (`scripts/check_no_raw_trig.sh`) so raw platform trig calls cannot sneak back into runtime math code.
+- Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; PR is mergeable and CI stays green.
+- Evidence (local): PR head includes deterministic trig + motion payload fixes up through `f3ca59b`; CodeRabbit reviewDecision is approved and CI is green on PR #167. Next: finish the merge commit + rerun local checks after resolving the docs conflicts.
+
+> 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
+
+- Goal: move the motion demo payload to a deterministic Q32.32 fixed-point encoding (v2) while preserving decode compatibility for the legacy v0 `f32` payload; port the motion executor to use the `Scalar` abstraction and upgrade v0 payloads to v2 on write.
+- Evidence: `cargo test -p warp-core` green; `cargo test -p warp-core --features det_fixed` green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` green; `cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs` green.
+
+> 2026-01-01 — Deterministic fixed-point lane (`DFix64`) + CI coverage (COMPLETED)
+
+- Goal: land a deterministic fixed-point scalar backend (`DFix64`, Q32.32) behind a `det_fixed` feature flag, add a dedicated test suite, and extend CI with explicit `--features det_fixed` lanes (including MUSL) so we continuously exercise cross-platform behavior.
+- Evidence: commit `57d2ec3` plus the above motion work continues to validate the det_fixed lane in CI.
+
+> 2026-01-01 — Implement deterministic `F32Scalar` trig (COMPLETED)
+
+- Goal: replace `F32Scalar::{sin,cos,sin_cos}`’s platform transcendentals with a deterministic LUT-backed backend, check in the LUT, and promote the existing trig test scaffold into a cross-platform golden-vector suite.
+- Evidence: `cargo test -p warp-core` green; `cargo test -p warp-core --test deterministic_sin_cos_tests` green (error-budget audit test remains `#[ignore]`); `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` green.
+
+> 2025-12-30 — Branch maintenance: resurrect `F32Scalar/sin-cos` (COMPLETED)
+
+- Goal: merge `main` into the legacy deterministic trig test branch, resolve the `rmg-core`→`warp-core` rename conflict, and leave the WIP test compiling (ignored by default).
+- Evidence: merge commit `6cfa64d` (“Merge branch 'main' into F32Scalar/sin-cos”); `cargo test -p warp-core --test deterministic_sin_cos_tests` passes (ignored test remains opt-in).
+
 > 2025-12-30 — Issue #163: WVP demo path (IN PROGRESS)
 
 - Goal: complete the WARP View Protocol demo path (publisher + subscriber) by adding outbound publish support to `echo-session-client` and wiring publish/subscribe toggles + a dirty publish loop in `warp-viewer`.

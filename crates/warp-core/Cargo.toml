@@ -34,5 +34,11 @@ default = []
 golden_prng = []
 telemetry = ["serde", "serde_json", "hex"]
 
+# Scalar backend lanes (CI/test orchestration).
+# - `det_float`: default float32-backed lane using `F32Scalar`.
+# - `det_fixed`: fixed-point Q32.32 lane using `DFix64` (experimental, test-only).
+det_float = []
+det_fixed = []
+
 [build-dependencies]
 blake3 = "1.0"

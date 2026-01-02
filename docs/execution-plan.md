@@ -56,6 +56,30 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Exit criteria: matrix + notes are concrete enough to guide near-term implementation choices and future tool UX.
 - Tracking: GitHub issue #180.
 
+> 2026-01-01 — T2 (#168): embedded session dashboard baseline (COMPLETED)
+
+- Goal: keep the “run a binary, open a page” dashboard workflow stable while standardizing styling and keeping docs screenshots honest.
+- Scope:
+  - Serve a static dashboard from `echo-session-ws-gateway` (`/dashboard`) plus `/api/metrics`.
+  - Vendor Open Props CSS into the gateway and serve it under `/vendor/*.css` for offline use.
+  - Add Playwright smoke tests that exercise the dashboard and optionally regenerate the screenshot used in `docs/guide/wvp-demo.md`.
+- Exit criteria: `cargo clippy -p echo-session-ws-gateway --all-targets -- -D warnings` green; `pnpm exec playwright test` green; updated screenshot checked in.
+- Evidence:
+  - PR #176 (session dashboard + Playwright smoke + screenshot regen)
+  - Dashboard: `crates/echo-session-ws-gateway/assets/dashboard.html`
+  - Routes: `crates/echo-session-ws-gateway/src/main.rs`
+  - e2e: `e2e/session-dashboard.spec.ts`
+  - Docs screenshot: `docs/assets/wvp/session-dashboard.png`
+
+> 2026-01-01 — T2 (#168): make dashboard smoke tests self-contained (COMPLETED)
+
+- Goal: ensure the Playwright “Session Dashboard” smoke test can build and run all required binaries from a clean checkout.
+- Scope:
+  - Add a tiny `echo-session-client` example (`publish_pulse`) used by the e2e test to generate deterministic, gapless snapshot+diff traffic.
+- Exit criteria: `pnpm exec playwright test` no longer depends on local stashes / untracked artifacts.
+- Evidence:
+  - `pnpm exec playwright test e2e/session-dashboard.spec.ts` (green)
+
 > 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
 
 - Goal: prevent WVP demo regressions by pinning protocol invariants (snapshot-first, gapless epochs, authority enforcement) in automated tests.

@@ -14,10 +14,17 @@ cargo run -p echo-session-ws-gateway -- \
   --tls-cert cert.pem --tls-key key.pem
 ```
 
+Then open:
+
+- `http://localhost:8787/dashboard` (session dashboard)
+- `http://localhost:8787/api/metrics` (JSON metrics)
+- `ws://localhost:8787/ws` (WebSocket endpoint)
+
 ## Features
 
 - Binary WS frames → JS-ABI packets over UDS
 - Payload guard (8 MiB default)
+- Built-in hub observer for `/dashboard` metrics (disable with `--no-observer`; configure with `--observe-warp`)
 - Optional origin allowlist
 - Optional TLS (rustls)
 - Ping/pong keepalive

@@ -41,6 +41,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope:
   - Refresh `docs/math-validation-plan.md` to match the current deterministic math implementation and CI coverage.
   - Produce a short audit memo listing candidate docs to purge/merge/splurge with rationale.
+  - Fix a concrete dead-link cluster by making the collision tour build-visible (`docs/public/collision-dpo-tour.html`) and adding a `docs/spec-geom-collision.md` stub.
   - Keep changes single-purpose: documentation only (no runtime changes).
 - Exit criteria: audit memo committed + updated math validation plan; PR opened (tracked under issue #208).
 

@@ -37,6 +37,9 @@ Candidate for investment when the doc is:
 Splurged:
 - `docs/math-validation-plan.md` — updated to match the current `warp-core` deterministic math implementation and CI lanes (float lane + `det_fixed` lane), and to list concrete tests/commands instead of JS/browser plans.
 - `docs/index.md` — updated the docs landing page to point at real, current documents (it previously linked to a missing collision spec).
+- Collision tour docs hygiene:
+  - moved the tour source to `docs/public/collision-dpo-tour.html` so VitePress emits `/collision-dpo-tour.html`,
+  - added a `docs/spec-geom-collision.md` stub so the tour’s “Spec” link is non-broken.
 
 De-risked (clarified “what is canonical”):
 - `docs/spec-deterministic-math.md` — marked as a legacy TS-oriented Phase 0 design sketch; points readers to:

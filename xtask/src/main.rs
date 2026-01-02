@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
+//! Echo repository maintenance tasks.
+//!
+//! This crate exists to provide a single, discoverable entrypoint for repo automation via
+//! `cargo xtask …` (see `.cargo/config.toml`).
+//!
+//! Invariants:
+//! - This is *not* production runtime code; it may invoke external tools (`node`, `dot`, `gh`).
+//! - Prefer deterministic outputs for generated artifacts; avoid “timestamp churn” where possible.
+
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use std::process::Command;

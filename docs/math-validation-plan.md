@@ -43,6 +43,7 @@ Targets we actively care about (and already exercise in CI):
 This plan is considered “up to date” when these concrete checks exist and stay green:
 
 ### 1) Scalar canonicalization invariants
+
 `F32Scalar` must enforce:
 - `-0.0 → +0.0`
 - NaNs canonicalized to the project’s chosen payload
@@ -55,6 +56,7 @@ See tests:
 - `crates/warp-core/tests/nan_exhaustive_tests.rs`
 
 ### 2) Deterministic transcendental surface (sin/cos)
+
 We validate two separate things:
 - **Bit-level stability** (golden vectors): ensure outputs don’t change across platforms.
 - **Approximation error** (budgeted audit): ensure the LUT-backed trig doesn’t drift beyond pinned error budgets.
@@ -65,6 +67,7 @@ See tests:
 Note: the “audit” flavor may be `#[ignore]` depending on whether it uses a deterministic oracle; run ignored tests explicitly when present.
 
 ### 3) Vector/matrix/quaternion behavior
+
 We validate correctness and invariants for the math types that `warp-core` actually ships today:
 - `Vec3` operations (dot/cross/normalize/etc.)
 - `Mat4` rotation/multiply/transform behavior
@@ -76,11 +79,13 @@ See tests:
 - `crates/warp-core/tests/mat4_mul_tests.rs`
 
 ### 4) PRNG determinism
+
 We validate the PRNG is stable and regression-tested with golden sequences:
 - `crates/warp-core/tests/math_validation.rs`
 - CI also runs a targeted golden regression (see `.github/workflows/ci.yml`).
 
 ### 5) Fixed-point lane correctness (`det_fixed`)
+
 `DFix64` is feature-gated; its tests must be run under `--features det_fixed`.
 
 See tests:

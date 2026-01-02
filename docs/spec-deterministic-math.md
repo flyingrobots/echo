@@ -15,6 +15,7 @@ Treat this spec as a **design sketch for future bindings** (TS/WASM/FFI) and an 
 ---
 
 ## Goals
+
 - Provide deterministic vector/matrix/quaternion operations across platforms (at minimum: Linux/macOS, and eventually WASM/JS bindings).
 - Support dual numeric modes via scalar backends:
   - float lane (`F32Scalar`, default)

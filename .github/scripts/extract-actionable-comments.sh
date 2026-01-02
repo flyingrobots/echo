@@ -91,8 +91,14 @@ REPORT="/tmp/pr-${PR_NUMBER}-report-${TS}.md"
 
 gh api "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" --paginate > "$RAW"
 
-# Filter: top-level comments pinned to the current PR head commit.
-jq --arg commit "$HEAD7" '
+# Collect: all top-level review comments (including ones authored on earlier commits).
+#
+# Why: the PR review comments API (`/pulls/:number/comments`) keeps each comment’s
+# `commit_id` fixed to the commit it was authored on. When new commits are pushed,
+# older unresolved comments do not “move” to the new head; they become “outdated”.
+# If we only include comments whose `commit_id` matches the current head, we can
+# incorrectly report “0 actionables” even though older review threads remain open.
+jq --arg head "$HEAD7" '
   def has_ack_marker(s):
     (s | type) == "string" and (s | contains("✅ Addressed in commit"));
 
@@ -105,14 +111,20 @@ jq --arg commit "$HEAD7" '
 
   (ack_by_reply) as $replies |
   [ .[] |
-    select(.in_reply_to_id == null and .commit_id[0:7] == $commit) |
+    select(.in_reply_to_id == null) |
     {
       id,
       path,
       line,
-      current_commit: (.commit_id[0:7]),
+      position,
+      original_position,
+      head_commit: $head,
+      comment_commit: (.commit_id[0:7]),
       original_commit: (.original_commit_id[0:7]),
-      is_stale: (.commit_id != .original_commit_id),
+      is_on_head: (.commit_id[0:7] == $head),
+      is_visible_on_head_diff: (.position != null),
+      is_outdated: (.position == null),
+      is_moved: (.commit_id != .original_commit_id),
       has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
       priority: (
         if (.body | contains("🔴 Critical")) then "P0"
@@ -135,9 +147,12 @@ jq --arg commit "$HEAD7" '
   ]
 ' "$RAW" > "$LATEST"
 
-fresh_count="$(jq '[.[] | select(.is_stale == false and .has_ack == false)] | length' "$LATEST")"
-stale_count="$(jq '[.[] | select(.is_stale == true)] | length' "$LATEST")"
+needs_attention_count="$(jq '[.[] | select(.has_ack == false)] | length' "$LATEST")"
+on_head_attention_count="$(jq '[.[] | select(.is_visible_on_head_diff == true and .has_ack == false)] | length' "$LATEST")"
+outdated_attention_count="$(jq '[.[] | select(.is_outdated == true and .has_ack == false)] | length' "$LATEST")"
+moved_count="$(jq '[.[] | select(.is_moved == true)] | length' "$LATEST")"
 ack_count="$(jq '[.[] | select(.has_ack == true)] | length' "$LATEST")"
+total_count="$(jq 'length' "$LATEST")"
 
 {
   echo "# CodeRabbitAI/GitHub Actionables — PR #${PR_NUMBER}"
@@ -149,17 +164,29 @@ ack_count="$(jq '[.[] | select(.has_ack == true)] | length' "$LATEST")"
 
   echo "## Summary"
   echo
-  echo "- Fresh actionable: **${fresh_count}**"
-  echo "- Stale (verify): **${stale_count}**"
+  echo "- Total top-level review comments: **${total_count}**"
+  echo "- Needs attention (unacknowledged): **${needs_attention_count}**"
+  echo "  - Visible on head diff: **${on_head_attention_count}**"
+  echo "  - Outdated (not visible on head diff): **${outdated_attention_count}**"
   echo "- Acknowledged (✅ Addressed): **${ack_count}**"
+  echo "- Moved by GitHub (commit_id != original_commit_id): **${moved_count}**"
   echo
 
-  echo "## Stale / Verify"
+  echo "## Needs Attention (On Head Diff)"
   echo
   jq -r '
     .[]
-    | select(.is_stale == true)
-    | "- [ ] \(.path):\(.line // 1) — \(.title) (original: \(.original_commit)) [id=\(.id)]"
+    | select(.is_visible_on_head_diff == true and .has_ack == false)
+    | "- [ ] [\(.priority)] \(.path):\(.line // 1) — \(.title) [id=\(.id)]"
+  ' "$LATEST"
+  echo
+
+  echo "## Needs Attention (Outdated / Earlier Commits)"
+  echo
+  jq -r '
+    .[]
+    | select(.is_outdated == true and .has_ack == false)
+    | "- [ ] [\(.priority)] \(.path):\(.line // 1) — \(.title) (comment commit: \(.comment_commit)) [id=\(.id)]"
   ' "$LATEST"
   echo
 
@@ -172,29 +199,14 @@ ack_count="$(jq '[.[] | select(.has_ack == true)] | length' "$LATEST")"
   ' "$LATEST"
   echo
 
-  echo "## Actionable (Fresh)"
+  echo "## Notes"
   echo
-
-  # Sort: priority, then path, then line (null line => 0).
-  jq -r '
-    def pnum(p):
-      if p == "P0" then 0
-      elif p == "P1" then 1
-      elif p == "P2" then 2
-      else 3
-      end;
-
-    [ .[]
-      | select(.is_stale == false and .has_ack == false)
-    ]
-    | sort_by([pnum(.priority), .path, (.line // 0)])
-    | .[]
-    | "- [ ] [\(.priority)] \(.path):\(.line // 1) — \(.title) [id=\(.id)]"
-  ' "$LATEST"
+  echo "- \"Outdated\" means the review comment is no longer visible on the current head diff; it may still be actionable."
+  echo "- Use \`✅ Addressed in commit <sha>\` replies to close the loop and keep future extraction cheap."
   echo
 
   if [[ "$FULL" -eq 1 ]]; then
-    echo "## Full Comment Bodies (Actionable)"
+    echo "## Full Comment Bodies (Needs Attention)"
     echo
     jq -r '
       def pnum(p):
@@ -205,16 +217,16 @@ ack_count="$(jq '[.[] | select(.has_ack == true)] | length' "$LATEST")"
         end;
 
       [ .[]
-        | select(.is_stale == false and .has_ack == false)
+        | select(.has_ack == false)
       ]
-      | sort_by([pnum(.priority), .path, (.line // 0)])
+      | sort_by([(.is_outdated | if . then 1 else 0 end), pnum(.priority), .path, (.line // 0)])
       | .[]
-      | "### \(.path):\(.line // 1) [id=\(.id)]\n\n```\n\(.body)\n```\n"
+      | "### [\(.priority)] \(.path):\(.line // 1) [id=\(.id)]\n\n- Visible on head diff: \(.is_visible_on_head_diff)\n- Outdated: \(.is_outdated)\n- Comment commit: \(.comment_commit)\n\n```\n\(.body)\n```\n"
     ' "$LATEST"
   else
     echo "## Next Step"
     echo
-    echo "Run with \`--full\` to include full comment bodies for the actionable set."
+    echo "Run with \`--full\` to include full comment bodies for the needs-attention set."
   fi
 
   echo

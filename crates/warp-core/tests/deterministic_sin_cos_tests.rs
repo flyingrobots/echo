@@ -22,6 +22,11 @@ fn deterministic_sin_cos_f32(angle: f32) -> (f32, f32) {
     (s.to_f32(), c.to_f32())
 }
 
+fn oracle_sin_cos_f64(angle: f32) -> (f64, f64) {
+    let angle64 = angle as f64;
+    (libm::sin(angle64), libm::cos(angle64))
+}
+
 fn ulp_diff(a: f32, b: f32) -> u32 {
     if a.is_nan() || b.is_nan() {
         return u32::MAX;
@@ -159,41 +164,131 @@ fn test_trig_known_angle_golden_bits() {
 }
 
 #[test]
-// TODO(#177): Replace libm-derived reference with a deterministic oracle and pin an explicit budget.
-#[ignore = "Reference uses platform libm (see #177); keep ignored unless auditing error budgets"]
-fn test_sin_cos_error_budget_wip() {
-    // NOTE: This test intentionally measures error against a high-precision-ish
-    // reference, but does not yet pin an explicit budget. Once the deterministic
-    // backend is implemented, add concrete acceptance thresholds and a compact
-    // "golden vector" suite for cross-platform CI.
+fn test_sin_cos_error_budget_pinned_against_deterministic_oracle() {
+    // Deterministic oracle:
+    // - Uses the pure-Rust `libm` crate so the reference does not depend on the
+    //   host platform's libc/libm implementation.
+    // - Compares our deterministic float32 output against the libm reference in
+    //   two ways:
+    //   - ULP budget: measured in f32 space vs the f32-rounded reference.
+    //   - Absolute error budget: measured in f64 space vs the f64 reference.
+
+    // NOTE: These thresholds are pinned to the current LUT+interpolation
+    // backend in `warp_core::math::trig` and should only be loosened with an
+    // explicit decision-log entry.
+    //
+    // ULP metrics across a zero crossing are not especially meaningful, so we
+    // only apply the ULP budget when the f32-rounded reference magnitude is
+    // reasonably away from zero.
+    // Only apply ULP budgeting when the reference is "large enough" that ULPs
+    // are a stable, meaningful metric. Near zero, ULP distance tends to
+    // over-penalize small sign/magnitude differences that are better measured
+    // with an absolute-error bound.
+    const MIN_ULP_MAG: f32 = 0.25;
+
+    // TODO(#177): Tighten these once we have an explicit error budget decision
+    // and a longer audit run (e.g. denser sampling or a wider domain).
+    const MAX_ULP_BUDGET: u32 = 16;
+    const MAX_ABS_BUDGET: f64 = 5.0e-7;
 
     let mut max_ulp: u32 = 0;
-    let mut max_abs: f32 = 0.0;
-    let mut worst_angle: f32 = 0.0;
+    let mut max_abs: f64 = 0.0;
+    let mut worst_angle_ulp: f32 = 0.0;
+    let mut worst_angle_abs: f32 = 0.0;
+    let mut worst_s: f32 = 0.0;
+    let mut worst_c: f32 = 0.0;
+    let mut worst_s_ref32: f32 = 0.0;
+    let mut worst_c_ref32: f32 = 0.0;
+    let mut worst_s_ref64: f64 = 0.0;
+    let mut worst_c_ref64: f64 = 0.0;
+    let mut sign_mismatch_count: u32 = 0;
+    let mut sign_mismatch_worst_angle: f32 = 0.0;
 
     let step = TAU / 4096.0;
     for i in 0..=16_384_u32 {
         let angle = -2.0 * TAU + (i as f32) * step;
         let (s, c) = deterministic_sin_cos_f32(angle);
 
-        // Reference: f64 trig, then cast down to float32. This is a measurement
-        // baseline only; it is not currently a strict determinism oracle.
-        let angle64 = angle as f64;
-        let s_ref = (angle64.sin() as f32) + 0.0;
-        let c_ref = (angle64.cos() as f32) + 0.0;
+        let (s_ref64, c_ref64) = oracle_sin_cos_f64(angle);
+        let s_ref32 = F32Scalar::new(s_ref64 as f32).to_f32();
+        let c_ref32 = F32Scalar::new(c_ref64 as f32).to_f32();
 
-        let sin_ulp = ulp_diff(s, s_ref);
-        let cos_ulp = ulp_diff(c, c_ref);
+        // ULP budget only when the reference is sufficiently away from zero.
+        // When near zero, use the absolute budget instead.
+        if s_ref32.abs() >= MIN_ULP_MAG {
+            if s.is_sign_negative() != s_ref32.is_sign_negative() {
+                sign_mismatch_count = sign_mismatch_count.saturating_add(1);
+                sign_mismatch_worst_angle = angle;
+            }
 
-        let ulp = sin_ulp.max(cos_ulp);
-        if ulp > max_ulp {
-            max_ulp = ulp;
-            worst_angle = angle;
+            let sin_ulp = ulp_diff(s, s_ref32);
+            if sin_ulp > max_ulp {
+                max_ulp = sin_ulp;
+                worst_angle_ulp = angle;
+                worst_s = s;
+                worst_s_ref32 = s_ref32;
+                worst_s_ref64 = s_ref64;
+                // Keep cos context for debugging, even though sin drove max_ulp.
+                worst_c = c;
+                worst_c_ref32 = c_ref32;
+                worst_c_ref64 = c_ref64;
+            }
+        }
+        if c_ref32.abs() >= MIN_ULP_MAG {
+            if c.is_sign_negative() != c_ref32.is_sign_negative() {
+                sign_mismatch_count = sign_mismatch_count.saturating_add(1);
+                sign_mismatch_worst_angle = angle;
+            }
+
+            let cos_ulp = ulp_diff(c, c_ref32);
+            if cos_ulp > max_ulp {
+                max_ulp = cos_ulp;
+                worst_angle_ulp = angle;
+                worst_c = c;
+                worst_c_ref32 = c_ref32;
+                worst_c_ref64 = c_ref64;
+                // Keep sin context for debugging, even though cos drove max_ulp.
+                worst_s = s;
+                worst_s_ref32 = s_ref32;
+                worst_s_ref64 = s_ref64;
+            }
         }
 
-        max_abs = max_abs.max((s - s_ref).abs());
-        max_abs = max_abs.max((c - c_ref).abs());
+        let sin_abs = ((s as f64) - s_ref64).abs();
+        let cos_abs = ((c as f64) - c_ref64).abs();
+        let abs = sin_abs.max(cos_abs);
+        if abs > max_abs {
+            max_abs = abs;
+            worst_angle_abs = angle;
+        }
     }
 
-    eprintln!("wip trig error: max_ulp={max_ulp} max_abs={max_abs} at angle={worst_angle}");
+    if std::env::var("ECHO_TRIG_AUDIT_PRINT").is_ok() {
+        eprintln!(
+            "trig error audit (oracle=libm): max_ulp={max_ulp} (angle={worst_angle_ulp}) max_abs={max_abs:e} (angle={worst_angle_abs})"
+        );
+        eprintln!(
+            "worst_ulp details: s={worst_s} (0x{sb:08x}) c={worst_c} (0x{cb:08x}) s_ref32={worst_s_ref32} (0x{srb:08x}) c_ref32={worst_c_ref32} (0x{crb:08x}) s_ref64={worst_s_ref64:e} c_ref64={worst_c_ref64:e}",
+            sb = worst_s.to_bits(),
+            cb = worst_c.to_bits(),
+            srb = worst_s_ref32.to_bits(),
+            crb = worst_c_ref32.to_bits(),
+        );
+        eprintln!(
+            "sign mismatch count (|ref| >= {MIN_ULP_MAG}): {sign_mismatch_count} (last angle={sign_mismatch_worst_angle})"
+        );
+    }
+
+    assert_eq!(
+        sign_mismatch_count, 0,
+        "trig sign mismatch beyond near-zero tolerance: count={sign_mismatch_count} (example angle={sign_mismatch_worst_angle})"
+    );
+    assert!(
+        max_ulp <= MAX_ULP_BUDGET,
+        "trig ULP budget exceeded: max_ulp={max_ulp} budget={MAX_ULP_BUDGET} worst_angle={worst_angle_ulp}"
+    );
+    assert!(
+        max_abs <= MAX_ABS_BUDGET,
+        "trig abs-error budget exceeded: max_abs={max_abs:e} budget={MAX_ABS_BUDGET:e} worst_angle={worst_angle_abs}"
+    );
 }

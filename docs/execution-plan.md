@@ -35,6 +35,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
+
+- Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.
+- Scope:
+  - Use a pure-Rust oracle (`libm`) so the reference is not host libc/libm dependent.
+  - Measure both:
+    - absolute error vs the f64 oracle (robust near zero),
+    - ULP distance vs the f32-rounded oracle (applied only when |ref| ≥ 0.25 so ULPs remain meaningful).
+  - Remove the repo-root scratchpad `freaky_numbers.rs` if it is not used by any crate/tests.
+- Exit criteria: `cargo test -p warp-core --test deterministic_sin_cos_tests` is green with the audit test enabled by default; budgets are documented in `docs/decision-log.md`.
+- Tracking: GitHub issue #177.
+
 > 2026-01-01 — Issue #180: Paper VI notes + capability matrix (IN PROGRESS)
 
 - Goal: turn “Pulse” time/determinism/tooling insights into durable artifacts (Paper VI notes + a crisp ownership matrix for Echo).
@@ -55,14 +67,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Evidence:
   - PR #175 (loopback tests + publish behavior pinned; follow-up hardening for defensive test checks)
 
-> 2026-01-01 — PR #167: deterministic math follow-ups + merge `main` (IN PROGRESS)
+> 2026-01-01 — PR #167: deterministic math follow-ups + merge `main` (COMPLETED)
 
 - Goal: address all CodeRabbit review comments on PR #167 with minimal churn, keep the PR tightly scoped to deterministic math + warp-core motion payload work, and restore mergeability by merging `main` and resolving docs guard conflicts.
 - Scope:
   - Resolve merge conflicts from `origin/main` in `docs/decision-log.md` and `docs/execution-plan.md` while preserving both the WVP hardening timeline and the deterministic math timeline.
   - Keep deterministic trig guardrails stable (`scripts/check_no_raw_trig.sh`) so raw platform trig calls cannot sneak back into runtime math code.
 - Exit criteria: `cargo test -p warp-core` and `cargo test -p warp-core --features det_fixed` are green; `cargo clippy -p warp-core --all-targets -- -D warnings -D missing_docs` is green; PR is mergeable and CI stays green.
-- Evidence (local): PR head includes deterministic trig + motion payload fixes up through `f3ca59b`; CodeRabbit reviewDecision is approved and CI is green on PR #167. Next: finish the merge commit + rerun local checks after resolving the docs conflicts.
+- Evidence: merged to `main` as PR #167 (merge commit `54d7626`; closes #165).
 
 > 2026-01-01 — Motion payload v2 (Q32.32) + `Scalar` port (COMPLETED)
 

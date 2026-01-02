@@ -172,6 +172,8 @@ fi
 HEAD7="${HEAD_SHA:0:7}"
 
 TS="$(date +%s)"
+RAW_COMMITS="/tmp/pr-${PR_NUMBER}-commits-${TS}.json"
+RAW_COMMITS_ERR="/tmp/pr-${PR_NUMBER}-commits-${TS}.err"
 RAW_REVIEW="/tmp/pr-${PR_NUMBER}-review-comments-${TS}.json"
 RAW_REVIEW_ERR="/tmp/pr-${PR_NUMBER}-review-comments-${TS}.err"
 LATEST_REVIEW="/tmp/pr-${PR_NUMBER}-review-latest-${TS}.json"
@@ -183,6 +185,12 @@ RAW_REVIEWS_ERR="/tmp/pr-${PR_NUMBER}-reviews-${TS}.err"
 LATEST_REVIEWS="/tmp/pr-${PR_NUMBER}-reviews-latest-${TS}.json"
 LATEST_ALL="/tmp/pr-${PR_NUMBER}-latest-${TS}.json"
 REPORT="/tmp/pr-${PR_NUMBER}-report-${TS}.md"
+
+fetch_paginated_json "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/commits" "$RAW_COMMITS" "$RAW_COMMITS_ERR"
+VALID_COMMITS_JSON="$(jq -c '[ .[] | (.sha // "")[0:7] | select(length == 7) ] | unique' "$RAW_COMMITS")"
+if [[ -z "$VALID_COMMITS_JSON" || "$VALID_COMMITS_JSON" == "[]" ]]; then
+  VALID_COMMITS_JSON="$(jq -nc --arg head "$HEAD7" '[ $head ]')"
+fi
 
 fetch_paginated_json "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" "$RAW_REVIEW" "$RAW_REVIEW_ERR"
 if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
@@ -202,8 +210,35 @@ FILTER_CONVERSATION_FULL="/tmp/pr-${PR_NUMBER}-jq-conversation-full-${TS}.jq"
 FILTER_REVIEWS_FULL="/tmp/pr-${PR_NUMBER}-jq-review-summaries-full-${TS}.jq"
 
 cat > "$FILTER_COMMON" <<'JQ'
-def has_ack_marker(s):
-  (s | type) == "string" and (s | contains("✅ Addressed in commit"));
+def is_bot_user(u):
+  (u | type) == "object"
+  and (
+    (u.type // "") == "Bot"
+    or ((u.login // "") | endswith("[bot]"))
+  );
+
+# An ack marker is considered valid only when:
+# - authored by a non-bot user (prevents false positives from CodeRabbit templates), and
+# - includes a commit SHA that is actually part of the PR (reduces accidental matches).
+def ack_commit(body):
+  if (body | type) != "string" then null
+  else
+    (try
+      (body
+        | capture("(?m)^[\\s>]*✅ Addressed in commit (?<commit>[0-9a-f]{7,40})\\b")
+        | .commit
+        | ascii_downcase
+        | .[0:7]
+      )
+    catch null)
+  end;
+
+def has_ack_marker(body; user):
+  (is_bot_user(user) | not)
+  and (ack_commit(body) as $c
+    | $c != null
+    and ($valid_commits | index($c)) != null
+  );
 
 def normalize_title(body):
   ((body
@@ -229,7 +264,7 @@ JQ
 cat > "$FILTER_REVIEW" <<'JQ'
 # Replies are returned in the same list, with `in_reply_to_id` set.
 def ack_by_reply:
-  reduce .[] as $c ({}; if ($c.in_reply_to_id != null and has_ack_marker($c.body)) then .[($c.in_reply_to_id | tostring)] = true else . end);
+  reduce .[] as $c ({}; if ($c.in_reply_to_id != null and has_ack_marker($c.body; $c.user)) then .[($c.in_reply_to_id | tostring)] = true else . end);
 
 (ack_by_reply) as $replies |
 [ .[]
@@ -254,7 +289,7 @@ def ack_by_reply:
       is_visible_on_head_diff: (.position != null),
       is_outdated: (.position == null),
       is_moved: (.commit_id != .original_commit_id),
-      has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
+      has_ack: ($replies[(.id | tostring)] // false),
       is_actionable: true,
       priority: priority_from_body(.body),
       title: normalize_title(.body),
@@ -264,7 +299,7 @@ def ack_by_reply:
 JQ
 
 cat "$FILTER_COMMON" "$FILTER_REVIEW" > "$FILTER_REVIEW_FULL"
-jq --arg head "$HEAD7" -f "$FILTER_REVIEW_FULL" "$RAW_REVIEW" > "$LATEST_REVIEW"
+jq --arg head "$HEAD7" --argjson valid_commits "$VALID_COMMITS_JSON" -f "$FILTER_REVIEW_FULL" "$RAW_REVIEW" > "$LATEST_REVIEW"
 
 if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
   cat > "$FILTER_CONVERSATION" <<'JQ'
@@ -295,7 +330,7 @@ def is_html_comment(body):
       is_visible_on_head_diff: false,
       is_outdated: false,
       is_moved: false,
-      has_ack: has_ack_marker(.body),
+      has_ack: has_ack_marker(.body; .user),
       is_actionable: likely_actionable(.body),
       priority: priority_from_body(.body),
       title: normalize_title(.body),
@@ -304,7 +339,7 @@ def is_html_comment(body):
 ]
 JQ
   cat "$FILTER_COMMON" "$FILTER_CONVERSATION" > "$FILTER_CONVERSATION_FULL"
-  jq -f "$FILTER_CONVERSATION_FULL" "$RAW_CONVERSATION" > "$LATEST_CONVERSATION"
+  jq --argjson valid_commits "$VALID_COMMITS_JSON" -f "$FILTER_CONVERSATION_FULL" "$RAW_CONVERSATION" > "$LATEST_CONVERSATION"
 else
   printf '%s\n' '[]' > "$LATEST_CONVERSATION"
 fi
@@ -334,7 +369,7 @@ if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
       is_visible_on_head_diff: false,
       is_outdated: false,
       is_moved: false,
-      has_ack: has_ack_marker(.body),
+      has_ack: has_ack_marker(.body; .user),
       is_actionable: ((.state // "") == "CHANGES_REQUESTED" or likely_actionable(.body)),
       priority: priority_from_body(.body),
       title: normalize_title(.body),
@@ -343,7 +378,7 @@ if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
 ]
 JQ
   cat "$FILTER_COMMON" "$FILTER_REVIEWS" > "$FILTER_REVIEWS_FULL"
-  jq -f "$FILTER_REVIEWS_FULL" "$RAW_REVIEWS" > "$LATEST_REVIEWS"
+  jq --argjson valid_commits "$VALID_COMMITS_JSON" -f "$FILTER_REVIEWS_FULL" "$RAW_REVIEWS" > "$LATEST_REVIEWS"
 else
   printf '%s\n' '[]' > "$LATEST_REVIEWS"
 fi

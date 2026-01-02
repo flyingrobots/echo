@@ -42,7 +42,7 @@ It is designed to:
 
 - include review comments from **all** authors (CodeRabbitAI *and* human reviewers),
 - include “outdated” comments that are not visible on the current head diff,
-- detect `✅ Addressed in commit ...` markers in replies,
+- detect `✅ Addressed in commit ...` markers in replies (authored by a human),
 - and produce a deterministic Markdown report.
 
 To widen the net beyond inline review threads, you can include:
@@ -135,10 +135,16 @@ Key insight:
 
 ### Step 5: Detect “Already Addressed” markers
 
-Note: the “✅ Addressed in commit …” marker may appear either:
+The “✅ Addressed in commit …” marker is a lightweight ack convention used to prevent re-triaging the same comments.
 
-- in the top-level comment body, or
-- in a reply to the thread.
+Important: **do not** treat a bare substring match as reliable.
+
+- Review bots (including CodeRabbitAI) may include the exact string as a template/example in their own review text.
+- If you count those as “acknowledged”, you can incorrectly report “0 actionables” and miss real work.
+
+For **review threads**, prefer a human-authored reply containing a commit SHA that is actually part of the PR.
+
+For **PR conversation comments** and **review summaries**, you may also use the marker in your own comment body (or edit), but only treat it as acknowledged when the marker includes a real PR commit SHA.
 
 If you want reliable ack detection, prefer the repo script:
 
@@ -147,19 +153,20 @@ If you want reliable ack detection, prefer the repo script:
 ```
 
 ```bash
-cat "$TMPFILE" | jq '.[] |
-  select(.body | contains("✅ Addressed in commit")) |
-  {
-    id,
-    line,
-    path,
-    fixed_in: (.body | capture("✅ Addressed in commit (?<commit>[a-f0-9]{7})").commit)
-  }
+cat "$TMPFILE" | jq '
+  # Very rough, but safer than substring matching:
+  # - only count replies (in_reply_to_id != null)
+  # - only count markers that start a line and include a hex SHA
+  [ .[]
+    | select(.in_reply_to_id != null)
+    | select(.body | test("(?m)^\\s*✅ Addressed in commit [0-9a-f]{7,40}\\b"))
+    | { in_reply_to_id, reply_id: .id, user: (.user.login // "unknown"), body: (.body[0:80]) }
+  ]
 '
 ```
 
 Key insight:
-- If the comment contains a “✅ Addressed in commit …” marker, it’s no longer actionable.
+- Explicit acks are only useful when they can’t be accidentally “spoofed” by templated bot text.
 
 ---
 

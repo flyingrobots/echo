@@ -55,6 +55,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Checkout PR #179’s branch locally.
   - Identify where the tool pulls PR comments from (GitHub API / `gh` CLI / local refs) and what comment types it includes (issue comments, review comments, review summaries).
   - Ensure the report is attributable (comment author is included) so non-CodeRabbit actionables are not lost.
+  - Ensure “✅ Addressed in commit …” ack markers cannot be spoofed by templated bot text (require a human-authored ack with a real PR commit SHA).
   - Run the tool against at least one PR to confirm output format and any required auth/config.
 - Exit criteria: documented “how to run” steps for the tool; confidence that we can repeatably extract issues from PR comments for subsequent PRs.
 

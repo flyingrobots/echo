@@ -3,7 +3,7 @@
 # Echo Architecture Specification (Draft)
 
 ## Vision
-- Reimagine the 2013 Caverns ECS into **Echo**, a renderer-agnostic core that survives browsers, native shells, and whatever 2125 invents next.
+- Reimagine a battle-tested ECS core into **Echo**, a renderer-agnostic spine that survives browsers, native shells, and whatever 2125 invents next.
 - Empower teams to build 2D, 3D, or abstract simulations with the same spine, swapping adapters instead of rewriting gameplay.
 - Combine modern ergonomics (TypeScript, ES modules, first-class docs) with ruthless performance discipline so the engine scales from hobby jams to production.
 - Preserve institutional memory—document why choices exist, what legacy quirks inspired them, and how to extend or override any piece.

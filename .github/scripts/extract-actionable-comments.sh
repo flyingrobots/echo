@@ -53,11 +53,21 @@ FULL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo)
-      REPO="${2:-}"
+      if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
+        echo "Error: --repo requires a value in the form OWNER/REPO" >&2
+        usage >&2
+        exit 2
+      fi
+      REPO="$2"
       shift 2
       ;;
     --out)
-      OUT="${2:-}"
+      if [[ -z "${2:-}" || "${2:-}" == -* ]]; then
+        echo "Error: --out requires a filesystem path" >&2
+        usage >&2
+        exit 2
+      fi
+      OUT="$2"
       shift 2
       ;;
     --full)
@@ -85,6 +95,10 @@ fi
 
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
+if [[ "$REPO" != */* || "$REPO" == */*/* || -z "$OWNER" || -z "$NAME" || "$OWNER" == "$NAME" ]]; then
+  echo "Error: Invalid repo format '${REPO}'. Expected OWNER/REPO." >&2
+  exit 2
+fi
 
 HEAD_SHA="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.headRefOid')"
 HEAD7="${HEAD_SHA:0:7}"
@@ -260,7 +274,7 @@ total_count="$(jq 'length' "$LATEST")"
       ]
       | sort_by([(.is_outdated | if . then 1 else 0 end), pnum(.priority), .path, (.line // 0)])
       | .[]
-      | "### [\(.priority)] \(.path):\(.line // 1) [id=\(.id)]\n\n- Visible on head diff: \(.is_visible_on_head_diff)\n- Outdated: \(.is_outdated)\n- Comment commit: \(.comment_commit)\n\n```\n\(.body)\n```\n"
+      | "### [\(.priority)] \(.path):\(.line // 1) [id=\(.id)]\n\n- Visible on head diff: \(.is_visible_on_head_diff)\n- Outdated: \(.is_outdated)\n- Comment commit: \(.comment_commit)\n\n````\n\(.body)\n````\n"
     ' "$LATEST"
   else
     echo "## Next Step"

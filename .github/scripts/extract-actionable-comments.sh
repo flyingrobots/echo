@@ -8,30 +8,79 @@ usage() {
   cat <<'EOF'
 Usage:
   .github/scripts/extract-actionable-comments.sh <PR_NUMBER> [--repo OWNER/REPO] [--out <path>] [--full]
+  .github/scripts/extract-actionable-comments.sh <PR_NUMBER> [--repo OWNER/REPO] [--out <path>] [--full] [--all-sources]
+  .github/scripts/extract-actionable-comments.sh <PR_NUMBER> [--repo OWNER/REPO] [--out <path>] [--full] [--include-conversation] [--include-reviews]
 
 Purpose:
-  Extract actionable (fresh) CodeRabbitAI/GitHub review comments for a PR by
-  filtering comments pinned to the PR head commit and grouping by staleness.
+  Extract actionable PR feedback (CodeRabbitAI + humans) from:
+  - PR review threads (inline review comments; diff-positioned, can become outdated)
+  - optionally PR conversation comments (issue comments)
+  - optionally PR review summaries (review bodies, e.g. "changes requested")
+
+  Review threads are grouped by staleness; all sources support a lightweight ack
+  convention via: ✅ Addressed in commit <sha>
 
 Outputs:
   - Writes a Markdown report to stdout by default.
-  - Also writes the raw comments JSON and intermediate files to /tmp.
+  - Also writes raw JSON + intermediate artifacts to /tmp.
 
 Options:
-  --repo OWNER/REPO   Override repo (default: current repo via `gh repo view`)
-  --out <path>        Write the Markdown report to <path> (also prints to stdout)
-  --full              Include full comment bodies for actionable comments
+  --repo OWNER/REPO        Override repo (default: current repo via `gh repo view`)
+  --out <path>             Write the Markdown report to <path> (also prints to stdout)
+  --full                   Include full comment bodies for actionable comments
+  --include-conversation   Also include PR conversation (issue) comments
+  --include-reviews        Also include PR review summaries (approve/request-changes bodies)
+  --all-sources            Equivalent to: --include-conversation --include-reviews
 
 Examples:
   .github/scripts/extract-actionable-comments.sh 176
   .github/scripts/extract-actionable-comments.sh 176 --out /tmp/pr-176-report.md
   .github/scripts/extract-actionable-comments.sh 176 --full
+  .github/scripts/extract-actionable-comments.sh 176 --all-sources
 EOF
 }
 
 require_cmd() {
   local cmd="$1"
   command -v "$cmd" >/dev/null 2>&1 || { echo "Missing dependency: $cmd" >&2; exit 2; }
+}
+
+fetch_paginated_json() {
+  local api_path="$1"
+  local out_json="$2"
+  local out_err="$3"
+
+  local attempt=1
+  local delay_s=1
+  while true; do
+    if gh api "$api_path" --paginate > "$out_json" 2> "$out_err"; then
+      break
+    fi
+
+    if [[ "$attempt" -ge 4 ]]; then
+      echo "Error: Failed to fetch GitHub API '${api_path}' after ${attempt} attempts." >&2
+      echo "Troubleshooting:" >&2
+      echo "- Run: gh auth status" >&2
+      echo "- Check rate limits / token scopes (GH_TOKEN) and retry later" >&2
+      echo "- Verify repo/PR access permissions" >&2
+      echo "- Check network connectivity" >&2
+      echo >&2
+      echo "gh api stderr (last attempt):" >&2
+      sed -n '1,200p' "$out_err" >&2
+      exit 1
+    fi
+
+    sleep "$delay_s"
+    delay_s="$((delay_s * 2))"
+    attempt="$((attempt + 1))"
+  done
+
+  if ! jq -e . "$out_json" >/dev/null 2>&1; then
+    echo "Error: GitHub API returned invalid JSON in: ${out_json}" >&2
+    echo "gh api stderr:" >&2
+    sed -n '1,200p' "$out_err" >&2
+    exit 1
+  fi
 }
 
 PR_NUMBER="${1:-}"
@@ -49,6 +98,8 @@ fi
 REPO=""
 OUT=""
 FULL=0
+INCLUDE_CONVERSATION=0
+INCLUDE_REVIEWS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +123,19 @@ while [[ $# -gt 0 ]]; do
       ;;
     --full)
       FULL=1
+      shift
+      ;;
+    --include-conversation)
+      INCLUDE_CONVERSATION=1
+      shift
+      ;;
+    --include-reviews)
+      INCLUDE_REVIEWS=1
+      shift
+      ;;
+    --all-sources)
+      INCLUDE_CONVERSATION=1
+      INCLUDE_REVIEWS=1
       shift
       ;;
     -h|--help)
@@ -104,111 +168,224 @@ HEAD_SHA="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq '.head
 HEAD7="${HEAD_SHA:0:7}"
 
 TS="$(date +%s)"
-RAW="/tmp/pr-${PR_NUMBER}-comments-${TS}.json"
-RAW_ERR="/tmp/pr-${PR_NUMBER}-comments-${TS}.err"
-LATEST="/tmp/pr-${PR_NUMBER}-latest-${TS}.json"
+RAW_REVIEW="/tmp/pr-${PR_NUMBER}-review-comments-${TS}.json"
+RAW_REVIEW_ERR="/tmp/pr-${PR_NUMBER}-review-comments-${TS}.err"
+LATEST_REVIEW="/tmp/pr-${PR_NUMBER}-review-latest-${TS}.json"
+RAW_CONVERSATION="/tmp/pr-${PR_NUMBER}-conversation-comments-${TS}.json"
+RAW_CONVERSATION_ERR="/tmp/pr-${PR_NUMBER}-conversation-comments-${TS}.err"
+LATEST_CONVERSATION="/tmp/pr-${PR_NUMBER}-conversation-latest-${TS}.json"
+RAW_REVIEWS="/tmp/pr-${PR_NUMBER}-reviews-${TS}.json"
+RAW_REVIEWS_ERR="/tmp/pr-${PR_NUMBER}-reviews-${TS}.err"
+LATEST_REVIEWS="/tmp/pr-${PR_NUMBER}-reviews-latest-${TS}.json"
+LATEST_ALL="/tmp/pr-${PR_NUMBER}-latest-${TS}.json"
 REPORT="/tmp/pr-${PR_NUMBER}-report-${TS}.md"
 
-attempt=1
-delay_s=1
-while true; do
-  if gh api "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" --paginate > "$RAW" 2> "$RAW_ERR"; then
-    break
-  fi
-
-  if [[ "$attempt" -ge 4 ]]; then
-    echo "Error: Failed to fetch PR comments from GitHub after ${attempt} attempts." >&2
-    echo "Repo: ${REPO}" >&2
-    echo "PR: ${PR_NUMBER}" >&2
-    echo >&2
-    echo "Troubleshooting:" >&2
-    echo "- Run: gh auth status" >&2
-    echo "- Check rate limits / token scopes (GH_TOKEN) and retry later" >&2
-    echo "- Verify repo/PR access permissions" >&2
-    echo "- Check network connectivity" >&2
-    echo >&2
-    echo "gh api stderr (last attempt):" >&2
-    sed -n '1,200p' "$RAW_ERR" >&2
-    exit 1
-  fi
-
-  sleep "$delay_s"
-  delay_s="$((delay_s * 2))"
-  attempt="$((attempt + 1))"
-done
-
-if ! jq -e . "$RAW" >/dev/null 2>&1; then
-  echo "Error: GitHub API returned invalid JSON in: ${RAW}" >&2
-  echo "gh api stderr:" >&2
-  sed -n '1,200p' "$RAW_ERR" >&2
-  exit 1
+fetch_paginated_json "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" "$RAW_REVIEW" "$RAW_REVIEW_ERR"
+if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
+  fetch_paginated_json "repos/${OWNER}/${NAME}/issues/${PR_NUMBER}/comments" "$RAW_CONVERSATION" "$RAW_CONVERSATION_ERR"
+fi
+if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
+  fetch_paginated_json "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/reviews" "$RAW_REVIEWS" "$RAW_REVIEWS_ERR"
 fi
 
-# Collect: all top-level review comments (including ones authored on earlier commits).
-#
-# Why: the PR review comments API (`/pulls/:number/comments`) keeps each comment’s
-# `commit_id` fixed to the commit it was authored on. When new commits are pushed,
-# older unresolved comments do not “move” to the new head; they become “outdated”.
-# If we only include comments whose `commit_id` matches the current head, we can
-# incorrectly report “0 actionables” even though older review threads remain open.
+# Normalize review-thread comments (top-level only) and detect ack markers in replies.
 jq --arg head "$HEAD7" '
   def has_ack_marker(s):
     (s | type) == "string" and (s | contains("✅ Addressed in commit"));
 
+  def normalize_title(body):
+    ((body
+      | split("\n")
+      | map(select(. != ""))
+      | .[0] // "UNTITLED"
+    )
+    | gsub("\\*\\*"; "")
+    | .[0:80]);
+
+  def priority_from_body(body):
+    if (body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
+    elif (body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
+    elif (body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
+    else "P3"
+    end;
+
   # Replies are returned in the same list, with `in_reply_to_id` set.
-  # Treat a top-level comment as "acknowledged" if either:
-  # - the comment body itself contains the marker, OR
-  # - any reply to it contains the marker.
   def ack_by_reply:
     reduce .[] as $c ({}; if ($c.in_reply_to_id != null and has_ack_marker($c.body)) then .[($c.in_reply_to_id | tostring)] = true else . end);
 
   (ack_by_reply) as $replies |
-  [ .[] |
-    select(.in_reply_to_id == null) |
-    {
-      id,
-      path,
-      line,
-      position,
-      original_position,
-      head_commit: $head,
-      comment_commit: (.commit_id[0:7]),
-      original_commit: (.original_commit_id[0:7]),
-      is_on_head: (.commit_id[0:7] == $head),
-      is_visible_on_head_diff: (.position != null),
-      is_outdated: (.position == null),
-      is_moved: (.commit_id != .original_commit_id),
-      has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
-      priority: (
-        if (.body | test("\\\\bP0\\\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
-        elif (.body | test("\\\\bP1\\\\b|badge/P1-|🟠|Major"; "i")) then "P1"
-        elif (.body | test("\\\\bP2\\\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
-        else "P3"
-        end
-      ),
-      title: (
-        (.body
-          | split("\n")
-          | map(select(. != ""))
-          | .[0] // "UNTITLED"
-        )
-        | gsub("\\*\\*"; "")
-        | .[0:80]
-      ),
-      body: .body
-    }
+  [ .[]
+    | select(.in_reply_to_id == null)
+    | {
+        id,
+        author: (.user.login // "unknown"),
+        author_is_bot: (
+          (.user.type // "") == "Bot"
+          or ((.user.login // "") | endswith("[bot]"))
+        ),
+        url: .html_url,
+        source: "review_thread",
+        path,
+        line,
+        position,
+        original_position,
+        head_commit: $head,
+        comment_commit: (.commit_id[0:7]),
+        original_commit: (.original_commit_id[0:7]),
+        is_on_head: (.commit_id[0:7] == $head),
+        is_visible_on_head_diff: (.position != null),
+        is_outdated: (.position == null),
+        is_moved: (.commit_id != .original_commit_id),
+        has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
+        is_actionable: true,
+        priority: priority_from_body(.body),
+        title: normalize_title(.body),
+        body: .body
+      }
   ]
-' "$RAW" > "$LATEST"
+' "$RAW_REVIEW" > "$LATEST_REVIEW"
 
-needs_attention_count="$(jq '[.[] | select(.has_ack == false)] | length' "$LATEST")"
-on_head_attention_count="$(jq '[.[] | select(.is_visible_on_head_diff == true and .has_ack == false)] | length' "$LATEST")"
-outdated_attention_count="$(jq '[.[] | select(.is_outdated == true and .has_ack == false)] | length' "$LATEST")"
-moved_count="$(jq '[.[] | select(.is_moved == true)] | length' "$LATEST")"
-ack_count="$(jq '[.[] | select(.has_ack == true)] | length' "$LATEST")"
-total_count="$(jq 'length' "$LATEST")"
+if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
+  jq '
+    def has_ack_marker(s):
+      (s | type) == "string" and (s | contains("✅ Addressed in commit"));
+
+    def normalize_title(body):
+      ((body
+        | split("\n")
+        | map(select(. != ""))
+        | .[0] // "UNTITLED"
+      )
+      | gsub("\\*\\*"; "")
+      | .[0:80]);
+
+    def priority_from_body(body):
+      if (body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
+      elif (body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
+      elif (body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
+      else "P3"
+      end;
+
+    def is_html_comment(body):
+      (body | type) == "string"
+      and (body | test("^\\s*<!--"));
+
+    def likely_actionable(body):
+      (body | type) == "string"
+      and (body | test("\\bP[0-3]\\b|\\bTODO\\b|\\bFIXME\\b|\\bnit\\b|suggest|\\bshould\\b|\\bconsider\\b|blocker|\\bbug\\b|error|fail|typo|rename|missing|clarify|doc(s|ument)?|\\btests?\\b|panic|crash|security|determin"; "i"));
+
+    [ .[]
+      | select((.body // "") | gsub("\\s+"; "") | length > 0)
+      | select(is_html_comment(.body) | not)
+      | {
+          id,
+          author: (.user.login // "unknown"),
+          author_is_bot: (
+            (.user.type // "") == "Bot"
+            or ((.user.login // "") | endswith("[bot]"))
+          ),
+          url: .html_url,
+          source: "conversation",
+          path: null,
+          line: null,
+          position: null,
+          original_position: null,
+          head_commit: null,
+          comment_commit: null,
+          original_commit: null,
+          is_on_head: false,
+          is_visible_on_head_diff: false,
+          is_outdated: false,
+          is_moved: false,
+          has_ack: has_ack_marker(.body),
+          is_actionable: likely_actionable(.body),
+          priority: priority_from_body(.body),
+          title: normalize_title(.body),
+          body: .body
+        }
+    ]
+  ' "$RAW_CONVERSATION" > "$LATEST_CONVERSATION"
+else
+  printf '%s\n' '[]' > "$LATEST_CONVERSATION"
+fi
+
+if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
+  jq '
+    def has_ack_marker(s):
+      (s | type) == "string" and (s | contains("✅ Addressed in commit"));
+
+    def normalize_title(body):
+      ((body
+        | split("\n")
+        | map(select(. != ""))
+        | .[0] // "UNTITLED"
+      )
+      | gsub("\\*\\*"; "")
+      | .[0:80]);
+
+    def priority_from_body(body):
+      if (body | test("\\bP0\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
+      elif (body | test("\\bP1\\b|badge/P1-|🟠|Major"; "i")) then "P1"
+      elif (body | test("\\bP2\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
+      else "P3"
+      end;
+
+    def likely_actionable(body):
+      (body | type) == "string"
+      and (body | test("\\bP[0-3]\\b|\\bTODO\\b|\\bFIXME\\b|\\bnit\\b|suggest|\\bshould\\b|\\bconsider\\b|blocker|\\bbug\\b|error|fail|typo|rename|missing|clarify|doc(s|ument)?|\\btests?\\b|panic|crash|security|determin"; "i"));
+
+    [ .[]
+      | select((.body // "") | gsub("\\s+"; "") | length > 0)
+      | {
+          id,
+          author: (.user.login // "unknown"),
+          author_is_bot: (
+            (.user.type // "") == "Bot"
+            or ((.user.login // "") | endswith("[bot]"))
+          ),
+          url: .html_url,
+          source: "review_summary",
+          review_state: (.state // "UNKNOWN"),
+          path: null,
+          line: null,
+          position: null,
+          original_position: null,
+          head_commit: null,
+          comment_commit: null,
+          original_commit: null,
+          is_on_head: false,
+          is_visible_on_head_diff: false,
+          is_outdated: false,
+          is_moved: false,
+          has_ack: has_ack_marker(.body),
+          is_actionable: ((.state // "") == "CHANGES_REQUESTED" or likely_actionable(.body)),
+          priority: priority_from_body(.body),
+          title: normalize_title(.body),
+          body: .body
+        }
+    ]
+  ' "$RAW_REVIEWS" > "$LATEST_REVIEWS"
+else
+  printf '%s\n' '[]' > "$LATEST_REVIEWS"
+fi
+
+jq -s 'add' "$LATEST_REVIEW" "$LATEST_CONVERSATION" "$LATEST_REVIEWS" > "$LATEST_ALL"
+
+total_count="$(jq 'length' "$LATEST_ALL")"
+total_actionable_count="$(jq '[.[] | select(.is_actionable == true)] | length' "$LATEST_ALL")"
+needs_attention_count="$(jq '[.[] | select(.is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
+needs_attention_human_count="$(jq '[.[] | select(.is_actionable == true and .has_ack == false and .author_is_bot == false)] | length' "$LATEST_ALL")"
+needs_attention_bot_count="$(jq '[.[] | select(.is_actionable == true and .has_ack == false and .author_is_bot == true)] | length' "$LATEST_ALL")"
+on_head_attention_count="$(jq '[.[] | select(.source == "review_thread" and .is_visible_on_head_diff == true and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
+outdated_attention_count="$(jq '[.[] | select(.source == "review_thread" and .is_outdated == true and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
+conversation_attention_count="$(jq '[.[] | select(.source == "conversation" and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
+review_summary_attention_count="$(jq '[.[] | select(.source == "review_summary" and .is_actionable == true and .has_ack == false)] | length' "$LATEST_ALL")"
+unclassified_count="$(jq '[.[] | select(.is_actionable == false and .has_ack == false)] | length' "$LATEST_ALL")"
+moved_count="$(jq '[.[] | select(.source == "review_thread" and .is_moved == true)] | length' "$LATEST_ALL")"
+ack_count="$(jq '[.[] | select(.has_ack == true)] | length' "$LATEST_ALL")"
 
 {
-  echo "# CodeRabbitAI/GitHub Actionables — PR #${PR_NUMBER}"
+  echo "# PR Review Actionables — PR #${PR_NUMBER}"
   echo
   echo "- Repo: \`${REPO}\`"
   echo "- PR head: \`${HEAD7}\`"
@@ -217,30 +394,63 @@ total_count="$(jq 'length' "$LATEST")"
 
   echo "## Summary"
   echo
-  echo "- Total top-level review comments: **${total_count}**"
-  echo "- Needs attention (unacknowledged): **${needs_attention_count}**"
-  echo "  - Visible on head diff: **${on_head_attention_count}**"
-  echo "  - Outdated (not visible on head diff): **${outdated_attention_count}**"
+  echo "- Total extracted items: **${total_count}**"
+  echo "- Total actionable items: **${total_actionable_count}**"
+  echo "- Needs attention (actionable + unacknowledged): **${needs_attention_count}**"
+  echo "  - Human reviewers: **${needs_attention_human_count}**"
+  echo "  - Bots (including CodeRabbitAI): **${needs_attention_bot_count}**"
+  echo "  - Review threads (on head diff): **${on_head_attention_count}**"
+  echo "  - Review threads (outdated): **${outdated_attention_count}**"
+  echo "  - PR conversation: **${conversation_attention_count}**"
+  echo "  - Review summaries: **${review_summary_attention_count}**"
+  echo "- Unclassified (unacknowledged): **${unclassified_count}**"
   echo "- Acknowledged (✅ Addressed): **${ack_count}**"
-  echo "- Moved by GitHub (commit_id != original_commit_id): **${moved_count}**"
+  echo "- Moved by GitHub (review threads only; commit_id != original_commit_id): **${moved_count}**"
   echo
 
-  echo "## Needs Attention (On Head Diff)"
+  echo "## Needs Attention (Review Threads — On Head Diff)"
   echo
   jq -r '
     .[]
-    | select(.is_visible_on_head_diff == true and .has_ack == false)
-    | "- [ ] [\(.priority)] \(.path):\(.line // 1) — \(.title) [id=\(.id)]"
-  ' "$LATEST"
+    | select(.source == "review_thread" and .is_visible_on_head_diff == true and .is_actionable == true and .has_ack == false)
+    | "- [ ] [\(.priority)] \(.path):\(.line // 1) — \(.title) (by @\(.author)) [id=\(.id)]"
+  ' "$LATEST_ALL"
   echo
 
-  echo "## Needs Attention (Outdated / Earlier Commits)"
+  echo "## Needs Attention (Review Threads — Outdated / Earlier Commits)"
   echo
   jq -r '
     .[]
-    | select(.is_outdated == true and .has_ack == false)
-    | "- [ ] [\(.priority)] \(.path):\(.line // 1) — \(.title) (comment commit: \(.comment_commit)) [id=\(.id)]"
-  ' "$LATEST"
+    | select(.source == "review_thread" and .is_outdated == true and .is_actionable == true and .has_ack == false)
+    | "- [ ] [\(.priority)] \(.path):\(.line // 1) — \(.title) (by @\(.author), comment commit: \(.comment_commit)) [id=\(.id)]"
+  ' "$LATEST_ALL"
+  echo
+
+  echo "## Needs Attention (PR Conversation)"
+  echo
+  jq -r '
+    .[]
+    | select(.source == "conversation" and .is_actionable == true and .has_ack == false)
+    | "- [ ] [\(.priority)] PR conversation — \(.title) (by @\(.author)) [id=\(.id)]"
+  ' "$LATEST_ALL"
+  echo
+
+  echo "## Needs Attention (Review Summaries)"
+  echo
+  jq -r '
+    .[]
+    | select(.source == "review_summary" and .is_actionable == true and .has_ack == false)
+    | "- [ ] [\(.priority)] Review \((.review_state // "UNKNOWN")) — \(.title) (by @\(.author)) [id=\(.id)]"
+  ' "$LATEST_ALL"
+  echo
+
+  echo "## Unclassified (Conversation + Review Summaries)"
+  echo
+  jq -r '
+    .[]
+    | select((.source == "conversation" or .source == "review_summary") and .is_actionable == false and .has_ack == false)
+    | "- [ ] [\(.priority)] \(.source) — \(.title) (by @\(.author)) [id=\(.id)]"
+  ' "$LATEST_ALL"
   echo
 
   echo "## Acknowledged"
@@ -248,14 +458,15 @@ total_count="$(jq 'length' "$LATEST")"
   jq -r '
     .[]
     | select(.has_ack == true)
-    | "- [ ] \(.path):\(.line // 1) — \(.title) (acknowledged) [id=\(.id)]"
-  ' "$LATEST"
+    | "- [ ] \(.source) — \(.title) (by @\(.author), acknowledged) [id=\(.id)]"
+  ' "$LATEST_ALL"
   echo
 
   echo "## Notes"
   echo
-  echo "- \"Outdated\" means the review comment is no longer visible on the current head diff; it may still be actionable."
-  echo "- Use \`✅ Addressed in commit <sha>\` replies to close the loop and keep future extraction cheap."
+  echo "- \"Outdated\" means the review thread comment is no longer visible on the current head diff; it may still be actionable."
+  echo "- Use \`✅ Addressed in commit <sha>\` replies (or edits) to close the loop and keep future extraction cheap."
+  echo "- Conversation comments + review summaries are only included when requested; they are not diff-positioned like review threads."
   echo
 
   if [[ "$FULL" -eq 1 ]]; then
@@ -270,12 +481,12 @@ total_count="$(jq 'length' "$LATEST")"
         end;
 
       [ .[]
-        | select(.has_ack == false)
+        | select(.is_actionable == true and .has_ack == false)
       ]
-      | sort_by([(.is_outdated | if . then 1 else 0 end), pnum(.priority), .path, (.line // 0)])
+      | sort_by([.source, (.is_outdated | if . then 1 else 0 end), pnum(.priority), .author, (.path // ""), (.line // 0)])
       | .[]
-      | "### [\(.priority)] \(.path):\(.line // 1) [id=\(.id)]\n\n- Visible on head diff: \(.is_visible_on_head_diff)\n- Outdated: \(.is_outdated)\n- Comment commit: \(.comment_commit)\n\n````\n\(.body)\n````\n"
-    ' "$LATEST"
+      | "### [\(.priority)] \(.source) — \((.path // "PR")):\(.line // 1) [id=\(.id)]\n\n- Author: @\(.author)\n- URL: \(.url // "unknown")\n- Review state: \((.review_state // "n/a"))\n- Visible on head diff: \(.is_visible_on_head_diff)\n- Outdated: \(.is_outdated)\n- Comment commit: \((.comment_commit // "n/a"))\n\n````\n\(.body)\n````\n"
+    ' "$LATEST_ALL"
   else
     echo "## Next Step"
     echo
@@ -285,8 +496,17 @@ total_count="$(jq 'length' "$LATEST")"
   echo
   echo "## Artifacts"
   echo
-  echo "- Raw comments: \`${RAW}\`"
-  echo "- Filtered latest: \`${LATEST}\`"
+  echo "- Review-thread raw: \`${RAW_REVIEW}\`"
+  echo "- Review-thread filtered: \`${LATEST_REVIEW}\`"
+  if [[ "$INCLUDE_CONVERSATION" -eq 1 ]]; then
+    echo "- Conversation raw: \`${RAW_CONVERSATION}\`"
+    echo "- Conversation filtered: \`${LATEST_CONVERSATION}\`"
+  fi
+  if [[ "$INCLUDE_REVIEWS" -eq 1 ]]; then
+    echo "- Review summaries raw: \`${RAW_REVIEWS}\`"
+    echo "- Review summaries filtered: \`${LATEST_REVIEWS}\`"
+  fi
+  echo "- Combined latest: \`${LATEST_ALL}\`"
   echo "- Report: \`${REPORT}\`"
   echo "- Note: artifacts are intentionally left in \`/tmp\` for debugging; your OS typically cleans \`/tmp\` periodically."
 } | tee "$REPORT"

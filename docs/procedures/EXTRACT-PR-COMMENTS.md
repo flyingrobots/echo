@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Procedure: Extract Actionable Comments from CodeRabbitAI PR Reviews
+# Procedure: Extract Actionable Comments from PR Review Threads (CodeRabbitAI + Humans)
 
 This procedure is part of the required PR workflow for this repo.
 
@@ -40,9 +40,22 @@ Prefer the repo automation whenever possible:
 
 It is designed to:
 
+- include review comments from **all** authors (CodeRabbitAI *and* human reviewers),
 - include “outdated” comments that are not visible on the current head diff,
 - detect `✅ Addressed in commit ...` markers in replies,
 - and produce a deterministic Markdown report.
+
+To widen the net beyond inline review threads, you can include:
+
+- PR conversation comments (top-level PR timeline discussion), and
+- review summaries (approve / changes-requested review bodies).
+
+```bash
+.github/scripts/extract-actionable-comments.sh <PR_NUMBER> --all-sources --full
+```
+
+Note:
+- Conversation comments and review summaries are not diff-positioned like review threads, so the script applies a simple “likely actionable” heuristic and emits a separate “Unclassified” bucket for anything that doesn’t match.
 
 ### Step 1: Identify the PR head commit (the current diff)
 
@@ -64,6 +77,9 @@ REPO="<REPO>"
 TMPFILE="/tmp/pr-${PR_NUMBER}-comments-$(date +%s).json"
 gh api "repos/${OWNER}/${REPO}/pulls/${PR_NUMBER}/comments" --paginate > "$TMPFILE"
 ```
+
+Note:
+- This endpoint returns PR review comments authored by anyone (humans, bots, CodeRabbitAI, etc.).
 
 ---
 

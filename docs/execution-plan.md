@@ -35,6 +35,16 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — PR triage pipeline: start with PR #179 (IN PROGRESS)
+
+- Goal: sync to PR #179 and validate the tooling for pulling PR review comments and extracting actionable issues (including human reviewer notes), so we can systematically close review feedback across the open PR queue and merge cleanly once approved.
+- Scope:
+  - Checkout PR #179’s branch locally.
+  - Identify where the tool pulls PR comments from (GitHub API / `gh` CLI / local refs) and what comment types it includes (issue comments, review comments, review summaries).
+  - Ensure the report is attributable (comment author is included) so non-CodeRabbit actionables are not lost.
+  - Run the tool against at least one PR to confirm output format and any required auth/config.
+- Exit criteria: documented “how to run” steps for the tool; confidence that we can repeatably extract issues from PR comments for subsequent PRs.
+
 > 2026-01-01 — Issue #180: Paper VI notes + capability matrix (IN PROGRESS)
 
 - Goal: turn “Pulse” time/determinism/tooling insights into durable artifacts (Paper VI notes + a crisp ownership matrix for Echo).

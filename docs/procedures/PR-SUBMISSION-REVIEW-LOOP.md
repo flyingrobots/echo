@@ -115,7 +115,4 @@ Sometimes the “changes requested” status lingers even after an approving rev
 
 Post this comment on the PR:
 
-```text
 @coderabbitai Please review the latest commit and clear the "changes requested" status since you have already approved the changes.
-```
-

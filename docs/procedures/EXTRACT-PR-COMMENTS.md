@@ -23,12 +23,26 @@ When you finish work:
 ## Prerequisites
 
 - `gh` installed and authenticated
-- `jq` installed
+- `jq` installed (minimum: `jq >= 1.6`)
 - Repo access to view PRs
 
 ---
 
 ## Procedure
+
+### Quick Recommendation
+
+Prefer the repo automation whenever possible:
+
+```bash
+.github/scripts/extract-actionable-comments.sh <PR_NUMBER> --full
+```
+
+It is designed to:
+
+- include “outdated” comments that are not visible on the current head diff,
+- detect `✅ Addressed in commit ...` markers in replies,
+- and produce a deterministic Markdown report.
 
 ### Step 1: Identify the PR head commit (the current diff)
 
@@ -148,14 +162,14 @@ cat "$TMPFILE" | jq --arg head "$LATEST_COMMIT" '
     line,
     path,
     priority: (
-      if (.body | contains("🔴 Critical")) then "P0"
-      elif (.body | contains("🟠 Major")) then "P1"
-      elif (.body | contains("🟡 Minor")) then "P2"
+      if (.body | test("\\\\bP0\\\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
+      elif (.body | test("\\\\bP1\\\\b|badge/P1-|🟠|Major"; "i")) then "P1"
+      elif (.body | test("\\\\bP2\\\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
       else "P3"
       end
     ),
-    is_on_head: (.commit_id[0:7] == $head),
-    is_outdated: (.commit_id[0:7] != $head),
+    is_visible_on_head_diff: (.position != null),
+    is_outdated: (.position == null),
     body
   }
 ' | jq -s '.' > /tmp/prioritized-comments.json
@@ -165,15 +179,43 @@ cat "$TMPFILE" | jq --arg head "$LATEST_COMMIT" '
 
 ### Step 7: Verify outdated comments against current code (critical step)
 
-Do not trust `is_outdated` alone. Verify:
+Do not trust `is_outdated` alone. Verify by mapping fields from the comment object to concrete commands.
+
+Suggested mapping:
+
+- `path` → file path
+- `line` → line number (use a small context window, e.g. ±5 lines)
+
+Example:
 
 ```bash
-# 1) Inspect current state
-git show "HEAD:<file_path>" | sed -n '<start>,<end>p'
+# Suppose you have a single comment object (e.g., from /tmp/comments-latest.json):
+COMMENT_PATH="docs/decision-log.md"
+COMMENT_LINE=42
 
-# 2) Search history for fixes (if needed)
-git log --all --oneline --grep="<keyword>"
-git log -p --all -S"<code_pattern>" -- <file_path>
+# Clamp the start line to 1 (sed doesn't like 0/negative ranges).
+START=$((COMMENT_LINE - 5))
+if [[ "$START" -lt 1 ]]; then START=1; fi
+END=$((COMMENT_LINE + 5))
+
+# 1) Inspect current state around the line
+git show "HEAD:${COMMENT_PATH}" | sed -n "${START},${END}p"
+
+# 2) Scan recent history for related fixes
+git log --all --oneline -- "${COMMENT_PATH}" | head -20
+
+# 3) If the comment mentions a specific identifier (function/struct name), search by token
+git log -p --all -S"SomeIdentifierFromComment" -- "${COMMENT_PATH}" | head -80
+```
+
+If the comment is outdated (not visible on head diff), it may refer to old line numbers. In that case:
+
+- search by keyword/token rather than trusting the line number, and
+- look up the original code context via `original_commit_id` if needed.
+
+```bash
+# Use the repo script if you want the comment bodies included:
+.github/scripts/extract-actionable-comments.sh <PR_NUMBER> --full
 ```
 
 ---

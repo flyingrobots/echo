@@ -40,6 +40,11 @@ if [[ -z "${PR_NUMBER}" ]]; then
   usage >&2
   exit 2
 fi
+if ! [[ "${PR_NUMBER}" =~ ^[0-9]+$ ]]; then
+  echo "Error: PR_NUMBER must be numeric, got: ${PR_NUMBER}" >&2
+  usage >&2
+  exit 2
+fi
 
 REPO=""
 OUT=""
@@ -86,10 +91,44 @@ HEAD7="${HEAD_SHA:0:7}"
 
 TS="$(date +%s)"
 RAW="/tmp/pr-${PR_NUMBER}-comments-${TS}.json"
+RAW_ERR="/tmp/pr-${PR_NUMBER}-comments-${TS}.err"
 LATEST="/tmp/pr-${PR_NUMBER}-latest-${TS}.json"
 REPORT="/tmp/pr-${PR_NUMBER}-report-${TS}.md"
 
-gh api "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" --paginate > "$RAW"
+attempt=1
+delay_s=1
+while true; do
+  if gh api "repos/${OWNER}/${NAME}/pulls/${PR_NUMBER}/comments" --paginate > "$RAW" 2> "$RAW_ERR"; then
+    break
+  fi
+
+  if [[ "$attempt" -ge 4 ]]; then
+    echo "Error: Failed to fetch PR comments from GitHub after ${attempt} attempts." >&2
+    echo "Repo: ${REPO}" >&2
+    echo "PR: ${PR_NUMBER}" >&2
+    echo >&2
+    echo "Troubleshooting:" >&2
+    echo "- Run: gh auth status" >&2
+    echo "- Check rate limits / token scopes (GH_TOKEN) and retry later" >&2
+    echo "- Verify repo/PR access permissions" >&2
+    echo "- Check network connectivity" >&2
+    echo >&2
+    echo "gh api stderr (last attempt):" >&2
+    sed -n '1,200p' "$RAW_ERR" >&2
+    exit 1
+  fi
+
+  sleep "$delay_s"
+  delay_s="$((delay_s * 2))"
+  attempt="$((attempt + 1))"
+done
+
+if ! jq -e . "$RAW" >/dev/null 2>&1; then
+  echo "Error: GitHub API returned invalid JSON in: ${RAW}" >&2
+  echo "gh api stderr:" >&2
+  sed -n '1,200p' "$RAW_ERR" >&2
+  exit 1
+fi
 
 # Collect: all top-level review comments (including ones authored on earlier commits).
 #
@@ -127,9 +166,9 @@ jq --arg head "$HEAD7" '
       is_moved: (.commit_id != .original_commit_id),
       has_ack: (has_ack_marker(.body) or ($replies[(.id | tostring)] // false)),
       priority: (
-        if (.body | contains("🔴 Critical")) then "P0"
-        elif (.body | contains("🟠 Major")) then "P1"
-        elif (.body | contains("🟡 Minor")) then "P2"
+        if (.body | test("\\\\bP0\\\\b|badge/P0-|🔴|Critical"; "i")) then "P0"
+        elif (.body | test("\\\\bP1\\\\b|badge/P1-|🟠|Major"; "i")) then "P1"
+        elif (.body | test("\\\\bP2\\\\b|badge/P2-|🟡|Minor"; "i")) then "P2"
         else "P3"
         end
       ),

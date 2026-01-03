@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-03 — PR #178: TT0 TimeStreams + wormholes spec lock (IN PROGRESS)
+
+- Goal: merge `origin/main` into `echo/time-streams-wormholes-166`, resolve review feedback, and push updates to unblock CodeRabbit re-review.
+- Scope:
+  - Merge `origin/main` into the branch (no rebase).
+  - Address all actionable CodeRabbit review items (correctness + doc lint).
+  - Ensure all “explicitly deferred” sections are linked to tracking issues.
+- Exit criteria: actionable review list is empty and the branch pushes cleanly.
+
 > 2026-01-02 — Issue #219: enforce CodeRabbit approval as a merge gate (IN PROGRESS)
 
 - Goal: make “don’t merge until CodeRabbit approves” an enforced rule, not a social norm.

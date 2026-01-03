@@ -163,15 +163,7 @@ function generateDot(nodes, edges) {
   lines.push('    color="gray70";');
   lines.push('    fontcolor="gray30";');
   lines.push('    style="rounded";');
-  lines.push('    L1 [label="strong", fillcolor="#ffffff"];');
-  lines.push('    L2 [label="medium", fillcolor="#ffffff"];');
-  lines.push('    L3 [label="weak", fillcolor="#ffffff"];');
-  lines.push(
-    `    L1 -> L2 [arrowhead=none, ${confidenceAttrs("strong")}];`,
-  );
-  lines.push(
-    `    L2 -> L3 [arrowhead=none, ${confidenceAttrs("medium")}];`,
-  );
+  lines.push('    LG [label="confirmed in issue body", color="green", fontcolor="green"];');
   lines.push("  }");
   lines.push("");
 
@@ -212,7 +204,8 @@ function generateDot(nodes, edges) {
   for (const edge of edges) {
     // Only add edge if both nodes exist in our set (which they should)
     if (nodes.has(edge.from) && nodes.has(edge.to)) {
-      lines.push(`  i${edge.from} -> i${edge.to} [${confidenceAttrs(edge.confidence)}, tooltip="${escapeDotString(edge.note || "")}"];`);
+      // Force Green for "Confirmed in Issue Body" (which is everything here)
+      lines.push(`  i${edge.from} -> i${edge.to} [color="green3", penwidth=2.0, style="solid", tooltip="${escapeDotString(edge.note || "")}"];`);
     }
   }
 

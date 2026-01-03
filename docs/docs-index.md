@@ -8,6 +8,7 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | -------- | ------- |
 | `architecture-outline.md` | High-level architecture vision and principles |
 | `execution-plan.md` | Living plan of tasks, intent, and progress |
+| `workflows.md` | Contributor workflows, policies, and blessed repo entry points |
 | `guide/warp-primer.md` | Start here: newcomer-friendly primer for WARP in Echo |
 | `guide/wvp-demo.md` | Demo: run the session hub + 2 viewers (publisher/subscriber) |
 | `guide/tumble-tower.md` | Demo 3 scenario: deterministic physics ladder (“Tumble Tower”) |
@@ -38,6 +39,8 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `spec-warp-confluence.md` | Global WARP graph synchronization (Confluence) |
 | `spec-ecs-storage.md` | ECS storage (archetypes, chunks, COW) |
 | `math-validation-plan.md` | Deterministic math coverage |
+| `ISSUES_MATRIX.md` | Table view of active issues, milestones, and relationships |
+| `dependency-dags.md` | Visual dependency sketches across issues and milestones (confidence-styled DAGs) |
 | `scheduler-benchmarks.md` | Scheduler performance scenarios |
 | `testing-and-replay-plan.md` | Replay, golden hashes, entropy tests |
 | `runtime-diagnostics-plan.md` | Logging, tracing, inspector streams |

@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "notes": [
+    "Edge direction: prerequisite -> dependent (do tail before head).",
+    "confidence: strong|medium|weak; rendered as solid|dashed|dotted.",
+    "This is a planning sketch, not canonical GitHub dependency truth."
+  ],
+  "issue_edges": [
+    { "from": 166, "to": 170, "confidence": "strong", "note": "TT0 -> TT1" },
+    { "from": 170, "to": 171, "confidence": "strong", "note": "TT1 -> TT2 (explicit)" },
+    { "from": 166, "to": 172, "confidence": "strong", "note": "TT0 -> TT3" },
+
+    { "from": 88, "to": 173, "confidence": "strong", "note": "capability tokens for deterministic surface" },
+    { "from": 21, "to": 173, "confidence": "medium", "note": "security contexts likely required" },
+    { "from": 26, "to": 173, "confidence": "medium", "note": "plugin ABI likely required" },
+    { "from": 166, "to": 173, "confidence": "medium", "note": "time model spec lock likely required" },
+    { "from": 174, "to": 173, "confidence": "weak", "note": "Wesley grammar maybe required" },
+
+    { "from": 37, "to": 21, "confidence": "strong", "note": "draft spec feeds epic" },
+    { "from": 38, "to": 21, "confidence": "strong", "note": "ffi limits feed epic" },
+    { "from": 39, "to": 21, "confidence": "strong", "note": "wasm validation feed epic" },
+    { "from": 40, "to": 21, "confidence": "strong", "note": "denial tests feed epic" },
+
+    { "from": 32, "to": 20, "confidence": "strong", "note": "draft spec feeds epic" },
+    { "from": 33, "to": 20, "confidence": "strong", "note": "ci sign dry run feeds epic" },
+    { "from": 34, "to": 20, "confidence": "strong", "note": "cli verify path feeds epic" },
+    { "from": 35, "to": 20, "confidence": "strong", "note": "key mgmt doc feeds epic" },
+    { "from": 36, "to": 20, "confidence": "strong", "note": "ci verify feeds epic" },
+
+    { "from": 47, "to": 23, "confidence": "strong", "note": "scaffold feeds epic" },
+    { "from": 48, "to": 23, "confidence": "strong", "note": "verify subcommand feeds epic" },
+    { "from": 49, "to": 23, "confidence": "strong", "note": "bench subcommand feeds epic" },
+    { "from": 50, "to": 23, "confidence": "strong", "note": "inspect subcommand feeds epic" },
+    { "from": 51, "to": 23, "confidence": "strong", "note": "docs/man pages feed epic" },
+
+    { "from": 75, "to": 24, "confidence": "strong", "note": "spec feeds epic" },
+    { "from": 76, "to": 24, "confidence": "strong", "note": "watcher feeds epic" },
+    { "from": 77, "to": 24, "confidence": "strong", "note": "snapshot swap feeds epic" },
+    { "from": 78, "to": 24, "confidence": "strong", "note": "gate+tests feed epic" },
+    { "from": 79, "to": 24, "confidence": "strong", "note": "docs/logging feed epic" },
+
+    { "from": 80, "to": 25, "confidence": "strong", "note": "spec feeds epic" },
+    { "from": 81, "to": 80, "confidence": "strong", "note": "reader depends on spec" },
+    { "from": 82, "to": 80, "confidence": "strong", "note": "loader depends on spec" },
+    { "from": 83, "to": 80, "confidence": "strong", "note": "integrity depends on spec" },
+    { "from": 84, "to": 80, "confidence": "strong", "note": "sample+tests depends on spec" },
+    { "from": 81, "to": 25, "confidence": "medium", "note": "reader likely part of epic" },
+    { "from": 82, "to": 25, "confidence": "medium", "note": "loader likely part of epic" },
+    { "from": 83, "to": 25, "confidence": "medium", "note": "integrity likely part of epic" },
+    { "from": 84, "to": 25, "confidence": "medium", "note": "sample+tests likely part of epic" },
+
+    { "from": 85, "to": 26, "confidence": "strong", "note": "draft spec feeds epic" },
+    { "from": 86, "to": 26, "confidence": "strong", "note": "header+loader feeds epic" },
+    { "from": 87, "to": 26, "confidence": "strong", "note": "negotiation feeds epic" },
+    { "from": 88, "to": 26, "confidence": "strong", "note": "capability tokens feed epic" },
+    { "from": 89, "to": 26, "confidence": "strong", "note": "example plugin feeds epic" }
+  ],
+  "milestone_edges": [
+    { "from": "TT0", "to": "TT1", "confidence": "strong", "note": "time model unlocks inspector frame" },
+    { "from": "TT0", "to": "TT2", "confidence": "strong", "note": "time model unlocks time travel MVP" },
+    { "from": "TT1", "to": "TT2", "confidence": "strong", "note": "inspector frame supports time travel UX" },
+    { "from": "TT0", "to": "TT3", "confidence": "strong", "note": "time model unlocks worldline compare" },
+
+    { "from": "1C", "to": "S1", "confidence": "strong", "note": "bindings needed for deterministic Rhai" },
+    { "from": "1E", "to": "S1", "confidence": "strong", "note": "security contexts constrain sandbox" },
+    { "from": "TT0", "to": "S1", "confidence": "medium", "note": "deterministic time model likely needed" },
+    { "from": "W1", "to": "S1", "confidence": "weak", "note": "boundary grammar maybe needed" }
+  ]
+}

@@ -43,6 +43,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Pull PR comments/review threads and implement requested fixes (docs + tooling as needed).
   - Verify `pnpm docs:build` is green before pushing.
 - Exit criteria: conflicts resolved, review feedback addressed, and the updated branch pushed to the PR remote.
+> 2026-01-02 — Dependency DAG sketches (issues + milestones) (IN PROGRESS)
+
+- Goal: produce a durable “do X before Y” visual map across a subset of open GitHub Issues + Milestones so we can sequence work intentionally (especially around TT0/TT1/TT2/TT3 and S1 dependencies).
+- Scope:
+  - Add confidence-styled dependency graphs (DOT sources + rendered SVGs) under `docs/assets/dags/`.
+  - Add a small explainer doc (`docs/dependency-dags.md`) that defines edge direction + confidence styling and links the rendered artifacts.
+  - Add a repo generator (`scripts/generate-dependency-dags.js`) plus a config file (`docs/assets/dags/deps-config.json`) so the diagrams can be regenerated and extended deterministically.
+  - Expose the generator via `cargo xtask` for a consistent repo tooling entrypoint.
+  - Add a scheduled GitHub Action that refreshes the DAGs (PR only if outputs change).
+  - Add `docs/workflows.md` and link it from README + AGENTS so contributors can discover the official entrypoints (`make`, `cargo xtask`, CI automation).
+- Keep the diagrams explicitly “planning sketches” (not a replacement for GitHub Project state or native dependency edges).
+- Exit criteria: both DAGs render locally via Graphviz (`dot -Tsvg …`) and the doc index links to `docs/dependency-dags.md`.
 
 > 2026-01-03 — PR #178: TT0 TimeStreams + wormholes spec lock (IN PROGRESS)
 

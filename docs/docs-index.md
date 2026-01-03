@@ -8,6 +8,7 @@
 | `execution-plan.md` | Living plan of tasks, intent, and progress |
 | `guide/warp-primer.md` | Start here: newcomer-friendly primer for WARP in Echo |
 | `guide/wvp-demo.md` | Demo: run the session hub + 2 viewers (publisher/subscriber) |
+| `guide/tumble-tower.md` | Demo 3 scenario: deterministic physics ladder (“Tumble Tower”) |
 | `spec-branch-tree.md` | Branch tree, diffs, and timeline persistence |
 | `spec-codex-baby.md` | Event bus, bridges, backpressure, security |
 | `spec-temporal-bridge.md` | Cross-branch event lifecycle |

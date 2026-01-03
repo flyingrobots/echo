@@ -22,7 +22,7 @@ Purpose:
 
 Ack sources:
   - Review-thread replies: a human reply to a specific review-thread comment.
-  - PR conversation “round ack”: a single PR timeline comment per fix round that includes:
+  - PR conversation 'round ack': a single PR timeline comment per fix round that includes:
       ✅ Addressed in commit <sha>
       Acked review threads:
       - discussion_r<REVIEW_COMMENT_ID>
@@ -249,7 +249,7 @@ def has_ack_marker(body; user):
     and ($valid_commits | index($c)) != null
   );
 
-# Extract review-thread comment ids referenced in a PR-timeline “round ack” comment.
+# Extract review-thread comment ids referenced in a PR-timeline 'round ack' comment.
 #
 # Supported forms (designed to be copy/paste-friendly):
 # - `discussion_r2658147649` (matches GitHub review thread anchors)
@@ -561,7 +561,6 @@ review_thread_attention_count="$((on_head_attention_count + outdated_attention_c
     echo
   fi
 
-
   echo "## Acknowledged"
   echo
   jq -r '
@@ -575,7 +574,7 @@ review_thread_attention_count="$((on_head_attention_count + outdated_attention_c
   echo
   echo "- \"Outdated\" means the review thread comment is no longer visible on the current head diff; it may still be actionable."
   echo "- Use \`✅ Addressed in commit <sha>\` to close the loop and keep future extraction cheap."
-  echo "  - Prefer a single PR conversation \"round ack\" comment listing \`discussion_r<id>\` targets (1 per fix round)."
+  echo "  - Prefer a single PR conversation 'round ack' comment listing \`discussion_r<id>\` targets (1 per fix round)."
   echo "  - Review-thread replies also work, but can create a notification flood."
   echo "- Conversation comments + review summaries are only included when requested; they are not diff-positioned like review threads."
   echo

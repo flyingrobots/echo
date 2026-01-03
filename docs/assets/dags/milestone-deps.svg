@@ -48,7 +48,7 @@
 <!-- m1C -->
 <g id="node4" class="node">
 <title>m1C</title>
-<g id="a_node4"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/3" xlink:title="1C – Rhai/TS Bindings">
+<g id="a_node4"><a xlink:href="https://github.com/flyingrobots/echo/milestone/3" xlink:title="1C – Rhai/TS Bindings">
 <path fill="#dcfce7" stroke="black" d="M171.29,-339C171.29,-339 52.13,-339 52.13,-339 46.13,-339 40.13,-333 40.13,-327 40.13,-327 40.13,-315 40.13,-315 40.13,-309 46.13,-303 52.13,-303 52.13,-303 171.29,-303 171.29,-303 177.28,-303 183.29,-309 183.29,-315 183.29,-315 183.29,-327 183.29,-327 183.29,-333 177.29,-339 171.29,-339"/>
 <text xml:space="preserve" text-anchor="middle" x="111.71" y="-315.98" font-family="Helvetica,sans-Serif" font-size="12.00">1C – Rhai/TS Bindings</text>
 </a>
@@ -57,7 +57,7 @@
 <!-- mS1 -->
 <g id="node6" class="node">
 <title>mS1</title>
-<g id="a_node6"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/18" xlink:title="S1 – Deterministic Rhai Surface">
+<g id="a_node6"><a xlink:href="https://github.com/flyingrobots/echo/milestone/18" xlink:title="S1 – Deterministic Rhai Surface">
 <path fill="#ede9fe" stroke="black" d="M452.44,-281C452.44,-281 286.04,-281 286.04,-281 280.04,-281 274.04,-275 274.04,-269 274.04,-269 274.04,-257 274.04,-257 274.04,-251 280.04,-245 286.04,-245 286.04,-245 452.44,-245 452.44,-245 458.44,-245 464.44,-251 464.44,-257 464.44,-257 464.44,-269 464.44,-269 464.44,-275 458.44,-281 452.44,-281"/>
 <text xml:space="preserve" text-anchor="middle" x="369.24" y="-257.98" font-family="Helvetica,sans-Serif" font-size="12.00">S1 – Deterministic Rhai Surface</text>
 </a>
@@ -75,7 +75,7 @@
 <!-- m1E -->
 <g id="node5" class="node">
 <title>m1E</title>
-<g id="a_node5"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/5" xlink:title="1E – Networking &amp; Confluence MVP">
+<g id="a_node5"><a xlink:href="https://github.com/flyingrobots/echo/milestone/5" xlink:title="1E – Networking &amp; Confluence MVP">
 <path fill="#ffedd5" stroke="black" d="M206.54,-285C206.54,-285 16.88,-285 16.88,-285 10.88,-285 4.88,-279 4.88,-273 4.88,-273 4.88,-261 4.88,-261 4.88,-255 10.88,-249 16.88,-249 16.88,-249 206.53,-249 206.53,-249 212.54,-249 218.54,-255 218.54,-261 218.54,-261 218.54,-273 218.54,-273 218.54,-279 212.54,-285 206.54,-285"/>
 <text xml:space="preserve" text-anchor="middle" x="111.71" y="-261.98" font-family="Helvetica,sans-Serif" font-size="12.00">1E – Networking &amp; Confluence MVP</text>
 </a>
@@ -93,7 +93,7 @@
 <!-- mTT0 -->
 <g id="node7" class="node">
 <title>mTT0</title>
-<g id="a_node7"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/21" xlink:title="TT0 – Time Model Spec Lock">
+<g id="a_node7"><a xlink:href="https://github.com/flyingrobots/echo/milestone/21" xlink:title="TT0 – Time Model Spec Lock">
 <path fill="#dbeafe" stroke="black" d="M187.41,-177C187.41,-177 36,-177 36,-177 30,-177 24,-171 24,-165 24,-165 24,-153 24,-153 24,-147 30,-141 36,-141 36,-141 187.41,-141 187.41,-141 193.41,-141 199.41,-147 199.41,-153 199.41,-153 199.41,-165 199.41,-165 199.41,-171 193.41,-177 187.41,-177"/>
 <text xml:space="preserve" text-anchor="middle" x="111.71" y="-153.97" font-family="Helvetica,sans-Serif" font-size="12.00">TT0 – Time Model Spec Lock</text>
 </a>
@@ -111,7 +111,7 @@
 <!-- mTT1 -->
 <g id="node8" class="node">
 <title>mTT1</title>
-<g id="a_node8"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/15" xlink:title="TT1 – Streams Inspector Frame">
+<g id="a_node8"><a xlink:href="https://github.com/flyingrobots/echo/milestone/15" xlink:title="TT1 – Streams Inspector Frame">
 <path fill="#dbeafe" stroke="black" d="M451.32,-223C451.32,-223 287.16,-223 287.16,-223 281.16,-223 275.16,-217 275.16,-211 275.16,-211 275.16,-199 275.16,-199 275.16,-193 281.16,-187 287.16,-187 287.16,-187 451.32,-187 451.32,-187 457.32,-187 463.32,-193 463.32,-199 463.32,-199 463.32,-211 463.32,-211 463.32,-217 457.32,-223 451.32,-223"/>
 <text xml:space="preserve" text-anchor="middle" x="369.24" y="-199.97" font-family="Helvetica,sans-Serif" font-size="12.00">TT1 – Streams Inspector Frame</text>
 </a>
@@ -129,7 +129,7 @@
 <!-- mTT2 -->
 <g id="node9" class="node">
 <title>mTT2</title>
-<g id="a_node9"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/16" xlink:title="TT2 – Time Travel MVP">
+<g id="a_node9"><a xlink:href="https://github.com/flyingrobots/echo/milestone/16" xlink:title="TT2 – Time Travel MVP">
 <path fill="#dbeafe" stroke="black" d="M648.48,-200C648.48,-200 527.07,-200 527.07,-200 521.07,-200 515.07,-194 515.07,-188 515.07,-188 515.07,-176 515.07,-176 515.07,-170 521.07,-164 527.07,-164 527.07,-164 648.48,-164 648.48,-164 654.48,-164 660.48,-170 660.48,-176 660.48,-176 660.48,-188 660.48,-188 660.48,-194 654.48,-200 648.48,-200"/>
 <text xml:space="preserve" text-anchor="middle" x="587.77" y="-176.97" font-family="Helvetica,sans-Serif" font-size="12.00">TT2 – Time Travel MVP</text>
 </a>
@@ -147,7 +147,7 @@
 <!-- mTT3 -->
 <g id="node10" class="node">
 <title>mTT3</title>
-<g id="a_node10"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/17" xlink:title="TT3 – Rulial Diff / Worldline Compare">
+<g id="a_node10"><a xlink:href="https://github.com/flyingrobots/echo/milestone/17" xlink:title="TT3 – Rulial Diff / Worldline Compare">
 <path fill="#dbeafe" stroke="black" d="M467.07,-131C467.07,-131 271.41,-131 271.41,-131 265.41,-131 259.41,-125 259.41,-119 259.41,-119 259.41,-107 259.41,-107 259.41,-101 265.41,-95 271.41,-95 271.41,-95 467.07,-95 467.07,-95 473.07,-95 479.07,-101 479.07,-107 479.07,-107 479.07,-119 479.07,-119 479.07,-125 473.07,-131 467.07,-131"/>
 <text xml:space="preserve" text-anchor="middle" x="369.24" y="-107.97" font-family="Helvetica,sans-Serif" font-size="12.00">TT3 – Rulial Diff / Worldline Compare</text>
 </a>
@@ -174,7 +174,7 @@
 <!-- mW1 -->
 <g id="node11" class="node">
 <title>mW1</title>
-<g id="a_node11"><a xlink:href="https://api.github.com/repos/flyingrobots/echo/milestones/19" xlink:title="W1 – Wesley as a Boundary Grammar">
+<g id="a_node11"><a xlink:href="https://github.com/flyingrobots/echo/milestone/19" xlink:title="W1 – Wesley as a Boundary Grammar">
 <path fill="#ccfbf1" stroke="black" d="M211.41,-231C211.41,-231 12,-231 12,-231 6,-231 0,-225 0,-219 0,-219 0,-207 0,-207 0,-201 6,-195 12,-195 12,-195 211.41,-195 211.41,-195 217.41,-195 223.41,-201 223.41,-207 223.41,-207 223.41,-219 223.41,-219 223.41,-225 217.41,-231 211.41,-231"/>
 <text xml:space="preserve" text-anchor="middle" x="111.71" y="-207.97" font-family="Helvetica,sans-Serif" font-size="12.00">W1 – Wesley as a Boundary Grammar</text>
 </a>

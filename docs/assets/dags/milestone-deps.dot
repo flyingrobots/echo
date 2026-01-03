@@ -4,7 +4,7 @@ digraph echo_milestone_dependencies {
   graph [rankdir=LR, labelloc="t", fontsize=18, fontname="Helvetica", splines=true];
   node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, margin="0.14,0.10"];
   edge  [fontname="Helvetica", fontsize=10, arrowsize=0.8];
-  label="Echo — Milestone Dependency Sketch (snapshot: rolling)\nEdge direction: prerequisite → dependent (do tail before head)\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).";
+  label="Echo — Milestone Dependency Sketch\nEdge direction: prerequisite → dependent (do tail before head)\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).";
 
   subgraph cluster_legend {
     label="Legend";
@@ -18,14 +18,14 @@ digraph echo_milestone_dependencies {
     L2 -> L3 [arrowhead=none, color="gray40", penwidth=1.2, style="dashed"];
   }
 
-  m1C [label="1C – Rhai/TS Bindings", fillcolor="#dcfce7", tooltip="1C – Rhai/TS Bindings", URL="https://api.github.com/repos/flyingrobots/echo/milestones/3"];
-  m1E [label="1E – Networking & Confluence MVP", fillcolor="#ffedd5", tooltip="1E – Networking & Confluence MVP", URL="https://api.github.com/repos/flyingrobots/echo/milestones/5"];
-  mS1 [label="S1 – Deterministic Rhai Surface", fillcolor="#ede9fe", tooltip="S1 – Deterministic Rhai Surface", URL="https://api.github.com/repos/flyingrobots/echo/milestones/18"];
-  mTT0 [label="TT0 – Time Model Spec Lock", fillcolor="#dbeafe", tooltip="TT0 – Time Model Spec Lock", URL="https://api.github.com/repos/flyingrobots/echo/milestones/21"];
-  mTT1 [label="TT1 – Streams Inspector Frame", fillcolor="#dbeafe", tooltip="TT1 – Streams Inspector Frame", URL="https://api.github.com/repos/flyingrobots/echo/milestones/15"];
-  mTT2 [label="TT2 – Time Travel MVP", fillcolor="#dbeafe", tooltip="TT2 – Time Travel MVP", URL="https://api.github.com/repos/flyingrobots/echo/milestones/16"];
-  mTT3 [label="TT3 – Rulial Diff / Worldline Compare", fillcolor="#dbeafe", tooltip="TT3 – Rulial Diff / Worldline Compare", URL="https://api.github.com/repos/flyingrobots/echo/milestones/17"];
-  mW1 [label="W1 – Wesley as a Boundary Grammar", fillcolor="#ccfbf1", tooltip="W1 – Wesley as a Boundary Grammar", URL="https://api.github.com/repos/flyingrobots/echo/milestones/19"];
+  m1C [label="1C – Rhai/TS Bindings", fillcolor="#dcfce7", tooltip="1C – Rhai/TS Bindings", URL="https://github.com/flyingrobots/echo/milestone/3"];
+  m1E [label="1E – Networking & Confluence MVP", fillcolor="#ffedd5", tooltip="1E – Networking & Confluence MVP", URL="https://github.com/flyingrobots/echo/milestone/5"];
+  mS1 [label="S1 – Deterministic Rhai Surface", fillcolor="#ede9fe", tooltip="S1 – Deterministic Rhai Surface", URL="https://github.com/flyingrobots/echo/milestone/18"];
+  mTT0 [label="TT0 – Time Model Spec Lock", fillcolor="#dbeafe", tooltip="TT0 – Time Model Spec Lock", URL="https://github.com/flyingrobots/echo/milestone/21"];
+  mTT1 [label="TT1 – Streams Inspector Frame", fillcolor="#dbeafe", tooltip="TT1 – Streams Inspector Frame", URL="https://github.com/flyingrobots/echo/milestone/15"];
+  mTT2 [label="TT2 – Time Travel MVP", fillcolor="#dbeafe", tooltip="TT2 – Time Travel MVP", URL="https://github.com/flyingrobots/echo/milestone/16"];
+  mTT3 [label="TT3 – Rulial Diff / Worldline Compare", fillcolor="#dbeafe", tooltip="TT3 – Rulial Diff / Worldline Compare", URL="https://github.com/flyingrobots/echo/milestone/17"];
+  mW1 [label="W1 – Wesley as a Boundary Grammar", fillcolor="#ccfbf1", tooltip="W1 – Wesley as a Boundary Grammar", URL="https://github.com/flyingrobots/echo/milestone/19"];
 
   mTT0 -> mTT1 [color="black", penwidth=1.4, style="solid", tooltip="time model unlocks inspector frame"];
   mTT0 -> mTT2 [color="black", penwidth=1.4, style="solid", tooltip="time model unlocks time travel MVP"];

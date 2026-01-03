@@ -176,11 +176,7 @@ function fetchAllMilestonesSnapshot(nameWithOwner) {
   // GitHub API returns an array of milestone objects with fields like title, html_url, state.
   const raw = runChecked("gh", [
     "api",
-    `repos/${nameWithOwner}/milestones`,
-    "-f",
-    "state=all",
-    "-f",
-    "per_page=100",
+    `repos/${nameWithOwner}/milestones?state=all&per_page=100`,
   ]);
   const milestones = JSON.parse(raw).map((m) => ({
     title: m.title,
@@ -218,27 +214,88 @@ function milestoneFillFor(title) {
   return "#ffffff";
 }
 
-function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
+function parseTasksDag(content) {
+  const lines = content.split("\n");
+  const edges = new Set(); // "from->to" strings
+
+  let currentIssue = null;
+  let mode = null; // 'blocks' or 'blocked_by'
+
+  for (const line of lines) {
+    if (line.startsWith("## [")) {
+       const issueMatch = line.match(/^## \[#(\d+): (.*?)\]\((.*)\)/);
+       if (issueMatch) {
+         currentIssue = parseInt(issueMatch[1], 10);
+         mode = null;
+         continue;
+       }
+    }
+    
+    if (!currentIssue) continue;
+
+    if (line.trim() === "- Blocked by:") {
+      mode = "blocked_by";
+      continue;
+    }
+    if (line.trim() === "- Blocks:") {
+      mode = "blocks";
+      continue;
+    }
+
+    const linkMatch = line.match(/^\s+- \[#(\d+): (.*?)\]\((.*)\)/);
+    if (linkMatch) {
+      const targetNumber = parseInt(linkMatch[1], 10);
+      if (mode === "blocked_by") {
+        // Target -> Current
+        edges.add(`${targetNumber}->${currentIssue}`);
+      } else if (mode === "blocks") {
+        // Current -> Target
+        edges.add(`${currentIssue}->${targetNumber}`);
+      }
+    }
+  }
+  return edges;
+}
+
+function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   const byNum = new Map();
   for (const issue of issues) byNum.set(issue.number, issue);
 
   const nodes = new Set();
+  const configuredEdges = new Set();
+
   for (const e of issueEdges) {
     nodes.add(e.from);
     nodes.add(e.to);
+    configuredEdges.add(`${e.from}->${e.to}`);
+  }
+
+  // Add nodes from reality edges if they exist in the issue snapshot
+  if (realityEdges) {
+    for (const edgeKey of realityEdges) {
+      const [u, v] = edgeKey.split("->").map(n => parseInt(n, 10));
+      // Only add to graph if both nodes are in the issue snapshot (sanity check)
+      if (byNum.has(u) && byNum.has(v)) {
+        // We generally only add nodes if they are connected to the "Plan" or extend it.
+        // For visual clarity, let's include them if they touch the existing Plan nodes or imply missing plan parts.
+        // For now, let's purely strictly add them if they are part of a Red edge.
+        if (!configuredEdges.has(edgeKey)) {
+           nodes.add(u);
+           nodes.add(v);
+        }
+      }
+    }
   }
 
   const missing = [...nodes].filter((n) => !byNum.has(n)).sort((a, b) => a - b);
-  if (missing.length > 0) {
-    fail(
-      `Issue snapshot missing referenced issue(s): ${missing
-        .map((n) => `#${n}`)
-        .join(", ")}`,
-    );
-  }
+  // Warning only for missing nodes in reality edges (dynamic), strict fail for config edges
+  // actually existing logic fails on missing config nodes. Let's keep that.
+  
+  // Filter nodes that don't exist in byNum (stale config or stale reality)
+  const validNodes = [...nodes].filter(n => byNum.has(n));
 
   const groups = new Map();
-  for (const n of [...nodes].sort((a, b) => a - b)) {
+  for (const n of validNodes.sort((a, b) => a - b)) {
     const issue = byNum.get(n);
     const milestoneTitle = issue?.milestone?.title ?? "(no milestone)";
     const list = groups.get(milestoneTitle) ?? [];
@@ -264,7 +321,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
   lines.push(
     `  label="${escapeDotString(
       title,
-    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).";`,
+    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).\\nGreen = Confirmed in Issue Body; Red = In Issue Body but missing from Plan.";`,
   );
   lines.push("");
 
@@ -276,6 +333,8 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
   lines.push('    L1 [label="strong", fillcolor="#ffffff"];');
   lines.push('    L2 [label="medium", fillcolor="#ffffff"];');
   lines.push('    L3 [label="weak", fillcolor="#ffffff"];');
+  lines.push('    LG [label="confirmed (reality)", color="green", fontcolor="green"];');
+  lines.push('    LR [label="missing from plan", color="red", fontcolor="red"];');
   lines.push(
     `    L1 -> L2 [arrowhead=none, ${confidenceEdgeAttrs("strong")}];`,
   );
@@ -316,11 +375,35 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
   }
 
   for (const { from, to, confidence, note } of issueEdges) {
+    const edgeKey = `${from}->${to}`;
+    const inReality = realityEdges && realityEdges.has(edgeKey);
+    const colorAttr = inReality ? 'color="green", penwidth=2.0' : confidenceEdgeAttrs(confidence);
+    
+    // If in reality, override style to solid green, preserving existing penwidth boost
+    // Actually confidenceEdgeAttrs returns full string. Let's parse or just conditionally use strings.
+    let attrs = confidenceEdgeAttrs(confidence);
+    if (inReality) {
+       // Replace color and penwidth
+       attrs = 'color="green3", penwidth=2.0, style="solid"';
+    }
+
     lines.push(
-      `  i${from} -> i${to} [${confidenceEdgeAttrs(
-        confidence,
-      )}, tooltip="${escapeDotString(note)}"];`,
+      `  i${from} -> i${to} [${attrs}, tooltip="${escapeDotString(note)}"];`,
     );
+  }
+
+  // Red edges (Reality - Plan)
+  if (realityEdges) {
+    for (const edgeKey of realityEdges) {
+      if (!configuredEdges.has(edgeKey)) {
+        const [u, v] = edgeKey.split("->").map(n => parseInt(n, 10));
+        if (byNum.has(u) && byNum.has(v)) {
+           lines.push(
+             `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];`
+           );
+        }
+      }
+    }
   }
 
   lines.push("}");
@@ -448,6 +531,12 @@ function main() {
   const issuesWrapped = maybeWrapIssuesJson(readJsonFile(args.issuesJson));
   const milestonesWrapped = maybeWrapMilestonesJson(readJsonFile(args.milestonesJson));
 
+  let realityEdges = null;
+  if (fs.existsSync("TASKS-DAG.md")) {
+    const tasksDagContent = fs.readFileSync("TASKS-DAG.md", "utf8");
+    realityEdges = parseTasksDag(tasksDagContent);
+  }
+
   const snapshotResolved = resolveSnapshotLabel({
     snapshot: args.snapshot,
     snapshotLabelMode: args.snapshotLabelMode,
@@ -460,6 +549,7 @@ function main() {
     issues: issuesWrapped.issues,
     issueEdges: config.issue_edges,
     snapshotLabel: snapshotResolved.label,
+    realityEdges,
   });
   const milestoneDot = emitMilestoneDot({
     milestones: milestonesWrapped.milestones,

@@ -4,7 +4,7 @@ digraph echo_issue_dependencies {
   graph [rankdir=LR, labelloc="t", fontsize=18, fontname="Helvetica", newrank=true, splines=true];
   node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, margin="0.10,0.06"];
   edge  [fontname="Helvetica", fontsize=9, arrowsize=0.8];
-  label="Echo — Issue Dependency Sketch (snapshot: rolling)\nEdge direction: prerequisite → dependent (do tail before head)\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).";
+  label="Echo — Issue Dependency Sketch\nEdge direction: prerequisite → dependent (do tail before head)\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).\nGreen = Confirmed in Issue Body; Red = In Issue Body but missing from Plan.";
 
   subgraph cluster_legend {
     label="Legend";
@@ -14,8 +14,21 @@ digraph echo_issue_dependencies {
     L1 [label="strong", fillcolor="#ffffff"];
     L2 [label="medium", fillcolor="#ffffff"];
     L3 [label="weak", fillcolor="#ffffff"];
+    LG [label="confirmed (reality)", color="green", fontcolor="green"];
+    LR [label="missing from plan", color="red", fontcolor="red"];
     L1 -> L2 [arrowhead=none, color="black", penwidth=1.4, style="solid"];
     L2 -> L3 [arrowhead=none, color="gray40", penwidth=1.2, style="dashed"];
+  }
+
+  subgraph cluster__no_milestone_ {
+    label="(no milestone)";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#ffffff"];
+    i243 [label="#243\\nTT1: dt policy (fixed timestep vs admitted dt stream)", tooltip="TT1: dt policy (fixed timestep vs admitted dt stream)", URL="https://github.com/flyingrobots/echo/issues/243"];
+    i244 [label="#244\\nTT1: TimeStream retention + spool compaction + wormhole density", tooltip="TT1: TimeStream retention + spool compaction + wormhole density", URL="https://github.com/flyingrobots/echo/issues/244"];
+    i245 [label="#245\\nTT1: Merge semantics for admitted stream facts across worldlines", tooltip="TT1: Merge semantics for admitted stream facts across worldlines", URL="https://github.com/flyingrobots/echo/issues/245"];
+    i246 [label="#246\\nTT1: Security/capabilities for fork/rewind/merge in multiplayer", tooltip="TT1: Security/capabilities for fork/rewind/merge in multiplayer", URL="https://github.com/flyingrobots/echo/issues/246"];
   }
 
   subgraph cluster_1C___Rhai_TS_Bindings {
@@ -48,9 +61,11 @@ digraph echo_issue_dependencies {
     style="rounded";
     color="gray70";
     node [fillcolor="#f3f4f6"];
+    i19 [label="#19\\nSpec: Persistent Store (on-disk)", tooltip="Spec: Persistent Store (on-disk)", URL="https://github.com/flyingrobots/echo/issues/19"];
     i20 [label="#20\\nSpec: Commit/Manifest Signing", tooltip="Spec: Commit/Manifest Signing", URL="https://github.com/flyingrobots/echo/issues/20"];
     i24 [label="#24\\nEditor Hot-Reload (spec + impl)", tooltip="Editor Hot-Reload (spec + impl)", URL="https://github.com/flyingrobots/echo/issues/24"];
     i25 [label="#25\\nImporter: TurtlGraph → Echo store", tooltip="Importer: TurtlGraph → Echo store", URL="https://github.com/flyingrobots/echo/issues/25"];
+    i28 [label="#28\\nDraft spec document (header/ULEB128/property/string-pool)", tooltip="Draft spec document (header/ULEB128/property/string-pool)", URL="https://github.com/flyingrobots/echo/issues/28"];
     i32 [label="#32\\nDraft signing spec", tooltip="Draft signing spec", URL="https://github.com/flyingrobots/echo/issues/32"];
     i33 [label="#33\\nCI: sign release artifacts (dry run)", tooltip="CI: sign release artifacts (dry run)", URL="https://github.com/flyingrobots/echo/issues/33"];
     i34 [label="#34\\nCLI verify path", tooltip="CLI verify path", URL="https://github.com/flyingrobots/echo/issues/34"];
@@ -66,6 +81,33 @@ digraph echo_issue_dependencies {
     i82 [label="#82\\nEcho store loader", tooltip="Echo store loader", URL="https://github.com/flyingrobots/echo/issues/82"];
     i83 [label="#83\\nIntegrity verification", tooltip="Integrity verification", URL="https://github.com/flyingrobots/echo/issues/83"];
     i84 [label="#84\\nSample + tests", tooltip="Sample + tests", URL="https://github.com/flyingrobots/echo/issues/84"];
+  }
+
+  subgraph cluster_Demo_2___Splash_Guy__Deterministic_Lockstep_ {
+    label="Demo 2 — Splash Guy (Deterministic Lockstep)";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#ffffff"];
+    i222 [label="#222\\nDemo 2: Splash Guy — deterministic rules + state model", tooltip="Demo 2: Splash Guy — deterministic rules + state model", URL="https://github.com/flyingrobots/echo/issues/222"];
+    i223 [label="#223\\nDemo 2: Splash Guy — lockstep input protocol + two-peer harness", tooltip="Demo 2: Splash Guy — lockstep input protocol + two-peer harness", URL="https://github.com/flyingrobots/echo/issues/223"];
+    i224 [label="#224\\nDemo 2: Splash Guy — controlled desync lessons (make it fail on purpose)", tooltip="Demo 2: Splash Guy — controlled desync lessons (make it fail on purpose)", URL="https://github.com/flyingrobots/echo/issues/224"];
+    i225 [label="#225\\nDemo 2: Splash Guy — minimal rendering / visualization path", tooltip="Demo 2: Splash Guy — minimal rendering / visualization path", URL="https://github.com/flyingrobots/echo/issues/225"];
+    i226 [label="#226\\nDemo 2: Splash Guy — docs: networking-first course modules", tooltip="Demo 2: Splash Guy — docs: networking-first course modules", URL="https://github.com/flyingrobots/echo/issues/226"];
+  }
+
+  subgraph cluster_Demo_3___Tumble_Tower__Deterministic_Physics_ {
+    label="Demo 3 — Tumble Tower (Deterministic Physics)";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#ffffff"];
+    i231 [label="#231\\nDemo 3: Tumble Tower — Stage 0 physics (2D AABB stacking)", tooltip="Demo 3: Tumble Tower — Stage 0 physics (2D AABB stacking)", URL="https://github.com/flyingrobots/echo/issues/231"];
+    i232 [label="#232\\nDemo 3: Tumble Tower — Stage 1 physics (rotation + angular, OBB contacts)", tooltip="Demo 3: Tumble Tower — Stage 1 physics (rotation + angular, OBB contacts)", URL="https://github.com/flyingrobots/echo/issues/232"];
+    i233 [label="#233\\nDemo 3: Tumble Tower — Stage 2 physics (friction + restitution)", tooltip="Demo 3: Tumble Tower — Stage 2 physics (friction + restitution)", URL="https://github.com/flyingrobots/echo/issues/233"];
+    i234 [label="#234\\nDemo 3: Tumble Tower — Stage 3 physics (sleeping + stack stability)", tooltip="Demo 3: Tumble Tower — Stage 3 physics (sleeping + stack stability)", URL="https://github.com/flyingrobots/echo/issues/234"];
+    i235 [label="#235\\nDemo 3: Tumble Tower — lockstep harness + per-tick fingerprinting", tooltip="Demo 3: Tumble Tower — lockstep harness + per-tick fingerprinting", URL="https://github.com/flyingrobots/echo/issues/235"];
+    i236 [label="#236\\nDemo 3: Tumble Tower — controlled desync breakers (physics edition)", tooltip="Demo 3: Tumble Tower — controlled desync breakers (physics edition)", URL="https://github.com/flyingrobots/echo/issues/236"];
+    i237 [label="#237\\nDemo 3: Tumble Tower — visualization (2D view + debug overlays)", tooltip="Demo 3: Tumble Tower — visualization (2D view + debug overlays)", URL="https://github.com/flyingrobots/echo/issues/237"];
+    i238 [label="#238\\nDemo 3: Tumble Tower — docs course (physics ladder)", tooltip="Demo 3: Tumble Tower — docs course (physics ladder)", URL="https://github.com/flyingrobots/echo/issues/238"];
   }
 
   subgraph cluster_M2_2___Playground_Slice {
@@ -89,14 +131,6 @@ digraph echo_issue_dependencies {
     i173 [label="#173\\nS1: Deterministic Rhai surface (sandbox + claims/effects)", tooltip="S1: Deterministic Rhai surface (sandbox + claims/effects)", URL="https://github.com/flyingrobots/echo/issues/173"];
   }
 
-  subgraph cluster_TT0___Time_Model_Spec_Lock {
-    label="TT0 – Time Model Spec Lock";
-    style="rounded";
-    color="gray70";
-    node [fillcolor="#dbeafe"];
-    i166 [label="#166\\nTT0: Time model spec lock (TimeStreams + admission digests)", tooltip="TT0: Time model spec lock (TimeStreams + admission digests)", URL="https://github.com/flyingrobots/echo/issues/166"];
-  }
-
   subgraph cluster_TT1___Streams_Inspector_Frame {
     label="TT1 – Streams Inspector Frame";
     style="rounded";
@@ -111,6 +145,7 @@ digraph echo_issue_dependencies {
     color="gray70";
     node [fillcolor="#dbeafe"];
     i171 [label="#171\\nTT2: Time Travel MVP (pause/rewind/buffer/catch-up)", tooltip="TT2: Time Travel MVP (pause/rewind/buffer/catch-up)", URL="https://github.com/flyingrobots/echo/issues/171"];
+    i205 [label="#205\\nTT2: Reliving debugger MVP (scrub timeline + causal slice + fork branch)", tooltip="TT2: Reliving debugger MVP (scrub timeline + causal slice + fork branch)", URL="https://github.com/flyingrobots/echo/issues/205"];
   }
 
   subgraph cluster_TT3___Rulial_Diff___Worldline_Compare {
@@ -119,6 +154,8 @@ digraph echo_issue_dependencies {
     color="gray70";
     node [fillcolor="#dbeafe"];
     i172 [label="#172\\nTT3: Rulial diff / worldline compare MVP", tooltip="TT3: Rulial diff / worldline compare MVP", URL="https://github.com/flyingrobots/echo/issues/172"];
+    i199 [label="#199\\nTT3: Wesley worldline diff (compare query outputs/proofs across ticks)", tooltip="TT3: Wesley worldline diff (compare query outputs/proofs across ticks)", URL="https://github.com/flyingrobots/echo/issues/199"];
+    i204 [label="#204\\nTT3: Provenance heatmap (blast radius / cohesion over time)", tooltip="TT3: Provenance heatmap (blast radius / cohesion over time)", URL="https://github.com/flyingrobots/echo/issues/204"];
   }
 
   subgraph cluster_W1___Wesley_as_a_Boundary_Grammar {
@@ -130,22 +167,22 @@ digraph echo_issue_dependencies {
   }
 
   i166 -> i170 [color="black", penwidth=1.4, style="solid", tooltip="TT0 -> TT1"];
-  i170 -> i171 [color="black", penwidth=1.4, style="solid", tooltip="TT1 -> TT2 (explicit)"];
+  i170 -> i171 [color="green3", penwidth=2.0, style="solid", tooltip="TT1 -> TT2 (explicit)"];
   i166 -> i172 [color="black", penwidth=1.4, style="solid", tooltip="TT0 -> TT3"];
   i88 -> i173 [color="black", penwidth=1.4, style="solid", tooltip="capability tokens for deterministic surface"];
   i21 -> i173 [color="gray40", penwidth=1.2, style="dashed", tooltip="security contexts likely required"];
   i26 -> i173 [color="gray40", penwidth=1.2, style="dashed", tooltip="plugin ABI likely required"];
   i166 -> i173 [color="gray40", penwidth=1.2, style="dashed", tooltip="time model spec lock likely required"];
   i174 -> i173 [color="gray70", penwidth=1.2, style="dotted", tooltip="Wesley grammar maybe required"];
-  i37 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="draft spec feeds epic"];
-  i38 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="ffi limits feed epic"];
-  i39 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="wasm validation feed epic"];
-  i40 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="denial tests feed epic"];
-  i32 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="draft spec feeds epic"];
-  i33 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="ci sign dry run feeds epic"];
-  i34 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="cli verify path feeds epic"];
-  i35 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="key mgmt doc feeds epic"];
-  i36 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="ci verify feeds epic"];
+  i37 -> i21 [color="green3", penwidth=2.0, style="solid", tooltip="draft spec feeds epic"];
+  i38 -> i21 [color="green3", penwidth=2.0, style="solid", tooltip="ffi limits feed epic"];
+  i39 -> i21 [color="green3", penwidth=2.0, style="solid", tooltip="wasm validation feed epic"];
+  i40 -> i21 [color="green3", penwidth=2.0, style="solid", tooltip="denial tests feed epic"];
+  i32 -> i20 [color="green3", penwidth=2.0, style="solid", tooltip="draft spec feeds epic"];
+  i33 -> i20 [color="green3", penwidth=2.0, style="solid", tooltip="ci sign dry run feeds epic"];
+  i34 -> i20 [color="green3", penwidth=2.0, style="solid", tooltip="cli verify path feeds epic"];
+  i35 -> i20 [color="green3", penwidth=2.0, style="solid", tooltip="key mgmt doc feeds epic"];
+  i36 -> i20 [color="green3", penwidth=2.0, style="solid", tooltip="ci verify feeds epic"];
   i47 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="scaffold feeds epic"];
   i48 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="verify subcommand feeds epic"];
   i49 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="bench subcommand feeds epic"];
@@ -170,4 +207,27 @@ digraph echo_issue_dependencies {
   i87 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="negotiation feeds epic"];
   i88 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="capability tokens feed epic"];
   i89 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="example plugin feeds epic"];
+  i28 -> i19 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i170 -> i205 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i246 -> i170 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i245 -> i170 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i244 -> i170 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i243 -> i170 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i171 -> i172 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i171 -> i204 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i171 -> i199 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i222 -> i226 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i223 -> i226 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i224 -> i226 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i225 -> i226 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i231 -> i238 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i231 -> i232 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i232 -> i238 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i232 -> i233 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i233 -> i238 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i233 -> i234 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i234 -> i238 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i235 -> i238 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i236 -> i238 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
+  i237 -> i238 [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];
 }

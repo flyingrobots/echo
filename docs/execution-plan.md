@@ -35,16 +35,27 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
+> 2026-01-03 — Planning hygiene + start #206 (DPO concurrency litmus) (DONE)
 
-- Goal: land the remaining open PRs in oldest-first order using a deterministic merge workflow (no rebases).
-- Scope (repeat per PR):
-  - Checkout the PR branch.
-  - Merge `origin/main` into it and resolve conflicts.
-  - Pull PR comments/review threads and extract actionable items (including human reviewer notes).
-  - Fix remaining issues (or perform a strict self-review if no actionables remain), then push.
-  - If clean: merge the branch into `origin/main` via merge commit and verify PR state.
-- Exit criteria: each PR is either merged to `main` or has a pushed fix commit + explicit next-step notes.
+- Goal: refresh the execution plan so it matches current GitHub state, then begin issue #206 with a minimal “DPO concurrency litmus” suite (spec note + tests).
+- Scope:
+  - Planning hygiene:
+    - Update this document’s *Today’s Intent* and “Next Up” queue to reflect the current work frontier.
+    - Record the pivot in `docs/decision-log.md` so the next session doesn’t re-triage already-closed threads.
+  - #206:
+    - Add a spec note documenting which parts of the DPO concurrency story Echo relies on (and what we enforce mechanically via footprints + scheduler independence checks).
+    - Add litmus tests that pin commuting/overlapping/conflicting rule-pair outcomes deterministically.
+- Outcome:
+  - Planning hygiene: execution-plan “Today’s Intent” + “Next Up” refreshed to match GitHub state.
+  - #206 started with a minimal spec note + litmus tests (commuting vs conflicting vs overlapping-but-safe).
+- Evidence:
+  - `docs/spec/SPEC-0003-dpo-concurrency-litmus-v0.md`
+  - `crates/warp-core/tests/dpo_concurrency_litmus.rs`
+
+> 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (DONE)
+
+- Outcome: no open PRs remained by the end of the merge-train; the last merges landed on `main` (see merge commit `8082bbb`).
+- Next: treat subsequent work as issue-driven (one branch per issue), starting with #206.
 
 > 2026-01-03 — PR #213: merge `origin/main` + resolve review feedback (DONE)
 
@@ -1047,11 +1058,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Next Up Queue
 
-1. WARP View Protocol demo path (`docs/tasks.md`)
-2. ECS storage implementation plan
-3. Branch tree BlockStore abstraction design
-4. Temporal Bridge implementation plan
-5. Confluence + serialization protocol review
+1. M2.1: DPO concurrency theorem coverage (issue #206)
+2. Demo 2: Splash Guy docs course modules (issue #226)
+3. Demo 3: Tumble Tower Stage 1 physics (issue #232)
+4. TT1 follow-ons: dt policy / retention / merge semantics / capabilities (issues #243–#246)
+5. ECS storage implementation plan
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

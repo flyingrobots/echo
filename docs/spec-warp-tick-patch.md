@@ -95,6 +95,7 @@ This pins the producing rule registry for auditability while keeping replay sema
 Non-canonical optional metadata (not part of `patch_digest` unless explicitly upgraded):
 - tick receipts / traces (e.g., Paper II receipts with blocking-causality witness)
 - applied rewrite keys (“how we got here”)
+- stream admission decision records (`StreamAdmissionDecision`) for time travel tooling (pause/buffer/catch-up). These are committed via `admission_digest` on `Snapshot` (see `docs/spec-merkle-commit.md`) rather than `patch_digest` in v2.
 
 ---
 

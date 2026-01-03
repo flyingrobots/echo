@@ -217,6 +217,8 @@ Paper V extracts system-level requirements (examples):
   - `crates/echo-session-service`
 - Viewer/tooling as early “observer” implementations:
   - `crates/warp-viewer`
+- Multi-clock time model (streams + admission policies) and wormholes as tick-range compression for fast seek/catch-up:
+  - `docs/spec-time-streams-and-wormholes.md`
 
 ## Practical Alignment Notes (What to Keep in Sync)
 

@@ -1,12 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-//! Deterministic math hazards and mitigation strategies.
-//!
-//! This document outlines the specific challenges of cross-platform deterministic floating-point
-//! arithmetic (IEEE 754) and the strategies used in Echo to mitigate them.
-
 # Deterministic Math Hazards
+
+This document outlines the high-risk sources of nondeterminism in floating-point math (IEEE 754)
+and the mitigation strategies Echo uses to stay bit-stable across architectures.
+
+For the normative rules, see [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH).
 
 Achieving bit-perfect determinism across disparate hardware architectures (x86_64, AArch64, WASM32)
 is difficult due to loosely defined behaviors in the IEEE 754 specification. While basic arithmetic

@@ -1,8 +1,5 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
----
-title: WARP Primer
----
 
 # WARP Primer (Echo)
 

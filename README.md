@@ -20,6 +20,8 @@ Instead of treating a game/simulation as a pile of mutable objects, Echo treats 
 
 Start here:
 
+- Start Here: [`docs/guide/start-here.md`](docs/guide/start-here.md)
+- Non-programmer on-ramp: [`docs/guide/eli5.md`](docs/guide/eli5.md)
 - WARP primer: [`docs/guide/warp-primer.md`](docs/guide/warp-primer.md)
 - Project tour: [`docs/notes/project-tour-2025-12-28.md`](docs/notes/project-tour-2025-12-28.md)
 - AIΩN bridge doc: [`docs/aion-papers-bridge.md`](docs/aion-papers-bridge.md)
@@ -101,7 +103,7 @@ For a deeper “tour” oriented around invariants and entry points, see
 ### Requirements
 
 - Rust toolchain pinned by `rust-toolchain.toml` (currently `1.90.0`).
-- Node.js (for docs site). Note: the repo currently pins an older VitePress (`vitepress@0.1.1`), which is **not compatible with Node 25**; use an LTS (Node 18/20/22) for the docs workflow.
+- Node.js (for docs site). The docs toolchain uses `vitepress@1.6.4`; supported Node versions are pinned via `package.json` (currently `>=18 <25`). For best results, use an LTS (Node 18/20/22).
 
 ### Common commands
 
@@ -127,6 +129,19 @@ Run the docs site (VitePress):
 
 ```bash
 make docs
+```
+
+Directly (useful when debugging):
+
+```bash
+pnpm install
+pnpm docs:dev
+```
+
+CI-style build (includes link checking):
+
+```bash
+pnpm docs:build
 ```
 
 Run the session hub:

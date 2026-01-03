@@ -11,14 +11,14 @@ function fileUrl(rel: string) {
 
 test.describe('Collision DPO Tour (static HTML)', () => {
   test('loads and renders', async ({ page }) => {
-    await page.goto(fileUrl('docs/collision-dpo-tour.html'))
+    await page.goto(fileUrl('docs/public/collision-dpo-tour.html'))
     await expect(page.locator('h1')).toHaveText(/Collision/i)
     // Animate script attaches pagers; ensure at least one exists
     await expect(page.locator('.pager').first()).toBeVisible()
   })
 
   test('tabs toggle World/Graph views', async ({ page }) => {
-    await page.goto(fileUrl('docs/collision-dpo-tour.html'))
+    await page.goto(fileUrl('docs/public/collision-dpo-tour.html'))
     // Find a figure with pip tabs
     const tabs = page.locator('.pip-tabs').first()
     await expect(tabs).toBeVisible()
@@ -35,7 +35,7 @@ test.describe('Collision DPO Tour (static HTML)', () => {
   })
 
   test('prev/next navigation toggles carousel mode', async ({ page }) => {
-    await page.goto(fileUrl('docs/collision-dpo-tour.html'))
+    await page.goto(fileUrl('docs/public/collision-dpo-tour.html'))
     const firstRule = page.locator('.rule').filter({ has: page.locator('.pager') }).first()
     await expect(firstRule).toBeVisible()
     const nextBtn = firstRule.locator('.pager .btn', { hasText: 'Next' }).first()

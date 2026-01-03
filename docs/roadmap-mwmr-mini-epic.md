@@ -40,7 +40,7 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 
 - [ ] Property test: N‑permutation commutation (N = 3..6 independent rewrites)
 - [ ] Reserve gate smoke tests (same PortKey ⇒ conflict; disjoint ports ⇒ reserve)
-- [ ] Criterion bench: independence checks (10/100/1k rewrites) — target < 1 ms @ 100
+- [ ] Criterion bench: independence checks (10/100/1k rewrites) — target &lt; 1 ms @ 100
 - [ ] Telemetry counters per tick (conflict_rate, retry_count, reservation_latency_ms, epoch_flip_ms)
 - [ ] Add Retry with randomized backoff (behind flag) once telemetry lands; keep default Abort
 
@@ -52,7 +52,7 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 - [x] build.rs generates const family id for `rule:motion/update` (domain‑separated)
 - [ ] Generalize generator (src/gen/rule_ids.rs) and runtime assert test to catch drift
 - [ ] Rhai rule registration: `register_rule{name, match, exec, ?id, ?revision}`; engine computes if omitted
-- [ ] Revision ID = blake3("rule-rev:<lang>:canon-ast-v1" || canonical AST bytes)
+- [ ] Revision ID = `blake3("rule-rev:<lang>:canon-ast-v1" || canonical AST bytes)`
 
 ---
 

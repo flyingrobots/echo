@@ -29,6 +29,9 @@ pnpm-debug.log*
 tmp
 temp
 
+# Local caches
+.cache
+
 # Playwright artifacts
 test-results
 playwright-report

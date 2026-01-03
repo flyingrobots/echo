@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Geometry & Collision (Spec Stub)
 
-**Status (2026-01-03): not yet re-specified.** This repo currently carries an interactive DPO tour and diagram assets, but the full written spec for Echo’s geometry/collision subsystem is pending re-homing into the Rust-first era.
+**Status: not yet re-specified.** This repo currently carries an interactive DPO tour and diagram assets, but the full written spec for Echo’s geometry/collision subsystem is pending re-homing into the Rust-first era.
 
 What exists today:
 - Interactive tour: `/collision-dpo-tour.html` (source: `docs/public/collision-dpo-tour.html`)

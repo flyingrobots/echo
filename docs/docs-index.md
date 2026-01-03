@@ -21,6 +21,8 @@
 | `spec-plugin-system.md` | Plugin discovery, namespace isolation, capabilities |
 | `spec-concurrency-and-authoring.md` | Parallel core & single-threaded scripting model |
 | `spec-networking.md` | Deterministic event replication modes |
+| `spec-time-streams-and-wormholes.md` | Multi-clock time as event streams (cursors + admission policies) and wormholes/checkpoints for fast catch-up/seek |
+| `capability-ownership-matrix.md` | Ownership matrix across layers (determinism/provenance expectations per capability) |
 | `aion-papers-bridge.md` | Map AIΩN Foundations (WARP papers) onto Echo’s backlog and document deviations |
 | `warp-two-plane-law.md` | Project law: define SkeletonGraph vs attachment plane, π(U), depth-0 atoms, and “no hidden edges” |
 | `adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md` | ADR: formalize two-plane representation (SkeletonGraph + Attachment Plane) and the core invariants |

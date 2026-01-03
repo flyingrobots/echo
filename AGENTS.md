@@ -29,6 +29,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - `docs/notes`: Working notes and explorations (non-authoritative).
 
 ## Working Agreement
+- **Isolated Branches**: Every new task, feature, or bugfix **MUST** begin on a fresh, isolated branch based on the latest `main` (unless context explicitly dictates otherwise). Never mix unrelated objectives on the same branch.
 - Keep `main` pristine. Feature work belongs on branches named `echo/<feature>` or `timeline/<experiment>`.
 - Tests and benchmarks are mandatory for runtime changes once the harness exists.
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.

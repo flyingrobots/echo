@@ -274,7 +274,7 @@ Both phases scale **linearly**.
 
 ## Visualization: The Story in One Glance
 
-[Interactive D3 dashboard](docs/benchmarks/report-inline.html):
+Interactive D3 dashboard: `docs/benchmarks/report-inline.html`
 
 - **Log-log plot** with four series (hash, total, enqueue, drain)
 - **Threshold marker** at $n=1024$
@@ -333,7 +333,7 @@ When you can execute **30,000 deterministic rewrites per frame** and still hit *
 
 - **Implementation**: crates/warp-core/src/scheduler.rs (see `radix_sort`, `drain_in_order`)
 - **Benchmarks**: crates/warp-benches/benches/scheduler_drain.rs
-- **Dashboard**: docs/benchmarks/report-inline.html
+- **Dashboard**: `docs/benchmarks/report-inline.html`
 - **PR**: pending on branch repo/tidy
 
 ---

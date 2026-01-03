@@ -10,6 +10,12 @@
 
 All math within the simulation loop (`warp-core`) must adhere to these rules.
 
+## Related Docs
+
+- **Hazard catalog:** `docs/DETERMINISTIC_MATH.md` (supporting; non-normative)
+- **Validation & CI lanes:** `docs/math-validation-plan.md` (supporting; non-normative)
+- **Legacy Phase 0 design sketch:** `docs/spec-deterministic-math.md` (legacy; TS-oriented; non-normative)
+
 ## 1. Floating Point (f32)
 
 We wrap `f32` in `F32Scalar` to enforce these invariants.

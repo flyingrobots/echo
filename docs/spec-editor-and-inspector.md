@@ -57,6 +57,7 @@ Responses use `InspectorEnvelope`.
 - `BridgeInspectorFrame` – pending events, retro records, paradox counts.
 - `CapabilityInspectorFrame` – actor tokens, revocations.
 - `EntropyFrame` / `ParadoxFrame` – entropy deltas, unresolved paradoxes.
+- PLANNED: `StreamsFrame` – per-stream backlog, per-view cursors, and recent `StreamAdmissionDecision` records (see `docs/spec-time-streams-and-wormholes.md`).
 
 ---
 

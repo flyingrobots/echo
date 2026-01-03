@@ -88,9 +88,15 @@ git commit -m "fix: <description>"
 git push
 ```
 
-When replying in threads, prefer:
+After pushing a fix batch, post one PR timeline comment per fix round (preferred; avoids notification floods):
 
-> ✅ Addressed in commit `abc1234`
+```text
+✅ Addressed in commit abc1234
+
+Acked review threads:
+- discussion_r2658147649
+- discussion_r2658147651
+```
 
 This reduces stale-comment confusion in later rounds.
 

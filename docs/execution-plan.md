@@ -35,6 +35,49 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Docs consolidation: scheduler doc map (issue #210) (IN PROGRESS)
+
+- Goal: reduce confusion between the implemented `warp-core` rewrite scheduler and the planned Echo ECS/system scheduler.
+- Scope:
+  - Add a scheduler landing doc (`docs/scheduler.md`) that maps “which doc should I read?”
+  - Update scheduler docs to clearly label scope/status and link back to the landing page.
+  - Merge the `reserve()` validation/complexity satellites into a single canonical warp-core scheduler doc (`docs/scheduler-warp-core.md`) and leave redirects behind.
+  - Consolidate scheduler benchmark notes into a single canonical warp-core performance doc (`docs/scheduler-performance-warp-core.md`) and leave a redirect behind.
+  - Keep changes documentation-only.
+- Exit criteria: scheduler docs are self-consistent and discoverable from `docs/docs-index.md`.
+
+> 2026-01-02 — Dependency DAG sketches (issues + milestones) (IN PROGRESS)
+
+- Goal: produce a durable “do X before Y” visual map across a subset of open GitHub Issues + Milestones so we can sequence work intentionally (especially around TT0/TT1/TT2/TT3 and S1 dependencies).
+- Scope:
+  - Add confidence-styled dependency graphs (DOT sources + rendered SVGs) under `docs/assets/dags/`.
+  - Add a small explainer doc (`docs/dependency-dags.md`) that defines edge direction + confidence styling and links the rendered artifacts.
+  - Add a repo generator (`scripts/generate-dependency-dags.js`) plus a config file (`docs/assets/dags/deps-config.json`) so the diagrams can be regenerated and extended deterministically.
+  - Expose the generator via `cargo xtask` for a consistent repo tooling entrypoint.
+  - Add a scheduled GitHub Action that refreshes the DAGs (PR only if outputs change).
+  - Add `docs/workflows.md` and link it from README + AGENTS so contributors can discover the official entrypoints (`make`, `cargo xtask`, CI automation).
+- Keep the diagrams explicitly “planning sketches” (not a replacement for GitHub Project state or native dependency edges).
+- Exit criteria: both DAGs render locally via Graphviz (`dot -Tsvg …`) and the doc index links to `docs/dependency-dags.md`.
+
+> 2026-01-03 — PR #178: TT0 TimeStreams + wormholes spec lock (IN PROGRESS)
+
+- Goal: merge `origin/main` into `echo/time-streams-wormholes-166`, resolve review feedback, and push updates to unblock CodeRabbit re-review.
+- Scope:
+  - Merge `origin/main` into the branch (no rebase).
+  - Address all actionable CodeRabbit review items (correctness + doc lint).
+  - Ensure all “explicitly deferred” sections are linked to tracking issues.
+- Exit criteria: actionable review list is empty and the branch pushes cleanly.
+
+> 2026-01-02 — Docs audit: purge/merge/splurge pass (IN PROGRESS)
+
+- Goal: audit Echo docs for staleness and overlap, then decide which docs should be purged, merged, or expanded (starting with `docs/math-validation-plan.md`).
+- Scope:
+  - Refresh `docs/math-validation-plan.md` to match the current deterministic math implementation and CI coverage.
+  - Produce a short audit memo listing candidate docs to purge/merge/splurge with rationale.
+  - Fix a concrete dead-link cluster by making the collision tour build-visible (`docs/public/collision-dpo-tour.html`) and adding a `docs/spec-geom-collision.md` stub.
+  - Keep changes single-purpose: documentation only (no runtime changes).
+- Exit criteria: audit memo committed + updated math validation plan; PR opened (tracked under issue #208).
+
 > 2026-01-02 — Issue #214: strict Origin allowlist semantics (IN PROGRESS)
 
 - Goal: keep `echo-session-ws-gateway`’s `--allow-origin` behavior strict and make that policy obvious to operators and contributors.
@@ -67,6 +110,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Ensure “✅ Addressed in commit …” ack markers cannot be spoofed by templated bot text (require a human-authored ack with a real PR commit SHA).
   - Run the tool against at least one PR to confirm output format and any required auth/config.
 - Exit criteria: documented “how to run” steps for the tool; confidence that we can repeatably extract issues from PR comments for subsequent PRs.
+
+> 2026-01-02 — Issue #228: PR review ack “one comment per round” (IN PROGRESS)
+
+- Goal: stop notification floods during PR burn-down by acknowledging a whole fix batch with **one** PR timeline comment (per round), instead of replying on every review thread.
+- Scope:
+  - Extend `.github/scripts/extract-actionable-comments.sh` to treat a single PR conversation “round ack” comment as acks for multiple review-thread items (`discussion_r<id>`).
+  - Keep ack validation deterministic: require human authorship and a commit SHA that exists in the PR.
+  - Update `docs/procedures/*` so the default loop is “fix batch → push → post one round ack comment”.
+- Exit criteria: extractor recognizes round acks; procedures updated; CI green.
 
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 

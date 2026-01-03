@@ -1,23 +1,28 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
----
-title: Echo Docs
----
-
 # Echo
 
-Echo is a deterministic graph‑rewrite engine + tooling stack for simulations you can replay, verify, and synchronize without guessing.
+Echo is a deterministic **graph‑rewrite simulation engine**.
+In Echo, “WARP” is the core idea: your world state is a graph (structure) plus attachments (data),
+and each tick applies deterministic rewrite rules to that graph.
 
-Start here:
+## Start Here (5–15 minutes)
 
-- Docs index: [Docs Index](/docs-index)
-- Architecture outline: [Architecture Outline](/architecture-outline)
-- WARP primer: [WARP Primer](/guide/warp-primer)
-- Core runtime spec: [warp-core](/spec-warp-core)
-- Current focus: [Execution Plan](/execution-plan)
-- Decision log: [Decision Log](/decision-log)
+- Newcomer (no-programming) intro: [/guide/eli5](/guide/eli5)
+- Start Here guide: [/guide/start-here](/guide/start-here)
+- WARP primer: [/guide/warp-primer](/guide/warp-primer)
+- Architecture overview (draft, but the source of truth for intent): [/architecture-outline](/architecture-outline)
+- Core runtime spec (`warp-core`): [/spec-warp-core](/spec-warp-core)
 
-Interactive:
+## Run Something (learn by doing)
 
-- Collision DPO tour (HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
-- Geometry & collision (spec stub): [Spec](/spec-geom-collision)
+- WARP View Protocol demo (hub + 2 viewers): [/guide/wvp-demo](/guide/wvp-demo)
+- Collision tour (walkthrough + links): [/guide/collision-tour](/guide/collision-tour)
+- Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+- Geometry & collision (spec stub): [/spec-geom-collision](/spec-geom-collision)
+
+## When You Need a Map
+
+- Docs map (curated): [/docs-index](/docs-index)
+- Execution plan (living intent): [/execution-plan](/execution-plan)
+- Decision log (chronological): [/decision-log](/decision-log)

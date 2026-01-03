@@ -2,6 +2,14 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Deterministic Math Validation Plan
 
+Status: this document may lag behind the current Rust-first implementation.
+Treat it as a checklist of *ideas*, not a CI contract.
+
+If you’re looking for what we actually enforce today, start with:
+
+- Policy (normative): [/SPEC_DETERMINISTIC_MATH](/SPEC_DETERMINISTIC_MATH)
+- Claims / budgets: [/warp-math-claims](/warp-math-claims)
+
 Goal: ensure `warp-core`’s deterministic math produces **bit-identical** results across platforms and build configurations, and that we catch regressions (especially in scalar canonicalization and transcendental approximations) in CI.
 
 ---

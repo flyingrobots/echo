@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-03 — PR #213: merge `origin/main` + resolve review feedback (IN PROGRESS)
+
+- Goal: land PR #213 cleanly by merging the latest `origin/main`, resolving conflicts deterministically, and addressing all review comments.
+- Scope:
+  - Merge `origin/main` into the PR branch (no rebase) and resolve conflicts.
+  - Pull PR comments/review threads and implement requested fixes (docs + tooling as needed).
+  - Verify `pnpm docs:build` is green before pushing.
+- Exit criteria: conflicts resolved, review feedback addressed, and the updated branch pushed to the PR remote.
+
 > 2026-01-02 — Docs consolidation: scheduler doc map (issue #210) (IN PROGRESS)
 
 - Goal: reduce confusion between the implemented `warp-core` rewrite scheduler and the planned Echo ECS/system scheduler.
@@ -729,7 +738,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-11-02 — PR-12: benches polish (constants + docs)
 
-- snapshot_hash: extract all magic strings to constants; clearer edge ids using `<from>-to-<to>` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
+- snapshot_hash: extract all magic strings to constants; clearer edge ids using `&lt;from&gt;-to-&lt;to&gt;` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
 - scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
 - blake3 policy: keep exact patch `=1.8.2` and disable default features to avoid
   rayon/parallel hashing in benches.
@@ -998,7 +1007,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 | Date | Decision | Context | Follow-up |
 | ---- | -------- | ------- | --------- |
-| 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from Caverns to Echo | Implement Phase 0 specs |
+| 2025-10-23 | Monorepo seeded with pnpm & TypeScript skeleton | Baseline repo reset from legacy prototypes to Echo | Implement Phase 0 specs |
 | 2025-10-24 | Branch tree spec v0.1: roaring bitmaps, chunk epochs, content-addressed IDs | Feedback loop to handle deterministic merges | Implement roaring bitmap integration |
 | 2025-10-25 | Language direction pivot: Echo core to Rust | TypeScript validated specs; long-term determinism enforced via Rust + C ABI + Rhai scripting | Update Phase 1 backlog: scaffold Rust workspace, port ECS/diff engine, FFI bindings |
 | 2025-10-25 | Math validation fixtures & Rust test harness | Established deterministic scalar/vector/matrix/quaternion/PRNG coverage in warp-core | Extend coverage to browser environments and fixed-point mode |

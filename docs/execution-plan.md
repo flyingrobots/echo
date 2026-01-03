@@ -35,6 +35,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-03 — PR #213: merge `origin/main` + resolve review feedback (IN PROGRESS)
+
+- Goal: land PR #213 cleanly by merging the latest `origin/main`, resolving conflicts deterministically, and addressing all review comments.
+- Scope:
+  - Fetch + checkout the PR #213 head branch locally.
+  - Merge `origin/main` into the PR branch (no rebase) and resolve conflicts.
+  - Pull PR comments/review threads and implement requested fixes (code + docs as needed).
+  - Run `cargo test` + `cargo clippy --all-targets -- -D missing_docs` before pushing.
+- Exit criteria:
+  - Branch builds/tests cleanly and incorporates `origin/main` without conflict markers.
+  - Review threads are either resolved in code or acknowledged with concrete follow-ups.
+  - Updated branch pushed to the PR remote.
+
 > 2026-01-02 — Docs tooling: upgrade VitePress (COMPLETED)
 
 - Goal: make the docs site build reliably on modern Node by upgrading the pinned VitePress version (was `vitepress@0.1.1`).

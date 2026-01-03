@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # TASKS-DAG
 
 Auto-generated list of open issues and their dependencies.
@@ -460,4 +462,3 @@ Sources: `docs/ROADMAP.md`, Issue Bodies, and **Inferred Logic** (Detective Mode
   - [#170: TT1: StreamsFrame inspector support (backlog + cursors + admission decisions)](https://github.com/flyingrobots/echo/issues/170)
   - Confidence: medium
   - Evidence: Inferred: TT1 Implementation blocks on TT1 Spec clarifications
-

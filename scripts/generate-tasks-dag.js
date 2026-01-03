@@ -30,24 +30,27 @@ function parseTasksDag(content) {
   let mode = null; // 'blocks' or 'blocked_by'
 
   const issueRegex = /^## \[#(\d+): (.+)](.+)"/;
-  const linkRegex = /^\s+- \[#(\d+): (.+)](.+)"/;
+  const linkRegex = /^\s+- \[#(\d+): (.*?)\]\((.*)\)/;
   const confidenceRegex = /^\s+- Confidence: (.+)/;
   const evidenceRegex = /^\s+- Evidence: (.+)/;
 
   let pendingEdge = null;
 
   for (const line of lines) {
-    // New Issue Header
-    const issueMatch = line.match(issueRegex);
-    if (issueMatch) {
-      if (pendingEdge) { edges.push(pendingEdge); pendingEdge = null; }
-      const number = parseInt(issueMatch[1], 10);
-      currentIssue = { number, title: issueMatch[2], url: issueMatch[3] };
-      nodes.set(number, currentIssue);
-      mode = null;
-      continue;
+    if (line.startsWith("## [")) {
+       const issueMatch = line.match(/^## \[#(\d+): (.*?)\]\((.*)\)/);
+       if (issueMatch) {
+         if (pendingEdge) { edges.push(pendingEdge); pendingEdge = null; }
+         const number = parseInt(issueMatch[1], 10);
+         currentIssue = { number, title: issueMatch[2], url: issueMatch[3] };
+         nodes.set(number, currentIssue);
+         mode = null;
+         continue;
+       } else {
+         console.warn("Failed to match header:", line);
+       }
     }
-
+    
     if (!currentIssue) continue;
 
     // Section Headers
@@ -132,6 +135,21 @@ function getClusterName(title) {
 }
 
 function generateDot(nodes, edges) {
+  // Filter out isolated nodes
+  const connectedNodeIds = new Set();
+  for (const e of edges) {
+    connectedNodeIds.add(e.from);
+    connectedNodeIds.add(e.to);
+  }
+  
+  // Create a filtered map of nodes
+  const filteredNodes = new Map();
+  for (const [id, node] of nodes) {
+    if (connectedNodeIds.has(id)) {
+      filteredNodes.set(id, node);
+    }
+  }
+
   const lines = [];
   lines.push('digraph tasks_dag {');
   lines.push('  graph [rankdir=LR, labelloc="t", fontsize=18, fontname="Helvetica", newrank=true, splines=true];');
@@ -142,7 +160,7 @@ function generateDot(nodes, edges) {
 
   // Clusters
   const clusters = new Map();
-  for (const node of nodes.values()) {
+  for (const node of filteredNodes.values()) {
     const cluster = getClusterName(node.title);
     if (!clusters.has(cluster)) clusters.set(cluster, []);
     clusters.get(cluster).push(node);

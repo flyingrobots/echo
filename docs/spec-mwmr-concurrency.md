@@ -114,4 +114,4 @@ Phase 2 (Optimization)
 Phase 3 (Real demo)
 - Multiplayer confluence demo (zero desync), time‑travel fork/merge, inspector visualization of footprints/conflicts
 
-References: confluence skeleton v5, WARP math confluence, offset-graph arena notes
+References: confluence skeleton v5, WARP math confluence, offset-graph arena notes, SPEC-0003 (DPO concurrency litmus)

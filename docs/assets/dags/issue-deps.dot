@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+digraph echo_issue_dependencies {
+  graph [rankdir=LR, labelloc="t", fontsize=18, fontname="Helvetica", newrank=true, splines=true];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, margin="0.10,0.06"];
+  edge  [fontname="Helvetica", fontsize=9, arrowsize=0.8];
+  label="Echo — Issue Dependency Sketch (snapshot: rolling)\nEdge direction: prerequisite → dependent (do tail before head)\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).";
+
+  subgraph cluster_legend {
+    label="Legend";
+    color="gray70";
+    fontcolor="gray30";
+    style="rounded";
+    L1 [label="strong", fillcolor="#ffffff"];
+    L2 [label="medium", fillcolor="#ffffff"];
+    L3 [label="weak", fillcolor="#ffffff"];
+    L1 -> L2 [arrowhead=none, color="black", penwidth=1.4, style="solid"];
+    L2 -> L3 [arrowhead=none, color="gray40", penwidth=1.2, style="dashed"];
+  }
+
+  subgraph cluster_1C___Rhai_TS_Bindings {
+    label="1C – Rhai/TS Bindings";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#dcfce7"];
+    i26 [label="#26\\nPlugin ABI (C) v0", tooltip="Plugin ABI (C) v0", URL="https://github.com/flyingrobots/echo/issues/26"];
+    i85 [label="#85\\nDraft C ABI spec", tooltip="Draft C ABI spec", URL="https://github.com/flyingrobots/echo/issues/85"];
+    i86 [label="#86\\nC header + host loader", tooltip="C header + host loader", URL="https://github.com/flyingrobots/echo/issues/86"];
+    i87 [label="#87\\nVersion negotiation", tooltip="Version negotiation", URL="https://github.com/flyingrobots/echo/issues/87"];
+    i88 [label="#88\\nCapability tokens", tooltip="Capability tokens", URL="https://github.com/flyingrobots/echo/issues/88"];
+    i89 [label="#89\\nExample plugin + tests", tooltip="Example plugin + tests", URL="https://github.com/flyingrobots/echo/issues/89"];
+  }
+
+  subgraph cluster_1E___Networking___Confluence_MVP {
+    label="1E – Networking & Confluence MVP";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#ffedd5"];
+    i21 [label="#21\\nSpec: Security Contexts (FFI/WASM/CLI)", tooltip="Spec: Security Contexts (FFI/WASM/CLI)", URL="https://github.com/flyingrobots/echo/issues/21"];
+    i37 [label="#37\\nDraft security contexts spec", tooltip="Draft security contexts spec", URL="https://github.com/flyingrobots/echo/issues/37"];
+    i38 [label="#38\\nFFI limits and validation", tooltip="FFI limits and validation", URL="https://github.com/flyingrobots/echo/issues/38"];
+    i39 [label="#39\\nWASM input validation", tooltip="WASM input validation", URL="https://github.com/flyingrobots/echo/issues/39"];
+    i40 [label="#40\\nUnit tests for denials", tooltip="Unit tests for denials", URL="https://github.com/flyingrobots/echo/issues/40"];
+  }
+
+  subgraph cluster_1F___Tooling_Integration {
+    label="1F – Tooling Integration";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#f3f4f6"];
+    i20 [label="#20\\nSpec: Commit/Manifest Signing", tooltip="Spec: Commit/Manifest Signing", URL="https://github.com/flyingrobots/echo/issues/20"];
+    i24 [label="#24\\nEditor Hot-Reload (spec + impl)", tooltip="Editor Hot-Reload (spec + impl)", URL="https://github.com/flyingrobots/echo/issues/24"];
+    i25 [label="#25\\nImporter: TurtlGraph → Echo store", tooltip="Importer: TurtlGraph → Echo store", URL="https://github.com/flyingrobots/echo/issues/25"];
+    i32 [label="#32\\nDraft signing spec", tooltip="Draft signing spec", URL="https://github.com/flyingrobots/echo/issues/32"];
+    i33 [label="#33\\nCI: sign release artifacts (dry run)", tooltip="CI: sign release artifacts (dry run)", URL="https://github.com/flyingrobots/echo/issues/33"];
+    i34 [label="#34\\nCLI verify path", tooltip="CLI verify path", URL="https://github.com/flyingrobots/echo/issues/34"];
+    i35 [label="#35\\nKey management doc", tooltip="Key management doc", URL="https://github.com/flyingrobots/echo/issues/35"];
+    i36 [label="#36\\nCI: verify signatures", tooltip="CI: verify signatures", URL="https://github.com/flyingrobots/echo/issues/36"];
+    i75 [label="#75\\nDraft hot-reload spec", tooltip="Draft hot-reload spec", URL="https://github.com/flyingrobots/echo/issues/75"];
+    i76 [label="#76\\nFile watcher/debounce", tooltip="File watcher/debounce", URL="https://github.com/flyingrobots/echo/issues/76"];
+    i77 [label="#77\\nAtomic snapshot swap", tooltip="Atomic snapshot swap", URL="https://github.com/flyingrobots/echo/issues/77"];
+    i78 [label="#78\\nEditor gate + tests", tooltip="Editor gate + tests", URL="https://github.com/flyingrobots/echo/issues/78"];
+    i79 [label="#79\\nDocs/logging", tooltip="Docs/logging", URL="https://github.com/flyingrobots/echo/issues/79"];
+    i80 [label="#80\\nDraft importer spec", tooltip="Draft importer spec", URL="https://github.com/flyingrobots/echo/issues/80"];
+    i81 [label="#81\\nMinimal reader", tooltip="Minimal reader", URL="https://github.com/flyingrobots/echo/issues/81"];
+    i82 [label="#82\\nEcho store loader", tooltip="Echo store loader", URL="https://github.com/flyingrobots/echo/issues/82"];
+    i83 [label="#83\\nIntegrity verification", tooltip="Integrity verification", URL="https://github.com/flyingrobots/echo/issues/83"];
+    i84 [label="#84\\nSample + tests", tooltip="Sample + tests", URL="https://github.com/flyingrobots/echo/issues/84"];
+  }
+
+  subgraph cluster_M2_2___Playground_Slice {
+    label="M2.2 – Playground Slice";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#fef9c3"];
+    i23 [label="#23\\nCLI: verify/bench/inspect", tooltip="CLI: verify/bench/inspect", URL="https://github.com/flyingrobots/echo/issues/23"];
+    i47 [label="#47\\nScaffold CLI subcommands", tooltip="Scaffold CLI subcommands", URL="https://github.com/flyingrobots/echo/issues/47"];
+    i48 [label="#48\\nImplement 'verify'", tooltip="Implement 'verify'", URL="https://github.com/flyingrobots/echo/issues/48"];
+    i49 [label="#49\\nImplement 'bench'", tooltip="Implement 'bench'", URL="https://github.com/flyingrobots/echo/issues/49"];
+    i50 [label="#50\\nImplement 'inspect'", tooltip="Implement 'inspect'", URL="https://github.com/flyingrobots/echo/issues/50"];
+    i51 [label="#51\\nDocs/man pages", tooltip="Docs/man pages", URL="https://github.com/flyingrobots/echo/issues/51"];
+  }
+
+  subgraph cluster_S1___Deterministic_Rhai_Surface {
+    label="S1 – Deterministic Rhai Surface";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#ede9fe"];
+    i173 [label="#173\\nS1: Deterministic Rhai surface (sandbox + claims/effects)", tooltip="S1: Deterministic Rhai surface (sandbox + claims/effects)", URL="https://github.com/flyingrobots/echo/issues/173"];
+  }
+
+  subgraph cluster_TT0___Time_Model_Spec_Lock {
+    label="TT0 – Time Model Spec Lock";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#dbeafe"];
+    i166 [label="#166\\nTT0: Time model spec lock (TimeStreams + admission digests)", tooltip="TT0: Time model spec lock (TimeStreams + admission digests)", URL="https://github.com/flyingrobots/echo/issues/166"];
+  }
+
+  subgraph cluster_TT1___Streams_Inspector_Frame {
+    label="TT1 – Streams Inspector Frame";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#dbeafe"];
+    i170 [label="#170\\nTT1: StreamsFrame inspector support (backlog + cursors + admission decisions)", tooltip="TT1: StreamsFrame inspector support (backlog + cursors + admission decisions)", URL="https://github.com/flyingrobots/echo/issues/170"];
+  }
+
+  subgraph cluster_TT2___Time_Travel_MVP {
+    label="TT2 – Time Travel MVP";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#dbeafe"];
+    i171 [label="#171\\nTT2: Time Travel MVP (pause/rewind/buffer/catch-up)", tooltip="TT2: Time Travel MVP (pause/rewind/buffer/catch-up)", URL="https://github.com/flyingrobots/echo/issues/171"];
+  }
+
+  subgraph cluster_TT3___Rulial_Diff___Worldline_Compare {
+    label="TT3 – Rulial Diff / Worldline Compare";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#dbeafe"];
+    i172 [label="#172\\nTT3: Rulial diff / worldline compare MVP", tooltip="TT3: Rulial diff / worldline compare MVP", URL="https://github.com/flyingrobots/echo/issues/172"];
+  }
+
+  subgraph cluster_W1___Wesley_as_a_Boundary_Grammar {
+    label="W1 – Wesley as a Boundary Grammar";
+    style="rounded";
+    color="gray70";
+    node [fillcolor="#ccfbf1"];
+    i174 [label="#174\\nW1: Wesley as a boundary grammar (hashable view artifacts)", tooltip="W1: Wesley as a boundary grammar (hashable view artifacts)", URL="https://github.com/flyingrobots/echo/issues/174"];
+  }
+
+  i166 -> i170 [color="black", penwidth=1.4, style="solid", tooltip="TT0 -> TT1"];
+  i170 -> i171 [color="black", penwidth=1.4, style="solid", tooltip="TT1 -> TT2 (explicit)"];
+  i166 -> i172 [color="black", penwidth=1.4, style="solid", tooltip="TT0 -> TT3"];
+  i88 -> i173 [color="black", penwidth=1.4, style="solid", tooltip="capability tokens for deterministic surface"];
+  i21 -> i173 [color="gray40", penwidth=1.2, style="dashed", tooltip="security contexts likely required"];
+  i26 -> i173 [color="gray40", penwidth=1.2, style="dashed", tooltip="plugin ABI likely required"];
+  i166 -> i173 [color="gray40", penwidth=1.2, style="dashed", tooltip="time model spec lock likely required"];
+  i174 -> i173 [color="gray70", penwidth=1.2, style="dotted", tooltip="Wesley grammar maybe required"];
+  i37 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="draft spec feeds epic"];
+  i38 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="ffi limits feed epic"];
+  i39 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="wasm validation feed epic"];
+  i40 -> i21 [color="black", penwidth=1.4, style="solid", tooltip="denial tests feed epic"];
+  i32 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="draft spec feeds epic"];
+  i33 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="ci sign dry run feeds epic"];
+  i34 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="cli verify path feeds epic"];
+  i35 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="key mgmt doc feeds epic"];
+  i36 -> i20 [color="black", penwidth=1.4, style="solid", tooltip="ci verify feeds epic"];
+  i47 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="scaffold feeds epic"];
+  i48 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="verify subcommand feeds epic"];
+  i49 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="bench subcommand feeds epic"];
+  i50 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="inspect subcommand feeds epic"];
+  i51 -> i23 [color="black", penwidth=1.4, style="solid", tooltip="docs/man pages feed epic"];
+  i75 -> i24 [color="black", penwidth=1.4, style="solid", tooltip="spec feeds epic"];
+  i76 -> i24 [color="black", penwidth=1.4, style="solid", tooltip="watcher feeds epic"];
+  i77 -> i24 [color="black", penwidth=1.4, style="solid", tooltip="snapshot swap feeds epic"];
+  i78 -> i24 [color="black", penwidth=1.4, style="solid", tooltip="gate+tests feed epic"];
+  i79 -> i24 [color="black", penwidth=1.4, style="solid", tooltip="docs/logging feed epic"];
+  i80 -> i25 [color="black", penwidth=1.4, style="solid", tooltip="spec feeds epic"];
+  i81 -> i80 [color="black", penwidth=1.4, style="solid", tooltip="reader depends on spec"];
+  i82 -> i80 [color="black", penwidth=1.4, style="solid", tooltip="loader depends on spec"];
+  i83 -> i80 [color="black", penwidth=1.4, style="solid", tooltip="integrity depends on spec"];
+  i84 -> i80 [color="black", penwidth=1.4, style="solid", tooltip="sample+tests depends on spec"];
+  i81 -> i25 [color="gray40", penwidth=1.2, style="dashed", tooltip="reader likely part of epic"];
+  i82 -> i25 [color="gray40", penwidth=1.2, style="dashed", tooltip="loader likely part of epic"];
+  i83 -> i25 [color="gray40", penwidth=1.2, style="dashed", tooltip="integrity likely part of epic"];
+  i84 -> i25 [color="gray40", penwidth=1.2, style="dashed", tooltip="sample+tests likely part of epic"];
+  i85 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="draft spec feeds epic"];
+  i86 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="header+loader feeds epic"];
+  i87 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="negotiation feeds epic"];
+  i88 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="capability tokens feed epic"];
+  i89 -> i26 [color="black", penwidth=1.4, style="solid", tooltip="example plugin feeds epic"];
+}

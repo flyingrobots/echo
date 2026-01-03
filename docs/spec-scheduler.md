@@ -2,7 +2,12 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Scheduler Specification (Phase 0)
 
-This document defines the scheduling engine that coordinates systems, branching timelines, and Codex’s Baby across the fixed-timestep loop. It supplements the architecture outline and will guide the first implementation in `@echo/core`.
+This document defines the **planned** ECS-style system scheduler (systems + phases + a dependency DAG) for Echo core.
+
+**Status (2026-01-02): spec only.** The implemented scheduler in this repo today is the `warp-core` rewrite scheduler (`reserve()` / deterministic drain).
+
+Start here for the doc map:
+- `docs/scheduler.md`
 
 ---
 
@@ -209,6 +214,59 @@ function runSystem(systemId: number, context: TickContext) {
 - `runSystem` should guard against asynchronous operations (throw if handler returns Promise).
 
 ---
+
+## Benchmark Scenarios (Future)
+
+These benchmarks apply to the **planned Echo ECS/system scheduler**, not the implemented `warp-core` rewrite scheduler.
+
+For the current `warp-core` rewrite scheduler benchmarks, see:
+- `docs/scheduler-performance-warp-core.md`
+
+Objective: validate scheduler behavior and complexity under realistic dependency graphs *before* implementation and during future tuning.
+
+### Scenarios
+
+1. **Flat Update Loop**
+   - 10, 50, 100 systems in the `update` phase with no dependencies.
+   - Measure cost per system invocation and scheduler overhead.
+
+2. **Dependency Chain**
+   - Linear chain of 100 systems (`A -> B -> C -> ...`).
+   - Validate topological ordering and detect any O(n^2) behavior.
+
+3. **Branching Graph**
+   - DAG with 10 layers, each 10 systems wide; edges from each layer to next.
+   - Pin deterministic tie-breaking for same-level priority.
+
+4. **Parallelizable Mix**
+   - Systems tagged `parallelizable` with no conflicts; simulate runtime by running sequentially but tracking the planned batch schedule.
+   - Later extend to actual parallel execution.
+
+5. **Pause Semantics**
+   - Mix of pauseable/unpauseable systems. Toggle pause flag mid-run.
+   - Validate that skipped systems remain skipped deterministically (and that required phases still run).
+
+6. **Branch Context Switching**
+   - Simulate multiple branches (Kairos IDs) within benchmarks to capture timeline flush behavior and branch-local queues.
+
+### Metrics
+- Average and max time per phase (`pre_update`, `update`, `post_update`, `render_prep`, `timeline_flush`).
+- Overhead vs pure system execution (scheduler time / total time).
+- Number of batches formed (parallel planning), and batch size distribution.
+- Cycle detection latency (time to detect graph updates).
+- Entropy/timeline flush cost (simulate diff persistence stub).
+
+### Tooling
+- Use Criterion for statistical benchmarking (or a JS benchmark harness if implemented in TS first).
+- Output results as JSON for inspector consumption.
+- Reuse the deterministic math PRNG for synthetic workload generation (avoid `Math.random()` / wall clocks).
+
+### Tasks
+- [ ] Implement system-scheduler benchmark harness once the system scheduler exists.
+- [ ] Implement mock system descriptors for each scenario.
+- [ ] Integrate with timeline fingerprint to simulate branches.
+- [ ] Record baseline numbers and link them from `docs/scheduler.md`.
+- [ ] Automate periodic runs (future CI step) once benchmarks stabilize.
 
 ## Open Questions
 - How to model resource conflicts for parallel execution (manual tags vs automatic detection).

@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+name: Refresh Dependency DAGs
+
+on:
+  schedule:
+    # Twice weekly (Mon/Thu) to keep planning artifacts fresh without spamming PRs.
+    - cron: "23 09 * * 1"
+    - cron: "23 09 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    name: Refresh issue/milestone DAGs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - name: Install Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Generate DAG DOT+SVG (from GitHub)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: cargo xtask dags --fetch --render --snapshot-label none
+
+      - name: Create PR if outputs changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: echo/auto-refresh-dependency-dags
+          delete-branch: true
+          title: "docs: refresh dependency DAGs"
+          commit-message: "docs: refresh dependency DAGs"
+          body: |
+            Automated refresh of dependency DAG artifacts under `docs/assets/dags/`.
+
+            ${{ vars.DAG_REFRESH_ISSUE && format('Refs #{0}', vars.DAG_REFRESH_ISSUE) || '' }}
+
+            Notes:
+            - Edges are defined in `docs/assets/dags/deps-config.json`.
+            - Generated via `cargo xtask dags --fetch --render --snapshot-label none`.
+            - Snapshot labels are omitted to avoid churn; the PR diff shows the actual changes.
+
+            If you enforce strict PR↔Issue linkage, consider adding a dedicated tracking issue
+            for this automation and referencing it here.
+          add-paths: |
+            docs/assets/dags/*.dot
+            docs/assets/dags/*.svg

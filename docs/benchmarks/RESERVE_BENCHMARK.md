@@ -102,7 +102,7 @@ The reserve_independence benchmark appears in the dashboard with:
 
 ### What This Doesn't Prove
 
-⚠️ **Not compared to old implementation** - Would need Vec<Footprint> baseline
+⚠️ **Not compared to old implementation** - Would need `Vec<Footprint>` baseline
 ⚠️ **Only tests m=1 footprints** - Larger footprints would scale linearly
 ⚠️ **Measures full commit cycle** - Includes enqueue + drain + reserve + execute
 
@@ -110,7 +110,7 @@ The reserve_independence benchmark appears in the dashboard with:
 
 1. **Vary footprint size (m)** - Test with m=10, m=50, m=100 to show linear scaling in m
 2. **Conflict scenarios** - Benchmark early-exit paths when conflicts occur
-3. **Comparison benchmark** - Implement Vec<Footprint> approach for direct comparison
+3. **Comparison benchmark** - Implement `Vec<Footprint>` approach for direct comparison
 4. **Stress test** - Push to n=100K or higher to find performance cliffs
 
 ## Related Documentation

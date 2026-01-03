@@ -6,6 +6,7 @@ node_modules
 dist
 coverage
 target
+docs/.vitepress/cache
 
 # Editor cruft
 .DS_Store

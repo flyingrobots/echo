@@ -35,6 +35,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-02 — Docs consolidation: scheduler doc map (issue #210) (IN PROGRESS)
+
+- Goal: reduce confusion between the implemented `warp-core` rewrite scheduler and the planned Echo ECS/system scheduler.
+- Scope:
+  - Add a scheduler landing doc (`docs/scheduler.md`) that maps “which doc should I read?”
+  - Update scheduler docs to clearly label scope/status and link back to the landing page.
+  - Merge the `reserve()` validation/complexity satellites into a single canonical warp-core scheduler doc (`docs/scheduler-warp-core.md`) and leave redirects behind.
+  - Consolidate scheduler benchmark notes into a single canonical warp-core performance doc (`docs/scheduler-performance-warp-core.md`) and leave a redirect behind.
+  - Keep changes documentation-only.
+- Exit criteria: scheduler docs are self-consistent and discoverable from `docs/docs-index.md`.
+
 > 2026-01-02 — Dependency DAG sketches (issues + milestones) (IN PROGRESS)
 
 - Goal: produce a durable “do X before Y” visual map across a subset of open GitHub Issues + Milestones so we can sequence work intentionally (especially around TT0/TT1/TT2/TT3 and S1 dependencies).

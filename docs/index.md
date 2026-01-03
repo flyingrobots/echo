@@ -6,7 +6,18 @@ title: Echo Docs
 
 # Echo
 
-Deterministic, multiverse-aware ECS.
+Echo is a deterministic graph‑rewrite engine + tooling stack for simulations you can replay, verify, and synchronize without guessing.
 
-- See the Collision DPO Tour: [Open the interactive HTML](/collision-dpo-tour.html).
-- Read the spec: [Geometry & Collision](/spec-geom-collision.md).
+Start here:
+
+- Docs index: [Docs Index](/docs-index)
+- Architecture outline: [Architecture Outline](/architecture-outline)
+- WARP primer: [WARP Primer](/guide/warp-primer)
+- Core runtime spec: [warp-core](/spec-warp-core)
+- Current focus: [Execution Plan](/execution-plan)
+- Decision log: [Decision Log](/decision-log)
+
+Interactive:
+
+- Collision DPO tour (HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+- Geometry & collision (spec stub): [Spec](/spec-geom-collision)

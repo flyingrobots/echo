@@ -16,6 +16,12 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - Capture milestones, blockers, and decisions directly in this repo (e.g. `docs/decision-log.md`, relevant specs, or PR descriptions).
 - When wrapping up, record outcomes and next steps in the Decision Log and ensure any impacted docs stay in sync.
 
+## Workflows & Automation
+- The contributor playbook lives in `docs/workflows.md` (policy + blessed commands + automation).
+- Preferred repo maintenance entrypoint is `cargo xtask …` (see `xtask/` and `.cargo/config.toml`).
+- Planning DAG artifacts live in `docs/assets/dags/` and are documented in `docs/dependency-dags.md`.
+- For automated DAG refresh PRs, set `DAG_REFRESH_ISSUE=<issue-number>` as a GitHub Actions variable so the bot PR body includes `Refs #…`.
+
 ## Repository Layout
 - `packages/echo-core`: Runtime core (ECS, scheduler, Codex’s Baby, timelines).
 - `apps/playground`: Vite sandbox and inspector (future).

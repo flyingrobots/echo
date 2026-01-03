@@ -1,3 +1,4 @@
 AGENTS.md merge=union
 docs/decision-log.md merge=union
 TASKS-DAG.md merge=union
+docs/execution-plan.md merge=union

@@ -35,7 +35,18 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2026-01-03 — PR #213: merge `origin/main` + resolve review feedback (IN PROGRESS)
+> 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
+
+- Goal: land the remaining open PRs in oldest-first order using a deterministic merge workflow (no rebases).
+- Scope (repeat per PR):
+  - Checkout the PR branch.
+  - Merge `origin/main` into it and resolve conflicts.
+  - Pull PR comments/review threads and extract actionable items (including human reviewer notes).
+  - Fix remaining issues (or perform a strict self-review if no actionables remain), then push.
+  - If clean: merge the branch into `origin/main` via merge commit and verify PR state.
+- Exit criteria: each PR is either merged to `main` or has a pushed fix commit + explicit next-step notes.
+
+> 2026-01-03 — PR #213: merge `origin/main` + resolve review feedback (DONE)
 
 - Goal: land PR #213 cleanly by merging the latest `origin/main`, resolving conflicts deterministically, and addressing all review comments.
 - Scope:

@@ -703,7 +703,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2025-11-02 — PR-12: benches polish (constants + docs)
 
-- snapshot_hash: extract all magic strings to constants; clearer edge ids using `<from>-to-<to>` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
+- snapshot_hash: extract all magic strings to constants; clearer edge ids using `&lt;from&gt;-to-&lt;to&gt;` labels; use `iter_batched` to avoid redundant inputs; explicit throughput semantics.
 - scheduler_drain: DRY rule name/id prefix constants; use `debug_assert!` inside hot path; black_box the post-commit snapshot; added module docs and clarified BatchSize rationale.
 - blake3 policy: keep exact patch `=1.8.2` and disable default features to avoid
   rayon/parallel hashing in benches.

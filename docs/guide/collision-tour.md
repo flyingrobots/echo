@@ -5,6 +5,6 @@
 The interactive tour illustrates how Echo models collision and CCD as DPO graph rewrites.
 
 - Launch the tour: [`docs/public/collision-dpo-tour.html`](/collision-dpo-tour.html)
-- Assets live under `docs/assets/collision/`.
+- Assets live under `docs/public/assets/collision/`.
 
 Tip: Toggle the World/Graph tabs in the picture-in-picture panel and use the Prev/Next buttons to step through each rule.

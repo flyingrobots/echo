@@ -6,5 +6,6 @@ The interactive tour illustrates how Echo models collision and CCD as DPO graph 
 
 - Launch the tour: [`docs/public/collision-dpo-tour.html`](/collision-dpo-tour.html)
 - Assets live under `docs/public/assets/collision/`.
+- Spec stub: `docs/spec-geom-collision.md`.
 
 Tip: Toggle the World/Graph tabs in the picture-in-picture panel and use the Prev/Next buttons to step through each rule.

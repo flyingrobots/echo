@@ -39,40 +39,29 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 - Goal: land PR #213 cleanly by merging the latest `origin/main`, resolving conflicts deterministically, and addressing all review comments.
 - Scope:
-  - Fetch + checkout the PR #213 head branch locally.
   - Merge `origin/main` into the PR branch (no rebase) and resolve conflicts.
-  - Pull PR comments/review threads and implement requested fixes (code + docs as needed).
-  - Run `cargo test` + `cargo clippy --all-targets -- -D missing_docs` before pushing.
-- Exit criteria:
-  - Branch builds/tests cleanly and incorporates `origin/main` without conflict markers.
-  - Review threads are either resolved in code or acknowledged with concrete follow-ups.
-  - Updated branch pushed to the PR remote.
+  - Pull PR comments/review threads and implement requested fixes (docs + tooling as needed).
+  - Verify `pnpm docs:build` is green before pushing.
+- Exit criteria: conflicts resolved, review feedback addressed, and the updated branch pushed to the PR remote.
 
-> 2026-01-02 — Docs tooling: upgrade VitePress (COMPLETED)
+> 2026-01-03 — PR #178: TT0 TimeStreams + wormholes spec lock (IN PROGRESS)
 
-- Goal: make the docs site build reliably on modern Node by upgrading the pinned VitePress version (was `vitepress@0.1.1`).
+- Goal: merge `origin/main` into `echo/time-streams-wormholes-166`, resolve review feedback, and push updates to unblock CodeRabbit re-review.
 - Scope:
-  - Upgrade `vitepress` dependency and regenerate the lockfile.
-  - Keep docs config compatible; fix any breaking changes in `docs/.vitepress/config.ts`.
-  - Fix parsing issues where angle-bracket strings are interpreted as HTML tags.
-  - Resolve newly-enforced dead-link checks.
-  - Verify `pnpm docs:build` works (and `pnpm docs:dev` starts) on a modern Node.
-- Exit criteria (technical):
-  - `pnpm docs:build` is green (no parsing errors, no dead-link errors).
-  - Verified on Node 25; keep version floor aligned with `vitepress`’s engine requirements.
-  - Tooling requirements are recorded in `README.md` (docs commands) and `package.json` (`packageManager`, pinned versions).
-- Exit criteria (process): PR merged to `main` and issue closed.
+  - Merge `origin/main` into the branch (no rebase).
+  - Address all actionable CodeRabbit review items (correctness + doc lint).
+  - Ensure all “explicitly deferred” sections are linked to tracking issues.
+- Exit criteria: actionable review list is empty and the branch pushes cleanly.
 
-> 2026-01-02 — Docs usability pass: onboarding + navigation (IN PROGRESS)
+> 2026-01-02 — Docs audit: purge/merge/splurge pass (IN PROGRESS)
 
-- Goal: make the docs site actually usable for newcomers (clear “what is Echo”, clear guided paths, fewer dead ends).
+- Goal: audit Echo docs for staleness and overlap, then decide which docs should be purged, merged, or expanded (starting with `docs/math-validation-plan.md`).
 - Scope:
-  - Add a “Start Here” guide and make it the primary entry point.
-  - Add an “ELI5” spiral on-ramp for non-programmers, and link it as the first step.
-  - Reshape `/docs-index` into a curated map (not a raw inventory dump).
-  - Ensure key pages render correctly under VitePress without YAML frontmatter.
-  - Purge confusing legacy references that don’t help new readers.
-- Exit criteria: Home + Start Here + Docs Map tell a coherent story, and `pnpm docs:build` remains green.
+  - Refresh `docs/math-validation-plan.md` to match the current deterministic math implementation and CI coverage.
+  - Produce a short audit memo listing candidate docs to purge/merge/splurge with rationale.
+  - Fix a concrete dead-link cluster by making the collision tour build-visible (`docs/public/collision-dpo-tour.html`) and adding a `docs/spec-geom-collision.md` stub.
+  - Keep changes single-purpose: documentation only (no runtime changes).
+- Exit criteria: audit memo committed + updated math validation plan; PR opened (tracked under issue #208).
 
 > 2026-01-02 — Issue #214: strict Origin allowlist semantics (IN PROGRESS)
 

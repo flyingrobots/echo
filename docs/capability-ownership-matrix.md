@@ -2,16 +2,44 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Capability Ownership Matrix
 
-This document is a **living boundary map** for Echo.
+Date: 2026-01-01
+Status: Draft (Phase 0.75)
+
+This document is a living boundary map for Echo.
 
 It answers (explicitly, in one place):
 
 - Who **owns** vs **consumes** each capability?
-- What is the determinism requirement at each layer?
+- What determinism level is required at each layer?
 - What provenance is required to make replay / time travel honest?
-- Which external dependencies (clocks, OS IO, networks) are allowed to influence state, and **how**?
+- Which external dependencies (clocks, OS IO, networks) are allowed to influence state, and how?
 
 It is intentionally redundant with specs: the point is to keep the architecture legible while it is evolving.
+
+---
+
+## Layers (Echo interpretation)
+
+Use these columns consistently:
+
+- **Platform**: host integration and durable artifacts/contracts (process, filesystem, sockets, timers, OS scheduling, worldline storage, commit hashing, tick patch format, digests). Nondeterministic by default.
+- **Kernel**: deterministic semantic core (rewrite engine, scheduler, receipts, snapshot/tick structure, deterministic decision records including stream admission decisions). HistoryTime-only.
+- **Views**: controlled accessors and projections over history (query APIs, inspectors, adapters). Any interaction with HostTime/IO must be recorded as replay-safe claims/decisions.
+- **Tooling**: UIs, dashboards, CLI workflows (read-only by default; must be usable during pause/rewind; any control surface must be capability-gated and recorded).
+- **Docs**: specs, decision log, procedures; the “human-facing API”.
+
+---
+
+## Ratings
+
+- **Determinism**
+  - `none`: may vary per run; not replayable
+  - `best-effort`: tries to be stable but not a contract
+  - `deterministic`: replayable given pinned artifacts/inputs
+- **Provenance**
+  - `none`: no tracking
+  - `basic`: timestamps/ids only
+  - `strong`: hash/CID-linked; replay/audit friendly
 
 ---
 
@@ -37,21 +65,9 @@ External Deps: <list or “none”>
 
 ---
 
-## Layers (Echo interpretation)
-
-Use these columns consistently:
-
-- **Platform**: host integration (process, filesystem, sockets, timers, OS scheduling). Nondeterministic by default.
-- **Kernel**: deterministic semantic core (graph rewrite, receipts, snapshot/tick structure).
-- **Views**: materialized/queryable projections over history (SWS, inspectors, query APIs).
-- **Tooling**: UIs, dashboards, CLI workflows (must be usable during pause/rewind).
-- **Docs**: specs, decision log, procedures; the “human-facing API”.
-
----
-
 ## First-Pass Fill (Current Echo stack)
 
-This is a *starter* fill that we will revise as Echo components stabilize.
+This is a starter fill that we will revise as Echo components stabilize.
 
 Legend (compact):
 
@@ -79,11 +95,11 @@ Legend (compact):
 
 These are the guarantees that must hold across layers if we want deterministic replay and time travel to be “honest”:
 
-1. **Deterministic Core**: kernel state transitions are pure functions of `(prior state, admitted inputs, pinned rule-pack / schema hashes)`.
-2. **Time As Data**: kernel never consults HostTime directly; HostTime is only observed in Platform and converted into **Decision Records** (HistoryTime).
+1. **Deterministic Core**: kernel state transitions are pure functions of `(prior state, admitted inputs, pinned rule-pack / schema hashes)`; no HostTime/OS IO calls inside kernel semantic transitions.
+2. **Time As Data**: kernel never consults HostTime directly; HostTime is only observed in Platform/Views and converted into Decision Records (HistoryTime) before it can influence semantics.
 3. **Provenance First**: all externally meaningful artifacts (schemas, policies, rule packs) are referenced by content hash (CID) in receipts.
 4. **Network Boundary**: IO is treated as external stimuli; any nondeterministic observation is recorded as a claim before it can affect semantic state.
-5. **Replay Integrity**: if semantics change (schema/compiler), history must carry a version/hash pin (fail closed or migrate deterministically).
+5. **Replay Integrity**: if semantics change (schema/compiler), history carries a version/hash pin (fail closed or migrate deterministically).
 
 ---
 
@@ -91,3 +107,8 @@ These are the guarantees that must hold across layers if we want deterministic r
 
 - This matrix should become part of the “phase overview” review checklist: when a capability moves from experimental → beta, update the cell and link evidence (PRs/specs/tests).
 - When we formalize Wesley and/or a view grammar, split “Schema / Interfaces” into: boundary grammar, IR schema pinning, and codegen outputs.
+
+## Near-Term TODOs
+
+- (#174) Decide where “Wesley grammar/IR” lives in this matrix (Platform vs Schema layer), and whether its schema hash is required on all receipts.
+- (#170) Specify the `StreamsFrame` inspector payload (backlog, cursors, `StreamAdmissionDecision` summaries).

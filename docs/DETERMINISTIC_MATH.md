@@ -12,6 +12,12 @@ Achieving bit-perfect determinism across disparate hardware architectures (x86_6
 is difficult due to loosely defined behaviors in the IEEE 754 specification. While basic arithmetic
 is largely standardized, "freaky numbers" (NaN, Subnormals, Signed Zero) introduce divergence.
 
+## Related Docs
+
+- **Normative policy:** `docs/SPEC_DETERMINISTIC_MATH.md`
+- **Validation & CI lanes:** `docs/math-validation-plan.md`
+- **Math claims / theory framing:** `docs/warp-math-claims.md`
+
 ## 1. NaN Payloads
 **The Hazard:** IEEE 754 standardizes that `0.0 / 0.0` produces `NaN`, but it does *not* mandate
 the exact bit pattern of that `NaN`.

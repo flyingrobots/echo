@@ -12,12 +12,14 @@ and each tick applies deterministic rewrite rules to that graph.
 - Start Here guide: [/guide/start-here](/guide/start-here)
 - WARP primer: [/guide/warp-primer](/guide/warp-primer)
 - Architecture overview (draft, but the source of truth for intent): [/architecture-outline](/architecture-outline)
+- Core runtime spec (`warp-core`): [/spec-warp-core](/spec-warp-core)
 
 ## Run Something (learn by doing)
 
 - WARP View Protocol demo (hub + 2 viewers): [/guide/wvp-demo](/guide/wvp-demo)
 - Collision tour (walkthrough + links): [/guide/collision-tour](/guide/collision-tour)
 - Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+- Geometry & collision (spec stub): [/spec-geom-collision](/spec-geom-collision)
 
 ## When You Need a Map
 

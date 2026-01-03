@@ -111,6 +111,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Run the tool against at least one PR to confirm output format and any required auth/config.
 - Exit criteria: documented “how to run” steps for the tool; confidence that we can repeatably extract issues from PR comments for subsequent PRs.
 
+> 2026-01-02 — Issue #228: PR review ack “one comment per round” (IN PROGRESS)
+
+- Goal: stop notification floods during PR burn-down by acknowledging a whole fix batch with **one** PR timeline comment (per round), instead of replying on every review thread.
+- Scope:
+  - Extend `.github/scripts/extract-actionable-comments.sh` to treat a single PR conversation “round ack” comment as acks for multiple review-thread items (`discussion_r<id>`).
+  - Keep ack validation deterministic: require human authorship and a commit SHA that exists in the PR.
+  - Update `docs/procedures/*` so the default loop is “fix batch → push → post one round ack comment”.
+- Exit criteria: extractor recognizes round acks; procedures updated; CI green.
+
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
 - Goal: un-ignore the trig “error budget” test by replacing its platform-libm reference with a deterministic oracle, then pin explicit accuracy thresholds so CI can catch regressions in the LUT-backed trig backend.

@@ -42,7 +42,9 @@ It is designed to:
 
 - include review comments from **all** authors (CodeRabbitAI *and* human reviewers),
 - include “outdated” comments that are not visible on the current head diff,
-- detect `✅ Addressed in commit ...` markers in replies (authored by a human),
+- detect `✅ Addressed in commit ...` markers authored by a human:
+  - either as review-thread replies, or
+  - as a single PR conversation “round ack” comment listing `discussion_r<id>` targets,
 - and produce a deterministic Markdown report.
 
 To widen the net beyond inline review threads, you can include:
@@ -143,7 +145,20 @@ Important: **do not** treat a bare substring match as reliable.
 - Review bots (including CodeRabbitAI) may include the exact string as a template/example in their own review text.
 - If you count those as “acknowledged”, you can incorrectly report “0 actionables” and miss real work.
 
-For **review threads**, prefer a human-authored reply containing a commit SHA that is actually part of the PR.
+For **review threads**, prefer a single PR conversation “round ack” comment per fix batch (to avoid notification floods)
+that contains a commit SHA that is actually part of the PR and explicitly lists the review-thread targets.
+
+Recommended format (post once per fix round):
+
+```text
+✅ Addressed in commit abc1234
+
+Acked review threads:
+- discussion_r2658147649
+- discussion_r2658147651
+```
+
+Review-thread replies also work, but generate significantly more GitHub notifications.
 
 For **PR conversation comments** and **review summaries**, you may also use the marker in your own comment body (or edit), but only treat it as acknowledged when the marker includes a real PR commit SHA.
 

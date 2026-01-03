@@ -88,6 +88,17 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Ensure all “explicitly deferred” sections are linked to tracking issues.
 - Exit criteria: actionable review list is empty and the branch pushes cleanly.
 
+> 2026-01-02 — Issue #219: enforce CodeRabbit approval as a merge gate (IN PROGRESS)
+
+- Goal: make “don’t merge until CodeRabbit approves” an enforced rule, not a social norm.
+- Scope:
+  - Step 1 (in-repo): add a lightweight GitHub Actions workflow that runs on `pull_request` + `pull_request_review` events and reports a stable status check.
+    - This check currently appears as: `PR Merge Gate / CodeRabbit approval required`.
+    - The workflow triggers automatically on PR pushes (`synchronize`) and when CodeRabbit submits/edits/dismisses reviews, so mergeability updates without manual re-runs.
+  - Step 2 (GitHub UI / ops): require that status check in the `main` ruleset (and remove bypass actors) so merges are blocked until the CodeRabbit bot (`coderabbitai[bot]`) has approved the PR head commit.
+- Exit criteria: Step 2 is applied — a PR without a CodeRabbit approval is not mergeable; once CodeRabbit approves the head commit, the PR becomes mergeable without manual workflow re-runs.
+- Tracking: GitHub issue #219.
+
 > 2026-01-02 — Docs audit: purge/merge/splurge pass (IN PROGRESS)
 
 - Goal: audit Echo docs for staleness and overlap, then decide which docs should be purged, merged, or expanded (starting with `docs/math-validation-plan.md`).

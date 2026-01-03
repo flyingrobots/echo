@@ -90,14 +90,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2026-01-02 — Issue #219: enforce CodeRabbit approval as a merge gate (IN PROGRESS)
 
-- Goal: make “don’t merge until CodeRabbit approves” an enforced rule, not a social norm.
+> 2026-01-03 — Issue #248: remove the CodeRabbit approval-gate CI workflow (DONE)
+
+- Goal: remove the GitHub Actions merge gate workflow that fails before CodeRabbit has had a chance to review, leaving stale red checks even after approval.
 - Scope:
-  - Step 1 (in-repo): add a lightweight GitHub Actions workflow that runs on `pull_request` + `pull_request_review` events and reports a stable status check.
-    - This check currently appears as: `PR Merge Gate / CodeRabbit approval required`.
-    - The workflow triggers automatically on PR pushes (`synchronize`) and when CodeRabbit submits/edits/dismisses reviews, so mergeability updates without manual re-runs.
-  - Step 2 (GitHub UI / ops): require that status check in the `main` ruleset (and remove bypass actors) so merges are blocked until the CodeRabbit bot (`coderabbitai[bot]`) has approved the PR head commit.
-- Exit criteria: Step 2 is applied — a PR without a CodeRabbit approval is not mergeable; once CodeRabbit approves the head commit, the PR becomes mergeable without manual workflow re-runs.
-- Tracking: GitHub issue #219.
+  - Remove the workflow file from `.github/workflows/`.
+  - Treat “wait for CodeRabbit approval” as a procedural requirement (human + bot workflow), not a status-check requirement that can race the bot.
+- Exit criteria: the approval gate workflow is removed and docs no longer reference it.
+- Tracking: GitHub issue #248.
+
+> 2026-01-02 — Issue #219: enforce CodeRabbit approval as a merge gate (DEPRECATED)
+
+- Outcome: the merge-gate workflow approach proved noisy in practice (it commonly runs before CodeRabbit can review and can leave stale failures). It was removed under issue #248.
+- Replacement: keep CodeRabbit approval as a “merge only when approved” policy, enforced socially and via review procedures (`docs/procedures/PR-SUBMISSION-REVIEW-LOOP.md`).
 
 > 2026-01-02 — Docs audit: purge/merge/splurge pass (IN PROGRESS)
 

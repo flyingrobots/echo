@@ -177,6 +177,25 @@ fn dpo_litmus_commuting_independent_pair() -> Result<(), EngineError> {
         receipt_b.digest(),
         "receipt digest must match across enqueue orders"
     );
+
+    // Verify both candidates were actually applied (not just that digests match).
+    let a_entries = receipt_a.entries();
+    assert_eq!(a_entries.len(), 2, "fixture must produce two candidates");
+    assert!(
+        a_entries
+            .iter()
+            .all(|e| e.disposition == warp_core::TickReceiptDisposition::Applied),
+        "independent candidates must both be applied"
+    );
+
+    let b_entries = receipt_b.entries();
+    assert_eq!(b_entries.len(), 2, "fixture must produce two candidates");
+    assert!(
+        b_entries
+            .iter()
+            .all(|e| e.disposition == warp_core::TickReceiptDisposition::Applied),
+        "independent candidates must both be applied (order B)"
+    );
     Ok(())
 }
 
@@ -184,6 +203,10 @@ fn dpo_litmus_commuting_independent_pair() -> Result<(), EngineError> {
 fn dpo_litmus_conflicting_pair_is_deterministically_rejected() -> Result<(), EngineError> {
     // Two candidates overlap (critical-pair style): only one should be admitted,
     // and the winner must be deterministic (enqueue-order independent).
+    //
+    // Conflict surface: both `motion/update` and `demo/port_nop` write the same
+    // α-plane node attachment slot (the motion payload), so their `a_write`
+    // footprints intersect when scoped to the same node.
     fn setup() -> Result<(Engine, NodeId), EngineError> {
         let mut engine = build_litmus_engine()?;
 
@@ -249,6 +272,13 @@ fn dpo_litmus_conflicting_pair_is_deterministically_rejected() -> Result<(), Eng
     assert_eq!(applied, 1, "exactly one candidate must be applied");
     assert_eq!(rejected, 1, "exactly one candidate must be rejected");
 
+    let b_entries = receipt_b.entries();
+    assert_eq!(b_entries.len(), 2, "fixture must produce two candidates");
+    assert_eq!(
+        a_entries, b_entries,
+        "receipt structure must be order-independent (not just digest)"
+    );
+
     Ok(())
 }
 
@@ -303,6 +333,13 @@ fn dpo_litmus_overlapping_scope_disjoint_ports_are_composable() -> Result<(), En
             .iter()
             .all(|e| e.disposition == warp_core::TickReceiptDisposition::Applied),
         "both disjoint-port candidates should be admitted"
+    );
+
+    let b_entries = receipt_b.entries();
+    assert_eq!(b_entries.len(), 2);
+    assert_eq!(
+        entries, b_entries,
+        "receipt structure must be order-independent (not just digest)"
     );
 
     Ok(())

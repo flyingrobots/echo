@@ -17,6 +17,7 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 - WARP View Protocol demo: [/guide/wvp-demo](/guide/wvp-demo)
 - Collision tour: [/guide/collision-tour](/guide/collision-tour)
 - Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
+- Tumble Tower scenario (deterministic physics ladder): [/guide/tumble-tower](/guide/tumble-tower)
 
 ## Core WARP Specs (High Leverage)
 

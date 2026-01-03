@@ -29,3 +29,7 @@ pnpm-debug.log*
 # Temporary
 tmp
 temp
+
+# Playwright artifacts
+test-results
+playwright-report

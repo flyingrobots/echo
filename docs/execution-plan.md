@@ -41,8 +41,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Scope:
   - Upgrade `vitepress` dependency and regenerate the lockfile.
   - Keep docs config compatible; fix any breaking changes in `docs/.vitepress/config.ts`.
+  - Fix parsing issues where angle-bracket strings are interpreted as HTML tags.
+  - Resolve newly-enforced dead-link checks.
   - Verify `pnpm docs:build` works (and `pnpm docs:dev` starts) on a modern Node.
-- Exit criteria: `pnpm docs:build` is green; docs tooling requirements are documented; PR opened and linked to an issue.
+- Exit criteria (technical):
+  - `pnpm docs:build` is green (no parsing errors, no dead-link errors).
+  - Verified on Node 25; keep version floor aligned with `vitepress`’s engine requirements.
+  - Tooling requirements are recorded in `README.md` (docs commands) and `package.json` (`packageManager`, pinned versions).
+- Exit criteria (process): PR merged to `main` and issue closed.
 
 > 2026-01-02 — Docs usability pass: onboarding + navigation (IN PROGRESS)
 
@@ -54,6 +60,39 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Ensure key pages render correctly under VitePress without YAML frontmatter.
   - Purge confusing legacy references that don’t help new readers.
 - Exit criteria: Home + Start Here + Docs Map tell a coherent story, and `pnpm docs:build` remains green.
+
+> 2026-01-02 — Issue #214: strict Origin allowlist semantics (IN PROGRESS)
+
+- Goal: keep `echo-session-ws-gateway`’s `--allow-origin` behavior strict and make that policy obvious to operators and contributors.
+- Scope:
+  - Document “strict allowlist” behavior in `crates/echo-session-ws-gateway/README.md` (missing `Origin` is rejected when `--allow-origin` is configured).
+  - Add a unit test in `crates/echo-session-ws-gateway/src/main.rs` that locks the behavior (missing `Origin` rejected only when allowlist is present).
+- Exit criteria: issue #214 is closed by a small PR; `cargo test -p echo-session-ws-gateway` is green.
+- Tracking: GitHub issue #214.
+
+> 2026-01-02 — Issue #215: CI Playwright dashboard smoke job (IN PROGRESS)
+
+- Goal: add a GitHub Actions job that runs the Playwright Session Dashboard smoke test on PRs/pushes and publishes artifacts so embedded-tooling regressions can’t silently land.
+- Scope:
+  - Extend `.github/workflows/ci.yml` with a Playwright job that:
+    - installs Node + pnpm (pinned to `package.json`),
+    - installs Chromium via `playwright install`,
+    - runs `pnpm exec playwright test e2e/session-dashboard.spec.ts`,
+    - uploads `playwright-report/` and `test-results/` as artifacts (even on failure).
+  - Keep `ECHO_CAPTURE_DASHBOARD_SCREENSHOT` disabled in CI (CI should not mutate tracked files); rely on Playwright attachments/artifacts for visual inspection.
+- Exit criteria: PR is open + green (new CI job passes); artifacts are present on failure; `ci.yml` change is documented in `docs/decision-log.md`.
+- Tracking: GitHub issue #215.
+
+> 2026-01-02 — PR triage pipeline: start with PR #179 (IN PROGRESS)
+
+- Goal: sync to PR #179 and validate the tooling for pulling PR review comments and extracting actionable issues (including human reviewer notes), so we can systematically close review feedback across the open PR queue and merge cleanly once approved.
+- Scope:
+  - Checkout PR #179’s branch locally.
+  - Identify where the tool pulls PR comments from (GitHub API / `gh` CLI / local refs) and what comment types it includes (issue comments, review comments, review summaries).
+  - Ensure the report is attributable (comment author is included) so non-CodeRabbit actionables are not lost.
+  - Ensure “✅ Addressed in commit …” ack markers cannot be spoofed by templated bot text (require a human-authored ack with a real PR commit SHA).
+  - Run the tool against at least one PR to confirm output format and any required auth/config.
+- Exit criteria: documented “how to run” steps for the tool; confidence that we can repeatably extract issues from PR comments for subsequent PRs.
 
 > 2026-01-02 — Issue #177: deterministic trig audit oracle + pinned error budgets (IN PROGRESS)
 
@@ -75,6 +114,38 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Extend Paper VI notes in `aion-paper-06` (HostTime/HistoryTime, decision records, multi-clock streams, replay integrity hooks).
 - Exit criteria: matrix + notes are concrete enough to guide near-term implementation choices and future tool UX.
 - Tracking: GitHub issue #180.
+
+> 2026-01-01 — PR hygiene: standardize CodeRabbitAI review triage (COMPLETED)
+
+- Goal: make CodeRabbitAI review loops cheap and unambiguous by codifying how we extract actionable comments from the current PR head diff.
+- Scope:
+  - Add mandatory procedures under `docs/procedures/` for PR submission and review comment extraction.
+  - Add a helper script `.github/scripts/extract-actionable-comments.sh` to automate review comment bucketing and produce a Markdown report.
+- Exit criteria: a contributor can run one command and get a clean actionables list without re-reading the entire PR history.
+
+> 2026-01-01 — T2 (#168): embedded session dashboard baseline (COMPLETED)
+
+- Goal: keep the “run a binary, open a page” dashboard workflow stable while standardizing styling and keeping docs screenshots honest.
+- Scope:
+  - Serve a static dashboard from `echo-session-ws-gateway` (`/dashboard`) plus `/api/metrics`.
+  - Vendor Open Props CSS into the gateway and serve it under `/vendor/*.css` for offline use.
+  - Add Playwright smoke tests that exercise the dashboard and optionally regenerate the screenshot used in `docs/guide/wvp-demo.md`.
+- Exit criteria: `cargo clippy -p echo-session-ws-gateway --all-targets -- -D warnings` green; `pnpm exec playwright test` green; updated screenshot checked in.
+- Evidence:
+  - PR #176 (session dashboard + Playwright smoke + screenshot regen)
+  - Dashboard: `crates/echo-session-ws-gateway/assets/dashboard.html`
+  - Routes: `crates/echo-session-ws-gateway/src/main.rs`
+  - e2e: `e2e/session-dashboard.spec.ts`
+  - Docs screenshot: `docs/assets/wvp/session-dashboard.png`
+
+> 2026-01-01 — T2 (#168): make dashboard smoke tests self-contained (COMPLETED)
+
+- Goal: ensure the Playwright “Session Dashboard” smoke test can build and run all required binaries from a clean checkout.
+- Scope:
+  - Add a tiny `echo-session-client` example (`publish_pulse`) used by the e2e test to generate deterministic, gapless snapshot+diff traffic.
+- Exit criteria: `pnpm exec playwright test` no longer depends on local stashes / untracked artifacts.
+- Evidence:
+  - `pnpm exec playwright test e2e/session-dashboard.spec.ts` (green)
 
 > 2026-01-01 — Issue #169: harden WVP demo with loopback tests (COMPLETED)
 

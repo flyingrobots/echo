@@ -84,7 +84,7 @@ This track turns “time travel” from theme into an implementable contract.
 
 ## Issue Table (live snapshot)
 
-Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used. Refresh cadence: update weekly or before each planning cycle.
+Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used (see `docs/procedures/ISSUE-DEPENDENCIES.md`). Refresh cadence: update weekly or before each planning cycle.
 
 Note:
 

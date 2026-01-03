@@ -101,7 +101,7 @@ For a deeper “tour” oriented around invariants and entry points, see
 ### Requirements
 
 - Rust toolchain pinned by `rust-toolchain.toml` (currently `1.90.0`).
-- Node.js (for docs site).
+- Node.js (for docs site). Note: the repo currently pins an older VitePress (`vitepress@0.1.1`), which is **not compatible with Node 25**; use an LTS (Node 18/20/22) for the docs workflow.
 
 ### Common commands
 

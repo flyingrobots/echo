@@ -13,6 +13,13 @@ hooks:
 	@chmod +x .githooks/* 2>/dev/null || true
 	@echo "[hooks] Installed git hooks from .githooks (core.hooksPath)"
 
+.PHONY: dags dags-fetch
+dags:
+	@cargo xtask dags
+
+dags-fetch:
+	@cargo xtask dags --fetch
+
 # Start VitePress dev server and open the browser automatically.
 docs:
 	@echo "[docs] Ensuring deps..."

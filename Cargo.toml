@@ -18,7 +18,8 @@ members = [
     "crates/echo-wasm-abi",
     "crates/echo-session-ws-gateway",
     "specs/spec-000-rewrite",
-    "crates/echo-wasm-bindings"
+    "crates/echo-wasm-bindings",
+    "xtask"
 ]
 resolver = "2"
 

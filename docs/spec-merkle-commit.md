@@ -167,6 +167,12 @@ Notes:
 - The `worldline_ref` (universe/branch) is already pinned by the snapshot header
   (`commit_id` ancestry + branch metadata in higher layers); `admit_at_tick`
   anchors the decision into Chronos.
+- The `decision_id` used for cross-references in `StreamAdmissionDecision` is
+  derived (not separately encoded) to avoid circularity and to keep the
+  admission digest stable. Compute it as:
+  - `decision_id = blake3("echo:stream_admission_decision_id:v1\0" || decision_record_bytes_v1)`
+  - where `decision_record_bytes_v1` is exactly the per-decision record encoding
+    bytes listed above (from `view_id_len` through `admitted_digest`).
 
 ---
 

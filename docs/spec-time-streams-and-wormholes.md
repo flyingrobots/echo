@@ -20,7 +20,7 @@ Related docs:
 
 ## Problem Statement
 
-Echo must support all of the following simultaneously:
+Echo must support the following simultaneously:
 
 1. **Wall-clock never stops**: network traffic arrives; humans click UI; OS timeouts fire.
 2. **Simulation time can pause/rewind/fork**: time-travel debugging and multiverse gameplay require it.
@@ -55,8 +55,10 @@ Echo benefits from a simple determinism discipline:
 
 Rule:
 
-> Any operation that changes semantic state must be pure with respect to HistoryTime.
+> Any operation that changes semantic state must be pure relative to HistoryTime.
 > If an adapter consults HostTime, it must emit a decision record into history before the simulation consumes it.
+
+For shorthand, “pure in HistoryTime” means: the semantic transition is a pure function of prior history + admitted inputs + pinned artifacts, and does not consult HostTime directly.
 
 This aligns “time” with the existing Echo determinism contract:
 replay must not require reading the host clock.
@@ -131,11 +133,11 @@ A `StreamAdmissionDecision` must pin enough information that replay can reconstr
 Minimum fields:
 
 - **Identity**
-  - `decision_id`: stable id (or hash) for cross-references
+  - `decision_id`: derived stable id for cross-references (see below; not separately encoded)
   - `view_id`: which view/session this applies to (e.g., `ViewSim(A)` vs `ViewTool(A)`)
   - `stream_id`: which stream (e.g., `NetRx(A)`, `ToolInput`)
 - **Where in HistoryTime**
-  - `worldline_ref`: branch/worldline identifier (Kairos + Aion coordinates as needed)
+  - `worldline_ref`: branch/worldline identifier (Kairos + Aion coordinates as needed; pinned by the snapshot header, not separately encoded in the admission digest)
   - `admit_at_tick`: Chronos tick at which admission occurred
 - **What was admitted**
   - `admitted_range`: `[from_seq, to_seq]` (inclusive) or an explicit list for sparse admission
@@ -147,15 +149,20 @@ Minimum fields:
 
 #### Canonical schema (illustrative)
 
-This is a conceptual schema; the on-wire encoding must use Echo’s canonical encoder and include all fields above in a stable order.
+This is a conceptual schema; the on-wire encoding must use Echo’s canonical encoder and include all fields above in a stable order (or make them derivable/pinned, as with `decision_id` and `worldline_ref`).
 
 ```ts
 interface StreamAdmissionDecision {
-  decisionId: string;
+  // Derived ID for cross-references. If serialized redundantly, it must match
+  // the deterministic derivation described below.
+  decisionId?: string;
   viewId: string;
   streamId: string;
 
   // Where in the replayable history this admission takes effect.
+  // Worldline reference (Kairos/Aion coordinates). This is pinned by the
+  // snapshot header in commit ancestry and may be omitted from the admission
+  // digest encoding.
   worldlineRef: {
     universe: string; // Aion id
     branch: string;   // Kairos id
@@ -173,6 +180,18 @@ interface StreamAdmissionDecision {
   fairnessOrderDigest?: string;
 }
 ```
+
+##### `decision_id` derivation (required for determinism)
+
+`decision_id` is **derived**, not an independently-assigned identifier:
+
+- Let `decision_record_bytes_v1` be the per-decision canonical bytes used inside
+  the `admission_digest` encoding (see `docs/spec-merkle-commit.md`).
+- Then:
+
+  - `decision_id = blake3( "echo:stream_admission_decision_id:v1\0" || decision_record_bytes_v1 )`
+
+Domain separation ensures `decision_id` cannot be confused with other digests.
 
 #### How it composes with “observation as graph rewrite”
 
@@ -307,28 +326,33 @@ This prevents `now()` from silently entering semantic state transitions.
 Policies are per-stream and per-view. A single “Pause” UI action can therefore be defined as a policy bundle, not a global stop.
 
 ### Live (bounded)
+
 - Admit events each tick up to a budget (`msgs_per_tick`, `bytes_per_tick`, or `work_units_per_tick`).
 - Enforce a deterministic fairness order across sources (e.g., round-robin by connection id).
 
 ### Pause + Drop
+
 - Cursor is frozen.
 - Incoming stream events are discarded (or never produced, if the adapter is stopped).
 
 Use when the stream should not influence the view while paused (e.g., gamepad input during debugging).
 
 ### Pause + Buffer
+
 - Cursor is frozen.
 - Stream continues to grow; events accumulate in a spool/backlog.
 
 Use when you must remain connected (network) or keep tool interaction live.
 
 ### Rewind / Fork
+
 Rewind is a view operation, not a stream operation:
 - Fork a new worldline at tick `T-k` (Kairos fork).
 - Set the simulation view to the forked worldline.
 - Stream cursors may remain where they were (so future events remain buffered) or may be reset (detached analysis).
 
 ### Catch-Up
+
 Catch-up is “advance cursors (and simulation ticks) quickly until a target predicate holds.”
 
 Targets (choose explicitly):
@@ -419,7 +443,7 @@ We assume fixed-timestep ticks for simplicity; the same reasoning works if `dt` 
 
 Narrative:
 
-```
+```text
  [client A]         [client B]  tick
     |                  |         0
    [M1]                |         1  A sends "M1" to B
@@ -445,7 +469,7 @@ One plausible event/cursor story (illustrative):
      - worldline records a rewrite like `NetSendIntent { to=B, payload=M1 }`
    - (Optional) also append `NetTx(A)` stream event for tooling lanes (not required for determinism).
 
-2) Tick 3 — B observes M1
+2) Tick 3 — B admits observation M1
    - The adapter reads OS/network and appends a new stream event:
      - `NetRx(B)[seq=42] = bytes("M1")` (plus metadata like wall time)
    - Admission policy for `NetRx(B)` is Live; at tick 3 it admits seq 42:
@@ -504,7 +528,7 @@ There are multiple lawful “return to sync” strategies; Echo should make the 
 
 #### Strategy A: Discard the diverged branch and reattach to the canonical head (resync)
 
-If A wants to rejoin the shared session truth quickly:
+If A wants to reattach to the shared session truth quickly:
 
 - Abandon `W'` (or keep it as an analysis branch).
 - Switch `ViewSim(A)` back to `W @ head`.
@@ -661,10 +685,12 @@ These are read-only frames; mutation remains capability-guarded and explicit.
 
 ## Open Questions (Explicitly Deferred)
 
-1. **`dt` policy**: fixed timestep vs variable dt as an admitted stream. (Fixed is simpler; variable dt should be treated as a stream if allowed.)
-2. **Stream retention**: how long spools persist; how they are compacted; how they relate to durability/WAL epochs.
-3. **Cross-worldline merge semantics for stream facts**: when buffered “future” events are admitted into a forked branch, are they still considered valid, or must they be revalidated/reinterpreted?
-4. **Security/capabilities**: who is allowed to fork/rewind/merge in multiplayer; how provenance sovereignty constrains tool access.
+1. **Security/capabilities** *(high; #246)*: who is allowed to fork/rewind/merge in multiplayer; how provenance sovereignty constrains tool access.
+2. **Cross-worldline merge semantics for stream facts** *(high; #245)*: when buffered “future” events are admitted into a forked branch, are they still considered valid, or must they be revalidated/reinterpreted?
+3. **`dt` policy** *(medium; #243)*: fixed timestep vs variable dt as an admitted stream. (Fixed is simpler; variable dt should be treated as a stream if allowed.)
+4. **Stream retention** *(medium; #244)*: how long spools persist; how they are compacted; how they relate to durability/WAL epochs.
+
+Tracking: deferred questions are tracked in issues #243, #244, #245, and #246; they do not block TT0 spec lock but are required before the time-travel tooling MVP (#171).
 
 ---
 

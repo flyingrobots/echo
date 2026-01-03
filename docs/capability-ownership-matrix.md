@@ -23,7 +23,7 @@ It is intentionally redundant with specs: the point is to keep the architecture 
 Use these columns consistently:
 
 - **Platform**: host integration and durable artifacts/contracts (process, filesystem, sockets, timers, OS scheduling, worldline storage, commit hashing, tick patch format, digests). Nondeterministic by default.
-- **Kernel**: deterministic semantic core (rewrite engine, scheduler, receipts, snapshot/tick structure). HistoryTime-only.
+- **Kernel**: deterministic semantic core (rewrite engine, scheduler, receipts, snapshot/tick structure, deterministic decision records including stream admission decisions). HistoryTime-only.
 - **Views**: controlled accessors and projections over history (query APIs, inspectors, adapters). Any interaction with HostTime/IO must be recorded as replay-safe claims/decisions.
 - **Tooling**: UIs, dashboards, CLI workflows (read-only by default; must be usable during pause/rewind; any control surface must be capability-gated and recorded).
 - **Docs**: specs, decision log, procedures; the “human-facing API”.
@@ -110,5 +110,5 @@ These are the guarantees that must hold across layers if we want deterministic r
 
 ## Near-Term TODOs
 
-- Decide where “Wesley grammar/IR” lives in this matrix (Platform vs Schema layer), and whether its schema hash is required on all receipts.
-- Specify the `StreamsFrame` inspector payload (backlog, cursors, `StreamAdmissionDecision` summaries).
+- (#174) Decide where “Wesley grammar/IR” lives in this matrix (Platform vs Schema layer), and whether its schema hash is required on all receipts.
+- (#170) Specify the `StreamsFrame` inspector payload (backlog, cursors, `StreamAdmissionDecision` summaries).

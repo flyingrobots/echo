@@ -72,6 +72,7 @@ fn on_player_input(evt) {
 ---
 
 ## Tooling Hooks
+
 - Network debugger visualizes branch timelines, latency, rollback steps.
 - CLI: `echo net replay --log file.jsonl` replays recorded network event streams.
 - See `docs/spec-time-streams-and-wormholes.md` for the multi-clock model (network/input/tools as independent streams) and the pause/buffer/catch-up policies that make “messages from the future” lawful during time travel debugging.

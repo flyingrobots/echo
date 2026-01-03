@@ -261,8 +261,8 @@ def acked_review_thread_ids(body):
   else
     (
       [
-        ([body | scan("discussion_r[0-9]{6,}") ] | map(sub("^discussion_r"; ""))),
-        ([body | scan("id=[0-9]{6,}") ] | map(sub("^id="; "")))
+        ([body | scan("discussion_r[0-9]{10}") ] | map(sub("^discussion_r"; ""))),
+        ([body | scan("id=[0-9]{10}") ] | map(sub("^id="; "")))
       ]
       | add
       | map(select(length > 0))
@@ -575,7 +575,7 @@ review_thread_attention_count="$((on_head_attention_count + outdated_attention_c
   echo
   echo "- \"Outdated\" means the review thread comment is no longer visible on the current head diff; it may still be actionable."
   echo "- Use \`✅ Addressed in commit <sha>\` to close the loop and keep future extraction cheap."
-  echo "  - Prefer a single PR conversation “round ack” comment listing \`discussion_r<id>\` targets (1 per fix round)."
+  echo "  - Prefer a single PR conversation \"round ack\" comment listing \`discussion_r<id>\` targets (1 per fix round)."
   echo "  - Review-thread replies also work, but can create a notification flood."
   echo "- Conversation comments + review summaries are only included when requested; they are not diff-positioned like review threads."
   echo

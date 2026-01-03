@@ -67,12 +67,15 @@ fn on_player_input(evt) {
 - Clock sync uses tick counts, not wall time.
 - Packet loss handled via resend; dedup through `envelopeHash`.
 - Randomness seeded from branch IDs; peers share identical seeds.
+- For catch-up/rollback tooling, inbound events should carry the sender’s stamped `ChronosTick` (e.g., `sender_tick` or `server_tick`) as part of the canonical envelope so clients can compute lag and define HistoryTime-only catch-up predicates.
 
 ---
 
 ## Tooling Hooks
+
 - Network debugger visualizes branch timelines, latency, rollback steps.
 - CLI: `echo net replay --log file.jsonl` replays recorded network event streams.
+- See `docs/spec-time-streams-and-wormholes.md` for the multi-clock model (network/input/tools as independent streams) and the pause/buffer/catch-up policies that make “messages from the future” lawful during time travel debugging.
 
 ---
 

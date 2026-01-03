@@ -48,6 +48,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Keep the diagrams explicitly “planning sketches” (not a replacement for GitHub Project state or native dependency edges).
 - Exit criteria: both DAGs render locally via Graphviz (`dot -Tsvg …`) and the doc index links to `docs/dependency-dags.md`.
 
+> 2026-01-03 — PR #178: TT0 TimeStreams + wormholes spec lock (IN PROGRESS)
+
+- Goal: merge `origin/main` into `echo/time-streams-wormholes-166`, resolve review feedback, and push updates to unblock CodeRabbit re-review.
+- Scope:
+  - Merge `origin/main` into the branch (no rebase).
+  - Address all actionable CodeRabbit review items (correctness + doc lint).
+  - Ensure all “explicitly deferred” sections are linked to tracking issues.
+- Exit criteria: actionable review list is empty and the branch pushes cleanly.
+
 > 2026-01-02 — Docs audit: purge/merge/splurge pass (IN PROGRESS)
 
 - Goal: audit Echo docs for staleness and overlap, then decide which docs should be purged, merged, or expanded (starting with `docs/math-validation-plan.md`).

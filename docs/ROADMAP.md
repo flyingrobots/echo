@@ -37,7 +37,11 @@ If you feel lost in doc sprawl, use this order:
 - M4 – Determinism Proof & Publish 0.1 (Target: cross‑OS proof + 0.1 release)
   - Prove determinism across OSes; finalize docs; publish warp‑core/geom 0.1
 
-### Demo Tooling (WVP + Dashboards)
+### Tooling & Time Travel Track (T*/TT*/S*/W*)
+
+These milestones are tracked in GitHub alongside the M* milestones. They are a parallel track focused on deterministic tooling, time travel semantics, and view/query surfaces.
+
+#### Demo Tooling (WVP + Dashboards)
 
 This track exists to keep the “run a binary, open a page” demos honest and non-rotting.
 
@@ -48,7 +52,7 @@ This track exists to keep the “run a binary, open a page” demos honest and n
   - Token-based CSS baseline for embedded dashboards (Open Props)
   - Screenshot regeneration in docs via Playwright (docs stay honest)
 
-### Time Travel + Replay Tooling
+#### Time Travel + Replay Tooling
 
 This track turns “time travel” from theme into an implementable contract.
 
@@ -67,7 +71,7 @@ This track turns “time travel” from theme into an implementable contract.
   - Side-by-side runs with first divergence + per-tick diffs (Kairos lens)
   - Built on stable receipts/digests and exported worldlines
 
-### Scripting + Schema (Soon)
+#### Scripting + Schema (Soon)
 
 - S1 – Deterministic Rhai Surface (Target: “law vs physics” sandbox)
   - Deterministic Rhai embedding; no HostTime/IO without Views/claims
@@ -81,6 +85,11 @@ This track turns “time travel” from theme into an implementable contract.
 ## Issue Table (live snapshot)
 
 Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent relationships use native GitHub issue dependencies; no custom text fields are used. Refresh cadence: update weekly or before each planning cycle.
+
+Note:
+
+- Some PRs (especially docs-only / repo maintenance / workflow hygiene) are intentionally **un-milestoned**.
+- Those items should still be tracked in Project 9 (and linked to an issue when non-trivial), but they do not represent a “ship milestone” outcome.
 
 | Issue Name | # | Milestone | Priority | Estimate | Blocked By | Blocking | Parent | Children | Remarks |
 | --- | ---: | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -97,6 +106,14 @@ Rows are GitHub issues. Priority/Estimate reflect Project 9 fields. Block/parent
 | Implement 'inspect' | 50 | M2.2 – Playground Slice | P2 | 5h |  |  |  |  |  |
 | Docs/man pages | 51 | M2.2 – Playground Slice | P2 | 5h |  |  |  |  | Tie docs to CLI UX |
 | README+docs (defaults & toggles) | 41 | M4 – Determinism Proof & Publish 0.1 | P2 | 3h |  |  |  |  | Docs polish before 0.1 |
+| Deterministic trig: pin error budget + deterministic oracle for audit test | 177 | M4 – Determinism Proof & Publish 0.1 |  |  |  |  |  |  | Cross-OS determinism gate; keep oracle host-independent |
+| T2: Embedded tooling UI baseline (Open Props + screenshot regen) | 168 | T2 – Embedded Tooling UI Baseline |  |  |  |  |  |  | Embedded dashboard baseline + Playwright evidence |
+| TT0: Time model spec lock (TimeStreams + admission digests) | 166 | TT0 – Time Model Spec Lock |  |  |  |  |  |  | Spec lock for time model primitives (streams/cursors/admission) |
+| TT1: StreamsFrame inspector support (backlog + cursors + admission decisions) | 170 | TT1 – Streams Inspector Frame |  |  |  |  |  |  | Inspector scaffolding for stream backlogs and admission decisions |
+| TT2: Time Travel MVP (pause/rewind/buffer/catch-up) | 171 | TT2 – Time Travel MVP |  |  |  |  |  |  | Pause/rewind UX + buffering policies |
+| TT3: Rulial diff / worldline compare MVP | 172 | TT3 – Rulial Diff / Worldline Compare |  |  |  |  |  |  | Side-by-side run comparison tooling |
+| S1: Deterministic Rhai surface (sandbox + claims/effects) | 173 | S1 – Deterministic Rhai Surface |  |  |  |  |  |  | Deterministic sandbox boundary for scripts |
+| W1: Wesley as a boundary grammar (hashable view artifacts) | 174 | W1 – Wesley as a Boundary Grammar |  |  |  |  |  |  | Hashable grammar + pinned semantics for replay integrity |
 | Spec: Commit/Manifest Signing | 20 | Backlog |  |  |  |  |  |  | Keep under Backlog until publish plan is firm |
 | Spec: Security Contexts (FFI/WASM/CLI) | 21 | Backlog |  |  |  |  |  |  | Backlog (security track) |
 | Plugin ABI (C) v0 | 26 | Backlog |  |  |  |  |  |  | Track in separate ABI milestone later |

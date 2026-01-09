@@ -84,6 +84,7 @@ Sources:
 - SVG: `docs/assets/dags/tasks-dag.svg`
 
 This DAG visualizes inferred issue dependencies that contributors log in `TASKS-DAG.md`, offering a quick comparison point against the curated milestone/issue graphs above.
+By design, isolated nodes (no incoming/outgoing edges) are filtered out to reduce clutter; the generator computes `connectedNodeIds` / `filteredNodes` and logs the drop counts during render.
 
 ## Regenerating the Tasks DAG
 

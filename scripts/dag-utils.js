@@ -3,13 +3,14 @@
 
 /**
  * Escape a value for safe inclusion inside DOT quoted strings.
- * Escapes backslashes, quotes, newlines, and tabs.
+ * Escapes backslashes, quotes, newlines, carriage returns, and tabs.
  */
 export function escapeDotString(value) {
   return String(value)
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"')
     .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
     .replace(/\t/g, "\\t");
 }
 

@@ -14,8 +14,13 @@ const args = process.argv.slice(2);
 const baseArgIndex = args.indexOf("--base");
 let cliBase = null;
 if (baseArgIndex !== -1) {
-  cliBase = args[baseArgIndex + 1];
-  if (!cliBase) {
+  const nextIndex = baseArgIndex + 1;
+  if (nextIndex >= args.length || !args[nextIndex]) {
+    console.error("Error: --base requires a value (e.g., --base origin/main)");
+    process.exit(2);
+  }
+  cliBase = args[nextIndex];
+  if (cliBase === "") {
     console.error("Error: --base requires a value (e.g., --base origin/main)");
     process.exit(2);
   }
@@ -32,16 +37,37 @@ for (const file of files) {
       encoding: "utf8",
     });
   } catch (err) {
-    throw new Error(`Unable to diff ${file} against ${baseRef}: ${err.message}`);
+    const stderr = err?.stderr?.toString?.() ?? "";
+    if (err?.code === "ENOENT") {
+      throw new Error(
+        `Unable to run git while diffing ${file} against ${baseRef}: git not found (ENOENT). ${err.message}`,
+      );
+    }
+    if (err?.code === "EACCES" || err?.code === "EPERM") {
+      throw new Error(
+        `Permission denied running git diff for ${file} against ${baseRef}: ${err.message}`,
+      );
+    }
+    const status = err?.status ?? err?.code ?? "unknown";
+    throw new Error(
+      [
+        `git diff failed for ${file} against ${baseRef} (status=${status}).`,
+        err?.message ? `message: ${err.message}` : "",
+        stderr ? `stderr: ${stderr.trim()}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
   if (!diffOutput.trim()) continue;
   for (const line of diffOutput.trim().split("\n")) {
     const parts = line.split("\t");
     if (parts.length < 3) continue;
-    const [, removedRaw, pathRaw] = parts;
+    const [addedRaw, removedRaw, pathRaw] = parts;
     const path = pathRaw?.trim();
+    const added = Number.parseInt(addedRaw, 10);
     const removed = Number.parseInt(removedRaw, 10);
-    if (!path || !Number.isFinite(removed)) continue;
+    if (!path || !Number.isFinite(removed) || !Number.isFinite(added)) continue;
     if (path === file && removed > 0) {
       errors.push(
         `${file} has ${removed} deletions when compared to ${baseRef}; append-only edits must not remove or change existing lines.`,

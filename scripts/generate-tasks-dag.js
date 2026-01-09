@@ -11,20 +11,44 @@ const INPUT_FILE = "TASKS-DAG.md";
 const OUT_DIR = "docs/assets/dags";
 const DOT_FILE = path.join(OUT_DIR, "tasks-dag.dot");
 const SVG_FILE = path.join(OUT_DIR, "tasks-dag.svg");
-const CLUSTER_PREFIXES = [
+// Cluster heuristic: match known prefixes at the start of issue titles to group related work.
+// Prefix list is configurable via docs/assets/dags/clusters-config.json (array of strings); we fall back to this default.
+const DEFAULT_CLUSTER_PREFIXES = [
   "TT0", "TT1", "TT2", "TT3",
   "S1", "M1", "M2", "M4", "W1",
   "Demo 2", "Demo 3",
   "Spec:", "Draft", "Tooling:", "Backlog:",
 ];
+const CLUSTER_CONFIG_PATH = path.join("docs", "assets", "dags", "clusters-config.json");
+
+function loadClusterPrefixes() {
+  try {
+    const raw = fs.readFileSync(CLUSTER_CONFIG_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((p) => typeof p === "string")) {
+      return parsed;
+    }
+    console.warn(`clusters-config.json is invalid (expected array of strings); using defaults.`);
+  } catch (err) {
+    if (err?.code !== "ENOENT") {
+      console.warn(`Failed to read ${CLUSTER_CONFIG_PATH}: ${err.message}; using defaults.`);
+    }
+  }
+  return DEFAULT_CLUSTER_PREFIXES;
+}
+
+const CLUSTER_PREFIXES = loadClusterPrefixes();
 
 function fail(message) {
   throw new Error(message);
 }
 
 function runChecked(cmd, args) {
-  const result = spawnSync(cmd, args, { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
+  const result = spawnSync(cmd, args, { encoding: "utf8", timeout: 30000, killSignal: "SIGTERM" });
   if (result.error && result.error.code === "ETIMEDOUT") {
+    fail(`Command timed out: ${cmd} ${args.join(" ")}`);
+  }
+  if (result.timedOut || (result.status === null && result.signal === "SIGTERM")) {
     fail(`Command timed out: ${cmd} ${args.join(" ")}`);
   }
   if (result.error) fail(`Failed to run ${cmd}: ${result.error.message}`);
@@ -88,7 +112,7 @@ function getClusterName(title) {
 }
 
 function generateDot(nodes, edges) {
-  // Filter out isolated nodes
+  // Filter out isolated nodes to reduce clutter in the visualization (only nodes with at least one edge render).
   const connectedNodeIds = new Set();
   for (const e of edges) {
     connectedNodeIds.add(e.from);
@@ -102,6 +126,10 @@ function generateDot(nodes, edges) {
       filteredNodes.set(id, node);
     }
   }
+  const removed = nodes.size - filteredNodes.size;
+  console.log(
+    `Tasks DAG: ${nodes.size} nodes total; removed ${removed} isolated node(s); rendering ${filteredNodes.size}.`,
+  );
 
   const lines = [];
   lines.push('digraph tasks_dag {');

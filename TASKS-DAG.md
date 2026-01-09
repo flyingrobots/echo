@@ -461,3 +461,8 @@ This living list documents open issues and the inferred dependencies contributor
   - [#170: TT1: StreamsFrame inspector support (backlog + cursors + admission decisions)](https://github.com/flyingrobots/echo/issues/170)
   - Confidence: medium
   - Evidence: Inferred: TT1 Implementation blocks on TT1 Spec clarifications
+
+---
+
+Rendering note (2026-01-09):
+- The tasks DAG renderer intentionally omits isolated nodes (issues with no incoming or outgoing edges) to keep the visualization readable. The script computes `connectedNodeIds` from edges, builds `filteredNodes`, and logs how many nodes were dropped. See `scripts/generate-tasks-dag.js` for the filtering logic.

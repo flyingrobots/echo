@@ -22,16 +22,21 @@ export function parseTasksDag(content) {
   let currentIssue = null;
   let mode = null; // 'blocks' or 'blocked_by'
   let pendingEdge = null;
+  let pendingEdgeConfidenceSet = false;
+
+  const flushPendingEdge = () => {
+    if (pendingEdge) {
+      edges.push(pendingEdge);
+      pendingEdge = null;
+      pendingEdgeConfidenceSet = false;
+    }
+  };
 
   lines.forEach((line, idx) => {
     const lineNumber = idx + 1;
     if (line.startsWith("## [")) {
       const issueMatch = line.match(issueRegex);
-      if (pendingEdge) {
-        delete pendingEdge._confidenceSet;
-        edges.push(pendingEdge);
-        pendingEdge = null;
-      }
+      flushPendingEdge();
       if (issueMatch) {
         const number = parseInt(issueMatch[1], 10);
         const title = issueMatch[2];
@@ -69,22 +74,14 @@ export function parseTasksDag(content) {
       if (line.trim() !== "- Blocked by:" && line.trim() !== "- Blocks:") {
         console.warn(`TASKS-DAG header uses non-canonical casing on line ${lineNumber}: ${line}`);
       }
-      if (pendingEdge) {
-        delete pendingEdge._confidenceSet;
-        edges.push(pendingEdge);
-        pendingEdge = null;
-      }
+      flushPendingEdge();
       return;
     }
 
     const linkMatch = line.match(linkRegex);
     if (linkMatch) {
       if (!mode) return;
-      if (pendingEdge) {
-        delete pendingEdge._confidenceSet;
-        edges.push(pendingEdge);
-        pendingEdge = null;
-      }
+      flushPendingEdge();
       const targetNumber = parseInt(linkMatch[1], 10);
       if (!Number.isFinite(targetNumber)) {
         console.warn(`Skipping entry with invalid issue number on line ${lineNumber}: ${line}`);
@@ -96,23 +93,24 @@ export function parseTasksDag(content) {
         nodes.set(targetNumber, { number: targetNumber, title: targetTitle, url: targetUrl });
       }
       if (mode === "blocked_by") {
-        pendingEdge = { from: targetNumber, to: currentIssue.number, confidence: "strong", note: "", _confidenceSet: false };
+        pendingEdge = { from: targetNumber, to: currentIssue.number, confidence: "strong", note: "" };
       } else if (mode === "blocks") {
-        pendingEdge = { from: currentIssue.number, to: targetNumber, confidence: "strong", note: "", _confidenceSet: false };
+        pendingEdge = { from: currentIssue.number, to: targetNumber, confidence: "strong", note: "" };
       }
+      pendingEdgeConfidenceSet = false;
       return;
     }
 
     if (pendingEdge) {
       const confMatch = line.match(confidenceRegex);
       if (confMatch) {
-        if (pendingEdge._confidenceSet) {
+        if (pendingEdgeConfidenceSet) {
           console.warn(
             `Duplicate confidence for edge ${pendingEdge.from}->${pendingEdge.to} on line ${lineNumber}; overwriting.`,
           );
         }
         pendingEdge.confidence = confMatch[1].trim().toLowerCase();
-        pendingEdge._confidenceSet = true;
+        pendingEdgeConfidenceSet = true;
         return;
       }
       const evMatch = line.match(evidenceRegex);
@@ -128,10 +126,7 @@ export function parseTasksDag(content) {
     }
   });
 
-  if (pendingEdge) {
-    delete pendingEdge._confidenceSet;
-    edges.push(pendingEdge);
-  }
+  flushPendingEdge();
 
   return { nodes, edges };
 }

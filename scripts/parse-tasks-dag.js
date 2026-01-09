@@ -28,6 +28,7 @@ export function parseTasksDag(content) {
     if (line.startsWith("## [")) {
       const issueMatch = line.match(issueRegex);
       if (pendingEdge) {
+        delete pendingEdge._confidenceSet;
         edges.push(pendingEdge);
         pendingEdge = null;
       }
@@ -69,6 +70,7 @@ export function parseTasksDag(content) {
         console.warn(`TASKS-DAG header uses non-canonical casing on line ${lineNumber}: ${line}`);
       }
       if (pendingEdge) {
+        delete pendingEdge._confidenceSet;
         edges.push(pendingEdge);
         pendingEdge = null;
       }
@@ -79,6 +81,7 @@ export function parseTasksDag(content) {
     if (linkMatch) {
       if (!mode) return;
       if (pendingEdge) {
+        delete pendingEdge._confidenceSet;
         edges.push(pendingEdge);
         pendingEdge = null;
       }
@@ -93,9 +96,9 @@ export function parseTasksDag(content) {
         nodes.set(targetNumber, { number: targetNumber, title: targetTitle, url: targetUrl });
       }
       if (mode === "blocked_by") {
-        pendingEdge = { from: targetNumber, to: currentIssue.number, confidence: "strong", note: "" };
+        pendingEdge = { from: targetNumber, to: currentIssue.number, confidence: "strong", note: "", _confidenceSet: false };
       } else if (mode === "blocks") {
-        pendingEdge = { from: currentIssue.number, to: targetNumber, confidence: "strong", note: "" };
+        pendingEdge = { from: currentIssue.number, to: targetNumber, confidence: "strong", note: "", _confidenceSet: false };
       }
       return;
     }
@@ -103,12 +106,13 @@ export function parseTasksDag(content) {
     if (pendingEdge) {
       const confMatch = line.match(confidenceRegex);
       if (confMatch) {
-        if (pendingEdge.confidence) {
+        if (pendingEdge._confidenceSet) {
           console.warn(
             `Duplicate confidence for edge ${pendingEdge.from}->${pendingEdge.to} on line ${lineNumber}; overwriting.`,
           );
         }
         pendingEdge.confidence = confMatch[1].trim().toLowerCase();
+        pendingEdge._confidenceSet = true;
         return;
       }
       const evMatch = line.match(evidenceRegex);
@@ -125,6 +129,7 @@ export function parseTasksDag(content) {
   });
 
   if (pendingEdge) {
+    delete pendingEdge._confidenceSet;
     edges.push(pendingEdge);
   }
 

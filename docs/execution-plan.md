@@ -51,7 +51,7 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Reference the append-only doc wherever the onboarding artifacts are asserted (AGENTS, `.gitattributes`, decision log, execution plan).
   - Add a CI gate (`Append-only Guard` workflow) that runs `node scripts/check-append-only.js` (with `APPEND_ONLY_BASE` pointing at the merge base) before merges touching the tracked files.
   - Educate contributors on how to update the invariants and keep the decision log entry in sync when the policy evolves.
-- Exit criteria: the new doc describes the policy, `.gitattributes` and AGENTS highlight it, and the check script is wired into contributors’ workflows (and, in the future, CI).
+- Exit criteria: the new doc describes the policy, `.gitattributes` and AGENTS highlight it, and the check script is wired into contributors’ workflows and CI (see `.github/workflows/append-only-check.yml`).
 
 > 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
 > 2026-01-03 — Planning hygiene + start #206 (DPO concurrency litmus) (DONE)

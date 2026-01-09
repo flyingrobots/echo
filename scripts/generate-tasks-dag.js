@@ -23,7 +23,10 @@ function fail(message) {
 }
 
 function runChecked(cmd, args) {
-  const result = spawnSync(cmd, args, { encoding: "utf8" });
+  const result = spawnSync(cmd, args, { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
+  if (result.error && result.error.code === "ETIMEDOUT") {
+    fail(`Command timed out: ${cmd} ${args.join(" ")}`);
+  }
   if (result.error) fail(`Failed to run ${cmd}: ${result.error.message}`);
   if (result.status !== 0) fail(`Command failed: ${cmd} ${args.join(" ")}\n${result.stderr}`);
   return result.stdout;

@@ -31,8 +31,8 @@ export function parseEdgeKey(edgeKey, context = "edge key") {
   }
   const from = Number(fromStr);
   const to = Number(toStr);
-  if (!Number.isInteger(from) || !Number.isInteger(to)) {
-    throw new Error(`Non-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`);
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) {
+    throw new Error(`Non-safe-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`);
   }
   return { from, to };
 }

@@ -20,7 +20,8 @@ if (baseArgIndex !== -1) {
     process.exit(2);
   }
 }
-const baseRef = process.env.APPEND_ONLY_BASE || cliBase || "origin/main";
+// Precedence: explicit CLI > environment override > default.
+const baseRef = cliBase || process.env.APPEND_ONLY_BASE || "origin/main";
 
 const errors = [];
 

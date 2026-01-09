@@ -11,6 +11,12 @@ const INPUT_FILE = "TASKS-DAG.md";
 const OUT_DIR = "docs/assets/dags";
 const DOT_FILE = path.join(OUT_DIR, "tasks-dag.dot");
 const SVG_FILE = path.join(OUT_DIR, "tasks-dag.svg");
+const CLUSTER_PREFIXES = [
+  "TT0", "TT1", "TT2", "TT3",
+  "S1", "M1", "M2", "M4", "W1",
+  "Demo 2", "Demo 3",
+  "Spec:", "Draft", "Tooling:", "Backlog:",
+];
 
 function fail(message) {
   throw new Error(message);
@@ -62,16 +68,18 @@ function confidenceAttrs(confidence) {
   }
 }
 
+function hashString(str) {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i); // djb2 xor variant
+  }
+  return Math.abs(hash);
+}
+
 // Heuristic to guess cluster name from title
 function getClusterName(title) {
-  const prefixes = [
-    "TT0", "TT1", "TT2", "TT3", 
-    "S1", "M1", "M2", "M4", "W1", 
-    "Demo 2", "Demo 3", 
-    "Spec:", "Draft", "Tooling:", "Backlog:"
-  ];
-  for (const p of prefixes) {
-    if (title.startsWith(p)) return p.replace(":", "");
+  for (const p of CLUSTER_PREFIXES) {
+    if (title.startsWith(p)) return p.replace(/:/g, "");
   }
   return "Misc";
 }
@@ -125,7 +133,7 @@ function generateDot(nodes, edges) {
     lines.push('    style="rounded"; color="gray70";');
     // Simple color cycle for clusters
     const colors = ["#dbeafe", "#dcfce7", "#ffedd5", "#f3f4f6", "#fef9c3", "#ede9fe", "#ccfbf1", "#fee2e2"];
-    const color = colors[Math.abs(name.split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % colors.length];
+    const color = colors[hashString(name) % colors.length];
     lines.push(`    node [fillcolor="${color}"];`);
     
     for (const node of groupNodes) {

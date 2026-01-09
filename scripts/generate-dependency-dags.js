@@ -7,6 +7,15 @@ import path from "node:path";
 import { parseTasksDag } from "./parse-tasks-dag.js";
 import { escapeDotString, parseEdgeKey } from "./dag-utils.js";
 
+function safeParseEdgeKey(edgeKey, context) {
+  try {
+    return parseEdgeKey(edgeKey, context);
+  } catch (e) {
+    console.warn(e.message);
+    return null;
+  }
+}
+
 function fail(message) {
   throw new Error(message);
 }
@@ -228,13 +237,8 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   // Phase 2 here: add nodes for reality-only edges (edges present in TASKS-DAG but missing from configuredEdges) so they can render as red “missing from plan”.
   if (realityEdges) {
     for (const edgeKey of realityEdges) {
-      let realityEdge;
-      try {
-        realityEdge = parseEdgeKey(edgeKey, "reality edge");
-      } catch (e) {
-        console.warn(e.message);
-        continue;
-      }
+      const realityEdge = safeParseEdgeKey(edgeKey, "reality edge");
+      if (!realityEdge) continue;
       const { from: u, to: v } = realityEdge;
       // Only add to graph if both nodes are in the issue snapshot (sanity check)
       if (byNum.has(u) && byNum.has(v)) {
@@ -350,13 +354,8 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   if (realityEdges) {
     for (const edgeKey of realityEdges) {
       if (!configuredEdges.has(edgeKey)) {
-        let realityEdge;
-        try {
-          realityEdge = parseEdgeKey(edgeKey, "reality-only edge");
-        } catch (e) {
-          console.warn(e.message);
-          continue;
-        }
+        const realityEdge = safeParseEdgeKey(edgeKey, "reality-only edge");
+        if (!realityEdge) continue;
         const { from: u, to: v } = realityEdge;
         if (byNum.has(u) && byNum.has(v)) {
            lines.push(

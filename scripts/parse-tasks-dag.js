@@ -12,6 +12,9 @@ const confidenceRegex = /^\s*- Confidence:\s*(.+)/;
 const evidenceRegex = /^\s*- Evidence:\s*(.+)/;
 
 export function parseTasksDag(content) {
+  if (typeof content !== "string") {
+    throw new TypeError("parseTasksDag expects a string TASKS-DAG.md content");
+  }
   const lines = content.split(/\r?\n/);
   const nodes = new Map();
   const edges = [];
@@ -32,6 +35,15 @@ export function parseTasksDag(content) {
         const number = parseInt(issueMatch[1], 10);
         const title = issueMatch[2];
         const url = issueMatch[3];
+        if (nodes.has(number)) {
+          const existing = nodes.get(number);
+          console.warn(
+            `Duplicate issue header for #${number}: keeping first (${existing.title}) and ignoring (${title})`,
+          );
+          currentIssue = existing;
+          mode = null;
+          return;
+        }
         currentIssue = { number, title, url };
         nodes.set(number, currentIssue);
         mode = null;

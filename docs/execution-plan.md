@@ -54,7 +54,6 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Exit criteria: the new doc describes the policy, `.gitattributes` and AGENTS highlight it, and the check script is wired into contributors’ workflows (and, in the future, CI).
 
 > 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
-
 > 2026-01-03 — Planning hygiene + start #206 (DPO concurrency litmus) (DONE)
 
 - Goal: refresh the execution plan so it matches current GitHub state, then begin issue #206 with a minimal “DPO concurrency litmus” suite (spec note + tests).

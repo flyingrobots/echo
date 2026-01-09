@@ -1,5 +1,5 @@
-# Append-only policy enforced via scripts/check-append-only.js + CI (no custom merge driver or union strategy configured here).
-AGENTS.md
-docs/decision-log.md
-TASKS-DAG.md
-docs/execution-plan.md
+# Append-only policy: these files use merge=union (append-only) plus CI enforcement (see docs/append-only-invariants.md).
+AGENTS.md merge=union
+docs/decision-log.md merge=union
+TASKS-DAG.md merge=union
+docs/execution-plan.md merge=union

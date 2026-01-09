@@ -3,9 +3,14 @@
 
 /**
  * Escape a value for safe inclusion inside DOT quoted strings.
+ * Escapes backslashes, quotes, newlines, and tabs.
  */
 export function escapeDotString(value) {
-  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\t/g, "\\t");
 }
 
 /**
@@ -20,10 +25,14 @@ export function parseEdgeKey(edgeKey, context = "edge key") {
     throw new Error(`Malformed ${context}: "${edgeKey}" (expected from->to)`);
   }
   const [fromStr, toStr] = parts;
-  const from = Number.parseInt(fromStr, 10);
-  const to = Number.parseInt(toStr, 10);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) {
-    throw new Error(`Non-numeric ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`);
+  const intRegex = /^\d+$/;
+  if (!intRegex.test(fromStr) || !intRegex.test(toStr)) {
+    throw new Error(`Non-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`);
+  }
+  const from = Number(fromStr);
+  const to = Number(toStr);
+  if (!Number.isInteger(from) || !Number.isInteger(to)) {
+    throw new Error(`Non-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`);
   }
   return { from, to };
 }

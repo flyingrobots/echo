@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 const files = [
   "AGENTS.md",
@@ -12,7 +12,14 @@ const files = [
 
 const args = process.argv.slice(2);
 const baseArgIndex = args.indexOf("--base");
-const cliBase = baseArgIndex !== -1 ? args[baseArgIndex + 1] : null;
+let cliBase = null;
+if (baseArgIndex !== -1) {
+  cliBase = args[baseArgIndex + 1];
+  if (!cliBase) {
+    console.error("Error: --base requires a value (e.g., --base origin/main)");
+    process.exit(2);
+  }
+}
 const baseRef = process.env.APPEND_ONLY_BASE || cliBase || "origin/main";
 
 const errors = [];
@@ -20,7 +27,7 @@ const errors = [];
 for (const file of files) {
   let diffOutput = "";
   try {
-    diffOutput = execSync(`git diff --numstat ${baseRef} -- "${file}"`, {
+    diffOutput = execFileSync("git", ["diff", "--numstat", baseRef, "--", file], {
       encoding: "utf8",
     });
   } catch (err) {

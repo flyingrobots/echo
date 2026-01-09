@@ -390,15 +390,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   for (const { from, to, confidence, note } of issueEdges) {
     const edgeKey = `${from}->${to}`;
     const inReality = realityEdges && realityEdges.has(edgeKey);
-    const colorAttr = inReality ? 'color="green", penwidth=2.0' : confidenceEdgeAttrs(confidence);
-    
-    // If in reality, override style to solid green, preserving existing penwidth boost
-    // Actually confidenceEdgeAttrs returns full string. Let's parse or just conditionally use strings.
-    let attrs = confidenceEdgeAttrs(confidence);
-    if (inReality) {
-       // Replace color and penwidth
-       attrs = 'color="green3", penwidth=2.0, style="solid"';
-    }
+    const attrs = inReality
+      ? 'color="green3", penwidth=2.0, style="solid"'
+      : confidenceEdgeAttrs(confidence);
 
     lines.push(
       `  i${from} -> i${to} [${attrs}, tooltip="${escapeDotString(note)}"];`,

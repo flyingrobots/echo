@@ -273,6 +273,22 @@ function parseTasksDag(content) {
   return edges;
 }
 
+function parseEdgeKey(edgeKey, context = "edge key") {
+  const parts = edgeKey.split("->").map((segment) => segment.trim());
+  if (parts.length !== 2) {
+    console.warn(`Skipping malformed ${context}: "${edgeKey}"`);
+    return null;
+  }
+  const [fromStr, toStr] = parts;
+  const from = Number.parseInt(fromStr, 10);
+  const to = Number.parseInt(toStr, 10);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    console.warn(`Skipping ${context} with non-numeric nodes: "${edgeKey}"`);
+    return null;
+  }
+  return { from, to };
+}
+
 function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   const byNum = new Map();
   for (const issue of issues) byNum.set(issue.number, issue);
@@ -289,7 +305,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   // Add nodes from reality edges if they exist in the issue snapshot
   if (realityEdges) {
     for (const edgeKey of realityEdges) {
-      const [u, v] = edgeKey.split("->").map(n => parseInt(n, 10));
+      const realityEdge = parseEdgeKey(edgeKey, "reality edge");
+      if (!realityEdge) continue;
+      const { from: u, to: v } = realityEdge;
       // Only add to graph if both nodes are in the issue snapshot (sanity check)
       if (byNum.has(u) && byNum.has(v)) {
         // We generally only add nodes if they are connected to the "Plan" or extend it.
@@ -403,7 +421,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   if (realityEdges) {
     for (const edgeKey of realityEdges) {
       if (!configuredEdges.has(edgeKey)) {
-        const [u, v] = edgeKey.split("->").map(n => parseInt(n, 10));
+        const realityEdge = parseEdgeKey(edgeKey, "reality-only edge");
+        if (!realityEdge) continue;
+        const { from: u, to: v } = realityEdge;
         if (byNum.has(u) && byNum.has(v)) {
            lines.push(
              `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from Issue Body (missing from Plan)"];`

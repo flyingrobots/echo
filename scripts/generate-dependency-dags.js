@@ -25,7 +25,12 @@ function runChecked(cmd, args, { cwd } = {}) {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: 60000,
+    killSignal: "SIGKILL",
   });
+  if (result.error && result.error.code === "ETIMEDOUT") {
+    fail(`Command timed out: ${cmd} ${args.join(" ")}`);
+  }
   if (result.error) {
     fail(`Failed to run ${cmd}: ${result.error.message}`);
   }

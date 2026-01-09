@@ -35,16 +35,27 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-> 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
+> 2026-01-03 — Planning hygiene + start #206 (DPO concurrency litmus) (DONE)
 
-- Goal: land the remaining open PRs in oldest-first order using a deterministic merge workflow (no rebases).
-- Scope (repeat per PR):
-  - Checkout the PR branch.
-  - Merge `origin/main` into it and resolve conflicts.
-  - Pull PR comments/review threads and extract actionable items (including human reviewer notes).
-  - Fix remaining issues (or perform a strict self-review if no actionables remain), then push.
-  - If clean: merge the branch into `origin/main` via merge commit and verify PR state.
-- Exit criteria: each PR is either merged to `main` or has a pushed fix commit + explicit next-step notes.
+- Goal: refresh the execution plan so it matches current GitHub state, then begin issue #206 with a minimal “DPO concurrency litmus” suite (spec note + tests).
+- Scope:
+  - Planning hygiene:
+    - Update this document’s *Today’s Intent* and “Next Up” queue to reflect the current work frontier.
+    - Record the pivot in `docs/decision-log.md` so the next session doesn’t re-triage already-closed threads.
+  - #206:
+    - Add a spec note documenting which parts of the DPO concurrency story Echo relies on (and what we enforce mechanically via footprints + scheduler independence checks).
+    - Add litmus tests that pin commuting/overlapping/conflicting rule-pair outcomes deterministically.
+- Outcome:
+  - Planning hygiene: execution-plan “Today’s Intent” + “Next Up” refreshed to match GitHub state.
+  - #206 started with a minimal spec note + litmus tests (commuting vs conflicting vs overlapping-but-safe).
+- Evidence:
+  - `docs/spec/SPEC-0003-dpo-concurrency-litmus-v0.md`
+  - `crates/warp-core/tests/dpo_concurrency_litmus.rs`
+
+> 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (DONE)
+
+- Outcome: no open PRs remained by the end of the merge-train; the last merges landed on `main` (see merge commit `8082bbb`).
+- Next: treat subsequent work as issue-driven (one branch per issue), starting with #206.
 
 > 2026-01-03 — PR #213: merge `origin/main` + resolve review feedback (DONE)
 
@@ -90,14 +101,19 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 > 2026-01-02 — Issue #219: enforce CodeRabbit approval as a merge gate (IN PROGRESS)
 
-- Goal: make “don’t merge until CodeRabbit approves” an enforced rule, not a social norm.
+> 2026-01-03 — Issue #248: remove the CodeRabbit approval-gate CI workflow (DONE)
+
+- Goal: remove the GitHub Actions merge gate workflow that fails before CodeRabbit has had a chance to review, leaving stale red checks even after approval.
 - Scope:
-  - Step 1 (in-repo): add a lightweight GitHub Actions workflow that runs on `pull_request` + `pull_request_review` events and reports a stable status check.
-    - This check currently appears as: `PR Merge Gate / CodeRabbit approval required`.
-    - The workflow triggers automatically on PR pushes (`synchronize`) and when CodeRabbit submits/edits/dismisses reviews, so mergeability updates without manual re-runs.
-  - Step 2 (GitHub UI / ops): require that status check in the `main` ruleset (and remove bypass actors) so merges are blocked until the CodeRabbit bot (`coderabbitai[bot]`) has approved the PR head commit.
-- Exit criteria: Step 2 is applied — a PR without a CodeRabbit approval is not mergeable; once CodeRabbit approves the head commit, the PR becomes mergeable without manual workflow re-runs.
-- Tracking: GitHub issue #219.
+  - Remove the workflow file from `.github/workflows/`.
+  - Treat “wait for CodeRabbit approval” as a procedural requirement (human + bot workflow), not a status-check requirement that can race the bot.
+- Exit criteria: the approval gate workflow is removed and docs no longer reference it.
+- Tracking: GitHub issue #248.
+
+> 2026-01-02 — Issue #219: enforce CodeRabbit approval as a merge gate (DEPRECATED)
+
+- Outcome: the merge-gate workflow approach proved noisy in practice (it commonly runs before CodeRabbit can review and can leave stale failures). It was removed under issue #248.
+- Replacement: keep CodeRabbit approval as a “merge only when approved” policy, enforced socially and via review procedures (`docs/procedures/PR-SUBMISSION-REVIEW-LOOP.md`).
 
 > 2026-01-02 — Docs audit: purge/merge/splurge pass (IN PROGRESS)
 
@@ -1042,11 +1058,11 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Next Up Queue
 
-1. WARP View Protocol demo path (`docs/tasks.md`)
-2. ECS storage implementation plan
-3. Branch tree BlockStore abstraction design
-4. Temporal Bridge implementation plan
-5. Confluence + serialization protocol review
+1. M2.1: DPO concurrency theorem coverage (issue #206)
+2. Demo 2: Splash Guy docs course modules (issue #226)
+3. Demo 3: Tumble Tower Stage 1 physics (issue #232)
+4. TT1 follow-ons: dt policy / retention / merge semantics / capabilities (issues #243–#246)
+5. ECS storage implementation plan
 
 Populate with concrete tasks in priority order. When you start one, move it to “Today’s Intent.”
 

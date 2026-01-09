@@ -15,6 +15,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - Start each session by updating *Today’s Intent* in `docs/execution-plan.md`.
 - Capture milestones, blockers, and decisions directly in this repo (e.g. `docs/decision-log.md`, relevant specs, or PR descriptions).
 - When wrapping up, record outcomes and next steps in the Decision Log and ensure any impacted docs stay in sync.
+- AGENTS.md, `docs/decision-log.md`, `TASKS-DAG.md`, and `docs/execution-plan.md` are append-only; see `docs/append-only-invariants.md` plus `scripts/check-append-only.js` for the enforcement plan that CI will run before merges.
 
 ## Workflows & Automation
 - The contributor playbook lives in `docs/workflows.md` (policy + blessed commands + automation).
@@ -29,6 +30,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - `docs/notes`: Working notes and explorations (non-authoritative).
 
 ## Working Agreement
+- **Isolated Branches**: Every new task, feature, or bugfix **MUST** begin on a fresh, isolated branch based on the latest `main` (unless context explicitly dictates otherwise). Never mix unrelated objectives on the same branch.
 - Keep `main` pristine. Feature work belongs on branches named `echo/<feature>` or `timeline/<experiment>`.
 - Tests and benchmarks are mandatory for runtime changes once the harness exists.
 - Respect determinism: preferably no random seeds without going through the Echo PRNG.

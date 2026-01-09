@@ -4,10 +4,27 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { parseTasksDag } from "./parse-tasks-dag.js";
+import { escapeDotString, parseEdgeKey } from "./dag-utils.js";
+
+/**
+ * Parse an edge key defensively.
+ * Returns null for known parse errors (malformed/safe-integer issues); rethrows unexpected errors.
+ */
+function safeParseEdgeKey(edgeKey, context) {
+  try {
+    return parseEdgeKey(edgeKey, context);
+  } catch (e) {
+    if (e?.name === "ParseError") {
+      console.warn(e.message);
+      return null;
+    }
+    throw e;
+  }
+}
 
 function fail(message) {
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 function runChecked(cmd, args, { cwd } = {}) {
@@ -15,7 +32,12 @@ function runChecked(cmd, args, { cwd } = {}) {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: 120000,
+    killSignal: "SIGTERM",
   });
+  if (result.timedOut) {
+    fail(`Command timed out: ${cmd} ${args.join(" ")}`);
+  }
   if (result.error) {
     fail(`Failed to run ${cmd}: ${result.error.message}`);
   }
@@ -56,10 +78,6 @@ function maybeWrapMilestonesJson(json) {
   );
 }
 
-function escapeDotString(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-}
-
 function formatDateYYYYMMDD(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -68,6 +86,13 @@ function formatDateYYYYMMDD(date) {
 }
 
 function parseArgs(argv) {
+  const requireValue = (name, value) => {
+    if (value === undefined || value === null || value === "") {
+      fail(`${name} requires a value (try --help)`);
+    }
+    return value;
+  };
+
   const args = {
     fetch: false,
     render: false,
@@ -75,6 +100,7 @@ function parseArgs(argv) {
     milestonesJson: ".cache/echo/deps/milestones-all.json",
     configJson: "docs/assets/dags/deps-config.json",
     outDir: "docs/assets/dags",
+    tasksDagPath: "TASKS-DAG.md",
     snapshot: null,
     snapshotLabelMode: "auto",
   };
@@ -83,12 +109,20 @@ function parseArgs(argv) {
     const token = argv[idx];
     if (token === "--fetch") args.fetch = true;
     else if (token === "--render") args.render = true;
-    else if (token === "--issues-json") args.issuesJson = argv[++idx];
-    else if (token === "--milestones-json") args.milestonesJson = argv[++idx];
-    else if (token === "--config") args.configJson = argv[++idx];
-    else if (token === "--out-dir") args.outDir = argv[++idx];
-    else if (token === "--snapshot") args.snapshot = argv[++idx];
-    else if (token === "--snapshot-label") args.snapshotLabelMode = argv[++idx];
+    else if (token === "--issues-json")
+      args.issuesJson = requireValue("--issues-json", argv[++idx]);
+    else if (token === "--milestones-json")
+      args.milestonesJson = requireValue("--milestones-json", argv[++idx]);
+    else if (token === "--config")
+      args.configJson = requireValue("--config", argv[++idx]);
+    else if (token === "--out-dir")
+      args.outDir = requireValue("--out-dir", argv[++idx]);
+    else if (token === "--tasks-dag")
+      args.tasksDagPath = requireValue("--tasks-dag", argv[++idx]);
+    else if (token === "--snapshot")
+      args.snapshot = requireValue("--snapshot", argv[++idx]);
+    else if (token === "--snapshot-label")
+      args.snapshotLabelMode = requireValue("--snapshot-label", argv[++idx]);
     else if (token === "-h" || token === "--help") {
       process.stdout.write(
         [
@@ -101,6 +135,7 @@ function parseArgs(argv) {
           "  --milestones-json <path> Read/write milestones snapshot JSON",
           "  --config <path>         Dependency config (edges) JSON",
           "  --out-dir <dir>         Output directory for DOT/SVG",
+          "  --tasks-dag <path>      Path to TASKS-DAG.md (reality edges)",
           "  --snapshot <YYYY-MM-DD> Override label date in output graphs (legacy; prefer --snapshot-label)",
           "  --snapshot-label <mode> Snapshot label: auto|none|rolling|YYYY-MM-DD",
           "",
@@ -174,20 +209,30 @@ function fetchOpenIssuesSnapshot() {
 
 function fetchAllMilestonesSnapshot(nameWithOwner) {
   // GitHub API returns an array of milestone objects with fields like title, html_url, state.
-  const raw = runChecked("gh", [
-    "api",
-    `repos/${nameWithOwner}/milestones`,
-    "-f",
-    "state=all",
-    "-f",
-    "per_page=100",
-  ]);
-  const milestones = JSON.parse(raw).map((m) => ({
-    title: m.title,
-    url: m.html_url,
-    state: m.state,
-    number: m.number,
-  }));
+  let milestones = [];
+  let page = 1;
+  while (true) {
+    const raw = runChecked("gh", [
+      "api",
+      `repos/${nameWithOwner}/milestones?state=all&per_page=100&page=${page}`,
+    ]);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      fail(
+        `Unexpected milestones payload (page ${page}): expected array, got ${typeof parsed}`,
+      );
+    }
+    const batch = parsed.map((m) => ({
+      title: m.title,
+      url: m.html_url,
+      state: m.state,
+      number: m.number,
+    }));
+    if (batch.length === 0) break;
+    milestones = milestones.concat(batch);
+    if (batch.length < 100) break;
+    page += 1;
+  }
   return { generated_at: new Date().toISOString(), milestones };
 }
 
@@ -218,27 +263,43 @@ function milestoneFillFor(title) {
   return "#ffffff";
 }
 
-function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
+function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   const byNum = new Map();
   for (const issue of issues) byNum.set(issue.number, issue);
 
   const nodes = new Set();
+  const configuredEdges = new Set();
+
   for (const e of issueEdges) {
     nodes.add(e.from);
     nodes.add(e.to);
+    configuredEdges.add(`${e.from}->${e.to}`);
+  }
+
+  if (realityEdges) {
+    // Add nodes for reality-only edges (TASKS-DAG.md) when both endpoints exist and the edge is absent from configuredEdges, so red “missing from plan” edges can render.
+    for (const edgeKey of realityEdges) {
+      const realityEdge = safeParseEdgeKey(edgeKey, "reality edge");
+      if (!realityEdge) continue;
+      const { from: u, to: v } = realityEdge;
+      if (byNum.has(u) && byNum.has(v)) {
+        if (!configuredEdges.has(edgeKey)) {
+          nodes.add(u);
+          nodes.add(v);
+        }
+      }
+    }
   }
 
   const missing = [...nodes].filter((n) => !byNum.has(n)).sort((a, b) => a - b);
-  if (missing.length > 0) {
-    fail(
-      `Issue snapshot missing referenced issue(s): ${missing
-        .map((n) => `#${n}`)
-        .join(", ")}`,
-    );
+  if (missing.length) {
+    console.warn(`Issue DAG: dropping missing issue ids (not in snapshot): ${missing.join(", ")}`);
   }
+  // Filter nodes absent from the snapshot (config or reality edges referencing unknown issues); they are dropped before rendering.
+  const validNodes = [...nodes].filter((n) => byNum.has(n));
 
   const groups = new Map();
-  for (const n of [...nodes].sort((a, b) => a - b)) {
+  for (const n of validNodes.sort((a, b) => a - b)) {
     const issue = byNum.get(n);
     const milestoneTitle = issue?.milestone?.title ?? "(no milestone)";
     const list = groups.get(milestoneTitle) ?? [];
@@ -264,7 +325,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
   lines.push(
     `  label="${escapeDotString(
       title,
-    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).";`,
+    )}\\nEdge direction: prerequisite → dependent (do tail before head)\\nEdge styles encode confidence (solid=strong, dashed=medium, dotted=weak).\\nGreen = Confirmed in TASKS-DAG.md; Red = In TASKS-DAG.md but missing from Plan.";`,
   );
   lines.push("");
 
@@ -276,12 +337,15 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
   lines.push('    L1 [label="strong", fillcolor="#ffffff"];');
   lines.push('    L2 [label="medium", fillcolor="#ffffff"];');
   lines.push('    L3 [label="weak", fillcolor="#ffffff"];');
+  lines.push('    LG [label="confirmed (reality)", color="green", fontcolor="green"];');
+  lines.push('    LR [label="missing from plan", color="red", fontcolor="red"];');
   lines.push(
     `    L1 -> L2 [arrowhead=none, ${confidenceEdgeAttrs("strong")}];`,
   );
   lines.push(
     `    L2 -> L3 [arrowhead=none, ${confidenceEdgeAttrs("medium")}];`,
   );
+  lines.push('    LG -> LR [arrowhead=none, color="red", style="dashed"];');
   lines.push("  }");
   lines.push("");
 
@@ -316,11 +380,36 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel }) {
   }
 
   for (const { from, to, confidence, note } of issueEdges) {
+    const edgeKey = `${from}->${to}`;
+    const inReality = realityEdges && realityEdges.has(edgeKey);
+    if (inReality && confidence !== "strong") {
+      console.warn(
+        `Reality confirmed low-confidence edge ${edgeKey} (confidence=${confidence}${note ? `, note=${note}` : ""})`,
+      );
+    }
+    const attrs = inReality
+      ? 'color="green3", penwidth=2.0, style="solid"'
+      : confidenceEdgeAttrs(confidence);
+
     lines.push(
-      `  i${from} -> i${to} [${confidenceEdgeAttrs(
-        confidence,
-      )}, tooltip="${escapeDotString(note)}"];`,
+      `  i${from} -> i${to} [${attrs}, tooltip="${escapeDotString(note ?? "")}"];`,
     );
+  }
+
+  // Red edges (Reality - Plan)
+  if (realityEdges) {
+    for (const edgeKey of realityEdges) {
+      if (!configuredEdges.has(edgeKey)) {
+        const realityEdge = safeParseEdgeKey(edgeKey, "reality-only edge");
+        if (!realityEdge) continue;
+        const { from: u, to: v } = realityEdge;
+        if (byNum.has(u) && byNum.has(v)) {
+           lines.push(
+             `  i${u} -> i${v} [color="red", penwidth=2.0, style="dashed", tooltip="Inferred from TASKS-DAG.md (missing from Plan)"];`
+           );
+        }
+      }
+    }
   }
 
   lines.push("}");
@@ -448,6 +537,21 @@ function main() {
   const issuesWrapped = maybeWrapIssuesJson(readJsonFile(args.issuesJson));
   const milestonesWrapped = maybeWrapMilestonesJson(readJsonFile(args.milestonesJson));
 
+  let realityEdges = null;
+  const tasksDagPath = path.resolve(process.cwd(), args.tasksDagPath ?? "TASKS-DAG.md");
+  if (fs.existsSync(tasksDagPath)) {
+    try {
+      const tasksDagContent = fs.readFileSync(tasksDagPath, "utf8");
+      const { edges: tasksDagEdges } = parseTasksDag(tasksDagContent);
+      realityEdges = new Set(tasksDagEdges.map((edge) => `${edge.from}->${edge.to}`));
+    } catch (err) {
+      console.warn(
+        `Warning: failed to parse ${tasksDagPath} for reality edges: ${err?.message ?? err}`,
+      );
+      realityEdges = null;
+    }
+  }
+
   const snapshotResolved = resolveSnapshotLabel({
     snapshot: args.snapshot,
     snapshotLabelMode: args.snapshotLabelMode,
@@ -460,6 +564,7 @@ function main() {
     issues: issuesWrapped.issues,
     issueEdges: config.issue_edges,
     snapshotLabel: snapshotResolved.label,
+    realityEdges,
   });
   const milestoneDot = emitMilestoneDot({
     milestones: milestonesWrapped.milestones,

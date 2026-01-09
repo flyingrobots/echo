@@ -6,6 +6,8 @@
 
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
+| 2026-01-09 | Append-only guardrails for onboarding docs | Append-only files now use `merge=union` plus CI guard (`Append-only Guard` running `scripts/check-append-only.js`; see `docs/append-only-invariants.md`). | Union merges alone can resurrect deletions; pairing union with CI keeps history intact. | CI blocks non-append edits; policy is referenced in AGENTS/plan/log/docs. |
+| 2026-01-09 | Tasks DAG automation consolidation | Tasks DAG outputs live under `docs/assets/dags/`; generator runs in the refresh workflow and docs point to `docs/dependency-dags.md`. | Consolidation removes `dags-2` split and keeps automation visible. | DAG refresh produces canonical tasks DAG alongside issue/milestone DAGs. |
 | 2026-01-03 | Planning hygiene + M2.1 kickoff | Refresh `docs/execution-plan.md` to reflect current GitHub state and begin issue #206 (DPO concurrency litmus: spec note + tests). | The execution plan had drifted (closed issues and PR-queue work still marked as active), which wastes triage time. Issue #206 is a leverage point: it turns DPO concurrency claims into pinned, executable cases. | The active frontier is now issue-driven again, and #206 work proceeds as a single-purpose branch with deterministic litmus tests + a small spec note. |
 | 2026-01-03 | CI: CodeRabbit merge gate | Remove the `PR Merge Gate / CodeRabbit approval required` workflow and treat CodeRabbit approval as a procedural merge requirement instead of a racing status check. | The gate job commonly runs before CodeRabbit can submit a review, producing expected failures and stale red checks; it adds noise without increasing correctness. | PR checks are less noisy; CodeRabbit approval remains required by policy/procedure rather than a flaky “must-pass” status. (Tracking: GitHub issue #248.) |
 | 2026-01-02 | Docs tooling: VitePress upgrade | Upgrade the pinned docs site generator from `vitepress@0.1.1` to a modern stable VitePress release, and keep VitePress pages “plain Markdown” (avoid YAML frontmatter) because SPDX HTML comment headers must be first in-file. | The current VitePress pin is too old to run on modern Node (e.g., Node 25 breaks old `fs.rmdir({ recursive: true })` usage). VitePress frontmatter parsing requires `---` at the start of the file, but repo policy requires SPDX headers first. | `pnpm docs:build` and `pnpm docs:dev` become reliable for contributors on current Node toolchains; angle-bracket / generic-type syntax is no longer misinterpreted as HTML; dead-link checks catch broken internal references; docs pages don’t leak frontmatter into rendered output. |
@@ -435,3 +437,10 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Keep the “paper bridge” doc readable and reduce review noise without churn.
 - Consequence: Same technical content, slightly tighter prose; markdownlint nits avoided.
   - Evidence: `22ba855`
+
+## 2026-01-09 — append-only guardrails for onboarding docs
+
+- Context: AGENTS, docs/decision-log, TASKS-DAG, and docs/execution-plan capture chronological intent and must never delete or reorder existing entries.
+- Decision: Replace `merge=union` automation with a documented CI guarantee: `scripts/check-append-only.js` (c.f. `docs/append-only-invariants.md`) runs before merges to reject deletions, and new documentation keeps the append-only contract visible wherever these artifacts are declared.
+- Rationale: Line-based `merge=union` silently reintroduces deletions and duplicates; an explicit append-only check surfaces violations and keeps the invariant enforcement central and auditable.
+- Compliance: Keep the policy referenced in `.gitattributes`, AGENTS, decision logs, and execution plans so future contributors can see the script + doc that gate these files; CI should fail any merge that removes or mutates existing lines in the tracked paths.

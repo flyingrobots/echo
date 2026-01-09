@@ -18,6 +18,7 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 ## Branch + PR Workflow
 
+- **Isolated Branches**: Every new task, feature, or bugfix **MUST** begin on a fresh, isolated branch based on the latest `main` (unless context explicitly dictates otherwise). Never mix unrelated objectives on the same branch.
 - Keep `main` pristine; do work on a branch (prefer `echo/<feature>` or `timeline/<experiment>`).
 - Do not rebase; do not force push; do not amend commits.
 - Every PR must be tied to a GitHub Issue. If no issue exists, open one before opening the PR.

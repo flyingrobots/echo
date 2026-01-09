@@ -1,3 +1,4 @@
+# Append-only policy: these files use merge=union (append-only) plus CI enforcement (see docs/append-only-invariants.md).
 AGENTS.md merge=union
 docs/decision-log.md merge=union
 TASKS-DAG.md merge=union

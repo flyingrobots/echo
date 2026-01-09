@@ -35,6 +35,25 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-09 — DAG automation cleanup (IN PROGRESS)
+
+- Goal: make the tasks DAG generator and docs behave consistently by emitting into `docs/assets/dags`, consolidating the DAG documentation, and wiring the generator into the refresh workflow.
+- Scope:
+  - Switch `scripts/generate-tasks-dag.js` (and its outputs) to the canonical `docs/assets/dags/` directory and keep the DOT/SVG names stable.
+  - Remove the misleading "Auto-generated" header from `TASKS-DAG.md`, fold `docs/dependency-dags-2.md` into `docs/dependency-dags.md`, and document how to rerun the task graph.
+  - Run the generator as part of `.github/workflows/refresh-dependency-dags.yml`, and capture the decision/rationale in `docs/decision-log.md`.
+- Exit criteria: canonical assets + docs live under `docs/assets/dags` / `docs/dependency-dags.md`, the workflow runs the task generator, and log + plan entries describe the change.
+
+> 2026-01-09 — Append-only guardrails (IN PROGRESS)
+
+- Goal: make AGENTS.md, docs/decision-log.md, TASKS-DAG.md, and docs/execution-plan.md truly append-only by documenting the policy and running `scripts/check-append-only.js` from `docs/append-only-invariants.md`.
+- Scope:
+  - Reference the append-only doc wherever the onboarding artifacts are asserted (AGENTS, `.gitattributes`, decision log, execution plan).
+  - Add a CI gate (`Append-only Guard` workflow) that runs `node scripts/check-append-only.js` (with `APPEND_ONLY_BASE` pointing at the merge base) before merges touching the tracked files.
+  - Educate contributors on how to update the invariants and keep the decision log entry in sync when the policy evolves.
+- Exit criteria: the new doc describes the policy, `.gitattributes` and AGENTS highlight it, and the check script is wired into contributors’ workflows and CI (see `.github/workflows/append-only-check.yml`).
+
+> 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
 > 2026-01-03 — Planning hygiene + start #206 (DPO concurrency litmus) (DONE)
 
 - Goal: refresh the execution plan so it matches current GitHub state, then begin issue #206 with a minimal “DPO concurrency litmus” suite (spec note + tests).

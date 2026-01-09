@@ -38,6 +38,9 @@ function runChecked(cmd, args, { cwd } = {}) {
   if (result.error && result.error.code === "ETIMEDOUT") {
     fail(`Command timed out: ${cmd} ${args.join(" ")}`);
   }
+  if (result.timedOut || (result.status === null && result.signal === "SIGTERM")) {
+    fail(`Command timed out: ${cmd} ${args.join(" ")}`);
+  }
   if (result.error) {
     fail(`Failed to run ${cmd}: ${result.error.message}`);
   }
@@ -86,6 +89,13 @@ function formatDateYYYYMMDD(date) {
 }
 
 function parseArgs(argv) {
+  const requireValue = (name, value) => {
+    if (value === undefined || value === null || value === "") {
+      fail(`${name} requires a value (try --help)`);
+    }
+    return value;
+  };
+
   const args = {
     fetch: false,
     render: false,
@@ -102,13 +112,20 @@ function parseArgs(argv) {
     const token = argv[idx];
     if (token === "--fetch") args.fetch = true;
     else if (token === "--render") args.render = true;
-    else if (token === "--issues-json") args.issuesJson = argv[++idx];
-    else if (token === "--milestones-json") args.milestonesJson = argv[++idx];
-    else if (token === "--config") args.configJson = argv[++idx];
-    else if (token === "--out-dir") args.outDir = argv[++idx];
-    else if (token === "--tasks-dag") args.tasksDagPath = argv[++idx];
-    else if (token === "--snapshot") args.snapshot = argv[++idx];
-    else if (token === "--snapshot-label") args.snapshotLabelMode = argv[++idx];
+    else if (token === "--issues-json")
+      args.issuesJson = requireValue("--issues-json", argv[++idx]);
+    else if (token === "--milestones-json")
+      args.milestonesJson = requireValue("--milestones-json", argv[++idx]);
+    else if (token === "--config")
+      args.configJson = requireValue("--config", argv[++idx]);
+    else if (token === "--out-dir")
+      args.outDir = requireValue("--out-dir", argv[++idx]);
+    else if (token === "--tasks-dag")
+      args.tasksDagPath = requireValue("--tasks-dag", argv[++idx]);
+    else if (token === "--snapshot")
+      args.snapshot = requireValue("--snapshot", argv[++idx]);
+    else if (token === "--snapshot-label")
+      args.snapshotLabelMode = requireValue("--snapshot-label", argv[++idx]);
     else if (token === "-h" || token === "--help") {
       process.stdout.write(
         [
@@ -202,7 +219,13 @@ function fetchAllMilestonesSnapshot(nameWithOwner) {
       "api",
       `repos/${nameWithOwner}/milestones?state=all&per_page=100&page=${page}`,
     ]);
-    const batch = JSON.parse(raw).map((m) => ({
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      fail(
+        `Unexpected milestones payload (page ${page}): expected array, got ${typeof parsed}`,
+      );
+    }
+    const batch = parsed.map((m) => ({
       title: m.title,
       url: m.html_url,
       state: m.state,
@@ -325,6 +348,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   lines.push(
     `    L2 -> L3 [arrowhead=none, ${confidenceEdgeAttrs("medium")}];`,
   );
+  lines.push('    LG -> LR [arrowhead=none, color="red", style="dashed"];');
   lines.push("  }");
   lines.push("");
 

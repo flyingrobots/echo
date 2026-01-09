@@ -4,10 +4,10 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { parseTasksDag } from "./parse-tasks-dag.js";
 
 function fail(message) {
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 function runChecked(cmd, args, { cwd } = {}) {
@@ -212,65 +212,6 @@ function milestoneFillFor(title) {
     }
   }
   return "#ffffff";
-}
-
-function parseTasksDag(content) {
-  const lines = content.split("\n");
-  const edges = new Set(); // "from->to" strings
-
-  let currentIssue = null;
-  let mode = null; // 'blocks' or 'blocked_by'
-
-  for (const [idx, line] of lines.entries()) {
-    const lineNumber = idx + 1;
-    if (line.startsWith("## [")) {
-       const issueMatch = line.match(/^## \[#(\d+): (.*?)\]\((.*)\)/);
-      if (issueMatch) {
-         const parsedIssue = parseInt(issueMatch[1], 10);
-         if (!Number.isFinite(parsedIssue)) {
-           console.warn(
-             `Skipping header with invalid issue number on line ${lineNumber}: ${line}`,
-           );
-           currentIssue = null;
-           mode = null;
-           continue;
-         }
-         currentIssue = parsedIssue;
-         mode = null;
-         continue;
-       }
-    }
-    
-    if (!currentIssue) continue;
-
-    if (line.trim() === "- Blocked by:") {
-      mode = "blocked_by";
-      continue;
-    }
-    if (line.trim() === "- Blocks:") {
-      mode = "blocks";
-      continue;
-    }
-
-    const linkMatch = line.match(/^\s+- \[#(\d+): (.*?)\]\((.*)\)/);
-    if (linkMatch) {
-      const targetNumber = parseInt(linkMatch[1], 10);
-      if (!Number.isFinite(targetNumber)) {
-        console.warn(
-          `Skipping link with invalid target on line ${lineNumber}: ${line}`,
-        );
-        continue;
-      }
-      if (mode === "blocked_by") {
-        // Target -> Current
-        edges.add(`${targetNumber}->${currentIssue}`);
-      } else if (mode === "blocks") {
-        // Current -> Target
-        edges.add(`${currentIssue}->${targetNumber}`);
-      }
-    }
-  }
-  return edges;
 }
 
 function parseEdgeKey(edgeKey, context = "edge key") {
@@ -559,7 +500,8 @@ function main() {
   let realityEdges = null;
   if (fs.existsSync("TASKS-DAG.md")) {
     const tasksDagContent = fs.readFileSync("TASKS-DAG.md", "utf8");
-    realityEdges = parseTasksDag(tasksDagContent);
+    const { edges: tasksDagEdges } = parseTasksDag(tasksDagContent);
+    realityEdges = new Set(tasksDagEdges.map((edge) => `${edge.from}->${edge.to}`));
   }
 
   const snapshotResolved = resolveSnapshotLabel({

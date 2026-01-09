@@ -428,9 +428,10 @@ The following entries use a heading + bullets format for richer context.
 - Rationale: Keep the “paper bridge” doc readable and reduce review noise without churn.
 - Consequence: Same technical content, slightly tighter prose; markdownlint nits avoided.
   - Evidence: `22ba855`
-## 2026-01-09 — merge=union append-only contracts for onboarding docs
 
-- Context: AGENTS, docs/decision-log, TASKS-DAG, and docs/execution-plan are treated as append-only logs, and merge commits touching them should not prune history or reorder entries.
-- Decision: Explicitly declare `merge=union` for these four paths so merges avoid conflicts by union-merging edits, while documenting the append-only invariant and dangers of deleting lines (merge=union may reintroduce removed content).
-- Rationale: These files capture procedural intent and chronological records; union merges keep branches from fighting over deletions, and the inline comments plus decision log entry make it clear that removals/reorders must not occur.
-- Compliance: Document the append-only constraint here and above each `.gitattributes` entry so future contributors know deletions/reorders require extra coordination (and to accept that merge=union might resurrect removed lines unless both sides agree).
+## 2026-01-09 — append-only guardrails for onboarding docs
+
+- Context: AGENTS, docs/decision-log, TASKS-DAG, and docs/execution-plan capture chronological intent and must never delete or reorder existing entries.
+- Decision: Replace `merge=union` automation with a documented CI guarantee: `scripts/check-append-only.js` (c.f. `docs/append-only-invariants.md`) runs before merges to reject deletions, and new documentation keeps the append-only contract visible wherever these artifacts are declared.
+- Rationale: Line-based `merge=union` silently reintroduces deletions and duplicates; an explicit append-only check surfaces violations and keeps the invariant enforcement central and auditable.
+- Compliance: Keep the policy referenced in `.gitattributes`, AGENTS, decision logs, and execution plans so future contributors can see the script + doc that gate these files; CI should fail any merge that removes or mutates existing lines in the tracked paths.

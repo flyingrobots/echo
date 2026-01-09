@@ -44,6 +44,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
   - Run the generator as part of `.github/workflows/refresh-dependency-dags.yml`, and capture the decision/rationale in `docs/decision-log.md`.
 - Exit criteria: canonical assets + docs live under `docs/assets/dags` / `docs/dependency-dags.md`, the workflow runs the task generator, and log + plan entries describe the change.
 
+> 2026-01-09 — Append-only guardrails (IN PROGRESS)
+
+- Goal: make AGENTS.md, docs/decision-log.md, TASKS-DAG.md, and docs/execution-plan.md truly append-only by documenting the policy and running `scripts/check-append-only.js` from `docs/append-only-invariants.md`.
+- Scope:
+  - Reference the append-only doc wherever the onboarding artifacts are asserted (AGENTS, `.gitattributes`, decision log, execution plan).
+  - Add a CI gate that runs `node scripts/check-append-only.js` (with `APPEND_ONLY_BASE` pointing at the merge base) before merges touching the tracked files.
+  - Educate contributors on how to update the invariants and keep the decision log entry in sync when the policy evolves.
+- Exit criteria: the new doc describes the policy, `.gitattributes` and AGENTS highlight it, and the check script is wired into contributors’ workflows (and, in the future, CI).
+
 > 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
 
 - Goal: land the remaining open PRs in oldest-first order using a deterministic merge workflow (no rebases).

@@ -1,8 +1,5 @@
-# Append-only contract: AGENTS instructions must only grow, never delete or reorder entries; merge=union can reintroduce removed lines.
-AGENTS.md merge=union
-# Append-only contract: decision-log entries are append-only history; do not delete or reorder, union may reintroduce removed lines.
-docs/decision-log.md merge=union
-# Append-only contract: TASKS-DAG reflects queued DAG items; keep it append-only and accept union may re-add deleted lines.
-TASKS-DAG.md merge=union
-# Append-only contract: execution-plan remains append-only; merge=union can pull back deleted lines, so avoid deletions/reorders.
-docs/execution-plan.md merge=union
+# Append-only files are gated by docs/append-only-invariants.md and scripts/check-append-only.js (CI should reject deletions/reorders before merging).
+AGENTS.md
+docs/decision-log.md
+TASKS-DAG.md
+docs/execution-plan.md

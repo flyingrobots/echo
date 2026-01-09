@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { parseTasksDag } from "./parse-tasks-dag.js";
 
 const INPUT_FILE = "TASKS-DAG.md";
 const OUT_DIR = "docs/assets/dags";
@@ -11,100 +12,14 @@ const DOT_FILE = path.join(OUT_DIR, "tasks-dag.dot");
 const SVG_FILE = path.join(OUT_DIR, "tasks-dag.svg");
 
 function fail(message) {
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 function runChecked(cmd, args) {
   const result = spawnSync(cmd, args, { encoding: "utf8" });
   if (result.error) fail(`Failed to run ${cmd}: ${result.error.message}`);
   if (result.status !== 0) fail(`Command failed: ${cmd} ${args.join(" ")}\n${result.stderr}`);
-}
-
-function parseTasksDag(content) {
-  const lines = content.split("\n");
-  const nodes = new Map(); // number -> { number, title, url }
-  const edges = []; // { from, to, confidence, note }
-
-  let currentIssue = null;
-  let mode = null; // 'blocks' or 'blocked_by'
-
-  const issueRegex = /^## \[#(\d+): (.*?)\]\((.*)\)/;
-  const linkRegex = /^\s+- \[#(\d+): (.*?)\]\((.*)\)/;
-  const confidenceRegex = /^\s+- Confidence: (.+)/;
-  const evidenceRegex = /^\s+- Evidence: (.+)/;
-
-  let pendingEdge = null;
-
-  for (const line of lines) {
-    if (line.startsWith("## [")) {
-       const issueMatch = line.match(issueRegex);
-       if (issueMatch) {
-         if (pendingEdge) { edges.push(pendingEdge); pendingEdge = null; }
-         const number = parseInt(issueMatch[1], 10);
-         currentIssue = { number, title: issueMatch[2], url: issueMatch[3] };
-         nodes.set(number, currentIssue);
-         mode = null;
-         continue;
-       } else {
-         console.warn("Failed to match header:", line);
-       }
-    }
-    
-    if (!currentIssue) continue;
-
-    // Section Headers
-    if (line.trim() === "- Blocked by:") {
-      mode = "blocked_by";
-      if (pendingEdge) { edges.push(pendingEdge); pendingEdge = null; }
-      continue;
-    }
-    if (line.trim() === "- Blocks:") {
-      mode = "blocks";
-      if (pendingEdge) { edges.push(pendingEdge); pendingEdge = null; }
-      continue;
-    }
-
-    // Dependency Link
-    const linkMatch = line.match(linkRegex);
-    if (linkMatch) {
-      if (pendingEdge) { edges.push(pendingEdge); pendingEdge = null; }
-      const targetNumber = parseInt(linkMatch[1], 10);
-      const targetTitle = linkMatch[2];
-      const targetUrl = linkMatch[3];
-      
-      // Ensure target node exists (even if we haven't reached its header yet)
-      if (!nodes.has(targetNumber)) {
-        nodes.set(targetNumber, { number: targetNumber, title: targetTitle, url: targetUrl });
-      }
-
-      if (mode === "blocked_by") {
-        // Target -> Current
-        pendingEdge = { from: targetNumber, to: currentIssue.number, confidence: "strong", note: "" };
-      } else if (mode === "blocks") {
-        // Current -> Target
-        pendingEdge = { from: currentIssue.number, to: targetNumber, confidence: "strong", note: "" };
-      }
-      continue;
-    }
-
-    // Metadata for the pending edge
-    if (pendingEdge) {
-      const confMatch = line.match(confidenceRegex);
-      if (confMatch) {
-        pendingEdge.confidence = confMatch[1].trim().toLowerCase();
-        continue;
-      }
-      const evMatch = line.match(evidenceRegex);
-      if (evMatch) {
-        pendingEdge.note = evMatch[1].trim();
-        continue;
-      }
-    }
-  }
-  if (pendingEdge) { edges.push(pendingEdge); }
-
-  return { nodes, edges };
+  return result.stdout;
 }
 
 function escapeDotString(str) {

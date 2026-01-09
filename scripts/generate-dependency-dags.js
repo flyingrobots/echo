@@ -35,10 +35,7 @@ function runChecked(cmd, args, { cwd } = {}) {
     timeout: 120000,
     killSignal: "SIGTERM",
   });
-  if (result.error && result.error.code === "ETIMEDOUT") {
-    fail(`Command timed out: ${cmd} ${args.join(" ")}`);
-  }
-  if (result.timedOut || (result.status === null && result.signal === "SIGTERM")) {
+  if (result.timedOut) {
     fail(`Command timed out: ${cmd} ${args.join(" ")}`);
   }
   if (result.error) {
@@ -299,7 +296,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
     console.warn(`Issue DAG: dropping missing issue ids (not in snapshot): ${missing.join(", ")}`);
   }
   // Filter nodes absent from the snapshot (config or reality edges referencing unknown issues); they are dropped before rendering.
-  const validNodes = [...nodes].filter(n => byNum.has(n));
+  const validNodes = [...nodes].filter((n) => byNum.has(n));
 
   const groups = new Map();
   for (const n of validNodes.sort((a, b) => a - b)) {

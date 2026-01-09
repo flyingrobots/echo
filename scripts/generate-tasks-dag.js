@@ -229,7 +229,10 @@ function main() {
     runChecked("dot", ["-Tsvg", DOT_FILE, "-o", SVG_FILE]);
     console.log(`Rendered SVG to ${SVG_FILE}`);
   } catch (e) {
-    console.warn("Warning: Failed to render SVG (is graphviz installed?). Only DOT file generated.");
+    console.warn(
+      "Warning: Failed to render SVG (is graphviz installed?). Only DOT file generated.",
+      e?.message ?? e
+    );
   }
 }
 

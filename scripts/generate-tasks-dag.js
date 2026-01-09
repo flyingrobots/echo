@@ -29,7 +29,7 @@ function parseTasksDag(content) {
   let currentIssue = null;
   let mode = null; // 'blocks' or 'blocked_by'
 
-  const issueRegex = /^## \[#(\d+): (.+)](.+)"/;
+  const issueRegex = /^## \[#(\d+): (.*?)\]\((.*)\)/;
   const linkRegex = /^\s+- \[#(\d+): (.*?)\]\((.*)\)/;
   const confidenceRegex = /^\s+- Confidence: (.+)/;
   const evidenceRegex = /^\s+- Evidence: (.+)/;
@@ -38,7 +38,7 @@ function parseTasksDag(content) {
 
   for (const line of lines) {
     if (line.startsWith("## [")) {
-       const issueMatch = line.match(/^## \[#(\d+): (.*?)\]\((.*)\)/);
+       const issueMatch = line.match(issueRegex);
        if (issueMatch) {
          if (pendingEdge) { edges.push(pendingEdge); pendingEdge = null; }
          const number = parseInt(issueMatch[1], 10);

@@ -22,17 +22,29 @@ export function parseEdgeKey(edgeKey, context = "edge key") {
     .split("->")
     .map((segment) => segment.trim());
   if (parts.length !== 2) {
-    throw new Error(`Malformed ${context}: "${edgeKey}" (expected from->to)`);
+    const err = new Error(
+      `Malformed ${context}: "${edgeKey}" (expected from->to)`,
+    );
+    err.name = "ParseError";
+    throw err;
   }
   const [fromStr, toStr] = parts;
   const intRegex = /^\d+$/;
   if (!intRegex.test(fromStr) || !intRegex.test(toStr)) {
-    throw new Error(`Non-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`);
+    const err = new Error(
+      `Non-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`,
+    );
+    err.name = "ParseError";
+    throw err;
   }
   const from = Number(fromStr);
   const to = Number(toStr);
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) {
-    throw new Error(`Non-safe-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`);
+    const err = new Error(
+      `Non-safe-integer ${context}: "${edgeKey}" (parsed ${fromStr}, ${toStr})`,
+    );
+    err.name = "ParseError";
+    throw err;
   }
   return { from, to };
 }

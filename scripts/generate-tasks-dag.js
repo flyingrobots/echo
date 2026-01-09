@@ -187,7 +187,7 @@ function generateDot(nodes, edges) {
     lines.push(`    node [fillcolor="${color}"];`);
     
     for (const node of groupNodes) {
-      const label = `#${node.number}\n${node.title.replace(/"/g, "'")}`; // escape quotes in label for DOT safety (though escapeDotString handles the attribute wrapper)
+      const label = `#${node.number}\n${node.title}`;
       // limit label length?
       let safeLabel = escapeDotString(label);
       if (safeLabel.length > 50) {
@@ -195,7 +195,7 @@ function generateDot(nodes, edges) {
          safeLabel = safeLabel.replace(/(.{30,}?)\s/, "$1\\n"); 
       }
 
-      lines.push(`    i${node.number} [label="${safeLabel}", URL="${node.url}", tooltip="${escapeDotString(node.title)}"];`);
+      lines.push(`    i${node.number} [label="${safeLabel}", URL="${escapeDotString(node.url)}", tooltip="${escapeDotString(node.title)}"];`);
     }
     lines.push('  }');
   }

@@ -310,9 +310,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
       const { from: u, to: v } = realityEdge;
       // Only add to graph if both nodes are in the issue snapshot (sanity check)
       if (byNum.has(u) && byNum.has(v)) {
-        // We generally only add nodes if they are connected to the "Plan" or extend it.
-        // For visual clarity, let's include them if they touch the existing Plan nodes or imply missing plan parts.
-        // For now, let's purely strictly add them if they are part of a Red edge.
+        // Only add nodes for reality edges that are missing from the configured plan (red/missing edges).
         if (!configuredEdges.has(edgeKey)) {
            nodes.add(u);
            nodes.add(v);

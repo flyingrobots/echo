@@ -36,6 +36,9 @@ jobs:
       - name: Install Graphviz
         run: sudo apt-get update && sudo apt-get install -y graphviz
 
+      - name: Generate Tasks DAG assets
+        run: node scripts/generate-tasks-dag.js
+
       - name: Generate DAG DOT+SVG (from GitHub)
         env:
           GH_TOKEN: ${{ github.token }}

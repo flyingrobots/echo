@@ -70,3 +70,25 @@ cargo xtask dags --fetch --snapshot-label none
 cargo xtask dags --snapshot-label rolling
 cargo xtask dags --snapshot-label 2026-01-02
 ```
+
+---
+
+## Tasks DAG (derived from TASKS-DAG.md)
+
+![Tasks DAG](assets/dags/tasks-dag.svg)
+
+Sources:
+- Source data: `TASKS-DAG.md`
+- Generator: `scripts/generate-tasks-dag.js` (scheduled by `.github/workflows/refresh-dependency-dags.yml` to keep the rendered output aligned with `TASKS-DAG.md`)
+- DOT: `docs/assets/dags/tasks-dag.dot`
+- SVG: `docs/assets/dags/tasks-dag.svg`
+
+This DAG visualizes inferred issue dependencies that contributors log in `TASKS-DAG.md`, offering a quick comparison point against the curated milestone/issue graphs above.
+
+## Regenerating the Tasks DAG
+
+```sh
+node scripts/generate-tasks-dag.js
+```
+
+Ensure Node.js and Graphviz (`dot`) are installed before running manually, or trigger the scheduled workflow (which now includes this script) to refresh the assets automatically.

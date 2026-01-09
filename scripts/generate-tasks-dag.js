@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const INPUT_FILE = "TASKS-DAG.md";
-const OUT_DIR = "docs/assets/dags-2";
+const OUT_DIR = "docs/assets/dags";
 const DOT_FILE = path.join(OUT_DIR, "tasks-dag.dot");
 const SVG_FILE = path.join(OUT_DIR, "tasks-dag.svg");
 

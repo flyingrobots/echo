@@ -2,8 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # TASKS-DAG
 
-Auto-generated list of open issues and their dependencies.
-Sources: `docs/ROADMAP.md`, Issue Bodies, and **Inferred Logic** (Detective Mode).
+This living list documents open issues and the inferred dependencies contributors capture while planning. Run `scripts/generate-tasks-dag.js` (requires Node.js + Graphviz `dot`) to render the DAG found at `docs/assets/dags/tasks-dag.svg`.
 
 ## [#19: Spec: Persistent Store (on-disk)](https://github.com/flyingrobots/echo/issues/19)
 - Blocked by:

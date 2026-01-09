@@ -221,11 +221,21 @@ function parseTasksDag(content) {
   let currentIssue = null;
   let mode = null; // 'blocks' or 'blocked_by'
 
-  for (const line of lines) {
+  for (const [idx, line] of lines.entries()) {
+    const lineNumber = idx + 1;
     if (line.startsWith("## [")) {
        const issueMatch = line.match(/^## \[#(\d+): (.*?)\]\((.*)\)/);
-       if (issueMatch) {
-         currentIssue = parseInt(issueMatch[1], 10);
+      if (issueMatch) {
+         const parsedIssue = parseInt(issueMatch[1], 10);
+         if (!Number.isFinite(parsedIssue)) {
+           console.warn(
+             `Skipping header with invalid issue number on line ${lineNumber}: ${line}`,
+           );
+           currentIssue = null;
+           mode = null;
+           continue;
+         }
+         currentIssue = parsedIssue;
          mode = null;
          continue;
        }
@@ -245,6 +255,12 @@ function parseTasksDag(content) {
     const linkMatch = line.match(/^\s+- \[#(\d+): (.*?)\]\((.*)\)/);
     if (linkMatch) {
       const targetNumber = parseInt(linkMatch[1], 10);
+      if (!Number.isFinite(targetNumber)) {
+        console.warn(
+          `Skipping link with invalid target on line ${lineNumber}: ${line}`,
+        );
+        continue;
+      }
       if (mode === "blocked_by") {
         // Target -> Current
         edges.add(`${targetNumber}->${currentIssue}`);

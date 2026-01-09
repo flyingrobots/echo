@@ -14,6 +14,7 @@ function runTests() {
     - [#3: Baz](https://example.com/3)
     - Confidence: weak
 `;
+  // Intentional indentation/ordering mirrors real TASKS-DAG markdown; mode switches on trimmed headers.
   const { nodes, edges } = parseTasksDag(content);
   assert.strictEqual(nodes.get(1).title, "Foo");
   assert.strictEqual(nodes.get(2).title, "Bar");
@@ -32,6 +33,15 @@ function runTests() {
     note: "",
   });
   console.log("parseTasksDag tests passed");
+
+  const malformed = "## [#abc: Bad](https://example.com)";
+  const parsedMalformed = parseTasksDag(malformed);
+  assert.strictEqual(parsedMalformed.nodes.size, 0);
+  assert.strictEqual(parsedMalformed.edges.length, 0);
+
+  const empty = "";
+  const parsedEmpty = parseTasksDag(empty);
+  assert.strictEqual(parsedEmpty.edges.length, 0);
 }
 
 runTests();

@@ -28,8 +28,13 @@ for (const file of files) {
   }
   if (!diffOutput.trim()) continue;
   for (const line of diffOutput.trim().split("\n")) {
-    const [added, removed, path] = line.split("\t");
-    if (path && path.trim() === file && removed && removed !== "0") {
+    const parts = line.split("\t");
+    if (parts.length < 3) continue;
+    const [, removedRaw, pathRaw] = parts;
+    const path = pathRaw?.trim();
+    const removed = Number.parseInt(removedRaw, 10);
+    if (!path || !Number.isFinite(removed)) continue;
+    if (path === file && removed > 0) {
       errors.push(
         `${file} has ${removed} deletions when compared to ${baseRef}; append-only edits must not remove or change existing lines.`,
       );

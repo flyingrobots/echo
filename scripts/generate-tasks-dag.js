@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseTasksDag } from "./parse-tasks-dag.js";
+import { escapeDotString } from "./dag-utils.js";
 
 const INPUT_FILE = "TASKS-DAG.md";
 const OUT_DIR = "docs/assets/dags";
@@ -22,8 +23,30 @@ function runChecked(cmd, args) {
   return result.stdout;
 }
 
-function escapeDotString(str) {
-  return String(str).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+function wrapLabel(text, maxLineLength = 30) {
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    if (word.length > maxLineLength) {
+      if (current.length) {
+        lines.push(current);
+        current = "";
+      }
+      for (let i = 0; i < word.length; i += maxLineLength) {
+        lines.push(word.slice(i, i + maxLineLength));
+      }
+      continue;
+    }
+    if ((current + (current ? " " : "") + word).length > maxLineLength && current.length) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = current ? `${current} ${word}` : word;
+    }
+  }
+  if (current.length) lines.push(current);
+  return lines.join("\\n");
 }
 
 function confidenceAttrs(confidence) {
@@ -107,12 +130,8 @@ function generateDot(nodes, edges) {
     
     for (const node of groupNodes) {
       const label = `#${node.number}\n${node.title}`;
-      // limit label length?
-      let safeLabel = escapeDotString(label);
-      if (safeLabel.length > 50) {
-         // insert line break roughly
-         safeLabel = safeLabel.replace(/(.{30,}?)\s/, "$1\\n"); 
-      }
+      let safeLabel = wrapLabel(label, 30);
+      safeLabel = escapeDotString(safeLabel);
 
       lines.push(`    i${node.number} [label="${safeLabel}", URL="${escapeDotString(node.url)}", tooltip="${escapeDotString(node.title)}"];`);
     }

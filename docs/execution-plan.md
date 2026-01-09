@@ -35,7 +35,6 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
-<<<<<<< HEAD
 > 2026-01-09 — DAG automation cleanup (IN PROGRESS)
 
 - Goal: make the tasks DAG generator and docs behave consistently by emitting into `docs/assets/dags`, consolidating the DAG documentation, and wiring the generator into the refresh workflow.
@@ -50,16 +49,13 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 - Goal: make AGENTS.md, docs/decision-log.md, TASKS-DAG.md, and docs/execution-plan.md truly append-only by documenting the policy and running `scripts/check-append-only.js` from `docs/append-only-invariants.md`.
 - Scope:
   - Reference the append-only doc wherever the onboarding artifacts are asserted (AGENTS, `.gitattributes`, decision log, execution plan).
-  - Add a CI gate that runs `node scripts/check-append-only.js` (with `APPEND_ONLY_BASE` pointing at the merge base) before merges touching the tracked files.
+  - Add a CI gate (`Append-only Guard` workflow) that runs `node scripts/check-append-only.js` (with `APPEND_ONLY_BASE` pointing at the merge base) before merges touching the tracked files.
   - Educate contributors on how to update the invariants and keep the decision log entry in sync when the policy evolves.
 - Exit criteria: the new doc describes the policy, `.gitattributes` and AGENTS highlight it, and the check script is wired into contributors’ workflows (and, in the future, CI).
 
 > 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
-||||||| 8082bbb
-> 2026-01-03 — Merge-train: oldest open PRs (#220 → #227 → #242) (IN PROGRESS)
-=======
+
 > 2026-01-03 — Planning hygiene + start #206 (DPO concurrency litmus) (DONE)
->>>>>>> origin/main
 
 - Goal: refresh the execution plan so it matches current GitHub state, then begin issue #206 with a minimal “DPO concurrency litmus” suite (spec note + tests).
 - Scope:

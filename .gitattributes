@@ -1,4 +1,4 @@
-# Append-only files are gated by docs/append-only-invariants.md and scripts/check-append-only.js (CI should reject deletions/reorders before merging).
+# Append-only policy enforced via scripts/check-append-only.js + CI (no custom merge driver or union strategy configured here).
 AGENTS.md
 docs/decision-log.md
 TASKS-DAG.md

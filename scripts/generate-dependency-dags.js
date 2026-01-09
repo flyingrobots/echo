@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { parseTasksDag } from "./parse-tasks-dag.js";
+import { escapeDotString, parseEdgeKey } from "./dag-utils.js";
 
 function fail(message) {
   throw new Error(message);
@@ -54,10 +55,6 @@ function maybeWrapMilestonesJson(json) {
   fail(
     `Unsupported milestones JSON format: expected an array or { milestones: [...] }.`,
   );
-}
-
-function escapeDotString(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
 function formatDateYYYYMMDD(date) {
@@ -214,22 +211,6 @@ function milestoneFillFor(title) {
   return "#ffffff";
 }
 
-function parseEdgeKey(edgeKey, context = "edge key") {
-  const parts = edgeKey.split("->").map((segment) => segment.trim());
-  if (parts.length !== 2) {
-    console.warn(`Skipping malformed ${context}: "${edgeKey}"`);
-    return null;
-  }
-  const [fromStr, toStr] = parts;
-  const from = Number.parseInt(fromStr, 10);
-  const to = Number.parseInt(toStr, 10);
-  if (!Number.isFinite(from) || !Number.isFinite(to)) {
-    console.warn(`Skipping ${context} with non-numeric nodes: "${edgeKey}"`);
-    return null;
-  }
-  return { from, to };
-}
-
 function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   const byNum = new Map();
   for (const issue of issues) byNum.set(issue.number, issue);
@@ -243,11 +224,17 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
     configuredEdges.add(`${e.from}->${e.to}`);
   }
 
-  // Add nodes from reality edges if they exist in the issue snapshot
+  // Phase 1 above: add nodes from configured plan edges.
+  // Phase 2 here: add nodes for reality-only edges (edges present in TASKS-DAG but missing from configuredEdges) so they can render as red “missing from plan”.
   if (realityEdges) {
     for (const edgeKey of realityEdges) {
-      const realityEdge = parseEdgeKey(edgeKey, "reality edge");
-      if (!realityEdge) continue;
+      let realityEdge;
+      try {
+        realityEdge = parseEdgeKey(edgeKey, "reality edge");
+      } catch (e) {
+        console.warn(e.message);
+        continue;
+      }
       const { from: u, to: v } = realityEdge;
       // Only add to graph if both nodes are in the issue snapshot (sanity check)
       if (byNum.has(u) && byNum.has(v)) {
@@ -261,6 +248,9 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   }
 
   const missing = [...nodes].filter((n) => !byNum.has(n)).sort((a, b) => a - b);
+  if (missing.length) {
+    console.warn(`Issue DAG: dropping missing issue ids (not in snapshot): ${missing.join(", ")}`);
+  }
   // Filter nodes absent from the snapshot (config or reality edges referencing unknown issues); they are dropped before rendering.
   const validNodes = [...nodes].filter(n => byNum.has(n));
 
@@ -360,8 +350,13 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   if (realityEdges) {
     for (const edgeKey of realityEdges) {
       if (!configuredEdges.has(edgeKey)) {
-        const realityEdge = parseEdgeKey(edgeKey, "reality-only edge");
-        if (!realityEdge) continue;
+        let realityEdge;
+        try {
+          realityEdge = parseEdgeKey(edgeKey, "reality-only edge");
+        } catch (e) {
+          console.warn(e.message);
+          continue;
+        }
         const { from: u, to: v } = realityEdge;
         if (byNum.has(u) && byNum.has(v)) {
            lines.push(

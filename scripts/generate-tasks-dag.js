@@ -167,7 +167,7 @@ function generateDot(nodes, edges) {
   lines.push('    color="gray70";');
   lines.push('    fontcolor="gray30";');
   lines.push('    style="rounded";');
-  lines.push('    LG [label="confirmed in issue body", color="green", fontcolor="green"];');
+  lines.push('    LG [label="confirmed in TASKS-DAG.md", color="green", fontcolor="green"];');
   lines.push("  }");
   lines.push("");
 

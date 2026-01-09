@@ -202,8 +202,8 @@ function generateDot(nodes, edges) {
 
   lines.push('');
   for (const edge of edges) {
-    // Only add edge if both nodes exist in our set (which they should)
-    if (nodes.has(edge.from) && nodes.has(edge.to)) {
+    // Only add edge if both nodes appear in the filtered set (which we actually render)
+    if (filteredNodes.has(edge.from) && filteredNodes.has(edge.to)) {
       // Force Green for "Confirmed in Issue Body" (which is everything here)
       lines.push(`  i${edge.from} -> i${edge.to} [color="green3", penwidth=2.0, style="solid", tooltip="${escapeDotString(edge.note || "")}"];`);
     }

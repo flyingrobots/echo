@@ -113,10 +113,14 @@ function escapeDotString(str) {
 
 function confidenceAttrs(confidence) {
   switch (confidence) {
-    case "strong": return 'color="black", penwidth=1.4, style="solid"';
-    case "medium": return 'color="gray40", penwidth=1.2, style="dashed"';
-    case "weak": return 'color="gray70", penwidth=1.2, style="dotted"';
-    default: return 'color="black", style="solid"'; // fallback
+    case "strong":
+      return 'color="green3", penwidth=2.5, style="solid"';
+    case "medium":
+      return 'color="orange", penwidth=2.0, style="solid"';
+    case "weak":
+      return 'color="red", penwidth=1.0, style="dashed"';
+    default:
+      return 'color="gray50", penwidth=1.0, style="dotted"';
   }
 }
 
@@ -202,10 +206,11 @@ function generateDot(nodes, edges) {
 
   lines.push('');
   for (const edge of edges) {
-    // Only add edge if both nodes appear in the filtered set (which we actually render)
     if (filteredNodes.has(edge.from) && filteredNodes.has(edge.to)) {
-      // Force Green for "Confirmed in Issue Body" (which is everything here)
-      lines.push(`  i${edge.from} -> i${edge.to} [color="green3", penwidth=2.0, style="solid", tooltip="${escapeDotString(edge.note || "")}"];`);
+      const attrs = confidenceAttrs(edge.confidence);
+      lines.push(
+        `  i${edge.from} -> i${edge.to} [${attrs}, tooltip="${escapeDotString(edge.note || "")}"];`,
+      );
     }
   }
 

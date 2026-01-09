@@ -304,10 +304,7 @@ function emitIssueDot({ issues, issueEdges, snapshotLabel, realityEdges }) {
   }
 
   const missing = [...nodes].filter((n) => !byNum.has(n)).sort((a, b) => a - b);
-  // Warning only for missing nodes in reality edges (dynamic), strict fail for config edges
-  // actually existing logic fails on missing config nodes. Let's keep that.
-  
-  // Filter nodes that don't exist in byNum (stale config or stale reality)
+  // Filter nodes absent from the snapshot (config or reality edges referencing unknown issues); they are dropped before rendering.
   const validNodes = [...nodes].filter(n => byNum.has(n));
 
   const groups = new Map();

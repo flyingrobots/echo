@@ -17,6 +17,11 @@ use warp_core::{
 };
 use wasm_bindgen::prelude::*;
 
+/// Placeholder ABI bytes for empty responses.
+fn empty_bytes() -> Uint8Array {
+    Uint8Array::new_with_length(0)
+}
+
 // Generates a 3D vector type with wasm_bindgen bindings.
 macro_rules! wasm_vector_type {
     ($struct_doc:literal, $name:ident, $ctor_doc:literal, $x_doc:literal, $y_doc:literal, $z_doc:literal) => {
@@ -118,6 +123,52 @@ wasm_vector_type!(
     "Returns the Y component in meters/second.",
     "Returns the Z component in meters/second."
 );
+
+// -----------------------------------------------------------------------------
+// Frozen ABI exports (website kernel spike)
+// -----------------------------------------------------------------------------
+
+/// Enqueue a canonical intent payload (opaque bytes). Placeholder: currently no-op.
+#[wasm_bindgen]
+pub fn dispatch_intent(_intent_bytes: &[u8]) {
+    // TODO: wire to ingest_inbox_event once kernel plumbing lands in warp-wasm.
+}
+
+/// Run deterministic steps up to a budget. Placeholder: returns empty StepResult bytes.
+#[wasm_bindgen]
+pub fn step(_step_budget: u32) -> Uint8Array {
+    empty_bytes()
+}
+
+/// Drain emitted ViewOps since last drain. Placeholder: returns empty array.
+#[wasm_bindgen]
+pub fn drain_view_ops() -> Uint8Array {
+    empty_bytes()
+}
+
+/// Get head info (tick/seq/state root). Placeholder: returns empty bytes.
+#[wasm_bindgen]
+pub fn get_head() -> Uint8Array {
+    empty_bytes()
+}
+
+/// Execute a read-only query by ID with canonical vars. Placeholder: returns empty bytes.
+#[wasm_bindgen]
+pub fn execute_query(_query_id: u32, _vars_bytes: &[u8]) -> Uint8Array {
+    empty_bytes()
+}
+
+/// Snapshot at a tick (sandbox replay). Placeholder: returns empty bytes.
+#[wasm_bindgen]
+pub fn snapshot_at(_tick: u64) -> Uint8Array {
+    empty_bytes()
+}
+
+/// Render a snapshot to ViewOps. Placeholder: returns empty bytes.
+#[wasm_bindgen]
+pub fn render_snapshot(_snapshot_bytes: &[u8]) -> Uint8Array {
+    empty_bytes()
+}
 
 impl Default for WasmEngine {
     fn default() -> Self {

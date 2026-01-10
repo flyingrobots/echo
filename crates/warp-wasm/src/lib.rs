@@ -53,15 +53,21 @@ impl RegistryProvider for DummyRegistry {
 
 const DUMMY: DummyRegistry = DummyRegistry;
 static REGISTRY: OnceLock<&'static dyn RegistryProvider> = OnceLock::new();
+static REGISTRY_SET: OnceLock<bool> = OnceLock::new();
 
 /// Install an application-supplied registry provider. App code should call
 /// this once at startup (see flyingrobots-echo-wasm).
 pub fn install_registry(provider: &'static dyn RegistryProvider) {
     let _ = REGISTRY.set(provider);
+    let _ = REGISTRY_SET.set(true);
 }
 
 fn registry() -> &'static dyn RegistryProvider {
     REGISTRY.get().copied().unwrap_or(&DUMMY)
+}
+
+fn has_provider() -> bool {
+    REGISTRY_SET.get().copied().unwrap_or(false)
 }
 
 // Generates a 3D vector type with wasm_bindgen bindings.
@@ -236,6 +242,9 @@ pub fn get_registry_info() -> Uint8Array {
 /// Schema-validated helper: encode a command payload into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
+    if !has_provider() {
+        return empty_bytes();
+    }
     let Some(_op) = registry().op_by_id(_op_id) else {
         return empty_bytes();
     };
@@ -244,6 +253,10 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
     let Ok(value): Result<serde_json::Value, _> = swb_from_js(_payload) else {
         return empty_bytes();
     };
+
+    if !value.is_object() {
+        return empty_bytes();
+    }
 
     match encode_cbor(&value) {
         Ok(bytes) => Uint8Array::from(bytes.as_slice()),
@@ -254,6 +267,9 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
 /// Schema-validated helper: encode query variables into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
+    if !has_provider() {
+        return empty_bytes();
+    }
     let Some(_op) = registry().op_by_id(_query_id) else {
         return empty_bytes();
     };
@@ -261,6 +277,10 @@ pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
     let Ok(value): Result<serde_json::Value, _> = swb_from_js(_vars) else {
         return empty_bytes();
     };
+
+    if !value.is_object() {
+        return empty_bytes();
+    }
 
     match encode_cbor(&value) {
         Ok(bytes) => Uint8Array::from(bytes.as_slice()),

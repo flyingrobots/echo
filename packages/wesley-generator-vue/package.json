@@ -1,0 +1,8 @@
+{
+  "name": "@wesley/generator-vue",
+  "version": "0.1.0",
+  "description": "Generate Vue client artifacts (ops.ts, schemas.ts, client.ts, useEcho.ts) from Echo Ops IR",
+  "type": "module",
+  "main": "src/index.mjs",
+  "license": "Apache-2.0"
+}

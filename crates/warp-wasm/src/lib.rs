@@ -10,7 +10,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use echo_registry_api::{OpDef, RegistryInfo, RegistryProvider};
+use echo_registry_api::RegistryProvider;
 use echo_wasm_abi::encode_cbor;
 use js_sys::Uint8Array;
 use serde_wasm_bindgen::from_value as swb_from_js;
@@ -31,36 +31,7 @@ fn empty_bytes() -> Uint8Array {
 // Registry provider (placeholder until app-supplied registry is linked).
 // -------------------------------------------------------------------------
 
-const DUMMY_REGISTRY: &dyn RegistryProvider = &NoRegistry;
 static REGISTRY: OnceLock<&'static dyn RegistryProvider> = OnceLock::new();
-
-struct NoRegistry;
-
-impl RegistryProvider for NoRegistry {
-    fn info(&self) -> RegistryInfo {
-        RegistryInfo {
-            codec_id: "unknown",
-            registry_version: 0,
-            schema_sha256_hex: "",
-        }
-    }
-
-    fn op_by_id(&self, _op_id: u32) -> Option<&'static OpDef> {
-        None
-    }
-
-    fn all_ops(&self) -> &'static [OpDef] {
-        &[]
-    }
-
-    fn all_enums(&self) -> &'static [echo_registry_api::EnumDef] {
-        &[]
-    }
-
-    fn all_objects(&self) -> &'static [echo_registry_api::ObjectDef] {
-        &[]
-    }
-}
 
 /// Install an application-supplied registry provider. App code should call
 /// this once at startup (see flyingrobots-echo-wasm).
@@ -68,8 +39,8 @@ pub fn install_registry(provider: &'static dyn RegistryProvider) {
     let _ = REGISTRY.set(provider);
 }
 
-fn registry() -> &'static dyn RegistryProvider {
-    REGISTRY.get().copied().unwrap_or(DUMMY_REGISTRY)
+fn registry() -> Option<&'static dyn RegistryProvider> {
+    REGISTRY.get().copied()
 }
 
 fn validate_object_against_args(
@@ -280,7 +251,7 @@ pub fn render_snapshot(_snapshot_bytes: &[u8]) -> Uint8Array {
 /// Return registry metadata (schema hash, codec id, registry version).
 #[wasm_bindgen]
 pub fn get_registry_info() -> Uint8Array {
-    let Some(reg) = REGISTRY.get().copied() else {
+    let Some(reg) = registry() else {
         return empty_bytes();
     };
     let info = reg.info();
@@ -301,13 +272,36 @@ pub fn get_registry_info() -> Uint8Array {
     }
 }
 
+#[wasm_bindgen]
+/// Get the codec identifier from the installed registry.
+pub fn get_codec_id() -> JsValue {
+    registry()
+        .map(|r| JsValue::from_str(r.info().codec_id))
+        .unwrap_or_else(|| JsValue::NULL)
+}
+
+#[wasm_bindgen]
+/// Get the registry version from the installed registry.
+pub fn get_registry_version() -> JsValue {
+    registry()
+        .map(|r| JsValue::from_f64(r.info().registry_version as f64))
+        .unwrap_or_else(|| JsValue::NULL)
+}
+
+#[wasm_bindgen]
+/// Get the schema hash (hex) from the installed registry.
+pub fn get_schema_sha256_hex() -> JsValue {
+    registry()
+        .map(|r| JsValue::from_str(r.info().schema_sha256_hex))
+        .unwrap_or_else(|| JsValue::NULL)
+}
+
 /// Schema-validated helper: encode a command payload into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
-    let reg = registry();
-    if reg.all_ops().is_empty() {
+    let Some(reg) = registry() else {
         return empty_bytes();
-    }
+    };
     let Some(op) = reg.op_by_id(_op_id) else {
         return empty_bytes();
     };
@@ -330,10 +324,9 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
 /// Schema-validated helper: encode query variables into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
-    let reg = registry();
-    if reg.all_ops().is_empty() {
+    let Some(reg) = registry() else {
         return empty_bytes();
-    }
+    };
     let Some(op) = reg.op_by_id(_query_id) else {
         return empty_bytes();
     };

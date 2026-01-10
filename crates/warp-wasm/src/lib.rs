@@ -31,12 +31,15 @@ fn empty_bytes() -> Uint8Array {
 // Registry provider (placeholder until app-supplied registry is linked).
 // -------------------------------------------------------------------------
 
-struct DummyRegistry;
+const DUMMY_REGISTRY: &dyn RegistryProvider = &NoRegistry;
+static REGISTRY: OnceLock<&'static dyn RegistryProvider> = OnceLock::new();
 
-impl RegistryProvider for DummyRegistry {
+struct NoRegistry;
+
+impl RegistryProvider for NoRegistry {
     fn info(&self) -> RegistryInfo {
         RegistryInfo {
-            codec_id: "cbor-canon-v1",
+            codec_id: "unknown",
             registry_version: 0,
             schema_sha256_hex: "",
         }
@@ -51,23 +54,18 @@ impl RegistryProvider for DummyRegistry {
     }
 }
 
-const DUMMY: DummyRegistry = DummyRegistry;
-static REGISTRY: OnceLock<&'static dyn RegistryProvider> = OnceLock::new();
-static REGISTRY_SET: OnceLock<bool> = OnceLock::new();
-
 /// Install an application-supplied registry provider. App code should call
 /// this once at startup (see flyingrobots-echo-wasm).
 pub fn install_registry(provider: &'static dyn RegistryProvider) {
     let _ = REGISTRY.set(provider);
-    let _ = REGISTRY_SET.set(true);
 }
 
 fn registry() -> &'static dyn RegistryProvider {
-    REGISTRY.get().copied().unwrap_or(&DUMMY)
+    REGISTRY.get().copied().unwrap_or(DUMMY_REGISTRY)
 }
 
 fn has_provider() -> bool {
-    REGISTRY_SET.get().copied().unwrap_or(false)
+    REGISTRY.get().is_some()
 }
 
 fn validate_object_against_args(

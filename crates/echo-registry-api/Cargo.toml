@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-registry-api"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Generic registry interface for Echo WASM helpers (schema hash, codec, ops catalog)"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "wasm", "registry"]
+categories = ["wasm", "development-tools"]
+
+[dependencies]

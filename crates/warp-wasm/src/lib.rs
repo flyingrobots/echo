@@ -56,6 +56,10 @@ impl RegistryProvider for NoRegistry {
     fn all_enums(&self) -> &'static [echo_registry_api::EnumDef] {
         &[]
     }
+
+    fn all_objects(&self) -> &'static [echo_registry_api::ObjectDef] {
+        &[]
+    }
 }
 
 /// Install an application-supplied registry provider. App code should call
@@ -276,7 +280,10 @@ pub fn render_snapshot(_snapshot_bytes: &[u8]) -> Uint8Array {
 /// Return registry metadata (schema hash, codec id, registry version).
 #[wasm_bindgen]
 pub fn get_registry_info() -> Uint8Array {
-    let info = registry().info();
+    let Some(reg) = REGISTRY.get().copied() else {
+        return empty_bytes();
+    };
+    let info = reg.info();
     #[derive(serde::Serialize)]
     struct Info<'a> {
         codec_id: &'a str,

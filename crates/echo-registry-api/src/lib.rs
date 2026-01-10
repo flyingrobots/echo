@@ -37,6 +37,8 @@ pub struct OpDef {
     pub op_id: u32,
     /// Argument descriptors.
     pub args: &'static [ArgDef],
+    /// Result type name (GraphQL return type).
+    pub result_ty: &'static str,
 }
 
 /// Argument descriptor (flat; sufficient for strict object validation).
@@ -61,6 +63,15 @@ pub struct EnumDef {
     pub values: &'static [&'static str],
 }
 
+/// Object descriptor for result validation (optional; fields may be empty for now).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectDef {
+    /// Object name.
+    pub name: &'static str,
+    /// Fields on the object.
+    pub fields: &'static [ArgDef],
+}
+
 /// Application-supplied registry provider.
 ///
 /// Implemented by a generated crate in the application build. `warp-wasm`
@@ -78,4 +89,7 @@ pub trait RegistryProvider: Sync {
 
     /// Return all enums (for validating enum values).
     fn all_enums(&self) -> &'static [EnumDef];
+
+    /// Return all objects (for result validation).
+    fn all_objects(&self) -> &'static [ObjectDef];
 }

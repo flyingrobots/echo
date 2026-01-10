@@ -8,7 +8,9 @@ use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
-use crate::ident::{CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId};
+use crate::ident::{
+    make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
+};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
@@ -596,6 +598,102 @@ impl Engine {
             policy_id,
             tx: TxId::from_raw(self.tx_counter),
         }
+    }
+
+    /// Returns a cloned view of the current warp's graph store (for tests/tools).
+    ///
+    /// This is a snapshot-only view; mutations must go through engine APIs.
+    #[must_use]
+    pub fn store_clone(&self) -> GraphStore {
+        let warp_id = self.current_root.warp_id;
+        self.state
+            .store(&warp_id)
+            .cloned()
+            .unwrap_or_else(|| GraphStore::new(warp_id))
+    }
+
+    /// Inserts a deterministic inbox event node under `sim/inbox` with the provided payload.
+    ///
+    /// Shape created (edge type labels shown as ids):
+    /// `root --sim_edge--> sim --inbox_edge--> inbox --event_edge--> event:{seq}`
+    ///
+    /// - Ensures `sim` and `sim/inbox` structural nodes exist under the current root.
+    /// - Creates `sim/inbox/event:{seq:016}` node with an attachment carrying the payload.
+    /// - Idempotent for `sim` and `sim/inbox`; event nodes are unique per `seq`.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn ingest_inbox_event(
+        &mut self,
+        seq: u64,
+        payload: &crate::attachment::AtomPayload,
+    ) -> Result<(), EngineError> {
+        let warp_id = self.current_root.warp_id;
+        let store = self
+            .state
+            .store_mut(&warp_id)
+            .ok_or(EngineError::UnknownWarp(warp_id))?;
+
+        let root_id = self.current_root.local_id;
+
+        let sim_id = make_node_id("sim");
+        let inbox_id = make_node_id("sim/inbox");
+        let event_label = format!("sim/inbox/event:{seq:016}");
+        let event_id = make_node_id(&event_label);
+
+        let root_ty = make_type_id("root");
+        let sim_ty = make_type_id("sim");
+        let inbox_ty = make_type_id("sim/inbox");
+        let event_ty = make_type_id("sim/inbox/event");
+
+        // Nodes
+        store.insert_node(root_id, NodeRecord { ty: root_ty });
+        store.insert_node(sim_id, NodeRecord { ty: sim_ty });
+        store.insert_node(inbox_id, NodeRecord { ty: inbox_ty });
+        store.insert_node(event_id, NodeRecord { ty: event_ty });
+
+        // Edges
+        store.insert_edge(
+            root_id,
+            crate::record::EdgeRecord {
+                id: make_edge_id("edge:root/sim"),
+                from: root_id,
+                to: sim_id,
+                ty: make_type_id("edge:sim"),
+            },
+        );
+        store.insert_edge(
+            sim_id,
+            crate::record::EdgeRecord {
+                id: make_edge_id("edge:sim/inbox"),
+                from: sim_id,
+                to: inbox_id,
+                ty: make_type_id("edge:inbox"),
+            },
+        );
+        store.insert_edge(
+            inbox_id,
+            crate::record::EdgeRecord {
+                id: make_edge_id(&format!("edge:event:{seq:016}")),
+                from: inbox_id,
+                to: event_id,
+                ty: make_type_id("edge:event"),
+            },
+        );
+
+        store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload.clone())));
+
+        // Record last payload on inbox node as a breadcrumb (non-canonical, may evolve).
+        let digest_ty = make_type_id("sim/inbox/last_payload");
+        store.set_node_attachment(
+            inbox_id,
+            Some(AttachmentValue::Atom(crate::attachment::AtomPayload::new(
+                digest_ty,
+                payload.bytes.clone(),
+            ))),
+        );
+
+        Ok(())
     }
 
     /// Returns a shared view of a node when it exists.

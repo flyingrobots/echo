@@ -81,10 +81,10 @@ fn cv_to_sv(val: ciborium::value::Value) -> Result<serde_value::Value, CanonErro
         CV::Null => SV::Unit,
         CV::Integer(i) => {
             let n: i128 = i.into();
-            if n >= 0 {
-                if let Ok(v) = u64::try_from(n) {
-                    return Ok(SV::U64(v));
-                }
+            if n >= 0
+                && let Ok(v) = u64::try_from(n)
+            {
+                return Ok(SV::U64(v));
             }
             if let Ok(v) = i64::try_from(n) {
                 SV::I64(v)

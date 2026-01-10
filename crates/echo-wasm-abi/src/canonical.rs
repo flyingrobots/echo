@@ -1,43 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deterministic CBOR encoder/decoder (subset, canonical) for WASM ABI payloads.
-//! Copied/adapted from `echo-session-proto` to keep ABI encoding self contained.
+//! Copied verbatim in spirit from `echo-session-proto` canonical encoder to avoid
+//! divergence; supports definite lengths only, no tags, sorted map keys, and the
+//! smallest-width integers/floats that round-trip. Limits integers to i64/u64 as
+//! supported by `ciborium::value::Integer`.
 
 use ciborium::value::{Integer, Value};
 use half::f16;
 
+/// Errors produced by the canonical CBOR encoder/decoder.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CanonError {
+    /// Input exhausted before value completed.
     #[error("incomplete input")]
     Incomplete,
+    /// Extra bytes present after decoding a single value.
     #[error("trailing bytes after value")]
     Trailing,
+    /// CBOR tags are disallowed in this canonical subset.
     #[error("tags not allowed")]
     Tag,
+    /// Indefinite lengths are disallowed.
     #[error("indefinite length not allowed")]
     Indefinite,
+    /// Integer encoded with non-minimal width.
     #[error("non-canonical integer width")]
     NonCanonicalInt,
+    /// Float encoded with non-minimal width.
     #[error("non-canonical float width")]
     NonCanonicalFloat,
+    /// Float used where an integer canonical form is required.
     #[error("float encodes integral value; must be integer")]
     FloatShouldBeInt,
+    /// Map keys not strictly increasing by bytewise order.
     #[error("map keys not strictly increasing")]
     MapKeyOrder,
+    /// Duplicate map key encountered.
     #[error("duplicate map key")]
     MapKeyDuplicate,
+    /// Generic decode error with detail.
     #[error("decode error: {0}")]
     Decode(String),
 }
 
 type Result<T> = std::result::Result<T, CanonError>;
 
+/// Encode a `ciborium::value::Value` to deterministic CBOR bytes.
 pub fn encode_value(val: &Value) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     enc_value(val, &mut out)?;
     Ok(out)
 }
 
+/// Decode deterministic CBOR bytes into a `ciborium::value::Value`.
 pub fn decode_value(bytes: &[u8]) -> Result<Value> {
     let mut idx = 0usize;
     let v = dec_value(bytes, &mut idx, true)?;
@@ -290,10 +306,10 @@ fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
                 let k = dec_value(bytes, idx, false)?;
                 let key_end = *idx;
                 let kb = &bytes[key_start..key_end];
-                if let Some(prev) = &last_key {
-                    if kb <= prev.as_slice() {
-                        return Err(CanonError::MapKeyOrder);
-                    }
+                if let Some(prev) = &last_key
+                    && kb <= prev.as_slice()
+                {
+                    return Err(CanonError::MapKeyOrder);
                 }
                 last_key = Some(kb.to_vec());
                 let v = dec_value(bytes, idx, false)?;

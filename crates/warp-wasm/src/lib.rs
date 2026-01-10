@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use echo_registry_api::RegistryProvider;
-use echo_wasm_abi::encode_cbor;
+use echo_wasm_abi::{decode_cbor, encode_cbor};
 use js_sys::Uint8Array;
 use serde_wasm_bindgen::from_value as swb_from_js;
 use std::sync::OnceLock;
@@ -96,7 +96,7 @@ fn scalar_type_ok(v: &serde_json::Value, ty: &str, enums: &[echo_registry_api::E
             if let Some(def) = enums.iter().find(|e| e.name == other) {
                 v.as_str().map(|s| def.values.contains(&s)).unwrap_or(false)
             } else {
-                true // unknown type -> accept (objects/input types not enforced yet)
+                false // unknown type -> reject to prevent schema drift
             }
         }
     }
@@ -235,7 +235,23 @@ pub fn get_head() -> Uint8Array {
 /// Execute a read-only query by ID with canonical vars. Placeholder: returns empty bytes.
 #[wasm_bindgen]
 pub fn execute_query(_query_id: u32, _vars_bytes: &[u8]) -> Uint8Array {
-    let _reg = registry().expect("registry not installed");
+    let reg = registry().expect("registry not installed");
+    let Some(op) = reg.op_by_id(_query_id) else {
+        return empty_bytes();
+    };
+    if op.kind != echo_registry_api::OpKind::Query {
+        return empty_bytes();
+    }
+
+    // Decode and validate vars against schema
+    let Ok(value) = decode_cbor::<serde_json::Value>(_vars_bytes) else {
+        return empty_bytes();
+    };
+    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
+        return empty_bytes();
+    }
+
+    // TODO: execute against read-only graph once available.
     empty_bytes()
 }
 
@@ -304,6 +320,9 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
     let Some(op) = reg.op_by_id(_op_id) else {
         return empty_bytes();
     };
+    if op.kind != echo_registry_api::OpKind::Mutation {
+        return empty_bytes();
+    }
 
     // TODO: add schema-derived validation. For now, canonicalize JS -> serde_json::Value -> CBOR.
     let Ok(value): Result<serde_json::Value, _> = swb_from_js(_payload) else {
@@ -327,6 +346,9 @@ pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
     let Some(op) = reg.op_by_id(_query_id) else {
         return empty_bytes();
     };
+    if op.kind != echo_registry_api::OpKind::Query {
+        return empty_bytes();
+    }
 
     let Ok(value): Result<serde_json::Value, _> = swb_from_js(_vars) else {
         return empty_bytes();
@@ -489,5 +511,66 @@ mod tests {
         assert!((motion[3] - 0.5).abs() < 1e-6);
         assert!((motion[4] + 1.0).abs() < 1e-6);
         assert!((motion[5] - 0.25).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod schema_validation_tests {
+    use super::*;
+    use echo_registry_api::{ArgDef, EnumDef};
+
+    fn enums_theme() -> Vec<EnumDef> {
+        vec![EnumDef {
+            name: "Theme",
+            values: &["LIGHT", "DARK", "SYSTEM"],
+        }]
+    }
+
+    #[test]
+    fn reject_unknown_keys() {
+        let args = vec![ArgDef {
+            name: "path",
+            ty: "String",
+            required: true,
+            list: false,
+        }];
+        let val = serde_json::json!({"path":"ok","extra":1});
+        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
+    }
+
+    #[test]
+    fn reject_missing_required() {
+        let args = vec![ArgDef {
+            name: "path",
+            ty: "String",
+            required: true,
+            list: false,
+        }];
+        let val = serde_json::json!({});
+        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
+    }
+
+    #[test]
+    fn reject_enum_mismatch() {
+        let args = vec![ArgDef {
+            name: "mode",
+            ty: "Theme",
+            required: true,
+            list: false,
+        }];
+        let val = serde_json::json!({"mode":"WRONG"});
+        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
+    }
+
+    #[test]
+    fn reject_unknown_type() {
+        let args = vec![ArgDef {
+            name: "obj",
+            ty: "AppState",
+            required: true,
+            list: false,
+        }];
+        let val = serde_json::json!({"obj":{"routePath":"/"}});
+        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
     }
 }

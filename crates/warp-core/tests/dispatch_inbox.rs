@@ -4,8 +4,8 @@
 
 use bytes::Bytes;
 use warp_core::{
-    inbox::dispatch_inbox_rule, make_node_id, make_type_id, AtomPayload, Engine, GraphStore,
-    NodeId, NodeRecord,
+    inbox::dispatch_inbox_rule, make_node_id, make_type_id, AtomPayload, AttachmentValue, Engine,
+    GraphStore, NodeId, NodeRecord,
 };
 
 fn build_engine_with_root(root: NodeId) -> Engine {
@@ -67,4 +67,42 @@ fn dispatch_inbox_drains_events() {
 
     // No outbound edges from inbox
     assert!(store.edges_from(&inbox_id).next().is_none());
+}
+
+#[test]
+fn dispatch_inbox_routes_route_push_payload() {
+    let root = make_node_id("root");
+    let mut engine = build_engine_with_root(root);
+
+    engine
+        .register_rule(dispatch_inbox_rule())
+        .expect("register rule");
+
+    let payload_bytes = Bytes::from_static(br#"{ "path": "/aion" }"#);
+    let payload = AtomPayload::new(make_type_id("intent:route_push"), payload_bytes.clone());
+
+    engine.ingest_inbox_event(1, &payload).unwrap();
+
+    let inbox_id = make_node_id("sim/inbox");
+    let route_id = make_node_id("sim/state/routePath");
+
+    let tx = engine.begin();
+    let applied = engine
+        .apply(tx, warp_core::inbox::DISPATCH_INBOX_RULE_NAME, &inbox_id)
+        .expect("apply rule");
+    assert!(matches!(applied, warp_core::ApplyResult::Applied));
+    engine.commit(tx).expect("commit");
+
+    let store = engine.store_clone();
+
+    // Route node exists with route_path attachment set from payload.
+    let route_node = store.node(&route_id).expect("route node exists");
+    assert_eq!(route_node.ty, make_type_id("sim/state/routePath"));
+
+    let attachment = store.node_attachment(&route_id).expect("route attachment");
+    let AttachmentValue::Atom(atom) = attachment else {
+        panic!("expected atom attachment on routePath");
+    };
+    assert_eq!(atom.type_id, make_type_id("state:route_path"));
+    assert_eq!(atom.bytes, payload_bytes);
 }

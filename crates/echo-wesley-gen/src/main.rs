@@ -89,8 +89,40 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
         }
     }
 
+    if !ir.ops.is_empty() {
+        tokens.extend(quote! {
+            // Operation IDs (generated from Wesley IR)
+        });
+
+        for op in &ir.ops {
+            let const_name = op_const_ident(&op.name);
+            let op_id = op.op_id;
+            tokens.extend(quote! {
+                pub const #const_name: u32 = #op_id;
+            });
+        }
+    }
+
     let syntax_tree = syn::parse2(tokens)?;
     Ok(prettyplease::unparse(&syntax_tree))
+}
+
+fn op_const_ident(name: &str) -> proc_macro2::Ident {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_alphanumeric() {
+            if c.is_uppercase() && i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_uppercase());
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        out.push_str("OP_UNKNOWN");
+    }
+    format_ident!("OP_{}", out)
 }
 
 fn validate_version(ir: &WesleyIR) -> Result<()> {

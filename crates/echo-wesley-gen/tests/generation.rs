@@ -29,7 +29,18 @@ fn test_generate_from_json() {
                 "fields": [
                     { "name": "setTheme", "type": "AppState", "required": true }
                 ]
+            },
+            {
+                "name": "Query",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "appState", "type": "AppState", "required": true }
+                ]
             }
+        ],
+        "ops": [
+            { "kind": "MUTATION", "name": "setTheme", "op_id": 111, "args": [], "result_type": "AppState" },
+            { "kind": "QUERY", "name": "appState", "op_id": 222, "args": [], "result_type": "AppState" }
         ]
     }"#;
 
@@ -53,6 +64,8 @@ fn test_generate_from_json() {
     assert!(stdout.contains("pub enum Theme"));
     assert!(stdout.contains("pub theme: Theme"));
     assert!(stdout.contains("pub tags: Option<Vec<String>>"));
+    assert!(stdout.contains("pub const OP_SET_THEME: u32 = 111"));
+    assert!(stdout.contains("pub const OP_APP_STATE: u32 = 222"));
 }
 
 #[test]

@@ -177,6 +177,18 @@ pub fn get_registry_info() -> Uint8Array {
     empty_bytes()
 }
 
+/// Pass-through helper for already-canonical command payload bytes.
+#[wasm_bindgen]
+pub fn encode_command(_op_id: u32, payload_bytes: &[u8]) -> Uint8Array {
+    Uint8Array::from(payload_bytes)
+}
+
+/// Pass-through helper for already-canonical query variable bytes.
+#[wasm_bindgen]
+pub fn encode_query_vars(_query_id: u32, vars_bytes: &[u8]) -> Uint8Array {
+    Uint8Array::from(vars_bytes)
+}
+
 impl Default for WasmEngine {
     fn default() -> Self {
         Self::new()

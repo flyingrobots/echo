@@ -35,6 +35,21 @@ pub struct OpDef {
     pub name: &'static str,
     /// Persisted operation identifier.
     pub op_id: u32,
+    /// Argument descriptors.
+    pub args: &'static [ArgDef],
+}
+
+/// Argument descriptor (flat; sufficient for strict object validation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArgDef {
+    /// Field name.
+    pub name: &'static str,
+    /// GraphQL base type name.
+    pub ty: &'static str,
+    /// Whether the field is required.
+    pub required: bool,
+    /// Whether the field is a list.
+    pub list: bool,
 }
 
 /// Application-supplied registry provider.

@@ -70,6 +70,55 @@ fn has_provider() -> bool {
     REGISTRY_SET.get().copied().unwrap_or(false)
 }
 
+fn validate_object_against_args(
+    value: &serde_json::Value,
+    args: &[echo_registry_api::ArgDef],
+) -> bool {
+    let obj = match value.as_object() {
+        Some(map) => map,
+        None => return false,
+    };
+
+    // Unknown keys?
+    for key in obj.keys() {
+        if !args.iter().any(|a| a.name == key.as_str()) {
+            return false;
+        }
+    }
+
+    // Required + type checks
+    for arg in args {
+        let Some(v) = obj.get(arg.name) else {
+            if arg.required {
+                return false;
+            }
+            continue;
+        };
+        // Type check
+        let ok = if arg.list {
+            match v.as_array() {
+                Some(items) => items.iter().all(|item| scalar_type_ok(item, arg.ty)),
+                None => false,
+            }
+        } else {
+            scalar_type_ok(v, arg.ty)
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+fn scalar_type_ok(v: &serde_json::Value, ty: &str) -> bool {
+    match ty {
+        "String" | "ID" => v.is_string(),
+        "Boolean" => v.is_boolean(),
+        "Int" | "Float" => v.is_number(),
+        _ => true, // for enums/objects we accept any JSON value; schema-derived checks would be better
+    }
+}
+
 // Generates a 3D vector type with wasm_bindgen bindings.
 macro_rules! wasm_vector_type {
     ($struct_doc:literal, $name:ident, $ctor_doc:literal, $x_doc:literal, $y_doc:literal, $z_doc:literal) => {
@@ -245,7 +294,7 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
     if !has_provider() {
         return empty_bytes();
     }
-    let Some(_op) = registry().op_by_id(_op_id) else {
+    let Some(op) = registry().op_by_id(_op_id) else {
         return empty_bytes();
     };
 
@@ -254,7 +303,7 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
         return empty_bytes();
     };
 
-    if !value.is_object() {
+    if !validate_object_against_args(&value, op.args) {
         return empty_bytes();
     }
 
@@ -270,7 +319,7 @@ pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
     if !has_provider() {
         return empty_bytes();
     }
-    let Some(_op) = registry().op_by_id(_query_id) else {
+    let Some(op) = registry().op_by_id(_query_id) else {
         return empty_bytes();
     };
 
@@ -278,7 +327,7 @@ pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
         return empty_bytes();
     };
 
-    if !value.is_object() {
+    if !validate_object_against_args(&value, op.args) {
         return empty_bytes();
     }
 

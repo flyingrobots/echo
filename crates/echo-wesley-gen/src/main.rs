@@ -102,10 +102,10 @@ fn validate_version(ir: &WesleyIR) -> Result<()> {
             other,
             SUPPORTED
         ),
-        None => {
-            eprintln!("warning: ir_version missing; proceeding but future versions will require it (expected {}).", SUPPORTED);
-            Ok(())
-        }
+        None => anyhow::bail!(
+            "Missing ir_version; expected '{}'. Regenerate IR with a current @wesley/generator-echo.",
+            SUPPORTED
+        ),
     }
 }
 

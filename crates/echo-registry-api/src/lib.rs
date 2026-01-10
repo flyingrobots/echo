@@ -17,6 +17,19 @@ pub struct RegistryInfo {
     pub schema_sha256_hex: &'static str,
 }
 
+/// Error codes for wasm helpers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelperError {
+    /// No registry provider installed.
+    NoRegistry,
+    /// Unknown operation ID.
+    UnknownOp,
+    /// Input did not match schema (unknown key, missing required, wrong type, enum mismatch).
+    InvalidInput,
+    /// Internal failure (encoding).
+    Internal,
+}
+
 /// Operation kind (query or mutation/command).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpKind {

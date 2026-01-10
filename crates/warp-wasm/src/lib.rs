@@ -36,7 +36,9 @@ static REGISTRY: OnceLock<&'static dyn RegistryProvider> = OnceLock::new();
 /// Install an application-supplied registry provider. App code should call
 /// this once at startup (see flyingrobots-echo-wasm).
 pub fn install_registry(provider: &'static dyn RegistryProvider) {
-    let _ = REGISTRY.set(provider);
+    if REGISTRY.set(provider).is_err() {
+        panic!("registry already installed");
+    }
 }
 
 fn registry() -> Option<&'static dyn RegistryProvider> {
@@ -233,6 +235,7 @@ pub fn get_head() -> Uint8Array {
 /// Execute a read-only query by ID with canonical vars. Placeholder: returns empty bytes.
 #[wasm_bindgen]
 pub fn execute_query(_query_id: u32, _vars_bytes: &[u8]) -> Uint8Array {
+    let _reg = registry().expect("registry not installed");
     empty_bytes()
 }
 
@@ -251,9 +254,7 @@ pub fn render_snapshot(_snapshot_bytes: &[u8]) -> Uint8Array {
 /// Return registry metadata (schema hash, codec id, registry version).
 #[wasm_bindgen]
 pub fn get_registry_info() -> Uint8Array {
-    let Some(reg) = registry() else {
-        return empty_bytes();
-    };
+    let reg = registry().expect("registry not installed");
     let info = reg.info();
     #[derive(serde::Serialize)]
     struct Info<'a> {
@@ -299,9 +300,7 @@ pub fn get_schema_sha256_hex() -> JsValue {
 /// Schema-validated helper: encode a command payload into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
-    let Some(reg) = registry() else {
-        return empty_bytes();
-    };
+    let reg = registry().expect("registry not installed");
     let Some(op) = reg.op_by_id(_op_id) else {
         return empty_bytes();
     };
@@ -324,9 +323,7 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
 /// Schema-validated helper: encode query variables into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
-    let Some(reg) = registry() else {
-        return empty_bytes();
-    };
+    let reg = registry().expect("registry not installed");
     let Some(op) = reg.op_by_id(_query_id) else {
         return empty_bytes();
     };

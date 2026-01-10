@@ -170,6 +170,13 @@ pub fn render_snapshot(_snapshot_bytes: &[u8]) -> Uint8Array {
     empty_bytes()
 }
 
+/// Return registry metadata (schema hash, codec id, registry version).
+#[wasm_bindgen]
+pub fn get_registry_info() -> Uint8Array {
+    // Placeholder: wire to generated constants once available in this crate.
+    empty_bytes()
+}
+
 impl Default for WasmEngine {
     fn default() -> Self {
         Self::new()

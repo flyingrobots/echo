@@ -48,6 +48,17 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
         use serde::{Serialize, Deserialize};
     };
 
+    // Metadata constants
+    let schema_sha = ir.schema_sha256.as_deref().unwrap_or("");
+    let codec_id = ir.codec_id.as_deref().unwrap_or("cbor-canon-v1");
+    let registry_version = ir.registry_version.unwrap_or(1);
+
+    tokens.extend(quote! {
+        pub const SCHEMA_SHA256: &str = #schema_sha;
+        pub const CODEC_ID: &str = #codec_id;
+        pub const REGISTRY_VERSION: u32 = #registry_version;
+    });
+
     for type_def in &ir.types {
         let name = format_ident!("{}", type_def.name);
 

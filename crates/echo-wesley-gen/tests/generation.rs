@@ -9,6 +9,9 @@ use std::process::Command;
 fn test_generate_from_json() {
     let ir = r#"{
         "ir_version": "echo-ir/v1",
+        "schema_sha256": "abc123",
+        "codec_id": "cbor-canon-v1",
+        "registry_version": 7,
         "types": [
             {
                 "name": "AppState",
@@ -64,6 +67,9 @@ fn test_generate_from_json() {
     assert!(stdout.contains("pub enum Theme"));
     assert!(stdout.contains("pub theme: Theme"));
     assert!(stdout.contains("pub tags: Option<Vec<String>>"));
+    assert!(stdout.contains("pub const SCHEMA_SHA256: &str = \"abc123\""));
+    assert!(stdout.contains("pub const CODEC_ID: &str = \"cbor-canon-v1\""));
+    assert!(stdout.contains("pub const REGISTRY_VERSION: u32 = 7"));
     assert!(stdout.contains("pub const OP_SET_THEME: u32 = 111"));
     assert!(stdout.contains("pub const OP_APP_STATE: u32 = 222"));
 }

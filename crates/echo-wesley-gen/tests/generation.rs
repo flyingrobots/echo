@@ -72,6 +72,8 @@ fn test_generate_from_json() {
     assert!(stdout.contains("pub const REGISTRY_VERSION: u32 = 7"));
     assert!(stdout.contains("pub const OP_SET_THEME: u32 = 111"));
     assert!(stdout.contains("pub const OP_APP_STATE: u32 = 222"));
+    assert!(stdout.contains("pub enum OpKind"));
+    assert!(stdout.contains("pub const OPS: &[OpDef]"));
 }
 
 #[test]

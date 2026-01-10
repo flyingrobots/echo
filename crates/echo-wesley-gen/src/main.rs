@@ -9,7 +9,7 @@ use quote::{format_ident, quote};
 use std::io::{self, Read};
 
 mod ir;
-use ir::{TypeKind, WesleyIR};
+use ir::{OpKind, TypeKind, WesleyIR};
 
 #[derive(Parser)]
 #[command(
@@ -102,9 +102,22 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
 
     if !ir.ops.is_empty() {
         tokens.extend(quote! {
-            // Operation IDs (generated from Wesley IR)
+            // Operation catalog (generated from Wesley IR)
+            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            pub enum OpKind {
+                Query,
+                Mutation,
+            }
+
+            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            pub struct OpDef {
+                pub kind: OpKind,
+                pub name: &'static str,
+                pub op_id: u32,
+            }
         });
 
+        // Op ID constants
         for op in &ir.ops {
             let const_name = op_const_ident(&op.name);
             let op_id = op.op_id;
@@ -112,6 +125,35 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
                 pub const #const_name: u32 = #op_id;
             });
         }
+
+        // OPS table
+        let ops_entries = ir.ops.iter().map(|op| {
+            let kind = match op.kind {
+                OpKind::Query => quote! { OpKind::Query },
+                OpKind::Mutation => quote! { OpKind::Mutation },
+            };
+            let name = &op.name;
+            let op_id = op.op_id;
+            quote! { OpDef { kind: #kind, name: #name, op_id: #op_id } }
+        });
+
+        tokens.extend(quote! {
+            pub const OPS: &[OpDef] = &[
+                #(#ops_entries),*
+            ];
+
+            /// Lookup an op by ID.
+            pub fn op_by_id(op_id: u32) -> Option<OpDef> {
+                OPS.iter().copied().find(|op| op.op_id == op_id)
+            }
+
+            /// Lookup an op by kind + name (useful for dev tooling, not for runtime intent routing).
+            pub fn op_by_name(kind: OpKind, name: &str) -> Option<OpDef> {
+                OPS.iter()
+                    .copied()
+                    .find(|op| op.kind == kind && op.name == name)
+            }
+        });
     }
 
     let syntax_tree = syn::parse2(tokens)?;

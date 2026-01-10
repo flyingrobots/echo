@@ -46,6 +46,7 @@ mod engine_impl;
 mod footprint;
 mod graph;
 mod ident;
+pub mod inbox;
 mod payload;
 mod receipt;
 mod record;

@@ -17,6 +17,103 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod canonical;
+pub use canonical::{CanonError, decode_value, encode_value};
+
+/// Encode any serde value into deterministic CBOR bytes.
+pub fn encode_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, CanonError> {
+    let val = serde_value::to_value(value).map_err(|e| CanonError::Decode(e.to_string()))?;
+    let canon = sv_to_cv(val)?;
+    encode_value(&canon)
+}
+
+/// Decode deterministic CBOR bytes into a serde value.
+pub fn decode_cbor<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, CanonError> {
+    let val = decode_value(bytes)?;
+    let sv = cv_to_sv(val)?;
+    T::deserialize(sv).map_err(|e| CanonError::Decode(e.to_string()))
+}
+
+fn sv_to_cv(val: serde_value::Value) -> Result<ciborium::value::Value, CanonError> {
+    use ciborium::value::Value as CV;
+    use serde_value::Value::*;
+    Ok(match val {
+        Bool(b) => CV::Bool(b),
+        I8(n) => CV::Integer((n as i64).into()),
+        I16(n) => CV::Integer((n as i64).into()),
+        I32(n) => CV::Integer((n as i64).into()),
+        I64(n) => CV::Integer(n.into()),
+        U8(n) => CV::Integer((n as u64).into()),
+        U16(n) => CV::Integer((n as u64).into()),
+        U32(n) => CV::Integer((n as u64).into()),
+        U64(n) => CV::Integer(n.into()),
+        F32(f) => CV::Float(f as f64),
+        F64(f) => CV::Float(f),
+        Char(c) => CV::Text(c.to_string()),
+        String(s) => CV::Text(s),
+        Bytes(b) => CV::Bytes(b),
+        Unit => CV::Null,
+        Option(None) => CV::Null,
+        Option(Some(v)) => sv_to_cv(*v)?,
+        Newtype(v) => sv_to_cv(*v)?,
+        Seq(vs) => {
+            let mut out = Vec::with_capacity(vs.len());
+            for v in vs {
+                out.push(sv_to_cv(v)?);
+            }
+            CV::Array(out)
+        }
+        Map(m) => {
+            let mut out = Vec::with_capacity(m.len());
+            for (k, v) in m {
+                out.push((sv_to_cv(k)?, sv_to_cv(v)?));
+            }
+            CV::Map(out)
+        }
+    })
+}
+
+fn cv_to_sv(val: ciborium::value::Value) -> Result<serde_value::Value, CanonError> {
+    use ciborium::value::Value as CV;
+    use serde_value::Value as SV;
+    Ok(match val {
+        CV::Bool(b) => SV::Bool(b),
+        CV::Null => SV::Unit,
+        CV::Integer(i) => {
+            let n: i128 = i.into();
+            if n >= 0 {
+                if let Ok(v) = u64::try_from(n) {
+                    return Ok(SV::U64(v));
+                }
+            }
+            if let Ok(v) = i64::try_from(n) {
+                SV::I64(v)
+            } else {
+                return Err(CanonError::Decode("integer out of range".into()));
+            }
+        }
+        CV::Float(f) => SV::F64(f),
+        CV::Text(s) => SV::String(s),
+        CV::Bytes(b) => SV::Bytes(b),
+        CV::Array(vs) => {
+            let mut out = Vec::with_capacity(vs.len());
+            for v in vs {
+                out.push(cv_to_sv(v)?);
+            }
+            SV::Seq(out)
+        }
+        CV::Map(entries) => {
+            let mut map = std::collections::BTreeMap::new();
+            for (k, v) in entries {
+                map.insert(cv_to_sv(k)?, cv_to_sv(v)?);
+            }
+            SV::Map(map)
+        }
+        CV::Tag(_, _) => return Err(CanonError::Decode("tags not supported".into())),
+        _ => return Err(CanonError::Decode("unsupported value".into())),
+    })
+}
+
 /// Node identifier used in the living-spec demos.
 ///
 /// Uses a `String` rather than an integer to keep JS/WASM interop simple and ergonomic.
@@ -136,6 +233,21 @@ pub struct Rewrite {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encode_decode_cbor_roundtrip_rewrite() {
+        let rw = Rewrite {
+            id: 42,
+            op: SemanticOp::Set,
+            target: "A".into(),
+            subject: Some("title".into()),
+            old_value: Some(Value::Str("Old".into())),
+            new_value: Some(Value::Str("New".into())),
+        };
+        let bytes = encode_cbor(&rw).expect("encode");
+        let back: Rewrite = decode_cbor(&bytes).expect("decode");
+        assert_eq!(rw, back);
+    }
 
     #[test]
     fn serialize_rewrite_round_trips_across_ops() {

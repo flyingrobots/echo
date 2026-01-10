@@ -9,6 +9,7 @@ Shared WASM-friendly DTOs for Echo/JITOS living specs. Mirrors the minimal graph
 - `Node`, `Edge`, `WarpGraph`
 - `Value` (Str/Num/Bool/Null)
 - `Rewrite` with `SemanticOp` (AddNode/Set/DeleteNode/Connect/Disconnect)
+- Deterministic CBOR helpers: `encode_cbor` / `decode_cbor` (canonical subset, no tags/indefinite)
 
 ## Usage
 

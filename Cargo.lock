@@ -1186,8 +1186,12 @@ dependencies = [
 name = "echo-wasm-abi"
 version = "0.1.0"
 dependencies = [
+ "ciborium",
+ "half",
  "serde",
+ "serde-value",
  "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

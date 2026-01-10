@@ -52,6 +52,10 @@ impl RegistryProvider for NoRegistry {
     fn all_ops(&self) -> &'static [OpDef] {
         &[]
     }
+
+    fn all_enums(&self) -> &'static [echo_registry_api::EnumDef] {
+        &[]
+    }
 }
 
 /// Install an application-supplied registry provider. App code should call
@@ -64,13 +68,10 @@ fn registry() -> &'static dyn RegistryProvider {
     REGISTRY.get().copied().unwrap_or(DUMMY_REGISTRY)
 }
 
-fn has_provider() -> bool {
-    REGISTRY.get().is_some()
-}
-
 fn validate_object_against_args(
     value: &serde_json::Value,
     args: &[echo_registry_api::ArgDef],
+    enums: &[echo_registry_api::EnumDef],
 ) -> bool {
     let obj = match value.as_object() {
         Some(map) => map,
@@ -95,11 +96,11 @@ fn validate_object_against_args(
         // Type check
         let ok = if arg.list {
             match v.as_array() {
-                Some(items) => items.iter().all(|item| scalar_type_ok(item, arg.ty)),
+                Some(items) => items.iter().all(|item| scalar_type_ok(item, arg.ty, enums)),
                 None => false,
             }
         } else {
-            scalar_type_ok(v, arg.ty)
+            scalar_type_ok(v, arg.ty, enums)
         };
         if !ok {
             return false;
@@ -108,12 +109,19 @@ fn validate_object_against_args(
     true
 }
 
-fn scalar_type_ok(v: &serde_json::Value, ty: &str) -> bool {
+fn scalar_type_ok(v: &serde_json::Value, ty: &str, enums: &[echo_registry_api::EnumDef]) -> bool {
     match ty {
         "String" | "ID" => v.is_string(),
         "Boolean" => v.is_boolean(),
         "Int" | "Float" => v.is_number(),
-        _ => true, // for enums/objects we accept any JSON value; schema-derived checks would be better
+        other => {
+            // enum check
+            if let Some(def) = enums.iter().find(|e| e.name == other) {
+                v.as_str().map(|s| def.values.contains(&s)).unwrap_or(false)
+            } else {
+                true // unknown type -> accept (objects/input types not enforced yet)
+            }
+        }
     }
 }
 
@@ -289,10 +297,11 @@ pub fn get_registry_info() -> Uint8Array {
 /// Schema-validated helper: encode a command payload into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
-    if !has_provider() {
+    let reg = registry();
+    if reg.all_ops().is_empty() {
         return empty_bytes();
     }
-    let Some(op) = registry().op_by_id(_op_id) else {
+    let Some(op) = reg.op_by_id(_op_id) else {
         return empty_bytes();
     };
 
@@ -301,7 +310,7 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
         return empty_bytes();
     };
 
-    if !validate_object_against_args(&value, op.args) {
+    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
         return empty_bytes();
     }
 
@@ -314,10 +323,11 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
 /// Schema-validated helper: encode query variables into canonical CBOR bytes.
 #[wasm_bindgen]
 pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
-    if !has_provider() {
+    let reg = registry();
+    if reg.all_ops().is_empty() {
         return empty_bytes();
     }
-    let Some(op) = registry().op_by_id(_query_id) else {
+    let Some(op) = reg.op_by_id(_query_id) else {
         return empty_bytes();
     };
 
@@ -325,7 +335,7 @@ pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
         return empty_bytes();
     };
 
-    if !validate_object_against_args(&value, op.args) {
+    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
         return empty_bytes();
     }
 

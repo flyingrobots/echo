@@ -52,6 +52,15 @@ pub struct ArgDef {
     pub list: bool,
 }
 
+/// Enum descriptor (for validating enum string values).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EnumDef {
+    /// Enum name.
+    pub name: &'static str,
+    /// Allowed values (uppercase GraphQL names).
+    pub values: &'static [&'static str],
+}
+
 /// Application-supplied registry provider.
 ///
 /// Implemented by a generated crate in the application build. `warp-wasm`
@@ -66,4 +75,7 @@ pub trait RegistryProvider: Sync {
 
     /// Return all operations (sorted by op_id for deterministic iteration).
     fn all_ops(&self) -> &'static [OpDef];
+
+    /// Return all enums (for validating enum values).
+    fn all_enums(&self) -> &'static [EnumDef];
 }

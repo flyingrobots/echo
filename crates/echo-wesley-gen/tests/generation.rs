@@ -56,6 +56,34 @@ fn test_generate_from_json() {
 }
 
 #[test]
+fn test_ops_catalog_present() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "types": [],
+        "ops": [
+            { "kind": "MUTATION", "name": "setTheme", "op_id": 123, "args": [], "result_type": "AppState" },
+            { "kind": "QUERY", "name": "appState", "op_id": 456, "args": [], "result_type": "AppState" }
+        ]
+    }"#;
+
+    let mut child = Command::new("cargo")
+        .args(["run", "-p", "echo-wesley-gen", "--"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to execute process");
+
+    let mut stdin = child.stdin.take().expect("failed to get stdin");
+    stdin
+        .write_all(ir.as_bytes())
+        .expect("failed to write to stdin");
+    drop(stdin);
+
+    let output = child.wait_with_output().expect("failed to wait on child");
+    assert!(output.status.success());
+}
+
+#[test]
 fn test_rejects_unknown_version() {
     let ir = r#"{
         "ir_version": "echo-ir/v2",

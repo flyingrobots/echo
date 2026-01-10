@@ -8,6 +8,7 @@ use std::process::Command;
 #[test]
 fn test_generate_from_json() {
     let ir = r#"{
+        "ir_version": "echo-ir/v1",
         "types": [
             {
                 "name": "AppState",
@@ -21,6 +22,13 @@ fn test_generate_from_json() {
                 "name": "Theme",
                 "kind": "ENUM",
                 "values": ["LIGHT", "DARK"]
+            },
+            {
+                "name": "Mutation",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "setTheme", "type": "AppState", "required": true }
+                ]
             }
         ]
     }"#;
@@ -45,4 +53,33 @@ fn test_generate_from_json() {
     assert!(stdout.contains("pub enum Theme"));
     assert!(stdout.contains("pub theme: Theme"));
     assert!(stdout.contains("pub tags: Option<Vec<String>>"));
+}
+
+#[test]
+fn test_rejects_unknown_version() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v2",
+        "types": []
+    }"#;
+
+    let output = Command::new("cargo")
+        .args(["run", "-p", "echo-wesley-gen", "--"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child
+                .stdin
+                .take()
+                .expect("failed to get stdin")
+                .write_all(ir.as_bytes())
+                .expect("failed to write to stdin");
+            child.wait_with_output()
+        })
+        .expect("failed to run process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Unsupported ir_version"));
 }

@@ -30,6 +30,7 @@ fn main() -> Result<()> {
     io::stdin().read_to_string(&mut buffer)?;
 
     let ir: WesleyIR = serde_json::from_str(&buffer)?;
+    validate_version(&ir)?;
     let code = generate_rust(&ir)?;
 
     if let Some(path) = args.out {
@@ -90,6 +91,22 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
 
     let syntax_tree = syn::parse2(tokens)?;
     Ok(prettyplease::unparse(&syntax_tree))
+}
+
+fn validate_version(ir: &WesleyIR) -> Result<()> {
+    const SUPPORTED: &str = "echo-ir/v1";
+    match ir.ir_version.as_deref() {
+        Some(SUPPORTED) => Ok(()),
+        Some(other) => anyhow::bail!(
+            "Unsupported ir_version '{}'; expected '{}'. Please regenerate IR with a compatible generator.",
+            other,
+            SUPPORTED
+        ),
+        None => {
+            eprintln!("warning: ir_version missing; proceeding but future versions will require it (expected {}).", SUPPORTED);
+            Ok(())
+        }
+    }
 }
 
 fn map_type(gql_type: &str) -> TokenStream {

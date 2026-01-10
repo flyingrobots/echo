@@ -7,7 +7,24 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct WesleyIR {
     #[serde(default)]
+    pub ir_version: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub generated_by: Option<GeneratedBy>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub schema_sha256: Option<String>,
+    #[serde(default)]
     pub types: Vec<TypeDefinition>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GeneratedBy {
+    #[allow(dead_code)]
+    pub tool: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

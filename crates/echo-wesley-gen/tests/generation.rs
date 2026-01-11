@@ -132,3 +132,31 @@ fn test_rejects_unknown_version() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Unsupported ir_version"));
 }
+
+#[test]
+fn test_rejects_missing_version() {
+    let ir = r#"{
+        "types": []
+    }"#;
+
+    let output = Command::new("cargo")
+        .args(["run", "-p", "echo-wesley-gen", "--"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child
+                .stdin
+                .take()
+                .expect("failed to get stdin")
+                .write_all(ir.as_bytes())
+                .expect("failed to write to stdin");
+            child.wait_with_output()
+        })
+        .expect("failed to run process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Missing ir_version"));
+}

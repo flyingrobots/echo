@@ -6,6 +6,7 @@
 
 | Date | Context | Decision | Rationale | Consequence |
 | ---- | ------- | -------- | --------- | ----------- |
+| 2026-01-11 | Website kernel spike: inbox audit | Confirm inbox ingest/dispatch invariants (P1.ECHO.3) and treat `cmd/route_push` extraction as a follow-up. | The inbox primitives are real and tested, but downstream audits require explicit evidence/tests/docs; `cmd/*` scheduling/routing remains a separate milestone. | Inbox behavior is pinned with tests + docs; downstream repos can confirm `P1.ECHO.3` while leaving `P1.ECHO.5` unconfirmed. |
 | 2026-01-11 | Website kernel spike: inbox routing | Extract `cmd/route_push` rule and route inbox events through `cmd/*` helpers. | The task DAG expects explicit command rules; centralizing routing logic avoids drift and makes it testable. | `sys/dispatch_inbox` now delegates routing via `warp_core::cmd`; new tests cover golden/edge/failure paths. |
 | 2026-01-09 | Append-only guardrails for onboarding docs | Append-only files now use `merge=union` plus CI guard (`Append-only Guard` running `scripts/check-append-only.js`; see `docs/append-only-invariants.md`). | Union merges alone can resurrect deletions; pairing union with CI keeps history intact. | CI blocks non-append edits; policy is referenced in AGENTS/plan/log/docs. |
 | 2026-01-09 | Tasks DAG automation consolidation | Tasks DAG outputs live under `docs/assets/dags/`; generator runs in the refresh workflow and docs point to `docs/dependency-dags.md`. | Consolidation removes `dags-2` split and keeps automation visible. | DAG refresh produces canonical tasks DAG alongside issue/milestone DAGs. |
@@ -445,3 +446,11 @@ The following entries use a heading + bullets format for richer context.
 - Decision: Replace `merge=union` automation with a documented CI guarantee: `scripts/check-append-only.js` (c.f. `docs/append-only-invariants.md`) runs before merges to reject deletions, and new documentation keeps the append-only contract visible wherever these artifacts are declared.
 - Rationale: Line-based `merge=union` silently reintroduces deletions and duplicates; an explicit append-only check surfaces violations and keeps the invariant enforcement central and auditable.
 - Compliance: Keep the policy referenced in `.gitattributes`, AGENTS, decision logs, and execution plans so future contributors can see the script + doc that gate these files; CI should fail any merge that removes or mutates existing lines in the tracked paths.
+
+## 2026-01-11 — Website kernel spike: inbox audit (P1.ECHO.3)
+
+- Context: Downstream repos audit “checked off” tasks and only mark items **CONFIRMED DONE** when there is code evidence, tests (golden + edge + known failure modes), and docs.
+- Outcomes:
+  - Inbox ingest (`Engine::ingest_inbox_event`) and dispatch (`sys/dispatch_inbox`) behavior is pinned by focused `warp-core` tests.
+  - Documentation for the spike lives in `crates/warp-core/README.md`.
+- Consequence: downstream repos can treat `P1.ECHO.3` as audited; explicit `cmd/*` routing (including `cmd/route_push`) remains a follow-up task (`P1.ECHO.5`).

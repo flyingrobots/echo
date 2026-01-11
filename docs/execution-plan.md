@@ -35,6 +35,14 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-11 — Audit: inbox invariants for downstream confirmation (DONE)
+
+- Goal: make the website kernel spike’s inbox behavior auditable: evidence + tests + docs that downstream repos can treat as **CONFIRMED DONE** for `P1.ECHO.3`.
+- Scope:
+  - Ensure inbox ingest + dispatch tests include golden path, edge cases, and known failure modes.
+  - Keep `crates/warp-core/README.md` aligned with implementation reality (route handling currently lives inside `sys/dispatch_inbox`; `cmd/route_push` extraction is still a follow-up).
+- Exit criteria: `cargo test -p warp-core` passes.
+
 > 2026-01-11 — Website kernel spike: inbox → cmd routing (DONE)
 
 - Goal: align the website kernel spike’s inbox dispatch with explicit `cmd/*` rules, and pin the behavior with tests.

@@ -16,6 +16,18 @@ This crate is the Rust core. See the repository root `README.md` for the full pr
 - Provides the foundational APIs that `warp-ffi`, `warp-wasm`, and higher-level
   tools build on.
 
+## Website kernel spike (WARP graphs)
+
+The `warp-core` crate also contains a small “website kernel spike” used by the
+`flyingrobots.dev` app:
+
+- `Engine::ingest_inbox_event(seq, payload)` inserts deterministic inbox events under `sim/inbox`
+  (event nodes at `sim/inbox/event:{seq:016}`).
+- `sys/dispatch_inbox` drains inbox events and (for now) routes `intent:route_push` payload bytes
+  directly into `sim/state/routePath` as a `state:route_path` atom.
+  - A future refactor will split explicit `cmd/*` rules (e.g. `cmd/route_push`) out of the dispatch
+    rule once command scheduling is in place.
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

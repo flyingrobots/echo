@@ -35,6 +35,15 @@ This is Codex’s working map for building Echo. Update it relentlessly—each s
 
 ## Today’s Intent
 
+> 2026-01-11 — Website kernel spike: inbox → cmd routing (DONE)
+
+- Goal: align the website kernel spike’s inbox dispatch with explicit `cmd/*` rules, and pin the behavior with tests.
+- Scope:
+  - Add `crates/warp-core/src/cmd.rs` implementing `cmd/route_push` and a shared routing helper for inbox events.
+  - Update `sys/dispatch_inbox` to delegate intent routing through `warp_core::cmd` and continue draining events deterministically.
+  - Add tests covering golden + edge + known failure modes for inbox ingest, inbox dispatch, and `cmd/route_push`.
+- Exit criteria: `cargo test -p warp-core` passes and `crates/warp-core/README.md` documents the spike.
+
 > 2026-01-09 — DAG automation cleanup (IN PROGRESS)
 
 - Goal: make the tasks DAG generator and docs behave consistently by emitting into `docs/assets/dags`, consolidating the DAG documentation, and wiring the generator into the refresh workflow.

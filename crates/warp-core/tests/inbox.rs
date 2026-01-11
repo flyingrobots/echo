@@ -56,3 +56,108 @@ fn ingest_inbox_event_creates_path_and_payload() {
     assert_eq!(attachment.type_id, payload.type_id);
     assert_eq!(attachment.bytes, payload.bytes);
 }
+
+#[test]
+fn ingest_inbox_event_is_idempotent_for_structure_and_unique_per_seq() {
+    let root = make_node_id("root");
+    let mut engine = build_engine_with_root(root);
+
+    let payload_bytes = Bytes::from_static(br#"{\"path\":\"/\"}"#);
+    let payload = AtomPayload::new(make_type_id("intent:route_push"), payload_bytes.clone());
+
+    engine.ingest_inbox_event(1, &payload).unwrap();
+    engine.ingest_inbox_event(2, &payload).unwrap();
+
+    let store = engine.store_clone();
+
+    let sim_id = make_node_id("sim");
+    let inbox_id = make_node_id("sim/inbox");
+    let event1 = make_node_id("sim/inbox/event:0000000000000001");
+    let event2 = make_node_id("sim/inbox/event:0000000000000002");
+
+    // Only one structural edge root->sim and sim->inbox should exist.
+    let root_edges: Vec<_> = store.edges_from(&root).collect();
+    assert_eq!(root_edges.len(), 1);
+    assert_eq!(root_edges[0].to, sim_id);
+
+    let sim_edges: Vec<_> = store.edges_from(&sim_id).collect();
+    assert_eq!(sim_edges.len(), 1);
+    assert_eq!(sim_edges[0].to, inbox_id);
+
+    // Inbox should have one edge per event seq.
+    let inbox_edges: Vec<_> = store.edges_from(&inbox_id).collect();
+    assert_eq!(inbox_edges.len(), 2);
+
+    assert!(store.node(&event1).is_some());
+    assert!(store.node(&event2).is_some());
+}
+
+#[test]
+fn ingest_inbox_event_overwrites_event_payload_for_same_seq() {
+    let root = make_node_id("root");
+    let mut engine = build_engine_with_root(root);
+
+    let payload_a = AtomPayload::new(
+        make_type_id("intent:route_push"),
+        Bytes::from_static(br#"{\"path\":\"/a\"}"#),
+    );
+    let payload_b = AtomPayload::new(
+        make_type_id("intent:route_push"),
+        Bytes::from_static(br#"{\"path\":\"/b\"}"#),
+    );
+
+    engine.ingest_inbox_event(1, &payload_a).unwrap();
+    engine.ingest_inbox_event(1, &payload_b).unwrap();
+
+    let store = engine.store_clone();
+    let inbox_id = make_node_id("sim/inbox");
+    let event_id = make_node_id("sim/inbox/event:0000000000000001");
+
+    let inbox_edges: Vec<_> = store.edges_from(&inbox_id).collect();
+    assert_eq!(
+        inbox_edges.len(),
+        1,
+        "duplicate seq should not create extra edges"
+    );
+
+    let attachment = store
+        .node_attachment(&event_id)
+        .and_then(|v| match v {
+            AttachmentValue::Atom(a) => Some(a),
+            _ => None,
+        })
+        .expect("event attachment");
+    assert_eq!(attachment.bytes, payload_b.bytes);
+}
+
+#[test]
+fn ingest_inbox_event_overwrites_same_seq_payload() {
+    // Edge case: if the host reuses a seq number, the deterministic node id collides.
+    // The current behavior is "last write wins" for the event payload attachment.
+    let root = make_node_id("root");
+    let mut engine = build_engine_with_root(root);
+
+    let payload_a = AtomPayload::new(
+        make_type_id("intent:route_push"),
+        Bytes::from_static(br#"{\"path\":\"/a\"}"#),
+    );
+    let payload_b = AtomPayload::new(
+        make_type_id("intent:route_push"),
+        Bytes::from_static(br#"{\"path\":\"/b\"}"#),
+    );
+
+    engine.ingest_inbox_event(1, &payload_a).unwrap();
+    engine.ingest_inbox_event(1, &payload_b).unwrap();
+
+    let store = engine.store_clone();
+    let event_id = make_node_id("sim/inbox/event:0000000000000001");
+    let attachment = store
+        .node_attachment(&event_id)
+        .and_then(|v| match v {
+            AttachmentValue::Atom(a) => Some(a),
+            _ => None,
+        })
+        .expect("event attachment");
+
+    assert_eq!(attachment.bytes, payload_b.bytes);
+}

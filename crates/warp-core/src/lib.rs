@@ -39,6 +39,8 @@
 pub mod math;
 
 mod attachment;
+/// Command rewrite rules (e.g. `cmd/route_push`) for the website kernel spike.
+pub mod cmd;
 mod constants;
 /// Demo implementations showcasing engine capabilities (e.g., motion rule).
 pub mod demo;

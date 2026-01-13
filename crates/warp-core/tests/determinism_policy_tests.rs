@@ -97,6 +97,7 @@ fn test_policy_subnormal_flushing() {
 
 #[test]
 #[cfg(feature = "serde")]
+#[allow(clippy::disallowed_methods)]
 fn test_policy_serialization_guard() {
     // Manually construct JSON with -0.0
     let json = r#"-0.0"#;

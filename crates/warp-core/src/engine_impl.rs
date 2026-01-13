@@ -81,6 +81,8 @@ pub struct Engine {
     live_txs: HashSet<u64>,
     current_root: NodeKey,
     last_snapshot: Option<Snapshot>,
+    /// Sequential history of all committed ticks (Snapshot, Receipt, Patch).
+    tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
 }
 
 struct ReserveOutcome {
@@ -166,6 +168,7 @@ impl Engine {
                 local_id: root,
             },
             last_snapshot: None,
+            tick_history: Vec::new(),
         }
     }
 
@@ -229,6 +232,7 @@ impl Engine {
             live_txs: HashSet::new(),
             current_root: root,
             last_snapshot: None,
+            tick_history: Vec::new(),
         })
     }
 
@@ -451,6 +455,8 @@ impl Engine {
             tx,
         };
         self.last_snapshot = Some(snapshot.clone());
+        self.tick_history
+            .push((snapshot.clone(), receipt.clone(), patch.clone()));
         // Mark transaction as closed/inactive and finalize scheduler accounting.
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
@@ -694,6 +700,68 @@ impl Engine {
         );
 
         Ok(())
+    }
+
+    /// Returns the sequence of all committed ticks (Snapshot, Receipt, Patch).
+    #[must_use]
+    pub fn get_ledger(&self) -> &[(Snapshot, TickReceipt, WarpTickPatchV1)] {
+        &self.tick_history
+    }
+
+    /// Resets the engine state to the beginning of time (U0) and re-applies all patches
+    /// up to and including the specified tick index.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::InternalCorruption`] if a patch fails to apply.
+    pub fn jump_to_tick(&mut self, tick_index: usize) -> Result<(), EngineError> {
+        if tick_index >= self.tick_history.len() {
+            // Future: maybe just return error? For now, we'll just stay at current or cap it.
+            return Ok(());
+        }
+
+        // 1. Reset state to U0 (empty)
+        // We'll need a way to clone the original U0 or just clear everything.
+        // For the spike, we'll assume the root instance always exists.
+        let warp_id = self.current_root.warp_id;
+        let root_id = self.current_root.local_id;
+
+        self.state = WarpState::new();
+        let mut store = GraphStore::new(warp_id);
+        store.insert_node(
+            root_id,
+            NodeRecord {
+                ty: make_type_id("root"),
+            },
+        );
+        self.state.upsert_instance(
+            WarpInstance {
+                warp_id,
+                root_node: root_id,
+                parent: None,
+            },
+            store,
+        );
+
+        // 2. Re-apply patches from index 0 to tick_index
+        for i in 0..=tick_index {
+            let (_, _, patch) = &self.tick_history[i];
+            patch.apply_to_state(&mut self.state).map_err(|_| {
+                EngineError::InternalCorruption("failed to replay patch during jump")
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Returns a shared view of the current warp state.
+    #[must_use]
+    pub fn state(&self) -> &WarpState {
+        &self.state
+    }
+
+    /// Returns a mutable view of the current warp state.
+    pub fn state_mut(&mut self) -> &mut WarpState {
+        &mut self.state
     }
 
     /// Returns a shared view of a node when it exists.

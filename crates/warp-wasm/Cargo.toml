@@ -20,7 +20,7 @@ default = []
 console-panic = ["console_error_panic_hook", "web-sys"]
 
 [dependencies]
-warp-core = { workspace = true }
+warp-core = { workspace = true, features = ["serde"] }
 echo-registry-api = { path = "../echo-registry-api" }
 echo-wasm-abi = { path = "../echo-wasm-abi" }
 flyingrobots-echo-model = { path = "../../../flyingrobots.dev/crates/flyingrobots-echo-model" }

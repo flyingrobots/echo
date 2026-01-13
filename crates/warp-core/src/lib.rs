@@ -55,6 +55,7 @@ mod record;
 mod rule;
 mod sandbox;
 mod scheduler;
+mod serializable;
 mod snapshot;
 mod tick_patch;
 mod tx;
@@ -107,6 +108,11 @@ pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConf
 pub use scheduler::SchedulerKind;
 /// Immutable deterministic snapshot.
 pub use snapshot::Snapshot;
+/// UI-friendly serializable wrappers for ledger artifacts.
+#[cfg(feature = "serde")]
+pub use serializable::{
+    SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
+};
 /// Tick patch boundary artifacts (Paper III): replayable delta ops + slot sets.
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,

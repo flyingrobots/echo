@@ -45,6 +45,7 @@ use crate::warp_state::WarpState;
 /// `state_root` (graph-only hash) and commit metadata (parents, digests,
 /// policy). Parents are explicit to support merges.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Snapshot {
     /// Node identifier that serves as the root of the snapshot.
     pub root: NodeKey,
@@ -72,6 +73,15 @@ pub struct Snapshot {
     pub policy_id: u32,
     /// Transaction identifier associated with the snapshot.
     pub tx: TxId,
+}
+
+#[cfg(feature = "serde")]
+impl Snapshot {
+    /// Returns the commit hash as a lowercase hex string.
+    #[must_use]
+    pub fn hash_hex(&self) -> String {
+        hex::encode(self.hash)
+    }
 }
 
 /// Computes the canonical state root hash (graph only).

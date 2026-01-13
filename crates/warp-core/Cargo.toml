@@ -15,9 +15,9 @@ build = "build.rs"
 
 [dependencies]
 blake3 = "1.0"
-bytes = "1.0"
+bytes = { version = "1.0", features = ["serde"] }
 thiserror = "1.0"
-hex = { version = "0.4", optional = true }
+hex = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 rustc-hash = "2.1.1"
@@ -33,7 +33,7 @@ default = []
 # Optional regression check for PRNG sequences; off by default to avoid
 # freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
 golden_prng = []
-telemetry = ["serde", "serde_json", "hex"]
+telemetry = ["serde", "serde_json"]
 
 # Scalar backend lanes (CI/test orchestration).
 # - `det_float`: default float32-backed lane using `F32Scalar`.

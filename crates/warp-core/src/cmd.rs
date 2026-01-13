@@ -442,7 +442,7 @@ fn emit_view_op(store: &mut GraphStore, kind: &str, payload: bytes::Bytes) {
                 b.copy_from_slice(&a.bytes[..8]);
                 Some(u64::from_le_bytes(b))
             }
-            _ => None,
+            AttachmentValue::Atom(_) | AttachmentValue::Descend(_) => None,
         })
         .unwrap_or(0);
 
@@ -476,4 +476,27 @@ fn emit_view_op(store: &mut GraphStore, kind: &str, payload: bytes::Bytes) {
             bytes::Bytes::copy_from_slice(&next_seq.to_le_bytes()),
         ))),
     );
+}
+
+/// Projects the entire current `sim/state` as a sequence of `ViewOp`s.
+///
+/// This is used by the time travel debugger to sync the host UI after a jump.
+pub fn project_state(store: &mut GraphStore) {
+    // 1. Theme
+    let theme_id = make_node_id("sim/state/theme");
+    if let Some(AttachmentValue::Atom(a)) = store.node_attachment(&theme_id) {
+        emit_view_op(store, "SetTheme", a.bytes.clone());
+    }
+
+    // 2. Nav
+    let nav_id = make_node_id("sim/state/navOpen");
+    if let Some(AttachmentValue::Atom(a)) = store.node_attachment(&nav_id) {
+        emit_view_op(store, "ToggleNav", a.bytes.clone());
+    }
+
+    // 3. Route
+    let route_id = make_node_id("sim/state/routePath");
+    if let Some(AttachmentValue::Atom(a)) = store.node_attachment(&route_id) {
+        emit_view_op(store, "RoutePush", a.bytes.clone());
+    }
 }

@@ -465,9 +465,9 @@ impl WasmEngine {
         }
     }
 
-    #[wasm_bindgen]
     /// Commits the transaction and returns the resulting snapshot hash.
-    pub fn commit(&self, tx_id: u64) -> Option<Vec<u8>> {
+    #[wasm_bindgen]
+    pub fn commit(&mut self, tx_id: u64) -> Option<Vec<u8>> {
         if tx_id == 0 {
             return None;
         }
@@ -476,7 +476,18 @@ impl WasmEngine {
         Some(snapshot.hash.to_vec())
     }
 
+    /// Returns the sequential history of all committed ticks.
     #[wasm_bindgen]
+    pub fn get_ledger(&self) -> JsValue {
+        let engine = self.inner.borrow();
+        let ledger = engine.get_ledger();
+        let serializable: Vec<warp_core::SerializableTick> = ledger
+            .iter()
+            .map(|(s, r, p)| warp_core::SerializableTick::from_parts(s, r, p))
+            .collect();
+        serde_wasm_bindgen::to_value(&serializable).unwrap_or(JsValue::NULL)
+    }
+
     /// Reads the decoded position/velocity tuple for the provided entity.
     pub fn read_motion(&self, entity_id: &[u8]) -> Option<Box<[f32]>> {
         let engine = self.inner.borrow();

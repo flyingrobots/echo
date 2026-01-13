@@ -34,6 +34,7 @@ use crate::ident::{EdgeKey, NodeKey, TypeId, WarpId};
 ///
 /// In Paper I notation, vertex attachments are `α` and edge attachments are `β`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum AttachmentPlane {
     /// Vertex/node attachment plane (`α`).
     Alpha,
@@ -52,6 +53,7 @@ impl AttachmentPlane {
 
 /// Owner identity for an attachment slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum AttachmentOwner {
     /// Attachment owned by a node.
     Node(NodeKey),
@@ -74,6 +76,7 @@ impl AttachmentOwner {
 /// changes to an attachment slot (especially `Descend`) must invalidate matches
 /// inside descendant instances deterministically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AttachmentKey {
     /// Owner of the slot.
     pub owner: AttachmentOwner,
@@ -111,6 +114,7 @@ impl AttachmentKey {
 /// Stage B1 introduces [`AttachmentValue::Descend`] to model recursive WARPs as
 /// flattened indirection.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum AttachmentValue {
     /// Depth-0 atom payload.
     Atom(AtomPayload),
@@ -131,6 +135,7 @@ pub enum AttachmentValue {
 ///   slicing, or rewrite applicability must be expressed as explicit skeleton
 ///   nodes/edges/ports.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AtomPayload {
     /// Type identifier describing how to interpret `bytes`.
     pub type_id: TypeId,

@@ -12,6 +12,7 @@ use crate::record::{EdgeRecord, NodeRecord};
 /// The production engine will eventually swap in a content-addressed store,
 /// but this structure keeps the motion rewrite spike self-contained.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GraphStore {
     /// Warp instance identifier for this store (Stage B1).
     pub(crate) warp_id: WarpId,

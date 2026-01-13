@@ -5,6 +5,17 @@
 //! The current implementation executes queued rewrites deterministically via the
 //! motion-rule spike utilities. Broader storage and scheduling features will
 //! continue to land over subsequent phases.
+//!
+//! # Protocol Determinism
+//!
+//! `warp-core` enforces strict determinism for all protocol artifacts (snapshots, patches, receipts).
+//!
+//! - **Wire Format:** Canonical CBOR via [`echo_wasm_abi`].
+//!   - Maps must have sorted keys.
+//!   - Floats are forbidden or strictly canonicalized (see `math` module).
+//! - **JSON:** Forbidden for protocol/hashing. Allowed ONLY for debug/view layers (e.g. telemetry).
+//! - **Float Math:** The default `F32Scalar` backend is optimistic (assumes IEEE 754).
+//!   For strict cross-platform consensus, use the `det_fixed` feature.
 #![forbid(unsafe_code)]
 #![deny(missing_docs, rust_2018_idioms, unused_must_use)]
 #![deny(

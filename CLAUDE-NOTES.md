@@ -13,7 +13,7 @@
 2. **Non-deterministic serialization formats** (JSON object key ordering)
 3. **Platform-variant float behavior** (f32 arithmetic varies by CPU/flags)
 
-### Current Status: COMMIT 2 COMPLETE
+### Current Status: DONE (Commit 3 Complete)
 
 **What we're doing:** Reverting the overly-aggressive serde removal while keeping the correct fixes.
 
@@ -28,6 +28,7 @@
 - ✅ Verified full build passes
 - ✅ Audited float determinism (Confirmed: sensitive to 1 ULP)
 - ✅ Added determinism tests (`crates/warp-core/tests/determinism_audit.rs`)
+- ✅ Enforced CBOR-only boundary via documentation and dependency isolation
 
 ### The 3-Commit Refactor Plan
 
@@ -35,20 +36,15 @@
 - Restored serde, fixed tests, added audit doc.
 
 #### Commit 2: Float Audit + Determinism Tests (DONE)
-**Goal:** Determine if floats flows into canonical hashes.
-**Result:** **YES.** The system is sensitive to float arithmetic.
-- `F32Scalar` (default) is stable on same-hardware/compiler ("optimistic").
-- `det_fixed` (feature) is required for strict cross-platform consensus.
-- Added `tests/determinism_audit.rs` to prove sensitivity and repeatability.
+- Confirmed sensitivity to float arithmetic.
+- Mitigation: `det_fixed` feature for strict consensus.
 
-#### Commit 3: Enforce CBOR-Only Boundary (TODO)
+#### Commit 3: Enforce CBOR-Only Boundary (DONE)
 **Goal:** Make deterministic CBOR the ONLY protocol format. JSON is debug/view only.
-
 **Changes:**
-- Update serializable.rs: Remove serde derives, use explicit CBOR encode/decode
-- Add module docs: "CBOR for wire protocol, JSON for debug only"
-- Ensure warp-wasm boundary uses echo-wasm-abi::encode_cbor explicitly
-- Remove unnecessary `#[cfg(feature = "serde")]` gates that add no value
+- Verified `serde_json` is removed from `warp-core` runtime dependencies.
+- Verified `warp-wasm` uses `encode_cbor`.
+- Added strict protocol documentation to `warp-core/src/lib.rs`.
 
 ### Key Audit Findings (from DETERMINISM-AUDIT.md)
 

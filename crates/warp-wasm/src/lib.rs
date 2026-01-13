@@ -232,22 +232,44 @@ pub fn get_head() -> Uint8Array {
     empty_bytes()
 }
 
-/// Execute a read-only query by ID with canonical vars. Placeholder: returns empty bytes.
+/// Execute a read-only query by ID with canonical vars.
 #[wasm_bindgen]
 pub fn execute_query(_query_id: u32, _vars_bytes: &[u8]) -> Uint8Array {
     let reg = registry().expect("registry not installed");
     let Some(op) = reg.op_by_id(_query_id) else {
+        #[cfg(feature = "console-panic")]
+        web_sys::console::error_1(&format!("execute_query: unknown op_id {_query_id}").into());
         return empty_bytes();
     };
+
+    // PURITY GUARD: Refuse to execute Mutations via execute_query.
     if op.kind != echo_registry_api::OpKind::Query {
+        #[cfg(feature = "console-panic")]
+        web_sys::console::error_1(
+            &format!(
+                "execute_query purity violation: op '{}' is a Mutation",
+                op.name
+            )
+            .into(),
+        );
         return empty_bytes();
     }
 
     // Decode and validate vars against schema
     let Ok(value) = decode_cbor::<serde_json::Value>(_vars_bytes) else {
+        #[cfg(feature = "console-panic")]
+        web_sys::console::error_1(&"execute_query: failed to decode CBOR vars".into());
         return empty_bytes();
     };
     if !validate_object_against_args(&value, op.args, reg.all_enums()) {
+        #[cfg(feature = "console-panic")]
+        web_sys::console::error_1(
+            &format!(
+                "execute_query: schema validation failed for op '{}'",
+                op.name
+            )
+            .into(),
+        );
         return empty_bytes();
     }
 

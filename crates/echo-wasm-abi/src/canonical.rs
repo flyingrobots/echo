@@ -321,13 +321,66 @@ fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
             20 => Ok(Value::Bool(false)),
             21 => Ok(Value::Bool(true)),
             22 => Ok(Value::Null),
-            25 => Ok(Value::Float(read_f(bytes, idx, 2)?)),
-            26 => Ok(Value::Float(read_f(bytes, idx, 4)?)),
-            27 => Ok(Value::Float(read_f(bytes, idx, 8)?)),
+            25 => {
+                let f = read_f(bytes, idx, 2)?;
+                if is_exact_int(f) {
+                    return Err(CanonError::FloatShouldBeInt);
+                }
+                Ok(Value::Float(f))
+            }
+            26 => {
+                let f = read_f(bytes, idx, 4)?;
+                if is_exact_int(f) {
+                    return Err(CanonError::FloatShouldBeInt);
+                }
+                if can_fit_f16(f) {
+                    return Err(CanonError::NonCanonicalFloat);
+                }
+                Ok(Value::Float(f))
+            }
+            27 => {
+                let f = read_f(bytes, idx, 8)?;
+                if is_exact_int(f) {
+                    return Err(CanonError::FloatShouldBeInt);
+                }
+                if can_fit_f16(f) {
+                    return Err(CanonError::NonCanonicalFloat);
+                }
+                if can_fit_f32(f) {
+                    return Err(CanonError::NonCanonicalFloat);
+                }
+                Ok(Value::Float(f))
+            }
             31 => Err(CanonError::Indefinite),
             _ => Err(CanonError::Decode("simple value not supported".into())),
         },
         6 => Err(CanonError::Tag),
         _ => Err(CanonError::Decode("unknown major type".into())),
     }
+}
+
+fn is_exact_int(f: f64) -> bool {
+    if f.is_infinite() || f.is_nan() {
+        return false;
+    }
+    if f.fract() != 0.0 {
+        return false;
+    }
+    let i = f as i128;
+    i as f64 == f
+}
+
+fn can_fit_f16(f: f64) -> bool {
+    if f.is_nan() {
+        return true;
+    }
+    let h = f16::from_f64(f);
+    h.to_f64() == f
+}
+
+fn can_fit_f32(f: f64) -> bool {
+    if f.is_nan() {
+        return true;
+    }
+    (f as f32) as f64 == f
 }

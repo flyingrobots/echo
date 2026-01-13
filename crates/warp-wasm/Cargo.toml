@@ -23,6 +23,7 @@ console-panic = ["console_error_panic_hook", "web-sys"]
 warp-core = { workspace = true }
 echo-registry-api = { path = "../echo-registry-api" }
 echo-wasm-abi = { path = "../echo-wasm-abi" }
+flyingrobots-echo-model = { path = "../../../flyingrobots.dev/crates/flyingrobots-echo-model" }
 wasm-bindgen = "0.2.106"
 js-sys = "0.3.83"
 web-sys = { version = "0.3.83", optional = true, features = ["console"] }
@@ -30,6 +31,7 @@ console_error_panic_hook = { version = "0.1.7", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 serde_json = "1.0"
+bytes = "1.0"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.42"

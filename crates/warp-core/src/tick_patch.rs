@@ -406,6 +406,26 @@ impl WarpTickPatchV1 {
         self.digest
     }
 
+    /// Verifies that the internal digest matches the computed digest of the patch contents.
+    ///
+    /// # Errors
+    /// Returns `TickPatchError::DigestMismatch` if the digests do not match.
+    pub fn validate_digest(&self) -> Result<(), TickPatchError> {
+        let expected = compute_patch_digest_v2(
+            self.policy_id,
+            &self.rule_pack_id,
+            self.commit_status,
+            &self.in_slots,
+            &self.out_slots,
+            &self.ops,
+        );
+        if self.digest == expected {
+            Ok(())
+        } else {
+            Err(TickPatchError::DigestMismatch)
+        }
+    }
+
     /// Applies the patch delta to `state`.
     ///
     /// # Errors
@@ -727,6 +747,9 @@ pub enum TickPatchError {
     /// `OpenPortal` invariants were violated (dangling portal / inconsistent parent chain / root mismatch).
     #[error("portal invariant violation")]
     PortalInvariantViolation,
+    /// The patch digest did not match its contents.
+    #[error("patch digest mismatch")]
+    DigestMismatch,
 }
 
 fn compute_patch_digest_v2(

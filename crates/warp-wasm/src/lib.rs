@@ -467,7 +467,7 @@ impl WasmEngine {
 
     /// Commits the transaction and returns the resulting snapshot hash.
     #[wasm_bindgen]
-    pub fn commit(&mut self, tx_id: u64) -> Option<Vec<u8>> {
+    pub fn commit(&self, tx_id: u64) -> Option<Vec<u8>> {
         if tx_id == 0 {
             return None;
         }

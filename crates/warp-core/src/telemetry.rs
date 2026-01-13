@@ -7,16 +7,12 @@
 use crate::ident::Hash;
 use crate::tx::TxId;
 
+#[cfg(feature = "telemetry")]
 #[inline]
 fn short_id(h: &Hash) -> String {
-    #[cfg(feature = "telemetry")]
-    {
-        let mut short = [0u8; 8];
-        short.copy_from_slice(&h[0..8]);
-        return hex::encode(short);
-    }
-    #[allow(unreachable_code)]
-    String::new()
+    let mut short = [0u8; 8];
+    short.copy_from_slice(&h[0..8]);
+    hex::encode(short)
 }
 
 #[cfg(feature = "telemetry")]

@@ -4,6 +4,7 @@
 name = "echo-wesley-gen"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.90.0"
 description = "Code generator for Echo: consumes Wesley IR (JSON) and emits Rust artifacts via syn/quote."
 license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"

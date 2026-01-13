@@ -4,6 +4,7 @@
 name = "echo-registry-api"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.90.0"
 license = "Apache-2.0"
 description = "Generic registry interface for Echo WASM helpers (schema hash, codec, ops catalog)"
 repository = "https://github.com/flyingrobots/echo"

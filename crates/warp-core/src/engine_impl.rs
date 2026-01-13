@@ -83,6 +83,7 @@ pub struct Engine {
     last_snapshot: Option<Snapshot>,
     /// Sequential history of all committed ticks (Snapshot, Receipt, Patch).
     tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
+    intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
 }
 
 struct ReserveOutcome {
@@ -169,6 +170,7 @@ impl Engine {
             },
             last_snapshot: None,
             tick_history: Vec::new(),
+            intent_log: Vec::new(),
         }
     }
 
@@ -233,6 +235,7 @@ impl Engine {
             current_root: root,
             last_snapshot: None,
             tick_history: Vec::new(),
+            intent_log: Vec::new(),
         })
     }
 
@@ -461,6 +464,14 @@ impl Engine {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
         Ok((snapshot, receipt, patch))
+    }
+
+    /// Aborts a transaction without committing a tick.
+    ///
+    /// This closes the transaction and releases any resources reserved in the scheduler.
+    pub fn abort(&mut self, tx: TxId) {
+        self.live_txs.remove(&tx.value());
+        self.scheduler.finalize_tx(tx);
     }
 
     fn reserve_for_receipt(
@@ -699,6 +710,8 @@ impl Engine {
             ))),
         );
 
+        self.intent_log.push((seq, payload.clone()));
+
         Ok(())
     }
 
@@ -935,6 +948,12 @@ impl Engine {
     }
 }
 
+impl Engine {
+    /// Returns a reference to the intent log containing transaction IDs and their payloads.
+    pub fn get_intent_log(&self) -> &[(u64, crate::attachment::AtomPayload)] {
+        &self.intent_log
+    }
+}
 /// Computes the canonical scope hash used for deterministic scheduler ordering.
 ///
 /// This value is the first component of the scheduler’s canonical ordering key

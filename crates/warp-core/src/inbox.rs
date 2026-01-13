@@ -37,6 +37,7 @@ fn inbox_matcher(store: &GraphStore, scope: &NodeId) -> bool {
     store
         .node(scope)
         .is_some_and(|n| n.ty == make_type_id("sim/inbox"))
+        && store.edges_from(scope).count() > 0
 }
 
 fn inbox_executor(store: &mut GraphStore, scope: &NodeId) {

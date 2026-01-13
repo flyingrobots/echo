@@ -13,6 +13,9 @@ use crate::graph::GraphStore;
 use crate::ident::{make_edge_id, make_node_id, make_type_id, Hash, NodeId, NodeKey};
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 
+use ciborium::value::Value as CborValue;
+use echo_wasm_abi::{decode_cbor, encode_cbor};
+
 /// Human-readable name for the route push command rule.
 pub const ROUTE_PUSH_RULE_NAME: &str = "cmd/route_push";
 /// Human-readable name for the set theme command rule.
@@ -212,8 +215,30 @@ fn is_intent_for_op(_store: &GraphStore, intent_id: crate::ident::TypeId, op_nam
     intent_id == make_type_id(&format!("intent:{op_id}"))
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn apply_toast(store: &mut GraphStore, payload_bytes: bytes::Bytes) {
-    emit_view_op(store, "ShowToast", payload_bytes);
+    // Emit ViewOp: ShowToast (unwrapped)
+    if let Ok(val) = decode_cbor::<CborValue>(&payload_bytes) {
+        if let Some(vars) = get_map_value(&val, "vars") {
+            if let Ok(vars_bytes) = encode_cbor(&vars) {
+                emit_view_op(store, "ShowToast", vars_bytes.into());
+            }
+        }
+    }
+}
+
+/// Helper to get a value from a CBOR map by string key.
+fn get_map_value<'a>(val: &'a CborValue, key: &str) -> Option<&'a CborValue> {
+    if let CborValue::Map(entries) = val {
+        for (k, v) in entries {
+            if let CborValue::Text(s) = k {
+                if s == key {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn matcher_for_intent(store: &GraphStore, scope: &NodeId, intent_type: &str) -> bool {
@@ -320,6 +345,7 @@ fn ensure_state_base(store: &mut GraphStore) -> (NodeId, NodeId) {
     (sim_id, sim_state_id)
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn apply_route_push(store: &mut GraphStore, payload_bytes: bytes::Bytes) {
     let (_, sim_state_id) = ensure_state_base(store);
     let route_id = make_node_id("sim/state/routePath");
@@ -344,9 +370,17 @@ fn apply_route_push(store: &mut GraphStore, payload_bytes: bytes::Bytes) {
     let route_payload = AtomPayload::new(make_type_id("state:route_path"), payload_bytes.clone());
     store.set_node_attachment(route_id, Some(AttachmentValue::Atom(route_payload)));
 
-    emit_view_op(store, "RoutePush", payload_bytes);
+    // Emit ViewOp: RoutePush (unwrapped)
+    if let Ok(val) = decode_cbor::<CborValue>(&payload_bytes) {
+        if let Some(vars) = get_map_value(&val, "vars") {
+            if let Ok(vars_bytes) = encode_cbor(&vars) {
+                emit_view_op(store, "RoutePush", vars_bytes.into());
+            }
+        }
+    }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn apply_set_theme(store: &mut GraphStore, payload_bytes: bytes::Bytes) {
     let (_, sim_state_id) = ensure_state_base(store);
     let theme_id = make_node_id("sim/state/theme");
@@ -371,7 +405,14 @@ fn apply_set_theme(store: &mut GraphStore, payload_bytes: bytes::Bytes) {
     let theme_payload = AtomPayload::new(make_type_id("state:theme"), payload_bytes.clone());
     store.set_node_attachment(theme_id, Some(AttachmentValue::Atom(theme_payload)));
 
-    emit_view_op(store, "SetTheme", payload_bytes);
+    // Emit ViewOp: SetTheme (unwrapped)
+    if let Ok(val) = decode_cbor::<CborValue>(&payload_bytes) {
+        if let Some(vars) = get_map_value(&val, "vars") {
+            if let Ok(vars_bytes) = encode_cbor(&vars) {
+                emit_view_op(store, "SetTheme", vars_bytes.into());
+            }
+        }
+    }
 }
 
 fn apply_toggle_nav(store: &mut GraphStore, _payload_bytes: bytes::Bytes) {
@@ -400,16 +441,24 @@ fn apply_toggle_nav(store: &mut GraphStore, _payload_bytes: bytes::Bytes) {
         AttachmentValue::Descend(_) => None,
     });
 
-    let new_val = if current_val == Some(b"true") {
-        bytes::Bytes::from_static(b"false")
-    } else {
+    let new_bool = current_val != Some(b"true");
+    let new_val = if new_bool {
         bytes::Bytes::from_static(b"true")
+    } else {
+        bytes::Bytes::from_static(b"false")
     };
 
-    let nav_payload = AtomPayload::new(make_type_id("state:nav_open"), new_val.clone());
+    let nav_payload = AtomPayload::new(make_type_id("state:nav_open"), new_val);
     store.set_node_attachment(nav_id, Some(AttachmentValue::Atom(nav_payload)));
 
-    emit_view_op(store, "ToggleNav", new_val);
+    // Emit ViewOp: ToggleNav (wrapped in model struct { "open": bool })
+    let toggle_op = CborValue::Map(vec![(
+        CborValue::Text("open".to_string()),
+        CborValue::Bool(new_bool),
+    )]);
+    if let Ok(bytes) = encode_cbor(&toggle_op) {
+        emit_view_op(store, "ToggleNav", bytes.into());
+    }
 }
 
 /// Emits a `ViewOp` into the `sim/view` inbox.

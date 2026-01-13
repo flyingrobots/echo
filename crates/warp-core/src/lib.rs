@@ -55,6 +55,7 @@ mod record;
 mod rule;
 mod sandbox;
 mod scheduler;
+#[cfg(feature = "serde")]
 mod serializable;
 mod snapshot;
 mod tick_patch;

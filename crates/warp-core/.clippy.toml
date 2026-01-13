@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+# Disallow non-deterministic serialization in warp-core.
+# DETERMINISM IS PARAMOUNT: Always use echo_wasm_abi::{encode_cbor, decode_cbor} for deterministic canonical encoding.
+# serde/serde_json have non-deterministic map ordering and float handling.
+disallowed-methods = [
+    # Disallow direct ciborium usage
+    { path = "ciborium::from_reader", reason = "Use echo_wasm_abi::decode_cbor for deterministic CBOR decoding" },
+    { path = "ciborium::into_writer", reason = "Use echo_wasm_abi::encode_cbor for deterministic CBOR encoding" },
+    { path = "ciborium::de::from_reader", reason = "Use echo_wasm_abi::decode_cbor for deterministic CBOR decoding" },
+    { path = "ciborium::ser::into_writer", reason = "Use echo_wasm_abi::encode_cbor for deterministic CBOR encoding" },
+
+    # Disallow serde_json (non-deterministic)
+    { path = "serde_json::to_writer", reason = "Non-deterministic JSON serialization forbidden in warp-core" },
+    { path = "serde_json::to_string", reason = "Non-deterministic JSON serialization forbidden in warp-core" },
+    { path = "serde_json::to_vec", reason = "Non-deterministic JSON serialization forbidden in warp-core" },
+    { path = "serde_json::from_reader", reason = "Non-deterministic JSON deserialization forbidden in warp-core" },
+    { path = "serde_json::from_str", reason = "Non-deterministic JSON deserialization forbidden in warp-core" },
+    { path = "serde_json::from_slice", reason = "Non-deterministic JSON deserialization forbidden in warp-core" },
+]

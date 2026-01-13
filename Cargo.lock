@@ -5000,6 +5000,8 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "bytes",
+ "ciborium",
+ "echo-wasm-abi",
  "hex",
  "libm",
  "proptest",

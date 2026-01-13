@@ -3,6 +3,8 @@
 //! Tests for AppState command rules: `cmd/set_theme` and `cmd/toggle_nav`.
 
 use bytes::Bytes;
+use ciborium::value::Value as CborValue;
+use echo_wasm_abi::encode_cbor;
 use warp_core::{
     cmd::{set_theme_rule, toggle_nav_rule, SET_THEME_RULE_NAME, TOGGLE_NAV_RULE_NAME},
     make_node_id, make_type_id, AtomPayload, AttachmentValue, Engine, GraphStore, NodeId,
@@ -29,7 +31,14 @@ fn cmd_set_theme_updates_theme_state() {
         .register_rule(set_theme_rule())
         .expect("register set_theme");
 
-    let payload_bytes = Bytes::from_static(br#"{ "mode": "DARK" }"#);
+    // Construct CBOR payload: { "vars": { "mode": "DARK" } }
+    let vars = CborValue::Map(vec![(
+        CborValue::Text("mode".to_string()),
+        CborValue::Text("DARK".to_string()),
+    )]);
+    let payload_map = CborValue::Map(vec![(CborValue::Text("vars".to_string()), vars)]);
+    let payload_bytes: Bytes = encode_cbor(&payload_map).expect("encode payload").into();
+
     let payload = AtomPayload::new(make_type_id("intent:set_theme"), payload_bytes.clone());
 
     engine.ingest_inbox_event(1, &payload).unwrap();
@@ -63,7 +72,14 @@ fn cmd_set_theme_updates_theme_state() {
         panic!("expected atom attachment on op node");
     };
     assert_eq!(op_atom.type_id, make_type_id("view_op:SetTheme"));
-    assert_eq!(op_atom.bytes, payload_bytes);
+
+    // The emitted op payload is just the 'vars' inner object
+    let expected_vars = CborValue::Map(vec![(
+        CborValue::Text("mode".to_string()),
+        CborValue::Text("DARK".to_string()),
+    )]);
+    let expected_bytes: Bytes = encode_cbor(&expected_vars).expect("encode vars").into();
+    assert_eq!(op_atom.bytes, expected_bytes);
 }
 
 #[test]

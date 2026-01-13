@@ -2,21 +2,10 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 // Telemetry helpers for JSONL logging when the `telemetry` feature is enabled.
-
-#[cfg(feature = "telemetry")]
-use serde::Serialize;
+// Manually formats JSON to avoid non-deterministic serde_json dependency.
 
 use crate::ident::Hash;
 use crate::tx::TxId;
-
-#[cfg(feature = "telemetry")]
-#[derive(Serialize)]
-struct Event<'a> {
-    timestamp_micros: u128,
-    tx_id: u64,
-    event: &'a str,
-    rule_id_short: String,
-}
 
 #[inline]
 fn short_id(h: &Hash) -> String {
@@ -41,16 +30,17 @@ fn ts_micros() -> u128 {
 
 #[cfg(feature = "telemetry")]
 fn emit(kind: &str, tx: TxId, rule: &Hash) {
-    let ev = Event {
-        timestamp_micros: ts_micros(),
-        tx_id: tx.value(),
-        event: kind,
-        rule_id_short: short_id(rule),
-    };
-    // Best-effort stdout with a single locked write sequence to avoid interleaving.
-    let mut out = std::io::stdout().lock();
-    let _ = serde_json::to_writer(&mut out, &ev);
     use std::io::Write as _;
+    // Manually format JSON to avoid serde_json dependency
+    let mut out = std::io::stdout().lock();
+    let _ = write!(
+        out,
+        r#"{{"timestamp_micros":{},"tx_id":{},"event":"{}","rule_id_short":"{}"}}"#,
+        ts_micros(),
+        tx.value(),
+        kind,
+        short_id(rule)
+    );
     let _ = out.write_all(b"\n");
 }
 
@@ -82,24 +72,16 @@ pub fn reserved(tx: TxId, rule: &Hash) {
 /// back to 0 on clock errors.
 #[cfg(feature = "telemetry")]
 pub fn summary(tx: TxId, reserved_count: u64, conflict_count: u64) {
-    use serde::Serialize;
-    #[derive(Serialize)]
-    struct Summary {
-        timestamp_micros: u128,
-        tx_id: u64,
-        event: &'static str,
-        reserved: u64,
-        conflicts: u64,
-    }
-    let s = Summary {
-        timestamp_micros: ts_micros(),
-        tx_id: tx.value(),
-        event: "summary",
-        reserved: reserved_count,
-        conflicts: conflict_count,
-    };
-    let mut out = std::io::stdout().lock();
-    let _ = serde_json::to_writer(&mut out, &s);
     use std::io::Write as _;
+    // Manually format JSON to avoid serde_json dependency
+    let mut out = std::io::stdout().lock();
+    let _ = write!(
+        out,
+        r#"{{"timestamp_micros":{},"tx_id":{},"event":"summary","reserved":{},"conflicts":{}}}"#,
+        ts_micros(),
+        tx.value(),
+        reserved_count,
+        conflict_count
+    );
     let _ = out.write_all(b"\n");
 }

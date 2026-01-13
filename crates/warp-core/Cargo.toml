@@ -15,12 +15,13 @@ build = "build.rs"
 
 [dependencies]
 blake3 = "1.0"
-bytes = { version = "1.0", features = ["serde"] }
+bytes = "1.0"
 thiserror = "1.0"
 hex = "0.4"
-serde = { version = "1.0", features = ["derive"], optional = true }
-serde_json = { version = "1.0", optional = true }
+ciborium = "0.2"
 rustc-hash = "2.1.1"
+echo-wasm-abi = { path = "../echo-wasm-abi" }
+serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -33,7 +34,11 @@ default = []
 # Optional regression check for PRNG sequences; off by default to avoid
 # freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
 golden_prng = []
-telemetry = ["serde", "serde_json"]
+telemetry = []
+
+# Serde support for serializable wrappers (use ONLY with deterministic CBOR encoder).
+# NEVER use with serde_json - JSON is non-deterministic and banned in warp-core.
+serde = ["dep:serde", "bytes/serde"]
 
 # Scalar backend lanes (CI/test orchestration).
 # - `det_float`: default float32-backed lane using `F32Scalar`.

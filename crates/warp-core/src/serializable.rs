@@ -95,4 +95,3 @@ mod inner {
 
 #[cfg(feature = "serde")]
 pub use inner::*;
-

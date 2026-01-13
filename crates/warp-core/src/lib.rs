@@ -106,13 +106,13 @@ pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
 /// Scheduler selection (Radix vs Legacy) for sandbox/engine builders.
 pub use scheduler::SchedulerKind;
-/// Immutable deterministic snapshot.
-pub use snapshot::Snapshot;
 /// UI-friendly serializable wrappers for ledger artifacts.
 #[cfg(feature = "serde")]
 pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
 };
+/// Immutable deterministic snapshot.
+pub use snapshot::Snapshot;
 /// Tick patch boundary artifacts (Paper III): replayable delta ops + slot sets.
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,

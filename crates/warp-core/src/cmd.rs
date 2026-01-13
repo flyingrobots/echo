@@ -534,18 +534,37 @@ pub fn project_state(store: &mut GraphStore) {
     // 1. Theme
     let theme_id = make_node_id("sim/state/theme");
     if let Some(AttachmentValue::Atom(a)) = store.node_attachment(&theme_id) {
-        emit_view_op(store, "SetTheme", a.bytes.clone());
+        if let Ok(val) = decode_cbor::<CborValue>(&a.bytes) {
+            if let Some(vars) = get_map_value(&val, "vars") {
+                if let Ok(vars_bytes) = encode_cbor(&vars) {
+                    emit_view_op(store, "SetTheme", vars_bytes.into());
+                }
+            }
+        }
     }
 
     // 2. Nav
     let nav_id = make_node_id("sim/state/navOpen");
     if let Some(AttachmentValue::Atom(a)) = store.node_attachment(&nav_id) {
-        emit_view_op(store, "ToggleNav", a.bytes.clone());
+        let is_open = a.bytes.as_ref() == b"true";
+        let toggle_op = CborValue::Map(vec![(
+            CborValue::Text("open".to_string()),
+            CborValue::Bool(is_open),
+        )]);
+        if let Ok(bytes) = encode_cbor(&toggle_op) {
+            emit_view_op(store, "ToggleNav", bytes.into());
+        }
     }
 
     // 3. Route
     let route_id = make_node_id("sim/state/routePath");
     if let Some(AttachmentValue::Atom(a)) = store.node_attachment(&route_id) {
-        emit_view_op(store, "RoutePush", a.bytes.clone());
+        if let Ok(val) = decode_cbor::<CborValue>(&a.bytes) {
+            if let Some(vars) = get_map_value(&val, "vars") {
+                if let Ok(vars_bytes) = encode_cbor(&vars) {
+                    emit_view_op(store, "RoutePush", vars_bytes.into());
+                }
+            }
+        }
     }
 }

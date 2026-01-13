@@ -46,25 +46,29 @@ fn registry() -> Option<&'static dyn RegistryProvider> {
 }
 
 fn validate_object_against_args(
-    value: &serde_json::Value,
+    value: &serde_value::Value,
     args: &[echo_registry_api::ArgDef],
     enums: &[echo_registry_api::EnumDef],
 ) -> bool {
-    let obj = match value.as_object() {
-        Some(map) => map,
-        None => return false,
+    let obj = match value {
+        serde_value::Value::Map(map) => map,
+        _ => return false,
     };
 
     // Unknown keys?
     for key in obj.keys() {
-        if !args.iter().any(|a| a.name == key.as_str()) {
+        let serde_value::Value::String(s) = key else {
+            return false;
+        };
+        if !args.iter().any(|a| a.name == s.as_str()) {
             return false;
         }
     }
 
     // Required + type checks
     for arg in args {
-        let Some(v) = obj.get(arg.name) else {
+        let v = obj.get(&serde_value::Value::String(arg.name.to_string()));
+        let Some(v) = v else {
             if arg.required {
                 return false;
             }
@@ -72,9 +76,11 @@ fn validate_object_against_args(
         };
         // Type check
         let ok = if arg.list {
-            match v.as_array() {
-                Some(items) => items.iter().all(|item| scalar_type_ok(item, arg.ty, enums)),
-                None => false,
+            match v {
+                serde_value::Value::Seq(items) => {
+                    items.iter().all(|item| scalar_type_ok(item, arg.ty, enums))
+                }
+                _ => false,
             }
         } else {
             scalar_type_ok(v, arg.ty, enums)
@@ -86,15 +92,42 @@ fn validate_object_against_args(
     true
 }
 
-fn scalar_type_ok(v: &serde_json::Value, ty: &str, enums: &[echo_registry_api::EnumDef]) -> bool {
+fn scalar_type_ok(v: &serde_value::Value, ty: &str, enums: &[echo_registry_api::EnumDef]) -> bool {
     match ty {
-        "String" | "ID" => v.is_string(),
-        "Boolean" => v.is_boolean(),
-        "Int" | "Float" => v.is_number(),
+        "String" | "ID" => matches!(v, serde_value::Value::String(_)),
+        "Boolean" => matches!(v, serde_value::Value::Bool(_)),
+        "Int" => matches!(
+            v,
+            serde_value::Value::I8(_)
+                | serde_value::Value::I16(_)
+                | serde_value::Value::I32(_)
+                | serde_value::Value::I64(_)
+                | serde_value::Value::U8(_)
+                | serde_value::Value::U16(_)
+                | serde_value::Value::U32(_)
+                | serde_value::Value::U64(_)
+        ),
+        "Float" => matches!(
+            v,
+            serde_value::Value::F32(_)
+                | serde_value::Value::F64(_)
+                | serde_value::Value::I8(_)
+                | serde_value::Value::I16(_)
+                | serde_value::Value::I32(_)
+                | serde_value::Value::I64(_)
+                | serde_value::Value::U8(_)
+                | serde_value::Value::U16(_)
+                | serde_value::Value::U32(_)
+                | serde_value::Value::U64(_)
+        ),
         other => {
             // enum check
             if let Some(def) = enums.iter().find(|e| e.name == other) {
-                v.as_str().map(|s| def.values.contains(&s)).unwrap_or(false)
+                if let serde_value::Value::String(s) = v {
+                    def.values.contains(&s.as_str())
+                } else {
+                    false
+                }
             } else {
                 false // unknown type -> reject to prevent schema drift
             }
@@ -256,7 +289,7 @@ pub fn execute_query(_query_id: u32, _vars_bytes: &[u8]) -> Uint8Array {
     }
 
     // Decode and validate vars against schema
-    let Ok(value) = decode_cbor::<serde_json::Value>(_vars_bytes) else {
+    let Ok(value) = decode_cbor::<serde_value::Value>(_vars_bytes) else {
         #[cfg(feature = "console-panic")]
         web_sys::console::error_1(&"execute_query: failed to decode CBOR vars".into());
         return empty_bytes();
@@ -346,8 +379,8 @@ pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
         return empty_bytes();
     }
 
-    // TODO: add schema-derived validation. For now, canonicalize JS -> serde_json::Value -> CBOR.
-    let Ok(value): Result<serde_json::Value, _> = swb_from_js(_payload) else {
+    // TODO: add schema-derived validation. For now, canonicalize JS -> serde_value::Value -> CBOR.
+    let Ok(value): Result<serde_value::Value, _> = swb_from_js(_payload) else {
         return empty_bytes();
     };
 
@@ -372,7 +405,7 @@ pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
         return empty_bytes();
     }
 
-    let Ok(value): Result<serde_json::Value, _> = swb_from_js(_vars) else {
+    let Ok(value): Result<serde_value::Value, _> = swb_from_js(_vars) else {
         return empty_bytes();
     };
 
@@ -568,7 +601,12 @@ mod schema_validation_tests {
             list: false,
         }];
         let val = serde_json::json!({"path":"ok","extra":1});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
+        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        assert!(!validate_object_against_args(
+            &val_sv,
+            &args,
+            &enums_theme()
+        ));
     }
 
     #[test]
@@ -580,7 +618,12 @@ mod schema_validation_tests {
             list: false,
         }];
         let val = serde_json::json!({});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
+        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        assert!(!validate_object_against_args(
+            &val_sv,
+            &args,
+            &enums_theme()
+        ));
     }
 
     #[test]
@@ -592,7 +635,12 @@ mod schema_validation_tests {
             list: false,
         }];
         let val = serde_json::json!({"mode":"WRONG"});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
+        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        assert!(!validate_object_against_args(
+            &val_sv,
+            &args,
+            &enums_theme()
+        ));
     }
 
     #[test]
@@ -604,6 +652,11 @@ mod schema_validation_tests {
             list: false,
         }];
         let val = serde_json::json!({"obj":{"routePath":"/"}});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
+        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        assert!(!validate_object_against_args(
+            &val_sv,
+            &args,
+            &enums_theme()
+        ));
     }
 }

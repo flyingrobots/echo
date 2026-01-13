@@ -15,7 +15,7 @@ Policy: write failing tests first, then implement; check off tasks only when tes
 
 - [x] Add `wasm-bindgen` feature to kernel crate (or shim crate) and expose minimal WARP graph/rewrite API (add node, set field, connect, tombstone, materialize).
 - [x] Create shared DTO crate (`echo-wasm-abi`) with serde + wasm-bindgen-friendly types for graph and rewrite log; reuse in UI.
-- [ ] Failing tests: wasm-bindgen unit test exercising add/set/connect/tombstone round-trip serialization.
+- [x] wasm-bindgen unit tests exercising add/set/connect/tombstone round-trip serialization.
 
 ## P1 — UI MVP (Living Spec)
 

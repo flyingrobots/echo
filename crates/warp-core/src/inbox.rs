@@ -41,10 +41,11 @@ fn inbox_matcher(store: &GraphStore, scope: &NodeId) -> bool {
 }
 
 fn inbox_executor(store: &mut GraphStore, scope: &NodeId) {
-    // Drain events: route recognized intents, then delete every child node reachable via outgoing edges.
+    // Drain events: delete every child node reachable via outgoing edges.
+    // Command execution is handled by separate rewrite rules registered with the engine
+    // that match against the events in the inbox.
     let event_ids: Vec<NodeId> = store.edges_from(scope).map(|e| e.to).collect();
     for event_id in event_ids {
-        let _ = crate::cmd::route_inbox_event(store, &event_id);
         let _ = store.delete_node_cascade(event_id);
     }
     // Clear the inbox breadcrumb attachment if present.

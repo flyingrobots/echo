@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Tests for the `sys/dispatch_inbox` rule.
+//! Tests for the generic `sys/dispatch_inbox` rule.
 
 use bytes::Bytes;
 use warp_core::{
     inbox::dispatch_inbox_rule, make_edge_id, make_node_id, make_type_id, AtomPayload,
-    AttachmentValue, EdgeRecord, Engine, GraphStore, NodeId, NodeRecord,
+    EdgeRecord, Engine, GraphStore, NodeId, NodeRecord,
 };
 
 fn build_engine_with_root(root: NodeId) -> Engine {
@@ -21,8 +21,8 @@ fn build_engine_with_root(root: NodeId) -> Engine {
 
 fn make_payload() -> AtomPayload {
     AtomPayload::new(
-        make_type_id("intent:route_push"),
-        Bytes::from_static(br#"{ "path": "/" }"#),
+        make_type_id("intent:generic"),
+        Bytes::from_static(br#"{ "data": "payload" }"#),
     )
 }
 
@@ -70,80 +70,6 @@ fn dispatch_inbox_drains_events() {
 }
 
 #[test]
-fn dispatch_inbox_routes_route_push_payload() {
-    let root = make_node_id("root");
-    let mut engine = build_engine_with_root(root);
-
-    engine
-        .register_rule(dispatch_inbox_rule())
-        .expect("register rule");
-
-    let payload_bytes = Bytes::from_static(br#"{ "path": "/aion" }"#);
-    let payload = AtomPayload::new(make_type_id("intent:route_push"), payload_bytes.clone());
-
-    engine.ingest_inbox_event(1, &payload).unwrap();
-
-    let inbox_id = make_node_id("sim/inbox");
-    let route_id = make_node_id("sim/state/routePath");
-
-    let tx = engine.begin();
-    let applied = engine
-        .apply(tx, warp_core::inbox::DISPATCH_INBOX_RULE_NAME, &inbox_id)
-        .expect("apply rule");
-    assert!(matches!(applied, warp_core::ApplyResult::Applied));
-    engine.commit(tx).expect("commit");
-
-    let store = engine.store_clone();
-
-    // Route node exists with route_path attachment set from payload.
-    let route_node = store.node(&route_id).expect("route node exists");
-    assert_eq!(route_node.ty, make_type_id("sim/state/routePath"));
-
-    let attachment = store.node_attachment(&route_id).expect("route attachment");
-    let AttachmentValue::Atom(atom) = attachment else {
-        panic!("expected atom attachment on routePath");
-    };
-    assert_eq!(atom.type_id, make_type_id("state:route_path"));
-    assert_eq!(atom.bytes, payload_bytes);
-}
-
-#[test]
-fn dispatch_inbox_ignores_unknown_intents_but_still_drains_events() {
-    let root = make_node_id("root");
-    let mut engine = build_engine_with_root(root);
-
-    engine
-        .register_rule(dispatch_inbox_rule())
-        .expect("register rule");
-
-    let payload_bytes = Bytes::from_static(br#"{ "path": "/ignored" }"#);
-    let payload = AtomPayload::new(make_type_id("intent:unknown"), payload_bytes);
-
-    engine.ingest_inbox_event(1, &payload).unwrap();
-
-    let inbox_id = make_node_id("sim/inbox");
-    let route_id = make_node_id("sim/state/routePath");
-
-    let tx = engine.begin();
-    let applied = engine
-        .apply(tx, warp_core::inbox::DISPATCH_INBOX_RULE_NAME, &inbox_id)
-        .expect("apply rule");
-    assert!(matches!(applied, warp_core::ApplyResult::Applied));
-    engine.commit(tx).expect("commit");
-
-    let store = engine.store_clone();
-
-    // Unknown intents should not create state nodes (routePath absent).
-    assert!(store.node(&route_id).is_none());
-
-    // Event is drained regardless.
-    let event1 = make_node_id("sim/inbox/event:0000000000000001");
-    assert!(store.node(&event1).is_none());
-    assert!(store.edges_from(&inbox_id).next().is_none());
-    assert!(store.node_attachment(&inbox_id).is_none());
-}
-
-#[test]
 fn dispatch_inbox_handles_missing_event_attachments() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
@@ -155,12 +81,11 @@ fn dispatch_inbox_handles_missing_event_attachments() {
     let payload = make_payload();
     engine.ingest_inbox_event(1, &payload).unwrap();
 
-    // Simulate corrupted state / known failure mode: event exists, but attachment was cleared.
+    // Simulate corrupted state: event exists, but attachment was cleared.
     let event1 = make_node_id("sim/inbox/event:0000000000000001");
     engine.set_node_attachment(event1, None).unwrap();
 
     let inbox_id = make_node_id("sim/inbox");
-    let route_id = make_node_id("sim/state/routePath");
 
     let tx = engine.begin();
     let applied = engine
@@ -170,7 +95,6 @@ fn dispatch_inbox_handles_missing_event_attachments() {
     engine.commit(tx).expect("commit");
 
     let store = engine.store_clone();
-    assert!(store.node(&route_id).is_none());
     assert!(store.node(&event1).is_none());
     assert!(store.edges_from(&inbox_id).next().is_none());
 }
@@ -193,42 +117,7 @@ fn dispatch_inbox_no_match_when_scope_is_not_inbox() {
 }
 
 #[test]
-fn dispatch_inbox_drops_unrecognized_intents() {
-    let root = make_node_id("root");
-    let mut engine = build_engine_with_root(root);
-
-    engine
-        .register_rule(dispatch_inbox_rule())
-        .expect("register rule");
-
-    // Unknown intent types should be drained but not routed into state.
-    let payload = AtomPayload::new(
-        make_type_id("intent:unknown"),
-        Bytes::from_static(br#"{ "path": "/nope" }"#),
-    );
-    engine.ingest_inbox_event(1, &payload).unwrap();
-
-    let inbox_id = make_node_id("sim/inbox");
-    let event_id = make_node_id("sim/inbox/event:0000000000000001");
-
-    let tx = engine.begin();
-    let applied = engine
-        .apply(tx, warp_core::inbox::DISPATCH_INBOX_RULE_NAME, &inbox_id)
-        .expect("apply rule");
-    assert!(matches!(applied, warp_core::ApplyResult::Applied));
-    engine.commit(tx).expect("commit");
-
-    let store = engine.store_clone();
-
-    // Event drained
-    assert!(store.node(&event_id).is_none());
-    // Route state not created
-    assert!(store.node(&make_node_id("sim/state/routePath")).is_none());
-}
-
-#[test]
 fn dispatch_inbox_deletes_events_without_atom_attachment() {
-    // Known failure mode: malformed event nodes in the inbox (missing payload attachment).
     let root = make_node_id("root");
     let inbox_id = make_node_id("sim/inbox");
     let event_id = make_node_id("sim/inbox/event:0000000000000001");
@@ -286,7 +175,6 @@ fn dispatch_inbox_deletes_events_without_atom_attachment() {
             ty: make_type_id("edge:event"),
         },
     );
-    // NOTE: no event attachment set.
 
     let mut engine = Engine::new(store, root);
     engine
@@ -302,5 +190,4 @@ fn dispatch_inbox_deletes_events_without_atom_attachment() {
 
     let store = engine.store_clone();
     assert!(store.node(&event_id).is_none());
-    assert!(store.node(&make_node_id("sim/state/routePath")).is_none());
 }

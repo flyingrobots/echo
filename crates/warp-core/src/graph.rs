@@ -262,7 +262,7 @@ impl GraphStore {
     /// Deletes a node and removes any attachments and incident edges.
     ///
     /// Returns `true` if the node existed and was removed.
-    pub(crate) fn delete_node_cascade(&mut self, node: NodeId) -> bool {
+    pub fn delete_node_cascade(&mut self, node: NodeId) -> bool {
         if self.nodes.remove(&node).is_none() {
             return false;
         }

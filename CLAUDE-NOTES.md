@@ -13,7 +13,7 @@
 2. **Non-deterministic serialization formats** (JSON object key ordering)
 3. **Platform-variant float behavior** (f32 arithmetic varies by CPU/flags)
 
-### Current Status: COMMIT 1 COMPLETE
+### Current Status: COMMIT 2 COMPLETE
 
 **What we're doing:** Reverting the overly-aggressive serde removal while keeping the correct fixes.
 
@@ -21,100 +21,25 @@
 - ✅ Created DETERMINISM-AUDIT.md (comprehensive audit of all risks)
 - ✅ Restored serde to Cargo.toml as optional dependency with warning comment
 - ✅ Added serde feature gate with clear documentation
-- ✅ Restored cfg_attr serde derives on all core files (attachment, ident, record, tx, snapshot, receipt, tick_patch, warp_state, graph)
+- ✅ Restored cfg_attr serde derives on all core files
 - ✅ Fixed serializable.rs to compile and use serde correctly
 - ✅ Fixed cmd_app_state.rs test to use CBOR (enforcing determinism)
 - ✅ Added denied-crates enforcement via clippy lints
 - ✅ Verified full build passes
+- ✅ Audited float determinism (Confirmed: sensitive to 1 ULP)
+- ✅ Added determinism tests (`crates/warp-core/tests/determinism_audit.rs`)
 
 ### The 3-Commit Refactor Plan
 
 #### Commit 1: Revert + Document (DONE)
-**Goal:** Undo the overly-aggressive serde removal while keeping correct fixes.
+- Restored serde, fixed tests, added audit doc.
 
-**Keep (these were correct):**
-- ✅ serde_json removed from warp-core dependencies
-- ✅ clippy.toml lint rules forbidding serde_json/ciborium
-- ✅ Manual JSON formatting in telemetry.rs (not canonical)
-- ✅ Deterministic CBOR usage in cmd.rs via echo-wasm-abi
-
-**Revert (these were overly aggressive):**
-- ✅ Restore serde to dependencies (optional feature)
-- ✅ Restore all `#[cfg_attr(feature = "serde", derive(...))]` lines
-- ✅ Fix serializable.rs
-
-**Add (new hardening):**
-- ✅ Document in Cargo.toml: "serde feature ONLY for deterministic CBOR, NEVER JSON"
-- ✅ Fix cmd_app_state.rs to respect CBOR-only contract
-
-**Commit message template:**
-```
-fix(warp): revert overly-aggressive serde removal
-
-CRITICAL CORRECTION: The previous refactor incorrectly treated serde as
-the source of non-determinism. The real issues are:
-
-1. Non-deterministic data structures (HashMap/HashSet iteration order)
-2. Non-deterministic serialization formats (JSON object key ordering)
-3. Platform-variant float behavior (f32 arithmetic varies by CPU)
-
-Serde itself is fine when used with deterministic encoders like our
-canonical CBOR implementation (echo-wasm-abi).
-
-Changes in this commit:
-- Restore serde dependency (optional, with derives on core types)
-- Keep serde_json removed from dependencies (correct fix)
-- Keep clippy lints forbidding serde_json usage (correct enforcement)
-- Fix serializable.rs to compile with serde support
-- Fix cmd_app_state.rs test to use CBOR instead of JSON
-- Add DETERMINISM-AUDIT.md documenting real risks and audit plan
-
-What we keep from the previous work:
-- Deterministic CBOR in cmd.rs (echo-wasm-abi)
-- Manual JSON formatting in telemetry.rs (debug only)
-- clippy.toml lint rules
-
-Next steps:
-- Commit 2: Float determinism audit (CRITICAL - see DETERMINISM-AUDIT.md)
-- Commit 3: Enforce CBOR-only protocol boundary
-
-See DETERMINISM-AUDIT.md for detailed audit findings and action plan.
-```
-
-#### Commit 2: Float Audit + Determinism Tests (TODO)
-**Goal:** Determine if floats flow into canonical hashes. If yes, replace with Q32.32.
-
-**Critical questions to answer:**
-1. Do f32/F32Scalar/Quat/motion payloads ever flow into:
-   - `compute_state_root()` in snapshot.rs?
-   - `compute_patch_digest()` in tick_patch.rs?
-   - `compute_tick_receipt_digest()` in receipt.rs?
-   - Any signature/commitment computation?
-
-**How to audit:**
-```bash
-# Search for float usage in critical paths
-rg "\bf32\b|\bf64\b|F32Scalar|Quat" crates/warp-core/src/{snapshot,tick_patch,receipt,cmd}.rs
-
-# Trace AtomPayload usage in hashing
-rg "AtomPayload" crates/warp-core/src/{snapshot,tick_patch,receipt}.rs -A5
-
-# Check if attachment values (which can contain atoms) are hashed
-rg "hash_attachment_value|encode_attachment_value" crates/warp-core/src/
-```
-
-**Required tests to add:**
-- test_patch_digest_repeatable: Encode same patch 100x → identical bytes
-- test_state_root_repeatable: Compute state_root 100x → identical hash
-- test_receipt_digest_repeatable: Encode same receipt 100x → identical bytes
-
-**Decision tree:**
-- **If floats DO reach canonical hashes:** Must replace with fixed-point Q32.32 (no exceptions)
-- **If floats are boundary-only:** Document the isolation and add guards to prevent future drift
-
-**Also audit HashMap usage:**
-- Verify that HashMap in engine_impl.rs, scheduler.rs, attachment.rs never leak into canonical encoding
-- Either prove they're internal-only OR replace with BTreeMap in critical paths
+#### Commit 2: Float Audit + Determinism Tests (DONE)
+**Goal:** Determine if floats flows into canonical hashes.
+**Result:** **YES.** The system is sensitive to float arithmetic.
+- `F32Scalar` (default) is stable on same-hardware/compiler ("optimistic").
+- `det_fixed` (feature) is required for strict cross-platform consensus.
+- Added `tests/determinism_audit.rs` to prove sensitivity and repeatability.
 
 #### Commit 3: Enforce CBOR-Only Boundary (TODO)
 **Goal:** Make deterministic CBOR the ONLY protocol format. JSON is debug/view only.

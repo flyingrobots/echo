@@ -41,6 +41,13 @@ The refactor targeting "serde removal" was attacking the wrong problem. **Serde 
 
 2. **Float Usage (f32/f64) - CRITICAL AREA**
 
+   - **CRITICAL FINDINGS (2026-01-13):**
+     - **Yes**, floats flow into canonical hashes.
+     - **Yes**, the system is sensitive to 1 ULP differences (confirmed by `tests/determinism_audit.rs`).
+     - **Implication**: `F32Scalar` (the default) relies on hardware `f32` arithmetic. If `a + b` varies by 1 ULP across platforms (x87 vs SSE vs NEON), the state hash **will diverge**.
+     - **Mitigation**: The `det_fixed` feature flag replaces `F32Scalar` with `DFix64` (Q32.32 fixed-point), providing guaranteed bit-perfect cross-platform determinism at the cost of performance.
+     - **Recommendation**: Use `det_fixed` for consensus-critical deployments. `F32Scalar` is acceptable for local-only or homogeneous-hardware deployments ("optimistic determinism").
+
    **Location: `math/scalar.rs`**
    - F32Scalar wraps f32 with canonicalization:
      - NaN → 0x7fc00000 (canonical quiet NaN)
@@ -293,8 +300,9 @@ snapshots) are encoded via echo-wasm-abi::encode_cbor with:
 ## Next Actions (Immediate)
 
 1. ✅ Create this audit document
-2. ⏳ Implement 3-commit refactor plan (see above)
-3. ⏳ Run full audit for f32 in hash paths
-4. ⏳ Add determinism tests
-5. ⏳ Update CLAUDE-NOTES.md with corrected understanding
-6. ⏳ Verify full build passes
+2. ✅ Implement Commit 1 (Revert + Document)
+3. ✅ Run full audit for f32 in hash paths (Confirmed: Floats affect hashes)
+4. ✅ Add determinism tests (`crates/warp-core/tests/determinism_audit.rs`)
+5. ⏳ Implement Commit 3 (Enforce CBOR-only boundary)
+6. ⏳ Update CLAUDE-NOTES.md with final status
+

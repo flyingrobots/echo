@@ -212,8 +212,7 @@ pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
 ///
 /// This is the legacy v1 commit header hash (plan/decision/rewrites digests).
 /// It is retained for reference and potential migration tooling.
-#[allow(dead_code)]
-pub(crate) fn compute_commit_hash_v1(
+pub(crate) fn _compute_commit_hash(
     state_root: &Hash,
     parents: &[Hash],
     plan_digest: &Hash,

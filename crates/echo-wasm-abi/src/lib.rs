@@ -1,24 +1,76 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Shared WASM-friendly DTOs for Echo/JITOS living specs.
-//!
-//! This crate is intentionally small and **WASM-friendly**:
-//!
-//! - The types are designed to cross the JS boundary (via `serde` + `wasm-bindgen` wrappers).
-//! - The shapes are used by Spec-000 (and future interactive specs) to render and mutate a tiny
-//!   “teaching graph” in the browser.
-//!
-//! Determinism note:
-//!
-//! - These DTOs are *not* the canonical deterministic wire format for Echo networking.
-//! - In particular, maps are stored as `HashMap` for ergonomic interop; ordering is not stable.
-//! - For canonical/deterministic transport and hashing, prefer `echo-session-proto` / `echo-graph`.
+//! Shared WASM-friendly DTOs and Protocol Utilities for Echo.
+
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod canonical;
 pub use canonical::{CanonError, decode_value, encode_value};
+
+pub mod eintlog;
+pub use eintlog::*;
+
+/// Errors produced by the Intent Envelope parser.
+#[derive(Debug, PartialEq, Eq)]
+pub enum EnvelopeError {
+    /// The 4-byte magic header "EINT" was missing or incorrect.
+    InvalidMagic,
+    /// The buffer was too short to contain the header or the declared payload.
+    TooShort,
+    /// The buffer length did not match the length declared in the header.
+    LengthMismatch,
+    /// Internal structure of the envelope was malformed (e.g. invalid integer encoding).
+    Malformed,
+}
+
+/// Packs an application-blind intent envelope v1.
+/// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
+pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(12 + vars.len());
+    out.extend_from_slice(b"EINT");
+    out.extend_from_slice(&op_id.to_le_bytes());
+    out.extend_from_slice(&(vars.len() as u32).to_le_bytes());
+    out.extend_from_slice(vars);
+    out
+}
+
+/// Unpacks an application-blind intent envelope v1.
+/// Returns (op_id, vars_slice).
+pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
+    if bytes.len() < 12 {
+        return Err(EnvelopeError::TooShort);
+    }
+    if &bytes[0..4] != b"EINT" {
+        return Err(EnvelopeError::InvalidMagic);
+    }
+    
+    let op_id_bytes: [u8; 4] = bytes[4..8].try_into().map_err(|_| EnvelopeError::Malformed)?;
+    let op_id = u32::from_le_bytes(op_id_bytes);
+
+    let vars_len_bytes: [u8; 4] = bytes[8..12].try_into().map_err(|_| EnvelopeError::Malformed)?;
+    let vars_len = u32::from_le_bytes(vars_len_bytes) as usize;
+    
+    // Prevent integer overflow on 32-bit systems (though vars_len is u32, usize might be u32)
+    let required_len = 12usize.checked_add(vars_len).ok_or(EnvelopeError::TooShort)?;
+
+    if bytes.len() < required_len {
+        return Err(EnvelopeError::TooShort);
+    }
+    if bytes.len() > required_len {
+        return Err(EnvelopeError::LengthMismatch);
+    }
+    
+    Ok((op_id, &bytes[12..]))
+}
+
+// -----------------------------------------------------------------------------
+// Legacy DTOs (Retained for cross-repo compatibility, to be purged later)
+// -----------------------------------------------------------------------------
 
 /// Encode any serde value into deterministic CBOR bytes.
 pub fn encode_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, CanonError> {
@@ -114,190 +166,108 @@ fn cv_to_sv(val: ciborium::value::Value) -> Result<serde_value::Value, CanonErro
     })
 }
 
-/// Node identifier used in the living-spec demos.
-///
-/// Uses a `String` rather than an integer to keep JS/WASM interop simple and ergonomic.
 pub type NodeId = String;
-
-/// Field name used in the living-spec demos.
 pub type FieldName = String;
 
-/// Simple tagged value for demo/spec transfer.
-///
-/// Serialized as `{ "kind": "...", "value": ... }` to make the JS-side shape explicit.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum Value {
-    /// UTF-8 string value.
     Str(String),
-    /// 64-bit integer.
     Num(i64),
-    /// Boolean value.
     Bool(bool),
-    /// Explicit null.
     Null,
 }
 
-/// Graph node with arbitrary fields.
-///
-/// Invariants:
-///
-/// - `id` should be unique within a [`WarpGraph`] (not enforced by the type).
-/// - `fields` is an unordered bag of per-node values intended for UI/demo state.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Node {
-    /// Stable node identifier.
     pub id: NodeId,
-    /// Field map (unordered).
     pub fields: HashMap<FieldName, Value>,
 }
 
-/// Graph edge (directed).
-///
-/// In the demo, edges are not required to be unique and are not validated against the node set.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
-    /// Source node id.
     pub from: NodeId,
-    /// Target node id.
     pub to: NodeId,
 }
 
-/// Minimal WARP graph view for the WASM demo.
-///
-/// This is the “teaching graph” representation used by Spec-000 and friends, not the canonical
-/// engine graph.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WarpGraph {
-    /// Node map keyed by id (unordered).
     pub nodes: HashMap<NodeId, Node>,
-    /// Edges (directed).
     pub edges: Vec<Edge>,
 }
 
-/// Semantic operation kinds for rewrites.
-///
-/// These are high-level demo operations, used to label [`Rewrite`] records.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SemanticOp {
-    /// Set/overwrite a field value on a node.
     Set,
-    /// Add a new node.
     AddNode,
-    /// Delete/tombstone a node.
     DeleteNode,
-    /// Add a directed edge.
     Connect,
-    /// Remove a directed edge.
     Disconnect,
 }
 
-/// Rewrite record (append-only).
-///
-/// This is the minimal “history entry” the living specs append when mutating the demo graph.
-///
-/// Invariants and conventions:
-///
-/// - `id` is expected to be monotonic within a single history (the demo kernel uses `0..n`).
-/// - `target` is the primary node id the operation is about.
-/// - `subject` is an optional secondary identifier (e.g., field name for `Set`).
-/// - `old_value` / `new_value` are intentionally generic to keep the DTO small; their meaning is
-///   operation-dependent (see below).
-///
-/// Operation field semantics (Spec-000 demo conventions):
-///
-/// - [`SemanticOp::AddNode`]: `target = node_id`, values are `None`.
-/// - [`SemanticOp::DeleteNode`]: `target = node_id`, values are `None`.
-/// - [`SemanticOp::Set`]: `target = node_id`, `subject = Some(field_name)`,
-///   `old_value = Some(prior_value)` (or `None`), and `new_value = Some(new_value)`.
-/// - [`SemanticOp::Connect`]: `target = from_id`, `new_value = Some(Value::Str(to_id))`.
-/// - [`SemanticOp::Disconnect`]: same encoding as `Connect`, but interpreted as removal.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rewrite {
-    /// Monotonic rewrite id within history.
     pub id: u64,
-    /// Operation kind.
     pub op: SemanticOp,
-    /// Target node id.
     pub target: NodeId,
-    /// Optional secondary identifier for the operation.
-    ///
-    /// For [`SemanticOp::Set`] this is the field name.
     pub subject: Option<String>,
-    /// Prior value (if any).
     pub old_value: Option<Value>,
-    /// New value (if any).
     pub new_value: Option<Value>,
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
     #[test]
-    fn encode_decode_cbor_roundtrip_rewrite() {
-        let rw = Rewrite {
-            id: 42,
-            op: SemanticOp::Set,
-            target: "A".into(),
-            subject: Some("title".into()),
-            old_value: Some(Value::Str("Old".into())),
-            new_value: Some(Value::Str("New".into())),
-        };
-        let bytes = encode_cbor(&rw).expect("encode");
-        let back: Rewrite = decode_cbor(&bytes).expect("decode");
-        assert_eq!(rw, back);
+    fn test_pack_unpack_round_trip() {
+        let op_id = 12345;
+        let vars = b"test payload";
+        let packed = pack_intent_v1(op_id, vars);
+
+        // Verify structure: "EINT" + op_id(4) + len(4) + payload
+        assert_eq!(&packed[0..4], b"EINT");
+        assert_eq!(&packed[4..8], &op_id.to_le_bytes());
+        assert_eq!(&packed[8..12], &(vars.len() as u32).to_le_bytes());
+        assert_eq!(&packed[12..], vars);
+
+        // Round trip
+        let (out_op, out_vars) = unpack_intent_v1(&packed).expect("unpack failed");
+        assert_eq!(out_op, op_id);
+        assert_eq!(out_vars, vars);
     }
 
     #[test]
-    fn serialize_rewrite_round_trips_across_ops() {
-        let cases = [
-            Rewrite {
-                id: 1,
-                op: SemanticOp::AddNode,
-                target: "A".into(),
-                subject: None,
-                old_value: None,
-                new_value: None,
-            },
-            Rewrite {
-                id: 2,
-                op: SemanticOp::Set,
-                target: "A".into(),
-                subject: Some("name".into()),
-                old_value: Some(Value::Str("Prior".into())),
-                new_value: Some(Value::Str("Server".into())),
-            },
-            Rewrite {
-                id: 3,
-                op: SemanticOp::Connect,
-                target: "A".into(),
-                subject: None,
-                old_value: None,
-                new_value: Some(Value::Str("B".into())),
-            },
-            Rewrite {
-                id: 4,
-                op: SemanticOp::Disconnect,
-                target: "A".into(),
-                subject: None,
-                old_value: None,
-                new_value: Some(Value::Str("B".into())),
-            },
-            Rewrite {
-                id: 5,
-                op: SemanticOp::DeleteNode,
-                target: "A".into(),
-                subject: None,
-                old_value: None,
-                new_value: None,
-            },
-        ];
+    fn test_unpack_errors() {
+        // Too short for header
+        assert_eq!(unpack_intent_v1(b"EINT"), Err(EnvelopeError::TooShort));
 
-        for rw in cases {
-            let json = serde_json::to_string(&rw).expect("serialize");
-            let back: Rewrite = serde_json::from_str(&json).expect("deserialize");
-            assert_eq!(rw, back);
-        }
+        // Invalid magic
+        assert_eq!(unpack_intent_v1(b"XXXX\x00\x00\x00\x00\x00\x00\x00\x00"), Err(EnvelopeError::InvalidMagic));
+
+        // Payload shorter than declared length
+        let mut short = Vec::new();
+        short.extend_from_slice(b"EINT");
+        short.extend_from_slice(&1u32.to_le_bytes()); // op_id
+        short.extend_from_slice(&10u32.to_le_bytes()); // declared len 10
+        short.extend_from_slice(b"123"); // actual len 3
+        assert_eq!(unpack_intent_v1(&short), Err(EnvelopeError::TooShort));
+
+        // Payload longer than declared length
+        let mut long = Vec::new();
+        long.extend_from_slice(b"EINT");
+        long.extend_from_slice(&1u32.to_le_bytes()); // op_id
+        long.extend_from_slice(&3u32.to_le_bytes()); // declared len 3
+        long.extend_from_slice(b"12345"); // actual len 5
+        assert_eq!(unpack_intent_v1(&long), Err(EnvelopeError::LengthMismatch));
+    }
+
+    #[test]
+    fn test_empty_vars() {
+        let packed = pack_intent_v1(99, &[]);
+        let (op, vars) = unpack_intent_v1(&packed).unwrap();
+        assert_eq!(op, 99);
+        assert_eq!(vars, &[]);
     }
 }

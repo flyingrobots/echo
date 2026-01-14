@@ -235,9 +235,9 @@ fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
         let slice = &bytes[*idx..*idx + nbytes];
         *idx += nbytes;
         Ok(match nbytes {
-            2 => f16::from_bits(u16::from_be_bytes(slice.try_into().unwrap())).to_f64(),
-            4 => f32::from_be_bytes(slice.try_into().unwrap()) as f64,
-            8 => f64::from_be_bytes(slice.try_into().unwrap()),
+            2 => f16::from_bits(u16::from_be_bytes(slice.try_into().map_err(|_| CanonError::Decode("invalid f16 bytes".into()))?)).to_f64(),
+            4 => f32::from_be_bytes(slice.try_into().map_err(|_| CanonError::Decode("invalid f32 bytes".into()))?) as f64,
+            8 => f64::from_be_bytes(slice.try_into().map_err(|_| CanonError::Decode("invalid f64 bytes".into()))?),
             _ => unreachable!(),
         })
     }

@@ -10,97 +10,23 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use echo_registry_api::RegistryProvider;
-use echo_wasm_abi::{decode_cbor, encode_cbor};
 use js_sys::Uint8Array;
-use serde_wasm_bindgen::from_value as swb_from_js;
-use std::sync::OnceLock;
 use warp_core::{
-    build_motion_demo_engine, decode_motion_atom_payload, encode_motion_atom_payload, make_node_id,
-    make_type_id, ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, TxId, MOTION_RULE_NAME,
+    build_motion_demo_engine,
+    decode_motion_atom_payload,
+    encode_motion_atom_payload,
+    make_node_id,
+    make_type_id,
+    ApplyResult,
+    AttachmentValue,
+    Engine,
+    NodeId,
+    NodeRecord,
+    TxId,
+    MOTION_RULE_NAME,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
-
-/// Placeholder ABI bytes for empty responses.
-fn empty_bytes() -> Uint8Array {
-    Uint8Array::new_with_length(0)
-}
-
-// -------------------------------------------------------------------------
-// Registry provider (placeholder until app-supplied registry is linked).
-// -------------------------------------------------------------------------
-
-static REGISTRY: OnceLock<&'static dyn RegistryProvider> = OnceLock::new();
-
-/// Install an application-supplied registry provider. App code should call
-/// this once at startup (see flyingrobots-echo-wasm).
-pub fn install_registry(provider: &'static dyn RegistryProvider) {
-    if REGISTRY.set(provider).is_err() {
-        panic!("registry already installed");
-    }
-}
-
-fn registry() -> Option<&'static dyn RegistryProvider> {
-    REGISTRY.get().copied()
-}
-
-fn validate_object_against_args(
-    value: &serde_json::Value,
-    args: &[echo_registry_api::ArgDef],
-    enums: &[echo_registry_api::EnumDef],
-) -> bool {
-    let obj = match value.as_object() {
-        Some(map) => map,
-        None => return false,
-    };
-
-    // Unknown keys?
-    for key in obj.keys() {
-        if !args.iter().any(|a| a.name == key.as_str()) {
-            return false;
-        }
-    }
-
-    // Required + type checks
-    for arg in args {
-        let Some(v) = obj.get(arg.name) else {
-            if arg.required {
-                return false;
-            }
-            continue;
-        };
-        // Type check
-        let ok = if arg.list {
-            match v.as_array() {
-                Some(items) => items.iter().all(|item| scalar_type_ok(item, arg.ty, enums)),
-                None => false,
-            }
-        } else {
-            scalar_type_ok(v, arg.ty, enums)
-        };
-        if !ok {
-            return false;
-        }
-    }
-    true
-}
-
-fn scalar_type_ok(v: &serde_json::Value, ty: &str, enums: &[echo_registry_api::EnumDef]) -> bool {
-    match ty {
-        "String" | "ID" => v.is_string(),
-        "Boolean" => v.is_boolean(),
-        "Int" | "Float" => v.is_number(),
-        other => {
-            // enum check
-            if let Some(def) = enums.iter().find(|e| e.name == other) {
-                v.as_str().map(|s| def.values.contains(&s)).unwrap_or(false)
-            } else {
-                false // unknown type -> reject to prevent schema drift
-            }
-        }
-    }
-}
 
 // Generates a 3D vector type with wasm_bindgen bindings.
 macro_rules! wasm_vector_type {
@@ -203,188 +129,6 @@ wasm_vector_type!(
     "Returns the Y component in meters/second.",
     "Returns the Z component in meters/second."
 );
-
-// -----------------------------------------------------------------------------
-// Frozen ABI exports (website kernel spike)
-// -----------------------------------------------------------------------------
-
-/// Enqueue a canonical intent payload (opaque bytes). Placeholder: currently no-op.
-#[wasm_bindgen]
-pub fn dispatch_intent(_intent_bytes: &[u8]) {
-    // TODO: wire to ingest_inbox_event once kernel plumbing lands in warp-wasm.
-}
-
-/// Run deterministic steps up to a budget. Placeholder: returns empty StepResult bytes.
-#[wasm_bindgen]
-pub fn step(_step_budget: u32) -> Uint8Array {
-    empty_bytes()
-}
-
-/// Drain emitted ViewOps since last drain. Placeholder: returns empty array.
-#[wasm_bindgen]
-pub fn drain_view_ops() -> Uint8Array {
-    empty_bytes()
-}
-
-/// Get head info (tick/seq/state root). Placeholder: returns empty bytes.
-#[wasm_bindgen]
-pub fn get_head() -> Uint8Array {
-    empty_bytes()
-}
-
-/// Execute a read-only query by ID with canonical vars.
-#[wasm_bindgen]
-pub fn execute_query(_query_id: u32, _vars_bytes: &[u8]) -> Uint8Array {
-    let reg = registry().expect("registry not installed");
-    let Some(op) = reg.op_by_id(_query_id) else {
-        #[cfg(feature = "console-panic")]
-        web_sys::console::error_1(&format!("execute_query: unknown op_id {_query_id}").into());
-        return empty_bytes();
-    };
-
-    // PURITY GUARD: Refuse to execute Mutations via execute_query.
-    if op.kind != echo_registry_api::OpKind::Query {
-        #[cfg(feature = "console-panic")]
-        web_sys::console::error_1(
-            &format!(
-                "execute_query purity violation: op '{}' is a Mutation",
-                op.name
-            )
-            .into(),
-        );
-        return empty_bytes();
-    }
-
-    // Decode and validate vars against schema
-    let Ok(value) = decode_cbor::<serde_json::Value>(_vars_bytes) else {
-        #[cfg(feature = "console-panic")]
-        web_sys::console::error_1(&"execute_query: failed to decode CBOR vars".into());
-        return empty_bytes();
-    };
-    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
-        #[cfg(feature = "console-panic")]
-        web_sys::console::error_1(
-            &format!(
-                "execute_query: schema validation failed for op '{}'",
-                op.name
-            )
-            .into(),
-        );
-        return empty_bytes();
-    }
-
-    // TODO: execute against read-only graph once available.
-    empty_bytes()
-}
-
-/// Snapshot at a tick (sandbox replay). Placeholder: returns empty bytes.
-#[wasm_bindgen]
-pub fn snapshot_at(_tick: u64) -> Uint8Array {
-    empty_bytes()
-}
-
-/// Render a snapshot to ViewOps. Placeholder: returns empty bytes.
-#[wasm_bindgen]
-pub fn render_snapshot(_snapshot_bytes: &[u8]) -> Uint8Array {
-    empty_bytes()
-}
-
-/// Return registry metadata (schema hash, codec id, registry version).
-#[wasm_bindgen]
-pub fn get_registry_info() -> Uint8Array {
-    let reg = registry().expect("registry not installed");
-    let info = reg.info();
-    #[derive(serde::Serialize)]
-    struct Info<'a> {
-        codec_id: &'a str,
-        registry_version: u32,
-        schema_sha256_hex: &'a str,
-    }
-    let dto = Info {
-        codec_id: info.codec_id,
-        registry_version: info.registry_version,
-        schema_sha256_hex: info.schema_sha256_hex,
-    };
-    match encode_cbor(&dto) {
-        Ok(bytes) => Uint8Array::from(bytes.as_slice()),
-        Err(_) => empty_bytes(),
-    }
-}
-
-#[wasm_bindgen]
-/// Get the codec identifier from the installed registry.
-pub fn get_codec_id() -> JsValue {
-    registry()
-        .map(|r| JsValue::from_str(r.info().codec_id))
-        .unwrap_or_else(|| JsValue::NULL)
-}
-
-#[wasm_bindgen]
-/// Get the registry version from the installed registry.
-pub fn get_registry_version() -> JsValue {
-    registry()
-        .map(|r| JsValue::from_f64(r.info().registry_version as f64))
-        .unwrap_or_else(|| JsValue::NULL)
-}
-
-#[wasm_bindgen]
-/// Get the schema hash (hex) from the installed registry.
-pub fn get_schema_sha256_hex() -> JsValue {
-    registry()
-        .map(|r| JsValue::from_str(r.info().schema_sha256_hex))
-        .unwrap_or_else(|| JsValue::NULL)
-}
-
-/// Schema-validated helper: encode a command payload into canonical CBOR bytes.
-#[wasm_bindgen]
-pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
-    let reg = registry().expect("registry not installed");
-    let Some(op) = reg.op_by_id(_op_id) else {
-        return empty_bytes();
-    };
-    if op.kind != echo_registry_api::OpKind::Mutation {
-        return empty_bytes();
-    }
-
-    // TODO: add schema-derived validation. For now, canonicalize JS -> serde_json::Value -> CBOR.
-    let Ok(value): Result<serde_json::Value, _> = swb_from_js(_payload) else {
-        return empty_bytes();
-    };
-
-    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
-        return empty_bytes();
-    }
-
-    match encode_cbor(&value) {
-        Ok(bytes) => Uint8Array::from(bytes.as_slice()),
-        Err(_) => empty_bytes(),
-    }
-}
-
-/// Schema-validated helper: encode query variables into canonical CBOR bytes.
-#[wasm_bindgen]
-pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
-    let reg = registry().expect("registry not installed");
-    let Some(op) = reg.op_by_id(_query_id) else {
-        return empty_bytes();
-    };
-    if op.kind != echo_registry_api::OpKind::Query {
-        return empty_bytes();
-    }
-
-    let Ok(value): Result<serde_json::Value, _> = swb_from_js(_vars) else {
-        return empty_bytes();
-    };
-
-    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
-        return empty_bytes();
-    }
-
-    match encode_cbor(&value) {
-        Ok(bytes) => Uint8Array::from(bytes.as_slice()),
-        Err(_) => empty_bytes(),
-    }
-}
 
 impl Default for WasmEngine {
     fn default() -> Self {
@@ -544,66 +288,5 @@ mod tests {
         assert!((motion[3] - 0.5).abs() < 1e-6);
         assert!((motion[4] + 1.0).abs() < 1e-6);
         assert!((motion[5] - 0.25).abs() < 1e-6);
-    }
-}
-
-#[cfg(test)]
-mod schema_validation_tests {
-    use super::*;
-    use echo_registry_api::{ArgDef, EnumDef};
-
-    fn enums_theme() -> Vec<EnumDef> {
-        vec![EnumDef {
-            name: "Theme",
-            values: &["LIGHT", "DARK", "SYSTEM"],
-        }]
-    }
-
-    #[test]
-    fn reject_unknown_keys() {
-        let args = vec![ArgDef {
-            name: "path",
-            ty: "String",
-            required: true,
-            list: false,
-        }];
-        let val = serde_json::json!({"path":"ok","extra":1});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
-    }
-
-    #[test]
-    fn reject_missing_required() {
-        let args = vec![ArgDef {
-            name: "path",
-            ty: "String",
-            required: true,
-            list: false,
-        }];
-        let val = serde_json::json!({});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
-    }
-
-    #[test]
-    fn reject_enum_mismatch() {
-        let args = vec![ArgDef {
-            name: "mode",
-            ty: "Theme",
-            required: true,
-            list: false,
-        }];
-        let val = serde_json::json!({"mode":"WRONG"});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
-    }
-
-    #[test]
-    fn reject_unknown_type() {
-        let args = vec![ArgDef {
-            name: "obj",
-            ty: "AppState",
-            required: true,
-            list: false,
-        }];
-        let val = serde_json::json!({"obj":{"routePath":"/"}});
-        assert!(!validate_object_against_args(&val, &args, &enums_theme()));
     }
 }

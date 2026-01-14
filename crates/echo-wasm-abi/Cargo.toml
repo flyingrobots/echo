@@ -19,3 +19,6 @@ ciborium = "0.2"
 serde-value = "0.7"
 half = "2.4"
 thiserror = "1.0"
+
+[dev-dependencies]
+proptest = "1.0"

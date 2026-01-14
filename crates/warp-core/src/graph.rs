@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::attachment::AttachmentValue;
-use crate::ident::{EdgeId, NodeId, WarpId};
+use crate::ident::{EdgeId, NodeId, WarpId, Hash};
 use crate::record::{EdgeRecord, NodeRecord};
 
 /// In-memory graph storage for the spike.
@@ -346,7 +346,7 @@ impl GraphStore {
     ///
     /// Returns `true` if an edge was removed; returns `false` if the edge did not exist or
     /// if the reverse index indicates the edge belongs to a different bucket.
-    pub(crate) fn delete_edge_exact(&mut self, from: NodeId, edge_id: EdgeId) -> bool {
+    pub fn delete_edge_exact(&mut self, from: NodeId, edge_id: EdgeId) -> bool {
         match self.edge_index.get(&edge_id) {
             Some(current_from) if *current_from == from => {}
             _ => return false,
@@ -398,6 +398,74 @@ impl GraphStore {
         }
         self.edge_attachments.remove(&edge_id);
         true
+    }
+
+    /// Computes a canonical hash of the entire graph state.
+    ///
+    /// This traversal is strictly deterministic:
+    /// 1. Header: `b"DIND_STATE_HASH_V1\0"`
+    /// 2. Node Count (u32 LE)
+    /// 3. Nodes (sorted by NodeId): `b"N\0"` + `NodeId` + `TypeId` + Attachment(if any)
+    /// 4. Edge Count (u32 LE)
+    /// 5. Edges (sorted by EdgeId): `b"E\0"` + `EdgeId` + From + To + Type + Attachment(if any)
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn canonical_state_hash(&self) -> Hash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"DIND_STATE_HASH_V1\0");
+        
+        // 1. Nodes
+        hasher.update(&(self.nodes.len() as u32).to_le_bytes());
+        for (node_id, record) in &self.nodes {
+            hasher.update(b"N\0");
+            hasher.update(&node_id.0);
+            hasher.update(&record.ty.0);
+            
+            if let Some(att) = self.node_attachments.get(node_id) {
+                hasher.update(b"\x01"); // Has attachment
+                Self::hash_attachment(&mut hasher, att);
+            } else {
+                hasher.update(b"\x00"); // No attachment
+            }
+        }
+
+        // 2. Edges (Global sort by EdgeId)
+        // We collect all edges first to sort them definitively.
+        let mut all_edges: Vec<&EdgeRecord> = self.edges_from.values().flatten().collect();
+        all_edges.sort_by_key(|e| e.id);
+
+        hasher.update(&(all_edges.len() as u32).to_le_bytes());
+        for edge in all_edges {
+            hasher.update(b"E\0");
+            hasher.update(&edge.id.0);
+            hasher.update(&edge.from.0);
+            hasher.update(&edge.to.0);
+            hasher.update(&edge.ty.0);
+
+            if let Some(att) = self.edge_attachments.get(&edge.id) {
+                hasher.update(b"\x01"); // Has attachment
+                Self::hash_attachment(&mut hasher, att);
+            } else {
+                hasher.update(b"\x00"); // No attachment
+            }
+        }
+
+        *hasher.finalize().as_bytes()
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    fn hash_attachment(hasher: &mut blake3::Hasher, val: &AttachmentValue) {
+        match val {
+            AttachmentValue::Atom(atom) => {
+                hasher.update(b"ATOM"); // Tag
+                hasher.update(&atom.type_id.0);
+                hasher.update(&(atom.bytes.len() as u32).to_le_bytes());
+                hasher.update(&atom.bytes);
+            }
+            AttachmentValue::Descend(warp_id) => {
+                hasher.update(b"DESC"); // Tag
+                hasher.update(&warp_id.0);
+            }
+        }
     }
 }
 

@@ -1207,6 +1207,7 @@ version = "0.1.0"
 dependencies = [
  "echo-wasm-abi",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "wasm-bindgen",
 ]
@@ -5059,6 +5060,7 @@ dependencies = [
  "echo-wasm-abi",
  "js-sys",
  "serde",
+ "serde-value",
  "serde-wasm-bindgen",
  "serde_json",
  "warp-core",

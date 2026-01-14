@@ -4,8 +4,8 @@
 
 use bytes::Bytes;
 use warp_core::{
-    inbox::dispatch_inbox_rule, make_edge_id, make_node_id, make_type_id, AtomPayload,
-    EdgeRecord, Engine, GraphStore, NodeId, NodeRecord,
+    inbox::dispatch_inbox_rule, make_edge_id, make_node_id, make_type_id, AtomPayload, EdgeRecord,
+    Engine, GraphStore, NodeId, NodeRecord,
 };
 
 fn build_engine_with_root(root: NodeId) -> Engine {

@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use echo_registry_api::RegistryProvider;
-use echo_wasm_abi::{decode_cbor, encode_cbor, swb_from_js};
+use echo_wasm_abi::decode_cbor;
 use js_sys::Uint8Array;
 use warp_core::{
     build_motion_demo_engine,
@@ -377,62 +377,6 @@ pub fn get_schema_sha256_hex() -> JsValue {
         .unwrap_or_else(|| JsValue::NULL)
 }
 
-/// Schema-validated helper: encode a command payload into canonical CBOR bytes.
-#[wasm_bindgen]
-pub fn encode_command(_op_id: u32, _payload: JsValue) -> Uint8Array {
-    let reg = registry().expect("registry not installed");
-    let Some(op) = reg.op_by_id(_op_id) else {
-        return empty_bytes();
-    };
-    if op.kind != echo_registry_api::OpKind::Mutation {
-        return empty_bytes();
-    }
-
-    // TODO: add schema-derived validation. For now, canonicalize JS -> serde_value::Value -> CBOR.
-    let Ok(value): Result<serde_value::Value, _> = swb_from_js(_payload) else {
-        return empty_bytes();
-    };
-
-    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
-        return empty_bytes();
-    }
-
-    match encode_cbor(&value) {
-        Ok(bytes) => Uint8Array::from(bytes.as_slice()),
-        Err(_) => empty_bytes(),
-    }
-}
-
-/// Schema-validated helper: encode query variables into canonical CBOR bytes.
-#[wasm_bindgen]
-pub fn encode_query_vars(_query_id: u32, _vars: JsValue) -> Uint8Array {
-    let reg = registry().expect("registry not installed");
-    let Some(op) = reg.op_by_id(_query_id) else {
-        return empty_bytes();
-    };
-    if op.kind != echo_registry_api::OpKind::Query {
-        return empty_bytes();
-    }
-
-    let Ok(value): Result<serde_value::Value, _> = swb_from_js(_vars) else {
-        return empty_bytes();
-    };
-
-    if !validate_object_against_args(&value, op.args, reg.all_enums()) {
-        return empty_bytes();
-    }
-
-    match encode_cbor(&value) {
-        Ok(bytes) => Uint8Array::from(bytes.as_slice()),
-        Err(_) => empty_bytes(),
-    }
-}
-
-impl Default for WasmEngine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[wasm_bindgen]
 impl WasmEngine {

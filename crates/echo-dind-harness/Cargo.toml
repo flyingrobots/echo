@@ -1,0 +1,31 @@
+[package]
+name = "echo-dind-harness"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "DIND determinism harness for Echo"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "dind", "test"]
+categories = ["development-tools"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "echo-dind-harness"
+path = "src/bin/echo-dind.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+echo-wasm-abi = { path = "../../vendor/echo/crates/echo-wasm-abi" }
+flyingrobots-echo-wasm = { path = "../flyingrobots-echo-wasm" }
+echo-registry-api = { path = "../../vendor/echo/crates/echo-registry-api" }
+warp-core = { path = "../../vendor/echo/crates/warp-core" }
+
+[features]
+dind_ops = ["flyingrobots-echo-wasm/dind_ops"]

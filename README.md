@@ -86,6 +86,7 @@ If you’re building anything that benefits from “Git‑like” properties for
 - `crates/echo-app-core` / `crates/echo-config-fs` — “tool hexagon” ports + filesystem config adapter.
 - `crates/warp-ffi` / `crates/warp-wasm` — bindings around `warp-core`.
 - `crates/warp-benches` — Criterion microbenchmarks (scheduler drain, snapshot hash, etc.).
+- `crates/echo-dind-harness` — determinism drill runner (DIND suite; cross‑platform hash verification).
 
 ### Living specs (teaching slice)
 
@@ -169,6 +170,14 @@ make spec-000-dev
 - Start with `CONTRIBUTING.md` and `docs/execution-plan.md`.
 - Echo is docs‑driven: behavior changes should be reflected in specs and logged in `docs/decision-log.md`.
 - Determinism is sacred: avoid wall‑clock time, uncontrolled randomness, and unspecified iteration order.
+
+### Determinism guard scripts
+
+Echo enforces determinism guardrails via scripts in `scripts/`:
+
+- `scripts/ban-globals.sh`
+- `scripts/ban-nondeterminism.sh`
+- `scripts/ban-unordered-abi.sh`
 
 ## Workflows
 

@@ -78,8 +78,9 @@ impl EchoKernel {
         }
 
         if dirty {
-            let res = self.engine.commit(tx);
-            res.is_ok()
+            // Commit must succeed in test kernel; failure indicates corruption.
+            self.engine.commit(tx).expect("commit failed - test kernel corruption");
+            true
         } else {
             self.engine.abort(tx);
             false

@@ -155,7 +155,8 @@ pub fn entrypoint() -> Result<()> {
             
             if let Some(golden_path) = golden {
                 let f = File::open(&golden_path).context("failed to open golden file")?;
-                let expected: Golden = serde_json::from_reader(BufReader::new(f))?;
+                let expected: Golden = serde_json::from_reader(BufReader::new(f))
+                    .with_context(|| format!("failed to parse golden file: {}", golden_path.display()))?;
                 
                 // Validate metadata
                 if expected.schema_hash_hex != hex::encode(header.schema_hash) {
@@ -455,7 +456,8 @@ fn scenario_requires_ingest_all_first(scenario: &Path) -> Result<bool> {
         return Ok(false);
     };
     let f = File::open(&manifest_path).context("failed to open MANIFEST.json")?;
-    let entries: Vec<ManifestEntry> = serde_json::from_reader(BufReader::new(f))?;
+    let entries: Vec<ManifestEntry> = serde_json::from_reader(BufReader::new(f))
+        .with_context(|| format!("failed to parse MANIFEST.json: {}", manifest_path.display()))?;
     let Some(entry) = entries.into_iter().find(|e| e.path == filename) else {
         return Ok(false);
     };
@@ -510,7 +512,8 @@ fn manifest_path_for_scenario(scenario: &Path) -> Option<PathBuf> {
 
 fn find_manifest_scope(manifest_path: &Path, scenario: &Path) -> Result<Option<String>> {
     let f = File::open(manifest_path).context("failed to open MANIFEST.json")?;
-    let entries: Vec<ManifestEntry> = serde_json::from_reader(BufReader::new(f))?;
+    let entries: Vec<ManifestEntry> = serde_json::from_reader(BufReader::new(f))
+        .with_context(|| format!("failed to parse MANIFEST.json: {}", manifest_path.display()))?;
     let filename = scenario.file_name().and_then(|s| s.to_str()).unwrap_or("");
     let entry = entries.into_iter().find(|e| e.path == filename);
     Ok(entry.and_then(|e| e.converge_scope))

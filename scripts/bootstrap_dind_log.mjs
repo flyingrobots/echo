@@ -64,8 +64,11 @@ const op2 = Buffer.concat([
 frames.push(op2);
 
 const codecs = fs.readFileSync("crates/echo-dind-tests/src/generated/codecs.rs", "utf8");
-const match = codecs.match(/SCHEMA_HASH:\s*&str\s*=\s*"([0-9a-f]+)"/);
+const match = codecs.match(/SCHEMA_HASH:\s*&str\s*=\s*"([0-9a-fA-F]+)"/);
 if (!match) throw new Error("Could not find SCHEMA_HASH");
 const schemaHash = match[1];
+if (!/^[0-9a-f]{64}$/i.test(schemaHash)) {
+    throw new Error(`Invalid SCHEMA_HASH: expected 64 hex chars, got ${schemaHash.length}`);
+}
 
 writeLog(schemaHash, frames);

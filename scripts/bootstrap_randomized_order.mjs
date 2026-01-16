@@ -96,9 +96,12 @@ function generateLog(seed, outPath, schemaHashHex) {
 
 // Main
 const codecs = fs.readFileSync("crates/echo-dind-tests/src/generated/codecs.rs", "utf8");
-const match = codecs.match(/pub const SCHEMA_HASH: &str = "([0-9a-f]+)";/);
+const match = codecs.match(/pub const SCHEMA_HASH: &str = "([0-9a-fA-F]+)";/);
 if (!match) throw new Error("Could not find SCHEMA_HASH in codecs.rs");
 const schemaHash = match[1];
+if (!/^[0-9a-f]{64}$/i.test(schemaHash)) {
+    throw new Error(`Invalid SCHEMA_HASH: expected 64 hex chars, got ${schemaHash.length}`);
+}
 
 // Generate 3 seeds
 for (let i = 1; i <= 3; i++) {

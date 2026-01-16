@@ -67,6 +67,7 @@ mod scheduler;
 #[cfg(feature = "serde")]
 mod serializable;
 mod snapshot;
+mod telemetry;
 mod tick_patch;
 mod tx;
 mod warp_state;
@@ -98,6 +99,7 @@ pub use record::{EdgeRecord, NodeRecord};
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
 pub use scheduler::SchedulerKind;
+pub use telemetry::{NullTelemetrySink, TelemetrySink};
 #[cfg(feature = "serde")]
 pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,

@@ -16,6 +16,8 @@ use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, Tick
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
+use crate::telemetry::{NullTelemetrySink, TelemetrySink};
+use std::sync::Arc;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
 use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
@@ -160,7 +162,7 @@ impl Engine {
 
     /// Constructs a new engine with explicit scheduler kind and policy identifier.
     ///
-    /// This is the canonical constructor; all other constructors delegate here.
+    /// Uses a null telemetry sink (events are discarded).
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
@@ -174,6 +176,28 @@ impl Engine {
         root: NodeId,
         kind: SchedulerKind,
         policy_id: u32,
+    ) -> Self {
+        Self::with_telemetry(store, root, kind, policy_id, Arc::new(NullTelemetrySink))
+    }
+
+    /// Constructs a new engine with explicit telemetry sink.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    pub fn with_telemetry(
+        store: GraphStore,
+        root: NodeId,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
     ) -> Self {
         // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
         // Any pre-existing `warp_id` on the store is overwritten.
@@ -195,7 +219,7 @@ impl Engine {
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::new(kind),
+            scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
             tx_counter: 0,
             live_txs: HashSet::new(),
@@ -263,7 +287,7 @@ impl Engine {
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::new(kind),
+            scheduler: DeterministicScheduler::new(kind, Arc::new(NullTelemetrySink)),
             policy_id,
             tx_counter: 0,
             live_txs: HashSet::new(),

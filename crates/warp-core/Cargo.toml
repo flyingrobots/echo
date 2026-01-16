@@ -33,8 +33,6 @@ default = []
 # Optional regression check for PRNG sequences; off by default to avoid
 # freezing algorithm choices. Used only in tests guarded with `cfg(feature)`.
 golden_prng = []
-telemetry = []
-
 # Serde support for serializable wrappers (use ONLY with deterministic CBOR encoder).
 # NEVER use with serde_json - JSON is non-deterministic and banned in warp-core.
 serde = ["dep:serde", "bytes/serde"]

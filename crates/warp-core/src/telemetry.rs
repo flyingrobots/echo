@@ -1,86 +1,52 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-// Telemetry helpers for JSONL logging when the `telemetry` feature is enabled.
-// Manually formats JSON to avoid non-deterministic serde_json dependency.
+//! Telemetry sink trait for observability without coupling to I/O.
+//!
+//! The core engine emits telemetry events through this trait, allowing
+//! adapters to decide how to handle them (stdout, file, network, etc.).
+//! This maintains hexagonal architecture by keeping I/O concerns outside
+//! the deterministic core.
 
 use crate::ident::Hash;
 use crate::tx::TxId;
 
-#[cfg(feature = "telemetry")]
-#[inline]
-fn short_id(h: &Hash) -> String {
-    hex::encode(&h[0..8])
-}
-
-#[cfg(feature = "telemetry")]
-fn ts_micros() -> u128 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros()
-}
-
-#[cfg(feature = "telemetry")]
-fn emit(kind: &str, tx: TxId, rule: &Hash) {
-    use std::io::Write as _;
-    // Manually format JSON to avoid serde_json dependency.
-    // `kind` must be a valid JSON string literal (no quotes/backslashes).
-    debug_assert!(
-        !kind.contains('"') && !kind.contains('\\'),
-        "emit kind must not contain JSON-special characters"
-    );
-    let mut out = std::io::stdout().lock();
-    let _ = write!(
-        out,
-        r#"{{"timestamp_micros":{},"tx_id":{},"event":"{}","rule_id_short":"{}"}}"#,
-        ts_micros(),
-        tx.value(),
-        kind,
-        short_id(rule)
-    );
-    let _ = out.write_all(b"\n");
-}
-
-/// Emits a conflict telemetry event when a rewrite fails independence checks.
+/// Telemetry sink for observing scheduler events.
 ///
-/// Logs the transaction id and rule id (shortened) as a JSON line to stdout
-/// when the `telemetry` feature is enabled. Best-effort: I/O errors are
-/// ignored and timestamps fall back to 0 on clock errors.
-#[cfg(feature = "telemetry")]
-pub fn conflict(tx: TxId, rule: &Hash) {
-    emit("conflict", tx, rule);
+/// Implementations can log to stdout, files, metrics systems, or discard events.
+/// The core engine calls these methods during scheduling but does not depend
+/// on any specific I/O implementation.
+///
+/// All methods have default no-op implementations, so callers can implement
+/// only the events they care about.
+pub trait TelemetrySink: Send + Sync {
+    /// Called when a rewrite fails independence checks (conflict detected).
+    ///
+    /// # Arguments
+    /// * `tx` - The transaction ID
+    /// * `rule_id` - The rule that conflicted
+    fn on_conflict(&self, _tx: TxId, _rule_id: &Hash) {}
+
+    /// Called when a rewrite passes independence checks (successfully reserved).
+    ///
+    /// # Arguments
+    /// * `tx` - The transaction ID
+    /// * `rule_id` - The rule that was reserved
+    fn on_reserved(&self, _tx: TxId, _rule_id: &Hash) {}
+
+    /// Called when a transaction is finalized with summary statistics.
+    ///
+    /// # Arguments
+    /// * `tx` - The transaction ID
+    /// * `reserved_count` - Number of rewrites successfully reserved
+    /// * `conflict_count` - Number of rewrites that conflicted
+    fn on_summary(&self, _tx: TxId, _reserved_count: u64, _conflict_count: u64) {}
 }
 
-/// Emits a reserved telemetry event when a rewrite passes independence checks.
+/// A no-op telemetry sink that discards all events.
 ///
-/// Logs the transaction id and rule id (shortened) as a JSON line to stdout
-/// when the `telemetry` feature is enabled. Best-effort: I/O errors are
-/// ignored and timestamps fall back to 0 on clock errors.
-#[cfg(feature = "telemetry")]
-pub fn reserved(tx: TxId, rule: &Hash) {
-    emit("reserved", tx, rule);
-}
+/// This is the default when no telemetry is configured.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NullTelemetrySink;
 
-/// Emits a summary telemetry event with transaction statistics.
-///
-/// Logs the transaction id, reserved count, and conflict count as a JSON line
-/// to stdout when the `telemetry` feature is enabled. Called at transaction
-/// finalization. Best-effort: I/O errors are ignored and timestamps may fall
-/// back to 0 on clock errors.
-#[cfg(feature = "telemetry")]
-pub fn summary(tx: TxId, reserved_count: u64, conflict_count: u64) {
-    use std::io::Write as _;
-    // Manually format JSON to avoid serde_json dependency
-    let mut out = std::io::stdout().lock();
-    let _ = write!(
-        out,
-        r#"{{"timestamp_micros":{},"tx_id":{},"event":"summary","reserved":{},"conflicts":{}}}"#,
-        ts_micros(),
-        tx.value(),
-        reserved_count,
-        conflict_count
-    );
-    let _ = out.write_all(b"\n");
-}
+impl TelemetrySink for NullTelemetrySink {}

@@ -3,21 +3,8 @@
 //! Inbox ingestion scaffolding tests.
 
 use bytes::Bytes;
-use warp_core::{
-    make_node_id, make_type_id, AtomPayload, AttachmentValue, Engine, GraphStore, Hash, NodeId,
-    NodeRecord,
-};
-
-fn build_engine_with_root(root: NodeId) -> Engine {
-    let mut store = GraphStore::default();
-    store.insert_node(
-        root,
-        NodeRecord {
-            ty: make_type_id("root"),
-        },
-    );
-    Engine::new(store, root)
-}
+use echo_dry_tests::build_engine_with_root;
+use warp_core::{make_node_id, make_type_id, AtomPayload, AttachmentValue, Hash, NodeId};
 
 #[test]
 fn ingest_inbox_event_creates_path_and_pending_edge_from_opaque_intent_bytes() {

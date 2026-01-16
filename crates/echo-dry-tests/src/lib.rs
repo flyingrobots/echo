@@ -29,7 +29,7 @@ pub use demo_rules::{
     build_motion_demo_engine, build_port_demo_engine, motion_rule, port_rule, MOTION_RULE_NAME,
     PORT_RULE_NAME,
 };
-pub use engine::EngineTestBuilder;
+pub use engine::{build_engine_with_root, build_engine_with_typed_root, EngineTestBuilder};
 pub use frames::{DiffBuilder, SnapshotBuilder};
 pub use hashes::{make_intent_id, make_rule_id};
 pub use motion::{MotionPayloadBuilder, DEFAULT_MOTION_POSITION, DEFAULT_MOTION_VELOCITY};

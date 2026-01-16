@@ -2,22 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Tests for the generic `sys/dispatch_inbox` rule.
 
+use echo_dry_tests::build_engine_with_root;
 use warp_core::{
     inbox::{ack_pending_rule, dispatch_inbox_rule},
-    make_node_id, make_type_id, ApplyResult, Engine, GraphStore, IngestDisposition, NodeId,
-    NodeRecord,
+    make_node_id, make_type_id, ApplyResult, IngestDisposition, NodeId,
 };
-
-fn build_engine_with_root(root: NodeId) -> Engine {
-    let mut store = GraphStore::default();
-    store.insert_node(
-        root,
-        NodeRecord {
-            ty: make_type_id("root"),
-        },
-    );
-    Engine::new(store, root)
-}
 
 #[test]
 fn dispatch_inbox_drains_pending_edges_but_keeps_event_nodes() {

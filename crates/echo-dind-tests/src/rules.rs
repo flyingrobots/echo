@@ -538,6 +538,15 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
 }
 
 /// Project the current state to view operations.
+///
+/// This function reads the stored attachment bytes from state nodes and emits
+/// them as view operations. The payload format is consistent between live
+/// execution (e.g., `apply_route_push`, `apply_set_theme`) and replay:
+///
+/// - Live execution stores processed values as attachments
+/// - `project_state` reads those same bytes and emits them as view ops
+///
+/// This ensures time-travel sync delivers the same payload shape as the UI expects.
 pub fn project_state(store: &mut GraphStore) {
     let theme_bytes = store
         .node_attachment(&make_node_id("sim/state/theme"))

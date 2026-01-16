@@ -125,7 +125,7 @@ rg "\bf32\b|\bf64\b|F32Scalar" crates/warp-core/src/{snapshot,tick_patch,receipt
 rg "serde_json" crates/warp-core/
 
 # Find ciborium usage (should be ZERO except in tests)
-rg "ciborium::{from_reader|into_writer}" crates/warp-core/src/
+rg "ciborium::(from_reader|into_writer)" crates/warp-core/src/
 
 # Find all hashing/digest computation sites
 rg "Hasher::new|finalize\(\)" crates/warp-core/src/ -A5
@@ -305,4 +305,3 @@ snapshots) are encoded via echo-wasm-abi::encode_cbor with:
 4. ✅ Add determinism tests (`crates/warp-core/tests/determinism_audit.rs`)
 5. ⏳ Implement Commit 3 (Enforce CBOR-only boundary)
 6. ⏳ Update CLAUDE-NOTES.md with final status
-

@@ -1,6 +1,5 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-// SPDX-License-Identifier: Apache-2.0
 
 # echo-wesley-gen
 
@@ -19,6 +18,7 @@ cat ir.json | cargo run -p echo-wesley-gen -- --out generated.rs
 ```
 
 ## Notes
+
 - Supports ENUM and OBJECT kinds from Wesley IR.
 - Optional fields become `Option<T>`; lists become `Vec<T>` (wrapped in Option when not required).
 - Unknown scalar names are emitted as identifiers as-is (so ensure upstream IR types are valid Rust idents).

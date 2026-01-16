@@ -4,7 +4,7 @@
 
 Status: **Phase 1 Frozen**
 
-These vectors ensure that both the Rust kernel and the JS host implement the 
+These vectors ensure that both the Rust kernel and the JS host implement the
 **Canonical CBOR (subset)** mapping identically.
 
 ## 1. Scalars
@@ -34,6 +34,7 @@ These vectors ensure that both the Rust kernel and the JS host implement the
 Maps MUST be sorted by the bytewise representation of their encoded keys.
 
 ### Example: `{ "b": 1, "a": 2 }`
+
 - Key `"a"` encodes to `61 61`
 - Key `"b"` encodes to `61 62`
 - Correct Order: `"a"`, then `"b"`
@@ -42,6 +43,7 @@ Maps MUST be sorted by the bytewise representation of their encoded keys.
 ## 4. Nested Structures
 
 ### AppState Sample
+
 ```json
 {
   "theme": "DARK",
@@ -49,6 +51,7 @@ Maps MUST be sorted by the bytewise representation of their encoded keys.
   "routePath": "/"
 }
 ```
+
 **Canonical Sort Order:**
 1. `"navOpen"` (`67 6e 61 76 4f 70 65 6e`)
 2. `"routePath"` (`69 72 6f 75 74 65 50 61 74 68`)

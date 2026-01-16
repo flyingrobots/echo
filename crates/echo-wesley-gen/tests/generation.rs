@@ -51,6 +51,7 @@ fn test_generate_from_json() {
         .args(["run", "-p", "echo-wesley-gen", "--"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("failed to execute process");
 
@@ -61,6 +62,11 @@ fn test_generate_from_json() {
     drop(stdin);
 
     let output = child.wait_with_output().expect("failed to wait on child");
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(stdout.contains("pub struct AppState"));
@@ -72,8 +78,9 @@ fn test_generate_from_json() {
     assert!(stdout.contains("pub const REGISTRY_VERSION: u32 = 7"));
     assert!(stdout.contains("pub const OP_SET_THEME: u32 = 111"));
     assert!(stdout.contains("pub const OP_APP_STATE: u32 = 222"));
-    assert!(stdout.contains("pub enum OpKind"));
+    assert!(stdout.contains("use echo_registry_api::{"));
     assert!(stdout.contains("pub const OPS: &[OpDef]"));
+    assert!(stdout.contains("pub static REGISTRY: GeneratedRegistry"));
 }
 
 #[test]
@@ -91,6 +98,7 @@ fn test_ops_catalog_present() {
         .args(["run", "-p", "echo-wesley-gen", "--"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("failed to execute process");
 
@@ -101,7 +109,18 @@ fn test_ops_catalog_present() {
     drop(stdin);
 
     let output = child.wait_with_output().expect("failed to wait on child");
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("pub const OP_SET_THEME: u32 = 123"));
+    assert!(stdout.contains("pub const OP_APP_STATE: u32 = 456"));
+    assert!(
+        stdout.contains("pub const OPS: &[OpDef]"),
+        "ops catalog not found in output"
+    );
 }
 
 #[test]

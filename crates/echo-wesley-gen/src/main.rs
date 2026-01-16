@@ -102,39 +102,108 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
 
     if !ir.ops.is_empty() {
         tokens.extend(quote! {
-            // Operation catalog (generated from Wesley IR)
-            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-            pub enum OpKind {
-                Query,
-                Mutation,
-            }
-
-            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-            pub struct OpDef {
-                pub kind: OpKind,
-                pub name: &'static str,
-                pub op_id: u32,
-            }
+            // Registry provider types (Echo runtime loads an app-supplied implementation).
+            use echo_registry_api::{ArgDef, EnumDef, ObjectDef, OpDef, OpKind, RegistryInfo, RegistryProvider};
         });
 
-        // Op ID constants
-        for op in &ir.ops {
-            let const_name = op_const_ident(&op.name);
-            let op_id = op.op_id;
+        let mut enum_defs: Vec<_> = ir
+            .types
+            .iter()
+            .filter(|t| t.kind == TypeKind::Enum)
+            .collect();
+        enum_defs.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
+        for en in &enum_defs {
+            let values_ident = format_ident!("ENUM_{}_VALUES", en.name.to_ascii_uppercase());
+            let values = en.values.iter();
             tokens.extend(quote! {
-                pub const #const_name: u32 = #op_id;
+                pub const #values_ident: &[&str] = &[
+                    #(#values),*
+                ];
             });
         }
 
-        // OPS table
-        let ops_entries = ir.ops.iter().map(|op| {
+        let enum_entries = enum_defs.iter().map(|en| {
+            let name = &en.name;
+            let values_ident = format_ident!("ENUM_{}_VALUES", en.name.to_ascii_uppercase());
+            quote! { EnumDef { name: #name, values: #values_ident } }
+        });
+
+        tokens.extend(quote! {
+            pub const ENUMS: &[EnumDef] = &[
+                #(#enum_entries),*
+            ];
+        });
+
+        let mut obj_defs: Vec<_> = ir
+            .types
+            .iter()
+            .filter(|t| t.kind == TypeKind::Object)
+            .collect();
+        obj_defs.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
+        for obj in &obj_defs {
+            let fields_ident = format_ident!("OBJ_{}_FIELDS", obj.name.to_ascii_uppercase());
+            let fields = obj.fields.iter().map(|f| {
+                let name = &f.name;
+                let ty = &f.type_name;
+                let required = f.required;
+                let list = f.list;
+                quote! { ArgDef { name: #name, ty: #ty, required: #required, list: #list } }
+            });
+            tokens.extend(quote! {
+                pub const #fields_ident: &[ArgDef] = &[
+                    #(#fields),*
+                ];
+            });
+        }
+
+        let obj_entries = obj_defs.iter().map(|obj| {
+            let name = &obj.name;
+            let fields_ident = format_ident!("OBJ_{}_FIELDS", obj.name.to_ascii_uppercase());
+            quote! { ObjectDef { name: #name, fields: #fields_ident } }
+        });
+
+        tokens.extend(quote! {
+            pub const OBJECTS: &[ObjectDef] = &[
+                #(#obj_entries),*
+            ];
+        });
+
+        let mut ops_sorted: Vec<_> = ir.ops.iter().collect();
+        ops_sorted.sort_unstable_by_key(|op| op.op_id);
+
+        // Op ID constants + arg descriptors (sorted by op_id for deterministic iteration).
+        for op in &ops_sorted {
+            let const_name = op_const_ident(&op.name, op.op_id);
+            let args_name = format_ident!("{}_ARGS", const_name);
+            let op_id = op.op_id;
+            let args = op.args.iter().map(|a| {
+                let name = &a.name;
+                let ty = &a.type_name;
+                let required = a.required;
+                let list = a.list;
+                quote! { ArgDef { name: #name, ty: #ty, required: #required, list: #list } }
+            });
+            tokens.extend(quote! {
+                pub const #const_name: u32 = #op_id;
+                pub const #args_name: &[ArgDef] = &[
+                    #(#args),*
+                ];
+            });
+        }
+
+        // OPS table (sorted by op_id).
+        let ops_entries = ops_sorted.iter().map(|op| {
             let kind = match op.kind {
                 OpKind::Query => quote! { OpKind::Query },
                 OpKind::Mutation => quote! { OpKind::Mutation },
             };
             let name = &op.name;
             let op_id = op.op_id;
-            quote! { OpDef { kind: #kind, name: #name, op_id: #op_id } }
+            let args_name = format_ident!("{}_ARGS", op_const_ident(&op.name, op.op_id));
+            let result_ty = &op.result_type;
+            quote! { OpDef { kind: #kind, name: #name, op_id: #op_id, args: #args_name, result_ty: #result_ty } }
         });
 
         tokens.extend(quote! {
@@ -143,16 +212,45 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
             ];
 
             /// Lookup an op by ID.
-            pub fn op_by_id(op_id: u32) -> Option<OpDef> {
-                OPS.iter().copied().find(|op| op.op_id == op_id)
+            pub fn op_by_id(op_id: u32) -> Option<&'static OpDef> {
+                OPS.iter().find(|op| op.op_id == op_id)
             }
 
             /// Lookup an op by kind + name (useful for dev tooling, not for runtime intent routing).
-            pub fn op_by_name(kind: OpKind, name: &str) -> Option<OpDef> {
-                OPS.iter()
-                    .copied()
-                    .find(|op| op.kind == kind && op.name == name)
+            pub fn op_by_name(kind: OpKind, name: &str) -> Option<&'static OpDef> {
+                OPS.iter().find(|op| op.kind == kind && op.name == name)
             }
+
+            /// Application-supplied registry provider implementation (generated from Wesley IR).
+            pub struct GeneratedRegistry;
+
+            impl RegistryProvider for GeneratedRegistry {
+                fn info(&self) -> RegistryInfo {
+                    RegistryInfo {
+                        codec_id: CODEC_ID,
+                        registry_version: REGISTRY_VERSION,
+                        schema_sha256_hex: SCHEMA_SHA256,
+                    }
+                }
+
+                fn op_by_id(&self, op_id: u32) -> Option<&'static OpDef> {
+                    op_by_id(op_id)
+                }
+
+                fn all_ops(&self) -> &'static [OpDef] {
+                    OPS
+                }
+
+                fn all_enums(&self) -> &'static [EnumDef] {
+                    ENUMS
+                }
+
+                fn all_objects(&self) -> &'static [ObjectDef] {
+                    OBJECTS
+                }
+            }
+
+            pub static REGISTRY: GeneratedRegistry = GeneratedRegistry;
         });
     }
 
@@ -160,7 +258,7 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
     Ok(prettyplease::unparse(&syntax_tree))
 }
 
-fn op_const_ident(name: &str) -> proc_macro2::Ident {
+fn op_const_ident(name: &str, op_id: u32) -> proc_macro2::Ident {
     let mut out = String::new();
     for (i, c) in name.chars().enumerate() {
         if c.is_alphanumeric() {
@@ -173,7 +271,7 @@ fn op_const_ident(name: &str) -> proc_macro2::Ident {
         }
     }
     if out.is_empty() {
-        out.push_str("OP_UNKNOWN");
+        return format_ident!("OP_ID_{}", op_id);
     }
     format_ident!("OP_{}", out)
 }
@@ -194,6 +292,10 @@ fn validate_version(ir: &WesleyIR) -> Result<()> {
     }
 }
 
+/// Map a GraphQL base type name to a Rust type used in generated DTOs.
+///
+/// GraphQL `Float` intentionally maps to `f32` (not `f64`) so generated types
+/// integrate cleanly with Echo’s deterministic scalar foundation.
 fn map_type(gql_type: &str) -> TokenStream {
     match gql_type {
         "Boolean" => quote! { bool },

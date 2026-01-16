@@ -75,7 +75,7 @@ pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
-pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64, POLICY_ID_NO_POLICY_V0};
+pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
     ExistingState, FreshStore, IngestDisposition,

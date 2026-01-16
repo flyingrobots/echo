@@ -7,7 +7,6 @@
 //! consistent with the documented fixtures across platforms.
 
 use serde::Deserialize;
-use std::sync::LazyLock;
 
 use warp_core::math::{self, Mat4, Prng, Quat, Vec3};
 
@@ -18,7 +17,7 @@ const FIXTURE_PATH: &str = concat!(
 );
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
-static FIXTURES: LazyLock<MathFixtures> = LazyLock::new(|| {
+fn fixtures() -> MathFixtures {
     let fixtures: MathFixtures = {
         #[allow(clippy::expect_fun_call)]
         #[allow(clippy::disallowed_methods)]
@@ -31,7 +30,7 @@ static FIXTURES: LazyLock<MathFixtures> = LazyLock::new(|| {
     };
     fixtures.validate();
     fixtures
-});
+}
 
 #[derive(Debug, Deserialize)]
 struct MathFixtures {
@@ -280,8 +279,9 @@ fn assert_mat4(actual: Mat4, expected: [f32; 16], tol: &Tolerance, ctx: &str) {
 
 #[test]
 fn scalar_fixtures_all_match() {
-    let tol = &FIXTURES.tolerance;
-    for fix in &FIXTURES.scalars.clamp {
+    let fixtures = fixtures();
+    let tol = &fixtures.tolerance;
+    for fix in &fixtures.scalars.clamp {
         let actual = math::clamp(fix.value, fix.min, fix.max);
         assert_scalar(
             actual,
@@ -294,7 +294,7 @@ fn scalar_fixtures_all_match() {
         );
     }
 
-    for fix in &FIXTURES.scalars.deg_to_rad {
+    for fix in &fixtures.scalars.deg_to_rad {
         let actual = math::deg_to_rad(fix.value);
         assert_scalar(
             actual,
@@ -304,7 +304,7 @@ fn scalar_fixtures_all_match() {
         );
     }
 
-    for fix in &FIXTURES.scalars.rad_to_deg {
+    for fix in &fixtures.scalars.rad_to_deg {
         let actual = math::rad_to_deg(fix.value);
         assert_scalar(
             actual,
@@ -324,8 +324,9 @@ fn clamp_propagates_nan() {
 
 #[test]
 fn vec3_fixtures_cover_operations() {
-    let tol = &FIXTURES.tolerance;
-    for fix in &FIXTURES.vec3.add {
+    let fixtures = fixtures();
+    let tol = &fixtures.tolerance;
+    for fix in &fixtures.vec3.add {
         let a = Vec3::from(fix.a);
         let b = Vec3::from(fix.b);
         let actual = a.add(&b);
@@ -337,7 +338,7 @@ fn vec3_fixtures_cover_operations() {
         );
     }
 
-    for fix in &FIXTURES.vec3.dot {
+    for fix in &fixtures.vec3.dot {
         let a = Vec3::from(fix.a);
         let b = Vec3::from(fix.b);
         let actual = a.dot(&b);
@@ -349,7 +350,7 @@ fn vec3_fixtures_cover_operations() {
         );
     }
 
-    for fix in &FIXTURES.vec3.cross {
+    for fix in &fixtures.vec3.cross {
         let a = Vec3::from(fix.a);
         let b = Vec3::from(fix.b);
         let actual = a.cross(&b);
@@ -361,7 +362,7 @@ fn vec3_fixtures_cover_operations() {
         );
     }
 
-    for (idx, fix) in FIXTURES.vec3.length.iter().enumerate() {
+    for (idx, fix) in fixtures.vec3.length.iter().enumerate() {
         let value = Vec3::from(fix.value);
         let actual = value.length();
         match &fix.expected {
@@ -378,7 +379,7 @@ fn vec3_fixtures_cover_operations() {
         }
     }
 
-    for (idx, fix) in FIXTURES.vec3.normalize.iter().enumerate() {
+    for (idx, fix) in fixtures.vec3.normalize.iter().enumerate() {
         let value = Vec3::from(fix.value);
         let actual = value.normalize();
         match &fix.expected {
@@ -398,8 +399,9 @@ fn vec3_fixtures_cover_operations() {
 
 #[test]
 fn mat4_fixtures_validate_transformations() {
-    let tol = &FIXTURES.tolerance;
-    for (i, fix) in FIXTURES.mat4.multiply.iter().enumerate() {
+    let fixtures = fixtures();
+    let tol = &fixtures.tolerance;
+    for (i, fix) in fixtures.mat4.multiply.iter().enumerate() {
         let a = Mat4::from(fix.a);
         let b = Mat4::from(fix.b);
         let actual = a.multiply(&b);
@@ -407,7 +409,7 @@ fn mat4_fixtures_validate_transformations() {
         assert_mat4(actual, fix.expected, tol, &context);
     }
 
-    for fix in &FIXTURES.mat4.transform_point {
+    for fix in &fixtures.mat4.transform_point {
         let matrix = Mat4::from(fix.matrix);
         let vector = Vec3::from(fix.vector);
         // Fixture vectors are treated as points (homogeneous w = 1).
@@ -420,7 +422,7 @@ fn mat4_fixtures_validate_transformations() {
         );
     }
 
-    for fix in &FIXTURES.mat4.transform_direction {
+    for fix in &fixtures.mat4.transform_direction {
         let matrix = Mat4::from(fix.matrix);
         let vector = Vec3::from(fix.vector);
         let actual = matrix.transform_direction(&vector);
@@ -435,8 +437,9 @@ fn mat4_fixtures_validate_transformations() {
 
 #[test]
 fn quat_fixtures_validate_operations() {
-    let tol = &FIXTURES.tolerance;
-    for fix in &FIXTURES.quat.from_axis_angle {
+    let fixtures = fixtures();
+    let tol = &fixtures.tolerance;
+    for fix in &fixtures.quat.from_axis_angle {
         let axis = Vec3::from(fix.axis);
         let actual = Quat::from_axis_angle(axis, fix.angle);
         assert_quat(
@@ -450,7 +453,7 @@ fn quat_fixtures_validate_operations() {
         );
     }
 
-    for fix in &FIXTURES.quat.multiply {
+    for fix in &fixtures.quat.multiply {
         let a = Quat::from(fix.a);
         let b = Quat::from(fix.b);
         let actual = a.multiply(&b);
@@ -462,7 +465,7 @@ fn quat_fixtures_validate_operations() {
         );
     }
 
-    for fix in &FIXTURES.quat.normalize {
+    for fix in &fixtures.quat.normalize {
         let value = Quat::from(fix.value);
         let actual = value.normalize();
         assert_quat(
@@ -473,7 +476,7 @@ fn quat_fixtures_validate_operations() {
         );
     }
 
-    for fix in &FIXTURES.quat.to_mat4 {
+    for fix in &fixtures.quat.to_mat4 {
         let value = Quat::from(fix.value);
         let actual = value.to_mat4();
         assert_mat4(
@@ -487,10 +490,11 @@ fn quat_fixtures_validate_operations() {
 
 #[test]
 fn prng_fixture_replays_sequence() {
-    for fix in &FIXTURES.prng {
+    let fixtures = fixtures();
+    for fix in &fixtures.prng {
         let mut prng = Prng::from_seed(fix.seed[0], fix.seed[1]);
 
-        let tol = &FIXTURES.tolerance;
+        let tol = &fixtures.tolerance;
 
         for (i, expected) in fix.expected_next.iter().enumerate() {
             let actual = prng.next_f32();

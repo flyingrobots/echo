@@ -2,8 +2,6 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Canonical payload encoding for the motion demo.
 
-use std::sync::OnceLock;
-
 use bytes::Bytes;
 
 use crate::attachment::AtomPayload;
@@ -12,24 +10,20 @@ use crate::ident::{make_type_id, TypeId};
 const MOTION_PAYLOAD_V0_BYTES: usize = 24;
 const MOTION_PAYLOAD_V2_BYTES: usize = 48;
 
-static MOTION_PAYLOAD_TYPE_ID_V0: OnceLock<TypeId> = OnceLock::new();
-static MOTION_PAYLOAD_TYPE_ID_V2: OnceLock<TypeId> = OnceLock::new();
-
 /// Returns the legacy motion payload `TypeId` (`payload/motion/v0`).
 ///
 /// This format stores six little-endian `f32` values (position + velocity).
 #[must_use]
 pub fn motion_payload_type_id_v0() -> TypeId {
-    *MOTION_PAYLOAD_TYPE_ID_V0.get_or_init(|| make_type_id("payload/motion/v0"))
+    make_type_id("payload/motion/v0")
 }
 
 /// Returns the canonical payload `TypeId` for the motion demo atom payload (`payload/motion/v2`).
 ///
 /// This is used as the attachment-plane `type_id` for motion component bytes.
-/// It is cached after the first call to avoid repeated hashing overhead.
 #[must_use]
 pub fn motion_payload_type_id() -> TypeId {
-    *MOTION_PAYLOAD_TYPE_ID_V2.get_or_init(|| make_type_id("payload/motion/v2"))
+    make_type_id("payload/motion/v2")
 }
 
 /// Serialises a 3D position + velocity pair into the canonical motion payload.

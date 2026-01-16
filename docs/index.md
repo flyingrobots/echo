@@ -24,5 +24,3 @@ and each tick applies deterministic rewrite rules to that graph.
 ## When You Need a Map
 
 - Docs map (curated): [/docs-index](/docs-index)
-- Execution plan (living intent): [/execution-plan](/execution-plan)
-- Decision log (chronological): [/decision-log](/decision-log)

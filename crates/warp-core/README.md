@@ -16,6 +16,21 @@ This crate is the Rust core. See the repository root `README.md` for the full pr
 - Provides the foundational APIs that `warp-ffi`, `warp-wasm`, and higher-level
   tools build on.
 
+## Website kernel spike (WARP graphs)
+
+The `warp-core` crate also contains a small “website kernel spike” used by the
+`flyingrobots.dev` app:
+
+- `Engine::ingest_intent(intent_bytes)` ingests canonical intent envelopes into `sim/inbox`:
+  - `intent_id = H(intent_bytes)` is computed immediately.
+  - event node IDs are content-addressed by `intent_id` (arrival order is non-semantic).
+  - pending vs applied is tracked via `edge:pending` edges; ledger/event nodes are append-only.
+- `Engine::ingest_inbox_event(seq, payload)` is a legacy compatibility wrapper:
+  - `seq` is ignored for identity (content addressing is by `intent_id`).
+  - callers should prefer `ingest_intent(intent_bytes)` for causality-first semantics.
+- `sys/dispatch_inbox` drains the inbox by deleting `edge:pending` edges only (queue maintenance).
+- `sys/ack_pending` consumes exactly one pending edge for an event scope (used by canonical dispatch).
+
 ## Documentation
 
 - Core engine specs live in `docs/`:

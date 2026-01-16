@@ -17,7 +17,7 @@ use wasm_bindgen::prelude::*;
 ///
 /// - It owns an in-memory [`WarpGraph`] and an append-only [`Rewrite`] history.
 /// - It is designed for JS/WASM interop: when built with `--features wasm`, the type is exposed
-///   via `wasm-bindgen` and provides JSON serializers (see `serializeGraph` / `serializeHistory`).
+///   via `wasm-bindgen` and provides JS object accessors.
 /// - It is not the production Echo kernel, does not validate invariants, and does not implement
 ///   canonical hashing / deterministic encoding.
 ///
@@ -76,29 +76,6 @@ impl DemoKernel {
         });
     }
 
-    /// Set a field value on a node.
-    ///
-    /// Records a [`Rewrite`] with:
-    ///
-    /// - `target = node_id`
-    /// - `subject = Some(field_name)`
-    /// - `old_value = prior field value` (or `None` if the field was missing)
-    /// - `new_value = new field value`
-    pub fn set_field(&mut self, target: String, field: String, value: Value) {
-        if let Some(node) = self.graph.nodes.get_mut(&target) {
-            let prior_value = node.fields.get(&field).cloned();
-            node.fields.insert(field.clone(), value.clone());
-            self.history.push(Rewrite {
-                id: self.history.len() as u64,
-                op: SemanticOp::Set,
-                target,
-                subject: Some(field),
-                old_value: prior_value,
-                new_value: Some(value),
-            });
-        }
-    }
-
     /// Add a directed edge between two nodes.
     pub fn connect(&mut self, from: String, to: String) {
         if !self.graph.nodes.contains_key(&from) || !self.graph.nodes.contains_key(&to) {
@@ -137,42 +114,56 @@ impl DemoKernel {
             });
         }
     }
-
-    /// Get a clone of the current graph (host use).
-    pub fn graph(&self) -> WarpGraph {
-        self.graph.clone()
-    }
-
-    /// Get a clone of the rewrite history.
-    pub fn history(&self) -> Vec<Rewrite> {
-        self.history.clone()
-    }
-
-    /// Serialize graph to JSON (host use).
-    pub fn graph_json(&self) -> String {
-        serde_json::to_string(&self.graph)
-            .unwrap_or_else(|_| "{\"nodes\":{},\"edges\":[]}".to_string())
-    }
-
-    /// Serialize history to JSON (host use).
-    pub fn history_json(&self) -> String {
-        serde_json::to_string(&self.history).unwrap_or_else(|_| "[]".to_string())
-    }
 }
 
-// Expose JSON helpers to WASM when feature enabled.
+// Separate impl for set_field to handle WASM vs Host types for 'value'.
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
 impl DemoKernel {
-    /// Get graph as JSON string (JS/WASM use).
-    #[wasm_bindgen(js_name = serializeGraph)]
-    pub fn serialize_graph(&self) -> String {
-        self.graph_json()
+    /// Set a field value on a node (WASM version).
+    #[wasm_bindgen(js_name = setField)]
+    pub fn set_field_wasm(&mut self, target: String, field: String, value: JsValue) {
+        let val: Value = serde_wasm_bindgen::from_value(value).unwrap_or(Value::Null);
+        self.set_field(target, field, val);
     }
 
-    /// Get history as JSON string (JS/WASM use).
-    #[wasm_bindgen(js_name = serializeHistory)]
-    pub fn serialize_history(&self) -> String {
-        self.history_json()
+    /// Export the current graph state as a JS object.
+    #[wasm_bindgen(js_name = getGraph)]
+    pub fn get_graph_wasm(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.graph).unwrap_or(JsValue::NULL)
+    }
+
+    /// Export the rewrite history as a JS array.
+    #[wasm_bindgen(js_name = getHistory)]
+    pub fn get_history_wasm(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.history).unwrap_or(JsValue::NULL)
+    }
+}
+
+impl DemoKernel {
+    /// Set a field value on a node (Host version).
+    pub fn set_field(&mut self, target: String, field: String, value: Value) {
+        if let Some(node) = self.graph.nodes.get_mut(&target) {
+            let prior_value = node.fields.get(&field).cloned();
+            node.fields.insert(field.clone(), value.clone());
+            self.history.push(Rewrite {
+                id: self.history.len() as u64,
+                op: SemanticOp::Set,
+                target,
+                subject: Some(field),
+                old_value: prior_value,
+                new_value: Some(value),
+            });
+        }
+    }
+
+    /// Get a reference to the current graph.
+    pub fn graph(&self) -> &WarpGraph {
+        &self.graph
+    }
+
+    /// Get a reference to the rewrite history.
+    pub fn history(&self) -> &[Rewrite] {
+        &self.history
     }
 }

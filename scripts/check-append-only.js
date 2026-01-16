@@ -5,9 +5,7 @@ import { execFileSync } from "node:child_process";
 
 const files = [
   "AGENTS.md",
-  "docs/decision-log.md",
   "TASKS-DAG.md",
-  "docs/execution-plan.md",
 ];
 
 const args = process.argv.slice(2);

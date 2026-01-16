@@ -26,6 +26,7 @@ use crate::warp_state::{WarpInstance, WarpState};
 
 /// Commit status of a tick patch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TickCommitStatus {
     /// Tick committed successfully.
     Committed,
@@ -44,6 +45,7 @@ impl TickCommitStatus {
 
 /// Unversioned slot identifier for slicing and provenance bookkeeping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SlotId {
     /// Full node record at `NodeKey` (instance-scoped skeleton record).
     Node(NodeKey),
@@ -91,6 +93,7 @@ impl Ord for SlotId {
 
 /// A canonical delta operation applied to the graph store.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WarpOp {
     /// Open a descended attachment portal atomically (Stage B1.1).
     ///
@@ -163,6 +166,7 @@ pub enum WarpOp {
 
 /// Initialization policy for [`WarpOp::OpenPortal`].
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PortalInit {
     /// Create a new child instance with only a root node (using `root_record`).
     Empty {
@@ -296,6 +300,7 @@ impl WarpOp {
 /// - `in_slots` / `out_slots`, and
 /// - `ops`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarpTickPatchV1 {
     policy_id: u32,
     rule_pack_id: ContentHash,
@@ -399,6 +404,26 @@ impl WarpTickPatchV1 {
     #[must_use]
     pub fn digest(&self) -> ContentHash {
         self.digest
+    }
+
+    /// Verifies that the internal digest matches the computed digest of the patch contents.
+    ///
+    /// # Errors
+    /// Returns `TickPatchError::DigestMismatch` if the digests do not match.
+    pub fn validate_digest(&self) -> Result<(), TickPatchError> {
+        let expected = compute_patch_digest_v2(
+            self.policy_id,
+            &self.rule_pack_id,
+            self.commit_status,
+            &self.in_slots,
+            &self.out_slots,
+            &self.ops,
+        );
+        if self.digest == expected {
+            Ok(())
+        } else {
+            Err(TickPatchError::DigestMismatch)
+        }
     }
 
     /// Applies the patch delta to `state`.
@@ -722,6 +747,9 @@ pub enum TickPatchError {
     /// `OpenPortal` invariants were violated (dangling portal / inconsistent parent chain / root mismatch).
     #[error("portal invariant violation")]
     PortalInvariantViolation,
+    /// The patch digest did not match its contents.
+    #[error("patch digest mismatch")]
+    DigestMismatch,
 }
 
 fn compute_patch_digest_v2(

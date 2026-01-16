@@ -11,4 +11,4 @@
 - [x] Client wiring: bidirectional tool connection (receive + publish); surface authority/epoch errors as notifications.
 - [x] Demo path: doc for one session-service + two viewers (publisher + subscriber) showing shared WARP changes (`docs/guide/wvp-demo.md`).
 - [x] Tests: protocol conformance (authority rejection, gapless enforcement, dirty-loop behavior, toggle respect) and integration test with two clients + server loopback. (Tracking: #169)
-- [x] Docs sync: update execution-plan intents and decision-log entries as slices land.
+- [x] Docs sync: update GitHub Issues as slices land.

@@ -161,38 +161,6 @@ jobs:
       - name: cargo test (warp-core, musl, det_fixed)
         run: cargo test -p warp-core --features det_fixed --target x86_64-unknown-linux-musl
 
-  docs:
-    name: Docs Guard
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Ensure execution plan and decision log were updated
-        run: |
-          set -euo pipefail
-          base_ref="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "$base_ref" --depth=1
-          changed=$(git diff --name-only "origin/${base_ref}"..."${{ github.sha }}")
-          if [ -z "$changed" ]; then
-            exit 0
-          fi
-          non_doc=$(echo "$changed" | grep -vE '(^docs/)|(\.md$)' || true)
-          if [ -z "$non_doc" ]; then
-            exit 0
-          fi
-          echo "Non-doc files changed:"
-          echo "$non_doc"
-          echo "$changed" | grep -Fx 'docs/execution-plan.md' >/dev/null || {
-            echo 'docs/execution-plan.md must be updated when non-doc files change.';
-            exit 1;
-          }
-          echo "$changed" | grep -Fx 'docs/decision-log.md' >/dev/null || {
-            echo 'docs/decision-log.md must be updated when non-doc files change.';
-            exit 1;
-          }
-
   rust-version:
     name: Rust Version Guard
     runs-on: ubuntu-latest
@@ -256,6 +224,59 @@ jobs:
             exit 1
           fi
           "$script"
+
+  determinism-guards:
+    name: Determinism Guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - name: Ban globals
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/ban-globals.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Ban nondeterminism
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/ban-nondeterminism.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Ban unordered ABI containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/ban-unordered-abi.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+
+  dind-pr:
+    name: DIND (PR set)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run DIND PR suite (full hash)
+        run: node scripts/dind-run-suite.mjs --tags pr
 
   # MSRV job removed per policy: use @stable everywhere
 

@@ -7,8 +7,13 @@ If you’re new here, start with:
 - [/guide/start-here](/guide/start-here)
 - [/guide/warp-primer](/guide/warp-primer)
 
-This document is a high-level architecture and “why” artifact. Some sections are aspirational and
+This document is a high-level architecture and "why" artifact. Many sections are aspirational and
 will lag behind the current Rust-first implementation; prefer WARP specs for the runtime boundary.
+
+> **Implementation Status Legend:**
+> - ✅ **Implemented** — exists in `warp-core` today
+> - ⚠️ **Partial** — some aspects exist, others planned
+> - 🗺️ **Planned** — design only, not yet implemented
 
 ## Vision
 - Reimagine a battle-tested ECS core into **Echo**, a renderer-agnostic spine that survives browsers, native shells, and whatever 2125 invents next.
@@ -33,7 +38,9 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 
 ## Domain Layers
 
-### Core ECS
+### Core ECS 🗺️ Planned
+
+> **Note:** The current `warp-core` implementation uses a **WARP graph model** (nodes, edges, rewrite rules), not traditional ECS archetypes. The ECS storage model below is a future design target.
 - **Entities**: Numerical IDs with sparse/high-watermark managers; creation returns pooled slots to avoid GC pressure.
 - **Components**: Type-safe registrations with metadata (layout, default state, pooling policy). Storage uses archetype tables or chunked struct-of-arrays chosen at registration time.
 - **Storage Model**:
@@ -54,13 +61,13 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Parallelism Hooks**: Systems may declare `parallelizable: true`; scheduler groups disjoint signature systems into jobs respecting dependencies.
 - **Queries**: Precompiled views over component sets; incremental membership tracking uses bitset signatures and dirty queues instead of per-frame scans.
 
-### World & Scene Management
+### World & Scene Management 🗺️ Planned
 - **World**: Owns entity/component managers, system registry, event bus, and service container. Supports multiple worlds for split-screen or background sims.
 - **Prefabs & Assemblers**: Declarative definitions (JSON/YAML/TS factories) converted into entity creation commands, supporting overrides and inheritance.
 - **Scene Graph / State Machine**: Stack-based and hierarchical scenes with enter/exit hooks, async loading, and transition orchestration. Integrates with scheduler via scene phases.
 - **Simulation Contexts**: Support for deterministic replay, remote authority, and sub-step simulations (physics, AI planning) within world boundaries.
 
-### Time & Simulation
+### Time & Simulation ⚠️ Partial
 - **Clock Service**: Abstracted time source with fixed-step accumulator, variable-step mode, and manual stepping for tests.
 - **Pause & Slow-Mo**: Pause flag propagates to scheduler; systems opt into running while paused; time scaling applies per system when needed.
 - **Deterministic Replay**: Input/event capture via Codex’s Baby, serialized frame seeds, and re-execution hooks for debugging or multiplayer rollback.
@@ -70,14 +77,18 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
   - **Kairos (Possibility)**: Branch identifier; indexes alternate realities at the same Chronos tick.
   - **Aion (Significance)**: Scalar weight describing narrative gravity/entropy; influences merge priority, NPC memory retention, and paradox severity.
 
-### Temporal Sandbox (Echo Edge)
+### Temporal Sandbox (Echo Edge) 🗺️ Planned
 - **Branchable Timelines**: Worlds can fork into speculative branches mid-frame; scheduler runs branches sequentially or in parallel workers, then reports diffs back to the main timeline.
 - **Frame Scrubbing**: Built-in timeline buffer stores component deltas for the last N frames; editor tooling scrubs, rewinds, and reapplies changes without restarting the sim.
 - **Predictive Queries**: Renderers, netcode, or AI can request projected state N frames ahead using speculative branches, enabling latency hiding and cinematic planning.
 - **Collaborative Simulation**: Multiple clients can author in shared scenes by editing branches; consensus commits merge deterministic deltas back into the root world.
 - **AI Co-Pilot Hooks**: Deterministic branches allow automated agents to propose tweaks, run them in sandboxes, and surface accepted diffs to designers.
 
-## Codex’s Baby (Event Bus)
+## Event Bus 🗺️ Planned
+
+> **Note:** The original "Event Bus" spec has been superseded by [ADR-0003 (MaterializationBus)](/ADR-0003-Materialization-Bus.md). See that document for the current boundary API design.
+>
+> *The content below is preserved for historical context only; [ADR-0003](/ADR-0003-Materialization-Bus.md) is the authoritative specification.*
 - **Command Buffers**: Events are POD structs appended to per-type ring buffers during a frame; no immediate callbacks inside hot systems.
 - **Flush Phases**: Scheduler defines flush points (pre-update, post-update, custom phases). Systems subscribe to phases matching their needs.
 - **Handler Contracts**: Handlers receive batched slices; they may mutate components, enqueue new events, or schedule commands. Return values are ignored for deterministic execution.
@@ -86,38 +97,38 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Integration**: Bridges input devices, networking, scripting, and editor tooling without leaking adapter concerns into the domain.
 - **Inter-Branch Bridge**: Temporal mail service routes events between branches; deliveries create retro branches when targeting past Chronos ticks; paradox guard evaluates conflicts before enqueue.
 
-## Ports & Adapters
+## Ports & Adapters 🗺️ Planned
 
-### Renderer Port
+### Renderer Port 🗺️ Planned
 - **Responsibilities**: Receive frame data (render commands, camera states, debug overlays), manage render resources, and report capabilities.
 - **Data Flow**: Domain produces a `FramePacket` containing archetype-friendly draw data (mesh refs, transforms, materials); adapter translates into API-specific calls.
 - **Adapters**: Pixi 7/WebGL2 baseline, Canvas2D fallback, WebGPU (wgpu/WASM), native renderer (Skia or bgfx), experimental TUI renderer for debugging.
 - **Performance Contracts**: Frame submissions are immutable; adapters can reuse GPU buffers across frames; the port discourages per-entity draw calls.
 
-### Input Port
+### Input Port 🗺️ Planned
 - **Responsibilities**: Aggregate device state into consumable snapshots (buttons, axes, gestures) and surface device capabilities.
 - **Polling Model**: Domain polls once per frame; port ensures event strata are coalesced in consistent order. Scripted or network input injects via Codex’s Baby.
 - **Adapters**: Browser (keyboard, mouse, pointer, gamepad), native (SDL), synthetic (playback), test harness stubs.
 
-### Physics Port
+### Physics Port 🗺️ Planned
 - **Responsibilities**: Advance simulation, manage bodies/colliders, and synchronize results back into components.
 - **Integration Strategy**: Dual writes through data bridges. ECS components represent desired state; physics port returns authoritative transforms/velocities at sync points.
 - **Adapters**: Box2D (planar), Rapier (3D/2D), custom deterministic solver, or headless stub for puzzle games.
 - **Advanced Features**: Continuous collision, queries (raycasts, sweeps), event hooks for contacts funneled through Codex’s Baby.
 
-### Networking Port
+### Networking Port 🗺️ Planned
 - **Mode Support**: Single-player (loopback), lockstep peer-to-peer, host-client, dedicated server.
 - **Transport Abstraction**: Reliable/unreliable channels, clock sync, session management. Adapter options: WebRTC, WebSockets, native sockets.
 - **Replication Strategy**: Deterministic event replication using Codex’s Baby ledger; optional state snapshots for fast-forward joins.
 - **Rollback Hooks**: Scheduler exposes rewinding API; networking port coordinates branch rewinds and replays when desync detected.
 - **Security Considerations**: Capability tokens, branch validation, deterministic checksum comparison to detect tampering.
 
-### Audio, Persistence, Telemetry Ports
+### Audio, Persistence, Telemetry Ports 🗺️ Planned
 - **Audio**: Command queue for spatial/ambient playback, timeline control, and crossfade scheduling.
 - **Persistence**: Abstract reader/writer for save games, cloud sync, diagnostics dumps. Supports structured snapshots and delta patches.
 - **Telemetry**: Export frame metrics, event traces, and custom probes to external dashboards or editor overlays.
 
-## Cross-Cutting Concerns
+## Cross-Cutting Concerns ⚠️ Partial
 - **Bootstrap Pipeline**: Dependency injection container wires ports, services, systems, and configuration before the first tick. Supports editor-time hot reload.
 - **Resource Lifecycle**: Asset handles (textures, meshes, scripts) managed through reference-counted registries and async loaders; domain requests are idempotent.
 - **Serialization**: Schema-driven serialization for components and events. Allows save/load, network replication, and state diffing.
@@ -138,12 +149,15 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Outcome**: Comprehensive reference that prevents accidental feature loss and keeps the rewrite grounded in historical context.
 
 ## Delivery Roadmap
-- **Phase 0 – Spec Deep Dive**: Finalize ECS storage, scheduler, event bus design; complete excavation log; prototype membership benchmarks.
-- **Phase 1 – Echo Core MVP**: Stand up TypeScript monorepo, implement entity/component storage, scheduler, Codex’s Baby, and unit tests with headless harness.
-- **Phase 2 – Adapter Foundations** *(Milestone: “Double-Jump”)*: Ship Pixi/WebGL renderer adapter, keyboard/mouse input, basic physics stub, and Vite-based playground.
-- **Phase 3 – Advanced Adapters**: Integrate Box2D/Rapier, WebGPU renderer, audio port, and telemetry pipeline; add scene/state tooling.
-- **Phase 4 – Tooling & Polishing**: Debug inspector, hot-reload workflows, documentation site, samples, and performance tuning.
-- **Ongoing**: Benchmark suite, community feedback loop, compatibility shims for legacy prototypes, incremental releases.
+
+> **Current Status (2026-01):** Phase 0 is largely complete for `warp-core`. The Rust-first WARP graph rewriting engine is implemented with deterministic scheduling, snapshot hashing, and basic math. ECS storage and system scheduler remain future work.
+
+- **Phase 0 – Spec Deep Dive** ⚠️ Partial: WARP core specs finalized; ECS storage spec exists but not implemented; event bus superseded by ADR-0003.
+- **Phase 1 – Echo Core MVP** 🗺️ Planned: Entity/component storage, system scheduler, MaterializationBus integration.
+- **Phase 2 – Adapter Foundations** 🗺️ Planned *(Milestone: "Double-Jump")*: Renderer adapter, input, physics stub.
+- **Phase 3 – Advanced Adapters** 🗺️ Planned: Physics engines, WebGPU, audio, telemetry.
+- **Phase 4 – Tooling & Polishing** 🗺️ Planned: Inspector, hot-reload, documentation site.
+- **Ongoing**: Benchmark suite, community feedback loop, incremental releases.
 
 ## Open Questions
 - What minimum target hardware do we optimize for (mobile, desktop, consoles)?

@@ -11,13 +11,17 @@ use std::sync::LazyLock;
 
 use warp_core::math::{self, Mat4, Prng, Quat, Vec3};
 
-const FIXTURE_PATH: &str = "crates/warp-core/tests/fixtures/math-fixtures.json";
+/// Path relative to repo root, for error messages only.
+const FIXTURE_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/math-fixtures.json"
+);
 static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
 
-#[allow(clippy::expect_fun_call)]
 static FIXTURES: LazyLock<MathFixtures> = LazyLock::new(|| {
     let fixtures: MathFixtures = {
         #[allow(clippy::expect_fun_call)]
+        #[allow(clippy::disallowed_methods)]
         {
             serde_json::from_str(RAW_FIXTURES).expect(&format!(
                 "failed to parse math fixtures at {}",

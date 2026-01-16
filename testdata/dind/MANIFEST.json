@@ -1,0 +1,85 @@
+[
+  {
+    "path": "010_dense_rewrite_seed0001.eintlog",
+    "tags": [
+      "rewrite",
+      "smoke",
+      "pr"
+    ],
+    "desc": "Dense rewrite smoke test"
+  },
+  {
+    "path": "030_error_determinism.eintlog",
+    "tags": [
+      "error",
+      "pr"
+    ],
+    "desc": "Error determinism check"
+  },
+  {
+    "path": "050_randomized_order_small_seed0001.eintlog",
+    "tags": [
+      "order-sensitive",
+      "randomized",
+      "nightly"
+    ],
+    "desc": "Randomized order seed 1"
+  },
+  {
+    "path": "050_randomized_order_small_seed0002.eintlog",
+    "tags": [
+      "order-sensitive",
+      "randomized",
+      "nightly"
+    ],
+    "desc": "Randomized order seed 2"
+  },
+  {
+    "path": "050_randomized_order_small_seed0003.eintlog",
+    "tags": [
+      "order-sensitive",
+      "randomized",
+      "nightly"
+    ],
+    "desc": "Randomized order seed 3"
+  },
+  {
+    "path": "051_randomized_convergent_seed0001.eintlog",
+    "tags": [
+      "kv-commutative",
+      "convergent",
+      "nightly"
+    ],
+    "desc": "Convergent seed 1",
+    "converge_scope": "sim/state"
+  },
+  {
+    "path": "051_randomized_convergent_seed0002.eintlog",
+    "tags": [
+      "kv-commutative",
+      "convergent",
+      "nightly"
+    ],
+    "desc": "Convergent seed 2",
+    "converge_scope": "sim/state"
+  },
+  {
+    "path": "051_randomized_convergent_seed0003.eintlog",
+    "tags": [
+      "kv-commutative",
+      "convergent",
+      "nightly"
+    ],
+    "desc": "Convergent seed 3",
+    "converge_scope": "sim/state"
+  },
+  {
+    "path": "060_math_determinism.eintlog",
+    "tags": [
+      "math",
+      "physics",
+      "nightly"
+    ],
+    "desc": "Fixed-point math determinism (Motion)"
+  }
+]

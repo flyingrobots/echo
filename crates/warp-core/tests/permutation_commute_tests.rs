@@ -2,6 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
+use echo_dry_tests::motion_rule;
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
 };
@@ -45,7 +46,7 @@ fn n_permutation_commute_n3_and_n4() {
             store.insert_edge(root, edge);
             scopes.push(id);
         }
-        let rule = warp_core::motion_rule();
+        let rule = motion_rule();
 
         // Enumerate a few permutations deterministically (not all for n=4 to keep runtime low).
         let perms: Vec<Vec<usize>> = match n {

@@ -13,6 +13,7 @@
 //! TODO(PR-14/15): Persist JSON artifacts and add a regression gate.
 use blake3::Hasher;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use echo_dry_tests::build_motion_demo_engine;
 use std::time::Duration;
 use warp_core::{
     make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, Hash, NodeId,
@@ -54,7 +55,7 @@ fn bench_noop_rule() -> RewriteRule {
 }
 
 fn build_engine_with_entities(n: usize) -> (Engine, Vec<NodeId>) {
-    let mut engine = warp_core::build_motion_demo_engine();
+    let mut engine = build_motion_demo_engine();
     // Register a no-op rule to isolate scheduler overhead from executor work.
     engine
         .register_rule(bench_noop_rule())

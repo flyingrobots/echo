@@ -975,4 +975,4 @@ When Echo diverges, it should not be a mystery or an accident.
 > [!note]
 > Echo does this differently (by policy). Echo prioritizes determinism + replayability *and* runtime performance. It works like this because Echo is meant to run real simulations, not just prove theorems — but every deviation from the Foundations series should be explained so readers can map paper concepts to the codebase without guesswork.
 
-For canonical mappings and explicit deviation rationale, see `docs/aion-papers-bridge.md` and `docs/decision-log.md`.
+For canonical mappings and explicit deviation rationale, see `docs/aion-papers-bridge.md`.

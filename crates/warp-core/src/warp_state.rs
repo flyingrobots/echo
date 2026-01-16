@@ -20,6 +20,7 @@ use crate::ident::{NodeId, WarpId};
 /// deterministic “include the portal chain” slicing without searching the
 /// entire attachment plane.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarpInstance {
     /// Instance identifier (namespace for local node/edge ids).
     pub warp_id: WarpId,
@@ -38,6 +39,7 @@ pub struct WarpInstance {
 ///   treated as internal corruption and should be prevented by constructors and
 ///   patch replay validation.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarpState {
     pub(crate) stores: BTreeMap<WarpId, GraphStore>,
     pub(crate) instances: BTreeMap<WarpId, WarpInstance>,

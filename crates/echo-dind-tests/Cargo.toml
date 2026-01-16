@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-dind-tests"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+license = "Apache-2.0"
+description = "Determinism test kernel for DIND scenarios"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "dind", "determinism", "test"]
+categories = ["development-tools"]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+warp-core = { workspace = true }
+echo-dry-tests = { workspace = true }
+echo-wasm-abi = { workspace = true }
+bytes = "1.0"
+
+[features]
+# Enables test-only ops (e.g., put_kv) for DIND convergence tests.
+dind_ops = []

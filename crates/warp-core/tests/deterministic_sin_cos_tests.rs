@@ -174,8 +174,8 @@ fn test_sin_cos_error_budget_pinned_against_deterministic_oracle() {
     //   - Absolute error budget: measured in f64 space vs the f64 reference.
 
     // NOTE: These thresholds are pinned to the current LUT+interpolation
-    // backend in `warp_core::math::trig` and should only be loosened with an
-    // explicit decision-log entry.
+    // backend in `warp_core::math::trig` and should only be loosened with
+    // explicit documentation of the change.
     //
     // ULP metrics across a zero crossing are not especially meaningful, so we
     // only apply the ULP budget when the f32-rounded reference magnitude is

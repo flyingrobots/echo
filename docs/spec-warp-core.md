@@ -60,7 +60,7 @@ The stable public surface is intentionally exposed via re-exports from
 - **Scheduling & MWMR:** `Footprint`, `PortKey`.
 - **Runtime:** `Engine`, `EngineError`, `ApplyResult`.
 - **Boundary artifacts:** `Snapshot`, `TickReceipt`, `WarpTickPatchV1`, `WarpOp`, `SlotId`.
-- **Utilities:** demo builders (`build_motion_demo_engine`), payload helpers (`encode_motion_atom_payload`, etc.).
+- **Utilities:** payload helpers (`encode_motion_atom_payload`, etc.).
 
 This doc describes those pieces and how they fit.
 
@@ -359,13 +359,14 @@ Start here (in order):
 
 ### 11.1 Minimal (single instance)
 
-For a working “known-good” bootstrap, use the demo helper:
+For a working "known-good" bootstrap, use the demo helper from `echo-dry-tests`:
 
 ```rust
 use warp_core::{
-    build_motion_demo_engine, encode_motion_atom_payload, make_node_id, make_type_id,
-    ApplyResult, AttachmentValue, NodeRecord, MOTION_RULE_NAME,
+    encode_motion_atom_payload, make_node_id, make_type_id,
+    ApplyResult, AttachmentValue, NodeRecord,
 };
+use echo_dry_tests::{build_motion_demo_engine, MOTION_RULE_NAME};
 
 let mut engine = build_motion_demo_engine();
 

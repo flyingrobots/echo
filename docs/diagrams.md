@@ -21,7 +21,7 @@ graph LR
   subgraph Core["Echo Core"]
     ECS["@EntityComponentStore"]
     Scheduler["Scheduler\n(DAG + Branch Orchestrator)"]
-    Codex["Codex's Baby\n(Event Bus)"]
+    Codex["Event Bus\n(MaterializationBus)"]
     Timeline["Timeline Tree\n(Chronos/Kairos/Aion)"]
     Math["Deterministic Math\n(Vector, PRNG, Metrics)"]
     ECS --> Scheduler
@@ -103,7 +103,7 @@ flowchart TD
   Clock -->|dt| SchedulerPre["Phase 1: Pre-Update"]:::stage
 
   SchedulerPre --> InputAssim["Assimilate Input\n(InputPort flush)"]:::op
-  InputAssim --> CodexPre["Codex's Baby\nPre-Flush"]:::op
+  InputAssim --> CodexPre["Event Bus\nPre-Flush"]:::op
   CodexPre --> TimelineIntake["Timeline Tree\nRegister Branch Jobs"]:::op
 
   TimelineIntake --> UpdatePhase["Phase 2: Update Systems"]:::stage

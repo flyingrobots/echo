@@ -9,7 +9,7 @@
 use std::f32::consts::TAU;
 
 /// Deterministic Q32.32 conversion helpers used by fixed-point lanes and payload codecs.
-pub(crate) mod fixed_q32_32;
+pub mod fixed_q32_32;
 mod mat4;
 mod prng;
 mod quat;
@@ -45,7 +45,6 @@ pub const EPSILON: f32 = 1e-6;
 /// # NaN handling
 /// If `value`, `min`, or `max` is `NaN`, the result is `NaN`. Callers must
 /// ensure inputs are finite if deterministic behavior is required.
-#[allow(clippy::manual_clamp)]
 pub fn clamp(value: f32, min: f32, max: f32) -> f32 {
     assert!(min <= max, "invalid clamp range: {min} > {max}");
     value.clamp(min, max)

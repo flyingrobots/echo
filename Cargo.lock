@@ -502,6 +502,9 @@ name = "bytes"
 version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "calloop"
@@ -1118,6 +1121,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-dind-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "echo-dind-tests",
+ "echo-wasm-abi",
+ "hex",
+ "serde",
+ "serde_json",
+ "warp-core",
+]
+
+[[package]]
+name = "echo-dind-tests"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "echo-dry-tests",
+ "echo-wasm-abi",
+ "warp-core",
+]
+
+[[package]]
+name = "echo-dry-tests"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "bytes",
+ "echo-app-core",
+ "echo-graph",
+ "serde",
+ "serde_json",
+ "warp-core",
+]
+
+[[package]]
 name = "echo-graph"
 version = "0.1.0"
 dependencies = [
@@ -1126,6 +1166,10 @@ dependencies = [
  "ciborium",
  "serde",
 ]
+
+[[package]]
+name = "echo-registry-api"
+version = "0.1.0"
 
 [[package]]
 name = "echo-session-client"
@@ -1186,8 +1230,13 @@ dependencies = [
 name = "echo-wasm-abi"
 version = "0.1.0"
 dependencies = [
+ "ciborium",
+ "half",
+ "proptest",
  "serde",
+ "serde-value",
  "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1196,8 +1245,23 @@ version = "0.1.0"
 dependencies = [
  "echo-wasm-abi",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "echo-wesley-gen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn",
 ]
 
 [[package]]
@@ -2601,16 +2665,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "minicov"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4869b6a491569605d66d3952bcdf03df789e5b536e5f0cf7758a7f08a55ae24d"
-dependencies = [
- "cc",
- "walkdir",
-]
-
-[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3942,6 +3996,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4942,6 +5007,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "criterion",
+ "echo-dry-tests",
  "rand 0.8.5",
  "rustc-hash 2.1.1",
  "warp-core",
@@ -4957,6 +5023,8 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "bytes",
+ "ciborium",
+ "echo-dry-tests",
  "hex",
  "libm",
  "proptest",
@@ -5016,10 +5084,13 @@ name = "warp-wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "echo-registry-api",
+ "echo-wasm-abi",
  "js-sys",
- "warp-core",
+ "serde",
+ "serde-value",
+ "serde_json",
  "wasm-bindgen",
- "wasm-bindgen-test",
  "web-sys",
 ]
 
@@ -5094,38 +5165,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbc538057e648b67f72a982e708d485b2efa771e1ac05fec311f9f63e5800db4"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "wasm-bindgen-test"
-version = "0.3.56"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25e90e66d265d3a1efc0e72a54809ab90b9c0c515915c67cdf658689d2c22c6c"
-dependencies = [
- "async-trait",
- "cast",
- "js-sys",
- "libm",
- "minicov",
- "nu-ansi-term",
- "num-traits",
- "oorandom",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test-macro",
-]
-
-[[package]]
-name = "wasm-bindgen-test-macro"
-version = "0.3.56"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7150335716dce6028bead2b848e72f47b45e7b9422f64cccdc23bedca89affc1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

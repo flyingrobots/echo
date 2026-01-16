@@ -5,6 +5,17 @@
 //! The current implementation executes queued rewrites deterministically via the
 //! motion-rule spike utilities. Broader storage and scheduling features will
 //! continue to land over subsequent phases.
+//!
+//! # Protocol Determinism
+//!
+//! `warp-core` enforces strict determinism for all protocol artifacts (snapshots, patches, receipts).
+//!
+//! - **Wire Format:** Canonical CBOR via `echo_wasm_abi`.
+//!   - Maps must have sorted keys.
+//!   - Floats are forbidden or strictly canonicalized (see `math` module).
+//! - **JSON:** Forbidden for protocol/hashing. Allowed ONLY for debug/view layers (e.g. telemetry).
+//! - **Float Math:** The default `F32Scalar` backend is optimistic (assumes IEEE 754).
+//!   For strict cross-platform consensus, use the `det_fixed` feature.
 #![forbid(unsafe_code)]
 #![deny(missing_docs, rust_2018_idioms, unused_must_use)]
 #![deny(
@@ -32,84 +43,92 @@
     clippy::module_name_repetitions,
     clippy::use_self
 )]
-// Permit intentional name repetition for public API clarity (e.g., FooFoo types) and
-// functions named after their module for discoverability (e.g., `motion_rule`).
 
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
 pub mod math;
 
 mod attachment;
+mod cmd;
 mod constants;
-/// Demo implementations showcasing engine capabilities (e.g., motion rule).
-pub mod demo;
 mod engine_impl;
 mod footprint;
 mod graph;
 mod ident;
+/// Canonical inbox management for deterministic intent sequencing.
+pub mod inbox;
 mod payload;
 mod receipt;
 mod record;
 mod rule;
 mod sandbox;
 mod scheduler;
+#[cfg(feature = "serde")]
+mod serializable;
 mod snapshot;
+mod telemetry;
 mod tick_patch;
 mod tx;
 mod warp_state;
 
 // Re-exports for stable public API
-/// Attachment-plane atoms and codec boundaries.
 pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
-/// Canonical digests (e.g., empty inputs, empty length-prefixed lists).
 pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64, POLICY_ID_NO_POLICY_V0};
-/// Demo helpers and constants for the motion rule.
-pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
-/// Rewrite engine and canonical hashing helpers.
-pub use engine_impl::{scope_hash, ApplyResult, Engine, EngineError};
-/// Footprint utilities for MWMR independence checks.
-/// `pack_port_key(node, port_id, dir_in)` packs a 64‑bit key as:
-/// - upper 32 bits: low 32 bits of the `NodeId` (LE)
-/// - bits 31..2: `port_id` (must be < 2^30)
-/// - bit 1: reserved (0)
-/// - bit 0: direction flag (`1` = input, `0` = output)
-///
-/// Collisions are possible across nodes that share the same low 32‑bit
-/// fingerprint; choose ids/ports accordingly.
-pub use footprint::{pack_port_key, Footprint, PortKey};
-/// In-memory graph store used by the engine spike.
+pub use engine_impl::{
+    scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
+    ExistingState, FreshStore, IngestDisposition,
+};
+pub use footprint::{pack_port_key, AttachmentSet, Footprint, IdSet, PortKey, PortSet};
 pub use graph::GraphStore;
-/// Core identifier types and constructors for nodes, types, and edges.
 pub use ident::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeId, EdgeKey, Hash, NodeId, NodeKey,
     TypeId, WarpId,
 };
-/// Motion payload encoding/decoding helpers.
 pub use payload::{
-    decode_motion_atom_payload, decode_motion_payload, encode_motion_atom_payload,
-    encode_motion_atom_payload_v0, encode_motion_payload, encode_motion_payload_q32_32,
-    encode_motion_payload_v0, motion_payload_type_id, motion_payload_type_id_v0,
+    decode_motion_atom_payload, decode_motion_atom_payload_q32_32, decode_motion_payload,
+    encode_motion_atom_payload, encode_motion_atom_payload_v0, encode_motion_payload,
+    encode_motion_payload_q32_32, encode_motion_payload_v0, motion_payload_type_id,
+    motion_payload_type_id_v0,
 };
-/// Tick receipts for deterministic commits (accepted vs rejected rewrites).
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
-/// Graph node and edge record types.
 pub use record::{EdgeRecord, NodeRecord};
-/// Rule primitives for pattern/match/execute.
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
-/// Sandbox helpers for constructing and comparing isolated Echo instances.
 pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
-/// Scheduler selection (Radix vs Legacy) for sandbox/engine builders.
 pub use scheduler::SchedulerKind;
-/// Immutable deterministic snapshot.
+#[cfg(feature = "serde")]
+pub use serializable::{
+    SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
+};
 pub use snapshot::Snapshot;
-/// Tick patch boundary artifacts (Paper III): replayable delta ops + slot sets.
+pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpTickPatchV1,
 };
-/// Transaction identifier type.
 pub use tx::TxId;
-/// Stage B1 multi-instance state types (`WarpInstances`).
 pub use warp_state::{WarpInstance, WarpState};
+
+/// Zero-copy typed view over an atom payload.
+pub trait AtomView<'a>: Sized {
+    /// Generated constant identifying the type.
+    const TYPE_ID: TypeId;
+    /// Required exact byte length for the payload.
+    const BYTE_LEN: usize;
+
+    /// Parse a raw byte slice into the typed view.
+    fn parse(bytes: &'a [u8]) -> Option<Self>;
+
+    /// Safe downcast from a generic `AtomPayload`.
+    #[inline]
+    fn try_from_payload(payload: &'a AtomPayload) -> Option<Self> {
+        if payload.type_id != Self::TYPE_ID {
+            return None;
+        }
+        if payload.bytes.len() != Self::BYTE_LEN {
+            return None;
+        }
+        Self::parse(payload.bytes.as_ref())
+    }
+}

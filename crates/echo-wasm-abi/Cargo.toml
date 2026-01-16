@@ -14,4 +14,11 @@ categories = ["wasm", "encoding", "data-structures"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"
+serde-value = "0.7"
+half = "2.4"
+thiserror = "1.0"
+
+[dev-dependencies]
+proptest = "1.0"
 serde_json = "1.0"

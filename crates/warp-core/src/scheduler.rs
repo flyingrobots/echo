@@ -14,10 +14,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use rustc_hash::FxHashMap;
 
+use std::sync::Arc;
+
 use crate::footprint::Footprint;
 use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeId, NodeKey};
-#[cfg(feature = "telemetry")]
-use crate::telemetry;
+use crate::telemetry::TelemetrySink;
 use crate::tx::TxId;
 
 /// Active footprint tracking using generation-stamped sets for O(1) conflict detection.
@@ -61,15 +62,12 @@ pub(crate) struct RadixScheduler {
     /// Active footprints per transaction for O(m) independence checking via `GenSets`.
     /// Checks all aspects: nodes (read/write), edges (read/write), and boundary ports.
     pub(crate) active: HashMap<TxId, ActiveFootprints>,
-    #[cfg(feature = "telemetry")]
-    pub(crate) counters: HashMap<TxId, (u64, u64)>, // (reserved, conflict)
 }
 
 /// Internal representation of a rewrite waiting to be applied.
 #[derive(Debug, Clone)]
 pub(crate) struct PendingRewrite {
     /// Identifier of the rule to execute.
-    #[cfg_attr(not(feature = "telemetry"), allow(dead_code))]
     pub rule_id: Hash,
     /// Compact in-process rule handle used on hot paths.
     pub compact_rule: CompactRuleId,
@@ -137,42 +135,22 @@ impl RadixScheduler {
         let active = self.active.entry(tx).or_insert_with(ActiveFootprints::new);
 
         if Self::has_conflict(active, pr) {
-            return self.on_conflict(tx, pr);
+            return Self::on_conflict(pr);
         }
 
         Self::mark_all(active, pr);
-        self.on_reserved(tx, pr)
+        Self::on_reserved(pr)
     }
 
     #[inline]
-    #[allow(clippy::needless_pass_by_ref_mut)]
-    #[cfg_attr(not(feature = "telemetry"), allow(clippy::unused_self))]
-    #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
-    fn on_conflict(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
+    fn on_conflict(pr: &mut PendingRewrite) -> bool {
         pr.phase = RewritePhase::Aborted;
-        #[cfg(feature = "telemetry")]
-        {
-            let entry = self.counters.entry(tx).or_default();
-            entry.1 += 1;
-        }
-        #[cfg(feature = "telemetry")]
-        telemetry::conflict(tx, &pr.rule_id);
         false
     }
 
     #[inline]
-    #[allow(clippy::needless_pass_by_ref_mut)]
-    #[cfg_attr(not(feature = "telemetry"), allow(clippy::unused_self))]
-    #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
-    fn on_reserved(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
+    fn on_reserved(pr: &mut PendingRewrite) -> bool {
         pr.phase = RewritePhase::Reserved;
-        #[cfg(feature = "telemetry")]
-        {
-            let entry = self.counters.entry(tx).or_default();
-            entry.0 += 1;
-        }
-        #[cfg(feature = "telemetry")]
-        telemetry::reserved(tx, &pr.rule_id);
         true
     }
 
@@ -299,12 +277,8 @@ impl RadixScheduler {
         }
     }
 
-    /// Finalizes accounting for `tx`: emits telemetry summary and clears state.
+    /// Finalizes accounting for `tx`: clears internal state.
     pub(crate) fn finalize_tx(&mut self, tx: TxId) {
-        #[cfg(feature = "telemetry")]
-        if let Some((reserved, conflict)) = self.counters.remove(&tx) {
-            telemetry::summary(tx, reserved, conflict);
-        }
         self.active.remove(&tx);
         self.pending.remove(&tx);
     }
@@ -547,13 +521,6 @@ impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
         }
     }
 
-    /// Begins a new commit generation (call once per transaction).
-    #[inline]
-    #[allow(dead_code)]
-    pub fn begin_commit(&mut self) {
-        self.gen = self.gen.wrapping_add(1);
-    }
-
     /// Returns true if `key` was marked in the current generation.
     #[inline]
     pub fn contains(&self, key: K) -> bool {
@@ -565,20 +532,6 @@ impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
     pub fn mark(&mut self, key: K) {
         self.seen.insert(key, self.gen);
     }
-
-    /// Returns true if `key` conflicts with current generation, otherwise marks it.
-    /// This is a convenience method combining `contains` and `mark` for cases where
-    /// atomicity is needed.
-    #[inline]
-    #[allow(dead_code)]
-    pub fn conflict_or_mark(&mut self, key: K) -> bool {
-        if self.contains(key) {
-            true
-        } else {
-            self.mark(key);
-            false
-        }
-    }
 }
 
 // ============================================================================
@@ -589,8 +542,6 @@ impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
 pub(crate) struct LegacyScheduler {
     pending: HashMap<TxId, BTreeMap<(Hash, Hash), PendingRewrite>>,
     active: HashMap<TxId, Vec<Footprint>>,
-    #[cfg(feature = "telemetry")]
-    counters: HashMap<TxId, (u64, u64)>, // (reserved, conflict)
 }
 
 impl LegacyScheduler {
@@ -628,33 +579,15 @@ impl LegacyScheduler {
         for fp in frontier.iter() {
             if !pr.footprint.independent(fp) {
                 pr.phase = RewritePhase::Aborted;
-                #[cfg(feature = "telemetry")]
-                {
-                    let entry = self.counters.entry(tx).or_default();
-                    entry.1 += 1;
-                }
-                #[cfg(feature = "telemetry")]
-                telemetry::conflict(tx, &pr.rule_id);
                 return false;
             }
         }
         pr.phase = RewritePhase::Reserved;
         frontier.push(pr.footprint.clone());
-        #[cfg(feature = "telemetry")]
-        {
-            let entry = self.counters.entry(tx).or_default();
-            entry.0 += 1;
-        }
-        #[cfg(feature = "telemetry")]
-        telemetry::reserved(tx, &pr.rule_id);
         true
     }
 
     pub(crate) fn finalize_tx(&mut self, tx: TxId) {
-        #[cfg(feature = "telemetry")]
-        if let Some((reserved, conflict)) = self.counters.remove(&tx) {
-            telemetry::summary(tx, reserved, conflict);
-        }
         self.active.remove(&tx);
         self.pending.remove(&tx);
     }
@@ -673,9 +606,21 @@ pub enum SchedulerKind {
     Legacy,
 }
 
-#[derive(Debug)]
+/// Deterministic scheduler wrapper with telemetry support.
 pub(crate) struct DeterministicScheduler {
     inner: SchedulerImpl,
+    telemetry: Arc<dyn TelemetrySink>,
+    /// Per-transaction counters: (reserved, conflict).
+    counters: HashMap<TxId, (u64, u64)>,
+}
+
+impl std::fmt::Debug for DeterministicScheduler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeterministicScheduler")
+            .field("inner", &self.inner)
+            .field("counters", &self.counters)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]
@@ -686,17 +631,24 @@ enum SchedulerImpl {
 
 impl Default for DeterministicScheduler {
     fn default() -> Self {
-        Self::new(SchedulerKind::Radix)
+        Self::new(
+            SchedulerKind::Radix,
+            Arc::new(crate::telemetry::NullTelemetrySink),
+        )
     }
 }
 
 impl DeterministicScheduler {
-    pub(crate) fn new(kind: SchedulerKind) -> Self {
+    pub(crate) fn new(kind: SchedulerKind, telemetry: Arc<dyn TelemetrySink>) -> Self {
         let inner = match kind {
             SchedulerKind::Radix => SchedulerImpl::Radix(RadixScheduler::default()),
             SchedulerKind::Legacy => SchedulerImpl::Legacy(LegacyScheduler::default()),
         };
-        Self { inner }
+        Self {
+            inner,
+            telemetry,
+            counters: HashMap::new(),
+        }
     }
 
     pub(crate) fn enqueue(&mut self, tx: TxId, rewrite: PendingRewrite) {
@@ -727,13 +679,31 @@ impl DeterministicScheduler {
     /// footprint conflicts), upgrade the return type to an explicit reason enum
     /// so callers can distinguish between them.
     pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
-        match &mut self.inner {
+        let rule_id = pr.rule_id;
+        let accepted = match &mut self.inner {
             SchedulerImpl::Radix(s) => s.reserve(tx, pr),
             SchedulerImpl::Legacy(s) => s.reserve(tx, pr),
+        };
+
+        // Track counters and emit telemetry
+        let entry = self.counters.entry(tx).or_default();
+        if accepted {
+            entry.0 += 1;
+            self.telemetry.on_reserved(tx, &rule_id);
+        } else {
+            entry.1 += 1;
+            self.telemetry.on_conflict(tx, &rule_id);
         }
+
+        accepted
     }
 
     pub(crate) fn finalize_tx(&mut self, tx: TxId) {
+        // Emit summary telemetry before clearing state
+        if let Some((reserved, conflict)) = self.counters.remove(&tx) {
+            self.telemetry.on_summary(tx, reserved, conflict);
+        }
+
         match &mut self.inner {
             SchedulerImpl::Radix(s) => s.finalize_tx(tx),
             SchedulerImpl::Legacy(s) => s.finalize_tx(tx),
@@ -849,9 +819,15 @@ mod tests {
         let node_a = make_node_id("a");
         let node_b = make_node_id("b");
 
-        assert!(!gen.conflict_or_mark(node_a), "first mark");
-        assert!(gen.conflict_or_mark(node_a), "conflict on same gen");
-        assert!(!gen.conflict_or_mark(node_b), "different node ok");
+        // First access: not seen, then mark
+        assert!(!gen.contains(node_a), "node_a not yet seen");
+        gen.mark(node_a);
+
+        // Second access: now conflicts
+        assert!(gen.contains(node_a), "node_a conflicts after mark");
+
+        // Different node: no conflict
+        assert!(!gen.contains(node_b), "node_b is independent");
     }
 
     // ========================================================================

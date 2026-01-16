@@ -2,10 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(missing_docs)]
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use echo_dry_tests::{build_motion_demo_engine, MOTION_RULE_NAME};
 use std::{hint::black_box, time::Duration};
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
-    ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord, MOTION_RULE_NAME,
+    ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord,
 };
 
 fn extract_motion_payload(engine: &Engine, id: &NodeId) -> ([f32; 3], [f32; 3]) {
@@ -28,7 +29,7 @@ fn extract_motion_payload(engine: &Engine, id: &NodeId) -> ([f32; 3], [f32; 3]) 
 
 fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
     // Start from the demo engine (root + motion rule registered).
-    let mut engine = warp_core::build_motion_demo_engine();
+    let mut engine = build_motion_demo_engine();
     let ty = make_type_id("entity");
     let mut ids = Vec::with_capacity(n);
     // Insert N entities with a simple payload.

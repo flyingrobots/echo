@@ -26,7 +26,7 @@ Use these columns consistently:
 - **Kernel**: deterministic semantic core (rewrite engine, scheduler, receipts, snapshot/tick structure, deterministic decision records including stream admission decisions). HistoryTime-only.
 - **Views**: controlled accessors and projections over history (query APIs, inspectors, adapters). Any interaction with HostTime/IO must be recorded as replay-safe claims/decisions.
 - **Tooling**: UIs, dashboards, CLI workflows (read-only by default; must be usable during pause/rewind; any control surface must be capability-gated and recorded).
-- **Docs**: specs, decision log, procedures; the “human-facing API”.
+- **Docs**: specs and procedures; the "human-facing API".
 
 ---
 
@@ -81,7 +81,7 @@ Legend (compact):
 | **Scheduling** | owns · beta · best · prov: basic · deps: OS scheduler, tokio | owns · beta · det · prov: strong · deps: none | consumes · beta · det · prov: strong · deps: none | consumes · beta · best · prov: basic · deps: browser/event-loop | owns · stable · det · prov: strong · deps: none |
 | **Provenance** | consumes · beta · best · prov: basic · deps: FS/network | owns · beta · det · prov: strong · deps: CID/hash | consumes · beta · det · prov: strong · deps: none | consumes · beta · det · prov: strong · deps: none | owns · stable · det · prov: strong · deps: git |
 | **Schema / Interfaces** | consumes · exp · best · prov: basic · deps: serde/json | owns · exp · det · prov: strong · deps: versioned schemas | owns · exp · det · prov: strong · deps: schema hash pinning | consumes · exp · best · prov: basic · deps: UI contracts | owns · beta · det · prov: strong · deps: docs/specs |
-| **Storage / Ledger** | owns · beta · best · prov: basic · deps: FS/DB | owns · exp · det · prov: strong · deps: content hashing | consumes · beta · det · prov: strong · deps: read-only ledger | consumes · beta · best · prov: basic · deps: localStorage/IndexedDB | owns · beta · det · prov: strong · deps: docs/decision-log |
+| **Storage / Ledger** | owns · beta · best · prov: basic · deps: FS/DB | owns · exp · det · prov: strong · deps: content hashing | consumes · beta · det · prov: strong · deps: read-only ledger | consumes · beta · best · prov: basic · deps: localStorage/IndexedDB | owns · beta · det · prov: strong · deps: docs/specs |
 | **Time / Clocks** | owns · beta · best · prov: basic · deps: HostTime | consumes · beta · det · prov: strong · deps: Decision Records | consumes · beta · det · prov: strong · deps: Clock View | consumes · beta · best · prov: basic · deps: tool clock | owns · beta · det · prov: strong · deps: paper/spec |
 | **Networking / IO** | owns · beta · best · prov: basic · deps: TCP/WS/UDS | consumes · exp · det · prov: strong · deps: recorded claims | consumes · beta · det · prov: strong · deps: stream backlog | consumes · beta · best · prov: basic · deps: Web APIs | owns · beta · det · prov: strong · deps: procedures |
 | **Auth / Trust** | owns · exp · best · prov: basic · deps: keys/tokens | consumes · exp · det · prov: strong · deps: signed claims | consumes · exp · det · prov: strong · deps: receipts | consumes · exp · best · prov: basic · deps: auth UI | owns · exp · det · prov: strong · deps: policies |

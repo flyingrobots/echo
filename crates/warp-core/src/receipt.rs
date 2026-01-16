@@ -21,6 +21,7 @@ use crate::tx::TxId;
 
 /// A tick receipt: the per-candidate outcomes for a single commit attempt.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TickReceipt {
     tx: TxId,
     entries: Vec<TickReceiptEntry>,
@@ -106,6 +107,7 @@ impl TickReceipt {
 
 /// One candidate rewrite and its tick outcome.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TickReceiptEntry {
     /// Canonical rule family id.
     pub rule_id: Hash,
@@ -120,8 +122,18 @@ pub struct TickReceiptEntry {
     pub disposition: TickReceiptDisposition,
 }
 
+#[cfg(feature = "serde")]
+impl TickReceiptEntry {
+    /// Returns a short hex representation of the rule id.
+    #[must_use]
+    pub fn rule_id_short(&self) -> String {
+        hex::encode(&self.rule_id[0..8])
+    }
+}
+
 /// Outcome of a tick candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TickReceiptDisposition {
     /// Candidate rewrite was accepted and applied.
     Applied,
@@ -131,6 +143,7 @@ pub enum TickReceiptDisposition {
 
 /// Why a tick candidate was rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TickReceiptRejection {
     /// Candidate footprint conflicts with an already-accepted footprint.
     FootprintConflict,

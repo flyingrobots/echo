@@ -30,13 +30,6 @@ export default defineConfig({
           { text: 'WVP', link: '/spec-warp-view-protocol' }
         ]
       },
-      {
-        text: 'Log',
-        items: [
-          { text: 'Execution Plan', link: '/execution-plan' },
-          { text: 'Decision Log', link: '/decision-log' }
-        ]
-      }
     ],
     sidebar: {
       '/': [
@@ -63,13 +56,6 @@ export default defineConfig({
           text: 'Subsystem Hubs',
           items: [{ text: 'Scheduler', link: '/scheduler' }]
         },
-        {
-          text: 'Project Log',
-          items: [
-            { text: 'Execution Plan', link: '/execution-plan' },
-            { text: 'Decision Log', link: '/decision-log' }
-          ]
-        }
       ],
       '/guide/': [
         {

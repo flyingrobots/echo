@@ -5,10 +5,11 @@
 use proptest::prelude::*;
 use proptest::test_runner::{Config as PropConfig, RngAlgorithm, TestRng, TestRunner};
 
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     decode_motion_atom_payload, decode_motion_payload, encode_motion_atom_payload,
     encode_motion_payload, make_node_id, make_type_id, ApplyResult, AttachmentValue, Engine,
-    GraphStore, NodeRecord, MOTION_RULE_NAME,
+    GraphStore, NodeRecord,
 };
 
 // Demonstrates how to pin a deterministic seed for property tests so failures
@@ -51,7 +52,7 @@ fn proptest_seed_pinned_motion_updates() {
 
             let mut engine = Engine::new(store, entity);
             engine
-                .register_rule(warp_core::motion_rule())
+                .register_rule(motion_rule())
                 .expect("register motion rule");
 
             let tx = engine.begin();

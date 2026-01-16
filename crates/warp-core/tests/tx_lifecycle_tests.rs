@@ -2,9 +2,10 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, EngineError,
-    GraphStore, NodeRecord, MOTION_RULE_NAME,
+    GraphStore, NodeRecord,
 };
 
 #[test]
@@ -19,7 +20,7 @@ fn tx_invalid_after_commit() {
 
     let mut engine = warp_core::Engine::new(store, entity);
     engine
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("duplicate rule name");
 
     let tx = engine.begin();

@@ -14,6 +14,7 @@ readme = "README.md"
 criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
 # Pin version alongside path to satisfy cargo-deny wildcard bans
 warp-core = { version = "0.1.0", path = "../warp-core" }
+echo-dry-tests = { version = "0.1.0", path = "../echo-dry-tests" }
 # Patch-level pin for reproducibility while allowing security fixes; keep defaults off to avoid rayon/parallelism.
 blake3 = { version = "~1.8.2", default-features = false, features = ["std"] }
 rustc-hash = "2.1.1"

@@ -22,7 +22,7 @@ This document captures the interactive demos and performance milestones we want 
 
 - Criterion-based benches exercise flat, chained, branching, and timeline-flush scenarios (mirrors `docs/scheduler-benchmarks.md`).
 - Success criteria: median tick time < 0.5 ms for toy workload (100 entities, 10 rules); percentile tails recorded.
-- Bench harness outputs JSON summaries (mean, median, std dev) consumed by the inspector and appended to the decision log.
+- Bench harness outputs JSON summaries (mean, median, std dev) consumed by the inspector.
 - Deterministic PRNG seeds recorded so benches are reproducible across CI machines.
 
 ## Demo 3: Timeline Fork/Merge Replay
@@ -74,7 +74,7 @@ This document captures the interactive demos and performance milestones we want 
 | 1F    | Demo dashboards | Inspector frame overlays, JSON ingestion |
 
 
-**Prerequisites:** BLAKE3 hashing utilities, deterministic PRNG module, snapshot serialiser, inspector graph viewer, documentation workflow (`docs/decision-log.md`) for logging demo outcomes, CI runners with wasm/criterion toolchains.
+**Prerequisites:** BLAKE3 hashing utilities, deterministic PRNG module, snapshot serialiser, inspector graph viewer, CI runners with wasm/criterion toolchains.
 
 
 **Timeline:**

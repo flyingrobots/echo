@@ -7,15 +7,14 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | Document | Purpose |
 | -------- | ------- |
 | `architecture-outline.md` | High-level architecture vision and principles |
-| `execution-plan.md` | Living plan of tasks, intent, and progress |
 | `workflows.md` | Contributor workflows, policies, and blessed repo entry points |
 | `guide/warp-primer.md` | Start here: newcomer-friendly primer for WARP in Echo |
 | `guide/wvp-demo.md` | Demo: run the session hub + 2 viewers (publisher/subscriber) |
 | `guide/tumble-tower.md` | Demo 3 scenario: deterministic physics ladder (“Tumble Tower”) |
 | `spec-branch-tree.md` | Branch tree, diffs, and timeline persistence |
-| `spec-codex-baby.md` | Event bus, bridges, backpressure, security |
 | `spec-temporal-bridge.md` | Cross-branch event lifecycle |
 | `spec-serialization-protocol.md` | Canonical encoding and hashing |
+| `spec-canonical-inbox-sequencing.md` | Canonical inbox sequencing, idempotent ingress, and deterministic tie-breaks |
 | `spec-capabilities-and-security.md` | Capability tokens and signatures |
 | `spec-world-api.md` | Stable public façade for external modules |
 | `spec-entropy-and-paradox.md` | Entropy metrics and paradox handling |
@@ -50,13 +49,11 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `scheduler-reserve-complexity.md` | Redirect: merged into `scheduler-warp-core.md` |
 | `testing-and-replay-plan.md` | Replay, golden hashes, entropy tests |
 | `runtime-diagnostics-plan.md` | Logging, tracing, inspector streams |
-| `codex-instrumentation.md` | CB metrics and telemetry hooks |
 | `docs-audit.md` | Docs hygiene memo: purge/merge/splurge candidates |
 | `docs-index.md` | This index |
 | `hash-graph.md` | Hash relationships across subsystems |
 | `legacy-excavation.md` | Historical artifact log |
 | `memorial.md` | Tribute to Caverns |
-| `decision-log.md` | Chronological design decisions |
 | `release-criteria.md` | Phase transition checklist |
 
 ## Start Here
@@ -94,11 +91,6 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 - Hazards + mitigations (background): [/DETERMINISTIC_MATH](/DETERMINISTIC_MATH)
 - Current claims / error budgets: [/warp-math-claims](/warp-math-claims)
 - Validation plan (may lag behind implementation): [/math-validation-plan](/math-validation-plan)
-
-## Project Log (Read This Before Starting Big Work)
-
-- Execution plan (living intent, “Today’s Intent”): [/execution-plan](/execution-plan)
-- Decision log (chronological record): [/decision-log](/decision-log)
 
 ## Reference / Deep Dives
 

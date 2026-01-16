@@ -9,7 +9,15 @@ Shared WASM-friendly DTOs for Echo/JITOS living specs. Mirrors the minimal graph
 - `Node`, `Edge`, `WarpGraph`
 - `Value` (Str/Num/Bool/Null)
 - `Rewrite` with `SemanticOp` (AddNode/Set/DeleteNode/Connect/Disconnect)
+- Deterministic CBOR helpers: `encode_cbor` / `decode_cbor` (canonical subset, no tags/indefinite)
 
 ## Usage
 
 Add as a dependency and reuse the DTOs in WASM bindings and UI code to keep the schema consistent across kernel and specs.
+
+### Canonical encoding
+
+- `encode_cbor` / `decode_cbor` use the same canonical CBOR rules as `echo-session-proto` (definite lengths, sorted map keys, shortest ints/floats, no tags).
+- Integers are limited to i64/u64 (CBOR major 0/1); float widths are minimized to round-trip.
+- Host code should call into Rust/WASM helpers rather than hand-encoding bytes to avoid non-canonical payloads.
+- JS→CBOR mapping rules for the ABI are frozen in `docs/js-cbor-mapping.md` (string map keys only; ban `undefined`/`BigInt`; shortest ints/floats; no tags or indefinite lengths). Host and kernel must both enforce these rules.

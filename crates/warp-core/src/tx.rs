@@ -21,6 +21,7 @@
 /// the same memory layout as `u64` across the FFI/Wasm boundary.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TxId(u64);
 
 impl TxId {

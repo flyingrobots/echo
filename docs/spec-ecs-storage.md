@@ -150,4 +150,4 @@ Chunk {
 - Interaction with scripting languages (e.g., user-defined components) — need extension points for custom allocation?
 - Evaluate fallback for environments lacking `SharedArrayBuffer` (maybe optional).
 
-Document updates should flow into implementation tickets and tests (see execution-plan backlog). Once verified, record results in the decision log.
+Document updates should flow into implementation tickets and tests (see GitHub Issues).

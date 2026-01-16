@@ -34,9 +34,7 @@ Those identifiers have now been mechanically renamed to **WARP** equivalents (e.
 **Project policy:**
 
 - Prefer **WARP** terminology in human-facing docs going forward.
-- When Echo intentionally deviates from the paper design (for performance, ergonomics, or game-engine concerns), we **must** document the deviation and rationale:
-  - record it in `docs/decision-log.md`, and
-  - reflect it here (so readers of the papers learn what changed and why).
+- When Echo intentionally deviates from the paper design (for performance, ergonomics, or game-engine concerns), we **must** document the deviation and rationale here (so readers of the papers learn what changed and why).
 
 Status note: the mechanical rename from `rmg-*` → `warp-*` has landed (crates + the session/tooling surface).
 The session wire protocol prefers `warp_*` op strings and `warp_id`, but decoders accept legacy `rmg_*` / `rmg_id` as compatibility aliases.
@@ -224,7 +222,7 @@ Paper V extracts system-level requirements (examples):
 
 - Terminology drift: “RMG” vs “WARP”
   - Papers use “WARP” as the public substrate name; Echo now uses `warp-*` naming in crates and the session/tooling surface.
-  - Docs and historical artifacts may still mention “RMG”; keep this note (and `docs/decision-log.md`) explicit about why/when a deviation exists.
+  - Docs and historical artifacts may still mention "RMG"; keep this note explicit about why/when a deviation exists.
 - Empty-digest semantics for commit metadata
   - The engine’s canonical empty *length-prefixed list digest* is `blake3(0u64.to_le_bytes())`.
   - Keep docs consistent because this changes commit identity.

@@ -8,15 +8,20 @@ use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
-use crate::ident::{CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId};
+use crate::ident::{
+    make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
+};
+use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
+use crate::telemetry::{NullTelemetrySink, TelemetrySink};
 use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
+use std::sync::Arc;
 
 /// Result of calling [`Engine::apply`].
 #[derive(Debug)]
@@ -25,6 +30,37 @@ pub enum ApplyResult {
     Applied,
     /// The rewrite did not match the provided scope.
     NoMatch,
+}
+
+/// Result of calling [`Engine::ingest_intent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestDisposition {
+    /// The intent was already present in the ledger (idempotent retry).
+    Duplicate {
+        /// Content hash of the canonical intent bytes (`intent_id = H(intent_bytes)`).
+        intent_id: Hash,
+    },
+    /// The intent was accepted and added to the pending inbox set.
+    Accepted {
+        /// Content hash of the canonical intent bytes (`intent_id = H(intent_bytes)`).
+        intent_id: Hash,
+    },
+}
+
+/// Result of calling [`Engine::dispatch_next_intent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchDisposition {
+    /// No pending intent was present in the inbox.
+    NoPending,
+    /// A pending intent was consumed (pending edge removed).
+    ///
+    /// `handler_matched` indicates whether a `cmd/*` rule matched the intent in this tick.
+    Consumed {
+        /// Content hash of the canonical intent bytes (`intent_id = H(intent_bytes)`).
+        intent_id: Hash,
+        /// Whether a command handler (`cmd/*`) matched and was enqueued.
+        handler_matched: bool,
+    },
 }
 
 /// Errors emitted by the engine.
@@ -51,7 +87,143 @@ pub enum EngineError {
     /// Attempted to access a warp instance that does not exist.
     #[error("unknown warp instance: {0:?}")]
     UnknownWarp(WarpId),
+    /// Tick index is out of bounds (exceeds ledger length).
+    #[error("tick index {0} exceeds ledger length {1}")]
+    InvalidTickIndex(usize, usize),
 }
+
+// ============================================================================
+// Engine Builder
+// ============================================================================
+
+/// Source for building an engine from a fresh [`GraphStore`].
+pub struct FreshStore {
+    store: GraphStore,
+    root: NodeId,
+}
+
+/// Source for building an engine from an existing [`WarpState`].
+pub struct ExistingState {
+    state: WarpState,
+    root: NodeKey,
+}
+
+/// Fluent builder for constructing [`Engine`] instances.
+///
+/// Use [`EngineBuilder::new`] to start from a fresh [`GraphStore`], or
+/// [`EngineBuilder::from_state`] to start from an existing [`WarpState`].
+///
+/// # Example
+///
+/// ```ignore
+/// let engine = EngineBuilder::new(store, root)
+///     .scheduler(SchedulerKind::Radix)
+///     .policy_id(42)
+///     .build();
+/// ```
+pub struct EngineBuilder<Source> {
+    source: Source,
+    scheduler: SchedulerKind,
+    policy_id: u32,
+    telemetry: Option<Arc<dyn TelemetrySink>>,
+}
+
+impl EngineBuilder<FreshStore> {
+    /// Creates a builder for a new engine with the given store and root node.
+    ///
+    /// Defaults:
+    /// - Scheduler: [`SchedulerKind::Radix`]
+    /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Telemetry: [`NullTelemetrySink`]
+    pub fn new(store: GraphStore, root: NodeId) -> Self {
+        Self {
+            source: FreshStore { store, root },
+            scheduler: SchedulerKind::Radix,
+            policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            telemetry: None,
+        }
+    }
+
+    /// Builds the engine. This operation is infallible for fresh stores.
+    #[must_use]
+    pub fn build(self) -> Engine {
+        let telemetry = self
+            .telemetry
+            .unwrap_or_else(|| Arc::new(NullTelemetrySink));
+        Engine::with_telemetry(
+            self.source.store,
+            self.source.root,
+            self.scheduler,
+            self.policy_id,
+            telemetry,
+        )
+    }
+}
+
+impl EngineBuilder<ExistingState> {
+    /// Creates a builder for an engine from an existing [`WarpState`].
+    ///
+    /// Defaults:
+    /// - Scheduler: [`SchedulerKind::Radix`]
+    /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Telemetry: [`NullTelemetrySink`]
+    pub fn from_state(state: WarpState, root: NodeKey) -> Self {
+        Self {
+            source: ExistingState { state, root },
+            scheduler: SchedulerKind::Radix,
+            policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            telemetry: None,
+        }
+    }
+
+    /// Builds the engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp instance is missing.
+    /// Returns [`EngineError::InternalCorruption`] if the root is invalid.
+    pub fn build(self) -> Result<Engine, EngineError> {
+        let telemetry = self
+            .telemetry
+            .unwrap_or_else(|| Arc::new(NullTelemetrySink));
+        Engine::with_state_and_telemetry(
+            self.source.state,
+            self.source.root,
+            self.scheduler,
+            self.policy_id,
+            telemetry,
+        )
+    }
+}
+
+impl<S> EngineBuilder<S> {
+    /// Sets the scheduler variant.
+    #[must_use]
+    pub fn scheduler(mut self, kind: SchedulerKind) -> Self {
+        self.scheduler = kind;
+        self
+    }
+
+    /// Sets the policy identifier.
+    ///
+    /// The policy ID is committed into `patch_digest` and `commit_id` v2.
+    #[must_use]
+    pub fn policy_id(mut self, id: u32) -> Self {
+        self.policy_id = id;
+        self
+    }
+
+    /// Sets the telemetry sink for observability events.
+    #[must_use]
+    pub fn telemetry(mut self, sink: Arc<dyn TelemetrySink>) -> Self {
+        self.telemetry = Some(sink);
+        self
+    }
+}
+
+// ============================================================================
+// Engine
+// ============================================================================
 
 /// Core rewrite engine used by the spike.
 ///
@@ -62,6 +234,19 @@ pub enum EngineError {
 /// little-endian and ids are raw 32-byte values. Changing any of these rules is
 /// a breaking change to snapshot identity and must be recorded in the
 /// determinism spec and tests.
+///
+/// # Construction
+///
+/// Use [`EngineBuilder`] for fluent configuration:
+///
+/// ```ignore
+/// let engine = EngineBuilder::new(store, root)
+///     .scheduler(SchedulerKind::Radix)
+///     .policy_id(42)
+///     .build();
+/// ```
+///
+/// Legacy constructors are also available for backward compatibility.
 pub struct Engine {
     state: WarpState,
     rules: HashMap<&'static str, RewriteRule>,
@@ -79,6 +264,11 @@ pub struct Engine {
     live_txs: HashSet<u64>,
     current_root: NodeKey,
     last_snapshot: Option<Snapshot>,
+    /// Sequential history of all committed ticks (Snapshot, Receipt, Patch).
+    tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
+    intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
+    /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
+    initial_state: WarpState,
 }
 
 struct ReserveOutcome {
@@ -120,7 +310,7 @@ impl Engine {
 
     /// Constructs a new engine with explicit scheduler kind and policy identifier.
     ///
-    /// This is the canonical constructor; all other constructors delegate here.
+    /// Uses a null telemetry sink (events are discarded).
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
@@ -134,6 +324,28 @@ impl Engine {
         root: NodeId,
         kind: SchedulerKind,
         policy_id: u32,
+    ) -> Self {
+        Self::with_telemetry(store, root, kind, policy_id, Arc::new(NullTelemetrySink))
+    }
+
+    /// Constructs a new engine with explicit telemetry sink.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    pub fn with_telemetry(
+        store: GraphStore,
+        root: NodeId,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
     ) -> Self {
         // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
         // Any pre-existing `warp_id` on the store is overwritten.
@@ -149,13 +361,15 @@ impl Engine {
             },
             store,
         );
+        // Preserve the initial state (U0) for replay via `jump_to_tick`.
+        let initial_state = state.clone();
         Self {
             state,
             rules: HashMap::new(),
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::new(kind),
+            scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
             tx_counter: 0,
             live_txs: HashSet::new(),
@@ -164,6 +378,9 @@ impl Engine {
                 local_id: root,
             },
             last_snapshot: None,
+            tick_history: Vec::new(),
+            intent_log: Vec::new(),
+            initial_state,
         }
     }
 
@@ -215,18 +432,60 @@ impl Engine {
             return Err(EngineError::UnknownWarp(root.warp_id));
         }
 
+        Self::with_state_and_telemetry(state, root, kind, policy_id, Arc::new(NullTelemetrySink))
+    }
+
+    /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry.
+    ///
+    /// This is the canonical constructor for existing state; [`Engine::with_state`] delegates here
+    /// with a null telemetry sink.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp ID is not present in the state.
+    /// Returns [`EngineError::InternalCorruption`] if the root instance declares a parent
+    /// or if the root node does not match the instance's `root_node`.
+    pub fn with_state_and_telemetry(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+    ) -> Result<Self, EngineError> {
+        let Some(root_instance) = state.instance(&root.warp_id) else {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        };
+        if root_instance.parent.is_some() {
+            return Err(EngineError::InternalCorruption(
+                "root warp instance must not declare a parent",
+            ));
+        }
+        if root_instance.root_node != root.local_id {
+            return Err(EngineError::InternalCorruption(
+                "Engine root must match WarpInstance.root_node",
+            ));
+        }
+        if state.store(&root.warp_id).is_none() {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        }
+
+        // Preserve the initial state (U0) for replay via `jump_to_tick`.
+        let initial_state = state.clone();
         Ok(Self {
             state,
             rules: HashMap::new(),
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::new(kind),
+            scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
             tx_counter: 0,
             live_txs: HashSet::new(),
             current_root: root,
             last_snapshot: None,
+            tick_history: Vec::new(),
+            intent_log: Vec::new(),
+            initial_state,
         })
     }
 
@@ -449,10 +708,20 @@ impl Engine {
             tx,
         };
         self.last_snapshot = Some(snapshot.clone());
+        self.tick_history
+            .push((snapshot.clone(), receipt.clone(), patch.clone()));
         // Mark transaction as closed/inactive and finalize scheduler accounting.
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
         Ok((snapshot, receipt, patch))
+    }
+
+    /// Aborts a transaction without committing a tick.
+    ///
+    /// This closes the transaction and releases any resources reserved in the scheduler.
+    pub fn abort(&mut self, tx: TxId) {
+        self.live_txs.remove(&tx.value());
+        self.scheduler.finalize_tx(tx);
     }
 
     fn reserve_for_receipt(
@@ -596,6 +865,271 @@ impl Engine {
             policy_id,
             tx: TxId::from_raw(self.tx_counter),
         }
+    }
+
+    /// Returns a cloned view of the current warp's graph store (for tests/tools).
+    ///
+    /// This is a snapshot-only view; mutations must go through engine APIs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root warp store doesn't exist, which indicates a bug in
+    /// engine construction (the root store should always be present).
+    #[must_use]
+    #[allow(clippy::expect_used)] // Documented panic: root store missing is a construction bug
+    pub fn store_clone(&self) -> GraphStore {
+        let warp_id = self.current_root.warp_id;
+        self.state
+            .store(&warp_id)
+            .cloned()
+            .expect("root warp store missing - engine construction bug")
+    }
+
+    /// Legacy ingest helper: ingests an inbox event from a [`crate::attachment::AtomPayload`].
+    ///
+    /// This method exists for older call sites that pre-wrap intent bytes in an
+    /// atom payload and/or provide an arrival `seq`.
+    ///
+    /// Canonical semantics:
+    /// - `payload.bytes` are treated as `intent_bytes` and forwarded to [`Engine::ingest_intent`].
+    /// - `seq` is ignored for identity; event nodes are content-addressed by `intent_id`.
+    /// - Invalid intent envelopes are ignored deterministically (no graph mutation).
+    ///
+    /// For debugging only, the provided `(seq, payload)` is recorded in an in-memory
+    /// log when the intent is newly accepted.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn ingest_inbox_event(
+        &mut self,
+        seq: u64,
+        payload: &crate::attachment::AtomPayload,
+    ) -> Result<(), EngineError> {
+        // Legacy API retained for compatibility with older call sites. The new
+        // canonical ingress is content-addressed (`intent_id = H(intent_bytes)`)
+        // via [`Engine::ingest_intent`]; the `seq` input is ignored for identity.
+        //
+        // We still record the provided `seq` in the in-memory intent log for
+        // debugging, but it has no effect on graph identity or hashing.
+        let intent_bytes = payload.bytes.as_ref();
+        let disposition = self.ingest_intent(intent_bytes)?;
+        if let IngestDisposition::Accepted { .. } = disposition {
+            self.intent_log.push((seq, payload.clone()));
+        }
+        Ok(())
+    }
+
+    /// Ingest a canonical intent envelope (`intent_bytes`) into the runtime inbox.
+    ///
+    /// This is the causality-first boundary for writes:
+    /// - `intent_id = H(intent_bytes)` is computed immediately (domain-separated).
+    /// - The event node id is derived from `intent_id` (content-addressed), not arrival order.
+    /// - Ingress is idempotent: re-ingesting identical `intent_bytes` returns `Duplicate` and
+    ///   does not create additional ledger entries or pending edges.
+    ///
+    /// Inbox mechanics (pending vs. applied) are tracked via edges:
+    /// - While pending, an edge of type `edge:pending` exists from `sim/inbox` to the event node.
+    /// - When consumed, the pending edge is deleted as queue maintenance; the event node remains
+    ///   as an append-only ledger entry.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn ingest_intent(&mut self, intent_bytes: &[u8]) -> Result<IngestDisposition, EngineError> {
+        let intent_id = crate::inbox::compute_intent_id(intent_bytes);
+        let event_id = NodeId(intent_id);
+
+        let warp_id = self.current_root.warp_id;
+        let store = self
+            .state
+            .store_mut(&warp_id)
+            .ok_or(EngineError::UnknownWarp(warp_id))?;
+
+        let root_id = self.current_root.local_id;
+
+        let sim_id = make_node_id("sim");
+        let inbox_id = make_node_id(INBOX_PATH);
+
+        let sim_ty = make_type_id("sim");
+        let inbox_ty = make_type_id(INBOX_PATH);
+        let event_ty = make_type_id(INBOX_EVENT_TYPE);
+
+        // Structural nodes/edges (idempotent).
+        store.insert_node(sim_id, NodeRecord { ty: sim_ty });
+        store.insert_node(inbox_id, NodeRecord { ty: inbox_ty });
+
+        store.insert_edge(
+            root_id,
+            crate::record::EdgeRecord {
+                id: make_edge_id("edge:root/sim"),
+                from: root_id,
+                to: sim_id,
+                ty: make_type_id("edge:sim"),
+            },
+        );
+        store.insert_edge(
+            sim_id,
+            crate::record::EdgeRecord {
+                id: make_edge_id("edge:sim/inbox"),
+                from: sim_id,
+                to: inbox_id,
+                ty: make_type_id("edge:inbox"),
+            },
+        );
+
+        if store.node(&event_id).is_some() {
+            return Ok(IngestDisposition::Duplicate { intent_id });
+        }
+
+        // Ledger entry: immutable event node keyed by content hash.
+        store.insert_node(event_id, NodeRecord { ty: event_ty });
+        let payload = crate::attachment::AtomPayload::new(
+            make_type_id(INTENT_ATTACHMENT_TYPE),
+            bytes::Bytes::copy_from_slice(intent_bytes),
+        );
+        store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)));
+
+        // Pending queue membership (edge id derived from inbox_id + intent_id).
+        store.insert_edge(
+            inbox_id,
+            crate::record::EdgeRecord {
+                id: crate::inbox::pending_edge_id(&inbox_id, &intent_id),
+                from: inbox_id,
+                to: event_id,
+                ty: make_type_id(PENDING_EDGE_TYPE),
+            },
+        );
+
+        Ok(IngestDisposition::Accepted { intent_id })
+    }
+
+    /// Returns the number of currently pending intents in `sim/inbox`.
+    ///
+    /// This counts `edge:pending` edges from the inbox node; ledger nodes are
+    /// append-only and are not required to remain reachable once their pending
+    /// edge is removed.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn pending_intent_count(&self) -> Result<usize, EngineError> {
+        let warp_id = self.current_root.warp_id;
+        let store = self
+            .state
+            .store(&warp_id)
+            .ok_or(EngineError::UnknownWarp(warp_id))?;
+        let inbox_id = make_node_id(INBOX_PATH);
+        let pending_ty = make_type_id(PENDING_EDGE_TYPE);
+        Ok(store
+            .edges_from(&inbox_id)
+            .filter(|e| e.ty == pending_ty)
+            .count())
+    }
+
+    /// Dispatches exactly one pending intent (if any) in canonical `intent_id` order.
+    ///
+    /// Canonical ordering is defined by ascending byte order over `intent_id`.
+    ///
+    /// Mechanically:
+    /// - Select the pending event node with the smallest `intent_id`.
+    /// - Attempt to enqueue exactly one `cmd/*` rule for that node, using stable
+    ///   rule id order as the tie-break when multiple handlers exist.
+    /// - Enqueue `sys/ack_pending` to delete the pending edge (queue maintenance).
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownTx`] if `tx` is invalid, or
+    /// [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn dispatch_next_intent(&mut self, tx: TxId) -> Result<DispatchDisposition, EngineError> {
+        let warp_id = self.current_root.warp_id;
+        let store = self
+            .state
+            .store(&warp_id)
+            .ok_or(EngineError::UnknownWarp(warp_id))?;
+        let inbox_id = make_node_id(INBOX_PATH);
+        let pending_ty = make_type_id(PENDING_EDGE_TYPE);
+
+        let mut next: Option<NodeId> = None;
+        for edge in store.edges_from(&inbox_id) {
+            if edge.ty != pending_ty {
+                continue;
+            }
+            let cand = edge.to;
+            next = Some(next.map_or(cand, |current| current.min(cand)));
+        }
+
+        let Some(event_id) = next else {
+            return Ok(DispatchDisposition::NoPending);
+        };
+
+        // Deterministic handler order: rule_id ascending over cmd/* rules.
+        let mut cmd_rules: Vec<(Hash, &'static str)> = self
+            .rules
+            .values()
+            .filter(|r| r.name.starts_with("cmd/"))
+            .map(|r| (r.id, r.name))
+            .collect();
+        cmd_rules.sort_unstable_by(|(a_id, a_name), (b_id, b_name)| {
+            a_id.cmp(b_id).then_with(|| a_name.cmp(b_name))
+        });
+
+        let mut handler_matched = false;
+        for (_id, name) in cmd_rules {
+            if matches!(self.apply(tx, name, &event_id)?, ApplyResult::Applied) {
+                handler_matched = true;
+                break;
+            }
+        }
+
+        // Always consume one pending intent per tick (queue maintenance).
+        let _ = self.apply(tx, crate::inbox::ACK_PENDING_RULE_NAME, &event_id)?;
+
+        Ok(DispatchDisposition::Consumed {
+            intent_id: event_id.0,
+            handler_matched,
+        })
+    }
+
+    /// Returns the sequence of all committed ticks (Snapshot, Receipt, Patch).
+    #[must_use]
+    pub fn get_ledger(&self) -> &[(Snapshot, TickReceipt, WarpTickPatchV1)] {
+        &self.tick_history
+    }
+
+    /// Resets the engine state to the beginning of time (U0) and re-applies all patches
+    /// up to and including the specified tick index.
+    ///
+    /// # Errors
+    /// - Returns [`EngineError::InvalidTickIndex`] if `tick_index` exceeds ledger length.
+    /// - Returns [`EngineError::InternalCorruption`] if a patch fails to apply.
+    pub fn jump_to_tick(&mut self, tick_index: usize) -> Result<(), EngineError> {
+        let ledger_len = self.tick_history.len();
+        if tick_index >= ledger_len {
+            return Err(EngineError::InvalidTickIndex(tick_index, ledger_len));
+        }
+
+        // 1. Restore state to the preserved initial state (U0).
+        // This ensures patches are replayed against the exact original base,
+        // rather than a fresh WarpState which would discard the original U0.
+        self.state = self.initial_state.clone();
+
+        // 2. Re-apply patches from index 0 to tick_index
+        for i in 0..=tick_index {
+            let (_, _, patch) = &self.tick_history[i];
+            patch.apply_to_state(&mut self.state).map_err(|_| {
+                EngineError::InternalCorruption("failed to replay patch during jump")
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Returns a shared view of the current warp state.
+    #[must_use]
+    pub fn state(&self) -> &WarpState {
+        &self.state
+    }
+
+    /// Returns a mutable view of the current warp state.
+    pub fn state_mut(&mut self) -> &mut WarpState {
+        &mut self.state
     }
 
     /// Returns a shared view of a node when it exists.
@@ -769,6 +1303,19 @@ impl Engine {
     }
 }
 
+impl Engine {
+    /// Returns a reference to the intent log.
+    ///
+    /// Each entry is a `(seq, crate::attachment::AtomPayload)` pair where:
+    /// - `seq` is the ingest sequence number provided to [`Engine::ingest_inbox_event`].
+    /// - `AtomPayload` is the stored payload associated with the ingested intent.
+    ///
+    /// This log is populated by [`Engine::ingest_inbox_event`] for debugging purposes;
+    /// it does not affect graph identity or deterministic hashing.
+    pub fn get_intent_log(&self) -> &[(u64, crate::attachment::AtomPayload)] {
+        &self.intent_log
+    }
+}
 /// Computes the canonical scope hash used for deterministic scheduler ordering.
 ///
 /// This value is the first component of the scheduler’s canonical ordering key
@@ -841,14 +1388,73 @@ fn extend_slots_from_footprint(
 mod tests {
     use super::*;
     use crate::attachment::{AttachmentKey, AttachmentValue};
-    use crate::demo::motion::{motion_rule, MOTION_RULE_NAME};
     use crate::ident::{make_node_id, make_type_id};
     use crate::payload::encode_motion_atom_payload;
     use crate::record::NodeRecord;
 
+    const TEST_RULE_NAME: &str = "test/motion";
+
+    fn test_motion_rule() -> RewriteRule {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rule:");
+        hasher.update(TEST_RULE_NAME.as_bytes());
+        let id: Hash = hasher.finalize().into();
+        RewriteRule {
+            id,
+            name: TEST_RULE_NAME,
+            left: crate::rule::PatternGraph { nodes: vec![] },
+            matcher: |store, scope| {
+                matches!(
+                    store.node_attachment(scope),
+                    Some(AttachmentValue::Atom(payload)) if crate::payload::decode_motion_atom_payload(payload).is_some()
+                )
+            },
+            executor: |store, scope| {
+                let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
+                    return;
+                };
+                let Some((pos_raw, vel_raw)) =
+                    crate::payload::decode_motion_atom_payload_q32_32(payload)
+                else {
+                    return;
+                };
+                let new_pos_raw = [
+                    pos_raw[0].saturating_add(vel_raw[0]),
+                    pos_raw[1].saturating_add(vel_raw[1]),
+                    pos_raw[2].saturating_add(vel_raw[2]),
+                ];
+                payload.type_id = crate::payload::motion_payload_type_id();
+                payload.bytes = crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
+            },
+            compute_footprint: |store, scope| {
+                let mut a_write = crate::AttachmentSet::default();
+                if store.node(scope).is_some() {
+                    a_write.insert(AttachmentKey::node_alpha(NodeKey {
+                        warp_id: store.warp_id(),
+                        local_id: *scope,
+                    }));
+                }
+                crate::Footprint {
+                    n_read: crate::IdSet::default(),
+                    n_write: crate::IdSet::default(),
+                    e_read: crate::IdSet::default(),
+                    e_write: crate::IdSet::default(),
+                    a_read: crate::AttachmentSet::default(),
+                    a_write,
+                    b_in: crate::PortSet::default(),
+                    b_out: crate::PortSet::default(),
+                    factor_mask: 0,
+                }
+            },
+            factor_mask: 0,
+            conflict_policy: crate::rule::ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
     #[test]
     fn scope_hash_stable_for_rule_and_scope() {
-        let rule = motion_rule();
+        let rule = test_motion_rule();
         let warp_id = crate::ident::make_warp_id("scope-hash-test-warp");
         let scope_node = make_node_id("scope-hash-entity");
         let scope = NodeKey {
@@ -898,11 +1504,11 @@ mod tests {
         store.set_node_attachment(entity, Some(AttachmentValue::Atom(payload)));
 
         let mut engine = Engine::new(store, entity);
-        let register = engine.register_rule(motion_rule());
+        let register = engine.register_rule(test_motion_rule());
         assert!(register.is_ok(), "rule registration failed: {register:?}");
 
         let tx = engine.begin();
-        let applied = engine.apply(tx, MOTION_RULE_NAME, &entity);
+        let applied = engine.apply(tx, TEST_RULE_NAME, &entity);
         assert!(
             matches!(applied, Ok(ApplyResult::Applied)),
             "expected ApplyResult::Applied, got {applied:?}"

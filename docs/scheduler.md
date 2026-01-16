@@ -23,7 +23,7 @@ This page is a landing map: “which scheduler doc should I read?”
 | Understand determinism + rewrite scheduling in Rust | `docs/spec-warp-core.md` | `docs/scheduler-warp-core.md` |
 | Validate `reserve()` correctness / determinism properties | `docs/scheduler-warp-core.md` | `crates/warp-core/src/scheduler.rs` tests + `crates/warp-core/tests/*` |
 | Benchmark rewrite scheduler throughput | `docs/scheduler-performance-warp-core.md` | `crates/warp-benches/benches/scheduler_drain.rs` |
-| Understand the planned ECS/system scheduler | `docs/spec-scheduler.md` | `docs/spec-concurrency-and-authoring.md`, `docs/spec-codex-baby.md` |
+| Understand the planned ECS/system scheduler | `docs/spec-scheduler.md` | `docs/spec-concurrency-and-authoring.md` |
 
 ---
 
@@ -53,7 +53,6 @@ and coordinate systems (and future ECS/timeline concepts).
 
 Related docs:
 - Authoring/concurrency model: `docs/spec-concurrency-and-authoring.md`
-- Codex’s Baby integration concepts: `docs/spec-codex-baby.md`
 
 ---
 

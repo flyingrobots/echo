@@ -37,7 +37,7 @@
 - ECS storage (future) — docs/spec-ecs-storage.md → new `ecs/*` modules (TBD)
 - Serialization — docs/spec-serialization-protocol.md → `snapshot.rs` (hashing), future codecs
 - Deterministic math — docs/SPEC_DETERMINISTIC_MATH.md, docs/math-validation-plan.md → `math/*`
-- Temporal bridge/Codex’s Baby — docs/spec-temporal-bridge.md, docs/spec-codex-baby.md → future modules (TBD)
+- Temporal bridge — docs/spec-temporal-bridge.md → future modules (TBD)
 
 ## Conventions
 

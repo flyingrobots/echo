@@ -14,7 +14,6 @@ Links
 - Closes #<issue> / Refs #<issue>
 
 Checklist
-- [ ] Docs Guard satisfied (updated docs/execution-plan.md and docs/decision-log.md when non-doc files changed)
 - [ ] CI green (fmt, clippy, tests, rustdoc, audit/deny)
 - [ ] Kept PR small and focused (one thing)
 

@@ -259,7 +259,7 @@ When the backend lands, update:
 
 - `docs/SPEC_DETERMINISTIC_MATH.md` checklist (`sin/cos` deterministic approximation)
 
-And add a short decision-log entry noting:
+Document:
 
 - the chosen LUT resolution/interpolation
 - the accepted error budget

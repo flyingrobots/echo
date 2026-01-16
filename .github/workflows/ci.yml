@@ -161,38 +161,6 @@ jobs:
       - name: cargo test (warp-core, musl, det_fixed)
         run: cargo test -p warp-core --features det_fixed --target x86_64-unknown-linux-musl
 
-  docs:
-    name: Docs Guard
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Ensure execution plan and decision log were updated
-        run: |
-          set -euo pipefail
-          base_ref="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "$base_ref" --depth=1
-          changed=$(git diff --name-only "origin/${base_ref}"..."${{ github.sha }}")
-          if [ -z "$changed" ]; then
-            exit 0
-          fi
-          non_doc=$(echo "$changed" | grep -vE '(^docs/)|(\.md$)' || true)
-          if [ -z "$non_doc" ]; then
-            exit 0
-          fi
-          echo "Non-doc files changed:"
-          echo "$non_doc"
-          echo "$changed" | grep -Fx 'docs/execution-plan.md' >/dev/null || {
-            echo 'docs/execution-plan.md must be updated when non-doc files change.';
-            exit 1;
-          }
-          echo "$changed" | grep -Fx 'docs/decision-log.md' >/dev/null || {
-            echo 'docs/decision-log.md must be updated when non-doc files change.';
-            exit 1;
-          }
-
   rust-version:
     name: Rust Version Guard
     runs-on: ubuntu-latest

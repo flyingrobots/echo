@@ -5,17 +5,15 @@
 The following files record chronological intent (not mutable state), so they must only grow:
 
 - `AGENTS.md`
-- `docs/decision-log.md`
 - `TASKS-DAG.md`
-- `docs/execution-plan.md`
 
 **Invariant:** updates may only append new lines; deletions, reorders, or inline modifications that rewrite history are forbidden.
 
 ## Enforcement plan
 
 1. Run `node scripts/check-append-only.js` (or `APPEND_ONLY_BASE=<base> node scripts/check-append-only.js`) in the pre-merge/CI gate before merging any branch that touches these files. The script compares the current tip to the configured base (default `origin/main`) and fails if any of the tracked paths report deleted lines. CI runs this in the `Append-only Guard` workflow (`.github/workflows/append-only-check.yml`).
-2. Update `docs/decision-log.md` and `docs/execution-plan.md` whenever you add a new entry so the logs stay current and the append-only policy is clear.
-3. Document the first failing diff in `docs/decision-log.md` (with the new entry) and attribute the policy to this doc so future contributors understand why the check runs.
+2. Keep the append-only policy clear in documentation.
+3. Attribute the policy to this doc so future contributors understand why the check runs.
 
 ## When the check runs
 

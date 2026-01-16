@@ -110,7 +110,6 @@ A feature is not "Done" until:
 - [ ] The code builds and tests pass: `cargo test`.
 - [ ] Public APIs are documented and the docs gate is clean: `cargo clippy --all-targets -- -D missing_docs`.
 - [ ] SPDX header policy is satisfied: `scripts/check_spdx.sh --check --all`.
-- [ ] Docs Guard is satisfied: update `docs/execution-plan.md` and `docs/decision-log.md` when non-doc code changes.
 - [ ] If the change is spec-facing: a `specs/spec-XXX` directory exists and the spec page explains the concept.
 - [ ] If the change is spec-facing: the spec imports the relevant kernel slice and provides an interactive demo harness.
 - [ ] If/when certification is enabled: the spec defines a deterministic “win condition” that can emit a completion proof (planned; not yet implemented).

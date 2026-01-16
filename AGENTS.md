@@ -6,16 +6,14 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 
 ## Core Principles
 - **Honor the Vision**: Echo is a deterministic, multiverse-aware ECS. Consult `docs/architecture-outline.md` before touching runtime code.
-- **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, memorials) or other durable repo artifacts (e.g. `docs/decision-log.md`).
+- **Document Ruthlessly**: Every meaningful design choice should land in `docs/` (specs, diagrams, ADRs) or PR descriptions.
 - **Docstrings Aren't Optional**: Public APIs across crates (`warp-core`, `warp-ffi`, `warp-wasm`, etc.) must carry rustdoc comments that explain intent, invariants, and usage. Treat missing docs as a failing test.
 - **Determinism First**: Avoid introducing sources of nondeterminism without a mitigation plan.
 - **Temporal Mindset**: Think in timelines—branching, merging, entropy budgets. Feature work should map to Chronos/Kairos/Aion axes where appropriate.
 
 ## Timeline Logging
-- Start each session by updating *Today’s Intent* in `docs/execution-plan.md`.
-- Capture milestones, blockers, and decisions directly in this repo (e.g. `docs/decision-log.md`, relevant specs, or PR descriptions).
-- When wrapping up, record outcomes and next steps in the Decision Log and ensure any impacted docs stay in sync.
-- AGENTS.md, `docs/decision-log.md`, `TASKS-DAG.md`, and `docs/execution-plan.md` are append-only; see `docs/append-only-invariants.md` plus `scripts/check-append-only.js` for the enforcement plan that CI will run before merges.
+- Capture milestones, blockers, and decisions in relevant specs, ADRs, or PR descriptions.
+- AGENTS.md and `TASKS-DAG.md` are append-only; see `docs/append-only-invariants.md` plus `scripts/check-append-only.js` for the enforcement plan that CI will run before merges.
 
 ## Workflows & Automation
 - The contributor playbook lives in `docs/workflows.md` (policy + blessed commands + automation).
@@ -42,14 +40,12 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
   - Use explicit closing keywords in the PR body: include a line like `Closes #<issue-number>` so the issue auto‑closes on merge.
   - Keep PRs single‑purpose: 1 PR = 1 thing. Avoid bundling unrelated changes.
 - Branch naming: prefer `echo/<short-feature-name>` or `timeline/<experiment>` and include the issue number in the PR title.
-- Docs Guard: when a PR touches non‑doc code, update `docs/execution-plan.md` and `docs/decision-log.md` in the same PR.
-- Project hygiene: assign the PR’s linked issue to the correct Milestone and Board column (Blocked/Ready/Done) as part of the PR.
+- Project hygiene: assign the PR's linked issue to the correct Milestone and Board column (Blocked/Ready/Done) as part of the PR.
 
 ### Git Hooks & Local CI
 - Install repo hooks once with `make hooks` (configures `core.hooksPath`).
 - Formatting: pre-commit auto-fixes with `cargo fmt` by default. Set `ECHO_AUTO_FMT=0` to run check-only instead.
 - Toolchain: pre-commit verifies your active toolchain matches `rust-toolchain.toml`.
-- Docs Guard: when core API files change, the hook requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors the CI check).
 - SPDX header policy (source): every source file must start with exactly:
   - `// SPDX-License-Identifier: Apache-2.0`
   - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
@@ -62,8 +58,4 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 
 In short: no one cares about a tidy commit graph, but everyone cares if you rewrite commits on origin.
 
-## Contact Threads
-- Docs `decision-log.md`: Chronological design decisions.
-- Docs `execution-plan.md`: Working map of tasks, intent, and progress.
-
-Safe travels in the multiverse. Logged timelines are happy timelines. 🌀
+Safe travels in the multiverse.

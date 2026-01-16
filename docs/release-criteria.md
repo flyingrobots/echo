@@ -15,7 +15,6 @@ Checklist for closing Phase 0.5 and starting Phase 1 implementation.
 - [ ] Deterministic config loader produces `configHash`.
 - [ ] Plugin manifest loader validates capabilities and records `pluginsManifestHash`.
 - [ ] Inspector JSONL writer produces canonical frames.
-- [ ] Decision log updated with outcomes (including EPI bundle).
 - [ ] Documentation index current (spec map).
 
 Once all items checked, open Phase 1 milestone and migrate outstanding tasks to implementation backlog.

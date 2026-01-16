@@ -21,12 +21,12 @@ Welcome, chrononaut! Echo thrives when timelines collaborate. Please read this g
 ## Project Philosophy
 Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - **Determinism**: every change must preserve reproducible simulations.
-- **Documentation**: specs and decision logs live alongside code.
+- **Documentation**: specs live alongside code.
 - **Temporal Tooling**: features support branching timelines and merges.
 
 ## Getting Started
 1. Clone the repo and run `cargo check` to ensure the Rust workspace builds.
-2. Read `docs/architecture-outline.md` and `docs/execution-plan.md`.
+2. Read `docs/architecture-outline.md`.
 3. Review `AGENTS.md` for collaboration norms before touching runtime code.
 4. Optional: develop inside the devcontainer for toolchain parity with CI.
    - Open in VS Code → "Reopen in Container" (requires the Dev Containers extension).
@@ -36,7 +36,6 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Branching & Workflow
 - Keep `main` pristine. Create feature branches like `echo/<feature>` or `timeline/<experiment>`.
 - Before starting work, ensure `git status` is clean. If not, resolve or coordinate with the human operator.
-- Before each session, update the “Today’s Intent” section in `docs/execution-plan.md` so future collaborators can follow the timeline.
 - PR review loops are procedural: follow `docs/procedures/PR-SUBMISSION-REVIEW-LOOP.md` and use `docs/procedures/EXTRACT-PR-COMMENTS.md` to extract actionable CodeRabbitAI feedback per round.
 
 ## Testing Expectations
@@ -51,8 +50,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 ## Documentation & Telemetry
 - Update relevant docs in `docs/` whenever behavior or architecture changes.
-- Record major decisions or deviations in the execution plan or decision log tables.
-- Capture breadcrumbs for future Codex agents in `docs/decision-log.md` or related specs.
+- Record major architectural decisions in ADRs (`docs/adr/`) or PR descriptions.
 
 ## Submitting Changes
 1. Run `cargo fmt`, `cargo clippy`, and `cargo test`.
@@ -74,7 +72,6 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 - Pre-commit runs:
   - cargo fmt (auto-fix by default; set `ECHO_AUTO_FMT=0` for check-only)
   - Toolchain pin verification (matches `rust-toolchain.toml`)
-  - A minimal docs-guard: when core API files change, it requires updating `docs/execution-plan.md` and `docs/decision-log.md` (mirrors CI)
 - To auto-fix formatting on commit: `ECHO_AUTO_FMT=1 git commit -m "message"`
 
 #### Partial Staging & rustfmt
@@ -91,10 +88,9 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
   - rustup toolchain install 1.90.0
   - rustup override set 1.90.0
-- When any Rust code changes (.rs anywhere), update both `docs/execution-plan.md` and `docs/decision-log.md` with intent and a brief rationale. The hook enforces this.
 
 ## Communication
-- Major updates should land in `docs/execution-plan.md` and `docs/decision-log.md`; rely on GitHub discussions or issues for longer-form proposals.
+- Rely on GitHub discussions or issues for longer-form proposals.
 - Respect the temporal theme—leave the codebase cleaner for the next timeline traveler.
 
 Thanks for helping forge Echo’s spine. 🌀

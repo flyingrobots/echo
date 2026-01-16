@@ -14,7 +14,7 @@ Instead of treating a game/simulation as a pile of mutable objects, Echo treats 
 
 ## Project Status
 
-**Status:** active R&D. The deterministic core (`warp-core`) and a session/tooling pipeline are implemented; higher‑level “world / ECS / systems” layers and the full timeline tree mechanics are specced and landing incrementally.
+**Status (2026-01):** Active R&D. The deterministic core (`warp-core`) and session/tooling pipeline are implemented. Higher-level layers (ECS storage, system scheduler, timeline tree) are specced but not yet built. See [`docs/architecture-outline.md`](docs/architecture-outline.md) for per-section implementation status.
 
 ## Buckle Up
 
@@ -23,7 +23,7 @@ Start here:
 - Start Here: [`docs/guide/start-here.md`](docs/guide/start-here.md)
 - Non-programmer on-ramp: [`docs/guide/eli5.md`](docs/guide/eli5.md)
 - WARP primer: [`docs/guide/warp-primer.md`](docs/guide/warp-primer.md)
-- Project tour: [`docs/notes/project-tour-2025-12-28.md`](docs/notes/project-tour-2025-12-28.md)
+- Docs map: [`docs/docs-index.md`](docs/docs-index.md)
 - AIΩN bridge doc: [`docs/aion-papers-bridge.md`](docs/aion-papers-bridge.md)
 - Architecture outline: [`docs/architecture-outline.md`](docs/architecture-outline.md)
 - Commit hashing spec: [`docs/spec-merkle-commit.md`](docs/spec-merkle-commit.md)
@@ -95,8 +95,7 @@ If you’re building anything that benefits from “Git‑like” properties for
 - `crates/echo-wasm-abi` — WASM‑friendly DTO schema for specs.
 - `crates/echo-wasm-bindings` — demo kernel + rewrite history (teaching slice; not the production engine).
 
-For a deeper “tour” oriented around invariants and entry points, see
-[`docs/notes/project-tour-2025-12-28.md`](docs/notes/project-tour-2025-12-28.md).
+For a deeper tour, see [`docs/docs-index.md`](docs/docs-index.md).
 
 ---
 
@@ -168,8 +167,8 @@ make spec-000-dev
 
 ## Contributions
 
-- Start with `CONTRIBUTING.md` and `docs/execution-plan.md`.
-- Echo is docs‑driven: behavior changes should be reflected in specs and logged in `docs/decision-log.md`.
+- Start with `CONTRIBUTING.md`.
+- Echo is docs-driven: behavior changes should be reflected in specs and ADRs.
 - Determinism is sacred: avoid wall‑clock time, uncontrolled randomness, and unspecified iteration order.
 
 ### Determinism guard scripts

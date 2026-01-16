@@ -68,15 +68,7 @@ case "${_auto_fmt}" in
     ;;
 esac
 
-# 4) Docs guard: require docs updates on any Rust changes
-STAGED=$(git diff --cached --name-only)
-RUST_CHANGED=$(echo "$STAGED" | grep -E '\\.rs$' || true)
-if [[ -n "$RUST_CHANGED" ]]; then
-  echo "$STAGED" | grep -Fx 'docs/execution-plan.md' >/dev/null || { echo 'pre-commit: docs/execution-plan.md must be updated when Rust files change.' >&2; exit 1; }
-  echo "$STAGED" | grep -Fx 'docs/decision-log.md' >/dev/null || { echo 'pre-commit: docs/decision-log.md must be updated when Rust files change.' >&2; exit 1; }
-fi
-
-# 5) Task list guard: prevent contradictory duplicated checklist items
+# 4) Task list guard: prevent contradictory duplicated checklist items
 if [[ -f scripts/check_task_lists.sh ]]; then
   if [[ ! -x scripts/check_task_lists.sh ]]; then
     echo "pre-commit: scripts/check_task_lists.sh exists but is not executable. Run: chmod +x scripts/check_task_lists.sh" >&2

@@ -274,4 +274,4 @@ Objective: validate scheduler behavior and complexity under realistic dependency
 - Strategy for cross-branch scheduling: separate scheduler per branch vs shared graph with branch-specific execution queues.
 - Should initialization phase run lazily when systems added mid-game, or strictly at startup?
 
-Document updates feed into implementation tasks (`execution-plan` backlog). Once implemented, update the decision log with real-world adjustments.
+Document updates feed into implementation tasks (`execution-plan` backlog).

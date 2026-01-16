@@ -5,9 +5,7 @@
 This roadmap reconciles our current plan with GitHub milestones, issues, and the Project board (Project 9). It is the single source of truth for “what’s next”.
 
 If you feel lost in doc sprawl, use this order:
-- `docs/ROADMAP.md` (this file): milestones and what we’re doing next
-- `docs/execution-plan.md`: day-by-day intent and active threads
-- `docs/decision-log.md`: what we decided and why
+- `docs/ROADMAP.md` (this file): milestones and what we're doing next
 - `docs/docs-index.md`: map of everything else (only when needed)
 
 ---

@@ -115,7 +115,5 @@ Optimization roadmap once baseline is working:
 
 ## Documentation Checklist
 - Update `docs/warp-runtime-architecture.md` as rules/loop evolve.
-- Append decision log entries per phase.
-- Record demo outcomes in `docs/decision-log.md`, prefixing the Decision column with `Demo <number> —` (e.g., `Demo 2 — Timeline hash verified`).
 
 Phase 1 completes when Demo 6 (Live Coding) runs atop the Rust WARP runtime with inspector tooling in place, using Rhai as the scripting layer.

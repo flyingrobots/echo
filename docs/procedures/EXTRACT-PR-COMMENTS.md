@@ -229,7 +229,7 @@ Example:
 
 ```bash
 # Suppose you have a single comment object (e.g., from /tmp/comments-latest.json):
-COMMENT_PATH="docs/decision-log.md"
+COMMENT_PATH="docs/METHODOLOGY.md"
 COMMENT_LINE=42
 
 # Clamp the start line to 1 (sed doesn't like 0/negative ranges).

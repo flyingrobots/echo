@@ -10,9 +10,8 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 ## Session Workflow
 
-- Start a work session by updating *Today’s Intent* in `docs/execution-plan.md`.
-- During work, record decisions and blockers in `docs/decision-log.md` (canonical), and keep `docs/execution-plan.md` in sync.
-- Before opening a PR, confirm the docs guard requirements below.
+- Record architectural decisions in ADRs (`docs/adr/`) or PR descriptions.
+- Before opening a PR, run the validation workflow below.
 
 ---
 
@@ -36,10 +35,7 @@ cargo test --workspace
 cargo clippy --all-targets -- -D warnings -D missing_docs
 ```
 
-Docs guard (CI enforces this):
-- If a PR touches **non-doc** files, it must also update:
-  - `docs/execution-plan.md`
-  - `docs/decision-log.md`
+Validation commands:
 
 ---
 

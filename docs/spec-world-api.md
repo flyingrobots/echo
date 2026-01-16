@@ -83,7 +83,7 @@ api.emit("update", {
 ---
 
 ## Change Management
-- API changes logged in decision log with version bump.
+- API changes require version bump.
 - Deprecated methods remain no-op until next major release.
 - Extensions (e.g., debug utilities) provided under `api.debug.*` and marked unstable.
 

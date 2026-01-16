@@ -8,7 +8,6 @@ PR: [#141](https://github.com/flyingrobots/echo/pull/141)
 
 This file is a PR-scoped, action-oriented index of review threads → fixing SHAs.
 
-- Canonical design decisions belong in `docs/decision-log.md`.
 - After PR #141 merges, this file may be deleted or moved to `docs/legacy/` if it remains useful as a historical artifact.
 
 ## Snapshot (2025-12-28)
@@ -56,7 +55,6 @@ Notes:
 - [x] [r2612251499](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251499) `docs/METHODOLOGY.md` — Mark hosted spec domains and completion-hash certification as planned (not implemented yet). Fixed in `cfe9270`.
 - [x] [r2612251505](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251505) `docs/METHODOLOGY.md` — Definition of Done must include the repo’s quality gates (tests, docs, clippy, docs-guard, SPDX, fmt). Fixed in `cfe9270` + `641e482`.
 
-- [x] [r2645857677](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857677) `docs/decision-log.md` — Remove duplicate decision-log row (keep the authoritative combined entry). Fixed in `641e482`.
 - [x] [r2645857683](https://github.com/flyingrobots/echo/pull/141#discussion_r2645857683) `docs/jitos/spec-0000.md` — Fix incorrect `crate::warp_core::*` example imports (use external `warp_core` crate paths). Fixed in `cf286e9`.
 - [x] [r2612251514](https://github.com/flyingrobots/echo/pull/141#discussion_r2612251514) `docs/tasks.md` — Remove duplicate contradictory task entries. Fixed in `cfe9270`.
 
@@ -159,7 +157,7 @@ Notes:
 - [x] [r2649699437](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699437) `crates/echo-wasm-abi/src/lib.rs` — Broaden serialization tests to cover all `SemanticOp` variants. Fixed in `46bc079`.
 - [x] [r2649699441](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699441) `crates/echo-wasm-bindings/tests/api_tests.rs` — “Edge-case coverage significantly improved” (ack; no action required). Fixed in `46bc079`.
 - [x] [r2649699442](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699442) `docs/jitos/spec-0000.md` — Remove interactive “Which one do you want me to generate next?” prompt from the spec doc. Fixed in `46bc079`.
-- [x] [r2649699444](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699444) `docs/notes/pr-141-comment-burn-down.md` — Explain relationship to `docs/decision-log.md` and define a retention policy. Fixed in `46bc079`.
+- [x] [r2649699444](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699444) `docs/notes/pr-141-comment-burn-down.md` — Define a retention policy. Fixed in `46bc079`.
 - [x] [r2649699466](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699466) `specs/spec-000-rewrite/index.html` — Add an explicit note about keeping CSS inline for Phase 0 (extraction planned later). Fixed in `46bc079`.
 - [x] [r2649699471](https://github.com/flyingrobots/echo/pull/141#discussion_r2649699471) `WASM-TASKS.md` / `docs/tasks.md` — Add automated enforcement for “task lists must not contradict themselves” (pre-commit + CI). Fixed in `46bc079`.
 

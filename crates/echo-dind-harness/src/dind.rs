@@ -155,13 +155,15 @@ pub fn create_repro_bundle(
     };
     let f_actual = File::create(out_dir.join("actual.hashes.json"))
         .context("failed to create actual.hashes.json")?;
-    serde_json::to_writer_pretty(f_actual, &actual_golden)?;
+    serde_json::to_writer_pretty(f_actual, &actual_golden)
+        .context("failed to serialize actual.hashes.json")?;
 
     // 3. Write expected hashes if available
     if let Some(exp) = expected_golden {
         let f_exp = File::create(out_dir.join("expected.hashes.json"))
             .context("failed to create expected.hashes.json")?;
-        serde_json::to_writer_pretty(f_exp, exp)?;
+        serde_json::to_writer_pretty(f_exp, exp)
+            .context("failed to serialize expected.hashes.json")?;
     }
 
     // 4. Write diff.txt
@@ -213,31 +215,7 @@ pub fn entrypoint() -> Result<()> {
                     bail!("{}", msg);
                 }
 
-                // Compare hashes
-                for (i, (actual, expect)) in
-                    hashes.iter().zip(expected.hashes_hex.iter()).enumerate()
-                {
-                    if actual != expect {
-                        let msg = format!(
-                            "Hash mismatch at step {}.\nActual:   {}
-Expected: {}",
-                            i, actual, expect
-                        );
-                        if let Some(repro_path) = emit_repro {
-                            create_repro_bundle(
-                                &repro_path,
-                                &scenario,
-                                &hashes,
-                                &header,
-                                Some(&expected),
-                                &msg,
-                            )?;
-                            bail!("{}\nRepro bundle emitted to {:?}", msg, repro_path);
-                        }
-                        bail!("{}", msg);
-                    }
-                }
-
+                // Check length first to avoid silent truncation from zip
                 if hashes.len() != expected.hashes_hex.len() {
                     let msg = format!(
                         "Length mismatch. Run has {} steps, golden has {}.",
@@ -258,6 +236,30 @@ Expected: {}",
                     bail!("{}", msg);
                 }
 
+                // Compare hashes (length already validated above)
+                for (i, (actual, expect)) in
+                    hashes.iter().zip(expected.hashes_hex.iter()).enumerate()
+                {
+                    if actual != expect {
+                        let msg = format!(
+                            "Hash mismatch at step {}.\nActual:   {}\nExpected: {}",
+                            i, actual, expect
+                        );
+                        if let Some(repro_path) = emit_repro {
+                            create_repro_bundle(
+                                &repro_path,
+                                &scenario,
+                                &hashes,
+                                &header,
+                                Some(&expected),
+                                &msg,
+                            )?;
+                            bail!("{}\nRepro bundle emitted to {:?}", msg, repro_path);
+                        }
+                        bail!("{}", msg);
+                    }
+                }
+
                 println!("DIND: OK. {} steps verified.", hashes.len());
             } else {
                 println!("DIND: Run complete. {} steps executed.", hashes.len());
@@ -275,7 +277,8 @@ Expected: {}",
             };
 
             let f = File::create(&out).context("failed to create output file")?;
-            serde_json::to_writer_pretty(f, &golden)?;
+            serde_json::to_writer_pretty(f, &golden)
+                .context("failed to serialize golden output")?;
             println!(
                 "DIND: Recorded {} steps to {:?}",
                 golden.hashes_hex.len(),
@@ -422,8 +425,6 @@ fn probe_interop(kernel: &EchoKernel) {
     if let Ok(Some(AttachmentValue::Atom(atom))) = kernel.engine().node_attachment(&ball_id) {
         // This exercises payload.rs, fixed_q32_32.rs, and scalar.rs via the canonical decoder
         let _ = warp_core::decode_motion_atom_payload(atom);
-    } else {
-        // println!("Probe: Ball not found yet.");
     }
 }
 
@@ -498,7 +499,7 @@ Kernel:   {}",
                 );
             }
 
-            let progressed = kernel.step(1000);
+            let progressed = kernel.step();
             probe_interop(&kernel);
             if !progressed {
                 stall_budget = stall_budget.saturating_sub(1);
@@ -519,7 +520,7 @@ Kernel:   {}",
                 .context("pending_intent_count failed")? as u64;
             if pending_now < last_pending {
                 last_pending = pending_now;
-                stall_budget = 64;
+                stall_budget = PERMUTATION_STALL_BUDGET;
             } else {
                 stall_budget = stall_budget.saturating_sub(1);
                 if stall_budget == 0 {
@@ -532,7 +533,7 @@ Kernel:   {}",
     } else {
         while let Some(frame) = read_elog_frame(&mut r)? {
             kernel.dispatch_intent(&frame);
-            kernel.step(1000); // Budget? Just run it.
+            kernel.step(); // Budget? Just run it.
             probe_interop(&kernel); // Exercise boundary code
             hashes.push(hex::encode(kernel.state_hash()));
         }

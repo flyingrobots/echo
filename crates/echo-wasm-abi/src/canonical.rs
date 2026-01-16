@@ -42,6 +42,9 @@ pub enum CanonError {
     /// Generic decode error with detail.
     #[error("decode error: {0}")]
     Decode(String),
+    /// Generic encode error with detail.
+    #[error("encode error: {0}")]
+    Encode(String),
 }
 
 type Result<T> = std::result::Result<T, CanonError>;
@@ -262,15 +265,24 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
     }
 
     fn read_len(bytes: &[u8], idx: &mut usize, info: u8) -> Result<u64> {
+        let val = match info {
+            0..=23 => info as u64,
+            24 => read_uint(bytes, idx, 1)?,
+            25 => read_uint(bytes, idx, 2)?,
+            26 => read_uint(bytes, idx, 4)?,
+            27 => read_uint(bytes, idx, 8)?,
+            31 => return Err(CanonError::Indefinite),
+            _ => return Err(CanonError::Decode("invalid length info".into())),
+        };
+        // Reject non-canonical (over-wide) length encodings
         match info {
-            0..=23 => Ok(info as u64),
-            24 => read_uint(bytes, idx, 1),
-            25 => read_uint(bytes, idx, 2),
-            26 => read_uint(bytes, idx, 4),
-            27 => read_uint(bytes, idx, 8),
-            31 => Err(CanonError::Indefinite),
-            _ => Err(CanonError::Decode("invalid length info".into())),
+            24 if val <= 23 => return Err(CanonError::NonCanonicalInt),
+            25 if val <= 0xff => return Err(CanonError::NonCanonicalInt),
+            26 if val <= 0xffff => return Err(CanonError::NonCanonicalInt),
+            27 if val <= 0xffff_ffff => return Err(CanonError::NonCanonicalInt),
+            _ => {}
         }
+        Ok(val)
     }
 
     match major {
@@ -284,14 +296,6 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
                     .map_err(|_| CanonError::Decode("integer out of range".into()))?;
                 Integer::from(signed)
             };
-            // verify canonical width
-            match info {
-                24 if n <= 23 => return Err(CanonError::NonCanonicalInt),
-                25 if n <= 0xff => return Err(CanonError::NonCanonicalInt),
-                26 if n <= 0xffff => return Err(CanonError::NonCanonicalInt),
-                27 if n <= 0xffff_ffff => return Err(CanonError::NonCanonicalInt),
-                _ => {}
-            }
             Ok(Value::Integer(i))
         }
         2 | 3 => {

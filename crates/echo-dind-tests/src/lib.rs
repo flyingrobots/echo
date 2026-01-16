@@ -32,15 +32,23 @@ impl EchoKernel {
     /// Create a new kernel instance with all DIND rules registered.
     pub fn new() -> Self {
         let mut e = build_motion_demo_engine();
-        let _ = e.register_rule(toast_rule());
-        let _ = e.register_rule(route_push_rule());
-        let _ = e.register_rule(set_theme_rule());
-        let _ = e.register_rule(toggle_nav_rule());
-        let _ = e.register_rule(drop_ball_rule());
-        let _ = e.register_rule(ball_physics_rule());
+        e.register_rule(toast_rule())
+            .expect("toast_rule registration failed");
+        e.register_rule(route_push_rule())
+            .expect("route_push_rule registration failed");
+        e.register_rule(set_theme_rule())
+            .expect("set_theme_rule registration failed");
+        e.register_rule(toggle_nav_rule())
+            .expect("toggle_nav_rule registration failed");
+        e.register_rule(drop_ball_rule())
+            .expect("drop_ball_rule registration failed");
+        e.register_rule(ball_physics_rule())
+            .expect("ball_physics_rule registration failed");
         #[cfg(feature = "dind_ops")]
-        let _ = e.register_rule(put_kv_rule());
-        let _ = e.register_rule(warp_core::inbox::ack_pending_rule());
+        e.register_rule(put_kv_rule())
+            .expect("put_kv_rule registration failed");
+        e.register_rule(warp_core::inbox::ack_pending_rule())
+            .expect("ack_pending_rule registration failed");
 
         Self { engine: e }
     }
@@ -55,8 +63,8 @@ impl EchoKernel {
             .expect("ingest intent");
     }
 
-    /// Run a deterministic step with a fixed budget.
-    pub fn step(&mut self, _budget: u32) -> bool {
+    /// Run a deterministic step.
+    pub fn step(&mut self) -> bool {
         let tx = self.engine.begin();
         let ball_id = make_node_id("ball");
         let mut dirty = false;
@@ -102,11 +110,14 @@ impl EchoKernel {
     }
 
     /// Canonical state hash of the root warp.
+    ///
+    /// # Panics
+    /// Panics if the root warp does not exist (indicates test kernel misconfiguration).
     pub fn state_hash(&self) -> [u8; 32] {
-        if let Some(store) = self.engine.state().store(&warp_core::make_warp_id("root")) {
-            store.canonical_state_hash()
-        } else {
-            [0u8; 32]
-        }
+        self.engine
+            .state()
+            .store(&warp_core::make_warp_id("root"))
+            .expect("root warp must exist in test kernel")
+            .canonical_state_hash()
     }
 }

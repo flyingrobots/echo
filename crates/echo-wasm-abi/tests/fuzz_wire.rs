@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Fuzz tests for wire protocol parsing robustness.
 
 use echo_wasm_abi::unpack_intent_v1;

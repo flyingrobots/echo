@@ -257,6 +257,7 @@ pub mod ops {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use echo_wasm_abi::pack_intent_v1;
@@ -270,7 +271,7 @@ mod tests {
         // Envelope: EINT + OpID + Len + Vars
         let args = ops::set_theme::Args { mode: Theme::DARK };
         let vars = ops::set_theme::encode_vars(&args);
-        let packed = pack_intent_v1(ops::set_theme::OP_ID, &vars);
+        let packed = pack_intent_v1(ops::set_theme::OP_ID, &vars).unwrap();
 
         let expected_vars = vec![0x01, 0x00];
         assert_eq!(vars, expected_vars, "Vars mismatch");

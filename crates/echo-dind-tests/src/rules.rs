@@ -13,6 +13,22 @@ use warp_core::{
 
 const TYPE_VIEW_OP: &str = "sys/view/op";
 
+// -----------------------------------------------------------------------------
+// Fixed-point physics constants (Q32.32 format)
+// -----------------------------------------------------------------------------
+
+/// Q32.32 scale factor: 1 unit = 2^32 fixed-point units.
+const FIXED_POINT_SCALE: i64 = 1 << 32;
+
+/// Initial ball height in world units (400 units above ground).
+const BALL_INITIAL_HEIGHT: i64 = 400;
+
+/// Initial downward velocity magnitude in world units per tick.
+const BALL_INITIAL_VELOCITY: i64 = 5;
+
+/// Gravity acceleration in world units per tick (applied each physics step).
+const GRAVITY_ACCEL: i64 = 1;
+
 /// Human-readable name for the route push command rule.
 pub const ROUTE_PUSH_RULE_NAME: &str = "cmd/route_push";
 /// Human-readable name for the set theme command rule.
@@ -128,8 +144,9 @@ pub fn drop_ball_rule() -> RewriteRule {
         matcher: |s, scope| matcher_for_op(s, scope, ops::drop_ball::OP_ID),
         executor: |s, _scope| {
             let ball_id = make_node_id("ball");
-            let pos = [0, 400i64 << 32, 0];
-            let vel = [0, -5i64 << 32, 0];
+            // Position and velocity in Q32.32 fixed-point format
+            let pos = [0, BALL_INITIAL_HEIGHT * FIXED_POINT_SCALE, 0];
+            let vel = [0, -BALL_INITIAL_VELOCITY * FIXED_POINT_SCALE, 0];
             let payload = MotionV2Builder::new(pos, vel).into_bytes();
             let atom = AtomPayload::new(TYPEID_PAYLOAD_MOTION_V2, payload);
             s.insert_node(
@@ -167,6 +184,9 @@ pub fn ball_physics_rule() -> RewriteRule {
                 let moving = m.vel_raw().iter().any(|&v| v != 0);
                 let below_ground = m.pos_raw()[1] < 0;
                 let airborne = m.pos_raw()[1] > 0;
+                // Match if ball has velocity OR is not at rest position (y != 0).
+                // This triggers physics updates for: falling balls, balls that need
+                // clamping to ground, or balls with residual velocity.
                 return moving || below_ground || airborne;
             }
             false
@@ -176,8 +196,9 @@ pub fn ball_physics_rule() -> RewriteRule {
                 let mut pos = m.pos_raw();
                 let mut vel = m.vel_raw();
 
+                // Apply gravity (semi-implicit Euler) while airborne
                 if pos[1] > 0 {
-                    vel[1] -= 1i64 << 32;
+                    vel[1] -= GRAVITY_ACCEL * FIXED_POINT_SCALE;
                 }
                 pos[1] += vel[1];
                 if pos[1] <= 0 {
@@ -427,13 +448,13 @@ pub fn apply_toggle_nav(store: &mut GraphStore) {
         },
     );
 
-    let current_bytes = store.node_attachment(&id).and_then(|v| match v {
-        AttachmentValue::Atom(a) => Some(a.bytes.clone()),
-        _ => None,
-    });
-    let current_val = current_bytes
-        .as_ref()
-        .map(|b| if !b.is_empty() && b[0] == 1 { 1 } else { 0 })
+    let current_val = store
+        .node_attachment(&id)
+        .and_then(|v| match v {
+            AttachmentValue::Atom(a) => Some(&a.bytes),
+            _ => None,
+        })
+        .map(|b| if !b.is_empty() && b[0] == 1 { 1u8 } else { 0u8 })
         .unwrap_or(0);
     let next_val = if current_val == 1 { 0u8 } else { 1u8 };
 
@@ -497,7 +518,7 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
     let seq = store
         .node_attachment(&view_id)
         .and_then(|v| match v {
-            AttachmentValue::Atom(a) if a.type_id == seq_key => {
+            AttachmentValue::Atom(a) if a.type_id == seq_key && a.bytes.len() >= 8 => {
                 let mut b = [0u8; 8];
                 b.copy_from_slice(&a.bytes[..8]);
                 Some(u64::from_le_bytes(b))
@@ -537,6 +558,25 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
     );
 }
 
+/// Emit a view operation from a state node's attachment bytes.
+///
+/// Looks up the attachment at `state_path`, and if it's an Atom, emits a view op
+/// with the given `view_type_id`. The clone is O(1) for `bytes::Bytes` (ref-count
+/// increment) and is required to release the borrow on `store` before calling
+/// `emit_view_op`, which needs `&mut GraphStore`.
+fn emit_state_op(store: &mut GraphStore, state_path: &str, view_type_id: TypeId) {
+    // Clone releases the borrow on store; bytes::Bytes clone is O(1)
+    let bytes = store
+        .node_attachment(&make_node_id(state_path))
+        .and_then(|v| match v {
+            AttachmentValue::Atom(a) => Some(a.bytes.clone()),
+            _ => None,
+        });
+    if let Some(b) = bytes {
+        emit_view_op(store, view_type_id, &b);
+    }
+}
+
 /// Project the current state to view operations.
 ///
 /// This function reads the stored attachment bytes from state nodes and emits
@@ -548,42 +588,7 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
 ///
 /// This ensures time-travel sync delivers the same payload shape as the UI expects.
 pub fn project_state(store: &mut GraphStore) {
-    let theme_bytes = store
-        .node_attachment(&make_node_id("sim/state/theme"))
-        .and_then(|v| {
-            if let AttachmentValue::Atom(a) = v {
-                Some(a.bytes.clone())
-            } else {
-                None
-            }
-        });
-    if let Some(b) = theme_bytes {
-        emit_view_op(store, TYPEID_VIEW_OP_SETTHEME, &b);
-    }
-
-    let nav_bytes = store
-        .node_attachment(&make_node_id("sim/state/navOpen"))
-        .and_then(|v| {
-            if let AttachmentValue::Atom(a) = v {
-                Some(a.bytes.clone())
-            } else {
-                None
-            }
-        });
-    if let Some(b) = nav_bytes {
-        emit_view_op(store, TYPEID_VIEW_OP_TOGGLENAV, &b);
-    }
-
-    let route_bytes = store
-        .node_attachment(&make_node_id("sim/state/routePath"))
-        .and_then(|v| {
-            if let AttachmentValue::Atom(a) = v {
-                Some(a.bytes.clone())
-            } else {
-                None
-            }
-        });
-    if let Some(b) = route_bytes {
-        emit_view_op(store, TYPEID_VIEW_OP_ROUTEPUSH, &b);
-    }
+    emit_state_op(store, "sim/state/theme", TYPEID_VIEW_OP_SETTHEME);
+    emit_state_op(store, "sim/state/navOpen", TYPEID_VIEW_OP_TOGGLENAV);
+    emit_state_op(store, "sim/state/routePath", TYPEID_VIEW_OP_ROUTEPUSH);
 }

@@ -59,9 +59,21 @@ pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
 
     let flags_bytes = read_exact_arr::<2, _>(r)?;
     let flags = u16::from_le_bytes(flags_bytes);
+    if flags != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ELOG flags must be zero",
+        ));
+    }
 
     let schema_hash = read_exact_arr::<32, _>(r)?;
-    let _reserved = read_exact_arr::<8, _>(r)?; // Check zero? For now ignore.
+    let reserved = read_exact_arr::<8, _>(r)?;
+    if reserved != [0u8; 8] {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ELOG reserved bytes must be zero",
+        ));
+    }
 
     Ok(ElogHeader { schema_hash, flags })
 }
@@ -81,10 +93,13 @@ pub fn write_elog_header<W: Write>(w: &mut W, hdr: &ElogHeader) -> io::Result<()
 
 /// Reads a single frame from an ELOG file.
 ///
-/// Returns `Ok(None)` at EOF, `Ok(Some(data))` for a valid frame.
+/// Returns `Ok(None)` only if EOF occurs while reading the 4-byte length prefix.
+/// If EOF happens mid-payload, this returns `Err(UnexpectedEof)`.
+///
+/// Returns `Ok(Some(data))` for a valid frame.
 ///
 /// # Errors
-/// Returns an error if the frame is too large or reading fails.
+/// Returns an error if the frame is too large, reading fails, or the payload is truncated.
 pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     let mut len_bytes = [0u8; 4];
     match r.read_exact(&mut len_bytes) {
@@ -131,7 +146,7 @@ mod tests {
     fn test_elog_round_trip() {
         let hdr = ElogHeader {
             schema_hash: [0xAA; 32],
-            flags: 0x1234,
+            flags: 0, // Must be zero per spec
         };
         let frame1 = b"frame1".to_vec();
         let frame2 = vec![0u8; 1000];

@@ -26,17 +26,26 @@ pub enum EnvelopeError {
     LengthMismatch,
     /// Internal structure of the envelope was malformed (e.g. invalid integer encoding).
     Malformed,
+    /// Payload length exceeds u32::MAX.
+    PayloadTooLarge,
 }
 
 /// Packs an application-blind intent envelope v1.
 /// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
-pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Vec<u8> {
+///
+/// # Errors
+/// Returns `PayloadTooLarge` if `vars.len()` exceeds `u32::MAX`.
+pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+    let vars_len: u32 = vars
+        .len()
+        .try_into()
+        .map_err(|_| EnvelopeError::PayloadTooLarge)?;
     let mut out = Vec::with_capacity(12 + vars.len());
     out.extend_from_slice(b"EINT");
     out.extend_from_slice(&op_id.to_le_bytes());
-    out.extend_from_slice(&(vars.len() as u32).to_le_bytes());
+    out.extend_from_slice(&vars_len.to_le_bytes());
     out.extend_from_slice(vars);
-    out
+    Ok(out)
 }
 
 /// Unpacks an application-blind intent envelope v1.
@@ -80,7 +89,7 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
 
 /// Encode any serde value into deterministic CBOR bytes.
 pub fn encode_cbor<T: Serialize>(value: &T) -> Result<Vec<u8>, CanonError> {
-    let val = serde_value::to_value(value).map_err(|e| CanonError::Decode(e.to_string()))?;
+    let val = serde_value::to_value(value).map_err(|e| CanonError::Encode(e.to_string()))?;
     let canon = sv_to_cv(val)?;
     encode_value(&canon)
 }
@@ -260,7 +269,7 @@ mod tests {
     fn test_pack_unpack_round_trip() {
         let op_id = 12345;
         let vars = b"test payload";
-        let packed = pack_intent_v1(op_id, vars);
+        let packed = pack_intent_v1(op_id, vars).expect("pack failed");
 
         // Verify structure: "EINT" + op_id(4) + len(4) + payload
         assert_eq!(&packed[0..4], b"EINT");
@@ -304,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_empty_vars() {
-        let packed = pack_intent_v1(99, &[]);
+        let packed = pack_intent_v1(99, &[]).unwrap();
         let (op, vars) = unpack_intent_v1(&packed).unwrap();
         assert_eq!(op, 99);
         assert_eq!(vars, &[]);

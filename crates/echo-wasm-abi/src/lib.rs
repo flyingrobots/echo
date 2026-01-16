@@ -48,15 +48,21 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
     if &bytes[0..4] != b"EINT" {
         return Err(EnvelopeError::InvalidMagic);
     }
-    
-    let op_id_bytes: [u8; 4] = bytes[4..8].try_into().map_err(|_| EnvelopeError::Malformed)?;
+
+    let op_id_bytes: [u8; 4] = bytes[4..8]
+        .try_into()
+        .map_err(|_| EnvelopeError::Malformed)?;
     let op_id = u32::from_le_bytes(op_id_bytes);
 
-    let vars_len_bytes: [u8; 4] = bytes[8..12].try_into().map_err(|_| EnvelopeError::Malformed)?;
+    let vars_len_bytes: [u8; 4] = bytes[8..12]
+        .try_into()
+        .map_err(|_| EnvelopeError::Malformed)?;
     let vars_len = u32::from_le_bytes(vars_len_bytes) as usize;
-    
+
     // Prevent integer overflow on 32-bit systems (though vars_len is u32, usize might be u32)
-    let required_len = 12usize.checked_add(vars_len).ok_or(EnvelopeError::TooShort)?;
+    let required_len = 12usize
+        .checked_add(vars_len)
+        .ok_or(EnvelopeError::TooShort)?;
 
     if bytes.len() < required_len {
         return Err(EnvelopeError::TooShort);
@@ -64,7 +70,7 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
     if bytes.len() > required_len {
         return Err(EnvelopeError::LengthMismatch);
     }
-    
+
     Ok((op_id, &bytes[12..]))
 }
 
@@ -166,52 +172,81 @@ fn cv_to_sv(val: ciborium::value::Value) -> Result<serde_value::Value, CanonErro
     })
 }
 
+/// Unique identifier for a node in the graph.
 pub type NodeId = String;
+/// Name of a field on a node.
 pub type FieldName = String;
 
+/// A primitive value within the graph.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum Value {
+    /// A UTF-8 string value.
     Str(String),
+    /// A signed 64-bit integer value.
     Num(i64),
+    /// A boolean value.
     Bool(bool),
+    /// A null or empty value.
     Null,
 }
 
+/// A node within the graph, containing fields and a unique identifier.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Node {
+    /// The unique identifier for this node.
     pub id: NodeId,
+    /// The map of field names to values for this node.
     pub fields: HashMap<FieldName, Value>,
 }
 
+/// An edge representing a relationship between two nodes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
+    /// The identifier of the source node.
     pub from: NodeId,
+    /// The identifier of the destination node.
     pub to: NodeId,
 }
 
+/// A graph structure containing nodes and edges.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WarpGraph {
+    /// A map of all nodes in the graph, keyed by their unique identifier.
     pub nodes: HashMap<NodeId, Node>,
+    /// A list of all edges in the graph.
     pub edges: Vec<Edge>,
 }
 
+/// The type of semantic operation performed in a rewrite.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SemanticOp {
+    /// Set a field value.
     Set,
+    /// Add a new node.
     AddNode,
+    /// Delete an existing node.
     DeleteNode,
+    /// Connect two nodes with an edge.
     Connect,
+    /// Disconnect two nodes.
     Disconnect,
 }
 
+/// A record of a semantic change to the graph.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rewrite {
+    /// Unique identifier for this rewrite.
     pub id: u64,
+    /// The semantic operation being performed.
     pub op: SemanticOp,
+    /// The target node of the operation.
     pub target: NodeId,
+    /// An optional subject (e.g., field name) for the operation.
     pub subject: Option<String>,
+    /// The previous value, if applicable.
     pub old_value: Option<Value>,
+    /// The new value, if applicable.
     pub new_value: Option<Value>,
 }
 
@@ -244,7 +279,10 @@ mod tests {
         assert_eq!(unpack_intent_v1(b"EINT"), Err(EnvelopeError::TooShort));
 
         // Invalid magic
-        assert_eq!(unpack_intent_v1(b"XXXX\x00\x00\x00\x00\x00\x00\x00\x00"), Err(EnvelopeError::InvalidMagic));
+        assert_eq!(
+            unpack_intent_v1(b"XXXX\x00\x00\x00\x00\x00\x00\x00\x00"),
+            Err(EnvelopeError::InvalidMagic)
+        );
 
         // Payload shorter than declared length
         let mut short = Vec::new();

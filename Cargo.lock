@@ -1195,6 +1195,7 @@ version = "0.1.0"
 dependencies = [
  "ciborium",
  "half",
+ "proptest",
  "serde",
  "serde-value",
  "serde_json",

@@ -16,13 +16,19 @@
 
 use std::io::{self, Read, Write};
 
+/// The 4-byte magic sequence identifying an Echo Intent Log file.
 pub const ELOG_MAGIC: [u8; 4] = *b"ELOG";
+/// The current version of the ELOG format.
 pub const ELOG_VERSION: u16 = 1;
+/// The maximum allowed size for a single frame (10 MiB).
 pub const MAX_FRAME_LEN: usize = 10 * 1024 * 1024; // 10 MiB limit
 
+/// Header structure for an Echo Intent Log file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElogHeader {
+    /// A BLAKE3 hash representing the schema against which this log was recorded.
     pub schema_hash: [u8; 32],
+    /// Bitwise flags for future extensions.
     pub flags: u16,
 }
 
@@ -32,6 +38,7 @@ fn read_exact_arr<const N: usize, R: Read>(r: &mut R) -> io::Result<[u8; N]> {
     Ok(buf)
 }
 
+/// Reads an ELOG header from a stream and validates magic and version.
 pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     let magic = read_exact_arr::<4, _>(r)?;
     if magic != ELOG_MAGIC {
@@ -41,7 +48,10 @@ pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     let version_bytes = read_exact_arr::<2, _>(r)?;
     let version = u16::from_le_bytes(version_bytes);
     if version != ELOG_VERSION {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unsupported ELOG version: {}", version)));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported ELOG version: {}", version),
+        ));
     }
 
     let flags_bytes = read_exact_arr::<2, _>(r)?;
@@ -53,6 +63,7 @@ pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     Ok(ElogHeader { schema_hash, flags })
 }
 
+/// Writes an ELOG header to a stream.
 pub fn write_elog_header<W: Write>(w: &mut W, hdr: &ElogHeader) -> io::Result<()> {
     w.write_all(&ELOG_MAGIC)?;
     w.write_all(&ELOG_VERSION.to_le_bytes())?;
@@ -62,6 +73,8 @@ pub fn write_elog_header<W: Write>(w: &mut W, hdr: &ElogHeader) -> io::Result<()
     Ok(())
 }
 
+/// Reads a single framed payload from an ELOG stream.
+/// Returns Ok(None) at EOF.
 pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     let mut len_bytes = [0u8; 4];
     match r.read_exact(&mut len_bytes) {
@@ -71,17 +84,24 @@ pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     }
     let len = u32::from_le_bytes(len_bytes) as usize;
     if len > MAX_FRAME_LEN {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame too large",
+        ));
     }
-    
+
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)?;
     Ok(Some(buf))
 }
 
+/// Writes a single payload as a framed record to an ELOG stream.
 pub fn write_elog_frame<W: Write>(w: &mut W, frame: &[u8]) -> io::Result<()> {
     if frame.len() > MAX_FRAME_LEN {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "frame too large",
+        ));
     }
     let len = frame.len() as u32;
     w.write_all(&len.to_le_bytes())?;
@@ -120,13 +140,13 @@ mod tests {
 
         assert!(read_elog_frame(&mut cursor).unwrap().is_none());
     }
-    
+
     #[test]
     fn test_elog_rejects_large_frame() {
         let mut buf = Vec::new();
         let huge_len = (MAX_FRAME_LEN + 1) as u32;
         buf.extend_from_slice(&huge_len.to_le_bytes());
-        
+
         let mut cursor = std::io::Cursor::new(buf);
         let res = read_elog_frame(&mut cursor);
         assert!(res.is_err());

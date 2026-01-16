@@ -3,7 +3,6 @@
 
 <p align="center">
   <img alt="ECHO" src="https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75" />
-
 </p>
 
 ---

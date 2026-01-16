@@ -1,5 +1,7 @@
-use proptest::prelude::*;
+//! Fuzz tests for the Echo Intent Envelope wire format.
+
 use echo_wasm_abi::unpack_intent_v1;
+use proptest::prelude::*;
 
 proptest! {
     #[test]
@@ -21,7 +23,7 @@ proptest! {
         data.extend_from_slice(&payload);
 
         let res = unpack_intent_v1(&data);
-        
+
         if payload.len() == len as usize {
             // Should succeed
              prop_assert!(res.is_ok());

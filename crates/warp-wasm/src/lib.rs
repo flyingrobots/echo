@@ -112,6 +112,16 @@ pub fn get_schema_sha256_hex() -> JsValue {
 mod schema_validation_tests {
     use super::*;
     use echo_registry_api::{ArgDef, EnumDef};
+    use serde_value::Value as SV;
+    use std::collections::BTreeMap;
+
+    fn sv_map(entries: Vec<(SV, SV)>) -> SV {
+        let mut map = BTreeMap::new();
+        for (k, v) in entries {
+            map.insert(k, v);
+        }
+        SV::Map(map)
+    }
 
     fn enums_theme() -> Vec<EnumDef> {
         vec![EnumDef {
@@ -128,8 +138,10 @@ mod schema_validation_tests {
             required: true,
             list: false,
         }];
-        let val = serde_json::json!({"path":"ok","extra":1});
-        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        let val_sv = sv_map(vec![
+            (SV::String("path".into()), SV::String("ok".into())),
+            (SV::String("extra".into()), SV::I64(1)),
+        ]);
         assert!(!validate_object_against_args(
             &val_sv,
             &args,
@@ -145,8 +157,7 @@ mod schema_validation_tests {
             required: true,
             list: false,
         }];
-        let val = serde_json::json!({});
-        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        let val_sv = sv_map(vec![]);
         assert!(!validate_object_against_args(
             &val_sv,
             &args,
@@ -162,8 +173,7 @@ mod schema_validation_tests {
             required: true,
             list: false,
         }];
-        let val = serde_json::json!({"mode":"WRONG"});
-        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        let val_sv = sv_map(vec![(SV::String("mode".into()), SV::String("WRONG".into()))]);
         assert!(!validate_object_against_args(
             &val_sv,
             &args,
@@ -179,8 +189,10 @@ mod schema_validation_tests {
             required: true,
             list: false,
         }];
-        let val = serde_json::json!({"obj":{"routePath":"/"}});
-        let val_sv: serde_value::Value = serde_value::to_value(val).unwrap();
+        let val_sv = sv_map(vec![(
+            SV::String("obj".into()),
+            sv_map(vec![(SV::String("routePath".into()), SV::String("/".into()))]),
+        )]);
         assert!(!validate_object_against_args(
             &val_sv,
             &args,

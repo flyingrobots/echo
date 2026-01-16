@@ -95,7 +95,8 @@ fn motion_v0_payload_is_accepted_and_upgraded_to_v2() {
 
 #[test]
 fn motion_v0_payload_nan_clamps_to_zero_on_upgrade() {
-    let payload = encode_motion_atom_payload_v0([f32::NAN, 0.0, 1.0], [0.0, f32::NAN, 2.0]);
+    let nan = f32::from_bits(0x7fc0_0000);
+    let payload = encode_motion_atom_payload_v0([nan, 0.0, 1.0], [0.0, nan, 2.0]);
 
     let (ty, pos, vel) = run_motion_once_with_payload(payload);
     assert_eq!(ty, motion_payload_type_id());
@@ -111,8 +112,10 @@ fn motion_v0_payload_nan_clamps_to_zero_on_upgrade() {
 
 #[test]
 fn motion_v0_payload_infinity_saturates_on_upgrade() {
+    let pos_inf = f32::from_bits(0x7f80_0000);
+    let neg_inf = f32::from_bits(0xff80_0000);
     let payload =
-        encode_motion_atom_payload_v0([f32::INFINITY, 1.0, f32::NEG_INFINITY], [1.0, 2.0, 3.0]);
+        encode_motion_atom_payload_v0([pos_inf, 1.0, neg_inf], [1.0, 2.0, 3.0]);
 
     let (ty, pos, vel) = run_motion_once_with_payload(payload);
     assert_eq!(ty, motion_payload_type_id());

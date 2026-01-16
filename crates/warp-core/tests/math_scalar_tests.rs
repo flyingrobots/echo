@@ -23,8 +23,8 @@ fn test_f32_basics() {
     assert_eq!((a / b).to_f32(), 2.5);
 
     let angle = F32Scalar::new(std::f32::consts::PI);
-    assert_eq!(angle.sin().to_f32().to_bits(), 0x0000_0000);
-    assert_eq!(angle.cos().to_f32().to_bits(), 0xbf80_0000);
+    assert_eq!(Scalar::sin(angle).to_f32().to_bits(), 0x0000_0000);
+    assert_eq!(Scalar::cos(angle).to_f32().to_bits(), 0xbf80_0000);
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn test_f32_traits() {
 
 #[test]
 fn test_f32_nan_reflexivity() {
-    let nan = F32Scalar::new(f32::NAN);
+    let nan = F32Scalar::new(f32::from_bits(0x7fc0_0000));
 
     // Eq requires reflexivity: x == x must be true.
     // Standard f32 is not Eq because NaN != NaN.

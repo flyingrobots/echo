@@ -27,7 +27,7 @@ fn main() {
     let denom = SEGMENTS as f64;
     for (i, slot) in bits.iter_mut().enumerate() {
         let a = (i as f64) * FRAC_PI_2 / denom;
-        let s = a.sin();
+        let s = libm::sin(a);
         let f = s as f32;
         *slot = f.to_bits();
     }

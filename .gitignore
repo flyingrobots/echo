@@ -10,6 +10,7 @@ docs/.vitepress/cache
 
 # Editor cruft
 .DS_Store
+/tmp/
 .idea
 .vscode/*
 !.vscode/extensions.json

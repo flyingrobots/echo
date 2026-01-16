@@ -7,26 +7,24 @@
 //! consistent with the documented fixtures across platforms.
 
 use serde::Deserialize;
+use std::io::Cursor;
 
 use warp_core::math::{self, Mat4, Prng, Quat, Vec3};
 
 /// Path relative to repo root, for error messages only.
 const FIXTURE_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/math-fixtures.json"
+    "/tests/fixtures/math-fixtures.cbor"
 );
-static RAW_FIXTURES: &str = include_str!("fixtures/math-fixtures.json");
+static RAW_FIXTURES: &[u8] = include_bytes!("fixtures/math-fixtures.cbor");
 
 fn fixtures() -> MathFixtures {
     let fixtures: MathFixtures = {
-        #[allow(clippy::expect_fun_call)]
-        #[allow(clippy::disallowed_methods)]
-        {
-            serde_json::from_str(RAW_FIXTURES).expect(&format!(
-                "failed to parse math fixtures at {}",
-                FIXTURE_PATH
-            ))
-        }
+        let mut cursor = Cursor::new(RAW_FIXTURES);
+        ciborium::de::from_reader(&mut cursor).expect(&format!(
+            "failed to parse math fixtures at {}",
+            FIXTURE_PATH
+        ))
     };
     fixtures.validate();
     fixtures
@@ -317,7 +315,7 @@ fn scalar_fixtures_all_match() {
 
 #[test]
 fn clamp_propagates_nan() {
-    let nan = f32::NAN;
+    let nan = f32::from_bits(0x7fc0_0000);
     let clamped = math::clamp(nan, -1.0, 1.0);
     assert!(clamped.is_nan(), "clamp should propagate NaN");
 }

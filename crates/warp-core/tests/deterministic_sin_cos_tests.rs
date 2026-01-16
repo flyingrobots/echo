@@ -263,7 +263,7 @@ fn test_sin_cos_error_budget_pinned_against_deterministic_oracle() {
         }
     }
 
-    if std::env::var("ECHO_TRIG_AUDIT_PRINT").is_ok() {
+    if cfg!(feature = "trig_audit_print") {
         eprintln!(
             "trig error audit (oracle=libm): max_ulp={max_ulp} (angle={worst_angle_ulp}) max_abs={max_abs:e} (angle={worst_angle_abs})"
         );

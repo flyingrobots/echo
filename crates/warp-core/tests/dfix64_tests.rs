@@ -36,13 +36,16 @@ fn dfix64_to_f32_roundtrips_basic_values() {
 
 #[test]
 fn dfix64_infinite_inputs_saturate() {
-    assert_eq!(DFix64::from_f32(f32::INFINITY).raw(), i64::MAX);
-    assert_eq!(DFix64::from_f32(f32::NEG_INFINITY).raw(), i64::MIN);
+    let pos_inf = f32::from_bits(0x7f80_0000);
+    let neg_inf = f32::from_bits(0xff80_0000);
+    assert_eq!(DFix64::from_f32(pos_inf).raw(), i64::MAX);
+    assert_eq!(DFix64::from_f32(neg_inf).raw(), i64::MIN);
 }
 
 #[test]
 fn dfix64_nan_inputs_become_zero() {
-    assert_eq!(DFix64::from_f32(f32::NAN).raw(), 0);
+    let nan = f32::from_bits(0x7fc0_0000);
+    assert_eq!(DFix64::from_f32(nan).raw(), 0);
 }
 
 #[test]

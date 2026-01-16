@@ -84,11 +84,12 @@ pub fn from_f32(value: f32) -> i64 {
     if value.is_nan() {
         return 0;
     }
-    if value == f32::INFINITY {
-        return i64::MAX;
-    }
-    if value == f32::NEG_INFINITY {
-        return i64::MIN;
+    if value.is_infinite() {
+        return if value.is_sign_positive() {
+            i64::MAX
+        } else {
+            i64::MIN
+        };
     }
 
     let bits = value.to_bits();

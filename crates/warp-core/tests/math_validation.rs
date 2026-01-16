@@ -18,8 +18,8 @@ const FIXTURE_PATH: &str = concat!(
 static RAW_FIXTURES: &[u8] = include_bytes!("fixtures/math-fixtures.cbor");
 
 fn fixtures() -> MathFixtures {
-    let fixtures: MathFixtures = echo_wasm_abi::decode_cbor(RAW_FIXTURES)
-        .expect("failed to parse math fixtures");
+    let fixtures: MathFixtures =
+        echo_wasm_abi::decode_cbor(RAW_FIXTURES).expect("failed to parse math fixtures");
     let _ = FIXTURE_PATH;
     fixtures.validate();
     fixtures

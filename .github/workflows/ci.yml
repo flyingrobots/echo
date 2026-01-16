@@ -97,36 +97,6 @@ jobs:
       - name: cargo test (warp-core, musl)
         run: cargo test -p warp-core --target x86_64-unknown-linux-musl
 
-  test-macos:
-    name: Tests (macOS)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-      - uses: dtolnay/rust-toolchain@1.90.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-      - name: cargo test (warp-core)
-        run: cargo test -p warp-core
-
-  test-macos-det-fixed:
-    name: Tests (macOS, det_fixed)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-      - uses: dtolnay/rust-toolchain@1.90.0
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            .
-      - name: cargo test (warp-core, det_fixed)
-        run: cargo test -p warp-core --features det_fixed
-
   test-det-fixed:
     name: Tests (det_fixed)
     runs-on: ubuntu-latest

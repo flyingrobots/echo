@@ -22,7 +22,7 @@ pub const POLICY_ID_NO_POLICY_V0: u32 = u32::from_le_bytes(*b"NOP0");
 /// # Examples
 /// ```
 /// let empty = warp_core::blake3_empty();
-/// assert_eq!(empty.as_bytes().len(), 32);
+/// assert_eq!(empty.len(), 32);
 /// ```
 #[must_use]
 pub fn blake3_empty() -> Hash {
@@ -41,7 +41,7 @@ pub fn blake3_empty() -> Hash {
 /// # Examples
 /// ```
 /// let len0_digest = warp_core::digest_len0_u64();
-/// assert_eq!(len0_digest.as_bytes().len(), 32);
+/// assert_eq!(len0_digest.len(), 32);
 /// ```
 #[must_use]
 pub fn digest_len0_u64() -> Hash {

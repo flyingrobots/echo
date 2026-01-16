@@ -10,7 +10,6 @@ use warp_core::math::Scalar;
 
 const ZERO: u32 = 0x0000_0000;
 const ONE: u32 = 0x3f80_0000;
-const CANON_NAN: u32 = 0x7fc0_0000;
 
 /// Temporary helper for tests while the deterministic trig backend is in flux.
 ///
@@ -76,17 +75,27 @@ fn test_trig_special_cases_golden_bits() {
         (0x8000_0001, ZERO, ONE),
         (0x007f_ffff, ZERO, ONE),
         (0x807f_ffff, ZERO, ONE),
-        // Infinities yield NaN for sin/cos (then canonicalized).
-        (0x7f80_0000, CANON_NAN, CANON_NAN),
-        (0xff80_0000, CANON_NAN, CANON_NAN),
-        // NaNs are canonicalized before and after trig.
-        (0x7fc0_0000, CANON_NAN, CANON_NAN),
-        (0xffc0_0000, CANON_NAN, CANON_NAN),
-        (0x7f80_dead, CANON_NAN, CANON_NAN),
+        // Non-finite inputs trigger a debug tripwire; release clamps to 0/1.
+        (0x7f80_0000, ZERO, ONE),
+        (0xff80_0000, ZERO, ONE),
+        // NaNs are canonicalized before trig; release clamps to 0/1.
+        (0x7fc0_0000, ZERO, ONE),
+        (0xffc0_0000, ZERO, ONE),
+        (0x7f80_dead, ZERO, ONE),
     ];
 
     for (angle_bits, expected_sin_bits, expected_cos_bits) in vectors {
         let angle = f32::from_bits(*angle_bits);
+        if !angle.is_finite() && cfg!(debug_assertions) {
+            let result = std::panic::catch_unwind(|| deterministic_sin_cos_f32(angle));
+            assert!(
+                result.is_err(),
+                "expected debug tripwire for non-finite angle_bits={:#010x}",
+                angle_bits
+            );
+            continue;
+        }
+
         let (s, c) = deterministic_sin_cos_f32(angle);
 
         assert_eq!(

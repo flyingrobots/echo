@@ -454,3 +454,14 @@ The following entries use a heading + bullets format for richer context.
   - Inbox ingest (`Engine::ingest_inbox_event`) and dispatch (`sys/dispatch_inbox`) behavior is pinned by focused `warp-core` tests.
   - Documentation for the spike lives in `crates/warp-core/README.md`.
 - Consequence: downstream repos can treat `P1.ECHO.3` as audited; explicit `cmd/*` routing (including `cmd/route_push`) remains a follow-up task (`P1.ECHO.5`).
+
+## 2026-01-16 — Canonical inbox sequencing: content-addressed events + pending-edge queue maintenance (DIND)
+
+- Context: DIND permutation scenarios (e.g. `050_randomized_order_small_seed000{1,2,3}`) must produce bit-identical **full-graph** hashes across seeds. Arrival-order identity and tick membership differences broke this property.
+- Decisions:
+  - Canonical ingress is content-addressed: `intent_id = H(intent_bytes)` and inbox event node identity is derived from `intent_id` (never from arrival `seq`).
+  - Ledger nodes are append-only: event nodes are immutable ledger entries and are never deleted.
+  - Pending vs applied is represented by skeleton edges: `edge:pending` exists while pending; consuming an intent deletes the pending edge as **queue maintenance** (not ledger deletion). No “applied status” attachment is written to event nodes.
+  - Canonical dispatch processes pending intents in deterministic `intent_id` order; tie-breaks do not depend on insertion or evaluation order.
+  - Harness permutation mode ingests all frames first, then steps until no pending remain, with a hard stop (no-progress + max-tick budget) to avoid infinite loops.
+- Consequence: permutation suite hashes converge: the 050 seeds now produce identical full hash chains; goldens were regenerated and a proof test was added in the DIND harness.

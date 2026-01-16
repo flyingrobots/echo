@@ -3,8 +3,9 @@
 //! Inbox ingestion scaffolding tests.
 
 use bytes::Bytes;
+use echo_wasm_abi::pack_intent_v1;
 use warp_core::{
-    make_node_id, make_type_id, AtomPayload, AttachmentValue, Engine, GraphStore, NodeId,
+    make_node_id, make_type_id, AtomPayload, AttachmentValue, Engine, GraphStore, Hash, NodeId,
     NodeRecord,
 };
 
@@ -20,12 +21,14 @@ fn build_engine_with_root(root: NodeId) -> Engine {
 }
 
 #[test]
-fn ingest_inbox_event_creates_path_and_payload() {
+fn ingest_inbox_event_creates_path_and_pending_edge_from_canonical_intent_bytes() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
 
-    let payload_bytes = Bytes::from_static(br#"{\"path\":\"/\"}"#);
-    let payload = AtomPayload::new(make_type_id("intent:route_push"), payload_bytes.clone());
+    let op_id: u32 = 7;
+    let intent_bytes = pack_intent_v1(op_id, b"");
+    let payload_bytes = Bytes::copy_from_slice(&intent_bytes);
+    let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes.clone());
 
     engine
         .ingest_inbox_event(42, &payload)
@@ -35,7 +38,13 @@ fn ingest_inbox_event_creates_path_and_payload() {
 
     let sim_id = make_node_id("sim");
     let inbox_id = make_node_id("sim/inbox");
-    let event_id = make_node_id("sim/inbox/event:0000000000000042");
+    let intent_id: Hash = {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"intent:");
+        hasher.update(&intent_bytes);
+        hasher.finalize().into()
+    };
+    let event_id = NodeId(intent_id);
 
     // Nodes exist with expected types
     assert_eq!(store.node(&sim_id).unwrap().ty, make_type_id("sim"));
@@ -53,17 +62,27 @@ fn ingest_inbox_event_creates_path_and_payload() {
             _ => None,
         })
         .expect("event attachment");
-    assert_eq!(attachment.type_id, payload.type_id);
-    assert_eq!(attachment.bytes, payload.bytes);
+    assert_eq!(attachment.type_id, make_type_id("intent:7"));
+    assert_eq!(attachment.bytes, payload_bytes);
+
+    // Pending membership is an edge from inbox → event.
+    let pending_ty = make_type_id("edge:pending");
+    assert!(
+        store
+            .edges_from(&inbox_id)
+            .any(|e| e.ty == pending_ty && e.to == event_id),
+        "expected a pending edge from sim/inbox → event"
+    );
 }
 
 #[test]
-fn ingest_inbox_event_is_idempotent_for_structure_and_unique_per_seq() {
+fn ingest_inbox_event_is_idempotent_by_intent_bytes_not_seq() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
 
-    let payload_bytes = Bytes::from_static(br#"{\"path\":\"/\"}"#);
-    let payload = AtomPayload::new(make_type_id("intent:route_push"), payload_bytes.clone());
+    let intent_bytes = pack_intent_v1(7, b"");
+    let payload_bytes = Bytes::copy_from_slice(&intent_bytes);
+    let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes.clone());
 
     engine.ingest_inbox_event(1, &payload).unwrap();
     engine.ingest_inbox_event(2, &payload).unwrap();
@@ -72,8 +91,6 @@ fn ingest_inbox_event_is_idempotent_for_structure_and_unique_per_seq() {
 
     let sim_id = make_node_id("sim");
     let inbox_id = make_node_id("sim/inbox");
-    let event1 = make_node_id("sim/inbox/event:0000000000000001");
-    let event2 = make_node_id("sim/inbox/event:0000000000000002");
 
     // Only one structural edge root->sim and sim->inbox should exist.
     let root_edges: Vec<_> = store.edges_from(&root).collect();
@@ -84,80 +101,67 @@ fn ingest_inbox_event_is_idempotent_for_structure_and_unique_per_seq() {
     assert_eq!(sim_edges.len(), 1);
     assert_eq!(sim_edges[0].to, inbox_id);
 
-    // Inbox should have one edge per event seq.
-    let inbox_edges: Vec<_> = store.edges_from(&inbox_id).collect();
-    assert_eq!(inbox_edges.len(), 2);
+    // Ingress idempotency is keyed by intent_id, so the same intent_bytes must not create
+    // additional events or pending edges even if callers vary the seq input.
+    let pending_ty = make_type_id("edge:pending");
+    let inbox_pending_edges: Vec<_> = store.edges_from(&inbox_id).filter(|e| e.ty == pending_ty).collect();
+    assert_eq!(inbox_pending_edges.len(), 1);
 
-    assert!(store.node(&event1).is_some());
-    assert!(store.node(&event2).is_some());
+    let intent_id: Hash = {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"intent:");
+        hasher.update(&intent_bytes);
+        hasher.finalize().into()
+    };
+    assert!(store.node(&NodeId(intent_id)).is_some());
 }
 
 #[test]
-fn ingest_inbox_event_overwrites_event_payload_for_same_seq() {
+fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
 
-    let payload_a = AtomPayload::new(
-        make_type_id("intent:route_push"),
-        Bytes::from_static(br#"{\"path\":\"/a\"}"#),
-    );
-    let payload_b = AtomPayload::new(
-        make_type_id("intent:route_push"),
-        Bytes::from_static(br#"{\"path\":\"/b\"}"#),
-    );
+    let intent_a = pack_intent_v1(7, b"a");
+    let intent_b = pack_intent_v1(8, b"b");
+    let payload_a = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(&intent_a));
+    let payload_b = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(&intent_b));
 
     engine.ingest_inbox_event(1, &payload_a).unwrap();
-    engine.ingest_inbox_event(1, &payload_b).unwrap();
+    engine.ingest_inbox_event(2, &payload_b).unwrap();
 
     let store = engine.store_clone();
     let inbox_id = make_node_id("sim/inbox");
-    let event_id = make_node_id("sim/inbox/event:0000000000000001");
 
-    let inbox_edges: Vec<_> = store.edges_from(&inbox_id).collect();
-    assert_eq!(
-        inbox_edges.len(),
-        1,
-        "duplicate seq should not create extra edges"
-    );
+    let pending_ty = make_type_id("edge:pending");
+    let inbox_pending_edges: Vec<_> = store.edges_from(&inbox_id).filter(|e| e.ty == pending_ty).collect();
+    assert_eq!(inbox_pending_edges.len(), 2);
 
-    let attachment = store
-        .node_attachment(&event_id)
-        .and_then(|v| match v {
-            AttachmentValue::Atom(a) => Some(a),
-            _ => None,
-        })
-        .expect("event attachment");
-    assert_eq!(attachment.bytes, payload_b.bytes);
+    let intent_id_a: Hash = {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"intent:");
+        hasher.update(&intent_a);
+        hasher.finalize().into()
+    };
+    let intent_id_b: Hash = {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"intent:");
+        hasher.update(&intent_b);
+        hasher.finalize().into()
+    };
+
+    assert!(store.node(&NodeId(intent_id_a)).is_some());
+    assert!(store.node(&NodeId(intent_id_b)).is_some());
 }
 
 #[test]
-fn ingest_inbox_event_overwrites_same_seq_payload() {
-    // Edge case: if the host reuses a seq number, the deterministic node id collides.
-    // The current behavior is "last write wins" for the event payload attachment.
+fn ingest_inbox_event_ignores_invalid_intent_bytes_without_mutating_graph() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
 
-    let payload_a = AtomPayload::new(
-        make_type_id("intent:route_push"),
-        Bytes::from_static(br#"{\"path\":\"/a\"}"#),
-    );
-    let payload_b = AtomPayload::new(
-        make_type_id("intent:route_push"),
-        Bytes::from_static(br#"{\"path\":\"/b\"}"#),
-    );
-
-    engine.ingest_inbox_event(1, &payload_a).unwrap();
-    engine.ingest_inbox_event(1, &payload_b).unwrap();
+    let payload = AtomPayload::new(make_type_id("legacy/payload"), Bytes::from_static(b"not an intent envelope"));
+    engine.ingest_inbox_event(1, &payload).unwrap();
 
     let store = engine.store_clone();
-    let event_id = make_node_id("sim/inbox/event:0000000000000001");
-    let attachment = store
-        .node_attachment(&event_id)
-        .and_then(|v| match v {
-            AttachmentValue::Atom(a) => Some(a),
-            _ => None,
-        })
-        .expect("event attachment");
-
-    assert_eq!(attachment.bytes, payload_b.bytes);
+    assert!(store.node(&make_node_id("sim")).is_none());
+    assert!(store.node(&make_node_id("sim/inbox")).is_none());
 }

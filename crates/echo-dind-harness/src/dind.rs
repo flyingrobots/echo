@@ -75,6 +75,8 @@ pub struct Golden {
 struct ManifestEntry {
     path: String,
     #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
     converge_scope: Option<String>,
 }
 
@@ -325,14 +327,102 @@ Kernel:   {}", hex::encode(header.schema_hash), SCHEMA_HASH);
     // Initial state hash (step 0)
     hashes.push(hex::encode(kernel.state_hash()));
 
-    while let Some(frame) = read_elog_frame(&mut r)? {
-        kernel.dispatch_intent(&frame);
-        kernel.step(1000); // Budget? Just run it.
-        probe_interop(&kernel); // Exercise boundary code
-        hashes.push(hex::encode(kernel.state_hash()));
+    let ingest_all_first = scenario_requires_ingest_all_first(path)?;
+
+    if ingest_all_first {
+        // Permutation-invariance mode: ingest all frames first, then step until the pending set is empty.
+        //
+        // This enforces identical tick membership across permutations (same set → same full graph).
+        let mut frame_count: u64 = 0;
+        while let Some(frame) = read_elog_frame(&mut r)? {
+            kernel.dispatch_intent(&frame);
+            frame_count += 1;
+        }
+
+        let mut ticks: u64 = 0;
+        let mut stall_budget: u64 = 64;
+        let mut last_pending = kernel
+            .engine()
+            .pending_intent_count()
+            .context("pending_intent_count failed")? as u64;
+        // Hard stop: absolute upper bound against infinite loops.
+        // Most scenarios should take exactly `last_pending` ticks.
+        let max_ticks: u64 = last_pending.saturating_mul(4).max(256);
+
+        while kernel
+            .engine()
+            .pending_intent_count()
+            .context("pending_intent_count failed")?
+            > 0
+        {
+            if ticks >= max_ticks {
+                bail!(
+                    "Permutation-mode hard stop: exceeded max_ticks={max_ticks} (frames={frame_count}, pending_initial={last_pending})"
+                );
+            }
+
+            let progressed = kernel.step(1000);
+            probe_interop(&kernel);
+            if !progressed {
+                stall_budget = stall_budget.saturating_sub(1);
+                if stall_budget == 0 {
+                    bail!(
+                        "Permutation-mode hard stop: no progress budget exhausted (ticks={ticks}, pending={last_pending})"
+                    );
+                }
+                continue;
+            }
+
+            ticks += 1;
+            hashes.push(hex::encode(kernel.state_hash()));
+
+            let pending_now = kernel
+                .engine()
+                .pending_intent_count()
+                .context("pending_intent_count failed")? as u64;
+            if pending_now < last_pending {
+                last_pending = pending_now;
+                stall_budget = 64;
+            } else {
+                stall_budget = stall_budget.saturating_sub(1);
+                if stall_budget == 0 {
+                    bail!(
+                        "Permutation-mode hard stop: pending set not shrinking (ticks={ticks}, pending={pending_now})"
+                    );
+                }
+            }
+        }
+    } else {
+        while let Some(frame) = read_elog_frame(&mut r)? {
+            kernel.dispatch_intent(&frame);
+            kernel.step(1000); // Budget? Just run it.
+            probe_interop(&kernel); // Exercise boundary code
+            hashes.push(hex::encode(kernel.state_hash()));
+        }
     }
     
     Ok((hashes, header, kernel))
+}
+
+fn scenario_requires_ingest_all_first(scenario: &PathBuf) -> Result<bool> {
+    let filename = scenario.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    // Fast-path for the current permutation-invariance suite.
+    if filename.starts_with("050_") {
+        return Ok(true);
+    }
+
+    let Some(manifest_path) = manifest_path_for_scenario(scenario) else {
+        return Ok(false);
+    };
+    let f = File::open(&manifest_path).context("failed to open MANIFEST.json")?;
+    let entries: Vec<ManifestEntry> = serde_json::from_reader(BufReader::new(f))?;
+    let Some(entry) = entries.into_iter().find(|e| e.path == filename) else {
+        return Ok(false);
+    };
+
+    Ok(entry.tags.iter().any(|t| {
+        t == "ingest-all-first" || t == "permute-invariant" || t == "order-sensitive"
+    }))
 }
 
 fn resolve_converge_scope(scenarios: &[PathBuf]) -> Result<Option<String>> {

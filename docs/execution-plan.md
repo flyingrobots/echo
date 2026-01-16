@@ -1123,3 +1123,20 @@ Remember: every entry here shrinks temporal drift between Codices. Leave breadcr
 
 - Add `crates/warp-benches` with Criterion harness and a minimal motion-throughput benchmark that exercises public `warp-core` APIs.
 - Scope: benches-only; no runtime changes. Document local run (`cargo bench -p warp-benches`).
+
+> 2026-01-16 — DIND: canonical inbox ingress + sequencing (IN PROGRESS)
+
+- Goal: make permutation-invariant DIND scenarios produce bit-identical **full-graph** hashes across seeds by removing arrival-order from inbox event identity and processing pending intents in canonical `intent_id` order.
+- Scope:
+  - Centralize inbox/ledger semantics in `warp-core` (runtime-owned): content-addressed event IDs, idempotent ingress, append-only ledger nodes, pending-edge queue maintenance.
+  - Update `echo-dind-tests` to be registry-only (no per-app inbox cursor/seq mechanics).
+  - Add harness ingest-all-first mode for permutation scenarios (with no-progress hard stop).
+  - Regenerate affected DIND golden hashes and add a proof test.
+
+> 2026-01-16 — DIND: canonical inbox ingress + sequencing (DONE)
+
+- Implement runtime-owned canonical inbox semantics in `warp-core` (`Engine::ingest_intent`, `edge:pending`, `sys/ack_pending`, canonical dispatch).
+- Refactor `echo-dind-tests` kernel to be registry-only (no seq/cursor sidecars; no arrival-order breadcrumbs).
+- Add harness ingest-all-first mode for permutation scenarios with a hard stop to prevent infinite loops.
+- Regenerate DIND goldens: `010_dense_rewrite_seed0001.hashes.json`, `030_error_determinism.hashes.json`, `050_randomized_order_small_seed000{1,2,3}.hashes.json`, `060_math_determinism.hashes.json`.
+- Add a proof test: `crates/echo-dind-harness/tests/permutation_invariance.rs`.

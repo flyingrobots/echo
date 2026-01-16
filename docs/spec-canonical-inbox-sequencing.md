@@ -12,6 +12,7 @@ This requires:
 - within-tick ordering is canonical (derived), not arrival-based
 - conflict resolution is deterministic and order-independent
 - hashing/enumeration is canonical (sorted)
+- ledger entries are append-only (no event node deletion)
 
 This spec aligns with ADR-0003: ingress accepts intent_bytes, runtime assigns
 canonical sequence numbers, idempotency is keyed by intent_id = H(intent_bytes),
@@ -47,6 +48,14 @@ I4 - Canonical enumeration
 Any enumeration that influences state, hashing, serialization, or replay MUST
 be in canonical sorted order.
 
+I5 - Ledger is append-only
+
+Inbox/ledger **event nodes** are immutable and MUST NOT be deleted.
+
+Processing an event is modeled as **queue maintenance**: remove a `pending`
+marker (edge or flag) so the event is no longer considered pending, without
+removing the ledger entry itself.
+
 ## 3) Data model requirements
 
 ### 3.1 Ledger / Inbox entries
@@ -54,11 +63,17 @@ be in canonical sorted order.
 Each pending inbox entry MUST carry:
 - intent_id: Hash32
 - intent_bytes: Bytes (canonical)
-- seq: u64 (canonical position within tick or within ledger epoch)
+- optional: seq: u64 (canonical rank / audit field; see §4)
 - optional: tick_id (if your model persists tick partitioning)
 - optional: priority_class (stable scheduler priority input)
 
 Rule: seq is NOT part of identity. Identity is intent_id.
+
+Minimal implementation model (recommended for determinism):
+- Ledger entry = immutable event node keyed by `intent_id` (or derived from it).
+- Pending membership = `edge:pending` from `sim/inbox` → `event`.
+- Applied/consumed = delete the pending edge (queue maintenance), keeping the
+  event node forever.
 
 ### 3.2 Tick membership (important boundary)
 
@@ -73,19 +88,22 @@ For tests like DIND "permute and converge," enforce one of:
 If membership differs, you changed causality, and bit-identical full graphs are
 not expected.
 
-## 4) Canonical sequence assignment algorithm
+## 4) Canonical ordering (and optional sequence assignment) algorithm
 
-### 4.1 When seq is assigned
+### 4.1 When ordering/seq is assigned
 
-seq is assigned at the tick boundary for the set of pending intents for that
-tick (or for the ledger segment being committed).
+Canonical order is derived at the tick boundary for the set of pending intents
+for that tick (or for the ledger segment being committed).
 
-### 4.2 How seq is assigned (canonical ranking)
+If you persist `seq` for auditing/debugging, it is assigned at the same boundary
+and MUST be a deterministic function of the pending set.
+
+### 4.2 Canonical ranking
 
 Given a tick's pending set P:
 1) Deduplicate by intent_id (idempotency).
 2) Sort intents by intent_id ascending (bytewise).
-3) Assign seq = 1..|P| in that sorted order.
+3) (Optional) Assign seq = 1..|P| in that sorted order.
 
 That is the canonical order.
 
@@ -139,6 +157,7 @@ No "first one we happened to see" logic.
 To make the whole WARP graph bit-identical, ensure these are canonical:
 - node IDs for inbox entries: derive from intent_id (or from (tick_id, intent_id)),
   not from seq counters
+- pending edge IDs: derive from (inbox_root, intent_id) or an equivalent stable function
 - edge insertion order: if edges are stored in vectors/lists, insert in canonical
   sorted order
 - attachment ordering: canonical sort

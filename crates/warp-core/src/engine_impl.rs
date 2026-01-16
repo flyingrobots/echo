@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 
 use blake3::Hasher;
+use echo_wasm_abi::unpack_intent_v1;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
@@ -27,6 +28,39 @@ pub enum ApplyResult {
     Applied,
     /// The rewrite did not match the provided scope.
     NoMatch,
+}
+
+/// Result of calling [`Engine::ingest_intent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IngestDisposition {
+    /// The provided bytes were not a valid canonical intent envelope and were ignored.
+    IgnoredInvalid,
+    /// The intent was already present in the ledger (idempotent retry).
+    Duplicate {
+        /// Content hash of the canonical intent bytes (`intent_id = H(intent_bytes)`).
+        intent_id: Hash,
+    },
+    /// The intent was accepted and added to the pending inbox set.
+    Accepted {
+        /// Content hash of the canonical intent bytes (`intent_id = H(intent_bytes)`).
+        intent_id: Hash,
+    },
+}
+
+/// Result of calling [`Engine::dispatch_next_intent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchDisposition {
+    /// No pending intent was present in the inbox.
+    NoPending,
+    /// A pending intent was consumed (pending edge removed).
+    ///
+    /// `handler_matched` indicates whether a `cmd/*` rule matched the intent in this tick.
+    Consumed {
+        /// Content hash of the canonical intent bytes (`intent_id = H(intent_bytes)`).
+        intent_id: Hash,
+        /// Whether a command handler (`cmd/*`) matched and was enqueued.
+        handler_matched: bool,
+    },
 }
 
 /// Errors emitted by the engine.
@@ -629,14 +663,18 @@ impl Engine {
             .unwrap_or_else(|| GraphStore::new(warp_id))
     }
 
-    /// Inserts a deterministic inbox event node under `sim/inbox` with the provided payload.
+    /// Legacy ingest helper: ingests an inbox event from an [`AtomPayload`].
     ///
-    /// Shape created (edge type labels shown as ids):
-    /// `root --sim_edge--> sim --inbox_edge--> inbox --event_edge--> event:{seq}`
+    /// This method exists for older call sites that pre-wrap intent bytes in an
+    /// atom payload and/or provide an arrival `seq`.
     ///
-    /// - Ensures `sim` and `sim/inbox` structural nodes exist under the current root.
-    /// - Creates `sim/inbox/event:{seq:016}` node with an attachment carrying the payload.
-    /// - Idempotent for `sim` and `sim/inbox`; event nodes are unique per `seq`.
+    /// Canonical semantics:
+    /// - `payload.bytes` are treated as `intent_bytes` and forwarded to [`Engine::ingest_intent`].
+    /// - `seq` is ignored for identity; event nodes are content-addressed by `intent_id`.
+    /// - Invalid intent envelopes are ignored deterministically (no graph mutation).
+    ///
+    /// For debugging only, the provided `(seq, payload)` is recorded in an in-memory
+    /// log when the intent is newly accepted.
     ///
     /// # Errors
     /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
@@ -645,6 +683,43 @@ impl Engine {
         seq: u64,
         payload: &crate::attachment::AtomPayload,
     ) -> Result<(), EngineError> {
+        // Legacy API retained for compatibility with older call sites. The new
+        // canonical ingress is content-addressed (`intent_id = H(intent_bytes)`)
+        // via [`Engine::ingest_intent`]; the `seq` input is ignored for identity.
+        //
+        // We still record the provided `seq` in the in-memory intent log for
+        // debugging, but it has no effect on graph identity or hashing.
+        let intent_bytes = payload.bytes.as_ref();
+        let disposition = self.ingest_intent(intent_bytes)?;
+        if let IngestDisposition::Accepted { .. } = disposition {
+            self.intent_log.push((seq, payload.clone()));
+        }
+        Ok(())
+    }
+
+    /// Ingest a canonical intent envelope (`intent_bytes`) into the runtime inbox.
+    ///
+    /// This is the causality-first boundary for writes:
+    /// - `intent_id = H(intent_bytes)` is computed immediately (domain-separated).
+    /// - The event node id is derived from `intent_id` (content-addressed), not arrival order.
+    /// - Ingress is idempotent: re-ingesting identical `intent_bytes` returns `Duplicate` and
+    ///   does not create additional ledger entries or pending edges.
+    ///
+    /// Inbox mechanics (pending vs. applied) are tracked via edges:
+    /// - While pending, an edge of type `edge:pending` exists from `sim/inbox` to the event node.
+    /// - When consumed, the pending edge is deleted as queue maintenance; the event node remains
+    ///   as an append-only ledger entry.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn ingest_intent(&mut self, intent_bytes: &[u8]) -> Result<IngestDisposition, EngineError> {
+        let Ok((op_id, _vars)) = unpack_intent_v1(intent_bytes) else {
+            return Ok(IngestDisposition::IgnoredInvalid);
+        };
+
+        let intent_id = crate::inbox::compute_intent_id(intent_bytes);
+        let event_id = NodeId(intent_id);
+
         let warp_id = self.current_root.warp_id;
         let store = self
             .state
@@ -655,21 +730,15 @@ impl Engine {
 
         let sim_id = make_node_id("sim");
         let inbox_id = make_node_id("sim/inbox");
-        let event_label = format!("sim/inbox/event:{seq:016}");
-        let event_id = make_node_id(&event_label);
 
-        let root_ty = make_type_id("root");
         let sim_ty = make_type_id("sim");
         let inbox_ty = make_type_id("sim/inbox");
         let event_ty = make_type_id("sim/inbox/event");
 
-        // Nodes
-        store.insert_node(root_id, NodeRecord { ty: root_ty });
+        // Structural nodes/edges (idempotent).
         store.insert_node(sim_id, NodeRecord { ty: sim_ty });
         store.insert_node(inbox_id, NodeRecord { ty: inbox_ty });
-        store.insert_node(event_id, NodeRecord { ty: event_ty });
 
-        // Edges
         store.insert_edge(
             root_id,
             crate::record::EdgeRecord {
@@ -688,31 +757,116 @@ impl Engine {
                 ty: make_type_id("edge:inbox"),
             },
         );
+
+        if store.node(&event_id).is_some() {
+            return Ok(IngestDisposition::Duplicate { intent_id });
+        }
+
+        // Ledger entry: immutable event node keyed by content hash.
+        store.insert_node(event_id, NodeRecord { ty: event_ty });
+        let payload = crate::attachment::AtomPayload::new(
+            make_type_id(&format!("intent:{op_id}")),
+            bytes::Bytes::copy_from_slice(intent_bytes),
+        );
+        store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)));
+
+        // Pending queue membership (edge id derived from inbox_id + intent_id).
         store.insert_edge(
             inbox_id,
             crate::record::EdgeRecord {
-                id: make_edge_id(&format!("edge:event:{seq:016}")),
+                id: crate::inbox::pending_edge_id(&inbox_id, &intent_id),
                 from: inbox_id,
                 to: event_id,
-                ty: make_type_id("edge:event"),
+                ty: make_type_id("edge:pending"),
             },
         );
 
-        store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload.clone())));
+        Ok(IngestDisposition::Accepted { intent_id })
+    }
 
-        // Record last payload on inbox node as a breadcrumb (non-canonical, may evolve).
-        let digest_ty = make_type_id("sim/inbox/last_payload");
-        store.set_node_attachment(
-            inbox_id,
-            Some(AttachmentValue::Atom(crate::attachment::AtomPayload::new(
-                digest_ty,
-                payload.bytes.clone(),
-            ))),
-        );
+    /// Returns the number of currently pending intents in `sim/inbox`.
+    ///
+    /// This counts `edge:pending` edges from the inbox node; ledger nodes are
+    /// append-only and are not required to remain reachable once their pending
+    /// edge is removed.
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn pending_intent_count(&self) -> Result<usize, EngineError> {
+        let warp_id = self.current_root.warp_id;
+        let store = self
+            .state
+            .store(&warp_id)
+            .ok_or(EngineError::UnknownWarp(warp_id))?;
+        let inbox_id = make_node_id("sim/inbox");
+        let pending_ty = make_type_id("edge:pending");
+        Ok(store
+            .edges_from(&inbox_id)
+            .filter(|e| e.ty == pending_ty)
+            .count())
+    }
 
-        self.intent_log.push((seq, payload.clone()));
+    /// Dispatches exactly one pending intent (if any) in canonical `intent_id` order.
+    ///
+    /// Canonical ordering is defined by ascending byte order over `intent_id`.
+    ///
+    /// Mechanically:
+    /// - Select the pending event node with the smallest `intent_id`.
+    /// - Attempt to enqueue exactly one `cmd/*` rule for that node, using stable
+    ///   rule id order as the tie-break when multiple handlers exist.
+    /// - Enqueue `sys/ack_pending` to delete the pending edge (queue maintenance).
+    ///
+    /// # Errors
+    /// Returns [`EngineError::UnknownTx`] if `tx` is invalid, or
+    /// [`EngineError::UnknownWarp`] if the current warp store is missing.
+    pub fn dispatch_next_intent(&mut self, tx: TxId) -> Result<DispatchDisposition, EngineError> {
+        let warp_id = self.current_root.warp_id;
+        let store = self
+            .state
+            .store(&warp_id)
+            .ok_or(EngineError::UnknownWarp(warp_id))?;
+        let inbox_id = make_node_id("sim/inbox");
+        let pending_ty = make_type_id("edge:pending");
 
-        Ok(())
+        let mut next: Option<NodeId> = None;
+        for edge in store.edges_from(&inbox_id) {
+            if edge.ty != pending_ty {
+                continue;
+            }
+            let cand = edge.to;
+            next = Some(next.map_or(cand, |current| current.min(cand)));
+        }
+
+        let Some(event_id) = next else {
+            return Ok(DispatchDisposition::NoPending);
+        };
+
+        // Deterministic handler order: rule_id ascending over cmd/* rules.
+        let mut cmd_rules: Vec<(Hash, &'static str)> = self
+            .rules
+            .values()
+            .filter(|r| r.name.starts_with("cmd/"))
+            .map(|r| (r.id, r.name))
+            .collect();
+        cmd_rules.sort_unstable_by(|(a_id, a_name), (b_id, b_name)| {
+            a_id.cmp(b_id).then_with(|| a_name.cmp(b_name))
+        });
+
+        let mut handler_matched = false;
+        for (_id, name) in cmd_rules {
+            if let ApplyResult::Applied = self.apply(tx, name, &event_id)? {
+                handler_matched = true;
+                break;
+            }
+        }
+
+        // Always consume one pending intent per tick (queue maintenance).
+        let _ = self.apply(tx, crate::inbox::ACK_PENDING_RULE_NAME, &event_id)?;
+
+        Ok(DispatchDisposition::Consumed {
+            intent_id: event_id.0,
+            handler_matched,
+        })
     }
 
     /// Returns the sequence of all committed ticks (Snapshot, Receipt, Patch).

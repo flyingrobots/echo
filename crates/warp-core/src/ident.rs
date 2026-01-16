@@ -7,10 +7,18 @@ use blake3::Hasher;
 /// types, snapshots, and rewrite rules.
 pub type Hash = [u8; 32];
 
-/// Strongly typed identifier for a registered entity or structural node.
+/// Strongly typed identifier for a node in the skeleton graph.
 ///
-/// `NodeId` values are obtained from [`make_node_id`] and remain stable across
-/// runs because they are derived from a BLAKE3 hash of a string label.
+/// `NodeId` is an opaque 32-byte identifier (`Hash`). Many nodes in Echo use
+/// stable, label-derived ids via [`make_node_id`] (`blake3("node:" || label)`),
+/// but this is a convention, not a global constraint.
+///
+/// Other subsystems may construct content-addressed `NodeId`s derived from
+/// different domain-separated hashes (for example, inbox/ledger event nodes
+/// keyed by `intent_id = blake3("intent:" || intent_bytes)`).
+///
+/// Tooling must not assume that every `NodeId` corresponds to a human-readable
+/// label, or that ids are reversible back into strings.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NodeId(pub Hash);

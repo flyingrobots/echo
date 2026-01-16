@@ -15,7 +15,7 @@ pub const POLICY_ID_NO_POLICY_V0: u32 = u32::from_le_bytes(*b"NOP0");
 
 /// BLAKE3 digest of an empty byte slice.
 ///
-/// This function is pure and deterministic: it always returns the same [`Hash`]
+/// This function is pure and deterministic: it always returns the same [`type@Hash`]
 /// for every invocation across runtimes. Use [`blake3_empty()`] when callers
 /// need canonical empty-input semantics.
 ///
@@ -34,7 +34,7 @@ pub fn blake3_empty() -> Hash {
 ///
 /// This is deterministic and produces a platform- and endian-independent,
 /// byte-identical 32-byte BLAKE3 digest for the empty length-prefix list.
-/// Returns a [`Hash`] derived from `blake3::Hasher::finalize().into()`.
+/// Returns a [`type@Hash`] derived from `blake3::Hasher::finalize().into()`.
 ///
 /// Used for plan/decision/rewrites digests when the corresponding list is empty.
 ///

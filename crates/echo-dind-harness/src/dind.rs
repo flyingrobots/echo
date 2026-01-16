@@ -53,6 +53,12 @@ pub enum Commands {
     Converge {
         /// Paths to .eintlog files
         scenarios: Vec<PathBuf>,
+        /// Override converge scope (DANGEROUS; use only for ad-hoc debugging)
+        #[arg(long)]
+        scope: Option<String>,
+        /// Required when using --scope to acknowledge non-canonical behavior
+        #[arg(long)]
+        i_know_what_im_doing: bool,
     },
 }
 
@@ -212,12 +218,26 @@ Current:  {}", i, step, base, current);
             }
             println!("DIND: Torture complete. {} runs identical.", runs);
         }
-        Commands::Converge { scenarios } => {
+        Commands::Converge {
+            scenarios,
+            scope,
+            i_know_what_im_doing,
+        } => {
             if scenarios.is_empty() {
                 bail!("No scenarios provided for convergence check.");
             }
 
-            let converge_scope = resolve_converge_scope(&scenarios)?;
+            let converge_scope = if let Some(scope) = scope {
+                if !i_know_what_im_doing {
+                    bail!("--scope requires --i-know-what-im-doing");
+                }
+                println!(
+                    "WARNING: Overriding converge scope; results may not reflect canonical test expectations."
+                );
+                Some(scope)
+            } else {
+                resolve_converge_scope(&scenarios)?
+            };
 
             println!(
                 "DIND: Checking convergence across {} scenarios...",

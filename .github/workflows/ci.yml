@@ -257,6 +257,57 @@ jobs:
           fi
           "$script"
 
+  determinism-guards:
+    name: Determinism Guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ban globals
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/ban-globals.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Ban nondeterminism
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/ban-nondeterminism.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+      - name: Ban unordered ABI containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="scripts/ban-unordered-abi.sh"
+          if [[ ! -x "$script" ]]; then
+            echo "Error: $script is missing or not executable" >&2
+            ls -la scripts || true
+            exit 1
+          fi
+          "$script"
+
+  dind-pr:
+    name: DIND (PR set)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run DIND PR suite (full hash)
+        run: node scripts/dind-run-suite.mjs --tags pr
+
   # MSRV job removed per policy: use @stable everywhere
 
   playwright:

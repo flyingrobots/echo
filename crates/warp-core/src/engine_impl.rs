@@ -92,6 +92,135 @@ pub enum EngineError {
     InvalidTickIndex(usize, usize),
 }
 
+// ============================================================================
+// Engine Builder
+// ============================================================================
+
+/// Source for building an engine from a fresh [`GraphStore`].
+pub struct FreshStore {
+    store: GraphStore,
+    root: NodeId,
+}
+
+/// Source for building an engine from an existing [`WarpState`].
+pub struct ExistingState {
+    state: WarpState,
+    root: NodeKey,
+}
+
+/// Fluent builder for constructing [`Engine`] instances.
+///
+/// Use [`EngineBuilder::new`] to start from a fresh [`GraphStore`], or
+/// [`EngineBuilder::from_state`] to start from an existing [`WarpState`].
+///
+/// # Example
+///
+/// ```ignore
+/// let engine = EngineBuilder::new(store, root)
+///     .scheduler(SchedulerKind::Radix)
+///     .policy_id(42)
+///     .build();
+/// ```
+pub struct EngineBuilder<Source> {
+    source: Source,
+    scheduler: SchedulerKind,
+    policy_id: u32,
+    telemetry: Option<Arc<dyn TelemetrySink>>,
+}
+
+impl EngineBuilder<FreshStore> {
+    /// Creates a builder for a new engine with the given store and root node.
+    ///
+    /// Defaults:
+    /// - Scheduler: [`SchedulerKind::Radix`]
+    /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Telemetry: [`NullTelemetrySink`]
+    pub fn new(store: GraphStore, root: NodeId) -> Self {
+        Self {
+            source: FreshStore { store, root },
+            scheduler: SchedulerKind::Radix,
+            policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            telemetry: None,
+        }
+    }
+
+    /// Builds the engine. This operation is infallible for fresh stores.
+    #[must_use]
+    pub fn build(self) -> Engine {
+        let telemetry = self
+            .telemetry
+            .unwrap_or_else(|| Arc::new(NullTelemetrySink));
+        Engine::with_telemetry(
+            self.source.store,
+            self.source.root,
+            self.scheduler,
+            self.policy_id,
+            telemetry,
+        )
+    }
+}
+
+impl EngineBuilder<ExistingState> {
+    /// Creates a builder for an engine from an existing [`WarpState`].
+    ///
+    /// Defaults:
+    /// - Scheduler: [`SchedulerKind::Radix`]
+    /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Telemetry: [`NullTelemetrySink`]
+    pub fn from_state(state: WarpState, root: NodeKey) -> Self {
+        Self {
+            source: ExistingState { state, root },
+            scheduler: SchedulerKind::Radix,
+            policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            telemetry: None,
+        }
+    }
+
+    /// Builds the engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp instance is missing.
+    /// Returns [`EngineError::InternalCorruption`] if the root is invalid.
+    pub fn build(self) -> Result<Engine, EngineError> {
+        Engine::with_state(
+            self.source.state,
+            self.source.root,
+            self.scheduler,
+            self.policy_id,
+        )
+    }
+}
+
+impl<S> EngineBuilder<S> {
+    /// Sets the scheduler variant.
+    #[must_use]
+    pub fn scheduler(mut self, kind: SchedulerKind) -> Self {
+        self.scheduler = kind;
+        self
+    }
+
+    /// Sets the policy identifier.
+    ///
+    /// The policy ID is committed into `patch_digest` and `commit_id` v2.
+    #[must_use]
+    pub fn policy_id(mut self, id: u32) -> Self {
+        self.policy_id = id;
+        self
+    }
+
+    /// Sets the telemetry sink for observability events.
+    #[must_use]
+    pub fn telemetry(mut self, sink: Arc<dyn TelemetrySink>) -> Self {
+        self.telemetry = Some(sink);
+        self
+    }
+}
+
+// ============================================================================
+// Engine
+// ============================================================================
+
 /// Core rewrite engine used by the spike.
 ///
 /// It owns a `GraphStore`, the registered rules, and the deterministic
@@ -101,6 +230,19 @@ pub enum EngineError {
 /// little-endian and ids are raw 32-byte values. Changing any of these rules is
 /// a breaking change to snapshot identity and must be recorded in the
 /// determinism spec and tests.
+///
+/// # Construction
+///
+/// Use [`EngineBuilder`] for fluent configuration:
+///
+/// ```ignore
+/// let engine = EngineBuilder::new(store, root)
+///     .scheduler(SchedulerKind::Radix)
+///     .policy_id(42)
+///     .build();
+/// ```
+///
+/// Legacy constructors are also available for backward compatibility.
 pub struct Engine {
     state: WarpState,
     rules: HashMap<&'static str, RewriteRule>,
@@ -685,6 +827,7 @@ impl Engine {
     /// Panics if the root warp store doesn't exist, which indicates a bug in
     /// engine construction (the root store should always be present).
     #[must_use]
+    #[allow(clippy::expect_used)] // Documented panic: root store missing is a construction bug
     pub fn store_clone(&self) -> GraphStore {
         let warp_id = self.current_root.warp_id;
         self.state
@@ -880,7 +1023,7 @@ impl Engine {
 
         let mut handler_matched = false;
         for (_id, name) in cmd_rules {
-            if let ApplyResult::Applied = self.apply(tx, name, &event_id)? {
+            if matches!(self.apply(tx, name, &event_id)?, ApplyResult::Applied) {
                 handler_matched = true;
                 break;
             }

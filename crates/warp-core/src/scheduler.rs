@@ -135,23 +135,21 @@ impl RadixScheduler {
         let active = self.active.entry(tx).or_insert_with(ActiveFootprints::new);
 
         if Self::has_conflict(active, pr) {
-            return self.on_conflict(pr);
+            return Self::on_conflict(pr);
         }
 
         Self::mark_all(active, pr);
-        self.on_reserved(pr)
+        Self::on_reserved(pr)
     }
 
     #[inline]
-    #[allow(clippy::needless_pass_by_ref_mut)]
-    fn on_conflict(&self, pr: &mut PendingRewrite) -> bool {
+    fn on_conflict(pr: &mut PendingRewrite) -> bool {
         pr.phase = RewritePhase::Aborted;
         false
     }
 
     #[inline]
-    #[allow(clippy::needless_pass_by_ref_mut)]
-    fn on_reserved(&self, pr: &mut PendingRewrite) -> bool {
+    fn on_reserved(pr: &mut PendingRewrite) -> bool {
         pr.phase = RewritePhase::Reserved;
         true
     }

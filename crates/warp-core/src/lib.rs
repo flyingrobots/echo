@@ -80,7 +80,8 @@ pub use attachment::{
 pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64, POLICY_ID_NO_POLICY_V0};
 pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
 pub use engine_impl::{
-    scope_hash, ApplyResult, DispatchDisposition, Engine, EngineError, IngestDisposition,
+    scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
+    ExistingState, FreshStore, IngestDisposition,
 };
 pub use footprint::{pack_port_key, AttachmentSet, Footprint, IdSet, PortKey, PortSet};
 pub use graph::GraphStore;

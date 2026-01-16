@@ -4,6 +4,8 @@ The DIND harness is the deterministic verification runner for Echo/WARP. It repl
 
 Location:
 - `crates/echo-dind-harness`
+- `crates/echo-dind-tests` (stable test app used by the harness)
+- `testdata/dind` (scenarios + goldens)
 
 ## Quickstart
 

@@ -16,6 +16,7 @@ members = [
     "crates/echo-session-client",
     "crates/echo-graph",
     "crates/echo-dind-harness",
+    "crates/echo-dind-tests",
     "crates/echo-wasm-abi",
     "crates/echo-registry-api",
     "crates/echo-session-ws-gateway",

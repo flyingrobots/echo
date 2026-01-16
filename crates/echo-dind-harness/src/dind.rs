@@ -4,8 +4,8 @@ use std::io::BufReader;
 use clap::{Parser, Subcommand};
 use anyhow::{Context, Result, bail};
 use echo_wasm_abi::{read_elog_header, read_elog_frame, ElogHeader};
-use flyingrobots_echo_wasm::EchoKernel;
-use flyingrobots_echo_wasm::generated::codecs::SCHEMA_HASH;
+use echo_dind_tests::EchoKernel;
+use echo_dind_tests::generated::codecs::SCHEMA_HASH;
 use warp_core::{make_node_id, AttachmentValue};
 
 #[derive(Parser)]

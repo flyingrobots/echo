@@ -1121,6 +1121,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-dind-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "echo-dind-tests",
+ "echo-wasm-abi",
+ "hex",
+ "serde",
+ "serde_json",
+ "warp-core",
+]
+
+[[package]]
+name = "echo-dind-tests"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "echo-wasm-abi",
+ "warp-core",
+]
+
+[[package]]
 name = "echo-graph"
 version = "0.1.0"
 dependencies = [
@@ -1195,6 +1218,7 @@ version = "0.1.0"
 dependencies = [
  "ciborium",
  "half",
+ "proptest",
  "serde",
  "serde-value",
  "serde_json",

@@ -1,14 +1,15 @@
 #!/usr/bin/env bats
 
 setup() {
+    ECHO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     # Build the harness once (or ensure it's built)
-    cargo build -p echo-dind-harness --quiet
+    (cd "$ECHO_ROOT" && cargo build -p echo-dind-harness --quiet)
     
     # Path to the binary
-    export HARNESS="./target/debug/echo-dind-harness"
+    export HARNESS="$ECHO_ROOT/target/debug/echo-dind-harness"
     
     # Test data paths
-    export DATA_DIR="testdata/dind"
+    export DATA_DIR="$ECHO_ROOT/testdata/dind"
     export OUT_DIR="test-results/dind/bats"
     mkdir -p "$OUT_DIR"
 }

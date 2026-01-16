@@ -87,6 +87,7 @@ If you’re building anything that benefits from “Git‑like” properties for
 - `crates/warp-ffi` / `crates/warp-wasm` — bindings around `warp-core`.
 - `crates/warp-benches` — Criterion microbenchmarks (scheduler drain, snapshot hash, etc.).
 - `crates/echo-dind-harness` — determinism drill runner (DIND suite; cross‑platform hash verification).
+- `crates/echo-dind-tests` — stable test app used by the DIND harness.
 
 ### Living specs (teaching slice)
 

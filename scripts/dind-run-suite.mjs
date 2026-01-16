@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT_DIR = process.cwd();
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ROOT_DIR = process.env.DIND_ROOT || path.resolve(SCRIPT_DIR, "..");
 const MANIFEST_PATH = path.resolve(ROOT_DIR, "testdata/dind/MANIFEST.json");
 
 function loadManifest() {

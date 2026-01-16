@@ -95,7 +95,7 @@ function generateLog(seed, outPath, schemaHashHex) {
 }
 
 // Main
-const codecs = fs.readFileSync("crates/flyingrobots-echo-wasm/src/generated/codecs.rs", "utf8");
+const codecs = fs.readFileSync("crates/echo-dind-tests/src/generated/codecs.rs", "utf8");
 const match = codecs.match(/pub const SCHEMA_HASH: &str = "([0-9a-f]+)";/);
 if (!match) throw new Error("Could not find SCHEMA_HASH in codecs.rs");
 const schemaHash = match[1];

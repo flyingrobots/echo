@@ -49,10 +49,10 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `scheduler-reserve-complexity.md` | Redirect: merged into `scheduler-warp-core.md` |
 | `testing-and-replay-plan.md` | Replay, golden hashes, entropy tests |
 | `runtime-diagnostics-plan.md` | Logging, tracing, inspector streams |
-| `docs-audit.md` | Docs hygiene memo: purge/merge/splurge candidates |
-| `docs-index.md` | This index |
+| `meta/docs-audit.md` | Docs hygiene memo: purge/merge/splurge candidates |
+| `meta/docs-index.md` | This index |
 | `hash-graph.md` | Hash relationships across subsystems |
-| `legacy-excavation.md` | Historical artifact log |
+| `meta/legacy-excavation.md` | Historical artifact log |
 | `memorial.md` | Tribute to Caverns |
 | `release-criteria.md` | Phase transition checklist |
 
@@ -127,7 +127,7 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`determinism-invariants.md`](/determinism-invariants) | Determinism Invariants |
 | [`diagrams.md`](/diagrams) | Echo Diagram Vault |
 | [`dind-harness.md`](/dind-harness) | DIND Harness (Deterministic Ironclad Nightmare Drills) |
-| [`docs-audit.md`](/docs-audit) | Docs Audit — Purge / Merge / Splurge |
+| [`meta/docs-audit.md`](/meta/docs-audit) | Docs Audit — Purge / Merge / Splurge |
 | [`golden-vectors.md`](/golden-vectors) | ABI Golden Vectors (v1) |
 | [`guide/course/00-orientation.md`](/guide/course/00-orientation) | 00 — Orientation: Shared Truth, Not Vibes |
 | [`guide/course/01-lockstep.md`](/guide/course/01-lockstep) | 01 — Lockstep, Explained (Inputs‑Only Networking) |
@@ -139,7 +139,7 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`index.md`](/index) | Echo |
 | [`jitos/spec-0000.md`](/jitos/spec-0000) | SPEC-000: Everything Is a Rewrite |
 | [`js-cbor-mapping.md`](/js-cbor-mapping) | JS → Canonical CBOR Mapping Rules (ABI v1) |
-| [`legacy-excavation.md`](/legacy-excavation) | Legacy Excavation Log (Placeholder) |
+| [`meta/legacy-excavation.md`](/meta/legacy-excavation) | Legacy Excavation Log (Placeholder) |
 | [`notes/aion-papers-bridge.md`](/notes/aion-papers-bridge) | Moved: AIΩN Foundations → Echo Bridge |
 | [`notes/f32scalar-deterministic-trig-implementation-guide.md`](/notes/f32scalar-deterministic-trig-implementation-guide) | Implementation Guide — Deterministic `sin/cos` for `F32Scalar` (LUT-backed) |
 | [`notes/project-tour-2025-12-28.md`](/notes/project-tour-2025-12-28) | Echo Project Tour (2025-12-28) |

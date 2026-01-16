@@ -54,6 +54,6 @@
 
 ## Onboarding
 
-- Start with `README.md` and `docs/docs-index.md`.
+- Start with `README.md` and `docs/meta/docs-index.md`.
 - For engine flow, read `engine_impl.rs` (apply → schedule → commit → snapshot).
 - For demo behavior, see `demo/motion.rs` and tests under `crates/warp-core/tests/*`.

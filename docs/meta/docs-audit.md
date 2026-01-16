@@ -65,7 +65,7 @@ De-risked (clarified “what is canonical”):
 
 ### Splurge candidates
 
-- `docs/docs-index.md`:
+- `docs/meta/docs-index.md`:
   - It’s already a great index, but could include a short “If you’re changing X, read Y” map (e.g., determinism policy, docs guard, PR policy).
   - Action: add a “Common contributor paths” section.
 
@@ -85,4 +85,4 @@ De-risked (clarified “what is canonical”):
 
 - Do we want a formal “doc tier” tag?
   - Example: **Spec (normative)** vs **Guide (how-to)** vs **Notes (historical)** vs **ADR (decisions)**.
-- Should VitePress navigation be driven by `docs/docs-index.md` (as the canonical index), rather than having multiple “landing pages”?
+- Should VitePress navigation be driven by `docs/meta/docs-index.md` (as the canonical index), rather than having multiple “landing pages”?

@@ -68,4 +68,4 @@ flowchart TD
 
 ## When You Need a Map
 
-- Docs map (curated): [/docs-index](/docs-index)
+- Docs map (curated): [/meta/docs-index](/meta/docs-index)

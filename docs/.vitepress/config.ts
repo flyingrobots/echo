@@ -7,10 +7,13 @@ export default defineConfig({
   description: 'Real-Time, Deterministic, Recursive Meta-Graph Simulation Engine',
   cleanUrls: true,
   themeConfig: {
+    search: {
+      provider: 'local'
+    },
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Start Here', link: '/guide/start-here' },
-      { text: 'Docs Map', link: '/docs-index' },
+      { text: 'Docs Map', link: '/meta/docs-index' },
       {
         text: 'Guides',
         items: [
@@ -38,7 +41,7 @@ export default defineConfig({
           items: [
             { text: 'Start Here', link: '/guide/start-here' },
             { text: 'WARP Primer', link: '/guide/warp-primer' },
-            { text: 'Docs Map', link: '/docs-index' },
+            { text: 'Docs Map', link: '/meta/docs-index' },
             { text: 'Architecture Outline', link: '/architecture-outline' }
           ]
         },

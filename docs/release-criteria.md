@@ -30,6 +30,6 @@ Checklist for closing Phase 0.5 and starting Phase 1 implementation.
 - Determinism suite: CI logs or `echo-dind-harness` transcript.
 - Replay CLI: golden hashes checked in `testdata/` with a reproducible runner.
 - Protocol gates: a spec doc + a passing conformance test.
-- Docs: `docs/docs-index.md` updated with links to current specs.
+- Docs: `docs/meta/docs-index.md` updated with links to current specs.
 
 Once all items checked, open Phase 1 milestone and migrate outstanding tasks to implementation backlog.

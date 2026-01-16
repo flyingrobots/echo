@@ -44,7 +44,7 @@ Collision DPO Tour (what to expect):
 
 ### If you want what should I work on?
 
-- Docs map (curated index): [/docs-index](/docs-index)
+- Docs map (curated index): [/meta/docs-index](/meta/docs-index)
 
 ## How These Docs Are Organized
 

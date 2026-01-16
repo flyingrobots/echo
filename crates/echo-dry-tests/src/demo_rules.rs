@@ -98,7 +98,7 @@ fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
 fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
     matches!(
         store.node_attachment(scope),
-        Some(AttachmentValue::Atom(payload)) if decode_motion_atom_payload(payload).is_some()
+        Some(AttachmentValue::Atom(payload)) if decode_motion_atom_payload_q32_32(payload).is_some()
     )
 }
 

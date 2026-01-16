@@ -7,14 +7,14 @@ Goal: a human-friendly `cargo xtask` (or `just`/`make` alias) that walks a contr
 ## Core flow
 
 ### Start session
-- Prompt for intent/issue: pick from open GitHub issues (via gh CLI) or free text → writes to `docs/execution-plan.md` Today's Intent.
+- Prompt for intent/issue: pick from open GitHub issues (via gh CLI) or free text.
 - Branch helper: suggest branch name (`echo/<issue>-<slug>`), create and checkout if approved.
 - Env checks: toolchain match, hooks installed (`make hooks`), `cargo fmt -- --check`/`clippy` optional preflight.
 
 ### During session
 - Task DAG helper: load tasks from issue body / local `tasks.yaml`; compute simple priority/topo order (dependencies, P1/P0 tags).
 - Bench/test shortcuts: menu to run common commands (clippy, cargo test -p warp-core, bench targets).
-- Docs guard assist: if runtime code touched, remind to update execution-plan; offer to append templated entries.
+- Docs guard assist: if runtime code touched, remind to update relevant specs/ADRs.
 
 ### End session
 - Summarize changes: gather `git status`, staged/untracked hints.

@@ -114,7 +114,7 @@ impl EngineTestBuilder {
     }
 }
 
-/// Create an engine with a root node (convenience function).
+/// Creates an Engine with a default GraphStore and a single root node.
 ///
 /// This is a shorthand for the common pattern:
 /// ```

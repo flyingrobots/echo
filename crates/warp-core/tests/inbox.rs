@@ -3,7 +3,7 @@
 //! Inbox ingestion scaffolding tests.
 
 use bytes::Bytes;
-use echo_dry_tests::build_engine_with_root;
+use echo_dry_tests::{build_engine_with_root, make_intent_id};
 use warp_core::{make_node_id, make_type_id, AtomPayload, AttachmentValue, Hash, NodeId};
 
 #[test]
@@ -24,12 +24,7 @@ fn ingest_inbox_event_creates_path_and_pending_edge_from_opaque_intent_bytes() {
 
     let sim_id = make_node_id("sim");
     let inbox_id = make_node_id("sim/inbox");
-    let intent_id: Hash = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"intent:");
-        hasher.update(intent_bytes);
-        hasher.finalize().into()
-    };
+    let intent_id: Hash = make_intent_id(intent_bytes);
     let event_id = NodeId(intent_id);
 
     // Nodes exist with expected types
@@ -96,12 +91,7 @@ fn ingest_inbox_event_is_idempotent_by_intent_bytes_not_seq() {
         .collect();
     assert_eq!(inbox_pending_edges.len(), 1);
 
-    let intent_id: Hash = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"intent:");
-        hasher.update(intent_bytes);
-        hasher.finalize().into()
-    };
+    let intent_id: Hash = make_intent_id(intent_bytes);
     assert!(store.node(&NodeId(intent_id)).is_some());
 }
 
@@ -134,18 +124,8 @@ fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
         .collect();
     assert_eq!(inbox_pending_edges.len(), 2);
 
-    let intent_id_a: Hash = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"intent:");
-        hasher.update(intent_a);
-        hasher.finalize().into()
-    };
-    let intent_id_b: Hash = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"intent:");
-        hasher.update(intent_b);
-        hasher.finalize().into()
-    };
+    let intent_id_a: Hash = make_intent_id(intent_a);
+    let intent_id_b: Hash = make_intent_id(intent_b);
 
     assert!(store.node(&NodeId(intent_id_a)).is_some());
     assert!(store.node(&NodeId(intent_id_b)).is_some());

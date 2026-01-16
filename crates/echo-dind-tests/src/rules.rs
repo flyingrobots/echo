@@ -144,7 +144,8 @@ pub fn drop_ball_rule() -> RewriteRule {
         matcher: |s, scope| matcher_for_op(s, scope, ops::drop_ball::OP_ID),
         executor: |s, _scope| {
             let ball_id = make_node_id("ball");
-            // Position and velocity in Q32.32 fixed-point format
+            // Q32.32 fixed-point: 1 unit = 1 << 32
+            // Initial: y=400 units, downward velocity 5 units/tick
             let pos = [0, BALL_INITIAL_HEIGHT * FIXED_POINT_SCALE, 0];
             let vel = [0, -BALL_INITIAL_VELOCITY * FIXED_POINT_SCALE, 0];
             let payload = MotionV2Builder::new(pos, vel).into_bytes();
@@ -181,13 +182,9 @@ pub fn ball_physics_rule() -> RewriteRule {
                 return false;
             }
             if let Some(m) = MotionV2View::try_from_node(s, scope) {
-                let moving = m.vel_raw().iter().any(|&v| v != 0);
-                let below_ground = m.pos_raw()[1] < 0;
-                let airborne = m.pos_raw()[1] > 0;
-                // Match if ball has velocity OR is not at rest position (y != 0).
-                // This triggers physics updates for: falling balls, balls that need
-                // clamping to ground, or balls with residual velocity.
-                return moving || below_ground || airborne;
+                let has_velocity = m.vel_raw().iter().any(|&v| v != 0);
+                let not_at_rest = m.pos_raw()[1] != 0;
+                return has_velocity || not_at_rest;
             }
             false
         },
@@ -230,6 +227,9 @@ pub fn ball_physics_rule() -> RewriteRule {
 }
 
 /// Constructs the `cmd/put_kv` rewrite rule (Test only).
+// TODO: Double-decoding desync risk - decode_op_args is called in both executor
+// and compute_footprint. If the decoder has side effects or if the attachment
+// changes between calls, this could lead to inconsistent behavior.
 #[cfg(feature = "dind_ops")]
 #[must_use]
 pub fn put_kv_rule() -> RewriteRule {
@@ -448,14 +448,10 @@ pub fn apply_toggle_nav(store: &mut GraphStore) {
         },
     );
 
-    let current_val = store
-        .node_attachment(&id)
-        .and_then(|v| match v {
-            AttachmentValue::Atom(a) => Some(&a.bytes),
-            _ => None,
-        })
-        .map(|b| if !b.is_empty() && b[0] == 1 { 1u8 } else { 0u8 })
-        .unwrap_or(0);
+    let current_val = match store.node_attachment(&id) {
+        Some(AttachmentValue::Atom(a)) if !a.bytes.is_empty() && a.bytes[0] == 1 => 1u8,
+        _ => 0u8,
+    };
     let next_val = if current_val == 1 { 0u8 } else { 1u8 };
 
     store.set_node_attachment(
@@ -518,7 +514,10 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
     let seq = store
         .node_attachment(&view_id)
         .and_then(|v| match v {
-            AttachmentValue::Atom(a) if a.type_id == seq_key && a.bytes.len() >= 8 => {
+            AttachmentValue::Atom(a) if a.type_id == seq_key => {
+                if a.bytes.len() < 8 {
+                    return None;
+                }
                 let mut b = [0u8; 8];
                 b.copy_from_slice(&a.bytes[..8]);
                 Some(u64::from_le_bytes(b))
@@ -558,22 +557,11 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
     );
 }
 
-/// Emit a view operation from a state node's attachment bytes.
-///
-/// Looks up the attachment at `state_path`, and if it's an Atom, emits a view op
-/// with the given `view_type_id`. The clone is O(1) for `bytes::Bytes` (ref-count
-/// increment) and is required to release the borrow on `store` before calling
-/// `emit_view_op`, which needs `&mut GraphStore`.
-fn emit_state_op(store: &mut GraphStore, state_path: &str, view_type_id: TypeId) {
-    // Clone releases the borrow on store; bytes::Bytes clone is O(1)
-    let bytes = store
-        .node_attachment(&make_node_id(state_path))
-        .and_then(|v| match v {
-            AttachmentValue::Atom(a) => Some(a.bytes.clone()),
-            _ => None,
-        });
-    if let Some(b) = bytes {
-        emit_view_op(store, view_type_id, &b);
+/// Helper to extract attachment bytes from a state node without cloning.
+fn get_state_bytes(store: &GraphStore, state_path: &str) -> Option<bytes::Bytes> {
+    match store.node_attachment(&make_node_id(state_path))? {
+        AttachmentValue::Atom(a) => Some(a.bytes.clone()),
+        _ => None,
     }
 }
 
@@ -587,8 +575,23 @@ fn emit_state_op(store: &mut GraphStore, state_path: &str, view_type_id: TypeId)
 /// - `project_state` reads those same bytes and emits them as view ops
 ///
 /// This ensures time-travel sync delivers the same payload shape as the UI expects.
+///
+/// We gather all bytes first (borrowing store immutably), then emit view ops
+/// (requiring mutable store). bytes::Bytes clone is O(1) ref-count increment.
 pub fn project_state(store: &mut GraphStore) {
-    emit_state_op(store, "sim/state/theme", TYPEID_VIEW_OP_SETTHEME);
-    emit_state_op(store, "sim/state/navOpen", TYPEID_VIEW_OP_TOGGLENAV);
-    emit_state_op(store, "sim/state/routePath", TYPEID_VIEW_OP_ROUTEPUSH);
+    // Borrow bytes directly - gather all state before mutating
+    let theme_bytes = get_state_bytes(store, "sim/state/theme");
+    let nav_bytes = get_state_bytes(store, "sim/state/navOpen");
+    let route_bytes = get_state_bytes(store, "sim/state/routePath");
+
+    // Now emit view ops with mutable store access
+    if let Some(b) = theme_bytes {
+        emit_view_op(store, TYPEID_VIEW_OP_SETTHEME, &b);
+    }
+    if let Some(b) = nav_bytes {
+        emit_view_op(store, TYPEID_VIEW_OP_TOGGLENAV, &b);
+    }
+    if let Some(b) = route_bytes {
+        emit_view_op(store, TYPEID_VIEW_OP_ROUTEPUSH, &b);
+    }
 }

@@ -1,4 +1,4 @@
-# ADR-00ZZ: Physics as Deterministic Scheduled Rewrites (Footprints + Phases)
+# ADR-0005: Physics as Deterministic Scheduled Rewrites (Footprints + Phases)
 
 - **Status:** Accepted
 - **Date:** 2026-01-14
@@ -106,12 +106,14 @@ These are outputs, not inputs.
 ## Consequences
 
 ### Positive
+
 - Physics reuses existing determinism machinery (scheduler + footprints)
 - Preserves maximal independence batching (confluence-friendly)
 - Multi-pass behavior is explicit, bounded, and reproducible
 - Works in both wasm and native runtimes with the same semantics
 
 ### Negative / Tradeoffs
+
 - Requires careful canonical ordering in broadphase/narrowphase
 - Requires fixed iteration budgets for convergence (predictable but not “perfect”)
 - CCD adds complexity; may be deferred until needed

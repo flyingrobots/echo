@@ -87,6 +87,8 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 ## Event Bus 🗺️ Planned
 
 > **Note:** The original "Event Bus" spec has been superseded by [ADR-0003 (MaterializationBus)](/ADR-0003-Materialization-Bus.md). See that document for the current boundary API design.
+>
+> *The content below is preserved for historical context only; [ADR-0003](/ADR-0003-Materialization-Bus.md) is the authoritative specification.*
 - **Command Buffers**: Events are POD structs appended to per-type ring buffers during a frame; no immediate callbacks inside hot systems.
 - **Flush Phases**: Scheduler defines flush points (pre-update, post-update, custom phases). Systems subscribe to phases matching their needs.
 - **Handler Contracts**: Handlers receive batched slices; they may mutate components, enqueue new events, or schedule commands. Return values are ignored for deterministic execution.

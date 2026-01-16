@@ -34,10 +34,7 @@ disallowed-methods = [
     { path = "serde_json::Serializer::pretty", reason = "serde_json banned in warp-core - use CBOR" },
     { path = "serde_json::Serializer::with_formatter", reason = "serde_json banned in warp-core - use CBOR" },
     # Value construction/manipulation
-    { path = "serde_json::json", reason = "serde_json banned in warp-core - use CBOR" },
-    { path = "serde_json::Value::from", reason = "serde_json banned in warp-core - use CBOR" },
     { path = "serde_json::Map::new", reason = "serde_json banned in warp-core - use CBOR" },
-    { path = "serde_json::Number::from", reason = "serde_json banned in warp-core - use CBOR" },
 ]
 
 # Ban serde_json macros
@@ -53,5 +50,4 @@ disallowed-types = [
     { path = "serde_json::Serializer", reason = "serde_json types banned in warp-core - use CBOR" },
     { path = "serde_json::Deserializer", reason = "serde_json types banned in warp-core - use CBOR" },
     { path = "serde_json::Error", reason = "serde_json types banned in warp-core - use CBOR" },
-    { path = "serde_json::RawValue", reason = "serde_json types banned in warp-core - use ciborium::Value via echo_wasm_abi or CBOR" },
 ]

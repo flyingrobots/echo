@@ -20,7 +20,6 @@ thiserror = "1.0"
 hex = "0.4"
 ciborium = "0.2"
 rustc-hash = "2.1.1"
-echo-wasm-abi = { path = "../echo-wasm-abi" }
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]

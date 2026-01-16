@@ -5019,7 +5019,6 @@ dependencies = [
  "blake3",
  "bytes",
  "ciborium",
- "echo-wasm-abi",
  "hex",
  "libm",
  "proptest",

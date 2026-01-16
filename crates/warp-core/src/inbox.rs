@@ -41,6 +41,9 @@ pub const INBOX_EVENT_TYPE: &str = "sim/inbox/event";
 /// Type identifier for pending edges.
 pub const PENDING_EDGE_TYPE: &str = "edge:pending";
 
+/// Type identifier for intent attachments.
+pub const INTENT_ATTACHMENT_TYPE: &str = "intent";
+
 /// Hash domain prefix for pending edge IDs.
 const PENDING_EDGE_HASH_DOMAIN: &[u8] = b"sim/inbox/pending:";
 

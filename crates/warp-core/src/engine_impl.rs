@@ -4,12 +4,11 @@
 use std::collections::{HashMap, HashSet};
 
 use blake3::Hasher;
-use echo_wasm_abi::unpack_intent_v1;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
-use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, PENDING_EDGE_TYPE};
+use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
 };
@@ -34,8 +33,6 @@ pub enum ApplyResult {
 /// Result of calling [`Engine::ingest_intent`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IngestDisposition {
-    /// The provided bytes were not a valid canonical intent envelope and were ignored.
-    IgnoredInvalid,
     /// The intent was already present in the ledger (idempotent retry).
     Duplicate {
         /// Content hash of the canonical intent bytes (`intent_id = H(intent_bytes)`).
@@ -722,10 +719,6 @@ impl Engine {
     /// # Errors
     /// Returns [`EngineError::UnknownWarp`] if the current warp store is missing.
     pub fn ingest_intent(&mut self, intent_bytes: &[u8]) -> Result<IngestDisposition, EngineError> {
-        let Ok((op_id, _vars)) = unpack_intent_v1(intent_bytes) else {
-            return Ok(IngestDisposition::IgnoredInvalid);
-        };
-
         let intent_id = crate::inbox::compute_intent_id(intent_bytes);
         let event_id = NodeId(intent_id);
 
@@ -774,7 +767,7 @@ impl Engine {
         // Ledger entry: immutable event node keyed by content hash.
         store.insert_node(event_id, NodeRecord { ty: event_ty });
         let payload = crate::attachment::AtomPayload::new(
-            make_type_id(&format!("intent:{op_id}")),
+            make_type_id(INTENT_ATTACHMENT_TYPE),
             bytes::Bytes::copy_from_slice(intent_bytes),
         );
         store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)));

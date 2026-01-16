@@ -48,8 +48,7 @@ impl EchoKernel {
     /// Dispatch an intent (canonical bytes) with an auto-assigned sequence number.
     pub fn dispatch_intent(&mut self, intent_bytes: &[u8]) {
         // Canonical ingress: content-addressed, idempotent on `intent_id`.
-        //
-        // Invalid bytes are ignored deterministically (`IgnoredInvalid`).
+        // Bytes are opaque to the core engine; validation is the caller's responsibility.
         let _ = self.engine.ingest_intent(intent_bytes).expect("ingest intent");
     }
 

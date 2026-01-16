@@ -3,7 +3,6 @@
 //! Inbox ingestion scaffolding tests.
 
 use bytes::Bytes;
-use echo_wasm_abi::pack_intent_v1;
 use warp_core::{
     make_node_id, make_type_id, AtomPayload, AttachmentValue, Engine, GraphStore, Hash, NodeId,
     NodeRecord,
@@ -21,13 +20,13 @@ fn build_engine_with_root(root: NodeId) -> Engine {
 }
 
 #[test]
-fn ingest_inbox_event_creates_path_and_pending_edge_from_canonical_intent_bytes() {
+fn ingest_inbox_event_creates_path_and_pending_edge_from_opaque_intent_bytes() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
 
-    let op_id: u32 = 7;
-    let intent_bytes = pack_intent_v1(op_id, b"");
-    let payload_bytes = Bytes::copy_from_slice(&intent_bytes);
+    // Core is byte-blind: any bytes are valid intents.
+    let intent_bytes: &[u8] = b"opaque-test-intent";
+    let payload_bytes = Bytes::copy_from_slice(intent_bytes);
     let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes.clone());
 
     engine
@@ -41,7 +40,7 @@ fn ingest_inbox_event_creates_path_and_pending_edge_from_canonical_intent_bytes(
     let intent_id: Hash = {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"intent:");
-        hasher.update(&intent_bytes);
+        hasher.update(intent_bytes);
         hasher.finalize().into()
     };
     let event_id = NodeId(intent_id);
@@ -62,7 +61,7 @@ fn ingest_inbox_event_creates_path_and_pending_edge_from_canonical_intent_bytes(
             _ => None,
         })
         .expect("event attachment");
-    assert_eq!(attachment.type_id, make_type_id("intent:7"));
+    assert_eq!(attachment.type_id, make_type_id("intent"));
     assert_eq!(attachment.bytes, payload_bytes);
 
     // Pending membership is an edge from inbox → event.
@@ -80,8 +79,8 @@ fn ingest_inbox_event_is_idempotent_by_intent_bytes_not_seq() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
 
-    let intent_bytes = pack_intent_v1(7, b"");
-    let payload_bytes = Bytes::copy_from_slice(&intent_bytes);
+    let intent_bytes: &[u8] = b"idempotent-intent";
+    let payload_bytes = Bytes::copy_from_slice(intent_bytes);
     let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes.clone());
 
     engine.ingest_inbox_event(1, &payload).unwrap();
@@ -110,7 +109,7 @@ fn ingest_inbox_event_is_idempotent_by_intent_bytes_not_seq() {
     let intent_id: Hash = {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"intent:");
-        hasher.update(&intent_bytes);
+        hasher.update(intent_bytes);
         hasher.finalize().into()
     };
     assert!(store.node(&NodeId(intent_id)).is_some());
@@ -121,10 +120,10 @@ fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
     let root = make_node_id("root");
     let mut engine = build_engine_with_root(root);
 
-    let intent_a = pack_intent_v1(7, b"a");
-    let intent_b = pack_intent_v1(8, b"b");
-    let payload_a = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(&intent_a));
-    let payload_b = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(&intent_b));
+    let intent_a: &[u8] = b"intent-alpha";
+    let intent_b: &[u8] = b"intent-beta";
+    let payload_a = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(intent_a));
+    let payload_b = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(intent_b));
 
     engine.ingest_inbox_event(1, &payload_a).unwrap();
     engine.ingest_inbox_event(2, &payload_b).unwrap();
@@ -139,13 +138,13 @@ fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
     let intent_id_a: Hash = {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"intent:");
-        hasher.update(&intent_a);
+        hasher.update(intent_a);
         hasher.finalize().into()
     };
     let intent_id_b: Hash = {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"intent:");
-        hasher.update(&intent_b);
+        hasher.update(intent_b);
         hasher.finalize().into()
     };
 
@@ -153,15 +152,6 @@ fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
     assert!(store.node(&NodeId(intent_id_b)).is_some());
 }
 
-#[test]
-fn ingest_inbox_event_ignores_invalid_intent_bytes_without_mutating_graph() {
-    let root = make_node_id("root");
-    let mut engine = build_engine_with_root(root);
-
-    let payload = AtomPayload::new(make_type_id("legacy/payload"), Bytes::from_static(b"not an intent envelope"));
-    engine.ingest_inbox_event(1, &payload).unwrap();
-
-    let store = engine.store_clone();
-    assert!(store.node(&make_node_id("sim")).is_none());
-    assert!(store.node(&make_node_id("sim/inbox")).is_none());
-}
+// NOTE: The `ingest_inbox_event_ignores_invalid_intent_bytes_without_mutating_graph` test
+// was removed because the core is now byte-blind: all bytes are valid intents and
+// validation is the caller's responsibility (hexagonal architecture).

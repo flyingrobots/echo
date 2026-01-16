@@ -2,7 +2,6 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Tests for the generic `sys/dispatch_inbox` rule.
 
-use echo_wasm_abi::pack_intent_v1;
 use warp_core::{
     inbox::{ack_pending_rule, dispatch_inbox_rule},
     make_node_id, make_type_id, ApplyResult, Engine, GraphStore, IngestDisposition, NodeId,
@@ -20,10 +19,6 @@ fn build_engine_with_root(root: NodeId) -> Engine {
     Engine::new(store, root)
 }
 
-fn make_intent(op_id: u32, vars: &[u8]) -> Vec<u8> {
-    pack_intent_v1(op_id, vars)
-}
-
 #[test]
 fn dispatch_inbox_drains_pending_edges_but_keeps_event_nodes() {
     let root = make_node_id("root");
@@ -34,15 +29,15 @@ fn dispatch_inbox_drains_pending_edges_but_keeps_event_nodes() {
         .register_rule(dispatch_inbox_rule())
         .expect("register rule");
 
-    // Seed two intents (canonical bytes).
-    let intent1 = make_intent(1, b"");
-    let intent2 = make_intent(2, b"");
+    // Seed two intents (opaque bytes - core is byte-blind).
+    let intent1: &[u8] = b"intent-one";
+    let intent2: &[u8] = b"intent-two";
 
-    let intent_id1 = match engine.ingest_intent(&intent1).expect("ingest") {
+    let intent_id1 = match engine.ingest_intent(intent1).expect("ingest") {
         IngestDisposition::Accepted { intent_id } => intent_id,
         other => panic!("expected Accepted, got {other:?}"),
     };
-    let intent_id2 = match engine.ingest_intent(&intent2).expect("ingest") {
+    let intent_id2 = match engine.ingest_intent(intent2).expect("ingest") {
         IngestDisposition::Accepted { intent_id } => intent_id,
         other => panic!("expected Accepted, got {other:?}"),
     };
@@ -88,8 +83,8 @@ fn dispatch_inbox_handles_missing_event_attachments() {
         .register_rule(dispatch_inbox_rule())
         .expect("register rule");
 
-    let intent = make_intent(1, b"");
-    let intent_id = match engine.ingest_intent(&intent).expect("ingest") {
+    let intent = b"test-intent";
+    let intent_id = match engine.ingest_intent(intent).expect("ingest") {
         IngestDisposition::Accepted { intent_id } => intent_id,
         other => panic!("expected Accepted, got {other:?}"),
     };
@@ -145,14 +140,14 @@ fn ack_pending_consumes_one_event_edge() {
         .register_rule(ack_pending_rule())
         .expect("register rule");
 
-    let intent1 = make_intent(1, b"");
-    let intent2 = make_intent(2, b"");
+    let intent1 = b"intent-alpha";
+    let intent2 = b"intent-beta";
 
-    let intent_id1 = match engine.ingest_intent(&intent1).expect("ingest") {
+    let intent_id1 = match engine.ingest_intent(intent1).expect("ingest") {
         IngestDisposition::Accepted { intent_id } => intent_id,
         other => panic!("expected Accepted, got {other:?}"),
     };
-    let intent_id2 = match engine.ingest_intent(&intent2).expect("ingest") {
+    let intent_id2 = match engine.ingest_intent(intent2).expect("ingest") {
         IngestDisposition::Accepted { intent_id } => intent_id,
         other => panic!("expected Accepted, got {other:?}"),
     };

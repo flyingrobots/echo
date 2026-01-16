@@ -81,6 +81,19 @@ Tools that consume a WARP stream keep a per-`WarpId` state machine:
 - The protocol prefers `subscribe_warp` / `warp_stream` op strings and `warp_id`.
 - Decoders accept legacy aliases (`subscribe_rmg` / `rmg_stream` and `rmg_id`) during the WARP rename transition.
 
+## Implementation Checklist (v0)
+
+- [x] Define the WVP package: channel naming, `WarpId` + owner identity, publisher-only writes, snapshot + diff pattern, transport envelope.
+- [x] Generalize as an Echo Interaction Pattern (EIP) template (roles, authority, message types, flow styles).
+- [x] Enforce authority: session-service rejects non-owner writes; clients surface errors.
+- [x] Dirty-flag sync loop in viewer (publish snapshot/diff on net tick when dirty; throttle/batch).
+- [x] Publish/subscribe toggles in UI (enable/disable send/receive per `WarpId`).
+- [x] Session-service wiring: publish endpoint, validate owner + gapless epochs, rebroadcast to subscribers.
+- [x] Client wiring: bidirectional tool connection; surface authority/epoch errors as notifications.
+- [x] Demo path: session-service + two viewers (publisher + subscriber) (`docs/guide/wvp-demo.md`).
+- [x] Tests: authority rejection, gapless enforcement, dirty-loop behavior, toggle respect; integration test w/ two clients + loopback server. (Tracking: #169)
+- [x] Docs sync: update GitHub Issues as slices land.
+
 ## Backlog / Open Questions
 
 - Do we need explicit per-subscriber flow control (drop vs queue) or rely on reconnect + snapshot?

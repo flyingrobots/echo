@@ -20,6 +20,17 @@ Glossary (recommended while reading):
 
 ---
 
+## Authoring Conventions (for course writers)
+
+- Prefer short pages with a clear outcome and a verify step.
+- Introduce jargon only after the reader has used the idea.
+- Every module should include at least one of:
+  - a “verify” step (fingerprint/replay check)
+  - a “failure demo” (controlled desync)
+- Rendering must be described as derived output (never authoritative).
+
+---
+
 ## Two Tracks (Same Demo)
 
 You can follow either track, or both:

@@ -277,6 +277,18 @@ Worldline slicing uses the Paper III interpretation rule:
 
 - the patch does not embed versions; versions are recovered by patch position in `P = (μ0…μn-1)`.
 
+### 8.4 Determinism invariants (summary)
+
+Echo treats these as non-negotiable invariants. Violations must abort deterministically.
+
+1. **World equivalence:** identical diffs + merge decisions ⇒ identical world hash.
+2. **Merge determinism:** same base snapshot + diffs + strategies ⇒ identical snapshot + diff hashes.
+3. **Temporal stability:** GC/compression/inspector activity must not alter logical state.
+4. **Schema consistency:** component layout hashes must match before merges.
+5. **Causal integrity:** writes cannot modify values they transitively read earlier in Chronos.
+6. **Entropy reproducibility:** branch entropy is a deterministic function of recorded events.
+7. **Replay integrity:** replay from A→B reproduces world hash, event order, and PRNG draw counts.
+
 ---
 
 ## 9. Stage B1 recursion: WarpInstances + portals

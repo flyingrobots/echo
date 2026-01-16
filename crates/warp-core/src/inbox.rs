@@ -95,6 +95,7 @@ fn inbox_executor(store: &mut GraphStore, scope: &NodeId) {
 
 fn inbox_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut n_read = IdSet::default();
+    let mut e_read = IdSet::default();
     let mut e_write = IdSet::default();
     let pending_ty = make_type_id("edge:pending");
 
@@ -104,13 +105,15 @@ fn inbox_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
         if e.ty != pending_ty {
             continue;
         }
+        // Record edge read for conflict detection before writing
+        e_read.insert_edge(&e.id);
         e_write.insert_edge(&e.id);
     }
 
     Footprint {
         n_read,
         n_write: IdSet::default(),
-        e_read: IdSet::default(),
+        e_read,
         e_write,
         a_read: AttachmentSet::default(),
         a_write: AttachmentSet::default(),
@@ -134,6 +137,7 @@ fn ack_pending_executor(store: &mut GraphStore, scope: &NodeId) {
 
 fn ack_pending_footprint(_store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut n_read = IdSet::default();
+    let mut e_read = IdSet::default();
     let mut e_write = IdSet::default();
 
     let inbox_id = make_node_id("sim/inbox");
@@ -141,12 +145,14 @@ fn ack_pending_footprint(_store: &GraphStore, scope: &NodeId) -> Footprint {
     n_read.insert_node(scope);
 
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
+    // Record edge read for conflict detection before writing
+    e_read.insert_edge(&edge_id);
     e_write.insert_edge(&edge_id);
 
     Footprint {
         n_read,
         n_write: IdSet::default(),
-        e_read: IdSet::default(),
+        e_read,
         e_write,
         a_read: AttachmentSet::default(),
         a_write: AttachmentSet::default(),

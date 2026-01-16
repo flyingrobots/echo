@@ -136,7 +136,7 @@ priority_key(intent) = (
 )
 
 Then:
-- The winner is min(priority_key) (or max - pick one and freeze it).
+- The winner is the intent with **min(priority_key)** (ascending lexicographic order).
 - Losers are deferred to the next tick (or rejected) deterministically.
 
 If you need multi-phase scheduling, extend the tuple, but every field must be

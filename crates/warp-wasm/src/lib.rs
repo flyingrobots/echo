@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 
 use echo_registry_api::RegistryProvider;
-use echo_wasm_abi::decode_cbor;
+use echo_wasm_abi::{decode_cbor, encode_cbor};
 use js_sys::Uint8Array;
 use warp_core::{
     build_motion_demo_engine,
@@ -54,6 +54,11 @@ fn registry() -> Option<&'static dyn RegistryProvider> {
     REGISTRY.get().copied()
 }
 
+/// Validates a serde value against an argument definition list.
+///
+/// Returns `true` if `value` is a map where every key corresponds to an `ArgDef`,
+/// all required fields are present, and all values pass type checks against their
+/// declared types (including enum validation).
 fn validate_object_against_args(
     value: &serde_value::Value,
     args: &[echo_registry_api::ArgDef],
@@ -101,6 +106,10 @@ fn validate_object_against_args(
     true
 }
 
+/// Checks if a scalar value matches the expected GraphQL type.
+///
+/// Handles String, ID, Boolean, Int, Float, and enum types. For enums, validates
+/// that the string value is a member of the enum's defined values.
 fn scalar_type_ok(v: &serde_value::Value, ty: &str, enums: &[echo_registry_api::EnumDef]) -> bool {
     match ty {
         "String" | "ID" => matches!(v, serde_value::Value::String(_)),

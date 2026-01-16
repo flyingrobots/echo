@@ -56,6 +56,7 @@ mod engine_impl;
 mod footprint;
 mod graph;
 mod ident;
+/// Canonical inbox management for deterministic intent sequencing.
 pub mod inbox;
 mod payload;
 mod receipt;

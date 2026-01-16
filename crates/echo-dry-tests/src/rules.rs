@@ -8,6 +8,9 @@
 use crate::hashes::make_rule_id;
 use warp_core::{ConflictPolicy, Footprint, GraphStore, Hash, NodeId, PatternGraph, RewriteRule};
 
+/// Type alias for join functions matching warp-core's `JoinFn`.
+pub type JoinFn = fn(&NodeId, &NodeId) -> bool;
+
 // --- Matcher Functions ---
 
 /// Matcher that always returns true.
@@ -63,8 +66,14 @@ pub fn write_scope_and_other_footprint(_: &GraphStore, scope: &NodeId) -> Footpr
 }
 
 /// Derive an "other" node ID from a scope (useful for conflict tests).
+///
+/// Uses domain-separated hashing (prefixed with `b"other-node:"`) for
+/// consistency with other hash generation functions in this crate.
 pub fn other_node_of(scope: &NodeId) -> NodeId {
-    NodeId(blake3::hash(&scope.0).into())
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"other-node:");
+    hasher.update(&scope.0);
+    NodeId(hasher.finalize().into())
 }
 
 // --- Pre-built Rules ---
@@ -113,6 +122,7 @@ pub struct SyntheticRuleBuilder {
     footprint: fn(&GraphStore, &NodeId) -> Footprint,
     factor_mask: u64,
     conflict_policy: ConflictPolicy,
+    join_fn: Option<JoinFn>,
 }
 
 impl SyntheticRuleBuilder {
@@ -129,6 +139,7 @@ impl SyntheticRuleBuilder {
             footprint: empty_footprint,
             factor_mask: 0,
             conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
         }
     }
 
@@ -168,6 +179,12 @@ impl SyntheticRuleBuilder {
         self
     }
 
+    /// Set the join function (required when `conflict_policy` is `ConflictPolicy::Join`).
+    pub fn join_fn(mut self, f: JoinFn) -> Self {
+        self.join_fn = Some(f);
+        self
+    }
+
     /// Use the "always match" matcher.
     pub fn always_matches(self) -> Self {
         self.matcher(always_match)
@@ -204,7 +221,7 @@ impl SyntheticRuleBuilder {
             compute_footprint: self.footprint,
             factor_mask: self.factor_mask,
             conflict_policy: self.conflict_policy,
-            join_fn: None,
+            join_fn: self.join_fn,
         }
     }
 }
@@ -253,5 +270,152 @@ mod tests {
         let other2 = other_node_of(&scope);
         assert_eq!(other1, other2);
         assert_ne!(scope, other1);
+    }
+
+    // --- Behavioral Tests ---
+
+    /// Helper to check if an IdSet contains a specific node hash.
+    fn id_set_contains(set: &warp_core::IdSet, node: &NodeId) -> bool {
+        set.iter().any(|h| *h == node.0)
+    }
+
+    #[test]
+    fn matcher_scope_exists_returns_true_when_node_present() {
+        use warp_core::NodeRecord;
+
+        let mut store = GraphStore::default();
+        let scope = other_node_of(&NodeId([0xAAu8; 32]));
+        let ty = warp_core::make_type_id("test-type");
+
+        // Node not yet present: matcher should return false
+        assert!(!scope_exists(&store, &scope));
+
+        // Insert node into store
+        store.insert_node(scope, NodeRecord { ty });
+
+        // Node now present: matcher should return true
+        assert!(scope_exists(&store, &scope));
+    }
+
+    #[test]
+    fn matcher_always_and_never_match_behavior() {
+        let store = GraphStore::default();
+        let scope = NodeId([0xBBu8; 32]);
+
+        assert!(always_match(&store, &scope));
+        assert!(!never_match(&store, &scope));
+    }
+
+    #[test]
+    fn footprint_write_scope_produces_expected_footprint() {
+        let store = GraphStore::default();
+        let scope = NodeId([0xCCu8; 32]);
+
+        let fp = write_scope_footprint(&store, &scope);
+
+        assert!(id_set_contains(&fp.n_write, &scope));
+        assert!(!id_set_contains(&fp.n_read, &scope));
+        assert_eq!(fp.factor_mask, 1);
+    }
+
+    #[test]
+    fn footprint_read_scope_produces_expected_footprint() {
+        let store = GraphStore::default();
+        let scope = NodeId([0xDDu8; 32]);
+
+        let fp = read_scope_footprint(&store, &scope);
+
+        assert!(id_set_contains(&fp.n_read, &scope));
+        assert!(!id_set_contains(&fp.n_write, &scope));
+        assert_eq!(fp.factor_mask, 1);
+    }
+
+    #[test]
+    fn footprint_write_scope_and_other_includes_both_nodes() {
+        let store = GraphStore::default();
+        let scope = NodeId([0xEEu8; 32]);
+        let other = other_node_of(&scope);
+
+        let fp = write_scope_and_other_footprint(&store, &scope);
+
+        assert!(id_set_contains(&fp.n_write, &scope));
+        assert!(id_set_contains(&fp.n_write, &other));
+        assert_eq!(fp.factor_mask, 1);
+    }
+
+    #[test]
+    fn footprint_empty_produces_default_footprint() {
+        let store = GraphStore::default();
+        let scope = NodeId([0xFFu8; 32]);
+
+        let fp = empty_footprint(&store, &scope);
+
+        assert!(!id_set_contains(&fp.n_read, &scope));
+        assert!(!id_set_contains(&fp.n_write, &scope));
+        assert_eq!(fp.factor_mask, 0);
+    }
+
+    #[test]
+    fn builder_conflict_policy_propagates_abort() {
+        let rule = SyntheticRuleBuilder::new("abort-rule")
+            .conflict_policy(ConflictPolicy::Abort)
+            .build();
+
+        assert!(matches!(rule.conflict_policy, ConflictPolicy::Abort));
+    }
+
+    #[test]
+    fn builder_conflict_policy_propagates_retry() {
+        let rule = SyntheticRuleBuilder::new("retry-rule")
+            .conflict_policy(ConflictPolicy::Retry)
+            .build();
+
+        assert!(matches!(rule.conflict_policy, ConflictPolicy::Retry));
+    }
+
+    #[test]
+    fn builder_conflict_policy_propagates_join() {
+        fn dummy_join(_left: &NodeId, _right: &NodeId) -> bool {
+            true
+        }
+
+        let rule = SyntheticRuleBuilder::new("join-rule")
+            .conflict_policy(ConflictPolicy::Join)
+            .join_fn(dummy_join)
+            .build();
+
+        assert!(matches!(rule.conflict_policy, ConflictPolicy::Join));
+        assert!(rule.join_fn.is_some());
+    }
+
+    #[test]
+    fn builder_join_fn_propagates_to_rule() {
+        fn my_join(left: &NodeId, right: &NodeId) -> bool {
+            left.0[0] < right.0[0]
+        }
+
+        let rule = SyntheticRuleBuilder::new("join-fn-rule")
+            .join_fn(my_join)
+            .build();
+
+        let join = rule.join_fn.expect("join_fn should be Some");
+        let left = NodeId([0x10u8; 32]);
+        let right = NodeId([0x20u8; 32]);
+        assert!(join(&left, &right));
+        assert!(!join(&right, &left));
+    }
+
+    #[test]
+    fn other_node_of_uses_domain_separation() {
+        // Verify that other_node_of produces a different result than a naive
+        // blake3::hash call (demonstrating domain separation is in effect).
+        let scope = NodeId([0x42u8; 32]);
+        let other = other_node_of(&scope);
+
+        // Naive hash without domain prefix
+        let naive_hash: [u8; 32] = blake3::hash(&scope.0).into();
+
+        // Domain-separated hash should differ from naive hash
+        assert_ne!(other.0, naive_hash);
     }
 }

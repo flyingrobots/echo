@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # RUSTAGEDDON TRIALS: DIND Phase 5 (The Shuffle)
 
 This phase tests robustness against insertion order and HashMap iteration leaks.

@@ -183,11 +183,15 @@ impl EngineBuilder<ExistingState> {
     /// Returns [`EngineError::UnknownWarp`] if the root warp instance is missing.
     /// Returns [`EngineError::InternalCorruption`] if the root is invalid.
     pub fn build(self) -> Result<Engine, EngineError> {
-        Engine::with_state(
+        let telemetry = self
+            .telemetry
+            .unwrap_or_else(|| Arc::new(NullTelemetrySink));
+        Engine::with_state_and_telemetry(
             self.source.state,
             self.source.root,
             self.scheduler,
             self.policy_id,
+            telemetry,
         )
     }
 }
@@ -263,6 +267,8 @@ pub struct Engine {
     /// Sequential history of all committed ticks (Snapshot, Receipt, Patch).
     tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
+    /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
+    initial_state: WarpState,
 }
 
 struct ReserveOutcome {
@@ -355,6 +361,8 @@ impl Engine {
             },
             store,
         );
+        // Preserve the initial state (U0) for replay via `jump_to_tick`.
+        let initial_state = state.clone();
         Self {
             state,
             rules: HashMap::new(),
@@ -372,6 +380,7 @@ impl Engine {
             last_snapshot: None,
             tick_history: Vec::new(),
             intent_log: Vec::new(),
+            initial_state,
         }
     }
 
@@ -423,13 +432,48 @@ impl Engine {
             return Err(EngineError::UnknownWarp(root.warp_id));
         }
 
+        Self::with_state_and_telemetry(state, root, kind, policy_id, Arc::new(NullTelemetrySink))
+    }
+
+    /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry.
+    ///
+    /// This is the canonical constructor for existing state; [`Engine::with_state`] delegates here
+    /// with a null telemetry sink.
+    ///
+    /// See [`Engine::with_state`] for full documentation on parameters and errors.
+    pub fn with_state_and_telemetry(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+    ) -> Result<Self, EngineError> {
+        let Some(root_instance) = state.instance(&root.warp_id) else {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        };
+        if root_instance.parent.is_some() {
+            return Err(EngineError::InternalCorruption(
+                "root warp instance must not declare a parent",
+            ));
+        }
+        if root_instance.root_node != root.local_id {
+            return Err(EngineError::InternalCorruption(
+                "Engine root must match WarpInstance.root_node",
+            ));
+        }
+        if state.store(&root.warp_id).is_none() {
+            return Err(EngineError::UnknownWarp(root.warp_id));
+        }
+
+        // Preserve the initial state (U0) for replay via `jump_to_tick`.
+        let initial_state = state.clone();
         Ok(Self {
             state,
             rules: HashMap::new(),
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::new(kind, Arc::new(NullTelemetrySink)),
+            scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
             tx_counter: 0,
             live_txs: HashSet::new(),
@@ -437,6 +481,7 @@ impl Engine {
             last_snapshot: None,
             tick_history: Vec::new(),
             intent_log: Vec::new(),
+            initial_state,
         })
     }
 
@@ -836,7 +881,7 @@ impl Engine {
             .expect("root warp store missing - engine construction bug")
     }
 
-    /// Legacy ingest helper: ingests an inbox event from an `AtomPayload`.
+    /// Legacy ingest helper: ingests an inbox event from a [`crate::attachment::AtomPayload`].
     ///
     /// This method exists for older call sites that pre-wrap intent bytes in an
     /// atom payload and/or provide an arrival `seq`.
@@ -1056,28 +1101,10 @@ impl Engine {
             return Err(EngineError::InvalidTickIndex(tick_index, ledger_len));
         }
 
-        // 1. Reset state to U0 (empty)
-        // We'll need a way to clone the original U0 or just clear everything.
-        // For the spike, we'll assume the root instance always exists.
-        let warp_id = self.current_root.warp_id;
-        let root_id = self.current_root.local_id;
-
-        self.state = WarpState::new();
-        let mut store = GraphStore::new(warp_id);
-        store.insert_node(
-            root_id,
-            NodeRecord {
-                ty: make_type_id("root"),
-            },
-        );
-        self.state.upsert_instance(
-            WarpInstance {
-                warp_id,
-                root_node: root_id,
-                parent: None,
-            },
-            store,
-        );
+        // 1. Restore state to the preserved initial state (U0).
+        // This ensures patches are replayed against the exact original base,
+        // rather than a fresh WarpState which would discard the original U0.
+        self.state = self.initial_state.clone();
 
         // 2. Re-apply patches from index 0 to tick_index
         for i in 0..=tick_index {
@@ -1273,7 +1300,14 @@ impl Engine {
 }
 
 impl Engine {
-    /// Returns a reference to the intent log containing transaction IDs and their payloads.
+    /// Returns a reference to the intent log.
+    ///
+    /// Each entry is a `(seq, crate::attachment::AtomPayload)` pair where:
+    /// - `seq` is the ingest sequence number provided to [`Engine::ingest_inbox_event`].
+    /// - `AtomPayload` is the stored payload associated with the ingested intent.
+    ///
+    /// This log is populated by [`Engine::ingest_inbox_event`] for debugging purposes;
+    /// it does not affect graph identity or deterministic hashing.
     pub fn get_intent_log(&self) -> &[(u64, crate::attachment::AtomPayload)] {
         &self.intent_log
     }

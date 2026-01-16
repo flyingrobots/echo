@@ -34,7 +34,7 @@ Echo's game loop is a rigid, phase-based pipeline designed to ensure causality a
     \item \textbf{Pre-Update:}
         \begin{itemize}
             \item Inputs from the `InputPort` are polled and injected into the `InputComponent`.
-            \item The Event Bus flushes pending external events.
+            \item The \texttt{MaterializationBus} flushes pending external events.
         \end{itemize}
     \item \textbf{Update (The Core):}
         \begin{itemize}

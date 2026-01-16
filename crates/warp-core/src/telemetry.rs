@@ -43,9 +43,9 @@ pub trait TelemetrySink: Send + Sync {
     fn on_summary(&self, _tx: TxId, _reserved_count: u64, _conflict_count: u64) {}
 }
 
-/// A no-op telemetry sink that discards all events.
+/// No-op telemetry sink that discards all events.
 ///
-/// This is the default when no telemetry is configured.
+/// Use this when observability is not required or events should be ignored.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NullTelemetrySink;
 

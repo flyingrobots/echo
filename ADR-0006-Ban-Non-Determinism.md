@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 ## T2000 on 'em
 
 We already have the **ban-globals** drill sergeant. Now we add the rest of the “you will cry” suite: 

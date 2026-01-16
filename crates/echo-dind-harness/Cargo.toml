@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [package]
 name = "echo-dind-harness"
 version = "0.1.0"

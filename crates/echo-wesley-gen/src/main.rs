@@ -8,6 +8,12 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::io::{self, Read};
 
+/// Create an identifier safely, falling back to a raw identifier for Rust keywords.
+fn safe_ident(name: &str) -> proc_macro2::Ident {
+    syn::parse_str::<proc_macro2::Ident>(name)
+        .unwrap_or_else(|_| proc_macro2::Ident::new_raw(name, proc_macro2::Span::call_site()))
+}
+
 mod ir;
 use ir::{OpKind, TypeKind, WesleyIR};
 
@@ -60,11 +66,11 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
     });
 
     for type_def in &ir.types {
-        let name = format_ident!("{}", type_def.name);
+        let name = safe_ident(&type_def.name);
 
         match type_def.kind {
             TypeKind::Enum => {
-                let variants = type_def.values.iter().map(|v| format_ident!("{}", v));
+                let variants = type_def.values.iter().map(|v| safe_ident(v));
                 tokens.extend(quote! {
                     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
                     pub enum #name {
@@ -74,7 +80,7 @@ fn generate_rust(ir: &WesleyIR) -> Result<String> {
             }
             TypeKind::Object => {
                 let fields = type_def.fields.iter().map(|f| {
-                    let field_name = format_ident!("{}", f.name);
+                    let field_name = safe_ident(&f.name);
                     let base_ty = map_type(&f.type_name);
                     let list_ty: TokenStream = if f.list {
                         quote! { Vec<#base_ty> }
@@ -304,7 +310,7 @@ fn map_type(gql_type: &str) -> TokenStream {
         "Float" => quote! { f32 },
         "ID" => quote! { String },
         other => {
-            let ident = format_ident!("{}", other);
+            let ident = safe_ident(other);
             quote! { #ident }
         }
     }

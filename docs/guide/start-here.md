@@ -36,7 +36,7 @@ ECS is a *useful storage and API layer*, but the deeper “ground truth” model
 2. Collision tour: [/guide/collision-tour](/guide/collision-tour)
 3. Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
-### If you want "what should I work on?"
+### If you want what should I work on?
 
 - Docs map (curated index): [/docs-index](/docs-index)
 

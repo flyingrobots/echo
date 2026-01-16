@@ -48,7 +48,7 @@ interface SecurityEnvelope {
 
 ### Signer Registry
 - `signerId` resolves to public key; stored in block manifest header.
-- Registry modifications recorded in block manifest.
+- Registry modifications recorded in block manifest (see Serialization Protocol § Block Manifest).
 
 ---
 

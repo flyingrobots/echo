@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # ECHO_ROADMAP — Phased Plan (Post-ADR Alignment)
 
 This roadmap re-syncs active work with recent ADRs:

@@ -1,6 +1,8 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 ## T2000 on 'em
 
-We already have the **ban-globals** drill sergeant. Now we add the rest of the “you will cry” suite: 
+We already have the **ban-globals** drill sergeant. Now we add the rest of the "you will cry" suite:
 
 - **ban nondeterministic APIs**
 - **ban unordered containers in ABI-ish structs**
@@ -134,7 +136,7 @@ echo "ban-nondeterminism: PASSED."
 
 ### `scripts/ban-unordered-abi.sh`
 
-This one is narrower: 
+This one is narrower:
 
 - **ban HashMap/HashSet inside anything that looks like ABI/codec/message structs**.
 

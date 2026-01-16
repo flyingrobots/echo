@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # DIND Harness (Deterministic Ironclad Nightmare Drills)
 
 The DIND harness is the deterministic verification runner for Echo/WARP. It replays canonical intent transcripts and asserts that state hashes and intermediate outputs are identical across runs, platforms, and build profiles.

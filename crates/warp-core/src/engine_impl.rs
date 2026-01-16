@@ -440,7 +440,11 @@ impl Engine {
     /// This is the canonical constructor for existing state; [`Engine::with_state`] delegates here
     /// with a null telemetry sink.
     ///
-    /// See [`Engine::with_state`] for full documentation on parameters and errors.
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp ID is not present in the state.
+    /// Returns [`EngineError::InternalCorruption`] if the root instance declares a parent
+    /// or if the root node does not match the instance's `root_node`.
     pub fn with_state_and_telemetry(
         state: WarpState,
         root: NodeKey,

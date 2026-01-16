@@ -42,8 +42,19 @@ fn empty_bytes() -> Uint8Array {
 
 static REGISTRY: OnceLock<&'static dyn RegistryProvider> = OnceLock::new();
 
-/// Install an application-supplied registry provider. App code should call
-/// this once at startup (see flyingrobots-echo-wasm).
+/// Install an application-supplied registry provider.
+///
+/// Must be called exactly once at application startup before any registry-dependent
+/// operations (e.g., `execute_query`, `encode_command`). The provider must have
+/// `'static` lifetime as it's stored in a global `OnceLock`.
+///
+/// # Panics
+///
+/// Panics if called more than once (registry already installed).
+///
+/// # Thread Safety
+///
+/// Uses `OnceLock` internally, so the first successful call wins in concurrent scenarios.
 pub fn install_registry(provider: &'static dyn RegistryProvider) {
     if REGISTRY.set(provider).is_err() {
         panic!("registry already installed");

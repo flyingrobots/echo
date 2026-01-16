@@ -9,6 +9,7 @@ use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
+use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, PENDING_EDGE_TYPE};
 use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
 };
@@ -737,11 +738,11 @@ impl Engine {
         let root_id = self.current_root.local_id;
 
         let sim_id = make_node_id("sim");
-        let inbox_id = make_node_id("sim/inbox");
+        let inbox_id = make_node_id(INBOX_PATH);
 
         let sim_ty = make_type_id("sim");
-        let inbox_ty = make_type_id("sim/inbox");
-        let event_ty = make_type_id("sim/inbox/event");
+        let inbox_ty = make_type_id(INBOX_PATH);
+        let event_ty = make_type_id(INBOX_EVENT_TYPE);
 
         // Structural nodes/edges (idempotent).
         store.insert_node(sim_id, NodeRecord { ty: sim_ty });
@@ -785,7 +786,7 @@ impl Engine {
                 id: crate::inbox::pending_edge_id(&inbox_id, &intent_id),
                 from: inbox_id,
                 to: event_id,
-                ty: make_type_id("edge:pending"),
+                ty: make_type_id(PENDING_EDGE_TYPE),
             },
         );
 
@@ -806,8 +807,8 @@ impl Engine {
             .state
             .store(&warp_id)
             .ok_or(EngineError::UnknownWarp(warp_id))?;
-        let inbox_id = make_node_id("sim/inbox");
-        let pending_ty = make_type_id("edge:pending");
+        let inbox_id = make_node_id(INBOX_PATH);
+        let pending_ty = make_type_id(PENDING_EDGE_TYPE);
         Ok(store
             .edges_from(&inbox_id)
             .filter(|e| e.ty == pending_ty)
@@ -833,8 +834,8 @@ impl Engine {
             .state
             .store(&warp_id)
             .ok_or(EngineError::UnknownWarp(warp_id))?;
-        let inbox_id = make_node_id("sim/inbox");
-        let pending_ty = make_type_id("edge:pending");
+        let inbox_id = make_node_id(INBOX_PATH);
+        let pending_ty = make_type_id(PENDING_EDGE_TYPE);
 
         let mut next: Option<NodeId> = None;
         for edge in store.edges_from(&inbox_id) {

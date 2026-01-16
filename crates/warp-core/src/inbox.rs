@@ -32,6 +32,18 @@ pub const DISPATCH_INBOX_RULE_NAME: &str = "sys/dispatch_inbox";
 /// Human-readable name for the pending-edge acknowledgment rule.
 pub const ACK_PENDING_RULE_NAME: &str = "sys/ack_pending";
 
+/// Node path for the simulation inbox.
+pub const INBOX_PATH: &str = "sim/inbox";
+
+/// Type identifier for inbox event nodes.
+pub const INBOX_EVENT_TYPE: &str = "sim/inbox/event";
+
+/// Type identifier for pending edges.
+pub const PENDING_EDGE_TYPE: &str = "edge:pending";
+
+/// Hash domain prefix for pending edge IDs.
+const PENDING_EDGE_HASH_DOMAIN: &[u8] = b"sim/inbox/pending:";
+
 /// Constructs the `sys/dispatch_inbox` rewrite rule.
 ///
 /// This rule drains all pending events from `sim/inbox` by deleting the
@@ -83,10 +95,10 @@ pub fn ack_pending_rule() -> RewriteRule {
 }
 
 fn inbox_matcher(store: &GraphStore, scope: &NodeId) -> bool {
-    let pending_ty = make_type_id("edge:pending");
+    let pending_ty = make_type_id(PENDING_EDGE_TYPE);
     store
         .node(scope)
-        .is_some_and(|n| n.ty == make_type_id("sim/inbox"))
+        .is_some_and(|n| n.ty == make_type_id(INBOX_PATH))
         && store.edges_from(scope).any(|e| e.ty == pending_ty)
 }
 
@@ -94,7 +106,7 @@ fn inbox_executor(store: &mut GraphStore, scope: &NodeId) {
     // Drain the pending set by deleting `edge:pending` edges only.
     //
     // Ledger nodes are append-only; removing pending edges is queue maintenance.
-    let pending_ty = make_type_id("edge:pending");
+    let pending_ty = make_type_id(PENDING_EDGE_TYPE);
     let mut pending_edges: Vec<EdgeId> = store
         .edges_from(scope)
         .filter(|e| e.ty == pending_ty)
@@ -110,7 +122,7 @@ fn inbox_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut n_read = IdSet::default();
     let mut e_read = IdSet::default();
     let mut e_write = IdSet::default();
-    let pending_ty = make_type_id("edge:pending");
+    let pending_ty = make_type_id(PENDING_EDGE_TYPE);
 
     n_read.insert_node(scope);
 
@@ -137,13 +149,13 @@ fn inbox_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
 }
 
 fn ack_pending_matcher(store: &GraphStore, scope: &NodeId) -> bool {
-    let inbox_id = make_node_id("sim/inbox");
+    let inbox_id = make_node_id(INBOX_PATH);
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
     store.has_edge(&edge_id)
 }
 
 fn ack_pending_executor(store: &mut GraphStore, scope: &NodeId) {
-    let inbox_id = make_node_id("sim/inbox");
+    let inbox_id = make_node_id(INBOX_PATH);
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
     let _ = store.delete_edge_exact(inbox_id, edge_id);
 }
@@ -153,7 +165,7 @@ fn ack_pending_footprint(_store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut e_read = IdSet::default();
     let mut e_write = IdSet::default();
 
-    let inbox_id = make_node_id("sim/inbox");
+    let inbox_id = make_node_id(INBOX_PATH);
     n_read.insert_node(&inbox_id);
     n_read.insert_node(scope);
 
@@ -185,7 +197,7 @@ pub(crate) fn compute_intent_id(intent_bytes: &[u8]) -> Hash {
 pub(crate) fn pending_edge_id(inbox_id: &NodeId, intent_id: &Hash) -> EdgeId {
     let mut hasher = Hasher::new();
     hasher.update(b"edge:");
-    hasher.update(b"sim/inbox/pending:");
+    hasher.update(PENDING_EDGE_HASH_DOMAIN);
     hasher.update(inbox_id.as_bytes());
     hasher.update(intent_id);
     EdgeId(hasher.finalize().into())

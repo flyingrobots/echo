@@ -65,7 +65,7 @@ Each pending inbox entry MUST carry:
 - intent_bytes: Bytes (canonical)
 - optional: seq: u64 (canonical rank / audit field; see §4)
 - optional: tick_id (if your model persists tick partitioning)
-- optional: priority_class (stable scheduler priority input)
+- optional: priority_class: u8 (stable scheduler priority input; defaults to 128 if absent)
 
 Rule: seq is NOT part of identity. Identity is intent_id.
 
@@ -137,7 +137,9 @@ priority_key(intent) = (
 
 Then:
 - The winner is the intent with **min(priority_key)** (ascending lexicographic order).
-- Losers are deferred to the next tick (or rejected) deterministically.
+- Losers are **deferred** to the next tick (not rejected). This ensures eventual
+  delivery while maintaining determinism. Rejection is only permitted for malformed
+  intents that fail validation.
 
 If you need multi-phase scheduling, extend the tuple, but every field must be
 stable and derived from content/state in a canonical way.
@@ -155,8 +157,9 @@ No "first one we happened to see" logic.
 ## 6) Graph construction + hashing canonicalization
 
 To make the whole WARP graph bit-identical, ensure these are canonical:
-- node IDs for inbox entries: derive from intent_id (or from (tick_id, intent_id)),
-  not from seq counters
+- node IDs for inbox entries: derive from intent_id alone (not tick_id, not seq).
+  This ensures the same intent always produces the same node ID regardless of when
+  it was ingested.
 - pending edge IDs: derive from (inbox_root, intent_id) or an equivalent stable function
 - edge insertion order: if edges are stored in vectors/lists, insert in canonical
   sorted order

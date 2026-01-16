@@ -1,5 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! DIND (Deterministic Ironclad Nightmare Drills) scenario runner.
+//!
+//! This module provides the CLI and core logic for running determinism test scenarios.
+
 use std::collections::{BTreeSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::BufReader;
 use clap::{Parser, Subcommand};
@@ -9,14 +15,19 @@ use echo_dind_tests::EchoKernel;
 use echo_dind_tests::generated::codecs::SCHEMA_HASH;
 use warp_core::{make_node_id, make_warp_id, AttachmentValue, GraphStore};
 
+/// CLI interface for the DIND harness.
+///
+/// Parse with `Cli::parse()` and dispatch via `entrypoint()`.
 #[derive(Parser)]
 #[command(name = "echo-dind")]
 #[command(about = "Deterministic Ironclad Nightmare Drills Harness")]
 pub struct Cli {
+    /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Commands,
 }
 
+/// Available DIND subcommands.
 #[derive(Subcommand)]
 pub enum Commands {
     /// Run a scenario and optionally check against a golden file
@@ -62,12 +73,20 @@ pub enum Commands {
     },
 }
 
+/// Golden file format for DIND scenario verification.
+///
+/// Contains metadata and the expected sequence of state hashes after each step.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Golden {
+    /// Event log format version (currently 1).
     pub elog_version: u16,
+    /// Hex-encoded schema hash identifying the codec version.
     pub schema_hash_hex: String,
+    /// Hash domain identifier (e.g., "DIND_STATE_HASH_V1").
     pub hash_domain: String,
+    /// Hash algorithm name (e.g., "BLAKE3").
     pub hash_alg: String,
+    /// Hex-encoded state hashes, one per step (including initial state at index 0).
     pub hashes_hex: Vec<String>,
 }
 
@@ -80,9 +99,16 @@ struct ManifestEntry {
     converge_scope: Option<String>,
 }
 
+/// Create a reproduction bundle for debugging determinism failures.
+///
+/// Writes to `out_dir`:
+/// - `scenario.eintlog`: Copy of the input scenario
+/// - `actual.hashes.json`: The hashes produced by this run
+/// - `expected.hashes.json`: The expected golden hashes (if provided)
+/// - `diff.txt`: A description of the failure
 pub fn create_repro_bundle(
-    out_dir: &PathBuf,
-    scenario_path: &PathBuf,
+    out_dir: &Path,
+    scenario_path: &Path,
     actual_hashes: &[String],
     header: &ElogHeader,
     expected_golden: Option<&Golden>,
@@ -116,6 +142,10 @@ pub fn create_repro_bundle(
     Ok(())
 }
 
+/// Main CLI entrypoint for the DIND harness.
+///
+/// Parses command-line arguments and dispatches to the appropriate subcommand.
+/// Returns an error if the scenario fails validation or encounters an I/O error.
 pub fn entrypoint() -> Result<()> {
     let cli = Cli::parse();
 
@@ -304,12 +334,22 @@ fn probe_interop(kernel: &EchoKernel) {
     }
 }
 
-pub fn run_scenario(path: &PathBuf) -> Result<(Vec<String>, ElogHeader)> {
+/// Run a DIND scenario and return the sequence of state hashes.
+///
+/// # Arguments
+/// * `path` - Path to the `.eintlog` scenario file
+///
+/// # Returns
+/// A tuple of (state hashes as hex strings, event log header).
+pub fn run_scenario(path: &Path) -> Result<(Vec<String>, ElogHeader)> {
     let (hashes, header, _) = run_scenario_with_kernel(path)?;
     Ok((hashes, header))
 }
 
-pub fn run_scenario_with_kernel(path: &PathBuf) -> Result<(Vec<String>, ElogHeader, EchoKernel)> {
+/// Run a DIND scenario and return both hashes and the kernel state.
+///
+/// Like [`run_scenario`], but also returns the kernel for further inspection.
+pub fn run_scenario_with_kernel(path: &Path) -> Result<(Vec<String>, ElogHeader, EchoKernel)> {
     let f = File::open(path).context("failed to open scenario file")?;
     let mut r = BufReader::new(f);
     
@@ -404,7 +444,7 @@ Kernel:   {}", hex::encode(header.schema_hash), SCHEMA_HASH);
     Ok((hashes, header, kernel))
 }
 
-fn scenario_requires_ingest_all_first(scenario: &PathBuf) -> Result<bool> {
+fn scenario_requires_ingest_all_first(scenario: &Path) -> Result<bool> {
     let filename = scenario.file_name().and_then(|s| s.to_str()).unwrap_or("");
     // Fast-path for the current permutation-invariance suite.
     if filename.starts_with("050_") {
@@ -458,7 +498,7 @@ fn resolve_converge_scope(scenarios: &[PathBuf]) -> Result<Option<String>> {
     Ok(scope)
 }
 
-fn manifest_path_for_scenario(scenario: &PathBuf) -> Option<PathBuf> {
+fn manifest_path_for_scenario(scenario: &Path) -> Option<PathBuf> {
     let parent = scenario.parent()?;
     let manifest = parent.join("MANIFEST.json");
     if manifest.exists() {
@@ -468,7 +508,7 @@ fn manifest_path_for_scenario(scenario: &PathBuf) -> Option<PathBuf> {
     }
 }
 
-fn find_manifest_scope(manifest_path: &PathBuf, scenario: &PathBuf) -> Result<Option<String>> {
+fn find_manifest_scope(manifest_path: &Path, scenario: &Path) -> Result<Option<String>> {
     let f = File::open(manifest_path).context("failed to open MANIFEST.json")?;
     let entries: Vec<ManifestEntry> = serde_json::from_reader(BufReader::new(f))?;
     let filename = scenario.file_name().and_then(|s| s.to_str()).unwrap_or("");

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! DIND scenario coverage tests.
+
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::BufReader;

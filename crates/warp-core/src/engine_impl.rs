@@ -657,13 +657,18 @@ impl Engine {
     /// Returns a cloned view of the current warp's graph store (for tests/tools).
     ///
     /// This is a snapshot-only view; mutations must go through engine APIs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the root warp store doesn't exist, which indicates a bug in
+    /// engine construction (the root store should always be present).
     #[must_use]
     pub fn store_clone(&self) -> GraphStore {
         let warp_id = self.current_root.warp_id;
         self.state
             .store(&warp_id)
             .cloned()
-            .unwrap_or_else(|| GraphStore::new(warp_id))
+            .expect("root warp store missing - engine construction bug")
     }
 
     /// Legacy ingest helper: ingests an inbox event from an [`AtomPayload`].

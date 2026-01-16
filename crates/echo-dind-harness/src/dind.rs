@@ -15,6 +15,31 @@ use echo_dind_tests::EchoKernel;
 use echo_dind_tests::generated::codecs::SCHEMA_HASH;
 use warp_core::{make_node_id, make_warp_id, AttachmentValue, GraphStore};
 
+// -----------------------------------------------------------------------------
+// Permutation-mode termination constants
+// -----------------------------------------------------------------------------
+
+/// Maximum consecutive no-progress steps before declaring a stall.
+///
+/// In permutation mode, the engine may occasionally report no progress if rules
+/// don't match in a given tick. This budget allows transient stalls (e.g., waiting
+/// for physics to settle) without aborting prematurely. 64 is generous for typical
+/// scenarios while still catching genuine infinite loops within reasonable time.
+const PERMUTATION_STALL_BUDGET: u64 = 64;
+
+/// Multiplier for computing max ticks from initial pending count.
+///
+/// Most scenarios should complete in exactly `pending_count` ticks (one intent per
+/// tick). The 4× multiplier provides headroom for multi-phase rules, deferred intents,
+/// and physics simulation steps that don't consume intents.
+const PERMUTATION_TICK_MULTIPLIER: u64 = 4;
+
+/// Minimum tick ceiling for permutation mode.
+///
+/// Even if a scenario has few pending intents, we allow at least this many ticks to
+/// handle edge cases like physics warm-up or delayed rule matching.
+const PERMUTATION_MIN_TICKS: u64 = 256;
+
 /// CLI interface for the DIND harness.
 ///
 /// Parse with `Cli::parse()` and dispatch via `entrypoint()`.
@@ -381,14 +406,14 @@ Kernel:   {}", hex::encode(header.schema_hash), SCHEMA_HASH);
         }
 
         let mut ticks: u64 = 0;
-        let mut stall_budget: u64 = 64;
+        let mut stall_budget: u64 = PERMUTATION_STALL_BUDGET;
         let mut last_pending = kernel
             .engine()
             .pending_intent_count()
             .context("pending_intent_count failed")? as u64;
-        // Hard stop: absolute upper bound against infinite loops.
-        // Most scenarios should take exactly `last_pending` ticks.
-        let max_ticks: u64 = last_pending.saturating_mul(4).max(256);
+        let max_ticks: u64 = last_pending
+            .saturating_mul(PERMUTATION_TICK_MULTIPLIER)
+            .max(PERMUTATION_MIN_TICKS);
 
         while kernel
             .engine()

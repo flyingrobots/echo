@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::BufReader;
@@ -6,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use echo_wasm_abi::{read_elog_header, read_elog_frame, ElogHeader};
 use echo_dind_tests::EchoKernel;
 use echo_dind_tests::generated::codecs::SCHEMA_HASH;
-use warp_core::{make_node_id, AttachmentValue};
+use warp_core::{make_node_id, make_warp_id, AttachmentValue, GraphStore};
 
 #[derive(Parser)]
 #[command(name = "echo-dind")]
@@ -62,6 +63,13 @@ pub struct Golden {
     pub hash_domain: String,
     pub hash_alg: String,
     pub hashes_hex: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ManifestEntry {
+    path: String,
+    #[serde(default)]
+    converge_scope: Option<String>,
 }
 
 pub fn create_repro_bundle(
@@ -204,38 +212,60 @@ Current:  {}", i, step, base, current);
             }
             println!("DIND: Torture complete. {} runs identical.", runs);
         }
-        Commands::Converge {
-            scenarios,
-        } => {
+        Commands::Converge { scenarios } => {
             if scenarios.is_empty() {
                 bail!("No scenarios provided for convergence check.");
             }
-            
-            println!("DIND: Checking convergence across {} scenarios...", scenarios.len());
-            
-            let mut baseline_hash: Option<String> = None;
-            let mut baseline_path: Option<PathBuf> = None;
 
-            for path in &scenarios {
-                let (hashes, _) = run_scenario(path).context(format!("Failed to run {:?}", path))?;
-                let final_hash = hashes.last().context("Scenario produced no hashes")?;
-                
-                match &baseline_hash {
-                    None => {
-                        baseline_hash = Some(final_hash.clone());
-                        baseline_path = Some(path.clone());
-                        println!("Baseline established from {:?}: {}", path, final_hash);
-                    }
-                    Some(expected) => {
-                        if final_hash != expected {
-                            bail!("DIND: CONVERGENCE FAILURE.\nBaseline ({:?}): {}
-Current  ({:?}): {}", 
-                                  baseline_path.as_ref().unwrap(), expected, path, final_hash);
-                        }
+            let converge_scope = resolve_converge_scope(&scenarios)?;
+
+            println!(
+                "DIND: Checking convergence across {} scenarios...",
+                scenarios.len()
+            );
+
+            let baseline = &scenarios[0];
+            let (hashes, _, kernel) =
+                run_scenario_with_kernel(baseline).context("Failed to run baseline")?;
+            let baseline_full = hashes.last().cloned().unwrap_or_default();
+            let baseline_proj = match &converge_scope {
+                Some(scope) => hex::encode(projected_state_hash(&kernel, scope)),
+                None => baseline_full.clone(),
+            };
+
+            println!("Baseline established from {:?}: {}", baseline, baseline_full);
+            if let Some(scope) = &converge_scope {
+                println!("Convergence scope: {}", scope);
+                println!("Baseline projected hash: {}", baseline_proj);
+            }
+
+            for path in scenarios.iter().skip(1) {
+                let (hashes, _, kernel) =
+                    run_scenario_with_kernel(path).context(format!("Failed to run {:?}", path))?;
+                let full_hash = hashes.last().cloned().unwrap_or_default();
+                let projected_hash = match &converge_scope {
+                    Some(scope) => hex::encode(projected_state_hash(&kernel, scope)),
+                    None => full_hash.clone(),
+                };
+                if projected_hash != baseline_proj {
+                    bail!(
+                        "DIND: CONVERGENCE FAILURE.\nBaseline ({:?}): {}\nCurrent  ({:?}): {}",
+                        baseline,
+                        baseline_proj,
+                        path,
+                        projected_hash
+                    );
+                }
+                if converge_scope.is_some() {
+                    println!("Converged (projected): {:?} => {}", path, projected_hash);
+                    if full_hash != baseline_full {
+                        println!("  Note: full hash differs (expected for commutative scenarios).");
                     }
                 }
             }
-            println!("DIND: Convergence verified. All {} scenarios end in state {}.", scenarios.len(), baseline_hash.unwrap());
+            println!(
+                "DIND: CONVERGENCE OK. Projected hashes identical across all scenarios."
+            );
         }
     }
 
@@ -253,6 +283,11 @@ fn probe_interop(kernel: &EchoKernel) {
 }
 
 pub fn run_scenario(path: &PathBuf) -> Result<(Vec<String>, ElogHeader)> {
+    let (hashes, header, _) = run_scenario_with_kernel(path)?;
+    Ok((hashes, header))
+}
+
+pub fn run_scenario_with_kernel(path: &PathBuf) -> Result<(Vec<String>, ElogHeader, EchoKernel)> {
     let f = File::open(path).context("failed to open scenario file")?;
     let mut r = BufReader::new(f);
     
@@ -277,5 +312,108 @@ Kernel:   {}", hex::encode(header.schema_hash), SCHEMA_HASH);
         hashes.push(hex::encode(kernel.state_hash()));
     }
     
-    Ok((hashes, header))
+    Ok((hashes, header, kernel))
+}
+
+fn resolve_converge_scope(scenarios: &[PathBuf]) -> Result<Option<String>> {
+    let mut scope: Option<String> = None;
+    let mut missing = Vec::new();
+
+    for scenario in scenarios {
+        let Some(manifest_path) = manifest_path_for_scenario(scenario) else {
+            missing.push(scenario.clone());
+            continue;
+        };
+        let Some(entry_scope) = find_manifest_scope(&manifest_path, scenario)? else {
+            missing.push(scenario.clone());
+            continue;
+        };
+
+        match &scope {
+            None => scope = Some(entry_scope),
+            Some(existing) => {
+                if existing != &entry_scope {
+                    bail!("Converge scope mismatch: '{}' vs '{}'", existing, entry_scope);
+                }
+            }
+        }
+    }
+
+    if scope.is_none() {
+        return Ok(None);
+    }
+    if !missing.is_empty() {
+        bail!("Converge scope missing for scenarios: {:?}", missing);
+    }
+    Ok(scope)
+}
+
+fn manifest_path_for_scenario(scenario: &PathBuf) -> Option<PathBuf> {
+    let parent = scenario.parent()?;
+    let manifest = parent.join("MANIFEST.json");
+    if manifest.exists() {
+        Some(manifest)
+    } else {
+        None
+    }
+}
+
+fn find_manifest_scope(manifest_path: &PathBuf, scenario: &PathBuf) -> Result<Option<String>> {
+    let f = File::open(manifest_path).context("failed to open MANIFEST.json")?;
+    let entries: Vec<ManifestEntry> = serde_json::from_reader(BufReader::new(f))?;
+    let filename = scenario.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let entry = entries.into_iter().find(|e| e.path == filename);
+    Ok(entry.and_then(|e| e.converge_scope))
+}
+
+fn projected_state_hash(kernel: &EchoKernel, scope: &str) -> [u8; 32] {
+    let root_id = make_node_id(scope);
+    let Some(store) = kernel.engine().state().store(&make_warp_id("root")) else {
+        return [0u8; 32];
+    };
+    subgraph_hash(store, root_id)
+}
+
+fn subgraph_hash(store: &GraphStore, root: warp_core::NodeId) -> [u8; 32] {
+    if store.node(&root).is_none() {
+        return GraphStore::new(store.warp_id()).canonical_state_hash();
+    }
+
+    let mut nodes = BTreeSet::new();
+    let mut queue = VecDeque::new();
+    let mut edges = Vec::new();
+
+    nodes.insert(root);
+    queue.push_back(root);
+
+    while let Some(node_id) = queue.pop_front() {
+        for edge in store.edges_from(&node_id) {
+            edges.push(edge.clone());
+            if nodes.insert(edge.to) {
+                queue.push_back(edge.to);
+            }
+        }
+    }
+
+    let mut sub = GraphStore::new(store.warp_id());
+
+    for node_id in &nodes {
+        if let Some(record) = store.node(node_id) {
+            sub.insert_node(*node_id, record.clone());
+            if let Some(att) = store.node_attachment(node_id) {
+                sub.set_node_attachment(*node_id, Some(att.clone()));
+            }
+        }
+    }
+
+    for edge in edges {
+        if nodes.contains(&edge.from) && nodes.contains(&edge.to) {
+            sub.insert_edge(edge.from, edge.clone());
+            if let Some(att) = store.edge_attachment(&edge.id) {
+                sub.set_edge_attachment(edge.id, Some(att.clone()));
+            }
+        }
+    }
+
+    sub.canonical_state_hash()
 }

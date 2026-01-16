@@ -29,4 +29,11 @@ Echo ships guard scripts to enforce determinism in core crates:
 - `scripts/ban-nondeterminism.sh`
 - `scripts/ban-unordered-abi.sh`
 
+## Convergence scope (Invariant B)
+
+For commutative scenarios, `MANIFEST.json` can specify a `converge_scope`
+node label (e.g., `sim/state`). The `converge` command compares the
+projected hash of the subgraph reachable from that node, while still
+printing full hashes for visibility.
+
 Run them locally or wire them into CI for strict enforcement.

@@ -312,10 +312,12 @@ fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
                 let k = dec_value(bytes, idx, false)?;
                 let key_end = *idx;
                 let kb = &bytes[key_start..key_end];
-                if let Some(prev) = &last_key
-                    && kb <= prev.as_slice()
-                {
-                    return Err(CanonError::MapKeyOrder);
+                if let Some(prev) = &last_key {
+                    if kb == prev.as_slice() {
+                        return Err(CanonError::MapKeyDuplicate);
+                    } else if kb < prev.as_slice() {
+                        return Err(CanonError::MapKeyOrder);
+                    }
                 }
                 last_key = Some(kb.to_vec());
                 let v = dec_value(bytes, idx, false)?;

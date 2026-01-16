@@ -10,9 +10,7 @@ use crate::tx::TxId;
 #[cfg(feature = "telemetry")]
 #[inline]
 fn short_id(h: &Hash) -> String {
-    let mut short = [0u8; 8];
-    short.copy_from_slice(&h[0..8]);
-    hex::encode(short)
+    hex::encode(&h[0..8])
 }
 
 #[cfg(feature = "telemetry")]
@@ -27,7 +25,12 @@ fn ts_micros() -> u128 {
 #[cfg(feature = "telemetry")]
 fn emit(kind: &str, tx: TxId, rule: &Hash) {
     use std::io::Write as _;
-    // Manually format JSON to avoid serde_json dependency
+    // Manually format JSON to avoid serde_json dependency.
+    // `kind` must be a valid JSON string literal (no quotes/backslashes).
+    debug_assert!(
+        !kind.contains('"') && !kind.contains('\\'),
+        "emit kind must not contain JSON-special characters"
+    );
     let mut out = std::io::stdout().lock();
     let _ = write!(
         out,

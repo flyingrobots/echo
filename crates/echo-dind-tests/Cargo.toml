@@ -4,6 +4,7 @@
 name = "echo-dind-tests"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.90.0"
 license = "Apache-2.0"
 description = "Determinism test kernel for DIND scenarios"
 repository = "https://github.com/flyingrobots/echo"

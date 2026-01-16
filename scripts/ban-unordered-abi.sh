@@ -24,9 +24,12 @@ ABI_HINTS=(
 RG_ARGS=(--hidden --no-ignore --glob '!.git/*' --glob '!target/*' --glob '!**/node_modules/*')
 
 # Find Rust files likely involved in ABI/wire formats.
-files=$(rg "${RG_ARGS[@]}" -l -g'*.rs' "$(printf '%s|' "${ABI_HINTS[@]}")" crates/ || true)
+# Build pattern and trim trailing '|' to avoid matching everything
+pattern="$(printf '%s|' "${ABI_HINTS[@]}")"
+pattern="${pattern%|}"
+mapfile -t files < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
 
-if [[ -z "${files}" ]]; then
+if [[ ${#files[@]} -eq 0 ]]; then
   echo "ban-unordered-abi: no ABI-ish files found (by heuristic). OK."
   exit 0
 fi
@@ -35,7 +38,7 @@ echo "ban-unordered-abi: scanning ABI-ish Rust files..."
 violations=0
 
 # HashMap/HashSet are not allowed in ABI-ish types. Use Vec<(K,V)> sorted, BTreeMap, IndexMap with explicit canonicalization, etc.
-if rg "${RG_ARGS[@]}" -n -S '\b(HashMap|HashSet)\b' $files; then
+if rg "${RG_ARGS[@]}" -n -S '\b(HashMap|HashSet)\b' "${files[@]}"; then
   violations=$((violations+1))
 fi
 

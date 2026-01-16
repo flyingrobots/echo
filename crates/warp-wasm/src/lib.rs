@@ -90,22 +90,114 @@ pub fn get_registry_info() -> Uint8Array {
     empty_bytes()
 }
 
-#[wasm_bindgen]
 /// Get the codec identifier from the installed registry.
+#[wasm_bindgen]
 pub fn get_codec_id() -> JsValue {
     JsValue::NULL
 }
 
-#[wasm_bindgen]
 /// Get the registry version from the installed registry.
+#[wasm_bindgen]
 pub fn get_registry_version() -> JsValue {
     JsValue::NULL
 }
 
-#[wasm_bindgen]
 /// Get the schema hash (hex) from the installed registry.
+#[wasm_bindgen]
 pub fn get_schema_sha256_hex() -> JsValue {
     JsValue::NULL
+}
+
+#[cfg(test)]
+fn validate_object_against_args(
+    value: &serde_value::Value,
+    args: &[echo_registry_api::ArgDef],
+    enums: &[echo_registry_api::EnumDef],
+) -> bool {
+    let obj = match value {
+        serde_value::Value::Map(map) => map,
+        _ => return false,
+    };
+
+    // Unknown keys?
+    for key in obj.keys() {
+        let serde_value::Value::String(s) = key else {
+            return false;
+        };
+        if !args.iter().any(|a| a.name == s.as_str()) {
+            return false;
+        }
+    }
+
+    // Required + type checks
+    for arg in args {
+        let v = obj.get(&serde_value::Value::String(arg.name.to_string()));
+        let Some(v) = v else {
+            if arg.required {
+                return false;
+            }
+            continue;
+        };
+        // Type check
+        let ok = if arg.list {
+            match v {
+                serde_value::Value::Seq(items) => {
+                    items.iter().all(|item| scalar_type_ok(item, arg.ty, enums))
+                }
+                _ => false,
+            }
+        } else {
+            scalar_type_ok(v, arg.ty, enums)
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+fn scalar_type_ok(v: &serde_value::Value, ty: &str, enums: &[echo_registry_api::EnumDef]) -> bool {
+    match ty {
+        "String" | "ID" => matches!(v, serde_value::Value::String(_)),
+        "Boolean" => matches!(v, serde_value::Value::Bool(_)),
+        "Int" => matches!(
+            v,
+            serde_value::Value::I8(_)
+                | serde_value::Value::I16(_)
+                | serde_value::Value::I32(_)
+                | serde_value::Value::I64(_)
+                | serde_value::Value::U8(_)
+                | serde_value::Value::U16(_)
+                | serde_value::Value::U32(_)
+                | serde_value::Value::U64(_)
+        ),
+        "Float" => matches!(
+            v,
+            serde_value::Value::F32(_)
+                | serde_value::Value::F64(_)
+                | serde_value::Value::I8(_)
+                | serde_value::Value::I16(_)
+                | serde_value::Value::I32(_)
+                | serde_value::Value::I64(_)
+                | serde_value::Value::U8(_)
+                | serde_value::Value::U16(_)
+                | serde_value::Value::U32(_)
+                | serde_value::Value::U64(_)
+        ),
+        other => {
+            // enum check
+            if let Some(def) = enums.iter().find(|e| e.name == other) {
+                if let serde_value::Value::String(s) = v {
+                    def.values.contains(&s.as_str())
+                } else {
+                    false
+                }
+            } else {
+                false // unknown type -> reject to prevent schema drift
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -173,7 +265,10 @@ mod schema_validation_tests {
             required: true,
             list: false,
         }];
-        let val_sv = sv_map(vec![(SV::String("mode".into()), SV::String("WRONG".into()))]);
+        let val_sv = sv_map(vec![(
+            SV::String("mode".into()),
+            SV::String("WRONG".into()),
+        )]);
         assert!(!validate_object_against_args(
             &val_sv,
             &args,
@@ -191,7 +286,10 @@ mod schema_validation_tests {
         }];
         let val_sv = sv_map(vec![(
             SV::String("obj".into()),
-            sv_map(vec![(SV::String("routePath".into()), SV::String("/".into()))]),
+            sv_map(vec![(
+                SV::String("routePath".into()),
+                SV::String("/".into()),
+            )]),
         )]);
         assert!(!validate_object_against_args(
             &val_sv,

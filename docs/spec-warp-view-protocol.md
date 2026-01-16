@@ -83,6 +83,8 @@ Tools that consume a WARP stream keep a per-`WarpId` state machine:
 
 ## Implementation Checklist (v0)
 
+The following v0 implementation is complete:
+
 - [x] Define the WVP package: channel naming, `WarpId` + owner identity, publisher-only writes, snapshot + diff pattern, transport envelope.
 - [x] Generalize as an Echo Interaction Pattern (EIP) template (roles, authority, message types, flow styles).
 - [x] Enforce authority: session-service rejects non-owner writes; clients surface errors.

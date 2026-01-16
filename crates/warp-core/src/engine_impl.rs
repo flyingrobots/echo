@@ -840,8 +840,9 @@ impl Engine {
             .map(|s| vec![s.hash])
             .unwrap_or_default();
         // Canonical empty digests match commit() behaviour when no rewrites are pending.
-        let empty_digest: Hash = crate::constants::digest_len0_u64();
-        let decision_empty: Hash = crate::constants::digest_len0_u64();
+        let zero_digest: Hash = crate::constants::digest_len0_u64();
+        let empty_digest: Hash = zero_digest;
+        let decision_empty: Hash = zero_digest;
         let policy_id = self.policy_id;
         let rule_pack_id = self.compute_rule_pack_id();
         let patch_digest = WarpTickPatchV1::new(

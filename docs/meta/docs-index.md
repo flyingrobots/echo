@@ -4,6 +4,7 @@
 
 This page is a curated map of the docs: a few “golden paths”, plus links to the most-used specs.
 If you want the full inventory, use repo search (`rg`) and follow links outward from the core specs.
+
 | Document | Purpose |
 | -------- | ------- |
 | `architecture-outline.md` | High-level architecture vision and principles |

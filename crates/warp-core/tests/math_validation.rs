@@ -7,7 +7,6 @@
 //! consistent with the documented fixtures across platforms.
 
 use serde::Deserialize;
-use std::io::Cursor;
 
 use warp_core::math::{self, Mat4, Prng, Quat, Vec3};
 
@@ -19,13 +18,9 @@ const FIXTURE_PATH: &str = concat!(
 static RAW_FIXTURES: &[u8] = include_bytes!("fixtures/math-fixtures.cbor");
 
 fn fixtures() -> MathFixtures {
-    let fixtures: MathFixtures = {
-        let mut cursor = Cursor::new(RAW_FIXTURES);
-        ciborium::de::from_reader(&mut cursor).expect(&format!(
-            "failed to parse math fixtures at {}",
-            FIXTURE_PATH
-        ))
-    };
+    let fixtures: MathFixtures = echo_wasm_abi::decode_cbor(RAW_FIXTURES)
+        .expect("failed to parse math fixtures");
+    let _ = FIXTURE_PATH;
     fixtures.validate();
     fixtures
 }

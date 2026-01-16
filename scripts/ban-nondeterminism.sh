@@ -28,9 +28,9 @@ ALLOWLIST="${DETERMINISM_ALLOWLIST:-.ban-nondeterminism-allowlist}"
 RG_ARGS=(
   --hidden
   --no-ignore
-  --glob '!.git/*'
-  --glob '!target/*'
-  --glob '!**/node_modules/*'
+  --glob '!**/.git/**'
+  --glob '!**/target/**'
+  --glob '!**/node_modules/**'
   --glob '!**/.clippy.toml'
 )
 

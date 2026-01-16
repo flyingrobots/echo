@@ -22,7 +22,7 @@ Instead, JITOS adopts the **"5x Duty" Methodology**. Every feature added to the 
 
 This document describes the **target** JITOS workflow, but not every element is implemented yet in this repo.
 
-As of **2025-12-28**:
+Last reviewed: **2026-01-16**.
 
 - Implemented ✅:
   - A living-spec scaffold exists for **Spec-000** at `specs/spec-000-rewrite/` (Leptos + Trunk).
@@ -116,9 +116,9 @@ To enable this workflow, we strictly separate **Logic** from **IO**.
 
 A feature is not "Done" until:
 
-- [ ] ✅ Formatting is clean: `cargo fmt` (enforced in CI).
-- [ ] ✅ The code builds and tests pass: `cargo test` (enforced in CI).
-- [ ] ✅ Public APIs are documented and the docs gate is clean: `cargo clippy --all-targets -- -D missing_docs` (enforced in CI).
+- [x] ✅ Formatting is clean: `cargo fmt` (enforced in CI).
+- [x] ✅ The code builds and tests pass: `cargo test` (enforced in CI).
+- [x] ✅ Public APIs are documented and the docs gate is clean: `cargo clippy --all-targets -- -D missing_docs` (enforced in CI).
 - [ ] ⚠️ SPDX header policy is satisfied: `scripts/check_spdx.sh --check --all` (defined, not enforced in CI yet).
 - [ ] ⚠️ If the change is spec-facing: a `specs/spec-XXX` directory exists and the spec page explains the concept.
 - [ ] ⚠️ If the change is spec-facing: the spec imports the relevant kernel slice and provides an interactive demo harness.

@@ -113,9 +113,9 @@ impl Quat {
     pub fn normalize(&self) -> Self {
         let len = crate::math::det_sqrt_f32(
             self.component(0) * self.component(0)
-            + self.component(1) * self.component(1)
-            + self.component(2) * self.component(2)
-            + self.component(3) * self.component(3),
+                + self.component(1) * self.component(1)
+                + self.component(2) * self.component(2)
+                + self.component(3) * self.component(3),
         );
         if len <= EPSILON {
             return Self::identity();

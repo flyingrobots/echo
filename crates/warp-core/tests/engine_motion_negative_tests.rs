@@ -114,8 +114,7 @@ fn motion_v0_payload_nan_clamps_to_zero_on_upgrade() {
 fn motion_v0_payload_infinity_saturates_on_upgrade() {
     let pos_inf = f32::from_bits(0x7f80_0000);
     let neg_inf = f32::from_bits(0xff80_0000);
-    let payload =
-        encode_motion_atom_payload_v0([pos_inf, 1.0, neg_inf], [1.0, 2.0, 3.0]);
+    let payload = encode_motion_atom_payload_v0([pos_inf, 1.0, neg_inf], [1.0, 2.0, 3.0]);
 
     let (ty, pos, vel) = run_motion_once_with_payload(payload);
     assert_eq!(ty, motion_payload_type_id());

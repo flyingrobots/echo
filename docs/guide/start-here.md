@@ -36,7 +36,8 @@ ECS is a *useful storage and API layer*, but the deeper “ground truth” model
 2. Collision tour: [/guide/collision-tour](/guide/collision-tour)
 3. Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
-Collision DPO Tour (what to expect):
+### Collision DPO Tour (what to expect):
+
 
 - The tour shows collision + CCD as **graph rewrites** and lets you step rule-by-rule.
 - Use the World/Graph tabs in the picture-in-picture panel to compare model vs visualization.

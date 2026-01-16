@@ -5025,12 +5025,13 @@ dependencies = [
  "bytes",
  "ciborium",
  "echo-dry-tests",
+ "echo-wasm-abi",
  "hex",
  "libm",
  "proptest",
  "rustc-hash 2.1.1",
  "serde",
- "serde_json",
+ "serde-value",
  "thiserror 1.0.69",
 ]
 
@@ -5089,7 +5090,6 @@ dependencies = [
  "js-sys",
  "serde",
  "serde-value",
- "serde_json",
  "wasm-bindgen",
  "web-sys",
 ]

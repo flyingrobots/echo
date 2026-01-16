@@ -3,7 +3,6 @@
 # Serialization Protocol Specification (Phase 0.5)
 > **Background:** For a gentler introduction, see [ELI5 Primer](/guide/eli5) (hashing section).
 
-
 Defines the canonical encoding for Echo’s snapshots, diffs, events, and block manifests. Ensures identical bytes across platforms and supports content-addressed storage.
 
 ---
@@ -13,10 +12,10 @@ Defines the canonical encoding for Echo’s snapshots, diffs, events, and block 
 > - ⚠️ **Partial** — some pieces exist, others are in-flight
 > - 🗺️ **Planned** — vision/aspirational, not yet implemented
 
-## Principles
 ## Principles ⚠️
+
 - ✅ Little-endian encoding for numeric lengths/headers in the hashing boundary.
-- ⚠️ Canonical floating point rules exist in math modules; snapshot hashing does not encode floats directly.
+- ⚠️ Canonical floating-point rules exist in math modules; snapshot hashing does not encode floats directly.
 - ✅ Ordered iteration is explicit and stable (lexicographic ids; sorted edge ids).
 - 🗺️ Strings length-prefixed (uint32) for future block formats; not used by state-root hashing today.
 - ⚠️ BLAKE3 used for state root + commit hashes; block hashing is planned.
@@ -24,6 +23,7 @@ Defines the canonical encoding for Echo’s snapshots, diffs, events, and block 
 ---
 
 ## Primitive Layouts ⚠️
+
 - ✅ `uint8/16/32/64` – little-endian.
 - ✅ `bool` – uint8 (0 or 1) when used in hashing tags.
 - ⚠️ `int32` – two’s complement, little-endian (not used in snapshot hashing).
@@ -33,6 +33,7 @@ Defines the canonical encoding for Echo’s snapshots, diffs, events, and block 
 ---
 
 ## Component Schema Encoding 🗺️
+
 ```ts
 interface ComponentSchemaRecord {
   typeId: number;
@@ -56,6 +57,7 @@ Ledger hash = BLAKE3(concat(record bytes)). Stored in snapshot header.
 ---
 
 ## Chunk Payload Encoding 🗺️
+
 Per chunk:
 1. `chunkId (string)`
 2. `archetypeId (uint32)`
@@ -72,6 +74,7 @@ Chunk blocks stored individually; referenced by hash.
 ---
 
 ## Diff Encoding 🗺️
+
 For each `ChunkDiff` (sorted by `chunkId`, `componentType`):
 1. `chunkId (string)`
 2. `componentType (uint32)`
@@ -88,6 +91,7 @@ Diff hash = BLAKE3(header + chunk diff bytes).
 ---
 
 ## Snapshot Header 🗺️
+
 1. `schemaLedgerId (hash)`
 2. `baseSnapshotId (hash | zero)`
 3. `diffChainDepth (uint16)`
@@ -100,6 +104,7 @@ Snapshot hash = BLAKE3(header + chunkRefs).
 ---
 
 ## Event Encoding 🗺️
+
 Events use a canonical binary encoding (typed bytes only):
 1. `id (uint32)`
 2. `kind (string)`
@@ -118,6 +123,7 @@ Hash → BLAKE3 of encoded bytes. Signature optional (Ed25519).
 ---
 
 ## Block Manifest 🗺️
+
 Used by persistence to describe relationships among blocks.
 
 ```ts
@@ -134,12 +140,14 @@ Serialized as list of section headers + counts + sorted hashes.
 ---
 
 ## Compression & Signing 🗺️
+
 - Blocks optionally compressed with Zstandard; header indicates compression (e.g., `magic "ECHO" + version + compression`).
 - Signature envelope per block if `signerId` configured.
 
 ---
 
 ## Determinism Notes ⚠️
+
 - Always encode maps/sets as sorted arrays.
 - Never include timestamps in block hashes.
 - Re-encoding the same logical object must produce identical bytes across runtimes.
@@ -163,6 +171,7 @@ flowchart TD
 ```
 
 ### State Root (`state_root`) ✅
+
 1. **Root binding**:
    - `root.warp_id` (32 bytes raw)
    - `root.local_id` (32 bytes raw)
@@ -217,6 +226,7 @@ flowchart LR
 ```
 
 ### Commit Hash v2 (`commit_id`) ✅
+
 1. `version` (`u16` LE) = `2`
 2. `parents_len` (`u64` LE)
 3. `parents` (concatenated 32-byte hashes, in provided order)

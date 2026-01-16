@@ -5,5 +5,5 @@
 This guide has been merged into the Start Here doc.
 
 - Read the overview: [/guide/start-here](/guide/start-here)
-- Launch the tour: [/collision-dpo-tour.html](/collision-dpo-tour.html)
+- Launch the tour: [/public/collision-dpo-tour](/public/collision-dpo-tour)
 - Spec stub: [/spec-geom-collision](/spec-geom-collision)

@@ -1259,7 +1259,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn reserve_allows_independent_rewrites() {
         let tx = TxId::from_raw(1);

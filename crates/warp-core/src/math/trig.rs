@@ -35,6 +35,10 @@ pub(crate) fn canonicalize_zero(value: f32) -> f32 {
 /// - For finite inputs, returns finite `f32` values in `[-1, 1]`.
 pub(crate) fn sin_cos_f32(angle: f32) -> (f32, f32) {
     if !angle.is_finite() {
+        debug_assert!(
+            angle.is_finite(),
+            "sin_cos_f32 received non-finite angle: {angle:?}"
+        );
         // Deterministic policy: treat non-finite angles as 0.
         return (0.0, 1.0);
     }
@@ -85,6 +89,10 @@ fn sin_qtr_interp(angle_qtr: f32) -> f32 {
     // `angle_qtr` should always be within [0, PI/2] here, but keep behavior
     // defined even if upstream range reduction changes.
     if !(0.0..=FRAC_PI_2).contains(&angle_qtr) {
+        debug_assert!(
+            (0.0..=FRAC_PI_2).contains(&angle_qtr),
+            "sin_qtr_interp received out-of-range angle_qtr: {angle_qtr:?}"
+        );
         return 0.0;
     }
 

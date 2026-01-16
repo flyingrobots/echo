@@ -443,4 +443,4 @@ The graph is a straight line. The future is deterministic. **And Echo is how we 
 
 ---
 
-*Want to learn more? Check out the [Echo documentation](/meta/docs-index) or join the discussion on [GitHub](https://github.com/flyingrobots/echo).*
+_Want to learn more? Check out the [Echo documentation](/meta/docs-index) or join the discussion on [GitHub](https://github.com/flyingrobots/echo)._

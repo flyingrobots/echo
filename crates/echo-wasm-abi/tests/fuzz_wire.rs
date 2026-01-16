@@ -1,3 +1,5 @@
+//! Fuzz tests for wire protocol parsing robustness.
+
 use echo_wasm_abi::unpack_intent_v1;
 use proptest::prelude::*;
 

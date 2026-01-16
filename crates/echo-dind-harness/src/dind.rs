@@ -421,7 +421,7 @@ fn probe_interop(kernel: &EchoKernel) {
     let ball_id = make_node_id("ball");
     if let Ok(Some(AttachmentValue::Atom(atom))) = kernel.engine().node_attachment(&ball_id) {
         // This exercises payload.rs, fixed_q32_32.rs, and scalar.rs via the canonical decoder
-        let _ = warp_core::decode_motion_atom_payload(&atom);
+        let _ = warp_core::decode_motion_atom_payload(atom);
     } else {
         // println!("Probe: Ball not found yet.");
     }

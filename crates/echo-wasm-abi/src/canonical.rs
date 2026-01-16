@@ -140,7 +140,7 @@ fn enc_float(f: f64, out: &mut Vec<u8>) {
         // Check range before casting to avoid overflow/UB
         const I128_MAX_F: f64 = i128::MAX as f64;
         const I128_MIN_F: f64 = i128::MIN as f64;
-        if f >= I128_MIN_F && f <= I128_MAX_F {
+        if (I128_MIN_F..=I128_MAX_F).contains(&f) {
             let i = f as i128;
             if i as f64 == f {
                 enc_int(i, out);

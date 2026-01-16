@@ -265,6 +265,7 @@ fn decode_op_args<T>(
 }
 
 impl<'a> MotionV2View<'a> {
+    /// Attempt to construct a motion v2 view from a node's attachment.
     pub fn try_from_node(store: &'a GraphStore, node: &NodeId) -> Option<Self> {
         let AttachmentValue::Atom(p) = store.node_attachment(node)? else {
             return None;
@@ -273,6 +274,7 @@ impl<'a> MotionV2View<'a> {
     }
 }
 
+/// Compute the footprint for a state node operation.
 pub fn footprint_for_state_node(
     store: &GraphStore,
     scope: &NodeId,
@@ -316,6 +318,7 @@ pub fn footprint_for_state_node(
     }
 }
 
+/// Ensure the sim and sim/state base nodes exist, returning their IDs.
 pub fn ensure_state_base(store: &mut GraphStore) -> (NodeId, NodeId) {
     let sim_id = make_node_id("sim");
     let sim_state_id = make_node_id("sim/state");
@@ -343,6 +346,7 @@ pub fn ensure_state_base(store: &mut GraphStore) -> (NodeId, NodeId) {
     (sim_id, sim_state_id)
 }
 
+/// Apply a route push operation to update the current route path.
 pub fn apply_route_push(store: &mut GraphStore, path: String) {
     let (_, sim_state_id) = ensure_state_base(store);
     let id = make_node_id("sim/state/routePath");
@@ -375,6 +379,7 @@ pub fn apply_route_push(store: &mut GraphStore, path: String) {
     );
 }
 
+/// Apply a set theme operation to update the current theme.
 pub fn apply_set_theme(store: &mut GraphStore, mode: crate::generated::codecs::Theme) {
     let (_, sim_state_id) = ensure_state_base(store);
     let id = make_node_id("sim/state/theme");
@@ -402,6 +407,7 @@ pub fn apply_set_theme(store: &mut GraphStore, mode: crate::generated::codecs::T
     );
 }
 
+/// Apply a toggle nav operation to toggle the navigation state.
 pub fn apply_toggle_nav(store: &mut GraphStore) {
     let (_, sim_state_id) = ensure_state_base(store);
     let id = make_node_id("sim/state/navOpen");
@@ -440,6 +446,7 @@ pub fn apply_toggle_nav(store: &mut GraphStore) {
     );
 }
 
+/// Apply a put KV operation to store a key-value pair.
 #[cfg(feature = "dind_ops")]
 pub fn apply_put_kv(store: &mut GraphStore, key: String, value: String) {
     let (_, sim_state_id) = ensure_state_base(store);
@@ -477,6 +484,7 @@ pub fn apply_put_kv(store: &mut GraphStore, key: String, value: String) {
     );
 }
 
+/// Emit a view operation with the given type and payload.
 pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
     let view_id = make_node_id("sim/view");
     store.insert_node(
@@ -529,6 +537,7 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
     );
 }
 
+/// Project the current state to view operations.
 pub fn project_state(store: &mut GraphStore) {
     let theme_bytes = store
         .node_attachment(&make_node_id("sim/state/theme"))

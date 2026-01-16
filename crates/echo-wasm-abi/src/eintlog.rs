@@ -16,13 +16,19 @@
 
 use std::io::{self, Read, Write};
 
+/// Magic bytes identifying an ELOG file: "ELOG".
 pub const ELOG_MAGIC: [u8; 4] = *b"ELOG";
+/// Current ELOG format version.
 pub const ELOG_VERSION: u16 = 1;
-pub const MAX_FRAME_LEN: usize = 10 * 1024 * 1024; // 10 MiB limit
+/// Maximum allowed frame length (10 MiB).
+pub const MAX_FRAME_LEN: usize = 10 * 1024 * 1024;
 
+/// Header for an ELOG binary log file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElogHeader {
+    /// BLAKE3 hash of the schema used for this log.
     pub schema_hash: [u8; 32],
+    /// Reserved flags (currently unused, should be 0).
     pub flags: u16,
 }
 
@@ -32,6 +38,10 @@ fn read_exact_arr<const N: usize, R: Read>(r: &mut R) -> io::Result<[u8; N]> {
     Ok(buf)
 }
 
+/// Reads and validates an ELOG header from a reader.
+///
+/// # Errors
+/// Returns an error if the magic bytes are invalid or the version is unsupported.
 pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     let magic = read_exact_arr::<4, _>(r)?;
     if magic != ELOG_MAGIC {
@@ -56,6 +66,10 @@ pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     Ok(ElogHeader { schema_hash, flags })
 }
 
+/// Writes an ELOG header to a writer.
+///
+/// # Errors
+/// Returns an error if writing fails.
 pub fn write_elog_header<W: Write>(w: &mut W, hdr: &ElogHeader) -> io::Result<()> {
     w.write_all(&ELOG_MAGIC)?;
     w.write_all(&ELOG_VERSION.to_le_bytes())?;
@@ -65,6 +79,12 @@ pub fn write_elog_header<W: Write>(w: &mut W, hdr: &ElogHeader) -> io::Result<()
     Ok(())
 }
 
+/// Reads a single frame from an ELOG file.
+///
+/// Returns `Ok(None)` at EOF, `Ok(Some(data))` for a valid frame.
+///
+/// # Errors
+/// Returns an error if the frame is too large or reading fails.
 pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     let mut len_bytes = [0u8; 4];
     match r.read_exact(&mut len_bytes) {
@@ -85,6 +105,10 @@ pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     Ok(Some(buf))
 }
 
+/// Writes a single frame to an ELOG file.
+///
+/// # Errors
+/// Returns an error if the frame exceeds [`MAX_FRAME_LEN`] or writing fails.
 pub fn write_elog_frame<W: Write>(w: &mut W, frame: &[u8]) -> io::Result<()> {
     if frame.len() > MAX_FRAME_LEN {
         return Err(io::Error::new(

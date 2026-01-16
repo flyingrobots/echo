@@ -139,11 +139,11 @@ fn cv_to_sv(val: ciborium::value::Value) -> Result<serde_value::Value, CanonErro
         CV::Null => SV::Unit,
         CV::Integer(i) => {
             let n: i128 = i.into();
-            // Use nested if instead of let_chains (unstable feature)
-            if n >= 0 {
-                if let Ok(v) = u64::try_from(n) {
-                    return Ok(SV::U64(v));
-                }
+            // Convert non-negative i128 to u64 if it fits
+            if n >= 0
+                && let Ok(v) = u64::try_from(n)
+            {
+                return Ok(SV::U64(v));
             }
             if let Ok(v) = i64::try_from(n) {
                 SV::I64(v)
@@ -173,52 +173,81 @@ fn cv_to_sv(val: ciborium::value::Value) -> Result<serde_value::Value, CanonErro
     })
 }
 
+/// Unique identifier for a graph node.
 pub type NodeId = String;
+/// Name of a field within a node.
 pub type FieldName = String;
 
+/// A typed value that can be stored in a node field.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum Value {
+    /// String value.
     Str(String),
+    /// Numeric value (64-bit signed integer).
     Num(i64),
+    /// Boolean value.
     Bool(bool),
+    /// Null/absent value.
     Null,
 }
 
+/// A node in the warp graph with an ID and field map.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Node {
+    /// Unique identifier for this node.
     pub id: NodeId,
+    /// Map of field names to their values.
     pub fields: HashMap<FieldName, Value>,
 }
 
+/// A directed edge between two nodes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Edge {
+    /// Source node ID.
     pub from: NodeId,
+    /// Target node ID.
     pub to: NodeId,
 }
 
+/// A graph structure containing nodes and edges.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WarpGraph {
+    /// Map of node IDs to nodes.
     pub nodes: HashMap<NodeId, Node>,
+    /// List of directed edges.
     pub edges: Vec<Edge>,
 }
 
+/// The type of semantic operation in a rewrite.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SemanticOp {
+    /// Set a field value on a node.
     Set,
+    /// Add a new node to the graph.
     AddNode,
+    /// Delete an existing node from the graph.
     DeleteNode,
+    /// Create an edge between two nodes.
     Connect,
+    /// Remove an edge between two nodes.
     Disconnect,
 }
 
+/// A single rewrite operation describing a graph mutation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rewrite {
+    /// Unique identifier for this rewrite operation.
     pub id: u64,
+    /// The type of operation.
     pub op: SemanticOp,
+    /// The target node ID.
     pub target: NodeId,
+    /// Optional subject (e.g., field name or connected node).
     pub subject: Option<String>,
+    /// Previous value before the operation (for Set operations).
     pub old_value: Option<Value>,
+    /// New value after the operation (for Set operations).
     pub new_value: Option<Value>,
 }
 

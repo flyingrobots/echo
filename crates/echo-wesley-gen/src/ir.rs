@@ -17,6 +17,7 @@ pub struct WesleyIR {
     pub ir_version: Option<String>,
     /// Provenance metadata describing the toolchain that produced this IR.
     #[serde(default)]
+    #[allow(dead_code)] // Part of IR spec, present for deserialization
     pub generated_by: Option<GeneratedBy>,
     /// Optional schema hash of the source GraphQL schema (hex).
     #[serde(default)]
@@ -37,6 +38,7 @@ pub struct WesleyIR {
 
 /// Generator provenance metadata embedded in the IR.
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Part of IR spec, present for deserialization
 pub struct GeneratedBy {
     /// Tool name (package/binary) that produced this IR.
     pub tool: String,

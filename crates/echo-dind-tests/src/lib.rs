@@ -5,7 +5,9 @@
 use echo_dry_tests::build_motion_demo_engine;
 use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 
+/// Auto-generated codec and type definitions.
 pub mod generated;
+/// DIND test rules and state management.
 pub mod rules;
 
 use rules::{

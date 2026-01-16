@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Tests for permutation invariance of the deterministic kernel.
+
 use std::path::PathBuf;
 
 use anyhow::Result;

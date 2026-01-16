@@ -5,7 +5,8 @@
     unused_variables,
     unused_assignments,
     unused_imports,
-    clippy::let_and_return
+    clippy::let_and_return,
+    missing_docs
 )]
 
 use crate::generated::type_ids::TYPEID_PAYLOAD_MOTION_V2;

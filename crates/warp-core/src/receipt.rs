@@ -151,7 +151,7 @@ pub enum TickReceiptRejection {
 
 fn compute_tick_receipt_digest(entries: &[TickReceiptEntry]) -> Hash {
     if entries.is_empty() {
-        return *crate::constants::DIGEST_LEN0_U64;
+        return crate::constants::digest_len0_u64();
     }
     let mut hasher = Hasher::new();
     // Receipt format version tag.
@@ -205,7 +205,7 @@ mod tests {
         let digest_a = compute_tick_receipt_digest(&entries);
         let digest_b = compute_tick_receipt_digest(&entries);
         assert_eq!(digest_a, digest_b);
-        assert_ne!(digest_a, *crate::constants::DIGEST_LEN0_U64);
+        assert_ne!(digest_a, crate::constants::digest_len0_u64());
     }
 
     #[test]

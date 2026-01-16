@@ -35,7 +35,7 @@ impl NodeId {
 ///
 /// `TypeId` values are produced by [`make_type_id`] which hashes a label; using
 /// a dedicated wrapper prevents accidental mixing of node and type identifiers.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TypeId(pub Hash);
 

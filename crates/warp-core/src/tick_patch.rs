@@ -1051,9 +1051,9 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
     }
 
     // Per-instance skeleton and attachment-plane diffs.
-    let empty = empty_graph_store();
+    let empty = GraphStore::default();
     for (warp_id, after_store) in &after.stores {
-        let before_store = before.stores.get(warp_id).unwrap_or(empty);
+        let before_store = before.stores.get(warp_id).unwrap_or(&empty);
         diff_instance(
             &mut ops,
             *warp_id,
@@ -1066,11 +1066,6 @@ pub(crate) fn diff_state(before: &WarpState, after: &WarpState) -> Vec<WarpOp> {
 
     ops.sort_by_key(WarpOp::sort_key);
     ops
-}
-
-fn empty_graph_store() -> &'static GraphStore {
-    static EMPTY: std::sync::OnceLock<GraphStore> = std::sync::OnceLock::new();
-    EMPTY.get_or_init(GraphStore::default)
 }
 
 fn diff_instance(

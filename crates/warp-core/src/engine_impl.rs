@@ -840,8 +840,9 @@ impl Engine {
             .map(|s| vec![s.hash])
             .unwrap_or_default();
         // Canonical empty digests match commit() behaviour when no rewrites are pending.
-        let empty_digest: Hash = *crate::constants::DIGEST_LEN0_U64;
-        let decision_empty: Hash = *crate::constants::DIGEST_LEN0_U64;
+        let zero_digest: Hash = crate::constants::digest_len0_u64();
+        let empty_digest: Hash = zero_digest;
+        let decision_empty: Hash = zero_digest;
         let policy_id = self.policy_id;
         let rule_pack_id = self.compute_rule_pack_id();
         let patch_digest = WarpTickPatchV1::new(
@@ -1255,7 +1256,7 @@ fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Fo
 
 fn compute_plan_digest(plan: &[PendingRewrite]) -> Hash {
     if plan.is_empty() {
-        return *crate::constants::DIGEST_LEN0_U64;
+        return crate::constants::digest_len0_u64();
     }
     let mut hasher = Hasher::new();
     hasher.update(&(plan.len() as u64).to_le_bytes());
@@ -1268,7 +1269,7 @@ fn compute_plan_digest(plan: &[PendingRewrite]) -> Hash {
 
 fn compute_rewrites_digest(rewrites: &[PendingRewrite]) -> Hash {
     if rewrites.is_empty() {
-        return *crate::constants::DIGEST_LEN0_U64;
+        return crate::constants::digest_len0_u64();
     }
     let mut hasher = Hasher::new();
     hasher.update(&(rewrites.len() as u64).to_le_bytes());

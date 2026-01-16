@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Temporal Bridge Specification (Phase 0.5)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 The Temporal Bridge (TB) is the service that moves events between branches in Echo’s timeline tree. It guarantees deterministic delivery, retro-branch creation, paradox prevention, and entropy bookkeeping.
 

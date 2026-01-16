@@ -79,7 +79,7 @@ pub trait Scalar:
     /// Default implementation computes `sin` and `cos` separately; concrete
     /// implementations may override for efficiency or shared range reduction.
     fn sin_cos(self) -> (Self, Self) {
-        (self.sin(), self.cos())
+        (Self::sin(self), Self::cos(self))
     }
 
     /// Converts from `f32` into this scalar type.

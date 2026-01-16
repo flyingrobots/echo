@@ -25,7 +25,14 @@ PATHS="${DETERMINISM_PATHS:-$PATHS_DEFAULT}"
 
 ALLOWLIST="${DETERMINISM_ALLOWLIST:-.ban-nondeterminism-allowlist}"
 
-RG_ARGS=(--hidden --no-ignore --glob '!.git/*' --glob '!target/*' --glob '!**/node_modules/*')
+RG_ARGS=(
+  --hidden
+  --no-ignore
+  --glob '!**/.git/**'
+  --glob '!**/target/**'
+  --glob '!**/node_modules/**'
+  --glob '!**/.clippy.toml'
+)
 
 # You can allow file-level exceptions via allowlist (keep it tiny).
 ALLOW_GLOBS=()

@@ -37,6 +37,15 @@ pub use vec3::Vec3;
 /// (e.g., the zero vector or identity quaternion).
 pub const EPSILON: f32 = 1e-6;
 
+/// Deterministic square root for core math: clamps non-finite and non-positive
+/// inputs to `0.0`, otherwise returns `libm::sqrtf(value)`.
+pub(crate) fn det_sqrt_f32(value: f32) -> f32 {
+    if !value.is_finite() || value <= 0.0 {
+        return 0.0;
+    }
+    libm::sqrtf(value)
+}
+
 /// Clamps `value` to the inclusive `[min, max]` range using float32 rounding.
 ///
 /// # Panics

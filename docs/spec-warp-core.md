@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # `warp-core` — WARP Core Runtime & API Tour
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 This document is a **tour of the `warp-core` crate**: the core data model,
 deterministic boundary artifacts, and the runtime APIs that higher layers (`warp-ffi`,
@@ -274,6 +276,18 @@ The tick patch is the “what happened” boundary artifact:
 Worldline slicing uses the Paper III interpretation rule:
 
 - the patch does not embed versions; versions are recovered by patch position in `P = (μ0…μn-1)`.
+
+### 8.4 Determinism invariants (summary)
+
+Echo treats these as non-negotiable invariants. Violations must abort deterministically.
+
+1. **World equivalence:** identical diffs + merge decisions ⇒ identical world hash.
+2. **Merge determinism:** same base snapshot + diffs + strategies ⇒ identical snapshot + diff hashes.
+3. **Temporal stability:** GC/compression/inspector activity must not alter logical state.
+4. **Schema consistency:** component layout hashes must match before merges.
+5. **Causal integrity:** writes cannot modify values they transitively read earlier in Chronos.
+6. **Entropy reproducibility:** branch entropy is a deterministic function of recorded events (see `/spec-entropy-and-paradox` for event log format + location).
+7. **Replay integrity:** replay from A→B reproduces world hash, event order, and PRNG draw counts.
 
 ---
 

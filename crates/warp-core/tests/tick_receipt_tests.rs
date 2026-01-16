@@ -192,7 +192,7 @@ fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
     );
     assert_ne!(
         snapshot.decision_digest,
-        *warp_core::DIGEST_LEN0_U64,
+        warp_core::digest_len0_u64(),
         "non-empty tick receipt should not use the canonical empty digest"
     );
 }

@@ -98,7 +98,7 @@ impl Vec3 {
 
     /// Vector length (magnitude).
     pub fn length(&self) -> f32 {
-        self.dot(self).sqrt()
+        crate::math::det_sqrt_f32(self.dot(self))
     }
 
     /// Squared magnitude of the vector.

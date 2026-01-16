@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo Scheduler Specification (Phase 0)
+> **Background:** For a gentler introduction, see [Scheduler Hub](/scheduler).
+
 
 This document defines the **planned** ECS-style system scheduler (systems + phases + a dependency DAG) for Echo core.
 

@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # World API Specification (Phase 0.5)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 Defines the public façade for interacting with Echo. External modules use this API while internals remain swappable.
 

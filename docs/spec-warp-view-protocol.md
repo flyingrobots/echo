@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # WARP View Protocol (WVP)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 A narrow, deterministic pub/sub protocol for sharing **WARP streams** (snapshots + diffs over a renderable graph) between tools via the session service.
 
@@ -78,6 +80,21 @@ Tools that consume a WARP stream keep a per-`WarpId` state machine:
 
 - The protocol prefers `subscribe_warp` / `warp_stream` op strings and `warp_id`.
 - Decoders accept legacy aliases (`subscribe_rmg` / `rmg_stream` and `rmg_id`) during the WARP rename transition.
+
+## Implementation Checklist (v0)
+
+The following v0 implementation is complete:
+
+- [x] Define the WVP package: channel naming, `WarpId` + owner identity, publisher-only writes, snapshot + diff pattern, transport envelope.
+- [x] Generalize as an Echo Interaction Pattern (EIP) template (roles, authority, message types, flow styles).
+- [x] Enforce authority: session-service rejects non-owner writes; clients surface errors.
+- [x] Dirty-flag sync loop in viewer (publish snapshot/diff on net tick when dirty; throttle/batch).
+- [x] Publish/subscribe toggles in UI (enable/disable send/receive per `WarpId`).
+- [x] Session-service wiring: publish endpoint, validate owner + gapless epochs, rebroadcast to subscribers.
+- [x] Client wiring: bidirectional tool connection; surface authority/epoch errors as notifications.
+- [x] Demo path: session-service + two viewers (publisher + subscriber) (`docs/guide/wvp-demo.md`).
+- [x] Tests: authority rejection, gapless enforcement, dirty-loop behavior, toggle respect; integration test w/ two clients + loopback server. (Tracking: #169)
+- [x] Docs sync: update GitHub Issues as slices land.
 
 ## Backlog / Open Questions
 

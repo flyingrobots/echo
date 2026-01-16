@@ -6,7 +6,7 @@ This roadmap reconciles our current plan with GitHub milestones, issues, and the
 
 If you feel lost in doc sprawl, use this order:
 - `docs/ROADMAP.md` (this file): milestones and what we're doing next
-- `docs/docs-index.md`: map of everything else (only when needed)
+- `docs/meta/docs-index.md`: map of everything else (only when needed)
 
 ---
 

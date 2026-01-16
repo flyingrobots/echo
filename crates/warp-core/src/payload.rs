@@ -2,34 +2,35 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Canonical payload encoding for the motion demo.
 
-use std::sync::OnceLock;
-
-use bytes::Bytes;
-
 use crate::attachment::AtomPayload;
-use crate::ident::{make_type_id, TypeId};
+use crate::ident::TypeId;
+use bytes::Bytes;
 
 const MOTION_PAYLOAD_V0_BYTES: usize = 24;
 const MOTION_PAYLOAD_V2_BYTES: usize = 48;
-
-static MOTION_PAYLOAD_TYPE_ID_V0: OnceLock<TypeId> = OnceLock::new();
-static MOTION_PAYLOAD_TYPE_ID_V2: OnceLock<TypeId> = OnceLock::new();
+const MOTION_V0_TYPE_ID: TypeId = TypeId([
+    0xfe, 0xc2, 0x37, 0x94, 0x35, 0xc3, 0x5e, 0x68, 0xd8, 0xf0, 0xb6, 0xa8, 0x1c, 0x51, 0xa9, 0xb5,
+    0x89, 0xf3, 0xdb, 0x3d, 0x1f, 0x56, 0x9a, 0x9b, 0x44, 0xa5, 0xcf, 0xeb, 0x65, 0x61, 0xbf, 0x3f,
+]);
+const MOTION_V2_TYPE_ID: TypeId = TypeId([
+    0xf8, 0xab, 0xe5, 0xd1, 0x03, 0x69, 0xa2, 0xbb, 0x01, 0x1c, 0xb4, 0x8f, 0x3b, 0xa3, 0x62, 0x72,
+    0xf9, 0x12, 0x6f, 0xca, 0x66, 0x35, 0x90, 0xb8, 0x8e, 0x8e, 0x1f, 0xd7, 0x8e, 0xc1, 0x0a, 0xa5,
+]);
 
 /// Returns the legacy motion payload `TypeId` (`payload/motion/v0`).
 ///
 /// This format stores six little-endian `f32` values (position + velocity).
 #[must_use]
 pub fn motion_payload_type_id_v0() -> TypeId {
-    *MOTION_PAYLOAD_TYPE_ID_V0.get_or_init(|| make_type_id("payload/motion/v0"))
+    MOTION_V0_TYPE_ID
 }
 
 /// Returns the canonical payload `TypeId` for the motion demo atom payload (`payload/motion/v2`).
 ///
 /// This is used as the attachment-plane `type_id` for motion component bytes.
-/// It is cached after the first call to avoid repeated hashing overhead.
 #[must_use]
 pub fn motion_payload_type_id() -> TypeId {
-    *MOTION_PAYLOAD_TYPE_ID_V2.get_or_init(|| make_type_id("payload/motion/v2"))
+    MOTION_V2_TYPE_ID
 }
 
 /// Serialises a 3D position + velocity pair into the canonical motion payload.

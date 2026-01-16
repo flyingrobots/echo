@@ -47,7 +47,7 @@ impl Quat {
         if len_sq <= EPSILON * EPSILON {
             return Self::identity();
         }
-        let len = len_sq.sqrt();
+        let len = crate::math::det_sqrt_f32(len_sq);
         let norm_axis = axis.scale(1.0 / len);
         let half = angle * 0.5;
         let (sin_half, cos_half) = trig::sin_cos_f32(half);
@@ -111,11 +111,12 @@ impl Quat {
     /// magnitude is ≤ `EPSILON`, returns the identity quaternion to avoid
     /// division by near‑zero (a degenerate quaternion cannot represent a rotation).
     pub fn normalize(&self) -> Self {
-        let len = (self.component(0) * self.component(0)
-            + self.component(1) * self.component(1)
-            + self.component(2) * self.component(2)
-            + self.component(3) * self.component(3))
-        .sqrt();
+        let len = crate::math::det_sqrt_f32(
+            self.component(0) * self.component(0)
+                + self.component(1) * self.component(1)
+                + self.component(2) * self.component(2)
+                + self.component(3) * self.component(3),
+        );
         if len <= EPSILON {
             return Self::identity();
         }

@@ -20,6 +20,17 @@ Glossary (recommended while reading):
 
 ---
 
+## Authoring Conventions (for course writers)
+
+- Prefer short pages with a clear outcome and a verify step.
+- Introduce jargon only after the reader has used the idea.
+- Every module should include at least one of:
+  - a “verify” step (fingerprint/replay check)
+  - a “failure demo” (controlled desync)
+- Rendering must be described as derived output (never authoritative).
+
+---
+
 ## Two Tracks (Same Demo)
 
 You can follow either track, or both:
@@ -36,7 +47,7 @@ Both tracks share the same steps and vocabulary; Track B adds “do the thing”
 
 ---
 
-## Course Modules (Outline)
+## Course Modules (Available Now)
 
 Each module has:
 
@@ -56,52 +67,8 @@ Each module has:
 - Verify: same input log => same fingerprints.
 - Page: [/guide/course/01-lockstep](/guide/course/01-lockstep)
 
-### 02 — Model the world (grid + players + balloons)
-
-- Goal: learn how to model gameplay state so it remains deterministic and debuggable.
-- Verify: state hash matches after N ticks with a fixed input script.
-
-### 03 — Rules: movement + placement, deterministically
-
-- Goal: implement basic rules with explicit conflict resolution.
-- Verify: collisions resolve identically across runs.
-- Failure demo: unstable iteration order changes who “wins”.
-
-### 04 — Time as ticks (fuses, chain reactions)
-
-- Goal: model timers deterministically and safely.
-- Verify: chain reactions occur on the same tick across peers.
-- Failure demo: wall‑clock time causes drift/desync.
-
-### 05 — Randomness (optional), done safely
-
-- Goal: add pickups without breaking determinism.
-- Verify: seeded PRNG makes drops identical.
-- Failure demo: unseeded randomness causes divergence.
-
-### 06 — Replay as your debugger
-
-- Goal: treat replay as the default debugging tool.
-- Verify: bisect to the first mismatching tick.
-
-### 07 — Minimal transport (inputs + fingerprints)
-
-- Goal: wire a simple two‑peer harness that proves sync.
-- Verify: one command produces PASS/FAIL.
-
-### 08 — Watchability (rendering as a derived view)
-
-- Goal: make the demo visible without letting rendering influence simulation.
-- Verify: “render-only” components do not affect fingerprints.
-
-### 09 — Packaging the proof (“show the world it works”)
-
-- Goal: produce a shareable demo script + short video path + clear README.
-- Verify: fresh clone → run → PASS.
-
 ---
 
-## Next Step (Implementation Work)
+## Planned Modules (Not Yet Written)
 
-This outline is the “map”.
-As we implement the demo, each module will become a real page under `docs/guide/course/`.
+Modules 02–09 are planned but not yet implemented in this repo. When they land, they will appear under `docs/guide/course/` and be listed here.

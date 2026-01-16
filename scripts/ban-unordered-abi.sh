@@ -23,13 +23,49 @@ ABI_HINTS=(
   "wire"
 )
 
-RG_ARGS=(--hidden --no-ignore --glob '!.git/*' --glob '!target/*' --glob '!**/node_modules/*')
+ALLOWLIST="${UNORDERED_ABI_ALLOWLIST:-.ban-unordered-abi-allowlist}"
+
+RG_ARGS=(
+  --hidden
+  --no-ignore
+  --glob '!**/.git/**'
+  --glob '!**/target/**'
+  --glob '!**/node_modules/**'
+)
+
+# You can allow file-level exceptions via allowlist (keep it tiny).
+ALLOW_PATTERNS=()
+if [[ -f "$ALLOWLIST" ]]; then
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ "$line" =~ ^# ]] && continue
+    pat="${line%%$'\t'*}"
+    pat="${pat%% *}"
+    [[ -z "$pat" ]] && continue
+    ALLOW_PATTERNS+=("$pat")
+  done < "$ALLOWLIST"
+fi
 
 # Find Rust files likely involved in ABI/wire formats.
 # Build pattern and trim trailing '|' to avoid matching everything
 pattern="$(printf '%s|' "${ABI_HINTS[@]}")"
 pattern="${pattern%|}"
 mapfile -t files < <(rg "${RG_ARGS[@]}" -l -g'*.rs' "$pattern" crates/ || true)
+shopt -s globstar
+filtered=()
+for f in "${files[@]}"; do
+  allowed=false
+  for pat in "${ALLOW_PATTERNS[@]}"; do
+    if [[ "$f" == $pat ]]; then
+      allowed=true
+      break
+    fi
+  done
+  if [[ "$allowed" == false ]]; then
+    filtered+=("$f")
+  fi
+done
+files=("${filtered[@]}")
 
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "ban-unordered-abi: no ABI-ish files found (by heuristic). OK."

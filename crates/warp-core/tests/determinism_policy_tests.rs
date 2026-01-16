@@ -97,14 +97,17 @@ fn test_policy_subnormal_flushing() {
 
 #[test]
 #[cfg(feature = "serde")]
-#[allow(clippy::disallowed_methods)]
 fn test_policy_serialization_guard() {
-    // Manually construct JSON with -0.0
-    let json = r#"-0.0"#;
+    use serde::Deserialize;
+    use serde_value::{Value as SV, ValueDeserializer};
+
+    // Manually construct a serde value that contains -0.0.
+    let val = SV::F32(-0.0);
+    let de = ValueDeserializer::<serde::de::value::Error>::new(val);
 
     // If Deserialize is derived, this will put -0.0 into the struct, violating the invariant.
     // If implemented manually via new(), it should be +0.0.
-    let s: F32Scalar = serde_json::from_str(json).expect("Failed to deserialize");
+    let s: F32Scalar = Deserialize::deserialize(de).expect("Failed to deserialize");
 
     assert_eq!(
         s.to_f32().to_bits(),

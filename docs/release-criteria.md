@@ -4,6 +4,14 @@
 
 Checklist for closing Phase 0.5 and starting Phase 1 implementation.
 
+## How to Use This Checklist
+
+- Treat each item as a gate: “done” means it is implemented **and** verified.
+- Link evidence (tests, docs, or CI runs) in the Phase 0.5 tracking issue.
+- If a requirement moves, update the checklist so it stays authoritative.
+
+## Required Criteria
+
 - [ ] Branch tree spec v0.5 implemented (roaring bitmaps, epochs, hashing).
 - [ ] Codex’s Baby Phase 0.5 features implemented (event envelope, bridge, backpressure).
 - [ ] Temporal bridge integrated with branch tree and CB.
@@ -16,5 +24,12 @@ Checklist for closing Phase 0.5 and starting Phase 1 implementation.
 - [ ] Plugin manifest loader validates capabilities and records `pluginsManifestHash`.
 - [ ] Inspector JSONL writer produces canonical frames.
 - [ ] Documentation index current (spec map).
+
+## Evidence Expectations (Examples)
+
+- Determinism suite: CI logs or `echo-dind-harness` transcript.
+- Replay CLI: golden hashes checked in `testdata/` with a reproducible runner.
+- Protocol gates: a spec doc + a passing conformance test.
+- Docs: `docs/meta/docs-index.md` updated with links to current specs.
 
 Once all items checked, open Phase 1 milestone and migrate outstanding tasks to implementation backlog.

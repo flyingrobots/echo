@@ -23,7 +23,7 @@ Start here:
 - Start Here: [`docs/guide/start-here.md`](docs/guide/start-here.md)
 - Non-programmer on-ramp: [`docs/guide/eli5.md`](docs/guide/eli5.md)
 - WARP primer: [`docs/guide/warp-primer.md`](docs/guide/warp-primer.md)
-- Docs map: [`docs/docs-index.md`](docs/docs-index.md)
+- Docs map: [`docs/meta/docs-index.md`](docs/meta/docs-index.md)
 - AIΩN bridge doc: [`docs/aion-papers-bridge.md`](docs/aion-papers-bridge.md)
 - Architecture outline: [`docs/architecture-outline.md`](docs/architecture-outline.md)
 - Commit hashing spec: [`docs/spec-merkle-commit.md`](docs/spec-merkle-commit.md)
@@ -95,7 +95,7 @@ If you’re building anything that benefits from “Git‑like” properties for
 - `crates/echo-wasm-abi` — WASM‑friendly DTO schema for specs.
 - `crates/echo-wasm-bindings` — demo kernel + rewrite history (teaching slice; not the production engine).
 
-For a deeper tour, see [`docs/docs-index.md`](docs/docs-index.md).
+For a deeper tour, see [`docs/meta/docs-index.md`](docs/meta/docs-index.md).
 
 ---
 

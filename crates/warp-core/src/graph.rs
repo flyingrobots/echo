@@ -262,7 +262,18 @@ impl GraphStore {
 
     /// Deletes a node and removes any attachments and incident edges.
     ///
-    /// Returns `true` if the node existed and was removed.
+    /// This is a cascading delete: all edges where this node is the source (`from`)
+    /// or target (`to`) are also removed, along with their attachments. Use this
+    /// when completely removing an entity from the graph.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the node existed and was removed, `false` if the node was not found.
+    ///
+    /// # Note
+    ///
+    /// This operation is not transactional on its own. If used during a transaction,
+    /// the caller must ensure consistency with the transaction's isolation guarantees.
     pub fn delete_node_cascade(&mut self, node: NodeId) -> bool {
         if self.nodes.remove(&node).is_none() {
             return false;

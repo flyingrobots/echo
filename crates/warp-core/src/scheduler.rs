@@ -521,13 +521,6 @@ impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
         }
     }
 
-    /// Begins a new commit generation (call once per transaction).
-    #[inline]
-    #[allow(dead_code)]
-    pub fn begin_commit(&mut self) {
-        self.gen = self.gen.wrapping_add(1);
-    }
-
     /// Returns true if `key` was marked in the current generation.
     #[inline]
     pub fn contains(&self, key: K) -> bool {
@@ -538,20 +531,6 @@ impl<K: std::hash::Hash + Eq + Copy> GenSet<K> {
     #[inline]
     pub fn mark(&mut self, key: K) {
         self.seen.insert(key, self.gen);
-    }
-
-    /// Returns true if `key` conflicts with current generation, otherwise marks it.
-    /// This is a convenience method combining `contains` and `mark` for cases where
-    /// atomicity is needed.
-    #[inline]
-    #[allow(dead_code)]
-    pub fn conflict_or_mark(&mut self, key: K) -> bool {
-        if self.contains(key) {
-            true
-        } else {
-            self.mark(key);
-            false
-        }
     }
 }
 
@@ -837,9 +816,15 @@ mod tests {
         let node_a = make_node_id("a");
         let node_b = make_node_id("b");
 
-        assert!(!gen.conflict_or_mark(node_a), "first mark");
-        assert!(gen.conflict_or_mark(node_a), "conflict on same gen");
-        assert!(!gen.conflict_or_mark(node_b), "different node ok");
+        // First access: not seen, then mark
+        assert!(!gen.contains(node_a), "node_a not yet seen");
+        gen.mark(node_a);
+
+        // Second access: now conflicts
+        assert!(gen.contains(node_a), "node_a conflicts after mark");
+
+        // Different node: no conflict
+        assert!(!gen.contains(node_b), "node_b is independent");
     }
 
     // ========================================================================

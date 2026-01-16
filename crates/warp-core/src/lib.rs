@@ -50,8 +50,6 @@ pub mod math;
 mod attachment;
 mod cmd;
 mod constants;
-/// Demo implementations showcasing engine capabilities (e.g., motion rule).
-pub mod demo;
 mod engine_impl;
 mod footprint;
 mod graph;
@@ -78,7 +76,6 @@ pub use attachment::{
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
 pub use constants::{BLAKE3_EMPTY, DIGEST_LEN0_U64, POLICY_ID_NO_POLICY_V0};
-pub use demo::motion::{build_motion_demo_engine, motion_rule, MOTION_RULE_NAME};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
     ExistingState, FreshStore, IngestDisposition,

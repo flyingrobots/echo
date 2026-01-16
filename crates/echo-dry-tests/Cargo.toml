@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+[package]
+name = "echo-dry-tests"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared test doubles and fixtures for Echo crates"
+
+[dependencies]
+# Core crates for test doubles
+warp-core = { workspace = true }
+echo-graph = { workspace = true }
+echo-app-core = { workspace = true }
+
+# Hashing
+blake3 = "1"
+
+# Serialization (for config store fake)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Bytes for payload construction
+bytes = "1"
+
+[features]
+default = []
+# Scalar backend feature passthrough (matches warp-core)
+det_float = ["warp-core/det_float"]
+det_fixed = ["warp-core/det_fixed"]

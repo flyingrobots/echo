@@ -5,6 +5,7 @@
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
 };
+use echo_dry_tests::motion_rule;
 mod common;
 use common::snapshot_hash_of;
 
@@ -58,7 +59,7 @@ fn independent_motion_rewrites_commute_on_distinct_nodes() {
     );
     let mut store2 = store1.clone();
 
-    let rule = warp_core::motion_rule();
+    let rule = motion_rule();
 
     // Order 1: apply to A then B
     (rule.executor)(&mut store1, &a);

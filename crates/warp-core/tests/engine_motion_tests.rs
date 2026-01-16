@@ -4,8 +4,9 @@
 #![allow(missing_docs)]
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
-    ApplyResult, AttachmentValue, Engine, EngineError, GraphStore, NodeRecord, MOTION_RULE_NAME,
+    ApplyResult, AttachmentValue, Engine, EngineError, GraphStore, NodeRecord,
 };
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 #[test]
 fn motion_rule_updates_position_deterministically() {
@@ -19,7 +20,7 @@ fn motion_rule_updates_position_deterministically() {
 
     let mut engine = Engine::new(store, entity);
     engine
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("duplicate rule name");
 
     let tx = engine.begin();
@@ -37,7 +38,7 @@ fn motion_rule_updates_position_deterministically() {
 
     let mut engine_b = Engine::new(store_b, entity);
     engine_b
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("duplicate rule name");
     let tx_b = engine_b.begin();
     let apply_b = engine_b.apply(tx_b, MOTION_RULE_NAME, &entity).unwrap();
@@ -69,7 +70,7 @@ fn motion_rule_no_match_on_missing_payload() {
 
     let mut engine = Engine::new(store, entity);
     engine
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("duplicate rule name");
 
     // Capture hash before any tx
@@ -97,7 +98,7 @@ fn motion_rule_twice_is_deterministic_across_engines() {
     store_a.set_node_attachment(entity, Some(AttachmentValue::Atom(payload.clone())));
     let mut engine_a = Engine::new(store_a, entity);
     engine_a
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("duplicate rule name");
     for _ in 0..2 {
         let tx = engine_a.begin();
@@ -110,7 +111,7 @@ fn motion_rule_twice_is_deterministic_across_engines() {
     store_b.set_node_attachment(entity, Some(AttachmentValue::Atom(payload)));
     let mut engine_b = Engine::new(store_b, entity);
     engine_b
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("duplicate rule name");
     for _ in 0..2 {
         let tx = engine_b.begin();

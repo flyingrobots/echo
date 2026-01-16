@@ -17,6 +17,7 @@ path = "src/lib.rs"
 
 [dependencies]
 warp-core = { path = "../warp-core" }
+echo-dry-tests = { path = "../echo-dry-tests" }
 echo-wasm-abi = { path = "../echo-wasm-abi" }
 bytes = "1.0"
 

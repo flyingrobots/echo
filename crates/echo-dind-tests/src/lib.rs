@@ -2,9 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deterministic test kernel used by the DIND harness.
 
-use warp_core::{
-    build_motion_demo_engine, make_node_id, ApplyResult, DispatchDisposition, Engine,
-};
+use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
+use echo_dry_tests::build_motion_demo_engine;
 
 pub mod generated;
 pub mod rules;

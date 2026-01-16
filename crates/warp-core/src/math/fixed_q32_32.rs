@@ -80,7 +80,7 @@ fn saturate_i128_to_i64(value: i128) -> i64 {
 /// - `NaN` maps to `0` (fixed-point has no NaN representation).
 /// - `+∞`/`-∞` saturate to `i64::MAX`/`i64::MIN`.
 /// - Values are rounded to nearest with ties-to-even at the Q32.32 boundary.
-pub(crate) fn from_f32(value: f32) -> i64 {
+pub fn from_f32(value: f32) -> i64 {
     if value.is_nan() {
         return 0;
     }
@@ -143,7 +143,7 @@ pub(crate) fn from_f32(value: f32) -> i64 {
 /// Deterministically converts a Q32.32 raw `i64` to an `f32`.
 ///
 /// Rounds to nearest with ties-to-even at the `f32` boundary.
-pub(crate) fn to_f32(raw: i64) -> f32 {
+pub fn to_f32(raw: i64) -> f32 {
     if raw == 0 {
         return 0.0;
     }

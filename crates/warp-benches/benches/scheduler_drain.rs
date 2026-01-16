@@ -18,6 +18,7 @@ use warp_core::{
     make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, Hash, NodeId,
     NodeRecord, PatternGraph, RewriteRule,
 };
+use echo_dry_tests::build_motion_demo_engine;
 
 // Bench constants to avoid magic strings.
 const BENCH_NOOP_RULE_NAME: &str = "bench/noop";
@@ -54,7 +55,7 @@ fn bench_noop_rule() -> RewriteRule {
 }
 
 fn build_engine_with_entities(n: usize) -> (Engine, Vec<NodeId>) {
-    let mut engine = warp_core::build_motion_demo_engine();
+    let mut engine = build_motion_demo_engine();
     // Register a no-op rule to isolate scheduler overhead from executor work.
     engine
         .register_rule(bench_noop_rule())

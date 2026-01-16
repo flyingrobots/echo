@@ -7,11 +7,11 @@
 //! enqueue order must not change the terminal digests for commuting cases, and
 //! overlap must yield deterministic rejection for conflicting cases.
 
-use warp_core::demo::ports::{port_rule, PORT_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, ApplyResult, AttachmentValue, Engine,
     EngineError, Footprint, GraphStore, NodeId, NodeRecord, PatternGraph, RewriteRule,
 };
+use echo_dry_tests::{motion_rule, port_rule, MOTION_RULE_NAME, PORT_RULE_NAME};
 
 const LITMUS_PORT_READ_0: &str = "litmus/port_read_0";
 const LITMUS_PORT_READ_1: &str = "litmus/port_read_1";
@@ -86,7 +86,7 @@ fn build_litmus_engine() -> Result<Engine, EngineError> {
     );
 
     let mut engine = Engine::new(store, root);
-    engine.register_rule(warp_core::motion_rule())?;
+    engine.register_rule(motion_rule())?;
     engine.register_rule(port_rule())?;
     engine.register_rule(litmus_port_read_0_rule())?;
     engine.register_rule(litmus_port_read_1_rule())?;
@@ -150,7 +150,7 @@ fn dpo_litmus_commuting_independent_pair() -> Result<(), EngineError> {
     let (mut a, entity_motion, entity_port) = setup()?;
     let tx_a = a.begin();
     assert!(matches!(
-        a.apply(tx_a, warp_core::MOTION_RULE_NAME, &entity_motion)?,
+        a.apply(tx_a, MOTION_RULE_NAME, &entity_motion)?,
         ApplyResult::Applied
     ));
     assert!(matches!(
@@ -166,7 +166,7 @@ fn dpo_litmus_commuting_independent_pair() -> Result<(), EngineError> {
         ApplyResult::Applied
     ));
     assert!(matches!(
-        b.apply(tx_b, warp_core::MOTION_RULE_NAME, &entity_motion)?,
+        b.apply(tx_b, MOTION_RULE_NAME, &entity_motion)?,
         ApplyResult::Applied
     ));
     let (snap_b, receipt_b, _patch_b) = b.commit_with_receipt(tx_b)?;
@@ -230,7 +230,7 @@ fn dpo_litmus_conflicting_pair_is_deterministically_rejected() -> Result<(), Eng
     let (mut a, entity) = setup()?;
     let tx_a = a.begin();
     assert!(matches!(
-        a.apply(tx_a, warp_core::MOTION_RULE_NAME, &entity)?,
+        a.apply(tx_a, MOTION_RULE_NAME, &entity)?,
         ApplyResult::Applied
     ));
     assert!(matches!(
@@ -246,7 +246,7 @@ fn dpo_litmus_conflicting_pair_is_deterministically_rejected() -> Result<(), Eng
         ApplyResult::Applied
     ));
     assert!(matches!(
-        b.apply(tx_b, warp_core::MOTION_RULE_NAME, &entity)?,
+        b.apply(tx_b, MOTION_RULE_NAME, &entity)?,
         ApplyResult::Applied
     ));
     let (snap_b, receipt_b, _patch_b) = b.commit_with_receipt(tx_b)?;

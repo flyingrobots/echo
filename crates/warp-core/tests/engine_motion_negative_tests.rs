@@ -20,8 +20,9 @@ use bytes::Bytes;
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload_v0, make_node_id, make_type_id,
     motion_payload_type_id, ApplyResult, AtomPayload, AttachmentValue, Engine, GraphStore,
-    NodeRecord, MOTION_RULE_NAME,
+    NodeRecord,
 };
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 fn run_motion_once_with_payload(payload: AtomPayload) -> (warp_core::TypeId, [f32; 3], [f32; 3]) {
     let ent = make_node_id("case");
@@ -32,7 +33,7 @@ fn run_motion_once_with_payload(payload: AtomPayload) -> (warp_core::TypeId, [f3
 
     let mut engine = Engine::new(store, ent);
     engine
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("register motion rule");
 
     let tx = engine.begin();
@@ -71,7 +72,7 @@ fn motion_invalid_payload_size_returns_nomatch() {
 
     let mut engine = Engine::new(store, ent);
     engine
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("register motion rule");
     let tx = engine.begin();
     let res = engine.apply(tx, MOTION_RULE_NAME, &ent).expect("apply");

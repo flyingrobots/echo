@@ -7,8 +7,8 @@ use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, AttachmentValue,
     ConflictPolicy, Engine, Footprint, GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph,
     RewriteRule, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId, WarpId,
-    MOTION_RULE_NAME,
 };
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 fn rule_id(name: &str) -> Hash {
     let mut hasher = blake3::Hasher::new();
@@ -130,14 +130,14 @@ fn commit_with_receipt_records_accept_reject_and_matches_snapshot_digests() {
 
     let mut engine = Engine::new(store, entity);
     engine
-        .register_rule(warp_core::motion_rule())
+        .register_rule(motion_rule())
         .expect("motion rule registers");
 
     // Register a second rule with a distinct id and name but the same matcher/executor/footprint.
     // This lets us generate two candidates that touch the same node without being de-duped by
     // the scheduler’s last-wins key.
     let rule2_name: &'static str = "motion/update-alt";
-    let base = warp_core::motion_rule();
+    let base = motion_rule();
     let rule2 = RewriteRule {
         id: rule_id(rule2_name),
         name: rule2_name,

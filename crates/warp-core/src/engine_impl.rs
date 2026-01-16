@@ -1350,14 +1350,73 @@ fn extend_slots_from_footprint(
 mod tests {
     use super::*;
     use crate::attachment::{AttachmentKey, AttachmentValue};
-    use crate::demo::motion::{motion_rule, MOTION_RULE_NAME};
     use crate::ident::{make_node_id, make_type_id};
     use crate::payload::encode_motion_atom_payload;
     use crate::record::NodeRecord;
 
+    const TEST_RULE_NAME: &str = "test/motion";
+
+    fn test_motion_rule() -> RewriteRule {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rule:");
+        hasher.update(TEST_RULE_NAME.as_bytes());
+        let id: Hash = hasher.finalize().into();
+        RewriteRule {
+            id,
+            name: TEST_RULE_NAME,
+            left: crate::rule::PatternGraph { nodes: vec![] },
+            matcher: |store, scope| {
+                matches!(
+                    store.node_attachment(scope),
+                    Some(AttachmentValue::Atom(payload)) if crate::payload::decode_motion_atom_payload(payload).is_some()
+                )
+            },
+            executor: |store, scope| {
+                let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
+                    return;
+                };
+                let Some((pos_raw, vel_raw)) =
+                    crate::payload::decode_motion_atom_payload_q32_32(payload)
+                else {
+                    return;
+                };
+                let new_pos_raw = [
+                    pos_raw[0].saturating_add(vel_raw[0]),
+                    pos_raw[1].saturating_add(vel_raw[1]),
+                    pos_raw[2].saturating_add(vel_raw[2]),
+                ];
+                payload.type_id = crate::payload::motion_payload_type_id();
+                payload.bytes = crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
+            },
+            compute_footprint: |store, scope| {
+                let mut a_write = crate::AttachmentSet::default();
+                if store.node(scope).is_some() {
+                    a_write.insert(AttachmentKey::node_alpha(NodeKey {
+                        warp_id: store.warp_id(),
+                        local_id: *scope,
+                    }));
+                }
+                crate::Footprint {
+                    n_read: crate::IdSet::default(),
+                    n_write: crate::IdSet::default(),
+                    e_read: crate::IdSet::default(),
+                    e_write: crate::IdSet::default(),
+                    a_read: crate::AttachmentSet::default(),
+                    a_write,
+                    b_in: crate::PortSet::default(),
+                    b_out: crate::PortSet::default(),
+                    factor_mask: 0,
+                }
+            },
+            factor_mask: 0,
+            conflict_policy: crate::rule::ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
     #[test]
     fn scope_hash_stable_for_rule_and_scope() {
-        let rule = motion_rule();
+        let rule = test_motion_rule();
         let warp_id = crate::ident::make_warp_id("scope-hash-test-warp");
         let scope_node = make_node_id("scope-hash-entity");
         let scope = NodeKey {
@@ -1407,11 +1466,11 @@ mod tests {
         store.set_node_attachment(entity, Some(AttachmentValue::Atom(payload)));
 
         let mut engine = Engine::new(store, entity);
-        let register = engine.register_rule(motion_rule());
+        let register = engine.register_rule(test_motion_rule());
         assert!(register.is_ok(), "rule registration failed: {register:?}");
 
         let tx = engine.begin();
-        let applied = engine.apply(tx, MOTION_RULE_NAME, &entity);
+        let applied = engine.apply(tx, TEST_RULE_NAME, &entity);
         assert!(
             matches!(applied, Ok(ApplyResult::Applied)),
             "expected ApplyResult::Applied, got {applied:?}"

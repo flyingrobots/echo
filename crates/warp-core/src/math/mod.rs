@@ -9,7 +9,7 @@
 use std::f32::consts::TAU;
 
 /// Deterministic Q32.32 conversion helpers used by fixed-point lanes and payload codecs.
-pub(crate) mod fixed_q32_32;
+pub mod fixed_q32_32;
 mod mat4;
 mod prng;
 mod quat;

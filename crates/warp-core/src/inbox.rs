@@ -33,6 +33,19 @@ pub const DISPATCH_INBOX_RULE_NAME: &str = "sys/dispatch_inbox";
 pub const ACK_PENDING_RULE_NAME: &str = "sys/ack_pending";
 
 /// Constructs the `sys/dispatch_inbox` rewrite rule.
+///
+/// This rule drains all pending events from `sim/inbox` by deleting the
+/// `edge:pending` edges that link the inbox to event nodes. Event nodes
+/// themselves are preserved (ledger is append-only); only the pending
+/// markers are removed as queue maintenance.
+///
+/// # Matching
+/// The rule matches when the scope node has type `sim/inbox` and has at
+/// least one outgoing `edge:pending` edge.
+///
+/// # Effects
+/// - Deletes all `edge:pending` edges from the inbox node.
+/// - Does NOT delete the event nodes (ledger entries remain).
 #[must_use]
 pub fn dispatch_inbox_rule() -> RewriteRule {
     let id: Hash = make_type_id("rule:sys/dispatch_inbox").0;

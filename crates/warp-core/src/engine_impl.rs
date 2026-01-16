@@ -87,6 +87,9 @@ pub enum EngineError {
     /// Attempted to access a warp instance that does not exist.
     #[error("unknown warp instance: {0:?}")]
     UnknownWarp(WarpId),
+    /// Tick index is out of bounds (exceeds ledger length).
+    #[error("tick index {0} exceeds ledger length {1}")]
+    InvalidTickIndex(usize, usize),
 }
 
 /// Core rewrite engine used by the spike.
@@ -879,11 +882,12 @@ impl Engine {
     /// up to and including the specified tick index.
     ///
     /// # Errors
-    /// Returns [`EngineError::InternalCorruption`] if a patch fails to apply.
+    /// - Returns [`EngineError::InvalidTickIndex`] if `tick_index` exceeds ledger length.
+    /// - Returns [`EngineError::InternalCorruption`] if a patch fails to apply.
     pub fn jump_to_tick(&mut self, tick_index: usize) -> Result<(), EngineError> {
-        if tick_index >= self.tick_history.len() {
-            // Future: maybe just return error? For now, we'll just stay at current or cap it.
-            return Ok(());
+        let ledger_len = self.tick_history.len();
+        if tick_index >= ledger_len {
+            return Err(EngineError::InvalidTickIndex(tick_index, ledger_len));
         }
 
         // 1. Reset state to U0 (empty)

@@ -56,7 +56,7 @@ pub fn encode_value(val: &Value) -> Result<Vec<u8>> {
 /// Decode deterministic CBOR bytes into a `ciborium::value::Value`.
 pub fn decode_value(bytes: &[u8]) -> Result<Value> {
     let mut idx = 0usize;
-    let v = dec_value(bytes, &mut idx, true)?;
+    let v = dec_value(bytes, &mut idx)?;
     if idx != bytes.len() {
         return Err(CanonError::Trailing);
     }
@@ -211,7 +211,7 @@ fn write_major(major: u8, n: u128, out: &mut Vec<u8>) {
     }
 }
 
-fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
+fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
     fn need(bytes: &[u8], idx: usize, n: usize) -> Result<()> {
         if bytes.len().saturating_sub(idx) < n {
             Err(CanonError::Incomplete)
@@ -299,7 +299,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
             let len = read_len(bytes, idx, info)? as usize;
             let mut items = Vec::with_capacity(len);
             for _ in 0..len {
-                items.push(dec_value(bytes, idx, false)?);
+                items.push(dec_value(bytes, idx)?);
             }
             Ok(Value::Array(items))
         }
@@ -309,7 +309,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
             let mut last_key: Option<Vec<u8>> = None;
             for _ in 0..len {
                 let key_start = *idx;
-                let k = dec_value(bytes, idx, false)?;
+                let k = dec_value(bytes, idx)?;
                 let key_end = *idx;
                 let kb = &bytes[key_start..key_end];
                 if let Some(prev) = &last_key {
@@ -320,7 +320,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize, _top_level: bool) -> Result<Value> {
                     }
                 }
                 last_key = Some(kb.to_vec());
-                let v = dec_value(bytes, idx, false)?;
+                let v = dec_value(bytes, idx)?;
                 entries.push((k, v));
             }
             Ok(Value::Map(entries))

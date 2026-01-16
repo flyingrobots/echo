@@ -16,6 +16,7 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `spec-codex-baby.md` | Event bus, bridges, backpressure, security |
 | `spec-temporal-bridge.md` | Cross-branch event lifecycle |
 | `spec-serialization-protocol.md` | Canonical encoding and hashing |
+| `spec-canonical-inbox-sequencing.md` | Canonical inbox sequencing, idempotent ingress, and deterministic tie-breaks |
 | `spec-capabilities-and-security.md` | Capability tokens and signatures |
 | `spec-world-api.md` | Stable public façade for external modules |
 | `spec-entropy-and-paradox.md` | Entropy metrics and paradox handling |

@@ -41,7 +41,10 @@ pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     let version_bytes = read_exact_arr::<2, _>(r)?;
     let version = u16::from_le_bytes(version_bytes);
     if version != ELOG_VERSION {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unsupported ELOG version: {}", version)));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported ELOG version: {}", version),
+        ));
     }
 
     let flags_bytes = read_exact_arr::<2, _>(r)?;
@@ -71,9 +74,12 @@ pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     }
     let len = u32::from_le_bytes(len_bytes) as usize;
     if len > MAX_FRAME_LEN {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "frame too large",
+        ));
     }
-    
+
     let mut buf = vec![0u8; len];
     r.read_exact(&mut buf)?;
     Ok(Some(buf))
@@ -81,7 +87,10 @@ pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
 
 pub fn write_elog_frame<W: Write>(w: &mut W, frame: &[u8]) -> io::Result<()> {
     if frame.len() > MAX_FRAME_LEN {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "frame too large"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "frame too large",
+        ));
     }
     let len = frame.len() as u32;
     w.write_all(&len.to_le_bytes())?;
@@ -120,13 +129,13 @@ mod tests {
 
         assert!(read_elog_frame(&mut cursor).unwrap().is_none());
     }
-    
+
     #[test]
     fn test_elog_rejects_large_frame() {
         let mut buf = Vec::new();
         let huge_len = (MAX_FRAME_LEN + 1) as u32;
         buf.extend_from_slice(&huge_len.to_le_bytes());
-        
+
         let mut cursor = std::io::Cursor::new(buf);
         let res = read_elog_frame(&mut cursor);
         assert!(res.is_err());

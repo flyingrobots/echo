@@ -2,15 +2,14 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deterministic test kernel used by the DIND harness.
 
-use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 use echo_dry_tests::build_motion_demo_engine;
+use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 
 pub mod generated;
 pub mod rules;
 
 use rules::{
-    ball_physics_rule, drop_ball_rule, route_push_rule, set_theme_rule, toast_rule,
-    toggle_nav_rule,
+    ball_physics_rule, drop_ball_rule, route_push_rule, set_theme_rule, toast_rule, toggle_nav_rule,
 };
 
 #[cfg(feature = "dind_ops")]
@@ -48,7 +47,10 @@ impl EchoKernel {
     pub fn dispatch_intent(&mut self, intent_bytes: &[u8]) {
         // Canonical ingress: content-addressed, idempotent on `intent_id`.
         // Bytes are opaque to the core engine; validation is the caller's responsibility.
-        let _ = self.engine.ingest_intent(intent_bytes).expect("ingest intent");
+        let _ = self
+            .engine
+            .ingest_intent(intent_bytes)
+            .expect("ingest intent");
     }
 
     /// Run a deterministic step with a fixed budget.
@@ -77,7 +79,9 @@ impl EchoKernel {
 
         if dirty {
             // Commit must succeed in test kernel; failure indicates corruption.
-            self.engine.commit(tx).expect("commit failed - test kernel corruption");
+            self.engine
+                .commit(tx)
+                .expect("commit failed - test kernel corruption");
             true
         } else {
             self.engine.abort(tx);

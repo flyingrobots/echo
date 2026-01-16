@@ -3,12 +3,12 @@
 
 #![allow(missing_docs)]
 
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, AttachmentValue,
     ConflictPolicy, Engine, Footprint, GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph,
     RewriteRule, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId, WarpId,
 };
-use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 fn rule_id(name: &str) -> Hash {
     let mut hasher = blake3::Hasher::new();

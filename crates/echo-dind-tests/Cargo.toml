@@ -16,9 +16,9 @@ categories = ["development-tools"]
 path = "src/lib.rs"
 
 [dependencies]
-warp-core = { path = "../warp-core" }
-echo-dry-tests = { path = "../echo-dry-tests" }
-echo-wasm-abi = { path = "../echo-wasm-abi" }
+warp-core = { workspace = true }
+echo-dry-tests = { workspace = true }
+echo-wasm-abi = { workspace = true }
 bytes = "1.0"
 
 [features]

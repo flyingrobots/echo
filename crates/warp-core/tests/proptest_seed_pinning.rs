@@ -5,12 +5,12 @@
 use proptest::prelude::*;
 use proptest::test_runner::{Config as PropConfig, RngAlgorithm, TestRng, TestRunner};
 
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     decode_motion_atom_payload, decode_motion_payload, encode_motion_atom_payload,
     encode_motion_payload, make_node_id, make_type_id, ApplyResult, AttachmentValue, Engine,
     GraphStore, NodeRecord,
 };
-use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 // Demonstrates how to pin a deterministic seed for property tests so failures
 // are reproducible across machines and CI.

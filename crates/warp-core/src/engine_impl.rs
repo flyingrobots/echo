@@ -8,20 +8,20 @@ use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
-use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
 };
+use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
-use crate::telemetry::{NullTelemetrySink, TelemetrySink};
-use std::sync::Arc;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
+use crate::telemetry::{NullTelemetrySink, TelemetrySink};
 use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
+use std::sync::Arc;
 
 /// Result of calling [`Engine::apply`].
 #[derive(Debug)]
@@ -836,7 +836,7 @@ impl Engine {
             .expect("root warp store missing - engine construction bug")
     }
 
-    /// Legacy ingest helper: ingests an inbox event from an [`AtomPayload`].
+    /// Legacy ingest helper: ingests an inbox event from an `AtomPayload`.
     ///
     /// This method exists for older call sites that pre-wrap intent bytes in an
     /// atom payload and/or provide an arrival `seq`.

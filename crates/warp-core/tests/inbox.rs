@@ -103,7 +103,10 @@ fn ingest_inbox_event_is_idempotent_by_intent_bytes_not_seq() {
     // Ingress idempotency is keyed by intent_id, so the same intent_bytes must not create
     // additional events or pending edges even if callers vary the seq input.
     let pending_ty = make_type_id("edge:pending");
-    let inbox_pending_edges: Vec<_> = store.edges_from(&inbox_id).filter(|e| e.ty == pending_ty).collect();
+    let inbox_pending_edges: Vec<_> = store
+        .edges_from(&inbox_id)
+        .filter(|e| e.ty == pending_ty)
+        .collect();
     assert_eq!(inbox_pending_edges.len(), 1);
 
     let intent_id: Hash = {
@@ -122,8 +125,14 @@ fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
 
     let intent_a: &[u8] = b"intent-alpha";
     let intent_b: &[u8] = b"intent-beta";
-    let payload_a = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(intent_a));
-    let payload_b = AtomPayload::new(make_type_id("legacy/payload"), Bytes::copy_from_slice(intent_b));
+    let payload_a = AtomPayload::new(
+        make_type_id("legacy/payload"),
+        Bytes::copy_from_slice(intent_a),
+    );
+    let payload_b = AtomPayload::new(
+        make_type_id("legacy/payload"),
+        Bytes::copy_from_slice(intent_b),
+    );
 
     engine.ingest_inbox_event(1, &payload_a).unwrap();
     engine.ingest_inbox_event(2, &payload_b).unwrap();
@@ -132,7 +141,10 @@ fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
     let inbox_id = make_node_id("sim/inbox");
 
     let pending_ty = make_type_id("edge:pending");
-    let inbox_pending_edges: Vec<_> = store.edges_from(&inbox_id).filter(|e| e.ty == pending_ty).collect();
+    let inbox_pending_edges: Vec<_> = store
+        .edges_from(&inbox_id)
+        .filter(|e| e.ty == pending_ty)
+        .collect();
     assert_eq!(inbox_pending_edges.len(), 2);
 
     let intent_id_a: Hash = {

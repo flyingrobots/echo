@@ -48,15 +48,21 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
     if &bytes[0..4] != b"EINT" {
         return Err(EnvelopeError::InvalidMagic);
     }
-    
-    let op_id_bytes: [u8; 4] = bytes[4..8].try_into().map_err(|_| EnvelopeError::Malformed)?;
+
+    let op_id_bytes: [u8; 4] = bytes[4..8]
+        .try_into()
+        .map_err(|_| EnvelopeError::Malformed)?;
     let op_id = u32::from_le_bytes(op_id_bytes);
 
-    let vars_len_bytes: [u8; 4] = bytes[8..12].try_into().map_err(|_| EnvelopeError::Malformed)?;
+    let vars_len_bytes: [u8; 4] = bytes[8..12]
+        .try_into()
+        .map_err(|_| EnvelopeError::Malformed)?;
     let vars_len = u32::from_le_bytes(vars_len_bytes) as usize;
-    
+
     // Prevent integer overflow on 32-bit systems (though vars_len is u32, usize might be u32)
-    let required_len = 12usize.checked_add(vars_len).ok_or(EnvelopeError::TooShort)?;
+    let required_len = 12usize
+        .checked_add(vars_len)
+        .ok_or(EnvelopeError::TooShort)?;
 
     if bytes.len() < required_len {
         return Err(EnvelopeError::TooShort);
@@ -64,7 +70,7 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
     if bytes.len() > required_len {
         return Err(EnvelopeError::LengthMismatch);
     }
-    
+
     Ok((op_id, &bytes[12..]))
 }
 
@@ -245,7 +251,10 @@ mod tests {
         assert_eq!(unpack_intent_v1(b"EINT"), Err(EnvelopeError::TooShort));
 
         // Invalid magic
-        assert_eq!(unpack_intent_v1(b"XXXX\x00\x00\x00\x00\x00\x00\x00\x00"), Err(EnvelopeError::InvalidMagic));
+        assert_eq!(
+            unpack_intent_v1(b"XXXX\x00\x00\x00\x00\x00\x00\x00\x00"),
+            Err(EnvelopeError::InvalidMagic)
+        );
 
         // Payload shorter than declared length
         let mut short = Vec::new();

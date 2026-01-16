@@ -10,7 +10,7 @@
 //!
 //! `warp-core` enforces strict determinism for all protocol artifacts (snapshots, patches, receipts).
 //!
-//! - **Wire Format:** Canonical CBOR via [`echo_wasm_abi`].
+//! - **Wire Format:** Canonical CBOR via `echo_wasm_abi`.
 //!   - Maps must have sorted keys.
 //!   - Floats are forbidden or strictly canonicalized (see `math` module).
 //! - **JSON:** Forbidden for protocol/hashing. Allowed ONLY for debug/view layers (e.g. telemetry).
@@ -97,12 +97,12 @@ pub use record::{EdgeRecord, NodeRecord};
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
 pub use scheduler::SchedulerKind;
-pub use telemetry::{NullTelemetrySink, TelemetrySink};
 #[cfg(feature = "serde")]
 pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
 };
 pub use snapshot::Snapshot;
+pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpTickPatchV1,

@@ -17,12 +17,12 @@
 //! - `+∞`/`-∞` → saturated extrema (≈ ±2^31 when decoded as `f32`)
 
 use bytes::Bytes;
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload_v0, make_node_id, make_type_id,
     motion_payload_type_id, ApplyResult, AtomPayload, AttachmentValue, Engine, GraphStore,
     NodeRecord,
 };
-use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 fn run_motion_once_with_payload(payload: AtomPayload) -> (warp_core::TypeId, [f32; 3], [f32; 3]) {
     let ent = make_node_id("case");

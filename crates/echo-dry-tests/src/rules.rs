@@ -6,9 +6,7 @@
 //! and a builder for creating custom synthetic rules.
 
 use crate::hashes::make_rule_id;
-use warp_core::{
-    ConflictPolicy, Footprint, GraphStore, Hash, NodeId, PatternGraph, RewriteRule,
-};
+use warp_core::{ConflictPolicy, Footprint, GraphStore, Hash, NodeId, PatternGraph, RewriteRule};
 
 // --- Matcher Functions ---
 
@@ -81,7 +79,7 @@ impl NoOpRule {
     ///
     /// Note: The name must be a `&'static str` because `RewriteRule::name`
     /// requires a static lifetime.
-    pub fn new(name: &'static str) -> RewriteRule {
+    pub fn create(name: &'static str) -> RewriteRule {
         SyntheticRuleBuilder::new(name)
             .matcher(always_match)
             .executor(noop_exec)
@@ -91,7 +89,7 @@ impl NoOpRule {
 
     /// Create a no-op rule named "noop".
     pub fn default_rule() -> RewriteRule {
-        Self::new("noop")
+        Self::create("noop")
     }
 }
 
@@ -198,7 +196,7 @@ impl SyntheticRuleBuilder {
     /// Build the rule.
     pub fn build(self) -> RewriteRule {
         RewriteRule {
-            id: self.id.unwrap_or_else(|| make_rule_id(&self.name)),
+            id: self.id.unwrap_or_else(|| make_rule_id(self.name)),
             name: self.name,
             left: PatternGraph { nodes: vec![] },
             matcher: self.matcher,
@@ -217,7 +215,7 @@ mod tests {
 
     #[test]
     fn noop_rule_creation() {
-        let rule = NoOpRule::new("test-noop");
+        let rule = NoOpRule::create("test-noop");
         assert_eq!(rule.name, "test-noop");
     }
 
@@ -231,9 +229,7 @@ mod tests {
     #[test]
     fn synthetic_builder_custom_id() {
         let custom_id: Hash = [42u8; 32];
-        let rule = SyntheticRuleBuilder::new("custom")
-            .id(custom_id)
-            .build();
+        let rule = SyntheticRuleBuilder::new("custom").id(custom_id).build();
         assert_eq!(rule.id, custom_id);
     }
 

@@ -13,12 +13,12 @@
 //! TODO(PR-14/15): Persist JSON artifacts and add a regression gate.
 use blake3::Hasher;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use echo_dry_tests::build_motion_demo_engine;
 use std::time::Duration;
 use warp_core::{
     make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, Hash, NodeId,
     NodeRecord, PatternGraph, RewriteRule,
 };
-use echo_dry_tests::build_motion_demo_engine;
 
 // Bench constants to avoid magic strings.
 const BENCH_NOOP_RULE_NAME: &str = "bench/noop";

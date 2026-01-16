@@ -2,10 +2,10 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
+use echo_dry_tests::motion_rule;
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
 };
-use echo_dry_tests::motion_rule;
 mod common;
 use common::snapshot_hash_of;
 

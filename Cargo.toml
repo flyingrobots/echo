@@ -36,7 +36,10 @@ rust-version = "1.90.0"
 [workspace.dependencies]
 echo-app-core = { version = "0.1.0", path = "crates/echo-app-core" }
 echo-config-fs = { version = "0.1.0", path = "crates/echo-config-fs" }
+echo-dind-tests = { version = "0.1.0", path = "crates/echo-dind-tests" }
+echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }
 echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
+echo-registry-api = { version = "0.1.0", path = "crates/echo-registry-api" }
 echo-session-client = { version = "0.1.0", path = "crates/echo-session-client" }
 echo-session-proto = { version = "0.1.0", path = "crates/echo-session-proto" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }

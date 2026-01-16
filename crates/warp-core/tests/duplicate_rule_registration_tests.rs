@@ -2,11 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(missing_docs)]
 use blake3::Hasher;
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     make_node_id, make_type_id, ConflictPolicy, Engine, GraphStore, NodeRecord, PatternGraph,
     RewriteRule,
 };
-use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 fn noop_match(_: &GraphStore, _: &warp_core::NodeId) -> bool {
     true

@@ -2,10 +2,10 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
+use echo_dry_tests::{build_port_demo_engine, PORT_RULE_NAME};
 use warp_core::{
     decode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, NodeRecord,
 };
-use echo_dry_tests::{build_port_demo_engine, PORT_RULE_NAME};
 
 #[test]
 fn reserve_gate_aborts_second_on_port_conflict() {

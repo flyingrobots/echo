@@ -65,13 +65,7 @@ fn dispatch_inbox_drains_pending_edges_but_keeps_event_nodes() {
 
     // Pending edges drained (queue maintenance).
     let pending_ty = make_type_id("edge:pending");
-    assert!(
-        store
-            .edges_from(&inbox_id)
-            .filter(|e| e.ty == pending_ty)
-            .next()
-            .is_none()
-    );
+    assert!(!store.edges_from(&inbox_id).any(|e| e.ty == pending_ty));
 }
 
 #[test]
@@ -103,15 +97,12 @@ fn dispatch_inbox_handles_missing_event_attachments() {
     engine.commit(tx).expect("commit");
 
     let store = engine.store_clone();
-    assert!(store.node(&event_id).is_some(), "ledger nodes are append-only");
-    let pending_ty = make_type_id("edge:pending");
     assert!(
-        store
-            .edges_from(&inbox_id)
-            .filter(|e| e.ty == pending_ty)
-            .next()
-            .is_none()
+        store.node(&event_id).is_some(),
+        "ledger nodes are append-only"
     );
+    let pending_ty = make_type_id("edge:pending");
+    assert!(!store.edges_from(&inbox_id).any(|e| e.ty == pending_ty));
 }
 
 #[test]

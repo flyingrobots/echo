@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::attachment::AttachmentValue;
-use crate::ident::{EdgeId, NodeId, WarpId, Hash};
+use crate::ident::{EdgeId, Hash, NodeId, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
 
 /// In-memory graph storage for the spike.
@@ -423,14 +423,14 @@ impl GraphStore {
     pub fn canonical_state_hash(&self) -> Hash {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"DIND_STATE_HASH_V1\0");
-        
+
         // 1. Nodes
         hasher.update(&(self.nodes.len() as u32).to_le_bytes());
         for (node_id, record) in &self.nodes {
             hasher.update(b"N\0");
             hasher.update(&node_id.0);
             hasher.update(&record.ty.0);
-            
+
             if let Some(att) = self.node_attachments.get(node_id) {
                 hasher.update(b"\x01"); // Has attachment
                 Self::hash_attachment(&mut hasher, att);

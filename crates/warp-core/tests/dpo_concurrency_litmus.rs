@@ -7,11 +7,11 @@
 //! enqueue order must not change the terminal digests for commuting cases, and
 //! overlap must yield deterministic rejection for conflicting cases.
 
+use echo_dry_tests::{motion_rule, port_rule, MOTION_RULE_NAME, PORT_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, ApplyResult, AttachmentValue, Engine,
     EngineError, Footprint, GraphStore, NodeId, NodeRecord, PatternGraph, RewriteRule,
 };
-use echo_dry_tests::{motion_rule, port_rule, MOTION_RULE_NAME, PORT_RULE_NAME};
 
 const LITMUS_PORT_READ_0: &str = "litmus/port_read_0";
 const LITMUS_PORT_READ_1: &str = "litmus/port_read_1";

@@ -2,12 +2,12 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(missing_docs)]
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use echo_dry_tests::{build_motion_demo_engine, MOTION_RULE_NAME};
 use std::{hint::black_box, time::Duration};
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
     ApplyResult, AttachmentValue, Engine, NodeId, NodeRecord,
 };
-use echo_dry_tests::{build_motion_demo_engine, MOTION_RULE_NAME};
 
 fn extract_motion_payload(engine: &Engine, id: &NodeId) -> ([f32; 3], [f32; 3]) {
     let payload = engine

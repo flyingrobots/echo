@@ -9,6 +9,9 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Shared test doubles and fixtures for Echo crates"
+readme = "README.md"
+keywords = ["echo", "testing", "fixtures"]
+categories = ["development-tools::testing"]
 
 [dependencies]
 # Core crates for test doubles

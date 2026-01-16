@@ -8,8 +8,7 @@ use echo_dind_harness::dind::run_scenario;
 #[test]
 fn permutation_invariance_050_seeds_produce_identical_full_hash_chains() -> Result<()> {
     // Anchor testdata path to CARGO_MANIFEST_DIR (crate root at compile time).
-    let base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../testdata/dind");
+    let base_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/dind");
 
     let scenarios = [
         "050_randomized_order_small_seed0001.eintlog",

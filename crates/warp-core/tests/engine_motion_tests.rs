@@ -2,11 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     decode_motion_atom_payload, encode_motion_atom_payload, make_node_id, make_type_id,
     ApplyResult, AttachmentValue, Engine, EngineError, GraphStore, NodeRecord,
 };
-use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 
 #[test]
 fn motion_rule_updates_position_deterministically() {

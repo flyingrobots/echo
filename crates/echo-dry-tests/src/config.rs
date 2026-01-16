@@ -68,12 +68,18 @@ impl InMemoryConfigStore {
 
     /// Get the number of times `load_raw` was called.
     pub fn load_count(&self) -> usize {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).load_count
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .load_count
     }
 
     /// Get the number of times `save_raw` was called.
     pub fn save_count(&self) -> usize {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).save_count
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .save_count
     }
 
     /// Get all keys that have been saved.
@@ -116,11 +122,7 @@ impl ConfigStore for InMemoryConfigStore {
             return Err(ConfigError::Other("simulated load failure".into()));
         }
 
-        inner
-            .data
-            .get(key)
-            .cloned()
-            .ok_or(ConfigError::NotFound)
+        inner.data.get(key).cloned().ok_or(ConfigError::NotFound)
     }
 
     fn save_raw(&self, key: &str, data: &[u8]) -> Result<(), ConfigError> {

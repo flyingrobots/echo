@@ -631,7 +631,10 @@ enum SchedulerImpl {
 
 impl Default for DeterministicScheduler {
     fn default() -> Self {
-        Self::new(SchedulerKind::Radix, Arc::new(crate::telemetry::NullTelemetrySink))
+        Self::new(
+            SchedulerKind::Radix,
+            Arc::new(crate::telemetry::NullTelemetrySink),
+        )
     }
 }
 

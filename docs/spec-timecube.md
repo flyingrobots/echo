@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # TimeCube: Chronos × Kairos × Aion
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 Purpose
 - Make the three axes of “time” first‑class so simulation, branching, and agency remain deterministic and replayable.

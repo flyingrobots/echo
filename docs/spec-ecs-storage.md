@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Echo ECS Storage Blueprint (Phase 0)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 This document specifies the data layout and algorithms for Echo’s entity/component storage. It complements the high-level architecture outline and will guide the first implementation pass in `@echo/core`.
 

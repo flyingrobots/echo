@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Capabilities & Security Specification (Phase 0.5)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 Defines capability tokens, signer policies, and deterministic security faults for Echo subsystems.
 

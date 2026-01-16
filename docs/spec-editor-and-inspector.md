@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Inspector & Editor Protocol Specification (Phase 0.75)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 Unifies Echo’s inspector data streams, transport contracts, and extension hooks for tooling.
 

@@ -2,6 +2,8 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Plugin System Specification (Phase 0.75)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 Defines how plugins extend Echo while preserving determinism and security.
 

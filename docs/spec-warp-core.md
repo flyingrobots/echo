@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # `warp-core` — WARP Core Runtime & API Tour
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 This document is a **tour of the `warp-core` crate**: the core data model,
 deterministic boundary artifacts, and the runtime APIs that higher layers (`warp-ffi`,

@@ -99,3 +99,99 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 - Confluence (global sync): [/spec-warp-confluence](/spec-warp-confluence)
 - Scheduler spec: [/spec-scheduler](/spec-scheduler)
 - Scheduler benchmarks: [/scheduler-benchmarks](/scheduler-benchmarks)
+
+## Orphaned Docs (Linked)
+
+These docs had zero or one inbound references from other docs. They are linked here to keep the map complete.
+
+| Document | Purpose |
+| --- | --- |
+| [`BENCHMARK_GUIDE.md`](/BENCHMARK_GUIDE) | How to Add Benchmarks to Echo |
+| [`ISSUES_MATRIX.md`](/ISSUES_MATRIX) | Echo Issues Matrix (Active Plan) |
+| [`METHODOLOGY.md`](/METHODOLOGY) | JITOS Engineering Standard: The Living Specification |
+| [`ROADMAP.md`](/ROADMAP) | Echo Roadmap (Milestones + Issue Map) |
+| [`THEORY.md`](/THEORY) | Echo: Theoretical Foundations |
+| [`adr/ADR-0001-warp-two-plane-skeleton-and-attachments.md`](/adr/ADR-0001-warp-two-plane-skeleton-and-attachments) | ADR-0001: Two-plane WARP representation in Echo (SkeletonGraph + Attachment Plane) |
+| [`adr/ADR-0002-warp-instances-descended-attachments.md`](/adr/ADR-0002-warp-instances-descended-attachments) | ADR-0002: WarpInstances + Descended Attachments via Flattened Indirection |
+| [`adr/ADR-0003-Materialization-Bus.md`](/adr/ADR-0003-Materialization-Bus) | ADR-000X: Causality-First API — Ingress + MaterializationPort, No Direct Graph Writes |
+| [`adr/ADR-0004-No-Global-State.md`](/adr/ADR-0004-No-Global-State) | ADR-000Y: No Global State in Echo — Dependency Injection Only |
+| [`adr/ADR-0005-Physics.md`](/adr/ADR-0005-Physics) | ADR-0005: Physics as Deterministic Scheduled Rewrites (Footprints + Phases) |
+| [`adr/ADR-0006-Ban-Non-Determinism.md`](/adr/ADR-0006-Ban-Non-Determinism) | T2000 on 'em |
+| [`aion-papers-bridge.md`](/aion-papers-bridge) | AIΩN Foundations → Echo: Bridge |
+| [`architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md`](/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES) | Terms: WARP State, SkeletonGraph, Instances, Portals, Wormholes |
+| [`benchmarks/RESERVE_BENCHMARK.md`](/benchmarks/RESERVE_BENCHMARK) | Reserve Independence Benchmark |
+| [`branch-merge-playbook.md`](/branch-merge-playbook) | Branch Merge Conflict Playbook |
+| [`capability-ownership-matrix.md`](/capability-ownership-matrix) | Capability Ownership Matrix |
+| [`code-map.md`](/code-map) | Echo Code Map |
+| [`dependency-dags.md`](/dependency-dags) | Dependency DAGs (Issues + Milestones) |
+| [`determinism-invariants.md`](/determinism-invariants) | Determinism Invariants |
+| [`diagrams.md`](/diagrams) | Echo Diagram Vault |
+| [`dind-harness.md`](/dind-harness) | DIND Harness (Deterministic Ironclad Nightmare Drills) |
+| [`docs-audit.md`](/docs-audit) | Docs Audit — Purge / Merge / Splurge |
+| [`golden-vectors.md`](/golden-vectors) | ABI Golden Vectors (v1) |
+| [`guide/course/00-orientation.md`](/guide/course/00-orientation) | 00 — Orientation: Shared Truth, Not Vibes |
+| [`guide/course/01-lockstep.md`](/guide/course/01-lockstep) | 01 — Lockstep, Explained (Inputs‑Only Networking) |
+| [`guide/course/README.md`](/guide/course/README) | Course Notes (Authoring) |
+| [`guide/course/glossary.md`](/guide/course/glossary) | Course Glossary (Progressive Vocabulary) |
+| [`guide/course/index.md`](/guide/course/index) | Echo Course: Networking‑First (Build “Splash Guy”) |
+| [`guide/tumble-tower.md`](/guide/tumble-tower) | Demo 3 Scenario: “Tumble Tower” (Deterministic Physics) |
+| [`hash-graph.md`](/hash-graph) | Hash Graph Overview |
+| [`index.md`](/index) | Echo |
+| [`jitos/spec-0000.md`](/jitos/spec-0000) | SPEC-000: Everything Is a Rewrite |
+| [`js-cbor-mapping.md`](/js-cbor-mapping) | JS → Canonical CBOR Mapping Rules (ABI v1) |
+| [`legacy-excavation.md`](/legacy-excavation) | Legacy Excavation Log (Placeholder) |
+| [`notes/aion-papers-bridge.md`](/notes/aion-papers-bridge) | Moved: AIΩN Foundations → Echo Bridge |
+| [`notes/f32scalar-deterministic-trig-implementation-guide.md`](/notes/f32scalar-deterministic-trig-implementation-guide) | Implementation Guide — Deterministic `sin/cos` for `F32Scalar` (LUT-backed) |
+| [`notes/project-tour-2025-12-28.md`](/notes/project-tour-2025-12-28) | Echo Project Tour (2025-12-28) |
+| [`notes/scheduler-optimization-followups.md`](/notes/scheduler-optimization-followups) | Scheduler Optimization Follow-up Tasks |
+| [`notes/scheduler-radix-optimization-2.md`](/notes/scheduler-radix-optimization-2) | From $O(n \\log n)$ to $O(n)$: Optimizing Echo’s Deterministic Scheduler |
+| [`notes/scheduler-radix-optimization.md`](/notes/scheduler-radix-optimization) | From $O(n log n)$ to $O(n)$: Optimizing Echo's Deterministic Scheduler |
+| [`notes/xtask-wizard.md`](/notes/xtask-wizard) | xtask "workday wizard" — concept note |
+| [`phase1-plan.md`](/phase1-plan) | Phase 1 – Core Ignition Plan |
+| [`procedures/EXTRACT-PR-COMMENTS.md`](/procedures/EXTRACT-PR-COMMENTS) | Procedure: Extract Actionable Comments from PR Review Threads (CodeRabbitAI + Humans) |
+| [`procedures/ISSUE-DEPENDENCIES.md`](/procedures/ISSUE-DEPENDENCIES) | Procedure: GitHub Issue Dependencies (“blocked by” / “blocking”) |
+| [`procedures/PR-SUBMISSION-REVIEW-LOOP.md`](/procedures/PR-SUBMISSION-REVIEW-LOOP) | Procedure: PR Submission + CodeRabbitAI Review Loop |
+| [`public/assets/collision/README.md`](public/assets/collision/README.md) | Collision/CCD DPO Diagrams |
+| [`release-criteria.md`](/release-criteria) | Release Criteria — Phase 0.5 → Phase 1 |
+| [`roadmap-mwmr-mini-epic.md`](/roadmap-mwmr-mini-epic) | MWMR Concurrency Mini‑Epic Roadmap (Footprints, Reserve Gate, Telemetry) |
+| [`runtime-diagnostics-plan.md`](/runtime-diagnostics-plan) | Runtime Diagnostics Plan (Phase 0.5) |
+| [`rust-rhai-ts-division.md`](/rust-rhai-ts-division) | Language & Responsibility Map (Phase 1) |
+| [`scheduler-benchmarks.md`](/scheduler-benchmarks) | Scheduler Benchmark Plan (Phase 0) |
+| [`scheduler-performance-warp-core.md`](/scheduler-performance-warp-core) | Scheduler Performance (warp-core) |
+| [`scheduler-reserve-complexity.md`](/scheduler-reserve-complexity) | Scheduler `reserve()` Time Complexity Analysis |
+| [`scheduler-reserve-validation.md`](/scheduler-reserve-validation) | Scheduler `reserve()` Implementation Validation |
+| [`scheduler-warp-core.md`](/scheduler-warp-core) | WARP Rewrite Scheduler (warp-core) |
+| [`scheduler.md`](/scheduler) | Scheduling in Echo (Doc Map) |
+| [`spec-branch-tree.md`](/spec-branch-tree) | Branch Tree Persistence Specification (Phase 0) |
+| [`spec-canonical-inbox-sequencing.md`](/spec-canonical-inbox-sequencing) | Spec: Canonical Inbox Sequencing + Deterministic Scheduler Tie-Break |
+| [`spec-capabilities-and-security.md`](/spec-capabilities-and-security) | Capabilities & Security Specification (Phase 0.5) |
+| [`spec-concurrency-and-authoring.md`](/spec-concurrency-and-authoring) | Concurrency & Authoring Specification (Phase 0.75) |
+| [`spec-deterministic-math.md`](/spec-deterministic-math) | Deterministic Math Module Specification (Phase 0) |
+| [`spec-ecs-storage.md`](/spec-ecs-storage) | Echo ECS Storage Blueprint (Phase 0) |
+| [`spec-editor-and-inspector.md`](/spec-editor-and-inspector) | Inspector & Editor Protocol Specification (Phase 0.75) |
+| [`spec-entropy-and-paradox.md`](/spec-entropy-and-paradox) | Entropy & Paradox Specification (Phase 0.75) |
+| [`spec-geom-collision.md`](/spec-geom-collision) | Geometry & Collision (Spec Stub) |
+| [`spec-knots-in-time.md`](/spec-knots-in-time) | Knots In (and Over) Graphs — Time Knots for Echo |
+| [`spec-merkle-commit.md`](/spec-merkle-commit) | Snapshot Commit Spec (v2) |
+| [`spec-mwmr-concurrency.md`](/spec-mwmr-concurrency) | WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks) |
+| [`spec-networking.md`](/spec-networking) | Networking Specification (Phase 0.75) |
+| [`spec-plugin-system.md`](/spec-plugin-system) | Plugin System Specification (Phase 0.75) |
+| [`spec-runtime-config.md`](/spec-runtime-config) | Runtime Configuration Specification (Phase 0.75) |
+| [`spec-temporal-bridge.md`](/spec-temporal-bridge) | Temporal Bridge Specification (Phase 0.5) |
+| [`spec-time-streams-and-wormholes.md`](/spec-time-streams-and-wormholes) | TimeStreams, Cursors, and Wormholes (Multi-Clock Time for Echo) |
+| [`spec-timecube.md`](/spec-timecube) | TimeCube: Chronos × Kairos × Aion |
+| [`spec-warp-confluence.md`](/spec-warp-confluence) | WARP Confluence Specification (Phase 0.75) |
+| [`spec-warp-tick-patch.md`](/spec-warp-tick-patch) | WARP Tick Patch Spec (v2) |
+| [`spec-warp-view-protocol.md`](/spec-warp-view-protocol) | WARP View Protocol (WVP) |
+| [`spec-world-api.md`](/spec-world-api) | World API Specification (Phase 0.5) |
+| [`spec/SPEC-0001-attachment-plane-v0-atoms.md`](/spec/SPEC-0001-attachment-plane-v0-atoms) | SPEC-0001: Attachment Plane v0 — Typed Atoms (Depth-0) |
+| [`spec/SPEC-0002-descended-attachments-v1.md`](/spec/SPEC-0002-descended-attachments-v1) | SPEC-0002: Descended Attachments v1 — WarpInstances + Flattened Indirection |
+| [`spec/SPEC-0003-dpo-concurrency-litmus-v0.md`](/spec/SPEC-0003-dpo-concurrency-litmus-v0) | SPEC-0003: DPO Concurrency Litmus (v0) |
+| [`tasks.md`](/tasks) | WARP View Protocol Tasks |
+| [`tasks/issue-canonical-f32.md`](/tasks/issue-canonical-f32) | Title: feat(warp-core): Implement strict determinism for F32Scalar (NaNs, Subnormals) |
+| [`telemetry-graph-replay.md`](/telemetry-graph-replay) | Telemetry: Graph Snapshot for Repro/Replay (Design Note) |
+| [`testing-and-replay-plan.md`](/testing-and-replay-plan) | Testing & Replay Plan (Phase 0.5) |
+| [`two-lane-abi.md`](/two-lane-abi) | Two-Lane ABI Design (Control Plane vs. Data Plane) |
+| [`warp-demo-roadmap.md`](/warp-demo-roadmap) | WARP Demo Roadmap (Phase 1 Targets) |
+| [`warp-runtime-architecture.md`](/warp-runtime-architecture) | WARP Runtime Architecture (Phase 1 Blueprint) |
+| [`workflows.md`](/workflows) | Workflows (Contributor Playbook) |

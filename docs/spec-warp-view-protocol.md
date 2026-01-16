@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # WARP View Protocol (WVP)
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+
 
 A narrow, deterministic pub/sub protocol for sharing **WARP streams** (snapshots + diffs over a renderable graph) between tools via the session service.
 

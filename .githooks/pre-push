@@ -63,13 +63,15 @@ if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
   --glob 'crates/**/src/**/*.rs' \
   --glob '!**/telemetry.rs' \
   --glob '!**/tests/**' \
-  --glob '!**/build.rs' >/dev/null; then
-  echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs)." >&2
+  --glob '!**/build.rs' \
+  --glob '!**/*.generated.rs' >/dev/null; then
+  echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs and *.generated.rs)." >&2
   rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' crates \
     --glob 'crates/**/src/**/*.rs' \
     --glob '!**/telemetry.rs' \
     --glob '!**/tests/**' \
-    --glob '!**/build.rs' | cat >&2 || true
+    --glob '!**/build.rs' \
+    --glob '!**/*.generated.rs' | cat >&2 || true
   exit 1
 fi
 if rg -n "\\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then

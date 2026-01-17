@@ -11,7 +11,7 @@
     missing_docs
 )]
 
-use crate::generated::type_ids::TYPEID_PAYLOAD_MOTION_V2;
+use crate::type_ids::TYPEID_PAYLOAD_MOTION_V2;
 use warp_core::AtomView;
 use warp_core::TypeId;
 

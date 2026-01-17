@@ -5,10 +5,14 @@
 use echo_dry_tests::build_motion_demo_engine;
 use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 
-/// Auto-generated codec and type definitions.
-pub mod generated;
+/// Auto-generated codec definitions.
+#[path = "codecs.generated.rs"]
+pub mod codecs;
 /// DIND test rules and state management.
 pub mod rules;
+/// Auto-generated type ID constants.
+#[path = "type_ids.generated.rs"]
+pub mod type_ids;
 
 use rules::{
     ball_physics_rule, drop_ball_rule, route_push_rule, set_theme_rule, toast_rule, toggle_nav_rule,

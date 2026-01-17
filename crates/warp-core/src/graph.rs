@@ -414,18 +414,23 @@ impl GraphStore {
     /// Computes a canonical hash of the entire graph state.
     ///
     /// This traversal is strictly deterministic:
-    /// 1. Header: `b"DIND_STATE_HASH_V1\0"`
-    /// 2. Node Count (u32 LE)
-    /// 3. Nodes (sorted by NodeId): `b"N\0"` + `NodeId` + `TypeId` + Attachment(if any)
-    /// 4. Edge Count (u32 LE)
-    /// 5. Edges (sorted by EdgeId): `b"E\0"` + `EdgeId` + From + To + Type + Attachment(if any)
-    #[allow(clippy::cast_possible_truncation)]
+    /// 1. Header: `b"DIND_STATE_HASH_V2\0"`
+    /// 2. Node Count (u64 LE)
+    /// 3. Nodes (sorted by `NodeId`): `b"N\0"` + `NodeId` + `TypeId` + Attachment(if any)
+    /// 4. Edge Count (u64 LE)
+    /// 5. Edges (sorted by `EdgeId`): `b"E\0"` + `EdgeId` + From + To + Type + Attachment(if any)
+    ///
+    /// # V2 Changes
+    ///
+    /// V2 uses `u64` for all counts and lengths (node count, edge count, blob length)
+    /// to align with the WSC format and avoid truncation issues with large graphs.
+    #[must_use]
     pub fn canonical_state_hash(&self) -> Hash {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"DIND_STATE_HASH_V1\0");
+        hasher.update(b"DIND_STATE_HASH_V2\0");
 
-        // 1. Nodes
-        hasher.update(&(self.nodes.len() as u32).to_le_bytes());
+        // 1. Nodes (u64 count)
+        hasher.update(&(self.nodes.len() as u64).to_le_bytes());
         for (node_id, record) in &self.nodes {
             hasher.update(b"N\0");
             hasher.update(&node_id.0);
@@ -439,12 +444,12 @@ impl GraphStore {
             }
         }
 
-        // 2. Edges (Global sort by EdgeId)
+        // 2. Edges (Global sort by EdgeId, u64 count)
         // We collect all edges first to sort them definitively.
         let mut all_edges: Vec<&EdgeRecord> = self.edges_from.values().flatten().collect();
         all_edges.sort_by_key(|e| e.id);
 
-        hasher.update(&(all_edges.len() as u32).to_le_bytes());
+        hasher.update(&(all_edges.len() as u64).to_le_bytes());
         for edge in all_edges {
             hasher.update(b"E\0");
             hasher.update(&edge.id.0);
@@ -463,13 +468,13 @@ impl GraphStore {
         *hasher.finalize().as_bytes()
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn hash_attachment(hasher: &mut blake3::Hasher, val: &AttachmentValue) {
         match val {
             AttachmentValue::Atom(atom) => {
                 hasher.update(b"ATOM"); // Tag
                 hasher.update(&atom.type_id.0);
-                hasher.update(&(atom.bytes.len() as u32).to_le_bytes());
+                // V2: u64 blob length
+                hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
                 hasher.update(&atom.bytes);
             }
             AttachmentValue::Descend(warp_id) => {

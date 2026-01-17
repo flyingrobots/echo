@@ -6,7 +6,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use echo_dind_tests::generated::codecs::SCHEMA_HASH;
+use echo_dind_tests::codecs::SCHEMA_HASH;
 use echo_dind_tests::EchoKernel;
 use echo_wasm_abi::{read_elog_frame, read_elog_header, ElogHeader};
 use std::collections::{BTreeSet, VecDeque};

@@ -46,6 +46,8 @@
 
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
 pub mod math;
+/// WSC (Write-Streaming Columnar) snapshot format for deterministic serialization.
+pub mod wsc;
 
 mod attachment;
 mod cmd;

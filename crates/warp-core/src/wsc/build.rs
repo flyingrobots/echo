@@ -89,6 +89,11 @@ pub fn build_one_warp_input(store: &GraphStore, root_node_id: NodeId) -> OneWarp
         bucket.sort_by_key(|e| e.id);
 
         for e in bucket {
+            debug_assert!(
+                edge_ix.contains_key(&e.id),
+                "edge must exist in edge_ix: {:?}",
+                e.id
+            );
             if let Some(&ix) = edge_ix.get(&e.id) {
                 out_edges.push(OutEdgeRef {
                     edge_ix_le: ix.to_le(),

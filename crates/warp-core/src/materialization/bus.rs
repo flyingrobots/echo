@@ -31,7 +31,7 @@ use super::emit_key::EmitKey;
 ///
 /// This is a structural invariant: even if the payloads are identical, duplicate
 /// emissions indicate a bug in the rule (e.g., iterating a non-deterministic source
-/// like `HashMap` without proper subkey differentiation).
+/// like an unordered container without proper subkey differentiation).
 ///
 /// # Why Reject Identical Payloads?
 ///
@@ -96,6 +96,7 @@ pub struct FinalizedChannel {
 /// `channels` and `errors` partition the set of channels that had emissions.
 /// A channel appears in exactly one of the two lists.
 #[derive(Debug, Default, Clone)]
+#[must_use = "materialization errors must be checked"]
 pub struct FinalizeReport {
     /// Successfully finalized channels.
     pub channels: Vec<FinalizedChannel>,
@@ -116,6 +117,40 @@ impl FinalizeReport {
     #[must_use]
     pub fn has_errors(&self) -> bool {
         !self.errors.is_empty()
+    }
+
+    /// Panics if any channel failed to finalize.
+    ///
+    /// Use this in tests or contexts where materialization errors are fatal
+    /// and should never be silently ignored.
+    ///
+    /// # Panics
+    ///
+    /// Panics with a message listing which channels had conflicts and how many
+    /// errors occurred.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let report = bus.finalize();
+    /// report.assert_clean(); // Panics if any errors
+    /// ```
+    #[inline]
+    #[allow(clippy::panic)] // Intentional: this is a test/CI helper
+    pub fn assert_clean(&self) -> &Self {
+        if self.has_errors() {
+            let details: Vec<String> = self
+                .errors
+                .iter()
+                .map(|c| format!("channel {:?}: {:?}", c.channel, c.kind))
+                .collect();
+            panic!(
+                "materialization errors must be checked: {} error(s) - [{}]",
+                self.errors.len(),
+                details.join(", ")
+            );
+        }
+        self
     }
 }
 
@@ -144,7 +179,7 @@ impl MaterializationBus {
     /// Returns [`DuplicateEmission`] if this `(channel, emit_key)` pair has
     /// already been emitted during this tick. This is always an error, even
     /// if the payload bytes are identical—it indicates a bug in the rule
-    /// (e.g., iterating a `HashMap` without proper subkey differentiation).
+    /// (e.g., iterating an unordered container without proper subkey differentiation).
     #[inline]
     pub fn emit(
         &self,
@@ -197,6 +232,7 @@ impl MaterializationBus {
     ///   channels' outputs
     /// - Errors are always observable in the returned report
     /// - Callers don't need `expect()` or `unwrap()`
+    #[must_use = "materialization errors must be checked"]
     pub fn finalize(&self) -> FinalizeReport {
         let mut pending = self.pending.borrow_mut();
         let mut report = FinalizeReport::default();

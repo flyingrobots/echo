@@ -303,13 +303,18 @@ fn run_dind_record(tags: Option<String>, exclude_tags: Option<String>) -> Result
             .context("failed to spawn cargo")?;
 
         if !status.success() {
-            eprintln!("!!! FAILED: {}", scenario.path);
+            eprintln!("\n!!! FAILED: {}", scenario.path);
+            eprintln!("\nDIND FAILED. Repro command:");
+            eprintln!(
+                "  cargo run -p echo-dind-harness -- record {} --out {}\n",
+                scenario_path, golden_path
+            );
             failed += 1;
         }
     }
 
     if failed > 0 {
-        bail!("DIND RECORD: {} scenarios failed", failed);
+        bail!("DIND RECORD: {} scenario(s) failed", failed);
     }
 
     println!(
@@ -378,7 +383,17 @@ fn run_dind_converge(tags: Option<String>, exclude_tags: Option<String>) -> Resu
             .context("failed to spawn cargo")?;
 
         if !status.success() {
-            eprintln!("!!! CONVERGE FAILED for scope: {}", scope);
+            eprintln!("\n!!! CONVERGE FAILED for scope: {}", scope);
+            // Build the repro command with all scenario paths
+            let repro_paths: Vec<String> = group
+                .iter()
+                .map(|s| format!("testdata/dind/{}", s.path))
+                .collect();
+            eprintln!("\nDIND FAILED. Repro command:");
+            eprintln!(
+                "  cargo run -p echo-dind-harness -- converge {}\n",
+                repro_paths.join(" ")
+            );
             failed += 1;
         } else {
             println!("    CONVERGE OK: {}", scope);
@@ -386,7 +401,7 @@ fn run_dind_converge(tags: Option<String>, exclude_tags: Option<String>) -> Resu
     }
 
     if failed > 0 {
-        bail!("DIND CONVERGE: {} groups failed", failed);
+        bail!("DIND CONVERGE: {} group(s) failed", failed);
     }
 
     println!("\nDIND CONVERGE: All groups verified.");

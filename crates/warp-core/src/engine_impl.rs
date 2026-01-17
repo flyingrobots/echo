@@ -1204,6 +1204,13 @@ impl Engine {
 
     /// Returns materialization errors from the last commit.
     ///
+    /// # WARNING: Callers MUST check this after every commit!
+    ///
+    /// **Ignoring errors can lead to silent data loss.** When materialization
+    /// channels fail (e.g., `StrictSingle` conflicts), the intended output is
+    /// discarded. If you don't check for errors, your application may appear
+    /// to work while silently dropping critical data.
+    ///
     /// A non-empty list indicates boundary errors: the tick committed successfully
     /// (graph state updated, receipt generated), but one or more materialization
     /// channels failed to finalize. Common causes:
@@ -1218,6 +1225,23 @@ impl Engine {
     }
 
     /// Returns `true` if the last commit had materialization boundary errors.
+    ///
+    /// # WARNING: Callers MUST check this after every commit!
+    ///
+    /// **Ignoring errors can lead to silent data loss.** When this returns `true`,
+    /// one or more materialization channels failed to produce output. The graph
+    /// state committed successfully, but the boundary output is incomplete.
+    ///
+    /// Typical usage:
+    /// ```ignore
+    /// engine.commit_with_receipt(tx)?;
+    /// if engine.has_materialization_errors() {
+    ///     // Handle or log errors - do NOT ignore!
+    ///     for err in engine.last_materialization_errors() {
+    ///         eprintln!("Materialization failed: {:?}", err);
+    ///     }
+    /// }
+    /// ```
     ///
     /// This is a convenience method equivalent to `!last_materialization_errors().is_empty()`.
     #[must_use]

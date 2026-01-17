@@ -99,7 +99,11 @@ function main() {
             execSync(cmd, { stdio: "inherit" });
             passed = true;
         } catch (e) {
-            console.error(`!!! FAILED: ${scenario.desc}`);
+            console.error(`\n!!! FAILED: ${scenario.desc}`);
+            // Print repro command for easy copy/paste debugging
+            const reproCmd = `cargo run -p echo-dind-harness -- run testdata/dind/${scenario.path}`;
+            console.error(`\nDIND FAILED. Repro command:`);
+            console.error(`  ${reproCmd}\n`);
             failedCount++;
         }
         const duration = performance.now() - start;

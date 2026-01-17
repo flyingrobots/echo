@@ -195,12 +195,20 @@ jobs:
               }
 
               // Compare hashes array length
+              let firstDivergenceStep = null;
               if (baselineData.hashes_hex.length !== otherData.hashes_hex.length) {
                 errors.push(`hashes_hex.length: ${baselineData.hashes_hex.length} vs ${otherData.hashes_hex.length}`);
               } else {
-                // Compare each hash
+                // Compare each hash - find first divergence
                 for (let j = 0; j < baselineData.hashes_hex.length; j++) {
                   if (baselineData.hashes_hex[j] !== otherData.hashes_hex[j]) {
+                    if (firstDivergenceStep === null) {
+                      firstDivergenceStep = {
+                        step: j,
+                        baseline: baselineData.hashes_hex[j],
+                        other: otherData.hashes_hex[j]
+                      };
+                    }
                     errors.push(`hashes_hex[${j}]: ${baselineData.hashes_hex[j]} vs ${otherData.hashes_hex[j]}`);
                     // Only report first few divergences per comparison
                     if (errors.length > 5) {
@@ -217,9 +225,15 @@ jobs:
                   scenario,
                   baseline: platformNames[0],
                   other: platformNames[i],
-                  errors
+                  errors,
+                  firstDivergenceStep
                 });
                 console.log(`  DIVERGENCE: ${platformNames[0]} vs ${platformNames[i]}`);
+                if (firstDivergenceStep !== null) {
+                  console.log(`  >>> FIRST DIVERGENCE AT STEP ${firstDivergenceStep.step}`);
+                  console.log(`      ${platformNames[0]}: ${firstDivergenceStep.baseline}`);
+                  console.log(`      ${platformNames[i]}: ${firstDivergenceStep.other}`);
+                }
                 errors.forEach(e => console.log(`    - ${e}`));
               } else {
                 console.log(`  OK: ${platformNames[0]} == ${platformNames[i]}`);
@@ -243,7 +257,12 @@ jobs:
               console.error(`Scenario: ${f.scenario}`);
               console.error(`  Baseline: ${f.baseline}`);
               console.error(`  Divergent: ${f.other}`);
-              console.error(`  Errors:`);
+              if (f.firstDivergenceStep !== null) {
+                console.error(`  >>> FIRST DIVERGENCE AT STEP ${f.firstDivergenceStep.step}`);
+                console.error(`      ${f.baseline}: ${f.firstDivergenceStep.baseline}`);
+                console.error(`      ${f.other}: ${f.firstDivergenceStep.other}`);
+              }
+              console.error(`  All errors:`);
               f.errors.forEach(e => console.error(`    - ${e}`));
               console.error('');
             }

@@ -305,4 +305,109 @@ mod tests {
             "expected IndexRangeOutOfBounds for out_index, got: {err:?}"
         );
     }
+
+    #[test]
+    fn validate_rejects_unordered_nodes() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![
+                NodeRow {
+                    node_id: [2u8; 32],
+                    node_type: [0u8; 32],
+                },
+                NodeRow {
+                    node_id: [1u8; 32],
+                    node_type: [0u8; 32],
+                }, // Out of order!
+            ],
+            edges: vec![],
+            out_index: vec![Range::default(), Range::default()],
+            out_edges: vec![],
+            node_atts_index: vec![Range::default(), Range::default()],
+            node_atts: vec![],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(err, ReadError::OrderingViolation { kind: "node", .. }),
+            "expected OrderingViolation for node, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_invalid_attachment_tag() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32],
+                node_type: [0u8; 32],
+            }],
+            edges: vec![],
+            out_index: vec![Range::default()],
+            out_edges: vec![],
+            node_atts_index: vec![Range {
+                start_le: 0u64.to_le(),
+                len_le: 1u64.to_le(),
+            }],
+            node_atts: vec![AttRow {
+                tag: 0xFF, // Invalid tag!
+                reserved0: [0u8; 7],
+                type_or_warp: [0u8; 32],
+                blob_off_le: 0,
+                blob_len_le: 0,
+            }],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(err, ReadError::InvalidAttachmentTag { .. }),
+            "expected InvalidAttachmentTag, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_nonzero_reserved_bytes() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32],
+                node_type: [0u8; 32],
+            }],
+            edges: vec![],
+            out_index: vec![Range::default()],
+            out_edges: vec![],
+            node_atts_index: vec![Range {
+                start_le: 0u64.to_le(),
+                len_le: 1u64.to_le(),
+            }],
+            node_atts: vec![AttRow {
+                tag: AttRow::TAG_ATOM,
+                reserved0: [1, 2, 3, 4, 5, 6, 7], // Non-zero!
+                type_or_warp: [0u8; 32],
+                blob_off_le: 0,
+                blob_len_le: 0,
+            }],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(err, ReadError::NonZeroReservedBytes { .. }),
+            "expected NonZeroReservedBytes, got: {err:?}"
+        );
+    }
 }

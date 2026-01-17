@@ -34,6 +34,18 @@ pub const HEADER_SIZE: usize = 12;
 pub const MIN_PAYLOAD_SIZE: usize = 32;
 
 /// A single materialization frame ready for transport.
+///
+/// # Wire-Format Limitations
+///
+/// The frame's `payload_len` field is stored as a [`u32`] in the wire format
+/// (see [`HEADER_SIZE`] for header layout). This means the total payload
+/// (`channel_id` + `data`) must fit in 32 bits:
+///
+/// - `channel_id` is fixed at 32 bytes
+/// - `data.len()` must be ≤ `u32::MAX - 32` (approximately 4 GiB minus header overhead)
+///
+/// Frames exceeding this limit will have their length silently truncated during
+/// encoding. In debug builds, [`encode()`](Self::encode) asserts this constraint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MaterializationFrame {
     /// Channel this data belongs to.
@@ -51,10 +63,28 @@ impl MaterializationFrame {
 
     /// Encodes this frame to bytes.
     ///
-    /// Format: header (12 bytes) + `channel_id` (32 bytes) + data.
+    /// # Format
+    ///
+    /// Returns a buffer with:
+    /// - Header ([`HEADER_SIZE`] = 12 bytes): [`FRAME_MAGIC`] + version + reserved + length
+    /// - `channel_id` (32 bytes)
+    /// - `data` (variable length)
+    ///
+    /// # Wire-Format Limitation
+    ///
+    /// The `payload_len` field is encoded as a [`u32`], so `data.len()` must be
+    /// ≤ `u32::MAX - 32` (~4 GiB). Larger payloads will have their length truncated.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, panics if `payload_len` exceeds [`u32::MAX`].
     #[allow(clippy::cast_possible_truncation)]
     pub fn encode(&self) -> Vec<u8> {
         let payload_len = 32 + self.data.len();
+        debug_assert!(
+            u32::try_from(payload_len).is_ok(),
+            "payload_len ({payload_len}) exceeds u32::MAX; frame would be truncated"
+        );
         let total_len = HEADER_SIZE + payload_len;
 
         let mut buf = Vec::with_capacity(total_len);

@@ -27,7 +27,10 @@ use warp_core::materialization::{
 };
 
 /// Count permutations for sanity checks.
+///
+/// Assumes small `n` (tests use N <= 6). Overflows `usize` for n > 20.
 fn factorial(n: usize) -> usize {
+    debug_assert!(n <= 20, "factorial({n}) would overflow usize");
     (1..=n).product()
 }
 

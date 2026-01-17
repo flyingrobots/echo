@@ -26,7 +26,7 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 
 ## Repository Layout
 
-- `packages/echo-core`: Runtime core (ECS, scheduler, Codex's Baby, timelines).
+- `crates/warp-core`: Runtime core (WARP graph model, materialization bus).
 - `apps/playground`: Vite sandbox and inspector (future).
 - `docs/`: Specs, diagrams, memorials.
 - `docs/notes`: Working notes and explorations (non-authoritative).

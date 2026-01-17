@@ -283,7 +283,13 @@ fn run_dind_record(tags: Option<String>, exclude_tags: Option<String>) -> Result
     let mut failed = 0;
     for scenario in &scenarios {
         let scenario_path = format!("testdata/dind/{}", scenario.path);
-        let golden_path = scenario_path.replace(".eintlog", ".hashes.json");
+        let golden_path = match scenario_path.strip_suffix(".eintlog") {
+            Some(base) => format!("{}.hashes.json", base),
+            None => bail!(
+                "scenario path '{}' does not end with '.eintlog'",
+                scenario.path
+            ),
+        };
 
         println!("\n>>> Recording: {} -> {}", scenario_path, golden_path);
 
@@ -428,9 +434,21 @@ fn load_matching_scenarios(
     let all_scenarios: Vec<Scenario> =
         serde_json::from_str(&content).context("failed to parse MANIFEST.json")?;
 
-    let include_tags: Vec<&str> = tags.map(|t| t.split(',').collect()).unwrap_or_default();
+    let include_tags: Vec<&str> = tags
+        .map(|t| {
+            t.split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
     let exclude_tag_list: Vec<&str> = exclude_tags
-        .map(|t| t.split(',').collect())
+        .map(|t| {
+            t.split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     let filtered: Vec<Scenario> = all_scenarios

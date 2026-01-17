@@ -100,7 +100,7 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 > - `ScopedEmitter` adapter (auto-fills EmitKey from execution context)
 > - `ReduceOp` enum (8 built-in deterministic reduce operations)
 > - `FinalizeReport` pattern (deterministic batch finalization)
-> - 127 tests covering permutation invariance, reduce algebra, and engine integration
+> - 128 tests covering permutation invariance, reduce algebra, and engine integration
 > - Cross-platform CI (macOS + Linux, weekly via `dind-cross-platform.yml`)
 >
 > See `docs/rfc/mat-bus-finish.md` for the completion RFC.

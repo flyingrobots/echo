@@ -619,7 +619,7 @@ Comprehensive test suite ensuring the spec cannot lie.
 | Test                                                 | What It Proves                   |
 | ---------------------------------------------------- | -------------------------------- |
 | `determinism_output_includes_materialization_digest` | Harness writes digest            |
-| `cross_platform_digest_matches_linux_macos_wasm`     | All platforms identical          |
+| `cross_platform_digest_matches_linux_macOS_wasm`     | All platforms identical          |
 | `scope_hash_is_content_hash_not_id_hash`             | Equivalent stores → same EmitKey |
 
 ---

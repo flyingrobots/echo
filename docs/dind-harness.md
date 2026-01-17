@@ -14,7 +14,9 @@ Location:
 
 ```bash
 # Via xtask (recommended)
-cargo xtask dind
+cargo xtask dind run
+
+# Valid subcommands: run, record, torture, converge
 
 # Or directly via cargo
 cargo run -p echo-dind-harness -- help
@@ -28,7 +30,7 @@ cargo run -p echo-dind-harness -- converge
 cargo run -p echo-dind-harness -- repro <scenario>
 ```
 
-Cross-platform DIND runs weekly in CI via `.github/workflows/dind-cross-platform.yml` (macOS + Linux matrix).
+Cross-platform DIND runs weekly in CI via `.github/workflows/dind-cross-platform.yml` (Windows, macOS, and Linux matrix).
 
 ## Determinism Guardrails
 

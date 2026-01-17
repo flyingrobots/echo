@@ -880,7 +880,9 @@ impl Engine {
     /// Aborts a transaction without committing a tick.
     ///
     /// This closes the transaction and releases any resources reserved in the scheduler.
-    /// Also clears any pending materialization emissions and errors.
+    /// Also clears pending materialization emissions (`bus`), as well as the cached results
+    /// from the previous successful commit (`last_materialization` and `last_materialization_errors`).
+    /// This invalidation ensures that stale materialization state is not observed after an abort.
     pub fn abort(&mut self, tx: TxId) {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);

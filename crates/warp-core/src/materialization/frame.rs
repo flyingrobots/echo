@@ -38,7 +38,7 @@ pub const MIN_PAYLOAD_SIZE: usize = 32;
 /// # Wire-Format Limitations
 ///
 /// The frame's `payload_len` field is stored as a [`u32`] in the wire format
-/// (see [`HEADER_SIZE`] for header layout). This means the total payload
+/// (see `HEADER_SIZE` for header layout). This means the total payload
 /// (`channel_id` + `data`) must fit in 32 bits:
 ///
 /// - `channel_id` is fixed at 32 bytes
@@ -66,7 +66,7 @@ impl MaterializationFrame {
     /// # Format
     ///
     /// Returns a buffer with:
-    /// - Header ([`HEADER_SIZE`] = 12 bytes): [`FRAME_MAGIC`] + version + reserved + length
+    /// - Header (`HEADER_SIZE` = 12 bytes): `FRAME_MAGIC` + version + reserved + length
     /// - `channel_id` (32 bytes)
     /// - `data` (variable length)
     ///

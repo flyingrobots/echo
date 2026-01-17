@@ -12,6 +12,15 @@ for cmd in cargo rustup rg; do
   fi
 done
 
+# Check for nextest (optional but recommended - 2-3x faster)
+if command -v cargo-nextest >/dev/null 2>&1; then
+  USE_NEXTEST=1
+else
+  USE_NEXTEST=0
+  echo "[pre-push] hint: install cargo-nextest for 2-3x faster tests" >&2
+  echo "[pre-push]       cargo install cargo-nextest" >&2
+fi
+
 echo "🐰 BunBun 🐇"
 
 
@@ -22,7 +31,11 @@ echo "[pre-push] clippy (workspace, stable)"
 cargo clippy --all-targets -- -D warnings -D missing_docs
 
 echo "[pre-push] tests (workspace, stable)"
-cargo test --workspace
+if [[ $USE_NEXTEST -eq 1 ]]; then
+  cargo nextest run --workspace
+else
+  cargo test --workspace
+fi
 
 # MSRV lane removed: policy is stable everywhere.
 

@@ -8,6 +8,8 @@ use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 /// Auto-generated codec definitions.
 #[path = "codecs.generated.rs"]
 mod codecs;
+
+pub use codecs::SCHEMA_HASH;
 /// DIND test rules and state management.
 pub mod rules;
 /// Auto-generated type ID constants.

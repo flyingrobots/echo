@@ -123,4 +123,15 @@ if [[ -x scripts/ensure_spdx.sh ]]; then
   scripts/ensure_spdx.sh || exit 1
 fi
 
+# 9) Markdown linting for staged .md files
+MD_FILES=$(echo "$STAGED" | grep -E '\.md$' || true)
+if [[ -n "$MD_FILES" ]] && command -v npx >/dev/null 2>&1; then
+  echo "pre-commit: linting markdown files"
+  # shellcheck disable=SC2086
+  if ! npx markdownlint-cli2 $MD_FILES; then
+    echo "pre-commit: markdown lint failed. Run: npx markdownlint-cli2 --fix <files>" >&2
+    exit 1
+  fi
+fi
+
 exit 0

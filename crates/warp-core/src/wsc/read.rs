@@ -147,6 +147,24 @@ pub enum ReadError {
         /// Index of the element with non-zero reserved bytes.
         index: usize,
     },
+
+    /// Non-ATOM attachment has non-zero blob fields.
+    #[error("non-ATOM attachment at index {index} has non-zero blob fields (off={blob_off}, len={blob_len})")]
+    NonAtomHasBlobFields {
+        /// Index of the attachment.
+        index: usize,
+        /// The blob offset that should be zero.
+        blob_off: u64,
+        /// The blob length that should be zero.
+        blob_len: u64,
+    },
+
+    /// Root node ID not found in nodes array.
+    #[error("root node {root:?} not found in nodes array")]
+    MissingRoot {
+        /// The root node ID that was not found.
+        root: [u8; 32],
+    },
 }
 
 /// Validates that a byte slice contains a valid WSC header.

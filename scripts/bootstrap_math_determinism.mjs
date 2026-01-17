@@ -22,23 +22,28 @@ const RESERVED = Buffer.alloc(8);
 
 function writeLog(schemaHashHex, frames) {
     const fd = fs.openSync(OUT_PATH, "w");
-    fs.writeSync(fd, MAGIC);
-    fs.writeSync(fd, VERSION);
-    fs.writeSync(fd, FLAGS);
-    fs.writeSync(fd, Buffer.from(schemaHashHex, "hex"));
-    fs.writeSync(fd, RESERVED);
+    try {
+        fs.writeSync(fd, MAGIC);
+        fs.writeSync(fd, VERSION);
+        fs.writeSync(fd, FLAGS);
+        fs.writeSync(fd, Buffer.from(schemaHashHex, "hex"));
+        fs.writeSync(fd, RESERVED);
 
-    for (const frame of frames) {
-        const len = Buffer.alloc(4);
-        len.writeUInt32LE(frame.byteLength);
-        fs.writeSync(fd, len);
-        fs.writeSync(fd, frame);
+        for (const frame of frames) {
+            const len = Buffer.alloc(4);
+            len.writeUInt32LE(frame.byteLength);
+            fs.writeSync(fd, len);
+            fs.writeSync(fd, frame);
+        }
+    } finally {
+        fs.closeSync(fd);
     }
-    fs.closeSync(fd);
     console.log(`Wrote ${OUT_PATH}`);
 }
 
 // OpIDs from crates/echo-dind-tests/src/codecs.generated.rs
+// These are stable FNV-1a hashes of the operation names and are intentionally
+// hardcoded. They will only change if the operation names change in the schema.
 const OP_DROP_BALL = 778504871;
 const OP_ROUTE_PUSH = 2216217860;
 

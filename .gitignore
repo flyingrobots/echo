@@ -10,8 +10,6 @@ target-fmt
 target-clippy
 target-test
 target-doc
-
-# Pre-push benchmark timing data
 .githooks/timing.jsonl
 docs/.vitepress/cache
 
@@ -22,6 +20,7 @@ docs/.vitepress/cache
 .vscode/*
 !.vscode/extensions.json
 .obsidian
+.claude/
 
 # Logs
 npm-debug.log*
@@ -45,4 +44,3 @@ temp
 # Playwright artifacts
 test-results
 playwright-report
-.claude/

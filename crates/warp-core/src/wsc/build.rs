@@ -29,7 +29,8 @@ use super::write::OneWarpInput;
 /// # Arguments
 ///
 /// * `store` - The graph store to convert
-/// * `root_node_id` - The root node identifier for this WARP instance
+/// * `root_node_id` - The root node identifier for this WARP instance.
+///   Must refer to an existing node in the store, or be the zero ID for empty stores.
 ///
 /// # Returns
 ///
@@ -37,14 +38,24 @@ use super::write::OneWarpInput;
 ///
 /// # Panics
 ///
-/// Panics if the store's internal edge index is inconsistent (indicates
-/// a store invariant violation, not user error).
+/// - Panics if `root_node_id` does not exist in the store (unless both the store
+///   is empty and `root_node_id` is the zero ID).
+/// - Panics if the store's internal edge index is inconsistent (indicates
+///   a store invariant violation, not user error).
 ///
 /// # Determinism
 ///
 /// This function produces identical output for identical graph content,
 /// regardless of the order in which nodes/edges were inserted into the store.
 pub fn build_one_warp_input(store: &GraphStore, root_node_id: NodeId) -> OneWarpInput {
+    // Precondition: root_node_id must exist in the store (or be zero for empty stores)
+    let is_empty_store = store.iter_nodes().next().is_none();
+    let is_zero_root = root_node_id.0 == [0u8; 32];
+    assert!(
+        store.node(&root_node_id).is_some() || (is_empty_store && is_zero_root),
+        "root_node_id {root_node_id:?} does not exist in GraphStore"
+    );
+
     // 1. NODES: Already sorted by NodeId because BTreeMap
     let nodes: Vec<(NodeId, crate::record::NodeRecord)> = store
         .iter_nodes()
@@ -216,7 +227,8 @@ mod tests {
     fn empty_store_builds_empty_input() {
         let warp = make_warp_id("test");
         let store = GraphStore::new(warp);
-        let root = make_node_id("root");
+        // Empty stores require zero root (no nodes = no valid root)
+        let root = NodeId([0u8; 32]);
 
         let input = build_one_warp_input(&store, root);
 
@@ -537,5 +549,32 @@ mod tests {
             bytes1, bytes2,
             "Node insertion order MUST NOT affect WSC output with attachments"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "does not exist in GraphStore")]
+    fn build_panics_on_missing_root() {
+        let warp = make_warp_id("test");
+        let node_ty = make_type_id("TestNode");
+
+        let existing = make_node_id("existing");
+        let missing = make_node_id("missing");
+
+        let mut store = GraphStore::new(warp);
+        store.insert_node(existing, NodeRecord { ty: node_ty });
+
+        // This should panic because 'missing' is not in the store
+        let _ = build_one_warp_input(&store, missing);
+    }
+
+    #[test]
+    fn build_accepts_zero_root_for_empty_store() {
+        let warp = make_warp_id("test");
+        let store = GraphStore::new(warp);
+        let zero_root = NodeId([0u8; 32]);
+
+        // This should NOT panic - zero root is valid for empty store
+        let input = build_one_warp_input(&store, zero_root);
+        assert!(input.nodes.is_empty());
     }
 }

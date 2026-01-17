@@ -35,7 +35,9 @@ LOGDIR=$(mktemp -d)
 # Trap EXIT, INT, TERM: kill background jobs then clean up
 cleanup() {
   # Kill any background jobs from this script
-  jobs -p 2>/dev/null | xargs -r kill 2>/dev/null || true
+  # Avoid GNU-only xargs -r by checking if pids is non-empty
+  pids=$(jobs -p 2>/dev/null) || true
+  [ -n "$pids" ] && echo "$pids" | xargs kill 2>/dev/null || true
   rm -rf "$LOGDIR"
 }
 trap cleanup EXIT INT TERM
@@ -122,12 +124,15 @@ run_determinism > "$LOGDIR/determinism.log" 2>&1 & PID_DETERMINISM=$!
 # Wait and collect results
 FAILED=0
 
+# Disable errexit so we can collect all exit codes (otherwise first failure aborts)
+set +e
 wait $PID_FMT;         FMT_RC=$?;         [ $FMT_RC -ne 0 ]         && FAILED=1 && echo "[FAIL] fmt (see log)"
 wait $PID_CLIPPY;      CLIPPY_RC=$?;      [ $CLIPPY_RC -ne 0 ]      && FAILED=1 && echo "[FAIL] clippy (see log)"
 wait $PID_TESTS;       TESTS_RC=$?;       [ $TESTS_RC -ne 0 ]       && FAILED=1 && echo "[FAIL] tests (see log)"
 wait $PID_RUSTDOC;     RUSTDOC_RC=$?;     [ $RUSTDOC_RC -ne 0 ]     && FAILED=1 && echo "[FAIL] rustdoc (see log)"
 wait $PID_PATTERNS;    PATTERNS_RC=$?;    [ $PATTERNS_RC -ne 0 ]    && FAILED=1 && echo "[FAIL] patterns (see log)"
 wait $PID_DETERMINISM; DETERMINISM_RC=$?; [ $DETERMINISM_RC -ne 0 ] && FAILED=1 && echo "[FAIL] determinism (see log)"
+set -e  # Re-enable errexit
 
 END=$(date +%s)
 echo "[parallel] completed in $((END - START))s"

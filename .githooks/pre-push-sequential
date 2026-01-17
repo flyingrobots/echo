@@ -12,6 +12,13 @@ for cmd in cargo rustup rg; do
   fi
 done
 
+# Verify pinned toolchain is installed before using cargo +"$PINNED"
+if ! rustup toolchain list | grep -qE "^${PINNED}(-|$)"; then
+  echo "[pre-push] missing toolchain: $PINNED" >&2
+  echo "[pre-push] Run: rustup toolchain install $PINNED" >&2
+  exit 1
+fi
+
 # Check for nextest (optional but recommended - 2-3x faster)
 if command -v cargo-nextest >/dev/null 2>&1; then
   USE_NEXTEST=1
@@ -24,17 +31,17 @@ fi
 echo "🐰 BunBun 🐇"
 
 
-echo "[pre-push] fmt (stable)"
-cargo fmt --all -- --check
+echo "[pre-push] fmt ($PINNED)"
+cargo +"$PINNED" fmt --all -- --check
 
-echo "[pre-push] clippy (workspace, stable)"
-cargo clippy --all-targets -- -D warnings -D missing_docs
+echo "[pre-push] clippy (workspace, $PINNED)"
+cargo +"$PINNED" clippy --all-targets -- -D warnings -D missing_docs
 
-echo "[pre-push] tests (workspace, stable)"
+echo "[pre-push] tests (workspace, $PINNED)"
 if [[ $USE_NEXTEST -eq 1 ]]; then
-  cargo nextest run --workspace
+  cargo +"$PINNED" nextest run --workspace
 else
-  cargo test --workspace
+  cargo +"$PINNED" test --workspace
 fi
 
 # MSRV lane removed: policy is stable everywhere.
@@ -71,25 +78,21 @@ fi
 # Banned patterns
 echo "[pre-push] scanning banned patterns"
 # Forbid crate-level allow(missing_docs) in library source files, but allow in tests and build scripts
-if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
+# Run rg once and capture output to avoid duplicate invocations
+if match_output=$(rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
   crates \
   --glob 'crates/**/src/**/*.rs' \
   --glob '!**/telemetry.rs' \
   --glob '!**/tests/**' \
   --glob '!**/build.rs' \
-  --glob '!**/*.generated.rs' >/dev/null; then
+  --glob '!**/*.generated.rs' 2>&1); then
   echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs and *.generated.rs)." >&2
-  rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' crates \
-    --glob 'crates/**/src/**/*.rs' \
-    --glob '!**/telemetry.rs' \
-    --glob '!**/tests/**' \
-    --glob '!**/build.rs' \
-    --glob '!**/*.generated.rs' | cat >&2 || true
+  echo "$match_output" >&2
   exit 1
 fi
-if rg -n "\\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then
+if match_output=$(rg -n "\\#\[unsafe\(no_mangle\)\]" crates 2>&1); then
   echo "pre-push: #[unsafe(no_mangle)] is invalid; use #[no_mangle]." >&2
-  rg -n "\\#\[unsafe\(no_mangle\)\]" crates | cat >&2 || true
+  echo "$match_output" >&2
   exit 1
 fi
 

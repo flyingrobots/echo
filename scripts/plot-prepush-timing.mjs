@@ -17,7 +17,19 @@ try {
   process.exit(1);
 }
 
-const data = lines.map(l => JSON.parse(l));
+// Parse JSONL with error handling for malformed lines
+const data = [];
+for (const line of lines) {
+  const trimmed = line.trim();
+  if (!trimmed) continue; // Skip empty lines
+  try {
+    data.push(JSON.parse(trimmed));
+  } catch (e) {
+    console.error(`Warning: skipping malformed line in ${logfile}:`);
+    console.error(`  ${trimmed}`);
+    console.error(`  ${e.message}`);
+  }
+}
 
 const sequential = data.filter(d => d.variant === 'sequential').map(d => d.duration);
 const parallel = data.filter(d => d.variant === 'parallel').map(d => d.duration);

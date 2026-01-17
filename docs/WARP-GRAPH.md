@@ -611,6 +611,7 @@ Notes:
 - GraphStore doesn't store root_node_id, so this takes it as a parameter (you should store that at the "WarpInstance" layer, not inside GraphStore).
 - This supports your current "single attachment per node/edge" model (range 0/1). The format supports multiple later.
 
+```rust
 use std::collections::BTreeMap;
 
 use crate::attachment::AttachmentValue;
@@ -767,6 +768,7 @@ fn align8(v: &mut Vec<u8>) {
         v.push(0);
     }
 }
+```
 
 That function is the bridge between your current spike store and the final WSC snapshot format.
 
@@ -846,11 +848,11 @@ No behavior changes, just safer ABI expectations.
 
 ⸻
 
-2. Add a wsc module (where it belongs)
+1. Add a wsc module (where it belongs)
 
 Put this in warp-core (or whatever crate defines GraphStore/AttachmentValue), e.g.
 
-```
+```text
 crates/warp-core/src/wsc/
   mod.rs
   types.rs
@@ -877,7 +879,7 @@ pub use read::ReadError;
 
 ⸻
 
-3. Make OneWarpInput owned (fix the writer interface)
+1. Make OneWarpInput owned (fix the writer interface)
 
 In your wsc/write.rs, define:
 
@@ -908,7 +910,7 @@ Then write_wsc_one_warp(input: OneWarpInput, ...) stays the same, just without l
 
 ⸻
 
-4. The bridge: build_one_warp_input(&GraphStore, root_node_id)
+1. The bridge: build_one_warp_input(&GraphStore, root_node_id)
 
 Put this in wsc/build.rs. This is the "money function" that turns your pointer-jungle into canonical slabs.
 
@@ -1079,7 +1081,7 @@ fn align8(v: &mut Vec<u8>) {
 
 ⸻
 
-5. One-liner convenience API
+1. One-liner convenience API
 
 Add this helper (e.g. wsc/mod.rs or wsc/write.rs):
 
@@ -1112,10 +1114,9 @@ Now you can call:
 save_wsc("state.wsc", &store, root_node_id, schema_hash, tick)?;
 ```
 
-
 ⸻
 
-6. Determinism tests (this is the “don’t lie to yourself” suite)
+1. Determinism tests (this is the “don’t lie to yourself” suite)
 
 5.1 Snapshot bytes identical across insertion order
 
@@ -1206,9 +1207,8 @@ fn wsc_roundtrip_open_and_validate() {
 }
 ```
 
-
 ⸻
 
-7. (Strongly recommended) Version your canonical hash
+1. (Strongly recommended) Version your canonical hash
 
 Keep DIND_STATE_HASH_V1 but add V2 using u64 counts/lengths. That way your “snapshot hash” and “state hash” won’t diverge later for stupid reasons.

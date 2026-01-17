@@ -7,6 +7,20 @@ set -euo pipefail
 LOGFILE="${PREPUSH_LOGFILE:-.githooks/timing.jsonl}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Portable high-resolution timestamp (macOS date doesn't support %N)
+get_timestamp() {
+  if date +%s.%N 2>/dev/null | grep -q '\.'; then
+    date +%s.%N
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import time; print(f"{time.time():.6f}")'
+  elif command -v perl >/dev/null 2>&1; then
+    perl -MTime::HiRes=time -e 'printf "%.6f\n", time'
+  else
+    # Fallback to integer seconds
+    date +%s
+  fi
+}
+
 # Determine which variant to run (round-robin based on line count)
 if [[ -f "$LOGFILE" ]]; then
   COUNT=$(wc -l < "$LOGFILE" | tr -d ' ')
@@ -29,10 +43,12 @@ OUTFILE=$(mktemp)
 trap 'rm -f "$OUTFILE"' EXIT
 
 # Time the run, tee output to both terminal and file
-START=$(date +%s.%N)
+START=$(get_timestamp)
+set +e  # Disable errexit so PIPESTATUS is captured before exit
 "$SCRIPT" 2>&1 | tee "$OUTFILE"
 RC=${PIPESTATUS[0]}
-END=$(date +%s.%N)
+set -e
+END=$(get_timestamp)
 
 # Only log timing if cargo actually compiled something
 if grep -q "Compiling" "$OUTFILE"; then

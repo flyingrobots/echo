@@ -61,6 +61,19 @@ fn validate_warp_view(view: &super::view::WarpView<'_>) -> Result<(), ReadError>
         }
     }
 
+    // Validate root_node_id exists in nodes array
+    let root_id = *view.root_node_id();
+    if !nodes.is_empty() {
+        // Binary search for root node (nodes are sorted by node_id)
+        let found = nodes.binary_search_by_key(&root_id, |n| n.node_id).is_ok();
+        if !found {
+            return Err(ReadError::MissingRoot { root: root_id });
+        }
+    } else if root_id != [0u8; 32] {
+        // Empty nodes array but non-zero root - only valid if root is also zeroed
+        return Err(ReadError::MissingRoot { root: root_id });
+    }
+
     // Validate node attachments using a monotonically increasing index
     // to avoid collisions from the previous warp_index * 1000 scheme.
     let mut att_index = 0usize;
@@ -119,17 +132,26 @@ fn validate_attachment(att: &AttRow, blob_size: usize, index: usize) -> Result<(
         });
     }
 
-    // Validate blob reference for atom attachments
-    if att.is_atom() {
-        let off = att.blob_off();
-        let len = att.blob_len();
-        let end = off.saturating_add(len);
+    // Validate blob reference fields
+    let off = att.blob_off();
+    let len = att.blob_len();
 
+    if att.is_atom() {
+        let end = off.saturating_add(len);
         if end > blob_size as u64 {
             return Err(ReadError::BlobOutOfBounds {
                 offset: off,
                 length: len,
                 blob_size,
+            });
+        }
+    } else {
+        // Non-ATOM attachments (DESCEND) must have zero blob fields
+        if off != 0 || len != 0 {
+            return Err(ReadError::NonAtomHasBlobFields {
+                index,
+                blob_off: off,
+                blob_len: len,
             });
         }
     }
@@ -146,9 +168,10 @@ mod tests {
 
     #[test]
     fn validate_empty_file() {
+        // An empty file must have a zero root_node_id (no nodes = no valid root)
         let input = OneWarpInput {
             warp_id: [0u8; 32],
-            root_node_id: [1u8; 32],
+            root_node_id: [0u8; 32], // Zero root for empty nodes
             nodes: vec![],
             edges: vec![],
             out_index: vec![],
@@ -542,5 +565,91 @@ mod tests {
             matches!(err, ReadError::BlobOutOfBounds { .. }),
             "expected BlobOutOfBounds, got: {err:?}"
         );
+    }
+
+    #[test]
+    fn validate_rejects_descend_with_nonzero_blob_fields() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32],
+                node_type: [0u8; 32],
+            }],
+            edges: vec![],
+            out_index: vec![Range::default()],
+            out_edges: vec![],
+            node_atts_index: vec![Range {
+                start_le: 0u64.to_le(),
+                len_le: 1u64.to_le(),
+            }],
+            node_atts: vec![AttRow {
+                tag: AttRow::TAG_DESCEND,
+                reserved0: [0u8; 7],
+                type_or_warp: [0u8; 32],
+                blob_off_le: 42u64.to_le(), // Non-zero! Invalid for DESCEND
+                blob_len_le: 100u64.to_le(), // Non-zero! Invalid for DESCEND
+            }],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(err, ReadError::NonAtomHasBlobFields { .. }),
+            "expected NonAtomHasBlobFields, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_missing_root_node() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [99u8; 32], // Root ID that doesn't exist in nodes
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32], // Different from root!
+                node_type: [0u8; 32],
+            }],
+            edges: vec![],
+            out_index: vec![Range::default()],
+            out_edges: vec![],
+            node_atts_index: vec![Range::default()],
+            node_atts: vec![],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(err, ReadError::MissingRoot { .. }),
+            "expected MissingRoot, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_accepts_valid_root_node() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32], // Root exists in nodes
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32], // Same as root
+                node_type: [0u8; 32],
+            }],
+            edges: vec![],
+            out_index: vec![Range::default()],
+            out_edges: vec![],
+            node_atts_index: vec![Range::default()],
+            node_atts: vec![],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        validate_wsc(&file).unwrap(); // Should pass
     }
 }

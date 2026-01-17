@@ -5,6 +5,7 @@
 The DIND harness is the deterministic verification runner for Echo/WARP. It replays canonical intent transcripts and asserts that state hashes and intermediate outputs are identical across runs, platforms, and build profiles.
 
 Location:
+
 - `crates/echo-dind-harness`
 - `crates/echo-dind-tests` (stable test app used by the harness)
 - `testdata/dind` (scenarios + goldens)
@@ -12,6 +13,10 @@ Location:
 ## Quickstart
 
 ```bash
+# Via xtask (recommended)
+cargo xtask dind
+
+# Or directly via cargo
 cargo run -p echo-dind-harness -- help
 ```
 
@@ -22,6 +27,8 @@ cargo run -p echo-dind-harness -- torture
 cargo run -p echo-dind-harness -- converge
 cargo run -p echo-dind-harness -- repro <scenario>
 ```
+
+Cross-platform DIND runs weekly in CI via `.github/workflows/dind-cross-platform.yml` (macOS + Linux matrix).
 
 ## Determinism Guardrails
 
@@ -41,24 +48,29 @@ printing full hashes for visibility.
 ### Converge scope semantics (short spec)
 
 **What scopes exist today (DIND test app):**
+
 - `sim/state` — the authoritative state root for the test app (includes theme/nav/route + kv).
 - `sim/state/kv` (not currently used) — a narrower root for KV-only projections.
 
 **What is included in the projected hash:**
+
 - All nodes reachable by following **outbound edges** from the scope root.
 - All edges where both endpoints are reachable.
 - All node and edge attachments for the included nodes/edges.
 
 **What is excluded:**
+
 - Anything not reachable from the scope root (e.g., `sim/inbox`, event history, sequence sidecars).
 - Inbound edges from outside the scope.
 
 **What “commutative” means here:**
+
 - The operations are order-independent with respect to the **projected subgraph**.
 - Either they touch disjoint footprints or they are semantically commutative
   (e.g., set union on disjoint keys).
 
 **When you must NOT use projection:**
+
 - When event history is semantically meaningful (auditing, causality, timelines).
 - When last-write-wins behavior or ordered effects are part of the contract.
 - When differences in inbox/order should be observable by the consumer.

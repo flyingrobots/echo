@@ -2,8 +2,9 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # ADR-000X: Causality-First API — Ingress + MaterializationPort, No Direct Graph Writes
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Date:** 2026-01-14
+- **Implementation:** 2026-01-17 (see `docs/rfc/mat-bus-finish.md`)
 
 ## Context
 

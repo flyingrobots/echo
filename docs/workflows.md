@@ -59,23 +59,27 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label none` omits snapshot labels (best for CI automation).
 - `cargo xtask dags --snapshot-label rolling` emits a stable `rolling` label.
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
+- `cargo xtask dind` runs the DIND (Deterministic Ironclad Nightmare Drills) harness locally.
 
 ---
 
 ## Dependency DAG Workflow
 
 Artifacts:
+
 - DOT + SVG output lives under `docs/assets/dags/`.
 - The hand-maintained edge list lives in `docs/assets/dags/deps-config.json`.
 - The generator is `scripts/generate-dependency-dags.js` (wrapped by `cargo xtask dags`).
 - The explainer doc is `docs/dependency-dags.md`.
 
 Automation:
+
 - GitHub Action `Refresh Dependency DAGs` runs on a schedule and opens a PR only if outputs changed:
   - workflow file: `.github/workflows/refresh-dependency-dags.yml`
   - uses `--snapshot-label none` to avoid “date churn” diffs
 
 Issue linkage for automation PRs:
+
 - If you enforce strict PR↔Issue linkage, create a single tracking issue (example: “Automate dependency DAG refresh”) and set a repository Actions variable:
   - `DAG_REFRESH_ISSUE=<issue-number>`
 - The workflow will include `Refs #<issue-number>` in the PR body when `DAG_REFRESH_ISSUE` is set.

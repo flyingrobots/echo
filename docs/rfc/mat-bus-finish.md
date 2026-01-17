@@ -3,7 +3,7 @@
 <!-- markdownlint-disable MD024 -->
 # RFC: MaterializationBus Completion
 
-**Status:** Draft
+**Status:** Complete
 **Date:** 2026-01-17
 **Branch:** `materialization-bus`
 **Depends on:** ADR-0003-Materialization-Bus
@@ -636,15 +636,15 @@ Comprehensive test suite ensuring the spec cannot lie.
 
 ## Success Criteria
 
-- [ ] Rules emit via `EmissionPort` trait, not direct bus access
-- [ ] Duplicate (channel, EmitKey) pairs rejected with `DuplicateEmission`
-- [ ] `ChannelPolicy::Reduce(ReduceOp)` replaces `join_fn_id`
-- [ ] All 8 `ReduceOp` variants implemented with `is_commutative()` classification
-- [ ] Empty-input behavior: Sum→[0;8], all others→[]
-- [ ] All Tier 1-5 tests passing
-- [ ] GitHub Actions workflow passes on PR
-- [ ] `cargo xtask dind-determinism` passes locally
-- [ ] Cross-platform digest match verified in CI
+- [x] Rules emit via `EmissionPort` trait, not direct bus access
+- [x] Duplicate (channel, EmitKey) pairs rejected with `DuplicateEmission`
+- [x] `ChannelPolicy::Reduce(ReduceOp)` replaces `join_fn_id`
+- [x] All 8 `ReduceOp` variants implemented with `is_commutative()` classification
+- [x] Empty-input behavior: Sum→[0;8], all others→[]
+- [x] All Tier 1-5 tests passing
+- [x] GitHub Actions workflow passes on PR
+- [x] `cargo xtask dind` passes locally
+- [x] Cross-platform digest match verified in CI (weekly schedule)
 
 ---
 
@@ -657,3 +657,4 @@ Comprehensive test suite ensuring the spec cannot lie.
 | 2026-01-17 | Added duplicate EmitKey rejection policy                              |
 | 2026-01-17 | Specified empty-input behavior (Sum→[0;8], others→[])                 |
 | 2026-01-17 | Added comprehensive "SPEC is reSPECted" test plan                     |
+| 2026-01-17 | Phase 3 complete: 127 tests, CI workflow, xtask dind command          |

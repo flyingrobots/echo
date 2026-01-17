@@ -33,7 +33,6 @@ pub fn validate_wsc(file: &WscFile) -> Result<(), ReadError> {
 }
 
 /// Validates a single WARP view.
-#[allow(clippy::cast_possible_truncation)] // We check against slice lengths
 fn validate_warp_view(
     view: &super::view::WarpView<'_>,
     warp_index: usize,
@@ -81,15 +80,18 @@ fn validate_warp_view(
         }
     }
 
-    // Validate out_edges references point to valid edge indices
+    // Validate out_edges references point to valid edge indices.
+    // Important: Compare as u64 BEFORE casting to usize to avoid truncation
+    // on 32-bit targets where usize is 32 bits.
+    let edges_len_u64 = edges.len() as u64;
     for node_ix in 0..nodes.len() {
         let out_edges = view.out_edges_for_node(node_ix);
         for out_edge in out_edges {
-            let edge_ix = out_edge.edge_ix() as usize;
-            if edge_ix >= edges.len() {
+            let edge_ix = out_edge.edge_ix();
+            if edge_ix >= edges_len_u64 {
                 return Err(ReadError::SectionOutOfBounds {
                     name: "out_edge reference",
-                    offset: edge_ix as u64,
+                    offset: edge_ix,
                     length: 1,
                     file_size: edges.len(),
                 });
@@ -408,6 +410,65 @@ mod tests {
         assert!(
             matches!(err, ReadError::NonZeroReservedBytes { .. }),
             "expected NonZeroReservedBytes, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_out_edges_with_large_u64_index() {
+        // This test verifies that edge indices are validated as u64 values
+        // before being cast to usize. On 32-bit targets, casting a large u64
+        // to usize would truncate, potentially passing an invalid index through
+        // the bounds check.
+        //
+        // For example: 0x1_0000_0001_u64 truncated to 32-bit usize becomes 1,
+        // which could incorrectly pass a bounds check against a small edge array.
+        use crate::wsc::types::OutEdgeRef;
+
+        // Create a large u64 index that exceeds u32::MAX
+        // This value truncated to u32 becomes 1, which would be in-bounds
+        // for an edge array of size 2 if the check was done after truncation.
+        let large_edge_ix: u64 = 0x1_0000_0001;
+
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32],
+                node_type: [0u8; 32],
+            }],
+            edges: vec![], // Empty edge table - any index is out of bounds
+            out_index: vec![Range {
+                start_le: 0u64.to_le(),
+                len_le: 1u64.to_le(),
+            }],
+            out_edges: vec![OutEdgeRef {
+                edge_ix_le: large_edge_ix.to_le(),
+                edge_id: [0u8; 32],
+            }],
+            node_atts_index: vec![Range::default()],
+            node_atts: vec![],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+
+        // Verify we get the right error type with the ORIGINAL u64 offset,
+        // not a truncated value. This catches the truncation bug.
+        assert!(
+            matches!(
+                err,
+                ReadError::SectionOutOfBounds {
+                    name: "out_edge reference",
+                    offset,
+                    length: 1,
+                    ..
+                } if offset == large_edge_ix
+            ),
+            "expected SectionOutOfBounds with offset {large_edge_ix:#x}, got: {err:?}"
         );
     }
 }

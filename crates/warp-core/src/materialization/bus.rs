@@ -62,6 +62,16 @@ impl std::error::Error for DuplicateEmission {}
 ///
 /// This is tick-scoped: emissions accumulate during a tick, then `finalize()` is
 /// called post-commit to produce output. The bus is cleared after finalization.
+///
+/// # Thread Safety
+///
+/// `MaterializationBus` uses [`RefCell`] for interior mutability and is intentionally
+/// **not thread-safe** (`!Sync`). This is by design: emissions occur within a single
+/// tick's execution context, which is single-threaded. The rewrite engine processes
+/// rules sequentially within a tick, so no synchronization is needed.
+///
+/// If parallel emission were ever required (e.g., concurrent rule execution), the
+/// design would need to change to use `RwLock<BTreeMap<...>>` or similar.
 #[derive(Debug, Default)]
 pub struct MaterializationBus {
     /// Pending emissions: `channel -> (emit_key -> data)`.

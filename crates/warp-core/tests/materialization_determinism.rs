@@ -18,6 +18,9 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+mod common;
+use common::{key, key_sub};
+
 use warp_core::materialization::{
     decode_frames, encode_frames, make_channel_id, ChannelId, ChannelPolicy, EmitKey,
     MaterializationBus, MaterializationFrame, MaterializationPort, FRAME_MAGIC, FRAME_VERSION,
@@ -222,20 +225,6 @@ fn emit_key_subkey_from_hash_is_deterministic() {
 // =============================================================================
 // TIER 0: BUS CORE SEMANTICS - ORDER INDEPENDENCE (C)
 // =============================================================================
-
-fn h(n: u8) -> [u8; 32] {
-    let mut bytes = [0u8; 32];
-    bytes[31] = n;
-    bytes
-}
-
-fn key(scope: u8, rule: u32) -> EmitKey {
-    EmitKey::new(h(scope), rule)
-}
-
-fn key_sub(scope: u8, rule: u32, subkey: u32) -> EmitKey {
-    EmitKey::with_subkey(h(scope), rule, subkey)
-}
 
 /// Log policy: insertion order doesn't affect finalized output.
 #[test]

@@ -16,48 +16,15 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+mod common;
+use common::{for_each_permutation, h, key_sub as key};
+
 use std::collections::BTreeMap;
 
 use warp_core::materialization::{
     encode_frames, make_channel_id, ChannelId, ChannelPolicy, DuplicateEmission, EmitKey,
     MaterializationBus, MaterializationFrame,
 };
-
-// =============================================================================
-// PERMUTATION ENGINE (Heap's Algorithm - No RNG)
-// =============================================================================
-
-/// Calls `f` for every permutation of `items` in-place.
-/// Deterministic: Heap's algorithm generates all N! permutations.
-fn for_each_permutation<T: Clone>(items: &mut [T], mut f: impl FnMut(&[T])) {
-    let n = items.len();
-    if n == 0 {
-        f(items);
-        return;
-    }
-
-    let mut c = vec![0usize; n];
-
-    // First permutation (original order)
-    f(items);
-
-    let mut i = 0usize;
-    while i < n {
-        if c[i] < i {
-            if i.is_multiple_of(2) {
-                items.swap(0, i);
-            } else {
-                items.swap(c[i], i);
-            }
-            f(items);
-            c[i] += 1;
-            i = 0;
-        } else {
-            c[i] = 0;
-            i += 1;
-        }
-    }
-}
 
 /// Count permutations for sanity checks.
 fn factorial(n: usize) -> usize {
@@ -108,20 +75,6 @@ struct Emission {
     ch: ChannelId,
     key: EmitKey,
     data: Vec<u8>,
-}
-
-/// Create a deterministic scope_hash for tests (no blake3, just stable bytes).
-fn scope_hash(tag: u8) -> [u8; 32] {
-    let mut h = [0u8; 32];
-    h[0] = 0xE5; // "E" for Echo
-    h[1] = 0xC0; // "C" for test Case
-    h[31] = tag; // Distinguishing byte
-    h
-}
-
-/// Create an EmitKey for tests.
-fn key(scope_tag: u8, rule_id: u32, subkey: u32) -> EmitKey {
-    EmitKey::with_subkey(scope_hash(scope_tag), rule_id, subkey)
 }
 
 // =============================================================================
@@ -209,7 +162,7 @@ fn emit_key_btreemap_iteration_is_canonical() {
 
 #[test]
 fn emit_key_subkey_from_hash_is_deterministic() {
-    let hash = scope_hash(42);
+    let hash = h(42);
     let s1 = EmitKey::subkey_from_hash(&hash);
     let s2 = EmitKey::subkey_from_hash(&hash);
     assert_eq!(s1, s2, "same input should produce same subkey");

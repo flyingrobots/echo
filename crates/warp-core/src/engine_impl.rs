@@ -122,11 +122,26 @@ pub struct ExistingState {
 ///     .policy_id(42)
 ///     .build();
 /// ```
+///
+/// # Dependency Injection
+///
+/// For testing or custom configurations, you can inject a pre-configured
+/// [`MaterializationBus`]:
+///
+/// ```ignore
+/// let mut bus = MaterializationBus::new();
+/// bus.register_channel(ch, ChannelPolicy::StrictSingle);
+///
+/// let engine = EngineBuilder::new(store, root)
+///     .with_materialization_bus(bus)
+///     .build();
+/// ```
 pub struct EngineBuilder<Source> {
     source: Source,
     scheduler: SchedulerKind,
     policy_id: u32,
     telemetry: Option<Arc<dyn TelemetrySink>>,
+    bus: Option<MaterializationBus>,
 }
 
 impl EngineBuilder<FreshStore> {
@@ -136,12 +151,14 @@ impl EngineBuilder<FreshStore> {
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
     /// - Telemetry: [`NullTelemetrySink`]
+    /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn new(store: GraphStore, root: NodeId) -> Self {
         Self {
             source: FreshStore { store, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
             telemetry: None,
+            bus: None,
         }
     }
 
@@ -151,12 +168,14 @@ impl EngineBuilder<FreshStore> {
         let telemetry = self
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
-        Engine::with_telemetry(
+        let bus = self.bus.unwrap_or_default();
+        Engine::with_telemetry_and_bus(
             self.source.store,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
+            bus,
         )
     }
 }
@@ -168,12 +187,14 @@ impl EngineBuilder<ExistingState> {
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
     /// - Telemetry: [`NullTelemetrySink`]
+    /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn from_state(state: WarpState, root: NodeKey) -> Self {
         Self {
             source: ExistingState { state, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
             telemetry: None,
+            bus: None,
         }
     }
 
@@ -187,12 +208,14 @@ impl EngineBuilder<ExistingState> {
         let telemetry = self
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
-        Engine::with_state_and_telemetry(
+        let bus = self.bus.unwrap_or_default();
+        Engine::with_state_telemetry_and_bus(
             self.source.state,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
+            bus,
         )
     }
 }
@@ -220,6 +243,30 @@ impl<S> EngineBuilder<S> {
         self.telemetry = Some(sink);
         self
     }
+
+    /// Injects a custom [`MaterializationBus`] for dependency injection.
+    ///
+    /// This is useful for:
+    /// - Testing: Pre-registering channels with specific policies
+    /// - Custom configurations: Setting up channel policies before engine construction
+    ///
+    /// If not called, a fresh bus with no pre-registered channels is created.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut bus = MaterializationBus::new();
+    /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
+    ///
+    /// let engine = EngineBuilder::new(store, root)
+    ///     .with_materialization_bus(bus)
+    ///     .build();
+    /// ```
+    #[must_use]
+    pub fn with_materialization_bus(mut self, bus: MaterializationBus) -> Self {
+        self.bus = Some(bus);
+        self
+    }
 }
 
 // ============================================================================
@@ -244,6 +291,18 @@ impl<S> EngineBuilder<S> {
 /// let engine = EngineBuilder::new(store, root)
 ///     .scheduler(SchedulerKind::Radix)
 ///     .policy_id(42)
+///     .build();
+/// ```
+///
+/// For testing or custom configurations, inject a pre-configured
+/// [`MaterializationBus`]:
+///
+/// ```ignore
+/// let mut bus = MaterializationBus::new();
+/// bus.register_channel(ch, ChannelPolicy::StrictSingle);
+///
+/// let engine = EngineBuilder::new(store, root)
+///     .with_materialization_bus(bus)
 ///     .build();
 /// ```
 ///
@@ -345,7 +404,7 @@ impl Engine {
 
     /// Constructs a new engine with explicit telemetry sink.
     ///
-    /// This is the canonical constructor; all other constructors delegate here.
+    /// This constructor delegates to [`Engine::with_telemetry_and_bus`] with a fresh bus.
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
@@ -361,6 +420,37 @@ impl Engine {
         kind: SchedulerKind,
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
+    ) -> Self {
+        Self::with_telemetry_and_bus(
+            store,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            MaterializationBus::new(),
+        )
+    }
+
+    /// Constructs a new engine with explicit telemetry sink and materialization bus.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    pub fn with_telemetry_and_bus(
+        store: GraphStore,
+        root: NodeId,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
     ) -> Self {
         // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
         // Any pre-existing `warp_id` on the store is overwritten.
@@ -396,7 +486,7 @@ impl Engine {
             tick_history: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
-            bus: MaterializationBus::new(),
+            bus,
             last_materialization: Vec::new(),
             last_materialization_errors: Vec::new(),
         }
@@ -455,8 +545,7 @@ impl Engine {
 
     /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry.
     ///
-    /// This is the canonical constructor for existing state; [`Engine::with_state`] delegates here
-    /// with a null telemetry sink.
+    /// This constructor delegates to [`Engine::with_state_telemetry_and_bus`] with a fresh bus.
     ///
     /// # Errors
     ///
@@ -469,6 +558,42 @@ impl Engine {
         kind: SchedulerKind,
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
+    ) -> Result<Self, EngineError> {
+        Self::with_state_telemetry_and_bus(
+            state,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            MaterializationBus::new(),
+        )
+    }
+
+    /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry and bus.
+    ///
+    /// This is the canonical constructor for existing state; [`Engine::with_state`] and
+    /// [`Engine::with_state_and_telemetry`] delegate here.
+    ///
+    /// # Parameters
+    /// - `state`: Pre-constructed multi-instance state.
+    /// - `root`: The root node for snapshot hashing and commits.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp ID is not present in the state.
+    /// Returns [`EngineError::InternalCorruption`] if the root instance declares a parent
+    /// or if the root node does not match the instance's `root_node`.
+    pub fn with_state_telemetry_and_bus(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
     ) -> Result<Self, EngineError> {
         let Some(root_instance) = state.instance(&root.warp_id) else {
             return Err(EngineError::UnknownWarp(root.warp_id));
@@ -504,7 +629,7 @@ impl Engine {
             tick_history: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
-            bus: MaterializationBus::new(),
+            bus,
             last_materialization: Vec::new(),
             last_materialization_errors: Vec::new(),
         })

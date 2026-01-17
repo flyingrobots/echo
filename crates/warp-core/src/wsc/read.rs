@@ -127,6 +127,17 @@ pub enum ReadError {
         /// Length of the data table.
         data_len: usize,
     },
+
+    /// Node or edge ordering violation (must be sorted by ID).
+    #[error("{kind} ordering violation: id {current_id:?} is not greater than previous {previous_id:?}")]
+    OrderingViolation {
+        /// The kind of element (e.g., "node" or "edge").
+        kind: &'static str,
+        /// The previous ID.
+        previous_id: [u8; 32],
+        /// The current ID that violates ordering.
+        current_id: [u8; 32],
+    },
 }
 
 /// Validates that a byte slice contains a valid WSC header.
@@ -146,7 +157,7 @@ pub fn validate_header(data: &[u8]) -> Result<&WscHeader, ReadError> {
     }
 
     // Use bytemuck for safe transmutation
-    let header: &WscHeader = bytemuck::from_bytes(&data[..header_size]);
+    let header: &WscHeader = bytemuck::try_from_bytes(&data[..header_size])?;
 
     if header.magic != WscHeader::MAGIC_V1 {
         return Err(ReadError::InvalidMagic {

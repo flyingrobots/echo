@@ -48,15 +48,22 @@ fn validate_warp_view(
     // Validate node ordering (must be sorted by node_id for binary search)
     for window in nodes.windows(2) {
         if window[0].node_id >= window[1].node_id {
-            // Note: We could add a specific error type for ordering violations
-            // For now, we just document this as a validation requirement
+            return Err(ReadError::OrderingViolation {
+                kind: "node",
+                previous_id: window[0].node_id,
+                current_id: window[1].node_id,
+            });
         }
     }
 
     // Validate edge ordering (must be sorted by edge_id for binary search)
     for window in edges.windows(2) {
         if window[0].edge_id >= window[1].edge_id {
-            // Note: Could add specific error for ordering violations
+            return Err(ReadError::OrderingViolation {
+                kind: "edge",
+                previous_id: window[0].edge_id,
+                current_id: window[1].edge_id,
+            });
         }
     }
 

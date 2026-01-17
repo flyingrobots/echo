@@ -5,10 +5,21 @@
 use echo_dry_tests::build_motion_demo_engine;
 use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 
-/// Auto-generated codec and type definitions.
-pub mod generated;
+/// Auto-generated codec definitions.
+#[path = "codecs.generated.rs"]
+mod codecs;
+
+/// Schema content hash (BLAKE3) for the generated codecs module.
+///
+/// This 64-character hex string uniquely identifies the schema version used to
+/// generate the binary codecs. It is embedded in ELOG files for compatibility
+/// checking during replay.
+pub use codecs::SCHEMA_HASH;
 /// DIND test rules and state management.
 pub mod rules;
+/// Auto-generated type ID constants.
+#[path = "type_ids.generated.rs"]
+mod type_ids;
 
 use rules::{
     ball_physics_rule, drop_ball_rule, route_push_rule, set_theme_rule, toast_rule, toggle_nav_rule,

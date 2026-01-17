@@ -19,6 +19,7 @@ pub type Hash = [u8; 32];
 ///
 /// Tooling must not assume that every `NodeId` corresponds to a human-readable
 /// label, or that ids are reversible back into strings.
+#[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct NodeId(pub Hash);
@@ -35,20 +36,39 @@ impl NodeId {
 ///
 /// `TypeId` values are produced by [`make_type_id`] which hashes a label; using
 /// a dedicated wrapper prevents accidental mixing of node and type identifiers.
+#[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TypeId(pub Hash);
 
+impl TypeId {
+    /// Returns the canonical byte representation of this id.
+    #[must_use]
+    pub fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
 /// Identifier for a directed edge within the graph.
+#[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EdgeId(pub Hash);
 
+impl EdgeId {
+    /// Returns the canonical byte representation of this id.
+    #[must_use]
+    pub fn as_bytes(&self) -> &Hash {
+        &self.0
+    }
+}
+
 /// Strongly typed identifier for a WARP instance.
 ///
-/// A `WarpId` namespaces node/edge ids for Stage B1 “flattened indirection”
+/// A `WarpId` namespaces node/edge ids for Stage B1 "flattened indirection"
 /// descended attachments: nodes and edges live in instance-scoped graphs
 /// addressed by `(warp_id, local_id)`.
+#[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarpId(pub Hash);

@@ -64,6 +64,7 @@ If you’re building anything that benefits from “Git‑like” properties for
   - deterministic scheduler (radix drain ordering + footprint independence checks)
   - snapshot hashing (`state_root`) + commit hashing (`commit_id`)
   - deterministic math + PRNG (`math::{Vec3, Mat4, Quat, Prng}`)
+  - WSC (Write-Streaming Columnar) snapshot format (`wsc::*`) for zero-copy mmap access
 - `crates/warp-geom` — geometry primitives shared by engine/tools.
 
 ### Session + streaming pipeline

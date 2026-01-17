@@ -1,5 +1,8 @@
-// SPDX-License-Identifier: Apache-2.0
-// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+# WARP Graph Store
+
+```rust
 //! Minimal in-memory graph store used by the rewrite executor and tests.
 use std::collections::BTreeMap;
 
@@ -414,23 +417,18 @@ impl GraphStore {
     /// Computes a canonical hash of the entire graph state.
     ///
     /// This traversal is strictly deterministic:
-    /// 1. Header: `b"DIND_STATE_HASH_V2\0"`
-    /// 2. Node Count (u64 LE)
-    /// 3. Nodes (sorted by `NodeId`): `b"N\0"` + `NodeId` + `TypeId` + Attachment(if any)
-    /// 4. Edge Count (u64 LE)
-    /// 5. Edges (sorted by `EdgeId`): `b"E\0"` + `EdgeId` + From + To + Type + Attachment(if any)
-    ///
-    /// # V2 Changes
-    ///
-    /// V2 uses `u64` for all counts and lengths (node count, edge count, blob length)
-    /// to align with the WSC format and avoid truncation issues with large graphs.
-    #[must_use]
+    /// 1. Header: `b"DIND_STATE_HASH_V1\0"`
+    /// 2. Node Count (u32 LE)
+    /// 3. Nodes (sorted by NodeId): `b"N\0"` + `NodeId` + `TypeId` + Attachment(if any)
+    /// 4. Edge Count (u32 LE)
+    /// 5. Edges (sorted by EdgeId): `b"E\0"` + `EdgeId` + From + To + Type + Attachment(if any)
+    #[allow(clippy::cast_possible_truncation)]
     pub fn canonical_state_hash(&self) -> Hash {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"DIND_STATE_HASH_V2\0");
+        hasher.update(b"DIND_STATE_HASH_V1\0");
 
-        // 1. Nodes (u64 count)
-        hasher.update(&(self.nodes.len() as u64).to_le_bytes());
+        // 1. Nodes
+        hasher.update(&(self.nodes.len() as u32).to_le_bytes());
         for (node_id, record) in &self.nodes {
             hasher.update(b"N\0");
             hasher.update(&node_id.0);
@@ -444,12 +442,12 @@ impl GraphStore {
             }
         }
 
-        // 2. Edges (Global sort by EdgeId, u64 count)
+        // 2. Edges (Global sort by EdgeId)
         // We collect all edges first to sort them definitively.
         let mut all_edges: Vec<&EdgeRecord> = self.edges_from.values().flatten().collect();
         all_edges.sort_by_key(|e| e.id);
 
-        hasher.update(&(all_edges.len() as u64).to_le_bytes());
+        hasher.update(&(all_edges.len() as u32).to_le_bytes());
         for edge in all_edges {
             hasher.update(b"E\0");
             hasher.update(&edge.id.0);
@@ -468,13 +466,13 @@ impl GraphStore {
         *hasher.finalize().as_bytes()
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn hash_attachment(hasher: &mut blake3::Hasher, val: &AttachmentValue) {
         match val {
             AttachmentValue::Atom(atom) => {
                 hasher.update(b"ATOM"); // Tag
                 hasher.update(&atom.type_id.0);
-                // V2: u64 blob length
-                hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
+                hasher.update(&(atom.bytes.len() as u32).to_le_bytes());
                 hasher.update(&atom.bytes);
             }
             AttachmentValue::Descend(warp_id) => {
@@ -566,3 +564,651 @@ mod tests {
         assert_eq!(store.edges_to.get(&c), Some(&vec![e4]));
     }
 }
+```
+
+---
+
+Yep — your ident newtypes and GraphStore are compatible with the WSC design. We do not need to blow them up.
+
+There are only three changes I'd push, and they're all sane:
+
+1. Add #[repr(transparent)] to NodeId/EdgeId/TypeId/WarpId (so you can safely treat them as "just bytes" everywhere).
+2. Add as_bytes() for all IDs (you only have it on NodeId/WarpId right now).
+3. For hashing + snapshots: stop truncating lengths/counts to u32 (use u64), or create a *_V2 hash. Your current u32 length hashing is a time bomb.
+
+Everything else can remain as-is.
+
+⸻
+
+Minimal ident tweaks (recommended)
+
+```rust
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct TypeId(pub Hash);
+
+impl TypeId {
+  #[must_use] pub fn as_bytes(&self) -> &Hash { &self.0 }
+}
+
+// Do the same for EdgeId too:
+#[repr(transparent)]
+pub struct EdgeId(pub Hash);
+impl EdgeId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
+```
+
+That's it.
+
+⸻
+
+Build WSC tables from your GraphStore (the missing piece)
+
+Below is the concrete build_one_warp_input() that turns your in-memory GraphStore into the canonical slab tables my writer expects.
+
+Notes:
+
+- I'm not serializing edges_to, edge_index, edge_to_index. They're indexes, not state. We rebuild them during load/overlay anyway.
+- GraphStore doesn't store root_node_id, so this takes it as a parameter (you should store that at the "WarpInstance" layer, not inside GraphStore).
+- This supports your current "single attachment per node/edge" model (range 0/1). The format supports multiple later.
+
+```rust
+use std::collections::BTreeMap;
+
+use crate::attachment::AttachmentValue;
+use crate::ident::{EdgeId, NodeId, WarpId};
+use crate::record::{EdgeRecord, NodeRecord};
+
+// These are the WSC row types from the snapshot module:
+use warp_snapshot::wsc::types::{NodeRow, EdgeRow, Range, OutEdgeRef, AttRow};
+use warp_snapshot::wsc::write::OneWarpInput;
+
+pub fn build_one_warp_input(store: &crate::graph::GraphStore, root_node_id: NodeId) -> OneWarpInput<'static> {
+    // 1) NODES: already sorted by NodeId because BTreeMap
+    let nodes: Vec<(NodeId, NodeRecord)> = store
+        .nodes
+        .iter()
+        .map(|(id, rec)| (*id, rec.clone()))
+        .collect();
+
+    let node_rows: Vec<NodeRow> = nodes
+        .iter()
+        .map(|(id, rec)| NodeRow {
+            node_id: id.0,
+            node_type: rec.ty.0,
+        })
+        .collect();
+
+    // 2) EDGES: collect globally + sort by EdgeId (canonical)
+    let mut edges_all: Vec<EdgeRecord> = store.edges_from.values().flatten().cloned().collect();
+    edges_all.sort_by_key(|e| e.id);
+
+    let edge_rows: Vec<EdgeRow> = edges_all
+        .iter()
+        .map(|e| EdgeRow {
+            edge_id: e.id.0,
+            from_node_id: e.from.0,
+            to_node_id: e.to.0,
+            edge_type: e.ty.0,
+        })
+        .collect();
+
+    // Build EdgeId -> edge_ix map (deterministic builder uses BTreeMap)
+    let mut edge_ix: BTreeMap<EdgeId, u64> = BTreeMap::new();
+    for (ix, e) in edges_all.iter().enumerate() {
+        edge_ix.insert(e.id, ix as u64);
+    }
+
+    // 3) OUT_INDEX + OUT_EDGES (group by node order; within group sort by EdgeId)
+    let mut out_index: Vec<Range> = Vec::with_capacity(node_rows.len());
+    let mut out_edges: Vec<OutEdgeRef> = Vec::new();
+
+    for (node_id, _rec) in &nodes {
+        let start = out_edges.len() as u64;
+
+        // Pull this node's outgoing edges (in insertion order), then sort canonically by EdgeId.
+        let mut bucket: Vec<&EdgeRecord> = store.edges_from.get(node_id).map(|v| v.iter().collect()).unwrap_or_default();
+        bucket.sort_by_key(|e| e.id);
+
+        for e in bucket {
+            let ix = *edge_ix.get(&e.id).expect("edge_ix missing for edge in bucket");
+            out_edges.push(OutEdgeRef {
+                edge_ix_le: ix.to_le(),
+                edge_id: e.id.0,
+            });
+        }
+
+        let len = (out_edges.len() as u64) - start;
+        out_index.push(Range {
+            start_le: start.to_le(),
+            len_le: len.to_le(),
+        });
+    }
+
+    // 4) Attachments + blobs
+    let mut blobs: Vec<u8> = Vec::new();
+
+    let mut node_atts_index: Vec<Range> = Vec::with_capacity(node_rows.len());
+    let mut node_atts: Vec<AttRow> = Vec::new();
+
+    for (node_id, _rec) in &nodes {
+        let start = node_atts.len() as u64;
+
+        if let Some(att) = store.node_attachments.get(node_id) {
+            node_atts.push(att_to_row(att, &mut blobs));
+        }
+
+        let len = (node_atts.len() as u64) - start;
+        node_atts_index.push(Range { start_le: start.to_le(), len_le: len.to_le() });
+    }
+
+    let mut edge_atts_index: Vec<Range> = Vec::with_capacity(edge_rows.len());
+    let mut edge_atts: Vec<AttRow> = Vec::new();
+
+    for e in &edges_all {
+        let start = edge_atts.len() as u64;
+
+        if let Some(att) = store.edge_attachments.get(&e.id) {
+            edge_atts.push(att_to_row(att, &mut blobs));
+        }
+
+        let len = (edge_atts.len() as u64) - start;
+        edge_atts_index.push(Range { start_le: start.to_le(), len_le: len.to_le() });
+    }
+
+    OneWarpInput {
+        warp_id: store.warp_id.0,
+        root_node_id: root_node_id.0,
+
+        nodes: node_rows,
+        edges: edge_rows,
+
+        out_index,
+        out_edges,
+
+        node_atts_index,
+        node_atts,
+
+        edge_atts_index,
+        edge_atts,
+
+        blobs,
+    }
+}
+
+fn att_to_row(att: &AttachmentValue, blobs: &mut Vec<u8>) -> AttRow {
+    match att {
+        AttachmentValue::Atom(atom) => {
+            // 8-byte align blob starts (good for mmap + SIMD-y consumers)
+            align8(blobs);
+            let off = blobs.len() as u64;
+            let bytes: &[u8] = atom.bytes.as_ref();
+            blobs.extend_from_slice(bytes);
+            let len = bytes.len() as u64;
+
+            AttRow {
+                tag: 1,
+                reserved0: [0u8; 7],
+                type_or_warp: atom.type_id.0,
+                blob_off_le: off.to_le(),
+                blob_len_le: len.to_le(),
+            }
+        }
+        AttachmentValue::Descend(warp_id) => AttRow {
+            tag: 2,
+            reserved0: [0u8; 7],
+            type_or_warp: warp_id.0,
+            blob_off_le: 0u64.to_le(),
+            blob_len_le: 0u64.to_le(),
+        },
+    }
+}
+
+fn align8(v: &mut Vec<u8>) {
+    while v.len() % 8 != 0 {
+        v.push(0);
+    }
+}
+```
+
+That function is the bridge between your current spike store and the final WSC snapshot format.
+
+⸻
+
+Fix your canonical hash now (or version it)
+
+Right now you hash:
+
+- node/edge counts as u32
+- atom byte length as u32
+
+That’s fine for today, but it’s an unforced footgun. I’d do a v2:
+
+hasher.update(b"DIND_STATE_HASH_V2\0");
+hasher.update(&(self.nodes.len() as u64).to_le_bytes());
+// ...
+hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
+
+If you keep V1 for compatibility, great — just add V2 and move forward.
+
+⸻
+
+One more important note: ID-index sections
+
+Earlier I mentioned optional NODE_ID_INDEX / EDGE_ID_INDEX. With your IDs being BLAKE3 outputs, an all-zero key is theoretically possible (astronomically unlikely, but still). If you ever add open-addressing indexes-on-disk, don’t use “all zeros = empty slot” unless you also include an occupancy bitmap. For v1: skip the on-disk hash index and just binary search the sorted tables (fast enough and 100% clean).
+
+⸻
+
+If you want, I can now stitch this into the writer I gave you earlier so you can do:
+
+let input = build_one_warp_input(&store, root_node_id);
+let bytes = write_wsc_one_warp(input, schema_hash, tick)?;
+std::fs::write("state.wsc", bytes)?;
+let file = WscFile::open("state.wsc")?;
+let view = file.warp_view(0)?;
+
+…and then we add a “golden determinism” test that asserts the byte output is stable across permutations.
+
+---
+
+Awesome. Here’s the fully stitched path so you can go from your current GraphStore to a WSC file on disk and back to a zero-copy mmap view, plus tests that prove determinism.
+
+I'm going to make one simplification that helps a lot:
+
+- OneWarpInput should own its vectors (no lifetimes). That keeps the writer clean and avoids 'static hacks.
+
+⸻
+
+1. Minimal ident.rs upgrades (recommended)
+
+Do this so all IDs are "byte clean" everywhere:
+
+```rust
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct NodeId(pub Hash);
+impl NodeId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct EdgeId(pub Hash);
+impl EdgeId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct TypeId(pub Hash);
+impl TypeId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct WarpId(pub Hash);
+impl WarpId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
+```
+
+No behavior changes, just safer ABI expectations.
+
+⸻
+
+1. Add a wsc module (where it belongs)
+
+Put this in warp-core (or whatever crate defines GraphStore/AttachmentValue), e.g.
+
+```text
+crates/warp-core/src/wsc/
+  mod.rs
+  types.rs
+  read.rs
+  view.rs
+  validate.rs
+  write.rs
+  build.rs
+```
+
+wsc/mod.rs:
+
+```rust
+pub mod types;
+pub mod read;
+pub mod view;
+pub mod validate;
+pub mod write;
+pub mod build;
+
+pub use view::{WscFile, WarpView, AttachmentRef};
+pub use read::ReadError;
+```
+
+⸻
+
+1. Make OneWarpInput owned (fix the writer interface)
+
+In your wsc/write.rs, define:
+
+```rust
+use super::types::*;
+
+pub struct OneWarpInput {
+    pub warp_id: [u8; 32],
+    pub root_node_id: [u8; 32],
+
+    pub nodes: Vec<NodeRow>,
+    pub edges: Vec<EdgeRow>,
+
+    pub out_index: Vec<Range>,
+    pub out_edges: Vec<OutEdgeRef>,
+
+    pub node_atts_index: Vec<Range>,
+    pub node_atts: Vec<AttRow>,
+
+    pub edge_atts_index: Vec<Range>,
+    pub edge_atts: Vec<AttRow>,
+
+    pub blobs: Vec<u8>,
+}
+```
+
+Then write_wsc_one_warp(input: OneWarpInput, ...) stays the same, just without lifetimes.
+
+⸻
+
+1. The bridge: build_one_warp_input(&GraphStore, root_node_id)
+
+Put this in wsc/build.rs. This is the "money function" that turns your pointer-jungle into canonical slabs.
+
+```rust
+use std::collections::BTreeMap;
+
+use crate::attachment::AttachmentValue;
+use crate::graph::GraphStore;
+use crate::ident::{EdgeId, NodeId};
+use crate::record::EdgeRecord;
+
+use super::types::{AttRow, EdgeRow, NodeRow, OutEdgeRef, Range};
+use super::write::OneWarpInput;
+
+pub fn build_one_warp_input(store: &GraphStore, root_node_id: NodeId) -> OneWarpInput {
+    // NODES (already sorted)
+    let nodes: Vec<(NodeId, crate::record::NodeRecord)> =
+        store.nodes.iter().map(|(id, rec)| (*id, rec.clone())).collect();
+
+    let node_rows: Vec<NodeRow> = nodes
+        .iter()
+        .map(|(id, rec)| NodeRow {
+            node_id: id.0,
+            node_type: rec.ty.0,
+        })
+        .collect();
+
+    // EDGES (collect global, sort by EdgeId)
+    let mut edges_all: Vec<EdgeRecord> = store.edges_from.values().flatten().cloned().collect();
+    edges_all.sort_by_key(|e| e.id);
+
+    let edge_rows: Vec<EdgeRow> = edges_all
+        .iter()
+        .map(|e| EdgeRow {
+            edge_id: e.id.0,
+            from_node_id: e.from.0,
+            to_node_id: e.to.0,
+            edge_type: e.ty.0,
+        })
+        .collect();
+
+    // EdgeId -> edge_ix
+    let mut edge_ix: BTreeMap<EdgeId, u64> = BTreeMap::new();
+    for (ix, e) in edges_all.iter().enumerate() {
+        edge_ix.insert(e.id, ix as u64);
+    }
+
+    // OUT_INDEX / OUT_EDGES (node_ix order; bucket sorted by EdgeId)
+    let mut out_index: Vec<Range> = Vec::with_capacity(node_rows.len());
+    let mut out_edges: Vec<OutEdgeRef> = Vec::new();
+
+    for (node_id, _) in &nodes {
+        let start = out_edges.len() as u64;
+
+        let mut bucket: Vec<&EdgeRecord> = store
+            .edges_from
+            .get(node_id)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
+
+        bucket.sort_by_key(|e| e.id);
+
+        for e in bucket {
+            let ix = *edge_ix.get(&e.id).expect("edge_ix missing for edge");
+            out_edges.push(OutEdgeRef {
+                edge_ix_le: ix.to_le(),
+                edge_id: e.id.0,
+            });
+        }
+
+        let len = (out_edges.len() as u64) - start;
+        out_index.push(Range {
+            start_le: start.to_le(),
+            len_le: len.to_le(),
+        });
+    }
+
+    // Attachments + blobs
+    let mut blobs: Vec<u8> = Vec::new();
+
+    let mut node_atts_index: Vec<Range> = Vec::with_capacity(node_rows.len());
+    let mut node_atts: Vec<AttRow> = Vec::new();
+
+    for (node_id, _) in &nodes {
+        let start = node_atts.len() as u64;
+
+        if let Some(att) = store.node_attachments.get(node_id) {
+            node_atts.push(att_to_row(att, &mut blobs));
+        }
+
+        let len = (node_atts.len() as u64) - start;
+        node_atts_index.push(Range {
+            start_le: start.to_le(),
+            len_le: len.to_le(),
+        });
+    }
+
+    let mut edge_atts_index: Vec<Range> = Vec::with_capacity(edge_rows.len());
+    let mut edge_atts: Vec<AttRow> = Vec::new();
+
+    for e in &edges_all {
+        let start = edge_atts.len() as u64;
+
+        if let Some(att) = store.edge_attachments.get(&e.id) {
+            edge_atts.push(att_to_row(att, &mut blobs));
+        }
+
+        let len = (edge_atts.len() as u64) - start;
+        edge_atts_index.push(Range {
+            start_le: start.to_le(),
+            len_le: len.to_le(),
+        });
+    }
+
+    OneWarpInput {
+        warp_id: store.warp_id.0,
+        root_node_id: root_node_id.0,
+
+        nodes: node_rows,
+        edges: edge_rows,
+
+        out_index,
+        out_edges,
+
+        node_atts_index,
+        node_atts,
+
+        edge_atts_index,
+        edge_atts,
+
+        blobs,
+    }
+}
+
+fn att_to_row(att: &AttachmentValue, blobs: &mut Vec<u8>) -> AttRow {
+    match att {
+        AttachmentValue::Atom(atom) => {
+            align8(blobs);
+            let off = blobs.len() as u64;
+            let bytes: &[u8] = atom.bytes.as_ref();
+            blobs.extend_from_slice(bytes);
+            let len = bytes.len() as u64;
+
+            AttRow {
+                tag: 1,
+                reserved0: [0u8; 7],
+                type_or_warp: atom.type_id.0,
+                blob_off_le: off.to_le(),
+                blob_len_le: len.to_le(),
+            }
+        }
+        AttachmentValue::Descend(warp_id) => AttRow {
+            tag: 2,
+            reserved0: [0u8; 7],
+            type_or_warp: warp_id.0,
+            blob_off_le: 0u64.to_le(),
+            blob_len_le: 0u64.to_le(),
+        },
+    }
+}
+
+fn align8(v: &mut Vec<u8>) {
+    while v.len() % 8 != 0 {
+        v.push(0);
+    }
+}
+```
+
+⸻
+
+1. One-liner convenience API
+
+Add this helper (e.g. wsc/mod.rs or wsc/write.rs):
+
+```rust
+use std::io;
+use std::path::Path;
+
+use crate::graph::GraphStore;
+use crate::ident::NodeId;
+
+use super::build::build_one_warp_input;
+use super::write::write_wsc_one_warp;
+
+pub fn save_wsc(
+    path: impl AsRef<Path>,
+    store: &GraphStore,
+    root_node_id: NodeId,
+    schema_hash: [u8; 32],
+    tick: u64,
+) -> io::Result<()> {
+    let input = build_one_warp_input(store, root_node_id);
+    let bytes = write_wsc_one_warp(input, schema_hash, tick)?;
+    std::fs::write(path, bytes)
+}
+```
+
+Now you can call:
+
+```rust
+save_wsc("state.wsc", &store, root_node_id, schema_hash, tick)?;
+```
+
+⸻
+
+1. Determinism tests (this is the “don’t lie to yourself” suite)
+
+5.1 Snapshot bytes identical across insertion order
+
+```rust
+#[test]
+fn wsc_bytes_stable_across_edge_insertion_order() {
+    use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
+    use crate::record::{EdgeRecord, NodeRecord};
+
+    let node_ty = make_type_id("node");
+    let edge_ty = make_type_id("edge");
+    let warp = make_warp_id("root");
+
+    let a = make_node_id("a");
+    let b = make_node_id("b");
+    let c = make_node_id("c");
+
+    let e1 = make_edge_id("a->b");
+    let e2 = make_edge_id("a->c");
+    let e3 = make_edge_id("c->b");
+
+    let mut s1 = crate::graph::GraphStore::new(warp);
+    for n in [a,b,c] { s1.insert_node(n, NodeRecord { ty: node_ty }); }
+    // insert edges in one order
+    s1.insert_edge(a, EdgeRecord { id: e1, from: a, to: b, ty: edge_ty });
+    s1.insert_edge(a, EdgeRecord { id: e2, from: a, to: c, ty: edge_ty });
+    s1.insert_edge(c, EdgeRecord { id: e3, from: c, to: b, ty: edge_ty });
+
+    let mut s2 = crate::graph::GraphStore::new(warp);
+    for n in [a,b,c] { s2.insert_node(n, NodeRecord { ty: node_ty }); }
+    // insert edges in a different order
+    s2.insert_edge(c, EdgeRecord { id: e3, from: c, to: b, ty: edge_ty });
+    s2.insert_edge(a, EdgeRecord { id: e2, from: a, to: c, ty: edge_ty });
+    s2.insert_edge(a, EdgeRecord { id: e1, from: a, to: b, ty: edge_ty });
+
+    let schema_hash = [0u8; 32];
+    let tick = 0;
+
+    let bytes1 = crate::wsc::write::write_wsc_one_warp(
+        crate::wsc::build::build_one_warp_input(&s1, a),
+        schema_hash,
+        tick,
+    ).unwrap();
+
+    let bytes2 = crate::wsc::write::write_wsc_one_warp(
+        crate::wsc::build::build_one_warp_input(&s2, a),
+        schema_hash,
+        tick,
+    ).unwrap();
+
+    assert_eq!(bytes1, bytes2, "WSC bytes must be canonical");
+}
+```
+
+5.2 Roundtrip: reopen via mmap and validate invariants
+
+This assumes you've wired up WscFile::open() + validate_wsc() (from earlier).
+
+```rust
+#[test]
+fn wsc_roundtrip_open_and_validate() {
+    use crate::ident::{make_node_id, make_type_id, make_warp_id};
+    use crate::record::NodeRecord;
+
+    let warp = make_warp_id("root");
+    let node_ty = make_type_id("node");
+
+    let a = make_node_id("a");
+    let mut store = crate::graph::GraphStore::new(warp);
+    store.insert_node(a, NodeRecord { ty: node_ty });
+
+    let schema_hash = [0u8; 32];
+    let bytes = crate::wsc::write::write_wsc_one_warp(
+        crate::wsc::build::build_one_warp_input(&store, a),
+        schema_hash,
+        0,
+    ).unwrap();
+
+    let path = std::env::temp_dir().join("test_state.wsc");
+    std::fs::write(&path, &bytes).unwrap();
+
+    let file = crate::wsc::WscFile::open(&path).unwrap();
+    let view = file.warp_view(0).unwrap();
+
+    // Basic sanity
+    assert_eq!(view.nodes().len(), 1);
+    assert!(view.node_ix(&a.0).is_some());
+}
+```
+
+⸻
+
+1. (Strongly recommended) Version your canonical hash
+
+Keep DIND_STATE_HASH_V1 but add V2 using u64 counts/lengths. That way your “snapshot hash” and “state hash” won’t diverge later for stupid reasons.

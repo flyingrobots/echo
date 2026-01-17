@@ -95,7 +95,9 @@ pub enum ReadError {
     },
 
     /// Blob reference out of bounds.
-    #[error("blob reference out of bounds: offset {offset}, length {length}, blob section size {blob_size}")]
+    #[error(
+        "blob reference out of bounds: offset {offset}, length {length}, blob section size {blob_size}"
+    )]
     BlobOutOfBounds {
         /// Blob offset.
         offset: u64,
@@ -129,7 +131,9 @@ pub enum ReadError {
     },
 
     /// Node or edge ordering violation (must be sorted by ID).
-    #[error("{kind} ordering violation: id {current_id:?} is not greater than previous {previous_id:?}")]
+    #[error(
+        "{kind} ordering violation: id {current_id:?} is not greater than previous {previous_id:?}"
+    )]
     OrderingViolation {
         /// The kind of element (e.g., "node" or "edge").
         kind: &'static str,
@@ -262,5 +266,23 @@ mod tests {
         data[0..8].copy_from_slice(&WscHeader::MAGIC_V1);
         let header = validate_header(&data).unwrap();
         assert_eq!(header.magic, WscHeader::MAGIC_V1);
+    }
+
+    #[test]
+    fn validate_header_handles_misaligned_input() {
+        // Create a buffer larger than WscHeader (128 bytes) with room for offset
+        let mut buffer = vec![0u8; 256];
+
+        // Write MAGIC_V1 starting at offset 1 (misaligned)
+        buffer[1..9].copy_from_slice(&WscHeader::MAGIC_V1);
+
+        // Take a slice from offset 1
+        let misaligned_slice = &buffer[1..];
+
+        // Call validate_header with misaligned slice
+        let result = validate_header(misaligned_slice);
+
+        // Assert it returns Err(ReadError::Alignment(_))
+        assert!(matches!(result, Err(ReadError::Alignment(_))));
     }
 }

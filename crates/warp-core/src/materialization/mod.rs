@@ -8,19 +8,18 @@
 //!
 //! # Order Independence (Confluence Safety)
 //!
-//! Emissions are keyed by [`EmitKey`], which is derived from the scheduler's canonical
+//! Emissions are keyed by [`EmitKey`](crate::materialization::EmitKey), which is derived from the scheduler's canonical
 //! ordering (scope_hash, rule_id, nonce). This ensures that the finalized output is
 //! deterministic regardless of the order in which rules execute — a critical property
 //! for confluence-safe parallel rewriting.
 //!
 //! # Channel Policies
 //!
-//! Each channel can be configured with a [`ChannelPolicy`]:
+//! Each channel can be configured with a [`ChannelPolicy`](crate::materialization::ChannelPolicy):
 //!
-//! - [`Snapshot`](ChannelPolicy::Snapshot): Single value per tick (max EmitKey wins)
-//! - [`SnapshotStrict`](ChannelPolicy::SnapshotStrict): Same, but error on conflict
-//! - [`Log`](ChannelPolicy::Log): All emissions in EmitKey order
-//! - [`Reduce`](ChannelPolicy::Reduce): Fold via join function
+//! - [`Log`](crate::materialization::ChannelPolicy::Log): All emissions preserved in EmitKey order (default)
+//! - [`StrictSingle`](crate::materialization::ChannelPolicy::StrictSingle): Error if more than one emission
+//! - [`Reduce`](crate::materialization::ChannelPolicy::Reduce): Merge via a reduce operation
 //!
 //! # Architecture
 //!

@@ -272,7 +272,7 @@ pub struct Engine {
     initial_state: WarpState,
     /// Materialization bus for tick-scoped channel emissions.
     ///
-    /// Rules emit to channels via [`ScopedEmitter`] during execution. The bus
+    /// Rules emit to channels via [`ScopedEmitter`](crate::materialization::ScopedEmitter) during execution. The bus
     /// collects emissions and finalizes them post-commit according to each
     /// channel's policy.
     bus: MaterializationBus,
@@ -1176,7 +1176,7 @@ impl Engine {
     /// Returns a shared reference to the materialization bus.
     ///
     /// The bus collects emissions from rewrite rules during a tick. Rules emit
-    /// via [`ScopedEmitter`] adapters that auto-construct [`EmitKey`]s from
+    /// via [`ScopedEmitter`](crate::materialization::ScopedEmitter) adapters that auto-construct [`EmitKey`](crate::materialization::EmitKey)s from
     /// execution context.
     #[must_use]
     pub fn materialization_bus(&self) -> &MaterializationBus {

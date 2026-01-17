@@ -555,37 +555,6 @@ fn reduce_first_picks_smallest_key_value() {
 }
 
 // =============================================================================
-// PERMUTATION HELPER: Reusable runner for policy tests
-// =============================================================================
-
-/// Run permutation invariance test for any policy.
-/// Returns the reference bytes for further assertions.
-#[allow(dead_code)]
-fn run_permutation_invariance(
-    emissions: Vec<Emission>,
-    _policy_setup: impl Fn(&mut MaterializationBus),
-) -> Vec<u8> {
-    let mut emissions = emissions;
-
-    let reference = {
-        let mut bus = mk_bus();
-        _policy_setup(&mut bus);
-        emit_all(&bus, &emissions);
-        finalize_bytes(&bus)
-    };
-
-    for_each_permutation(&mut emissions, |perm| {
-        let mut bus = mk_bus();
-        _policy_setup(&mut bus);
-        emit_all(&bus, perm);
-        let out = finalize_bytes(&bus);
-        assert_bytes_eq("policy permutation invariance", &reference, &out);
-    });
-
-    reference
-}
-
-// =============================================================================
 // SPEC GUARDRAIL: EmitKey computable from executor context
 // =============================================================================
 

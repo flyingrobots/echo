@@ -19,7 +19,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 mod common;
-use common::{key, key_sub};
+use common::{for_each_permutation, h, key, key_sub};
 
 use warp_core::materialization::{
     decode_frames, encode_frames, make_channel_id, ChannelId, ChannelPolicy, EmitKey,
@@ -158,12 +158,6 @@ fn frame_rejects_payload_too_small() {
 #[test]
 fn emit_key_total_order_is_stable() {
     use std::collections::BTreeMap;
-
-    fn h(n: u8) -> [u8; 32] {
-        let mut bytes = [0u8; 32];
-        bytes[31] = n;
-        bytes
-    }
 
     // Create keys in "wrong" order
     let keys = [
@@ -582,34 +576,13 @@ fn replay_is_stable() {
 // TIER 3: PERMUTATION TESTS (J)
 // =============================================================================
 
-/// Generate all permutations of a slice.
-fn permutations<T: Clone>(items: &[T]) -> Vec<Vec<T>> {
-    if items.is_empty() {
-        return vec![vec![]];
-    }
-    if items.len() == 1 {
-        return vec![vec![items[0].clone()]];
-    }
-
-    let mut result = Vec::new();
-    for i in 0..items.len() {
-        let mut rest: Vec<T> = items.to_vec();
-        let item = rest.remove(i);
-        for mut perm in permutations(&rest) {
-            perm.insert(0, item.clone());
-            result.push(perm);
-        }
-    }
-    result
-}
-
 /// Exhaustive permutation test for N=4 emissions.
 #[test]
 fn permutation_suite_n4_is_order_independent() {
     let ch = make_channel_id("test:perm4");
 
     // 4 emissions with distinct keys
-    let emissions: Vec<(EmitKey, Vec<u8>)> = vec![
+    let mut emissions: Vec<(EmitKey, Vec<u8>)> = vec![
         (key(1, 1), vec![0x11]),
         (key(1, 2), vec![0x12]),
         (key(2, 1), vec![0x21]),
@@ -623,25 +596,25 @@ fn permutation_suite_n4_is_order_independent() {
     }
     let ref_report = ref_bus.finalize();
     assert!(ref_report.is_ok());
-    let ref_data = &ref_report.channels[0].data;
+    let ref_data = ref_report.channels[0].data.clone();
 
-    // Test all 4! = 24 permutations
-    let perms = permutations(&emissions);
-    assert_eq!(perms.len(), 24);
-
-    for (i, perm) in perms.iter().enumerate() {
+    // Test all 4! = 24 permutations using in-place Heap's algorithm
+    let mut perm_count = 0usize;
+    for_each_permutation(&mut emissions, |perm| {
         let bus = MaterializationBus::new();
         for (k, d) in perm {
             bus.emit(ch, *k, d.clone()).expect("emit");
         }
         let report = bus.finalize();
-        assert!(!report.has_errors(), "perm {}", i);
+        assert!(!report.has_errors(), "perm {}", perm_count);
         assert_eq!(
-            &report.channels[0].data, ref_data,
+            &report.channels[0].data, &ref_data,
             "permutation {} should match reference",
-            i
+            perm_count
         );
-    }
+        perm_count += 1;
+    });
+    assert_eq!(perm_count, 24);
 }
 
 /// Exhaustive permutation test with subkeys.
@@ -650,7 +623,7 @@ fn permutation_suite_with_subkeys() {
     let ch = make_channel_id("test:perm-subkey");
 
     // Same (scope, rule) but different subkeys
-    let emissions: Vec<(EmitKey, Vec<u8>)> = vec![
+    let mut emissions: Vec<(EmitKey, Vec<u8>)> = vec![
         (key_sub(1, 1, 2), vec![0x02]),
         (key_sub(1, 1, 0), vec![0x00]),
         (key_sub(1, 1, 1), vec![0x01]),
@@ -663,25 +636,25 @@ fn permutation_suite_with_subkeys() {
     }
     let ref_report = ref_bus.finalize();
     assert!(ref_report.is_ok());
-    let ref_data = &ref_report.channels[0].data;
+    let ref_data = ref_report.channels[0].data.clone();
 
-    // All 3! = 6 permutations
-    let perms = permutations(&emissions);
-    assert_eq!(perms.len(), 6);
-
-    for (i, perm) in perms.iter().enumerate() {
+    // All 3! = 6 permutations using in-place Heap's algorithm
+    let mut perm_count = 0usize;
+    for_each_permutation(&mut emissions, |perm| {
         let bus = MaterializationBus::new();
         for (k, d) in perm {
             bus.emit(ch, *k, d.clone()).expect("emit");
         }
         let report = bus.finalize();
-        assert!(!report.has_errors(), "perm {}", i);
+        assert!(!report.has_errors(), "perm {}", perm_count);
         assert_eq!(
-            &report.channels[0].data, ref_data,
+            &report.channels[0].data, &ref_data,
             "permutation {} should match",
-            i
+            perm_count
         );
-    }
+        perm_count += 1;
+    });
+    assert_eq!(perm_count, 6);
 }
 
 /// Permutation test for multiple channels.
@@ -691,7 +664,7 @@ fn permutation_suite_multi_channel() {
     let ch_b = make_channel_id("test:perm-ch-b");
 
     // Emissions to two channels
-    let emissions: Vec<(ChannelId, EmitKey, Vec<u8>)> = vec![
+    let mut emissions: Vec<(ChannelId, EmitKey, Vec<u8>)> = vec![
         (ch_a, key(1, 1), vec![0xA1]),
         (ch_b, key(1, 1), vec![0xB1]),
         (ch_a, key(2, 1), vec![0xA2]),
@@ -706,32 +679,39 @@ fn permutation_suite_multi_channel() {
     let ref_report = ref_bus.finalize();
     assert!(ref_report.is_ok());
 
-    // All 4! = 24 permutations
-    let perms = permutations(&emissions);
-    assert_eq!(perms.len(), 24);
+    // Clone reference channels for comparison in closure
+    let ref_channels: Vec<_> = ref_report
+        .channels
+        .iter()
+        .map(|c| (c.channel, c.data.clone()))
+        .collect();
 
-    for (i, perm) in perms.iter().enumerate() {
+    // All 4! = 24 permutations using in-place Heap's algorithm
+    let mut perm_count = 0usize;
+    for_each_permutation(&mut emissions, |perm| {
         let bus = MaterializationBus::new();
         for (c, k, d) in perm {
             bus.emit(*c, *k, d.clone()).expect("emit");
         }
         let report = bus.finalize();
-        assert!(!report.has_errors(), "perm {}", i);
+        assert!(!report.has_errors(), "perm {}", perm_count);
 
         // Must have same number of channels
         assert_eq!(
             report.channels.len(),
-            ref_report.channels.len(),
+            ref_channels.len(),
             "perm {} channel count",
-            i
+            perm_count
         );
 
         // Each channel's data must match
-        for (r, rr) in report.channels.iter().zip(ref_report.channels.iter()) {
-            assert_eq!(r.channel, rr.channel, "perm {} channel id", i);
-            assert_eq!(r.data, rr.data, "perm {} channel data", i);
+        for (r, (ref_ch, ref_data)) in report.channels.iter().zip(ref_channels.iter()) {
+            assert_eq!(r.channel, *ref_ch, "perm {} channel id", perm_count);
+            assert_eq!(r.data, *ref_data, "perm {} channel data", perm_count);
         }
-    }
+        perm_count += 1;
+    });
+    assert_eq!(perm_count, 24);
 }
 
 // =============================================================================

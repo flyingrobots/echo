@@ -4,6 +4,14 @@
 
 use warp_core::{Engine, GraphStore, NodeId};
 
+/// Compute the snapshot hash for a graph rooted at the given node.
+///
+/// Constructs an [`Engine`] from the provided `store` and `root`, then
+/// returns the 32-byte hash of its current snapshot.
+///
+/// # Panics
+///
+/// Panics if the `root` node does not exist in `store`.
 pub fn snapshot_hash_of(store: GraphStore, root: NodeId) -> [u8; 32] {
     let engine = Engine::new(store, root);
     engine.snapshot().hash

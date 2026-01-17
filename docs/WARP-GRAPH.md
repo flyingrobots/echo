@@ -1,5 +1,9 @@
+# WARP Graph Store
+
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+```rust
 //! Minimal in-memory graph store used by the rewrite executor and tests.
 use std::collections::BTreeMap;
 
@@ -561,15 +565,17 @@ mod tests {
         assert_eq!(store.edges_to.get(&c), Some(&vec![e4]));
     }
 }
+```
 
 ---
 
 Yep — your ident newtypes and GraphStore are compatible with the WSC design. We do not need to blow them up.
 
-There are only three changes I’d push, and they’re all sane:
-	1.	Add #[repr(transparent)] to NodeId/EdgeId/TypeId/WarpId (so you can safely treat them as “just bytes” everywhere).
-	2.	Add as_bytes() for all IDs (you only have it on NodeId/WarpId right now).
-	3.	For hashing + snapshots: stop truncating lengths/counts to u32 (use u64), or create a *_V2 hash. Your current u32 length hashing is a time bomb.
+There are only three changes I'd push, and they're all sane:
+
+1. Add #[repr(transparent)] to NodeId/EdgeId/TypeId/WarpId (so you can safely treat them as "just bytes" everywhere).
+2. Add as_bytes() for all IDs (you only have it on NodeId/WarpId right now).
+3. For hashing + snapshots: stop truncating lengths/counts to u32 (use u64), or create a *_V2 hash. Your current u32 length hashing is a time bomb.
 
 Everything else can remain as-is.
 
@@ -599,9 +605,10 @@ Build WSC tables from your GraphStore (the missing piece)
 Below is the concrete build_one_warp_input() that turns your in-memory GraphStore into the canonical slab tables my writer expects.
 
 Notes:
-	•	I’m not serializing edges_to, edge_index, edge_to_index. They’re indexes, not state. We rebuild them during load/overlay anyway.
-	•	GraphStore doesn’t store root_node_id, so this takes it as a parameter (you should store that at the “WarpInstance” layer, not inside GraphStore).
-	•	This supports your current “single attachment per node/edge” model (range 0/1). The format supports multiple later.
+
+- I'm not serializing edges_to, edge_index, edge_to_index. They're indexes, not state. We rebuild them during load/overlay anyway.
+- GraphStore doesn't store root_node_id, so this takes it as a parameter (you should store that at the "WarpInstance" layer, not inside GraphStore).
+- This supports your current "single attachment per node/edge" model (range 0/1). The format supports multiple later.
 
 use std::collections::BTreeMap;
 
@@ -767,8 +774,9 @@ That function is the bridge between your current spike store and the final WSC s
 Fix your canonical hash now (or version it)
 
 Right now you hash:
-	•	node/edge counts as u32
-	•	atom byte length as u32
+
+- node/edge counts as u32
+- atom byte length as u32
 
 That’s fine for today, but it’s an unforced footgun. I’d do a v2:
 
@@ -801,8 +809,9 @@ let view = file.warp_view(0)?;
 
 Awesome. Here’s the fully stitched path so you can go from your current GraphStore to a WSC file on disk and back to a zero-copy mmap view, plus tests that prove determinism.
 
-I’m going to make one simplification that helps a lot:
-	•	OneWarpInput should own its vectors (no lifetimes). That keeps the writer clean and avoids 'static hacks.
+I'm going to make one simplification that helps a lot:
+
+- OneWarpInput should own its vectors (no lifetimes). That keeps the writer clean and avoids 'static hacks.
 
 ⸻
 

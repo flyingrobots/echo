@@ -22,6 +22,9 @@ else
   SCRIPT="$SCRIPT_DIR/pre-push-parallel"
 fi
 
+# Check if any Rust files are being pushed
+RUST_CHANGES=$(git diff --name-only origin/HEAD..HEAD 2>/dev/null | grep -E '\.(rs|toml)$' | head -1 || true)
+
 echo "📊 pre-push benchmark: running $VARIANT (#$((COUNT + 1)))"
 
 # Time the run
@@ -30,13 +33,14 @@ START=$(date +%s.%N)
 RC=$?
 END=$(date +%s.%N)
 
-# Calculate duration
-DURATION=$(echo "$END - $START" | bc)
-
-# Log result
-TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo "{\"ts\":\"$TIMESTAMP\",\"variant\":\"$VARIANT\",\"duration\":$DURATION,\"exit\":$RC}" >> "$LOGFILE"
-
-echo "📊 $VARIANT completed in ${DURATION}s (logged to $LOGFILE)"
+# Only log timing if Rust files changed (otherwise data is meaningless)
+if [[ -n "$RUST_CHANGES" ]]; then
+  DURATION=$(echo "$END - $START" | bc)
+  TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  echo "{\"ts\":\"$TIMESTAMP\",\"variant\":\"$VARIANT\",\"duration\":$DURATION,\"exit\":$RC}" >> "$LOGFILE"
+  echo "📊 $VARIANT completed in ${DURATION}s (logged to $LOGFILE)"
+else
+  echo "📊 $VARIANT completed (no Rust changes, timing not logged)"
+fi
 
 exit $RC

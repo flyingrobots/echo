@@ -38,6 +38,10 @@ fn validate_warp_view(
     view: &super::view::WarpView<'_>,
     warp_index: usize,
 ) -> Result<(), ReadError> {
+    // Validate index ranges first - this catches corrupted index tables
+    // that would otherwise be silently masked by accessors returning empty slices
+    view.validate_index_ranges()?;
+
     let nodes = view.nodes();
     let edges = view.edges();
 
@@ -212,5 +216,85 @@ mod tests {
         let file = WscFile::from_bytes(bytes).unwrap();
 
         validate_wsc(&file).unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_out_of_bounds_node_atts_range() {
+        // Create a file where node_atts_index points past node_atts
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32],
+                node_type: [2u8; 32],
+            }],
+            edges: vec![],
+            out_index: vec![Range::default()],
+            out_edges: vec![],
+            // Range points to indices 0..5, but node_atts is empty
+            node_atts_index: vec![Range {
+                start_le: 0u64.to_le(),
+                len_le: 5u64.to_le(),
+            }],
+            node_atts: vec![], // Empty! Range extends past this
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ReadError::IndexRangeOutOfBounds {
+                    index_name: "node_atts_index",
+                    ..
+                }
+            ),
+            "expected IndexRangeOutOfBounds for node_atts_index, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_out_of_bounds_out_index_range() {
+        // Create a file where out_index points past out_edges
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32],
+                node_type: [2u8; 32],
+            }],
+            edges: vec![],
+            // Range points to indices 10..13, but out_edges is empty
+            out_index: vec![Range {
+                start_le: 10u64.to_le(),
+                len_le: 3u64.to_le(),
+            }],
+            out_edges: vec![], // Empty! Range extends past this
+            node_atts_index: vec![Range::default()],
+            node_atts: vec![],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ReadError::IndexRangeOutOfBounds {
+                    index_name: "out_index",
+                    ..
+                }
+            ),
+            "expected IndexRangeOutOfBounds for out_index, got: {err:?}"
+        );
     }
 }

@@ -350,6 +350,68 @@ impl<'a> WarpView<'a> {
     pub fn raw_data(&self) -> &[u8] {
         self.data
     }
+
+    /// Validates that all index ranges are within bounds of their data tables.
+    ///
+    /// This is called by [`validate_wsc`](super::validate::validate_wsc) to detect
+    /// corrupted index tables that would otherwise be silently masked by the
+    /// accessors returning empty slices.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::IndexRangeOutOfBounds`] if any range extends past
+    /// its data table.
+    pub fn validate_index_ranges(&self) -> Result<(), ReadError> {
+        // Validate out_index ranges against out_edges
+        for (i, range) in self.out_index.iter().enumerate() {
+            let start = range.start();
+            let end = start.saturating_add(range.len());
+            if end > self.out_edges.len() as u64 {
+                return Err(ReadError::IndexRangeOutOfBounds {
+                    index_name: "out_index",
+                    entry_index: i,
+                    start,
+                    end,
+                    data_name: "out_edges",
+                    data_len: self.out_edges.len(),
+                });
+            }
+        }
+
+        // Validate node_atts_index ranges against node_atts
+        for (i, range) in self.node_atts_index.iter().enumerate() {
+            let start = range.start();
+            let end = start.saturating_add(range.len());
+            if end > self.node_atts.len() as u64 {
+                return Err(ReadError::IndexRangeOutOfBounds {
+                    index_name: "node_atts_index",
+                    entry_index: i,
+                    start,
+                    end,
+                    data_name: "node_atts",
+                    data_len: self.node_atts.len(),
+                });
+            }
+        }
+
+        // Validate edge_atts_index ranges against edge_atts
+        for (i, range) in self.edge_atts_index.iter().enumerate() {
+            let start = range.start();
+            let end = start.saturating_add(range.len());
+            if end > self.edge_atts.len() as u64 {
+                return Err(ReadError::IndexRangeOutOfBounds {
+                    index_name: "edge_atts_index",
+                    entry_index: i,
+                    start,
+                    end,
+                    data_name: "edge_atts",
+                    data_len: self.edge_atts.len(),
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Reference to an attachment value with blob access.

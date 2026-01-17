@@ -108,6 +108,25 @@ pub enum ReadError {
     /// Data not properly aligned for the target type.
     #[error("alignment error: {0}")]
     Alignment(#[from] bytemuck::PodCastError),
+
+    /// Index range extends past its data table.
+    #[error(
+        "{index_name}[{entry_index}] range ({start}..{end}) exceeds {data_name} length {data_len}"
+    )]
+    IndexRangeOutOfBounds {
+        /// Name of the index table.
+        index_name: &'static str,
+        /// Entry position within the index table.
+        entry_index: usize,
+        /// Range start.
+        start: u64,
+        /// Range end (start + len).
+        end: u64,
+        /// Name of the data table.
+        data_name: &'static str,
+        /// Length of the data table.
+        data_len: usize,
+    },
 }
 
 /// Validates that a byte slice contains a valid WSC header.

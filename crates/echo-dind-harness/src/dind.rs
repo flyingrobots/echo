@@ -107,7 +107,7 @@ pub struct Golden {
     pub elog_version: u16,
     /// Hex-encoded schema hash identifying the codec version.
     pub schema_hash_hex: String,
-    /// Hash domain identifier (e.g., "DIND_STATE_HASH_V1").
+    /// Hash domain identifier (e.g., "DIND_STATE_HASH_V2").
     pub hash_domain: String,
     /// Hash algorithm name (e.g., "BLAKE3").
     pub hash_alg: String,
@@ -149,7 +149,7 @@ pub fn create_repro_bundle(
     let actual_golden = Golden {
         elog_version: 1,
         schema_hash_hex: hex::encode(header.schema_hash),
-        hash_domain: "DIND_STATE_HASH_V1".to_string(),
+        hash_domain: "DIND_STATE_HASH_V2".to_string(),
         hash_alg: "BLAKE3".to_string(),
         hashes_hex: actual_hashes.to_vec(),
     };
@@ -271,7 +271,7 @@ pub fn entrypoint() -> Result<()> {
             let golden = Golden {
                 elog_version: 1,
                 schema_hash_hex: hex::encode(header.schema_hash),
-                hash_domain: "DIND_STATE_HASH_V1".to_string(),
+                hash_domain: "DIND_STATE_HASH_V2".to_string(),
                 hash_alg: "BLAKE3".to_string(),
                 hashes_hex: hashes,
             };
@@ -298,7 +298,7 @@ pub fn entrypoint() -> Result<()> {
             let baseline_golden = Golden {
                 elog_version: 1,
                 schema_hash_hex: hex::encode(header.schema_hash),
-                hash_domain: "DIND_STATE_HASH_V1".to_string(),
+                hash_domain: "DIND_STATE_HASH_V2".to_string(),
                 hash_alg: "BLAKE3".to_string(),
                 hashes_hex: baseline_hashes.clone(),
             };

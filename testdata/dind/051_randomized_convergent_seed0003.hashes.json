@@ -1,7 +1,7 @@
 {
   "elog_version": 1,
   "schema_hash_hex": "0427e9fd236e92dfc8c0765f7bd429fc233bfbfab3cb67c9d03b22a0f31e7f8a",
-  "hash_domain": "DIND_STATE_HASH_V1",
+  "hash_domain": "DIND_STATE_HASH_V2",
   "hash_alg": "BLAKE3",
   "hashes_hex": [
     "735cc97c3644839430223c0f4df36d4a9fd9f3efb6d7c9558bc96745c1c181b8",

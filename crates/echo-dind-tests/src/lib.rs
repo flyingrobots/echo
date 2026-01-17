@@ -7,12 +7,12 @@ use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 
 /// Auto-generated codec definitions.
 #[path = "codecs.generated.rs"]
-pub mod codecs;
+mod codecs;
 /// DIND test rules and state management.
 pub mod rules;
 /// Auto-generated type ID constants.
 #[path = "type_ids.generated.rs"]
-pub mod type_ids;
+mod type_ids;
 
 use rules::{
     ball_physics_rule, drop_ball_rule, route_push_rule, set_theme_rule, toast_rule, toggle_nav_rule,

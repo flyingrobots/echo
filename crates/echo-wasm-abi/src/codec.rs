@@ -131,11 +131,15 @@ impl<'a> Reader<'a> {
     }
 
     fn take(&mut self, len: usize) -> Result<&'a [u8], CodecError> {
-        if self.offset + len > self.bytes.len() {
+        let end = self
+            .offset
+            .checked_add(len)
+            .ok_or(CodecError::OutOfBounds)?;
+        if end > self.bytes.len() {
             return Err(CodecError::OutOfBounds);
         }
-        let out = &self.bytes[self.offset..self.offset + len];
-        self.offset += len;
+        let out = &self.bytes[self.offset..end];
+        self.offset = end;
         Ok(out)
     }
 
@@ -184,11 +188,21 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// Q32.32 fixed-point helpers.
+/// Convert an integer to Q32.32 fixed-point representation.
+///
+/// Valid input range is `i32::MIN..=i32::MAX`. Values outside this range
+/// saturate to `i64::MIN` or `i64::MAX` respectively.
 #[inline]
 #[must_use]
 pub fn fx_from_i64(n: i64) -> i64 {
-    n << 32
+    // Q32.32 can only represent integers in i32 range without overflow
+    if n > i64::from(i32::MAX) {
+        i64::MAX
+    } else if n < i64::from(i32::MIN) {
+        i64::MIN
+    } else {
+        n << 32
+    }
 }
 
 /// Convert f32 to Q32.32 using truncation toward zero.

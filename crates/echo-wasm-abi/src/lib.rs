@@ -15,6 +15,7 @@ pub use canonical::{CanonError, decode_value, encode_value};
 pub mod eintlog;
 pub use eintlog::*;
 
+/// Deterministic binary codec for length-prefixed scalars and Q32.32 fixed-point helpers.
 pub mod codec;
 
 /// Errors produced by the Intent Envelope parser.

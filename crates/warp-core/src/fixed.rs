@@ -8,9 +8,19 @@ pub struct Fx32(i64);
 
 impl Fx32 {
     /// Construct from an integer value (n << 32).
+    ///
+    /// Valid input range is `i32::MIN..=i32::MAX`. Values outside this range
+    /// saturate to the minimum or maximum representable Q32.32 value.
     #[must_use]
     pub fn from_i64(n: i64) -> Self {
-        Self(n << 32)
+        // Q32.32 can only represent integers in i32 range without overflow
+        if n > i64::from(i32::MAX) {
+            Self(i64::MAX)
+        } else if n < i64::from(i32::MIN) {
+            Self(i64::MIN)
+        } else {
+            Self(n << 32)
+        }
     }
 
     /// Construct directly from raw Q32.32 bits.

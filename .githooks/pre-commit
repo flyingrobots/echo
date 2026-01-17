@@ -77,7 +77,7 @@ if [[ -f scripts/check_task_lists.sh ]]; then
     echo "pre-commit: scripts/check_task_lists.sh exists but is not executable. Run: chmod +x scripts/check_task_lists.sh" >&2
     exit 1
   fi
-  if echo "$STAGED" | grep -E '^(WASM-TASKS\\.md|docs/tasks\\.md)$' >/dev/null; then
+  if echo "$STAGED" | grep -E '^(WASM-TASKS\.md|docs/tasks\.md)$' >/dev/null; then
     scripts/check_task_lists.sh || { echo 'pre-commit: task list conflicts detected.' >&2; exit 1; }
   fi
 fi

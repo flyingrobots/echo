@@ -45,18 +45,22 @@ console.log('\n  🔴 sequential    🟢 parallel\n');
 const seqValid = data.filter(d => d.variant === 'sequential' && d.exit === 0);
 const parValid = data.filter(d => d.variant === 'parallel' && d.exit === 0);
 
-const avg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+const median = arr => {
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
 
 if (seqValid.length > 0) {
-  const seqAvg = avg(seqValid.map(d => d.duration));
-  console.log(`  Sequential: ${seqValid.length} runs, avg ${seqAvg.toFixed(1)}s`);
+  const seqMed = median(seqValid.map(d => d.duration));
+  console.log(`  Sequential: ${seqValid.length} runs, median ${seqMed.toFixed(1)}s`);
 }
 if (parValid.length > 0) {
-  const parAvg = avg(parValid.map(d => d.duration));
-  console.log(`  Parallel:   ${parValid.length} runs, avg ${parAvg.toFixed(1)}s`);
+  const parMed = median(parValid.map(d => d.duration));
+  console.log(`  Parallel:   ${parValid.length} runs, median ${parMed.toFixed(1)}s`);
 }
 
 if (seqValid.length > 0 && parValid.length > 0) {
-  const speedup = avg(seqValid.map(d => d.duration)) / avg(parValid.map(d => d.duration));
+  const speedup = median(seqValid.map(d => d.duration)) / median(parValid.map(d => d.duration));
   console.log(`\n  Speedup: ${speedup.toFixed(1)}x`);
 }

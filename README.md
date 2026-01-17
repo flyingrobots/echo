@@ -3,7 +3,6 @@
 
 <p align="center">
   <img alt="ECHO" src="https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75" />
-
 </p>
 
 ---
@@ -15,6 +14,8 @@ Instead of treating a game/simulation as a pile of mutable objects, Echo treats 
 ## Project Status
 
 **Status (2026-01):** Active R&D. The deterministic core (`warp-core`) and session/tooling pipeline are implemented. Higher-level layers (ECS storage, system scheduler, timeline tree) are specced but not yet built. See [`docs/architecture-outline.md`](docs/architecture-outline.md) for per-section implementation status.
+
+[I post weekly updates in Echo's GitHub Discussions](https://github.com/flyingrobots/echo/discussions/255)
 
 ## Buckle Up
 

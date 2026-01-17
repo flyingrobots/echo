@@ -59,7 +59,7 @@ for (let i = 0; i < 50; i++) {
 }
 
 // Get Schema Hash
-const codecs = fs.readFileSync("crates/echo-dind-tests/src/generated/codecs.rs", "utf8");
+const codecs = fs.readFileSync("crates/echo-dind-tests/src/codecs.generated.rs", "utf8");
 const match = codecs.match(/SCHEMA_HASH:\s*&str\s*=\s*"([0-9a-fA-F]+)"/);
 if (!match) throw new Error("Could not find SCHEMA_HASH");
 const schemaHash = match[1];

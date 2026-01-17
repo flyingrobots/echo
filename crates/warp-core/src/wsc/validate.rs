@@ -26,17 +26,14 @@ pub fn validate_wsc(file: &WscFile) -> Result<(), ReadError> {
     // Validate each WARP instance
     for i in 0..file.warp_count() {
         let view = file.warp_view(i)?;
-        validate_warp_view(&view, i)?;
+        validate_warp_view(&view)?;
     }
 
     Ok(())
 }
 
 /// Validates a single WARP view.
-fn validate_warp_view(
-    view: &super::view::WarpView<'_>,
-    _warp_index: usize,
-) -> Result<(), ReadError> {
+fn validate_warp_view(view: &super::view::WarpView<'_>) -> Result<(), ReadError> {
     // Validate index ranges first - this catches corrupted index tables
     // that would otherwise be silently masked by accessors returning empty slices
     view.validate_index_ranges()?;
@@ -144,7 +141,7 @@ fn validate_attachment(att: &AttRow, blob_size: usize, index: usize) -> Result<(
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::wsc::types::{NodeRow, Range};
+    use crate::wsc::types::{EdgeRow, NodeRow, Range};
     use crate::wsc::write::{write_wsc_one_warp, OneWarpInput};
 
     #[test]
@@ -471,6 +468,79 @@ mod tests {
                 } if offset == large_edge_ix
             ),
             "expected SectionOutOfBounds with offset {large_edge_ix:#x}, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_unordered_edges() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![],
+            edges: vec![
+                EdgeRow {
+                    edge_id: [2u8; 32],
+                    from_node_id: [0u8; 32],
+                    to_node_id: [0u8; 32],
+                    edge_type: [0u8; 32],
+                },
+                EdgeRow {
+                    edge_id: [1u8; 32], // Out of order!
+                    from_node_id: [0u8; 32],
+                    to_node_id: [0u8; 32],
+                    edge_type: [0u8; 32],
+                },
+            ],
+            out_index: vec![],
+            out_edges: vec![],
+            node_atts_index: vec![],
+            node_atts: vec![],
+            edge_atts_index: vec![Range::default(), Range::default()],
+            edge_atts: vec![],
+            blobs: vec![],
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(err, ReadError::OrderingViolation { kind: "edge", .. }),
+            "expected OrderingViolation for edge, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_blob_out_of_bounds() {
+        let input = OneWarpInput {
+            warp_id: [0u8; 32],
+            root_node_id: [1u8; 32],
+            nodes: vec![NodeRow {
+                node_id: [1u8; 32],
+                node_type: [0u8; 32],
+            }],
+            edges: vec![],
+            out_index: vec![Range::default()],
+            out_edges: vec![],
+            node_atts_index: vec![Range {
+                start_le: 0u64.to_le(),
+                len_le: 1u64.to_le(),
+            }],
+            node_atts: vec![AttRow {
+                tag: AttRow::TAG_ATOM,
+                reserved0: [0u8; 7],
+                type_or_warp: [0u8; 32],
+                blob_off_le: 0u64.to_le(),
+                blob_len_le: 100u64.to_le(), // Claims 100 bytes but blobs is only 8!
+            }],
+            edge_atts_index: vec![],
+            edge_atts: vec![],
+            blobs: vec![1, 2, 3, 4, 5, 6, 7, 8], // Only 8 bytes
+        };
+        let bytes = write_wsc_one_warp(&input, [0u8; 32], 0).unwrap();
+        let file = WscFile::from_bytes(bytes).unwrap();
+        let err = validate_wsc(&file).unwrap_err();
+        assert!(
+            matches!(err, ReadError::BlobOutOfBounds { .. }),
+            "expected BlobOutOfBounds, got: {err:?}"
         );
     }
 }

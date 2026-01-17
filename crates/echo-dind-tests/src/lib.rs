@@ -9,6 +9,11 @@ use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 #[path = "codecs.generated.rs"]
 mod codecs;
 
+/// Schema content hash (BLAKE3) for the generated codecs module.
+///
+/// This 64-character hex string uniquely identifies the schema version used to
+/// generate the binary codecs. It is embedded in ELOG files for compatibility
+/// checking during replay.
 pub use codecs::SCHEMA_HASH;
 /// DIND test rules and state management.
 pub mod rules;

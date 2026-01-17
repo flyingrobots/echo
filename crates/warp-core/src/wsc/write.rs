@@ -63,6 +63,11 @@ pub struct OneWarpInput {
 /// Returns an IO error if writing to the buffer fails (should not happen
 /// for in-memory `Vec<u8>` writes).
 ///
+/// # Panics
+///
+/// Panics if internal size calculations are inconsistent (indicates a bug
+/// in the offset calculation logic, not user error).
+///
 /// # Determinism
 ///
 /// The output is fully deterministic: given the same `input`, `schema_hash`,
@@ -226,7 +231,13 @@ pub fn write_wsc_one_warp(
     // Write blobs
     buf.write_all(&input.blobs)?;
 
-    debug_assert_eq!(buf.len(), total_size);
+    assert_eq!(
+        buf.len(),
+        total_size,
+        "WSC buffer size mismatch: expected {} bytes, got {}",
+        total_size,
+        buf.len()
+    );
 
     Ok(buf)
 }

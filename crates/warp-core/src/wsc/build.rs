@@ -35,6 +35,11 @@ use super::write::OneWarpInput;
 ///
 /// A `OneWarpInput` containing all graph data in canonical order.
 ///
+/// # Panics
+///
+/// Panics if the store's internal edge index is inconsistent (indicates
+/// a store invariant violation, not user error).
+///
 /// # Determinism
 ///
 /// This function produces identical output for identical graph content,
@@ -89,17 +94,16 @@ pub fn build_one_warp_input(store: &GraphStore, root_node_id: NodeId) -> OneWarp
         bucket.sort_by_key(|e| e.id);
 
         for e in bucket {
-            debug_assert!(
-                edge_ix.contains_key(&e.id),
-                "edge must exist in edge_ix: {:?}",
-                e.id
-            );
-            if let Some(&ix) = edge_ix.get(&e.id) {
-                out_edges.push(OutEdgeRef {
-                    edge_ix_le: ix.to_le(),
-                    edge_id: e.id.0,
-                });
-            }
+            // edge_ix is built from the same edges we're iterating, so this
+            // can only fail if there's a bug in this function's logic.
+            #[allow(clippy::expect_used)]
+            let &ix = edge_ix
+                .get(&e.id)
+                .expect("edge_ix missing entry for edge in bucket - internal invariant violated");
+            out_edges.push(OutEdgeRef {
+                edge_ix_le: ix.to_le(),
+                edge_id: e.id.0,
+            });
         }
 
         let len = (out_edges.len() as u64) - start;
@@ -197,9 +201,8 @@ fn att_to_row(att: &AttachmentValue, blobs: &mut Vec<u8>) -> AttRow {
 
 /// Pads a vector to 8-byte alignment.
 fn align8_vec(v: &mut Vec<u8>) {
-    while !v.len().is_multiple_of(8) {
-        v.push(0);
-    }
+    let target_len = (v.len() + 7) & !7;
+    v.resize(target_len, 0);
 }
 
 #[cfg(test)]

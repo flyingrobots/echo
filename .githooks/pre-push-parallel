@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Parallel pre-push hook - runs stages concurrently with isolated target dirs
-set -uo pipefail
+set -euo pipefail
 
 PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
 PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
@@ -13,48 +13,72 @@ for cmd in cargo rustup rg; do
   fi
 done
 
+# Verify pinned toolchain is installed before using cargo +"$PINNED"
+if ! rustup toolchain list | grep -qE "^${PINNED}(-|$)"; then
+  echo "[pre-push] missing toolchain: $PINNED" >&2
+  echo "[pre-push] Run: rustup toolchain install $PINNED" >&2
+  exit 1
+fi
+
 echo "🐰 BunBun 🐇 (parallel mode)"
 
 LOGDIR=$(mktemp -d)
-trap 'rm -rf "$LOGDIR"' EXIT
+# Trap EXIT, INT, TERM: kill background jobs then clean up
+cleanup() {
+  # Kill any background jobs from this script
+  jobs -p 2>/dev/null | xargs -r kill 2>/dev/null || true
+  rm -rf "$LOGDIR"
+}
+trap cleanup EXIT INT TERM
 
-# Stage functions - each uses its own target dir
+# Stage functions - each uses its own target dir and the pinned toolchain
 run_fmt() {
-  CARGO_TARGET_DIR=target-fmt cargo fmt --all -- --check 2>&1
+  CARGO_TARGET_DIR=target-fmt cargo +"$PINNED" fmt --all -- --check 2>&1
 }
 
 run_clippy() {
-  CARGO_TARGET_DIR=target-clippy cargo clippy --all-targets -- -D warnings -D missing_docs 2>&1
+  CARGO_TARGET_DIR=target-clippy cargo +"$PINNED" clippy --all-targets -- -D warnings -D missing_docs 2>&1
 }
 
 run_tests() {
-  CARGO_TARGET_DIR=target-test cargo test --workspace 2>&1
+  CARGO_TARGET_DIR=target-test cargo +"$PINNED" test --workspace 2>&1
 }
 
 run_rustdoc() {
   local out=""
+  local rc=0
   for krate in warp-core warp-geom warp-ffi warp-wasm; do
     if [ -f "crates/${krate}/Cargo.toml" ]; then
       out+="[rustdoc] ${krate}"$'\n'
-      out+=$(CARGO_TARGET_DIR=target-doc RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${krate}" --no-deps 2>&1)$'\n'
+      local krate_out
+      if ! krate_out=$(CARGO_TARGET_DIR=target-doc RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${krate}" --no-deps 2>&1); then
+        rc=1
+      fi
+      out+="${krate_out}"$'\n'
     fi
   done
   echo "$out"
+  return $rc
 }
 
 run_patterns() {
   local failed=0
-  if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' crates \
+  local match_output
+  # Check for crate-level allow(missing_docs)
+  if match_output=$(rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' crates \
     --glob 'crates/**/src/**/*.rs' \
     --glob '!**/telemetry.rs' \
     --glob '!**/tests/**' \
     --glob '!**/build.rs' \
-    --glob '!**/*.generated.rs' >/dev/null 2>&1; then
-    echo "FAIL: crate-level allow(missing_docs) is forbidden" >&2
+    --glob '!**/*.generated.rs' 2>&1); then
+    echo "FAIL: crate-level allow(missing_docs) is forbidden"
+    echo "$match_output"
     failed=1
   fi
-  if rg -n "\\#\[unsafe\(no_mangle\)\]" crates >/dev/null 2>&1; then
-    echo "FAIL: #[unsafe(no_mangle)] is invalid" >&2
+  # Check for invalid #[unsafe(no_mangle)]
+  if match_output=$(rg -n "\\#\[unsafe\(no_mangle\)\]" crates 2>&1); then
+    echo "FAIL: #[unsafe(no_mangle)] is invalid"
+    echo "$match_output"
     failed=1
   fi
   if [[ -x scripts/check_spdx.sh ]]; then
@@ -63,24 +87,34 @@ run_patterns() {
   return $failed
 }
 
+run_determinism() {
+  if [[ -x scripts/ban-nondeterminism.sh ]]; then
+    scripts/ban-nondeterminism.sh 2>&1
+  else
+    echo "[determinism] scripts/ban-nondeterminism.sh not found or not executable, skipping"
+  fi
+}
+
 # Run stages in parallel
-echo "[parallel] launching: fmt, clippy, tests, rustdoc, patterns"
+echo "[parallel] launching: fmt, clippy, tests, rustdoc, patterns, determinism"
 START=$(date +%s)
 
-run_fmt      > "$LOGDIR/fmt.log"      2>&1 & PID_FMT=$!
-run_clippy   > "$LOGDIR/clippy.log"   2>&1 & PID_CLIPPY=$!
-run_tests    > "$LOGDIR/tests.log"    2>&1 & PID_TESTS=$!
-run_rustdoc  > "$LOGDIR/rustdoc.log"  2>&1 & PID_RUSTDOC=$!
-run_patterns > "$LOGDIR/patterns.log" 2>&1 & PID_PATTERNS=$!
+run_fmt         > "$LOGDIR/fmt.log"         2>&1 & PID_FMT=$!
+run_clippy      > "$LOGDIR/clippy.log"      2>&1 & PID_CLIPPY=$!
+run_tests       > "$LOGDIR/tests.log"       2>&1 & PID_TESTS=$!
+run_rustdoc     > "$LOGDIR/rustdoc.log"     2>&1 & PID_RUSTDOC=$!
+run_patterns    > "$LOGDIR/patterns.log"    2>&1 & PID_PATTERNS=$!
+run_determinism > "$LOGDIR/determinism.log" 2>&1 & PID_DETERMINISM=$!
 
 # Wait and collect results
 FAILED=0
 
-wait $PID_FMT;      FMT_RC=$?;      [ $FMT_RC -ne 0 ]      && FAILED=1 && echo "[FAIL] fmt (see log)"
-wait $PID_CLIPPY;   CLIPPY_RC=$?;   [ $CLIPPY_RC -ne 0 ]   && FAILED=1 && echo "[FAIL] clippy (see log)"
-wait $PID_TESTS;    TESTS_RC=$?;    [ $TESTS_RC -ne 0 ]    && FAILED=1 && echo "[FAIL] tests (see log)"
-wait $PID_RUSTDOC;  RUSTDOC_RC=$?;  [ $RUSTDOC_RC -ne 0 ]  && FAILED=1 && echo "[FAIL] rustdoc (see log)"
-wait $PID_PATTERNS; PATTERNS_RC=$?; [ $PATTERNS_RC -ne 0 ] && FAILED=1 && echo "[FAIL] patterns (see log)"
+wait $PID_FMT;         FMT_RC=$?;         [ $FMT_RC -ne 0 ]         && FAILED=1 && echo "[FAIL] fmt (see log)"
+wait $PID_CLIPPY;      CLIPPY_RC=$?;      [ $CLIPPY_RC -ne 0 ]      && FAILED=1 && echo "[FAIL] clippy (see log)"
+wait $PID_TESTS;       TESTS_RC=$?;       [ $TESTS_RC -ne 0 ]       && FAILED=1 && echo "[FAIL] tests (see log)"
+wait $PID_RUSTDOC;     RUSTDOC_RC=$?;     [ $RUSTDOC_RC -ne 0 ]     && FAILED=1 && echo "[FAIL] rustdoc (see log)"
+wait $PID_PATTERNS;    PATTERNS_RC=$?;    [ $PATTERNS_RC -ne 0 ]    && FAILED=1 && echo "[FAIL] patterns (see log)"
+wait $PID_DETERMINISM; DETERMINISM_RC=$?; [ $DETERMINISM_RC -ne 0 ] && FAILED=1 && echo "[FAIL] determinism (see log)"
 
 END=$(date +%s)
 echo "[parallel] completed in $((END - START))s"
@@ -88,11 +122,12 @@ echo "[parallel] completed in $((END - START))s"
 if [ $FAILED -ne 0 ]; then
   echo ""
   echo "=== FAILURES ==="
-  [ $FMT_RC -ne 0 ]      && echo "--- fmt ---"      && cat "$LOGDIR/fmt.log"
-  [ $CLIPPY_RC -ne 0 ]   && echo "--- clippy ---"   && cat "$LOGDIR/clippy.log"
-  [ $TESTS_RC -ne 0 ]    && echo "--- tests ---"    && cat "$LOGDIR/tests.log"
-  [ $RUSTDOC_RC -ne 0 ]  && echo "--- rustdoc ---"  && cat "$LOGDIR/rustdoc.log"
-  [ $PATTERNS_RC -ne 0 ] && echo "--- patterns ---" && cat "$LOGDIR/patterns.log"
+  [ $FMT_RC -ne 0 ]         && echo "--- fmt ---"         && cat "$LOGDIR/fmt.log"
+  [ $CLIPPY_RC -ne 0 ]      && echo "--- clippy ---"      && cat "$LOGDIR/clippy.log"
+  [ $TESTS_RC -ne 0 ]       && echo "--- tests ---"       && cat "$LOGDIR/tests.log"
+  [ $RUSTDOC_RC -ne 0 ]     && echo "--- rustdoc ---"     && cat "$LOGDIR/rustdoc.log"
+  [ $PATTERNS_RC -ne 0 ]    && echo "--- patterns ---"    && cat "$LOGDIR/patterns.log"
+  [ $DETERMINISM_RC -ne 0 ] && echo "--- determinism ---" && cat "$LOGDIR/determinism.log"
   exit 1
 fi
 

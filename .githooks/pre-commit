@@ -14,7 +14,7 @@ STAGED=$(git diff --cached --name-only)
 
 # 1) PRNG coupling guard (existing logic)
 PRNG_FILE="crates/warp-core/src/math/prng.rs"
-if git diff --cached --name-only | grep -qx "$PRNG_FILE"; then
+if echo "$STAGED" | grep -qx "$PRNG_FILE"; then
   DIFF=$(git diff --cached -- "$PRNG_FILE" || true)
   if echo "$DIFF" | grep -E '^(\+|-)\s*(fn\s+next_u64|fn\s+from_seed_u64|fn\s+from_seed\(|fn\s+next_int\()' >/dev/null; then
     ALGO_CHANGED=1

@@ -2,9 +2,6 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # WARP Graph Store
 
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
-<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-
 ```rust
 //! Minimal in-memory graph store used by the rewrite executor and tests.
 use std::collections::BTreeMap;
@@ -585,6 +582,7 @@ Everything else can remain as-is.
 
 Minimal ident tweaks (recommended)
 
+```rust
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct TypeId(pub Hash);
@@ -597,8 +595,9 @@ impl TypeId {
 #[repr(transparent)]
 pub struct EdgeId(pub Hash);
 impl EdgeId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
+```
 
-That’s it.
+That's it.
 
 ⸻
 
@@ -817,10 +816,11 @@ I'm going to make one simplification that helps a lot:
 
 ⸻
 
-0) Minimal ident.rs upgrades (recommended)
+1. Minimal ident.rs upgrades (recommended)
 
-Do this so all IDs are “byte clean” everywhere:
+Do this so all IDs are "byte clean" everywhere:
 
+```rust
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NodeId(pub Hash);
@@ -840,15 +840,17 @@ impl TypeId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct WarpId(pub Hash);
 impl WarpId { pub fn as_bytes(&self) -> &Hash { &self.0 } }
+```
 
 No behavior changes, just safer ABI expectations.
 
 ⸻
 
-1) Add a wsc module (where it belongs)
+2. Add a wsc module (where it belongs)
 
 Put this in warp-core (or whatever crate defines GraphStore/AttachmentValue), e.g.
 
+```
 crates/warp-core/src/wsc/
   mod.rs
   types.rs
@@ -857,9 +859,11 @@ crates/warp-core/src/wsc/
   validate.rs
   write.rs
   build.rs
+```
 
 wsc/mod.rs:
 
+```rust
 pub mod types;
 pub mod read;
 pub mod view;
@@ -869,14 +873,15 @@ pub mod build;
 
 pub use view::{WscFile, WarpView, AttachmentRef};
 pub use read::ReadError;
-
+```
 
 ⸻
 
-2) Make OneWarpInput owned (fix the writer interface)
+3. Make OneWarpInput owned (fix the writer interface)
 
 In your wsc/write.rs, define:
 
+```rust
 use super::types::*;
 
 pub struct OneWarpInput {
@@ -897,15 +902,17 @@ pub struct OneWarpInput {
 
     pub blobs: Vec<u8>,
 }
+```
 
 Then write_wsc_one_warp(input: OneWarpInput, ...) stays the same, just without lifetimes.
 
 ⸻
 
-3) The bridge: build_one_warp_input(&GraphStore, root_node_id)
+4. The bridge: build_one_warp_input(&GraphStore, root_node_id)
 
-Put this in wsc/build.rs. This is the “money function” that turns your pointer-jungle into canonical slabs.
+Put this in wsc/build.rs. This is the "money function" that turns your pointer-jungle into canonical slabs.
 
+```rust
 use std::collections::BTreeMap;
 
 use crate::attachment::AttachmentValue;
@@ -1068,14 +1075,15 @@ fn align8(v: &mut Vec<u8>) {
         v.push(0);
     }
 }
-
+```
 
 ⸻
 
-4) One-liner convenience API
+5. One-liner convenience API
 
 Add this helper (e.g. wsc/mod.rs or wsc/write.rs):
 
+```rust
 use std::io;
 use std::path::Path;
 
@@ -1096,18 +1104,22 @@ pub fn save_wsc(
     let bytes = write_wsc_one_warp(input, schema_hash, tick)?;
     std::fs::write(path, bytes)
 }
+```
 
 Now you can call:
 
+```rust
 save_wsc("state.wsc", &store, root_node_id, schema_hash, tick)?;
+```
 
 
 ⸻
 
-5) Determinism tests (this is the “don’t lie to yourself” suite)
+6. Determinism tests (this is the “don’t lie to yourself” suite)
 
 5.1 Snapshot bytes identical across insertion order
 
+```rust
 #[test]
 fn wsc_bytes_stable_across_edge_insertion_order() {
     use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
@@ -1156,11 +1168,13 @@ fn wsc_bytes_stable_across_edge_insertion_order() {
 
     assert_eq!(bytes1, bytes2, "WSC bytes must be canonical");
 }
+```
 
 5.2 Roundtrip: reopen via mmap and validate invariants
 
-This assumes you’ve wired up WscFile::open() + validate_wsc() (from earlier).
+This assumes you've wired up WscFile::open() + validate_wsc() (from earlier).
 
+```rust
 #[test]
 fn wsc_roundtrip_open_and_validate() {
     use crate::ident::{make_node_id, make_type_id, make_warp_id};
@@ -1190,10 +1204,11 @@ fn wsc_roundtrip_open_and_validate() {
     assert_eq!(view.nodes().len(), 1);
     assert!(view.node_ix(&a.0).is_some());
 }
+```
 
 
 ⸻
 
-6) (Strongly recommended) Version your canonical hash
+7. (Strongly recommended) Version your canonical hash
 
 Keep DIND_STATE_HASH_V1 but add V2 using u64 counts/lengths. That way your “snapshot hash” and “state hash” won’t diverge later for stupid reasons.

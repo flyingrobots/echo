@@ -17,7 +17,7 @@ for base in target target-fmt target-clippy target-test target-doc; do
     incr="$base/$profile/incremental"
     if [[ -d "$incr" ]]; then
       while IFS= read -r -d '' subdir; do
-        SIZE=$(du -sh "$subdir" 2>/dev/null | cut -f1)
+        SIZE=$( { du -sh "$subdir" 2>/dev/null | cut -f1; } || echo "unknown" )
         echo "   rm -rf $subdir ($SIZE)"
         rm -rf "$subdir"
         SWEPT=$((SWEPT + 1))

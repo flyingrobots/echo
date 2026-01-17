@@ -1,3 +1,7 @@
 crates/echo-wasm-abi/src/lib.rs
 crates/warp-core/src/attachment.rs
 crates/warp-wasm/src/lib.rs
+# WSC module uses std::fs for file I/O (reading/writing snapshot files)
+# This is intentional - WSC is for native tooling, not WASM determinism
+crates/warp-core/src/wsc/mod.rs
+crates/warp-core/src/wsc/view.rs

@@ -59,7 +59,9 @@ impl Writer {
     /// Create a new writer with a pre-allocated capacity.
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { buf: Vec::with_capacity(capacity) }
+        Self {
+            buf: Vec::with_capacity(capacity),
+        }
     }
 
     /// Write raw bytes.
@@ -89,7 +91,10 @@ impl Writer {
 
     /// Write length-prefixed bytes (u32 LE length).
     pub fn write_len_prefixed_bytes(&mut self, bytes: &[u8]) -> Result<(), CodecError> {
-        let len: u32 = bytes.len().try_into().map_err(|_| CodecError::LengthTooLarge)?;
+        let len: u32 = bytes
+            .len()
+            .try_into()
+            .map_err(|_| CodecError::LengthTooLarge)?;
         self.write_u32_le(len);
         self.write_bytes(bytes);
         Ok(())
@@ -194,7 +199,11 @@ pub fn fx_from_f32(value: f32) -> i64 {
     if scaled.is_nan() {
         0
     } else if scaled.is_infinite() {
-        if scaled.is_sign_positive() { i64::MAX } else { i64::MIN }
+        if scaled.is_sign_positive() {
+            i64::MAX
+        } else {
+            i64::MIN
+        }
     } else {
         scaled.trunc() as i64
     }

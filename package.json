@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",
+    "asciichart": "^1.5.25",
     "vitepress": "1.6.4"
   },
   "dependencies": {

@@ -29,8 +29,11 @@ impl Fx32 {
 /// 3D vector in Q32.32 fixed-point.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Vec3Fx {
+    /// X component.
     pub x: Fx32,
+    /// Y component.
     pub y: Fx32,
+    /// Z component.
     pub z: Fx32,
 }
 

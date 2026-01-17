@@ -6,6 +6,11 @@ node_modules
 dist
 coverage
 target
+target-fmt
+target-clippy
+target-test
+target-doc
+.githooks/timing.jsonl
 docs/.vitepress/cache
 
 # Editor cruft
@@ -15,6 +20,7 @@ docs/.vitepress/cache
 .vscode/*
 !.vscode/extensions.json
 .obsidian
+.claude/
 
 # Logs
 npm-debug.log*

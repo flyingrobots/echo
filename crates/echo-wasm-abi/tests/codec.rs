@@ -1,4 +1,10 @@
-use echo_wasm_abi::codec::{Reader, Writer, fx_from_i64, fx_from_f32, vec3_fx_from_i64, vec3_fx_from_f32};
+// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Codec round-trip tests.
+
+use echo_wasm_abi::codec::{
+    Reader, Writer, fx_from_f32, fx_from_i64, vec3_fx_from_f32, vec3_fx_from_i64,
+};
 
 #[test]
 fn codec_round_trip_scalars_and_string() {
@@ -21,7 +27,13 @@ fn codec_round_trip_scalars_and_string() {
 #[test]
 fn codec_fx_helpers() {
     assert_eq!(fx_from_i64(1), 1i64 << 32);
-    assert_eq!(vec3_fx_from_i64(1, -2, 3), [1i64 << 32, -2i64 << 32, 3i64 << 32]);
+    assert_eq!(
+        vec3_fx_from_i64(1, -2, 3),
+        [1i64 << 32, -2i64 << 32, 3i64 << 32]
+    );
     assert_eq!(fx_from_f32(1.5), (1i64 << 32) + (1i64 << 31));
-    assert_eq!(vec3_fx_from_f32(1.0, -2.5, 3.0), [1i64 << 32, -2i64 << 32 - (1i64 << 31), 3i64 << 32]);
+    assert_eq!(
+        vec3_fx_from_f32(1.0, -2.5, 3.0),
+        [1i64 << 32, (-2i64 << 32) - (1i64 << 31), 3i64 << 32]
+    );
 }

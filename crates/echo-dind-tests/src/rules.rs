@@ -2,8 +2,8 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Rewrite rules for the DIND test kernel.
 
-use crate::generated::codecs::{ops, MotionV2Builder, MotionV2View};
-use crate::generated::type_ids::*;
+use crate::codecs::{ops, MotionV2Builder, MotionV2View};
+use crate::type_ids::*;
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, AtomPayload, AtomView, AttachmentKey, AttachmentSet,
@@ -401,7 +401,7 @@ pub fn apply_route_push(store: &mut GraphStore, path: String) {
 }
 
 /// Apply a set theme operation to update the current theme.
-pub fn apply_set_theme(store: &mut GraphStore, mode: crate::generated::codecs::Theme) {
+pub fn apply_set_theme(store: &mut GraphStore, mode: crate::codecs::Theme) {
     let (_, sim_state_id) = ensure_state_base(store);
     let id = make_node_id("sim/state/theme");
     store.insert_node(

@@ -184,6 +184,13 @@ impl MaterializationBus {
     /// Multiple emissions to the same channel are collected and resolved
     /// during finalization according to the channel's policy.
     ///
+    /// # Size Limit
+    ///
+    /// Individual emitted entries larger than 4 GiB (2^32 bytes) are **not supported**.
+    /// During finalization, the `Log` policy uses u32 length-prefixing, so entries
+    /// exceeding `u32::MAX` bytes will have their length silently truncated. Callers
+    /// must validate payload sizes or split large payloads before calling `emit()`.
+    ///
     /// # Errors
     ///
     /// Returns [`DuplicateEmission`] if this `(channel, emit_key)` pair has
@@ -228,7 +235,7 @@ impl MaterializationBus {
     ///
     /// For each channel:
     /// - `Log`: All values concatenated in `EmitKey` order, length-prefixed
-    /// - `StrictSingle`: Single value if exactly one emission, error otherwise
+    /// - `StrictSingle`: At most one emission allowed; errors if more than one
     /// - `Reduce(op)`: Values merged via the reduce operation
     ///
     /// Clears pending emissions after finalization.
@@ -409,6 +416,32 @@ mod tests {
             report.errors[0].kind,
             MaterializationErrorKind::StrictSingleConflict
         );
+    }
+
+    #[test]
+    fn strict_single_zero_emissions_succeeds() {
+        // StrictSingle means "at most one emission", not "exactly one".
+        // Zero emissions is valid and returns empty data.
+        let mut bus = MaterializationBus::new();
+        let ch = make_channel_id("test:strict-zero");
+        bus.register_channel(ch, ChannelPolicy::StrictSingle);
+
+        // Perform NO emit() calls for this channel
+
+        // Create an emission on a different channel so finalize() has something to process
+        // and we can verify the StrictSingle channel doesn't appear in errors
+        let other_ch = make_channel_id("test:other");
+        bus.emit(other_ch, key(1, 1), vec![99]).expect("emit");
+
+        let report = bus.finalize();
+        assert!(
+            report.is_ok(),
+            "finalize should succeed with zero emissions on StrictSingle"
+        );
+        // The StrictSingle channel with zero emissions won't appear in results
+        // (no emissions = no entry in pending map)
+        assert_eq!(report.channels.len(), 1);
+        assert_eq!(report.channels[0].channel, other_ch);
     }
 
     #[test]

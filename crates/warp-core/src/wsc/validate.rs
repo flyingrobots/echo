@@ -112,7 +112,10 @@ fn validate_attachment(att: &AttRow, blob_size: usize, index: usize) -> Result<(
 
     // Validate reserved bytes are zero
     if att.reserved0 != [0u8; 7] {
-        // Could add a specific error, but for now we're lenient on reserved fields
+        return Err(ReadError::NonZeroReservedBytes {
+            field: "AttRow.reserved0",
+            index,
+        });
     }
 
     // Validate blob reference for atom attachments

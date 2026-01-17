@@ -15,6 +15,8 @@ pub use canonical::{CanonError, decode_value, encode_value};
 pub mod eintlog;
 pub use eintlog::*;
 
+pub mod codec;
+
 /// Errors produced by the Intent Envelope parser.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EnvelopeError {

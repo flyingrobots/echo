@@ -46,6 +46,8 @@
 
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
 pub mod math;
+/// Deterministic fixed-point helpers (Q32.32).
+pub mod fixed;
 
 mod attachment;
 mod cmd;

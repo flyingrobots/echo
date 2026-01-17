@@ -173,55 +173,55 @@ pub fn write_wsc_one_warp(
     write_struct(&mut buf, &dir_entry)?;
 
     // Pad to nodes section
-    write_padding(&mut buf, nodes_off);
+    write_padding(&mut buf, 8);
 
     // Write nodes
     for node in &input.nodes {
         write_struct(&mut buf, node)?;
     }
-    write_padding(&mut buf, edges_off);
+    write_padding(&mut buf, 8);
 
     // Write edges
     for edge in &input.edges {
         write_struct(&mut buf, edge)?;
     }
-    write_padding(&mut buf, out_index_off);
+    write_padding(&mut buf, 8);
 
     // Write out_index
     for range in &input.out_index {
         write_struct(&mut buf, range)?;
     }
-    write_padding(&mut buf, out_edges_off);
+    write_padding(&mut buf, 8);
 
     // Write out_edges
     for out_edge in &input.out_edges {
         write_struct(&mut buf, out_edge)?;
     }
-    write_padding(&mut buf, node_atts_index_off);
+    write_padding(&mut buf, 8);
 
     // Write node_atts_index
     for range in &input.node_atts_index {
         write_struct(&mut buf, range)?;
     }
-    write_padding(&mut buf, node_atts_off);
+    write_padding(&mut buf, 8);
 
     // Write node_atts
     for att in &input.node_atts {
         write_struct(&mut buf, att)?;
     }
-    write_padding(&mut buf, edge_atts_index_off);
+    write_padding(&mut buf, 8);
 
     // Write edge_atts_index
     for range in &input.edge_atts_index {
         write_struct(&mut buf, range)?;
     }
-    write_padding(&mut buf, edge_atts_off);
+    write_padding(&mut buf, 8);
 
     // Write edge_atts
     for att in &input.edge_atts {
         write_struct(&mut buf, att)?;
     }
-    write_padding(&mut buf, blobs_off);
+    write_padding(&mut buf, 8);
 
     // Write blobs
     buf.write_all(&input.blobs)?;
@@ -237,11 +237,11 @@ const fn align8(n: usize) -> usize {
     (n + 7) & !7
 }
 
-/// Writes padding zeros until the buffer reaches the target offset.
-fn write_padding(buf: &mut Vec<u8>, target: usize) {
-    while buf.len() < target {
-        buf.push(0);
-    }
+/// Writes padding zeros until the buffer is aligned to the given boundary.
+fn write_padding(buf: &mut Vec<u8>, align: usize) {
+    let current = buf.len();
+    let target = current.next_multiple_of(align);
+    buf.resize(target, 0);
 }
 
 /// Writes a `Pod` struct as raw bytes using bytemuck for safe transmutation.

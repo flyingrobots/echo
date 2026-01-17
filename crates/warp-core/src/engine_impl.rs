@@ -12,6 +12,7 @@ use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
 };
 use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
+use crate::materialization::{ChannelConflict, FinalizedChannel, MaterializationBus};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
@@ -269,6 +270,20 @@ pub struct Engine {
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
     initial_state: WarpState,
+    /// Materialization bus for tick-scoped channel emissions.
+    ///
+    /// Rules emit to channels via [`ScopedEmitter`] during execution. The bus
+    /// collects emissions and finalizes them post-commit according to each
+    /// channel's policy.
+    bus: MaterializationBus,
+    /// Last finalized materialization channels (populated by commit, cleared by abort).
+    last_materialization: Vec<FinalizedChannel>,
+    /// Materialization errors from the last commit (e.g., `StrictSingle` conflicts).
+    ///
+    /// This is populated alongside `last_materialization` by [`Engine::commit_with_receipt`].
+    /// A non-empty list indicates boundary errors: state committed successfully, but
+    /// some materialization channels failed to finalize.
+    last_materialization_errors: Vec<ChannelConflict>,
 }
 
 struct ReserveOutcome {
@@ -381,6 +396,9 @@ impl Engine {
             tick_history: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
+            bus: MaterializationBus::new(),
+            last_materialization: Vec::new(),
+            last_materialization_errors: Vec::new(),
         }
     }
 
@@ -486,6 +504,9 @@ impl Engine {
             tick_history: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
+            bus: MaterializationBus::new(),
+            last_materialization: Vec::new(),
+            last_materialization_errors: Vec::new(),
         })
     }
 
@@ -669,6 +690,21 @@ impl Engine {
 
         self.apply_reserved_rewrites(reserved_rewrites)?;
 
+        // Finalize materialization bus and store results.
+        // Note: Rules don't emit yet (requires executor signature change), but the
+        // bus is wired in and ready. When rules do emit, this will capture their output.
+        //
+        // The FinalizeReport partitions channels into successes and errors:
+        // - `channels`: Successfully finalized outputs
+        // - `errors`: Channels that failed (e.g., StrictSingle conflicts)
+        //
+        // We store both. A non-empty `errors` list indicates boundary errors:
+        // state committed successfully, but some materialization channels failed.
+        // Callers can inspect `last_materialization_errors()` to handle this.
+        let mat_report = self.bus.finalize();
+        self.last_materialization = mat_report.channels;
+        self.last_materialization_errors = mat_report.errors;
+
         // Delta tick patch (Paper III boundary artifact).
         let ops = diff_state(&state_before, &self.state);
         let patch = WarpTickPatchV1::new(
@@ -719,9 +755,13 @@ impl Engine {
     /// Aborts a transaction without committing a tick.
     ///
     /// This closes the transaction and releases any resources reserved in the scheduler.
+    /// Also clears any pending materialization emissions and errors.
     pub fn abort(&mut self, tx: TxId) {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
+        self.bus.clear();
+        self.last_materialization.clear();
+        self.last_materialization_errors.clear();
     }
 
     fn reserve_for_receipt(
@@ -1131,6 +1171,58 @@ impl Engine {
     /// Returns a mutable view of the current warp state.
     pub fn state_mut(&mut self) -> &mut WarpState {
         &mut self.state
+    }
+
+    /// Returns a shared reference to the materialization bus.
+    ///
+    /// The bus collects emissions from rewrite rules during a tick. Rules emit
+    /// via [`ScopedEmitter`] adapters that auto-construct [`EmitKey`]s from
+    /// execution context.
+    #[must_use]
+    pub fn materialization_bus(&self) -> &MaterializationBus {
+        &self.bus
+    }
+
+    /// Returns a mutable reference to the materialization bus.
+    ///
+    /// Use this to register channels with custom policies before commit:
+    /// ```ignore
+    /// engine.materialization_bus_mut().register_channel(ch, ChannelPolicy::StrictSingle);
+    /// ```
+    pub fn materialization_bus_mut(&mut self) -> &mut MaterializationBus {
+        &mut self.bus
+    }
+
+    /// Returns the finalized materialization channels from the last commit.
+    ///
+    /// This is populated by [`Engine::commit_with_receipt`] and cleared by
+    /// [`Engine::abort`]. Returns an empty slice before the first commit.
+    #[must_use]
+    pub fn last_materialization(&self) -> &[FinalizedChannel] {
+        &self.last_materialization
+    }
+
+    /// Returns materialization errors from the last commit.
+    ///
+    /// A non-empty list indicates boundary errors: the tick committed successfully
+    /// (graph state updated, receipt generated), but one or more materialization
+    /// channels failed to finalize. Common causes:
+    ///
+    /// - `StrictSingle` channel received multiple emissions (rule authoring bug)
+    ///
+    /// This is populated by [`Engine::commit_with_receipt`] and cleared by
+    /// [`Engine::abort`]. Returns an empty slice if the last commit had no errors.
+    #[must_use]
+    pub fn last_materialization_errors(&self) -> &[ChannelConflict] {
+        &self.last_materialization_errors
+    }
+
+    /// Returns `true` if the last commit had materialization boundary errors.
+    ///
+    /// This is a convenience method equivalent to `!last_materialization_errors().is_empty()`.
+    #[must_use]
+    pub fn has_materialization_errors(&self) -> bool {
+        !self.last_materialization_errors.is_empty()
     }
 
     /// Returns a shared view of a node when it exists.

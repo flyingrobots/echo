@@ -6,7 +6,9 @@
 //! Each channel has an identifier ([`ChannelId`]) and a finalization policy
 //! ([`ChannelPolicy`]) that determines how multiple emissions are resolved.
 
-use crate::ident::{Hash, TypeId};
+use crate::ident::TypeId;
+
+use super::reduce_op::ReduceOp;
 
 /// Unique identifier for a materialization channel.
 ///
@@ -68,34 +70,70 @@ pub enum ChannelPolicy {
     /// and catch violations early.
     StrictSingle,
 
-    /// Merge multiple emissions via a deterministic join function.
+    /// Merge multiple emissions via a built-in reduce operation.
     ///
-    /// The join function is applied in `EmitKey` order. For truly order-independent
-    /// results, the join function should be associative and commutative.
+    /// The reduce operation is applied to values in `EmitKey` order. For truly
+    /// order-independent results, use a commutative op like [`ReduceOp::Sum`].
     ///
     /// Use this for semantic coalescing where you need a single output value
     /// but multiple writers are expected.
-    Reduce {
-        /// Identifier for the join function (looked up in a registry).
-        join_fn_id: Hash,
-    },
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use warp_core::materialization::{ChannelPolicy, ReduceOp};
+    ///
+    /// // Sum all emissions as u64
+    /// let sum_policy = ChannelPolicy::Reduce(ReduceOp::Sum);
+    ///
+    /// // Take first emission by EmitKey order
+    /// let first_policy = ChannelPolicy::Reduce(ReduceOp::First);
+    /// ```
+    Reduce(ReduceOp),
 }
 
-/// Error raised when a [`ChannelPolicy::StrictSingle`] channel has multiple writers.
+/// Classification of materialization errors.
+///
+/// This enum identifies the semantic reason for a finalization failure.
+/// Having a typed "why" makes errors actionable and future-proofs for new
+/// error categories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterializationErrorKind {
+    /// A [`ChannelPolicy::StrictSingle`] channel received multiple emissions.
+    StrictSingleConflict,
+    // Future candidates:
+    // ReduceDecodeError,        // if reduce expects specific encoding
+    // ReduceInvariantViolation, // if reduce op has preconditions
+}
+
+impl core::fmt::Display for MaterializationErrorKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::StrictSingleConflict => write!(f, "strict single conflict"),
+        }
+    }
+}
+
+/// Error raised when a channel fails to finalize.
+///
+/// This is a structured error that identifies both the channel and the reason
+/// for failure. The error is deterministic: same emissions → same error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChannelConflict {
-    /// The channel that had conflicting emissions.
+    /// The channel that failed to finalize.
     pub channel: ChannelId,
-    /// Number of distinct emissions (> 1 for a conflict).
+    /// Number of distinct emissions (relevant for `StrictSingleConflict`).
     pub emission_count: usize,
+    /// Classification of the error.
+    pub kind: MaterializationErrorKind,
 }
 
 impl core::fmt::Display for ChannelConflict {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "channel conflict: {} emissions to strict channel {:?}",
-            self.emission_count, self.channel
+            "channel {:?} failed: {} ({} emissions)",
+            self.channel, self.kind, self.emission_count
         )
     }
 }

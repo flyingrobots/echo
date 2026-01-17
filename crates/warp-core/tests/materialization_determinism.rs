@@ -244,28 +244,37 @@ fn bus_log_is_order_independent() {
 
     // Order A: (1,1), (2,1), (1,2)
     let bus_a = MaterializationBus::new();
-    bus_a.emit(ch, key(1, 1), vec![0xAA]);
-    bus_a.emit(ch, key(2, 1), vec![0xBB]);
-    bus_a.emit(ch, key(1, 2), vec![0xCC]);
+    bus_a.emit(ch, key(1, 1), vec![0xAA]).expect("emit");
+    bus_a.emit(ch, key(2, 1), vec![0xBB]).expect("emit");
+    bus_a.emit(ch, key(1, 2), vec![0xCC]).expect("emit");
 
     // Order B: (2,1), (1,2), (1,1)
     let bus_b = MaterializationBus::new();
-    bus_b.emit(ch, key(2, 1), vec![0xBB]);
-    bus_b.emit(ch, key(1, 2), vec![0xCC]);
-    bus_b.emit(ch, key(1, 1), vec![0xAA]);
+    bus_b.emit(ch, key(2, 1), vec![0xBB]).expect("emit");
+    bus_b.emit(ch, key(1, 2), vec![0xCC]).expect("emit");
+    bus_b.emit(ch, key(1, 1), vec![0xAA]).expect("emit");
 
     // Order C: (1,2), (1,1), (2,1)
     let bus_c = MaterializationBus::new();
-    bus_c.emit(ch, key(1, 2), vec![0xCC]);
-    bus_c.emit(ch, key(1, 1), vec![0xAA]);
-    bus_c.emit(ch, key(2, 1), vec![0xBB]);
+    bus_c.emit(ch, key(1, 2), vec![0xCC]).expect("emit");
+    bus_c.emit(ch, key(1, 1), vec![0xAA]).expect("emit");
+    bus_c.emit(ch, key(2, 1), vec![0xBB]).expect("emit");
 
-    let result_a = bus_a.finalize().expect("a");
-    let result_b = bus_b.finalize().expect("b");
-    let result_c = bus_c.finalize().expect("c");
+    let report_a = bus_a.finalize();
+    assert!(report_a.is_ok());
+    let report_b = bus_b.finalize();
+    assert!(report_b.is_ok());
+    let report_c = bus_c.finalize();
+    assert!(report_c.is_ok());
 
-    assert_eq!(result_a[0].data, result_b[0].data, "A == B");
-    assert_eq!(result_b[0].data, result_c[0].data, "B == C");
+    assert_eq!(
+        report_a.channels[0].data, report_b.channels[0].data,
+        "A == B"
+    );
+    assert_eq!(
+        report_b.channels[0].data, report_c.channels[0].data,
+        "B == C"
+    );
 }
 
 /// Log policy preserves all emissions, no drops.
@@ -276,11 +285,12 @@ fn bus_log_preserves_all_emissions_no_drops() {
 
     // Emit 5 items
     for i in 0..5 {
-        bus.emit(ch, key(i, 1), vec![i]);
+        bus.emit(ch, key(i, 1), vec![i]).expect("emit");
     }
 
-    let result = bus.finalize().expect("finalize");
-    let data = &result[0].data;
+    let report = bus.finalize();
+    assert!(report.is_ok());
+    let data = &report.channels[0].data;
 
     // Count entries (each is 4-byte length + 1-byte data)
     let mut count = 0;
@@ -308,15 +318,16 @@ fn bus_deterministic_channel_iteration() {
 
     // Insert in "wrong" order
     let bus = MaterializationBus::new();
-    bus.emit(ch2, key(1, 1), vec![2]);
-    bus.emit(ch3, key(1, 1), vec![3]);
-    bus.emit(ch1, key(1, 1), vec![1]);
+    bus.emit(ch2, key(1, 1), vec![2]).expect("emit");
+    bus.emit(ch3, key(1, 1), vec![3]).expect("emit");
+    bus.emit(ch1, key(1, 1), vec![1]).expect("emit");
 
-    let result = bus.finalize().expect("finalize");
-    assert_eq!(result.len(), 3);
+    let report = bus.finalize();
+    assert!(report.is_ok());
+    assert_eq!(report.channels.len(), 3);
 
     // Channels must be in ChannelId order (which is deterministic per label)
-    let ids: Vec<ChannelId> = result.iter().map(|r| r.channel).collect();
+    let ids: Vec<ChannelId> = report.channels.iter().map(|r| r.channel).collect();
 
     // Verify ordering is consistent
     assert!(ids[0] != ids[1], "channels should differ");
@@ -324,12 +335,13 @@ fn bus_deterministic_channel_iteration() {
 
     // More importantly: re-run produces same order
     let bus2 = MaterializationBus::new();
-    bus2.emit(ch3, key(1, 1), vec![3]);
-    bus2.emit(ch1, key(1, 1), vec![1]);
-    bus2.emit(ch2, key(1, 1), vec![2]);
+    bus2.emit(ch3, key(1, 1), vec![3]).expect("emit");
+    bus2.emit(ch1, key(1, 1), vec![1]).expect("emit");
+    bus2.emit(ch2, key(1, 1), vec![2]).expect("emit");
 
-    let result2 = bus2.finalize().expect("finalize2");
-    let ids2: Vec<ChannelId> = result2.iter().map(|r| r.channel).collect();
+    let report2 = bus2.finalize();
+    assert!(report2.is_ok());
+    let ids2: Vec<ChannelId> = report2.channels.iter().map(|r| r.channel).collect();
 
     assert_eq!(ids, ids2, "channel order must be deterministic");
 }
@@ -345,12 +357,13 @@ fn log_policy_outputs_all_in_emitkey_order() {
     let bus = MaterializationBus::new();
 
     // Emit in reverse order
-    bus.emit(ch, key(3, 1), vec![0x33]);
-    bus.emit(ch, key(1, 1), vec![0x11]);
-    bus.emit(ch, key(2, 1), vec![0x22]);
+    bus.emit(ch, key(3, 1), vec![0x33]).expect("emit");
+    bus.emit(ch, key(1, 1), vec![0x11]).expect("emit");
+    bus.emit(ch, key(2, 1), vec![0x22]).expect("emit");
 
-    let result = bus.finalize().expect("finalize");
-    let data = &result[0].data;
+    let report = bus.finalize();
+    assert!(report.is_ok());
+    let data = &report.channels[0].data;
 
     // Extract values in order
     let mut values = Vec::new();
@@ -377,11 +390,12 @@ fn strict_single_accepts_one_emission() {
     let mut bus = MaterializationBus::new();
     bus.register_channel(ch, ChannelPolicy::StrictSingle);
 
-    bus.emit(ch, key(1, 1), vec![42]);
+    bus.emit(ch, key(1, 1), vec![42]).expect("emit");
 
-    let result = bus.finalize().expect("should succeed with one emission");
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].data, vec![42]);
+    let report = bus.finalize();
+    assert!(report.is_ok());
+    assert_eq!(report.channels.len(), 1);
+    assert_eq!(report.channels[0].data, vec![42]);
 }
 
 /// StrictSingle rejects two emissions (deterministic error).
@@ -391,13 +405,13 @@ fn strict_single_rejects_two_emissions() {
     let mut bus = MaterializationBus::new();
     bus.register_channel(ch, ChannelPolicy::StrictSingle);
 
-    bus.emit(ch, key(1, 1), vec![1]);
-    bus.emit(ch, key(2, 1), vec![2]);
+    bus.emit(ch, key(1, 1), vec![1]).expect("emit");
+    bus.emit(ch, key(2, 1), vec![2]).expect("emit");
 
-    let result = bus.finalize();
-    assert!(result.is_err());
+    let report = bus.finalize();
+    assert!(report.has_errors());
 
-    let err = result.unwrap_err();
+    let err = &report.errors[0];
     assert_eq!(err.channel, ch);
     assert_eq!(err.emission_count, 2);
 }
@@ -410,20 +424,25 @@ fn strict_single_error_is_deterministic() {
     // Order A
     let mut bus_a = MaterializationBus::new();
     bus_a.register_channel(ch, ChannelPolicy::StrictSingle);
-    bus_a.emit(ch, key(1, 1), vec![1]);
-    bus_a.emit(ch, key(2, 1), vec![2]);
+    bus_a.emit(ch, key(1, 1), vec![1]).expect("emit");
+    bus_a.emit(ch, key(2, 1), vec![2]).expect("emit");
 
     // Order B (reversed)
     let mut bus_b = MaterializationBus::new();
     bus_b.register_channel(ch, ChannelPolicy::StrictSingle);
-    bus_b.emit(ch, key(2, 1), vec![2]);
-    bus_b.emit(ch, key(1, 1), vec![1]);
+    bus_b.emit(ch, key(2, 1), vec![2]).expect("emit");
+    bus_b.emit(ch, key(1, 1), vec![1]).expect("emit");
 
-    let err_a = bus_a.finalize().unwrap_err();
-    let err_b = bus_b.finalize().unwrap_err();
+    let report_a = bus_a.finalize();
+    assert!(report_a.has_errors());
+    let report_b = bus_b.finalize();
+    assert!(report_b.has_errors());
 
-    assert_eq!(err_a.channel, err_b.channel);
-    assert_eq!(err_a.emission_count, err_b.emission_count);
+    assert_eq!(report_a.errors[0].channel, report_b.errors[0].channel);
+    assert_eq!(
+        report_a.errors[0].emission_count,
+        report_b.errors[0].emission_count
+    );
 }
 
 /// StrictSingle with zero emissions returns empty.
@@ -434,8 +453,9 @@ fn strict_single_zero_emissions_is_empty() {
     bus.register_channel(ch, ChannelPolicy::StrictSingle);
 
     // Don't emit anything to this channel
-    let result = bus.finalize().expect("should succeed");
-    assert!(result.is_empty());
+    let report = bus.finalize();
+    assert!(report.is_ok());
+    assert!(report.channels.is_empty());
 }
 
 /// Default policy is Log.
@@ -610,10 +630,11 @@ fn permutation_suite_n4_is_order_independent() {
     // Get reference result (natural order)
     let ref_bus = MaterializationBus::new();
     for (k, d) in &emissions {
-        ref_bus.emit(ch, *k, d.clone());
+        ref_bus.emit(ch, *k, d.clone()).expect("emit");
     }
-    let ref_result = ref_bus.finalize().expect("ref");
-    let ref_data = &ref_result[0].data;
+    let ref_report = ref_bus.finalize();
+    assert!(ref_report.is_ok());
+    let ref_data = &ref_report.channels[0].data;
 
     // Test all 4! = 24 permutations
     let perms = permutations(&emissions);
@@ -622,11 +643,12 @@ fn permutation_suite_n4_is_order_independent() {
     for (i, perm) in perms.iter().enumerate() {
         let bus = MaterializationBus::new();
         for (k, d) in perm {
-            bus.emit(ch, *k, d.clone());
+            bus.emit(ch, *k, d.clone()).expect("emit");
         }
-        let result = bus.finalize().unwrap_or_else(|_| panic!("perm {}", i));
+        let report = bus.finalize();
+        assert!(!report.has_errors(), "perm {}", i);
         assert_eq!(
-            &result[0].data, ref_data,
+            &report.channels[0].data, ref_data,
             "permutation {} should match reference",
             i
         );
@@ -648,10 +670,11 @@ fn permutation_suite_with_subkeys() {
     // Reference
     let ref_bus = MaterializationBus::new();
     for (k, d) in &emissions {
-        ref_bus.emit(ch, *k, d.clone());
+        ref_bus.emit(ch, *k, d.clone()).expect("emit");
     }
-    let ref_result = ref_bus.finalize().expect("ref");
-    let ref_data = &ref_result[0].data;
+    let ref_report = ref_bus.finalize();
+    assert!(ref_report.is_ok());
+    let ref_data = &ref_report.channels[0].data;
 
     // All 3! = 6 permutations
     let perms = permutations(&emissions);
@@ -660,10 +683,15 @@ fn permutation_suite_with_subkeys() {
     for (i, perm) in perms.iter().enumerate() {
         let bus = MaterializationBus::new();
         for (k, d) in perm {
-            bus.emit(ch, *k, d.clone());
+            bus.emit(ch, *k, d.clone()).expect("emit");
         }
-        let result = bus.finalize().unwrap_or_else(|_| panic!("perm {}", i));
-        assert_eq!(&result[0].data, ref_data, "permutation {} should match", i);
+        let report = bus.finalize();
+        assert!(!report.has_errors(), "perm {}", i);
+        assert_eq!(
+            &report.channels[0].data, ref_data,
+            "permutation {} should match",
+            i
+        );
     }
 }
 
@@ -684,9 +712,10 @@ fn permutation_suite_multi_channel() {
     // Reference
     let ref_bus = MaterializationBus::new();
     for (c, k, d) in &emissions {
-        ref_bus.emit(*c, *k, d.clone());
+        ref_bus.emit(*c, *k, d.clone()).expect("emit");
     }
-    let ref_result = ref_bus.finalize().expect("ref");
+    let ref_report = ref_bus.finalize();
+    assert!(ref_report.is_ok());
 
     // All 4! = 24 permutations
     let perms = permutations(&emissions);
@@ -695,15 +724,21 @@ fn permutation_suite_multi_channel() {
     for (i, perm) in perms.iter().enumerate() {
         let bus = MaterializationBus::new();
         for (c, k, d) in perm {
-            bus.emit(*c, *k, d.clone());
+            bus.emit(*c, *k, d.clone()).expect("emit");
         }
-        let result = bus.finalize().unwrap_or_else(|_| panic!("perm {}", i));
+        let report = bus.finalize();
+        assert!(!report.has_errors(), "perm {}", i);
 
         // Must have same number of channels
-        assert_eq!(result.len(), ref_result.len(), "perm {} channel count", i);
+        assert_eq!(
+            report.channels.len(),
+            ref_report.channels.len(),
+            "perm {} channel count",
+            i
+        );
 
         // Each channel's data must match
-        for (r, rr) in result.iter().zip(ref_result.iter()) {
+        for (r, rr) in report.channels.iter().zip(ref_report.channels.iter()) {
             assert_eq!(r.channel, rr.channel, "perm {} channel id", i);
             assert_eq!(r.data, rr.data, "perm {} channel data", i);
         }
@@ -744,15 +779,16 @@ fn bus_clear_removes_all_pending() {
     let ch1 = make_channel_id("ch:clear1");
     let ch2 = make_channel_id("ch:clear2");
 
-    bus.emit(ch1, key(1, 1), vec![1]);
-    bus.emit(ch2, key(1, 1), vec![2]);
+    bus.emit(ch1, key(1, 1), vec![1]).expect("emit");
+    bus.emit(ch2, key(1, 1), vec![2]).expect("emit");
 
     assert!(!bus.is_empty());
     bus.clear();
     assert!(bus.is_empty());
 
-    let result = bus.finalize().expect("after clear");
-    assert!(result.is_empty());
+    let report = bus.finalize();
+    assert!(report.is_ok());
+    assert!(report.channels.is_empty());
 }
 
 /// Port clear removes subscriptions, cache, and pending.

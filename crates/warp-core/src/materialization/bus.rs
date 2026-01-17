@@ -21,10 +21,42 @@
 //! produce the final output.
 
 use std::cell::RefCell;
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 
-use super::channel::{ChannelConflict, ChannelId, ChannelPolicy};
+use super::channel::{ChannelConflict, ChannelId, ChannelPolicy, MaterializationErrorKind};
 use super::emit_key::EmitKey;
+
+/// Error returned when the same `(channel, EmitKey)` pair is emitted twice.
+///
+/// This is a structural invariant: even if the payloads are identical, duplicate
+/// emissions indicate a bug in the rule (e.g., iterating a non-deterministic source
+/// like `HashMap` without proper subkey differentiation).
+///
+/// # Why Reject Identical Payloads?
+///
+/// Allowing "identical payload = OK" encourages sloppy code that emits redundantly.
+/// Then someone changes a field and tests fail mysteriously. Rejecting always forces
+/// rule authors to think: "Am I iterating deterministically? Do I need unique subkeys?"
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuplicateEmission {
+    /// The channel that received the duplicate.
+    pub channel: ChannelId,
+    /// The key that was duplicated.
+    pub key: EmitKey,
+}
+
+impl core::fmt::Display for DuplicateEmission {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "duplicate emission for channel {:?} key {:?}",
+            self.channel, self.key
+        )
+    }
+}
+
+impl std::error::Error for DuplicateEmission {}
 
 /// Internal materialization bus for collecting and finalizing channel emissions.
 ///
@@ -49,8 +81,43 @@ pub struct FinalizedChannel {
     pub data: Vec<u8>,
 }
 
-/// Result of finalizing all channels.
-pub type FinalizeResult = Result<Vec<FinalizedChannel>, ChannelConflict>;
+/// Report from finalizing all channels.
+///
+/// Unlike a `Result`, this type always succeeds. Channels that finalize
+/// successfully appear in `channels`; channels that fail (e.g., `StrictSingle`
+/// conflicts) appear in `errors`. This design ensures:
+///
+/// 1. **No data loss**: A failing channel doesn't erase other channels' outputs
+/// 2. **Deterministic errors**: Same emissions → same errors, always observable
+/// 3. **No panics**: Callers handle errors explicitly, not via `expect()`
+///
+/// # Invariant
+///
+/// `channels` and `errors` partition the set of channels that had emissions.
+/// A channel appears in exactly one of the two lists.
+#[derive(Debug, Default, Clone)]
+pub struct FinalizeReport {
+    /// Successfully finalized channels.
+    pub channels: Vec<FinalizedChannel>,
+    /// Channels that failed to finalize.
+    pub errors: Vec<ChannelConflict>,
+}
+
+impl FinalizeReport {
+    /// Returns `true` if all channels finalized successfully.
+    #[inline]
+    #[must_use]
+    pub fn is_ok(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// Returns `true` if any channel failed to finalize.
+    #[inline]
+    #[must_use]
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+}
 
 impl MaterializationBus {
     /// Creates a new empty bus.
@@ -71,13 +138,33 @@ impl MaterializationBus {
     ///
     /// Multiple emissions to the same channel are collected and resolved
     /// during finalization according to the channel's policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DuplicateEmission`] if this `(channel, emit_key)` pair has
+    /// already been emitted during this tick. This is always an error, even
+    /// if the payload bytes are identical—it indicates a bug in the rule
+    /// (e.g., iterating a `HashMap` without proper subkey differentiation).
     #[inline]
-    pub fn emit(&self, channel: ChannelId, emit_key: EmitKey, data: Vec<u8>) {
-        self.pending
-            .borrow_mut()
-            .entry(channel)
-            .or_default()
-            .insert(emit_key, data);
+    pub fn emit(
+        &self,
+        channel: ChannelId,
+        emit_key: EmitKey,
+        data: Vec<u8>,
+    ) -> Result<(), DuplicateEmission> {
+        let mut pending = self.pending.borrow_mut();
+        let channel_map = pending.entry(channel).or_default();
+
+        match channel_map.entry(emit_key) {
+            Entry::Vacant(e) => {
+                e.insert(data);
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(DuplicateEmission {
+                channel,
+                key: emit_key,
+            }),
+        }
     }
 
     /// Returns the policy for a channel (defaults to Log if not registered).
@@ -95,30 +182,36 @@ impl MaterializationBus {
     /// Finalizes all pending emissions according to channel policies.
     ///
     /// For each channel:
-    /// - `Log`: All values concatenated in `EmitKey` order
-    /// - `StrictSingle`: Error if >1 emission, otherwise single value
-    /// - `Reduce`: Values merged via join function (not yet implemented)
+    /// - `Log`: All values concatenated in `EmitKey` order, length-prefixed
+    /// - `StrictSingle`: Single value if exactly one emission, error otherwise
+    /// - `Reduce(op)`: Values merged via the reduce operation
     ///
     /// Clears pending emissions after finalization.
     ///
-    /// # Errors
+    /// # Design
     ///
-    /// Returns [`ChannelConflict`] if a `StrictSingle` channel has multiple emissions.
-    pub fn finalize(&self) -> FinalizeResult {
+    /// This method **never fails**. Instead, it returns a [`FinalizeReport`] that
+    /// partitions channels into successes and errors. This ensures:
+    ///
+    /// - A failing channel (e.g., `StrictSingle` conflict) doesn't erase other
+    ///   channels' outputs
+    /// - Errors are always observable in the returned report
+    /// - Callers don't need `expect()` or `unwrap()`
+    pub fn finalize(&self) -> FinalizeReport {
         let mut pending = self.pending.borrow_mut();
-        let mut results = Vec::with_capacity(pending.len());
+        let mut report = FinalizeReport::default();
 
-        for (channel, emissions) in &*pending {
-            let policy = self.policies.get(channel).copied().unwrap_or_default();
-            let data = Self::finalize_channel(channel, emissions, policy)?;
-            results.push(FinalizedChannel {
-                channel: *channel,
-                data,
-            });
+        // Channels iterate in deterministic order (BTreeMap).
+        for (&channel, emissions) in &*pending {
+            let policy = self.policies.get(&channel).copied().unwrap_or_default();
+            match Self::finalize_channel(channel, emissions, policy) {
+                Ok(data) => report.channels.push(FinalizedChannel { channel, data }),
+                Err(conflict) => report.errors.push(conflict),
+            }
         }
 
         pending.clear();
-        Ok(results)
+        report
     }
 
     /// Clears all pending emissions without finalizing (for abort path).
@@ -130,7 +223,7 @@ impl MaterializationBus {
     /// Finalizes a single channel according to its policy.
     #[allow(clippy::cast_possible_truncation)]
     fn finalize_channel(
-        channel: &ChannelId,
+        channel: ChannelId,
         emissions: &BTreeMap<EmitKey, Vec<u8>>,
         policy: ChannelPolicy,
     ) -> Result<Vec<u8>, ChannelConflict> {
@@ -148,24 +241,20 @@ impl MaterializationBus {
                 Ok(result)
             }
             ChannelPolicy::StrictSingle => {
-                if emissions.len() > 1 {
+                let n = emissions.len();
+                if n > 1 {
                     return Err(ChannelConflict {
-                        channel: *channel,
-                        emission_count: emissions.len(),
+                        channel,
+                        emission_count: n,
+                        kind: MaterializationErrorKind::StrictSingleConflict,
                     });
                 }
                 // Return the single value (or empty if none)
                 Ok(emissions.values().next().cloned().unwrap_or_default())
             }
-            ChannelPolicy::Reduce { join_fn_id: _ } => {
-                // TODO: Implement reduce via join function registry
-                // For now, fall back to Log behavior
-                let mut result = Vec::new();
-                for data in emissions.values() {
-                    result.extend_from_slice(&(data.len() as u32).to_le_bytes());
-                    result.extend_from_slice(data);
-                }
-                Ok(result)
+            ChannelPolicy::Reduce(op) => {
+                // Apply the reduce operation to values in EmitKey order
+                Ok(op.apply(emissions.values().cloned()))
             }
         }
     }
@@ -194,16 +283,17 @@ mod tests {
         let ch = make_channel_id("test:log");
 
         // Emit in arbitrary order
-        bus.emit(ch, key(2, 1), vec![2]);
-        bus.emit(ch, key(1, 1), vec![1]);
-        bus.emit(ch, key(1, 2), vec![3]);
+        bus.emit(ch, key(2, 1), vec![2]).expect("emit");
+        bus.emit(ch, key(1, 1), vec![1]).expect("emit");
+        bus.emit(ch, key(1, 2), vec![3]).expect("emit");
 
-        let result = bus.finalize().expect("finalize should succeed");
-        assert_eq!(result.len(), 1);
+        let report = bus.finalize();
+        assert!(report.is_ok(), "finalize should succeed");
+        assert_eq!(report.channels.len(), 1);
 
         // Should be ordered by EmitKey: (h(1), 1), (h(1), 2), (h(2), 1)
         // Each entry is length-prefixed
-        let data = &result[0].data;
+        let data = &report.channels[0].data;
         assert_eq!(data[0..4], 1u32.to_le_bytes()); // len = 1
         assert_eq!(data[4], 1); // value
         assert_eq!(data[5..9], 1u32.to_le_bytes()); // len = 1
@@ -220,19 +310,23 @@ mod tests {
         let ch = make_channel_id("test:order");
 
         // Bus 1: emit in one order
-        bus1.emit(ch, key(1, 1), vec![1]);
-        bus1.emit(ch, key(2, 1), vec![2]);
-        bus1.emit(ch, key(1, 2), vec![3]);
+        bus1.emit(ch, key(1, 1), vec![1]).expect("emit");
+        bus1.emit(ch, key(2, 1), vec![2]).expect("emit");
+        bus1.emit(ch, key(1, 2), vec![3]).expect("emit");
 
         // Bus 2: emit in different order
-        bus2.emit(ch, key(2, 1), vec![2]);
-        bus2.emit(ch, key(1, 2), vec![3]);
-        bus2.emit(ch, key(1, 1), vec![1]);
+        bus2.emit(ch, key(2, 1), vec![2]).expect("emit");
+        bus2.emit(ch, key(1, 2), vec![3]).expect("emit");
+        bus2.emit(ch, key(1, 1), vec![1]).expect("emit");
 
-        let result1 = bus1.finalize().expect("finalize bus1");
-        let result2 = bus2.finalize().expect("finalize bus2");
+        let report1 = bus1.finalize();
+        let report2 = bus2.finalize();
 
-        assert_eq!(result1[0].data, result2[0].data, "order should not matter");
+        assert!(report1.is_ok() && report2.is_ok());
+        assert_eq!(
+            report1.channels[0].data, report2.channels[0].data,
+            "order should not matter"
+        );
     }
 
     #[test]
@@ -241,13 +335,15 @@ mod tests {
         let ch = make_channel_id("test:strict");
         bus.register_channel(ch, ChannelPolicy::StrictSingle);
 
-        bus.emit(ch, key(1, 1), vec![42]);
+        bus.emit(ch, key(1, 1), vec![42]).expect("emit");
 
-        let result = bus
-            .finalize()
-            .expect("finalize should succeed for single emission");
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].data, vec![42]);
+        let report = bus.finalize();
+        assert!(
+            report.is_ok(),
+            "finalize should succeed for single emission"
+        );
+        assert_eq!(report.channels.len(), 1);
+        assert_eq!(report.channels[0].data, vec![42]);
     }
 
     #[test]
@@ -256,12 +352,17 @@ mod tests {
         let ch = make_channel_id("test:strict");
         bus.register_channel(ch, ChannelPolicy::StrictSingle);
 
-        bus.emit(ch, key(1, 1), vec![1]);
-        bus.emit(ch, key(2, 1), vec![2]);
+        bus.emit(ch, key(1, 1), vec![1]).expect("emit");
+        bus.emit(ch, key(2, 1), vec![2]).expect("emit");
 
-        let result = bus.finalize();
-        let err = result.expect_err("finalize should fail with multiple emissions");
-        assert_eq!(err.emission_count, 2);
+        let report = bus.finalize();
+        assert!(report.has_errors(), "finalize should have errors");
+        assert_eq!(report.errors.len(), 1);
+        assert_eq!(report.errors[0].emission_count, 2);
+        assert_eq!(
+            report.errors[0].kind,
+            MaterializationErrorKind::StrictSingleConflict
+        );
     }
 
     #[test]
@@ -269,14 +370,15 @@ mod tests {
         let bus = MaterializationBus::new();
         let ch = make_channel_id("test:clear");
 
-        bus.emit(ch, key(1, 1), vec![1]);
+        bus.emit(ch, key(1, 1), vec![1]).expect("emit");
         assert!(!bus.is_empty());
 
         bus.clear();
         assert!(bus.is_empty());
 
-        let result = bus.finalize().expect("finalize after clear");
-        assert!(result.is_empty());
+        let report = bus.finalize();
+        assert!(report.is_ok());
+        assert!(report.channels.is_empty());
     }
 
     #[test]
@@ -285,14 +387,15 @@ mod tests {
         let ch1 = make_channel_id("channel:one");
         let ch2 = make_channel_id("channel:two");
 
-        bus.emit(ch1, key(1, 1), vec![1]);
-        bus.emit(ch2, key(1, 1), vec![2]);
+        bus.emit(ch1, key(1, 1), vec![1]).expect("emit");
+        bus.emit(ch2, key(1, 1), vec![2]).expect("emit");
 
-        let result = bus.finalize().expect("finalize multi-channel");
-        assert_eq!(result.len(), 2);
+        let report = bus.finalize();
+        assert!(report.is_ok());
+        assert_eq!(report.channels.len(), 2);
 
         // Channels should be in deterministic order (by ChannelId)
-        let ids: Vec<_> = result.iter().map(|r| r.channel).collect();
+        let ids: Vec<_> = report.channels.iter().map(|r| r.channel).collect();
         assert!(ids[0] != ids[1], "channels should have different IDs");
     }
 

@@ -29,6 +29,64 @@ struct Cli {
 enum Commands {
     /// Generate dependency DAG DOT/SVG artifacts for issues + milestones.
     Dags(DagsArgs),
+    /// Run DIND (Deterministic Ironclad Nightmare Drills) harness.
+    Dind(DindArgs),
+}
+
+#[derive(Args)]
+struct DindArgs {
+    /// DIND subcommand to execute.
+    #[command(subcommand)]
+    command: DindCommands,
+}
+
+#[derive(Subcommand)]
+enum DindCommands {
+    /// Run scenarios and verify against golden files.
+    Run {
+        /// Filter scenarios by tags (comma-separated).
+        #[arg(long)]
+        tags: Option<String>,
+        /// Exclude scenarios with these tags (comma-separated).
+        #[arg(long)]
+        exclude_tags: Option<String>,
+        /// Emit reproduction bundle on failure.
+        #[arg(long)]
+        emit_repro: bool,
+    },
+    /// Record golden hashes for scenarios.
+    Record {
+        /// Filter scenarios by tags (comma-separated).
+        #[arg(long)]
+        tags: Option<String>,
+        /// Exclude scenarios with these tags (comma-separated).
+        #[arg(long)]
+        exclude_tags: Option<String>,
+    },
+    /// Run torture tests (repeated runs to detect non-determinism).
+    Torture {
+        /// Filter scenarios by tags (comma-separated).
+        #[arg(long)]
+        tags: Option<String>,
+        /// Exclude scenarios with these tags (comma-separated).
+        #[arg(long)]
+        exclude_tags: Option<String>,
+        /// Number of runs per scenario.
+        #[arg(long, default_value = "20")]
+        runs: u32,
+        /// Emit reproduction bundle on failure.
+        #[arg(long)]
+        emit_repro: bool,
+    },
+    /// Verify convergence across scenario permutations.
+    Converge {
+        /// Filter scenarios by tags (comma-separated).
+        #[arg(long)]
+        tags: Option<String>,
+        /// Exclude scenarios with these tags (comma-separated).
+        #[arg(long)]
+        exclude_tags: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -61,6 +119,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Dags(args) => run_dags(args),
+        Commands::Dind(args) => run_dind(args),
     }
 }
 
@@ -135,4 +194,249 @@ fn validate_snapshot_date(snapshot: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_dind(args: DindArgs) -> Result<()> {
+    // Delegate to the Node.js script which handles manifest parsing and orchestration.
+    // This mirrors what CI does and ensures consistent behavior.
+    let mut node_args = vec!["scripts/dind-run-suite.mjs".to_owned()];
+
+    match args.command {
+        DindCommands::Run {
+            tags,
+            exclude_tags,
+            emit_repro,
+        } => {
+            node_args.push("--mode".to_owned());
+            node_args.push("run".to_owned());
+            if let Some(t) = tags {
+                node_args.push("--tags".to_owned());
+                node_args.push(t);
+            }
+            if let Some(et) = exclude_tags {
+                node_args.push("--exclude-tags".to_owned());
+                node_args.push(et);
+            }
+            if emit_repro {
+                node_args.push("--emit-repro".to_owned());
+            }
+        }
+        DindCommands::Record { tags, exclude_tags } => {
+            // Record mode: we need to invoke the harness directly for each scenario.
+            // For now, we'll use a simplified approach that delegates to the suite script
+            // in "run" mode but without golden files, then manually record.
+            // Actually, the suite script doesn't have a record mode, so we invoke the harness directly.
+            return run_dind_record(tags, exclude_tags);
+        }
+        DindCommands::Torture {
+            tags,
+            exclude_tags,
+            runs,
+            emit_repro,
+        } => {
+            node_args.push("--mode".to_owned());
+            node_args.push("torture".to_owned());
+            node_args.push("--runs".to_owned());
+            node_args.push(runs.to_string());
+            if let Some(t) = tags {
+                node_args.push("--tags".to_owned());
+                node_args.push(t);
+            }
+            if let Some(et) = exclude_tags {
+                node_args.push("--exclude-tags".to_owned());
+                node_args.push(et);
+            }
+            if emit_repro {
+                node_args.push("--emit-repro".to_owned());
+            }
+        }
+        DindCommands::Converge { tags, exclude_tags } => {
+            // Converge mode requires grouping scenarios by converge_scope.
+            // For simplicity, we'll just run the converge check on all matching scenarios.
+            return run_dind_converge(tags, exclude_tags);
+        }
+    }
+
+    let status = Command::new("node")
+        .args(&node_args)
+        .status()
+        .context("failed to spawn `node` (is Node.js installed?)")?;
+
+    if !status.success() {
+        bail!("DIND suite failed (exit status: {status})");
+    }
+
+    Ok(())
+}
+
+/// Run DIND record mode: generate golden hashes for scenarios.
+fn run_dind_record(tags: Option<String>, exclude_tags: Option<String>) -> Result<()> {
+    let scenarios = load_matching_scenarios(tags.as_deref(), exclude_tags.as_deref())?;
+
+    if scenarios.is_empty() {
+        println!("No scenarios matched the specified tags.");
+        return Ok(());
+    }
+
+    println!("DIND RECORD: {} scenarios", scenarios.len());
+
+    let mut failed = 0;
+    for scenario in &scenarios {
+        let scenario_path = format!("testdata/dind/{}", scenario.path);
+        let golden_path = scenario_path.replace(".eintlog", ".hashes.json");
+
+        println!("\n>>> Recording: {} -> {}", scenario_path, golden_path);
+
+        let status = Command::new("cargo")
+            .args([
+                "run",
+                "-p",
+                "echo-dind-harness",
+                "--quiet",
+                "--",
+                "record",
+                &scenario_path,
+                "--out",
+                &golden_path,
+            ])
+            .status()
+            .context("failed to spawn cargo")?;
+
+        if !status.success() {
+            eprintln!("!!! FAILED: {}", scenario.path);
+            failed += 1;
+        }
+    }
+
+    if failed > 0 {
+        bail!("DIND RECORD: {} scenarios failed", failed);
+    }
+
+    println!(
+        "\nDIND RECORD: All {} scenarios recorded successfully.",
+        scenarios.len()
+    );
+    Ok(())
+}
+
+/// Run DIND converge mode: verify convergence across scenario permutations.
+fn run_dind_converge(tags: Option<String>, exclude_tags: Option<String>) -> Result<()> {
+    let scenarios = load_matching_scenarios(tags.as_deref(), exclude_tags.as_deref())?;
+
+    // Group scenarios by converge_scope
+    let mut groups: std::collections::HashMap<String, Vec<&Scenario>> =
+        std::collections::HashMap::new();
+
+    for scenario in &scenarios {
+        if let Some(scope) = &scenario.converge_scope {
+            groups.entry(scope.clone()).or_default().push(scenario);
+        }
+    }
+
+    if groups.is_empty() {
+        println!("No scenarios with converge_scope matched the specified tags.");
+        return Ok(());
+    }
+
+    println!("DIND CONVERGE: {} groups", groups.len());
+
+    let mut failed = 0;
+    for (scope, group) in &groups {
+        if group.len() < 2 {
+            println!(
+                "\n>>> Skipping scope '{}': only {} scenario(s)",
+                scope,
+                group.len()
+            );
+            continue;
+        }
+
+        println!(
+            "\n>>> Converge group '{}': {} scenarios",
+            scope,
+            group.len()
+        );
+
+        let scenario_paths: Vec<String> = group
+            .iter()
+            .map(|s| format!("testdata/dind/{}", s.path))
+            .collect();
+
+        let mut args = vec![
+            "run".to_owned(),
+            "-p".to_owned(),
+            "echo-dind-harness".to_owned(),
+            "--quiet".to_owned(),
+            "--".to_owned(),
+            "converge".to_owned(),
+        ];
+        args.extend(scenario_paths);
+
+        let status = Command::new("cargo")
+            .args(&args)
+            .status()
+            .context("failed to spawn cargo")?;
+
+        if !status.success() {
+            eprintln!("!!! CONVERGE FAILED for scope: {}", scope);
+            failed += 1;
+        } else {
+            println!("    CONVERGE OK: {}", scope);
+        }
+    }
+
+    if failed > 0 {
+        bail!("DIND CONVERGE: {} groups failed", failed);
+    }
+
+    println!("\nDIND CONVERGE: All groups verified.");
+    Ok(())
+}
+
+/// Scenario entry from MANIFEST.json.
+#[derive(serde::Deserialize)]
+struct Scenario {
+    path: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    converge_scope: Option<String>,
+}
+
+/// Load scenarios matching the given tag filters.
+fn load_matching_scenarios(
+    tags: Option<&str>,
+    exclude_tags: Option<&str>,
+) -> Result<Vec<Scenario>> {
+    let manifest_path = "testdata/dind/MANIFEST.json";
+    let content = std::fs::read_to_string(manifest_path).context("failed to read MANIFEST.json")?;
+    let all_scenarios: Vec<Scenario> =
+        serde_json::from_str(&content).context("failed to parse MANIFEST.json")?;
+
+    let include_tags: Vec<&str> = tags.map(|t| t.split(',').collect()).unwrap_or_default();
+    let exclude_tag_list: Vec<&str> = exclude_tags
+        .map(|t| t.split(',').collect())
+        .unwrap_or_default();
+
+    let filtered: Vec<Scenario> = all_scenarios
+        .into_iter()
+        .filter(|s| {
+            // If include tags specified, scenario must have at least one
+            if !include_tags.is_empty()
+                && !include_tags.iter().any(|t| s.tags.contains(&t.to_string()))
+            {
+                return false;
+            }
+            // If exclude tags specified, scenario must not have any
+            if exclude_tag_list
+                .iter()
+                .any(|t| s.tags.contains(&t.to_string()))
+            {
+                return false;
+            }
+            true
+        })
+        .collect();
+
+    Ok(filtered)
 }

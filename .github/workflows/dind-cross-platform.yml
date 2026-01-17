@@ -1,0 +1,254 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+name: DIND Cross-Platform Determinism
+
+on:
+  schedule:
+    # Weekly: Sunday at 6am UTC (macOS runners are expensive)
+    - cron: "0 6 * * 0"
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  build-and-hash:
+    name: DIND (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: windows-2022
+            platform: windows-x64
+          - os: macos-15
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - name: Build DIND harness
+        run: cargo build -p echo-dind-harness --release
+
+      - name: Run DIND PR suite and collect hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p artifacts
+
+          # Find all .eintlog files with 'pr' tag in MANIFEST
+          MANIFEST="testdata/dind/MANIFEST.json"
+          if [[ ! -f "$MANIFEST" ]]; then
+            echo "ERROR: MANIFEST.json not found at $MANIFEST"
+            exit 1
+          fi
+
+          # Use node to extract PR scenarios (cross-platform JSON parsing)
+          node -e "
+            const fs = require('fs');
+            const manifest = JSON.parse(fs.readFileSync('$MANIFEST', 'utf8'));
+            const prScenarios = manifest.filter(s => s.tags && s.tags.includes('pr'));
+            prScenarios.forEach(s => console.log(s.path));
+          " > /tmp/pr-scenarios.txt
+
+          echo "=== PR Scenarios ==="
+          cat /tmp/pr-scenarios.txt
+          echo "===================="
+
+          while IFS= read -r scenario_file; do
+            [[ -z "$scenario_file" ]] && continue
+
+            scenario_path="testdata/dind/$scenario_file"
+            if [[ ! -f "$scenario_path" ]]; then
+              echo "WARNING: Scenario file not found: $scenario_path"
+              continue
+            fi
+
+            # Derive output filename: foo.eintlog -> foo.hashes.json
+            base_name="${scenario_file%.eintlog}"
+            out_file="artifacts/${base_name}.hashes.json"
+
+            echo ">>> Recording: $scenario_path -> $out_file"
+            cargo run -p echo-dind-harness --release --quiet -- record "$scenario_path" --out "$out_file"
+
+          done < /tmp/pr-scenarios.txt
+
+          echo "=== Generated hash files ==="
+          ls -la artifacts/
+          echo "============================"
+
+      - name: Upload hash artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dind-hashes-${{ matrix.platform }}
+          path: artifacts/*.hashes.json
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-identical:
+    name: Verify Cross-Platform Determinism
+    needs: build-and-hash
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: List downloaded artifacts
+        run: |
+          echo "=== Downloaded artifacts ==="
+          find all-artifacts -type f -name "*.json" | sort
+          echo "============================="
+
+      - name: Semantic comparison of hash files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Create the comparison script
+          node << 'COMPARE_SCRIPT'
+          const fs = require('fs');
+          const path = require('path');
+
+          // Discover all platform directories
+          const artifactsDir = 'all-artifacts';
+          const platformDirs = fs.readdirSync(artifactsDir)
+            .filter(d => d.startsWith('dind-hashes-'))
+            .map(d => ({
+              name: d.replace('dind-hashes-', ''),
+              path: path.join(artifactsDir, d)
+            }));
+
+          if (platformDirs.length < 2) {
+            console.error('ERROR: Need at least 2 platforms to compare, found:', platformDirs.length);
+            process.exit(1);
+          }
+
+          console.log(`Found ${platformDirs.length} platforms:`, platformDirs.map(p => p.name).join(', '));
+
+          // Build a map of scenario -> platform -> data
+          const scenarioMap = new Map();
+
+          for (const platform of platformDirs) {
+            const files = fs.readdirSync(platform.path).filter(f => f.endsWith('.hashes.json'));
+            for (const file of files) {
+              const filePath = path.join(platform.path, file);
+              const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+
+              if (!scenarioMap.has(file)) {
+                scenarioMap.set(file, new Map());
+              }
+              scenarioMap.get(file).set(platform.name, { path: filePath, data });
+            }
+          }
+
+          console.log(`\nFound ${scenarioMap.size} scenarios to compare\n`);
+
+          let failures = [];
+          let successes = 0;
+
+          for (const [scenario, platforms] of scenarioMap) {
+            console.log(`=== Comparing: ${scenario} ===`);
+
+            const platformNames = Array.from(platforms.keys());
+            if (platformNames.length < 2) {
+              console.log(`  WARNING: Only found on ${platformNames.length} platform(s), skipping`);
+              continue;
+            }
+
+            const baseline = platforms.get(platformNames[0]);
+            const baselineData = baseline.data;
+            let scenarioFailed = false;
+
+            for (let i = 1; i < platformNames.length; i++) {
+              const other = platforms.get(platformNames[i]);
+              const otherData = other.data;
+              const errors = [];
+
+              // Compare metadata fields
+              if (baselineData.elog_version !== otherData.elog_version) {
+                errors.push(`elog_version: ${baselineData.elog_version} vs ${otherData.elog_version}`);
+              }
+              if (baselineData.schema_hash_hex !== otherData.schema_hash_hex) {
+                errors.push(`schema_hash_hex: ${baselineData.schema_hash_hex} vs ${otherData.schema_hash_hex}`);
+              }
+              if (baselineData.hash_domain !== otherData.hash_domain) {
+                errors.push(`hash_domain: ${baselineData.hash_domain} vs ${otherData.hash_domain}`);
+              }
+              if (baselineData.hash_alg !== otherData.hash_alg) {
+                errors.push(`hash_alg: ${baselineData.hash_alg} vs ${otherData.hash_alg}`);
+              }
+
+              // Compare hashes array length
+              if (baselineData.hashes_hex.length !== otherData.hashes_hex.length) {
+                errors.push(`hashes_hex.length: ${baselineData.hashes_hex.length} vs ${otherData.hashes_hex.length}`);
+              } else {
+                // Compare each hash
+                for (let j = 0; j < baselineData.hashes_hex.length; j++) {
+                  if (baselineData.hashes_hex[j] !== otherData.hashes_hex[j]) {
+                    errors.push(`hashes_hex[${j}]: ${baselineData.hashes_hex[j]} vs ${otherData.hashes_hex[j]}`);
+                    // Only report first few divergences per comparison
+                    if (errors.length > 5) {
+                      errors.push(`... (truncated, more divergences exist)`);
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (errors.length > 0) {
+                scenarioFailed = true;
+                failures.push({
+                  scenario,
+                  baseline: platformNames[0],
+                  other: platformNames[i],
+                  errors
+                });
+                console.log(`  DIVERGENCE: ${platformNames[0]} vs ${platformNames[i]}`);
+                errors.forEach(e => console.log(`    - ${e}`));
+              } else {
+                console.log(`  OK: ${platformNames[0]} == ${platformNames[i]}`);
+              }
+            }
+
+            if (!scenarioFailed) {
+              successes++;
+              console.log(`  PASS: All ${platformNames.length} platforms identical`);
+            }
+            console.log('');
+          }
+
+          console.log('='.repeat(60));
+          console.log(`SUMMARY: ${successes} scenarios passed, ${failures.length} comparisons failed`);
+          console.log('='.repeat(60));
+
+          if (failures.length > 0) {
+            console.error('\n!!! CROSS-PLATFORM DETERMINISM FAILURE !!!\n');
+            for (const f of failures) {
+              console.error(`Scenario: ${f.scenario}`);
+              console.error(`  Baseline: ${f.baseline}`);
+              console.error(`  Divergent: ${f.other}`);
+              console.error(`  Errors:`);
+              f.errors.forEach(e => console.error(`    - ${e}`));
+              console.error('');
+            }
+            process.exit(1);
+          }
+
+          console.log('\nAll platforms produced identical hashes. Determinism verified!');
+          COMPARE_SCRIPT

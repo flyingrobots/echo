@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+name: Determinism Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  determinism:
+    name: Materialization Determinism
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Run determinism tests
+        run: cargo test --package warp-core --test materialization_determinism

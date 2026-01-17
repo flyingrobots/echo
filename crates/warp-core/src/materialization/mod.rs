@@ -46,12 +46,20 @@
 
 mod bus;
 mod channel;
+mod emission_port;
 mod emit_key;
 mod frame;
 mod port;
+mod reduce_op;
+mod scoped_emitter;
 
-pub use bus::{FinalizedChannel, MaterializationBus};
-pub use channel::{make_channel_id, ChannelConflict, ChannelId, ChannelPolicy};
+pub use bus::{DuplicateEmission, FinalizeReport, FinalizedChannel, MaterializationBus};
+pub use channel::{
+    make_channel_id, ChannelConflict, ChannelId, ChannelPolicy, MaterializationErrorKind,
+};
+pub use emission_port::EmissionPort;
 pub use emit_key::EmitKey;
 pub use frame::{decode_frames, encode_frames, MaterializationFrame, FRAME_MAGIC, FRAME_VERSION};
 pub use port::MaterializationPort;
+pub use reduce_op::ReduceOp;
+pub use scoped_emitter::ScopedEmitter;

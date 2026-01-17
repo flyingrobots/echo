@@ -35,7 +35,7 @@ pub fn validate_wsc(file: &WscFile) -> Result<(), ReadError> {
 /// Validates a single WARP view.
 fn validate_warp_view(
     view: &super::view::WarpView<'_>,
-    warp_index: usize,
+    _warp_index: usize,
 ) -> Result<(), ReadError> {
     // Validate index ranges first - this catches corrupted index tables
     // that would otherwise be silently masked by accessors returning empty slices
@@ -64,19 +64,21 @@ fn validate_warp_view(
         }
     }
 
-    // Validate node attachments
-    for (node_ix, _node) in nodes.iter().enumerate() {
-        let atts = view.node_attachments(node_ix);
-        for (att_ix, att) in atts.iter().enumerate() {
-            validate_attachment(att, view.blobs().len(), warp_index * 1000 + att_ix)?;
+    // Validate node attachments using a monotonically increasing index
+    // to avoid collisions from the previous warp_index * 1000 scheme.
+    let mut att_index = 0usize;
+    for node_ix in 0..nodes.len() {
+        for att in view.node_attachments(node_ix) {
+            validate_attachment(att, view.blobs().len(), att_index)?;
+            att_index += 1;
         }
     }
 
-    // Validate edge attachments
-    for (edge_ix, _edge) in edges.iter().enumerate() {
-        let atts = view.edge_attachments(edge_ix);
-        for (att_ix, att) in atts.iter().enumerate() {
-            validate_attachment(att, view.blobs().len(), warp_index * 1000 + 500 + att_ix)?;
+    // Validate edge attachments (continuing the monotonic index)
+    for edge_ix in 0..edges.len() {
+        for att in view.edge_attachments(edge_ix) {
+            validate_attachment(att, view.blobs().len(), att_index)?;
+            att_index += 1;
         }
     }
 

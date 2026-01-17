@@ -46,23 +46,21 @@ fn validate_warp_view(
     let edges = view.edges();
 
     // Validate node ordering (must be sorted by node_id for binary search)
-    for window in nodes.windows(2) {
+    for (i, window) in nodes.windows(2).enumerate() {
         if window[0].node_id >= window[1].node_id {
             return Err(ReadError::OrderingViolation {
                 kind: "node",
-                previous_id: window[0].node_id,
-                current_id: window[1].node_id,
+                index: i + 1,
             });
         }
     }
 
     // Validate edge ordering (must be sorted by edge_id for binary search)
-    for window in edges.windows(2) {
+    for (i, window) in edges.windows(2).enumerate() {
         if window[0].edge_id >= window[1].edge_id {
             return Err(ReadError::OrderingViolation {
                 kind: "edge",
-                previous_id: window[0].edge_id,
-                current_id: window[1].edge_id,
+                index: i + 1,
             });
         }
     }

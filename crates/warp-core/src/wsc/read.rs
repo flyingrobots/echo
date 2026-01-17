@@ -131,16 +131,21 @@ pub enum ReadError {
     },
 
     /// Node or edge ordering violation (must be sorted by ID).
-    #[error(
-        "{kind} ordering violation: id {current_id:?} is not greater than previous {previous_id:?}"
-    )]
+    #[error("{kind} ordering violation at index {index}")]
     OrderingViolation {
         /// The kind of element (e.g., "node" or "edge").
         kind: &'static str,
-        /// The previous ID.
-        previous_id: [u8; 32],
-        /// The current ID that violates ordering.
-        current_id: [u8; 32],
+        /// Index of the element that violates ordering.
+        index: usize,
+    },
+
+    /// Reserved bytes must be zero.
+    #[error("non-zero reserved bytes in {field} at index {index}")]
+    NonZeroReservedBytes {
+        /// The field containing non-zero reserved bytes.
+        field: &'static str,
+        /// Index of the element with non-zero reserved bytes.
+        index: usize,
     },
 }
 

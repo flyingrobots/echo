@@ -4,6 +4,23 @@
 
 ## Unreleased
 
+## 2026-01-17 — MaterializationBus Phase 3 Complete
+
+- Completed MaterializationBus Phase 3 implementation:
+  - FinalizeReport pattern: `finalize()` never fails, returns `{channels, errors}`
+  - Prevents silent data loss when one channel has StrictSingle conflict
+  - 7 new SPEC Police tests for conflict preservation
+- Added new modules to `warp-core/src/materialization`:
+  - `emission_port.rs` — Port abstraction for emission routing
+  - `reduce_op.rs` — Reduction operation definitions
+  - `scoped_emitter.rs` — Scoped emission context management
+- Added CI workflows:
+  - `determinism.yml` — PR-gated determinism tests
+  - `dind-cross-platform.yml` — Weekly cross-platform determinism proof (Linux x64/ARM64, Windows, macOS)
+- Added tooling:
+  - `cargo xtask dind` command with `run`, `record`, `torture`, and `converge` subcommands
+- DIND mission 100% complete.
+
 - Added `codec` module to `echo-wasm-abi`:
   - Deterministic binary codec (`Reader`/`Writer`) for length-prefixed LE scalars
   - Q32.32 fixed-point helpers (`fx_from_i64`, `fx_from_f32`, `vec3_fx_from_*`)

@@ -12,6 +12,7 @@ use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
 };
 use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
+use crate::materialization::{ChannelConflict, FinalizedChannel, MaterializationBus};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
@@ -121,11 +122,26 @@ pub struct ExistingState {
 ///     .policy_id(42)
 ///     .build();
 /// ```
+///
+/// # Dependency Injection
+///
+/// For testing or custom configurations, you can inject a pre-configured
+/// [`MaterializationBus`]:
+///
+/// ```ignore
+/// let mut bus = MaterializationBus::new();
+/// bus.register_channel(ch, ChannelPolicy::StrictSingle);
+///
+/// let engine = EngineBuilder::new(store, root)
+///     .with_materialization_bus(bus)
+///     .build();
+/// ```
 pub struct EngineBuilder<Source> {
     source: Source,
     scheduler: SchedulerKind,
     policy_id: u32,
     telemetry: Option<Arc<dyn TelemetrySink>>,
+    bus: Option<MaterializationBus>,
 }
 
 impl EngineBuilder<FreshStore> {
@@ -135,12 +151,14 @@ impl EngineBuilder<FreshStore> {
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
     /// - Telemetry: [`NullTelemetrySink`]
+    /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn new(store: GraphStore, root: NodeId) -> Self {
         Self {
             source: FreshStore { store, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
             telemetry: None,
+            bus: None,
         }
     }
 
@@ -150,12 +168,14 @@ impl EngineBuilder<FreshStore> {
         let telemetry = self
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
-        Engine::with_telemetry(
+        let bus = self.bus.unwrap_or_default();
+        Engine::with_telemetry_and_bus(
             self.source.store,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
+            bus,
         )
     }
 }
@@ -167,12 +187,14 @@ impl EngineBuilder<ExistingState> {
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
     /// - Telemetry: [`NullTelemetrySink`]
+    /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn from_state(state: WarpState, root: NodeKey) -> Self {
         Self {
             source: ExistingState { state, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
             telemetry: None,
+            bus: None,
         }
     }
 
@@ -186,12 +208,14 @@ impl EngineBuilder<ExistingState> {
         let telemetry = self
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
-        Engine::with_state_and_telemetry(
+        let bus = self.bus.unwrap_or_default();
+        Engine::with_state_telemetry_and_bus(
             self.source.state,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
+            bus,
         )
     }
 }
@@ -217,6 +241,30 @@ impl<S> EngineBuilder<S> {
     #[must_use]
     pub fn telemetry(mut self, sink: Arc<dyn TelemetrySink>) -> Self {
         self.telemetry = Some(sink);
+        self
+    }
+
+    /// Injects a custom [`MaterializationBus`] for dependency injection.
+    ///
+    /// This is useful for:
+    /// - Testing: Pre-registering channels with specific policies
+    /// - Custom configurations: Setting up channel policies before engine construction
+    ///
+    /// If not called, a fresh bus with no pre-registered channels is created.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut bus = MaterializationBus::new();
+    /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
+    ///
+    /// let engine = EngineBuilder::new(store, root)
+    ///     .with_materialization_bus(bus)
+    ///     .build();
+    /// ```
+    #[must_use]
+    pub fn with_materialization_bus(mut self, bus: MaterializationBus) -> Self {
+        self.bus = Some(bus);
         self
     }
 }
@@ -246,6 +294,18 @@ impl<S> EngineBuilder<S> {
 ///     .build();
 /// ```
 ///
+/// For testing or custom configurations, inject a pre-configured
+/// [`MaterializationBus`]:
+///
+/// ```ignore
+/// let mut bus = MaterializationBus::new();
+/// bus.register_channel(ch, ChannelPolicy::StrictSingle);
+///
+/// let engine = EngineBuilder::new(store, root)
+///     .with_materialization_bus(bus)
+///     .build();
+/// ```
+///
 /// Legacy constructors are also available for backward compatibility.
 pub struct Engine {
     state: WarpState,
@@ -269,6 +329,20 @@ pub struct Engine {
     intent_log: Vec<(u64, crate::attachment::AtomPayload)>,
     /// Initial state (U0) snapshot preserved for replay via `jump_to_tick`.
     initial_state: WarpState,
+    /// Materialization bus for tick-scoped channel emissions.
+    ///
+    /// Rules emit to channels via [`ScopedEmitter`](crate::materialization::ScopedEmitter) during execution. The bus
+    /// collects emissions and finalizes them post-commit according to each
+    /// channel's policy.
+    bus: MaterializationBus,
+    /// Last finalized materialization channels (populated by commit, cleared by abort).
+    last_materialization: Vec<FinalizedChannel>,
+    /// Materialization errors from the last commit (e.g., `StrictSingle` conflicts).
+    ///
+    /// This is populated alongside `last_materialization` by [`Engine::commit_with_receipt`].
+    /// A non-empty list indicates boundary errors: state committed successfully, but
+    /// some materialization channels failed to finalize.
+    last_materialization_errors: Vec<ChannelConflict>,
 }
 
 struct ReserveOutcome {
@@ -330,7 +404,7 @@ impl Engine {
 
     /// Constructs a new engine with explicit telemetry sink.
     ///
-    /// This is the canonical constructor; all other constructors delegate here.
+    /// This constructor delegates to [`Engine::with_telemetry_and_bus`] with a fresh bus.
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
@@ -346,6 +420,37 @@ impl Engine {
         kind: SchedulerKind,
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
+    ) -> Self {
+        Self::with_telemetry_and_bus(
+            store,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            MaterializationBus::new(),
+        )
+    }
+
+    /// Constructs a new engine with explicit telemetry sink and materialization bus.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    pub fn with_telemetry_and_bus(
+        store: GraphStore,
+        root: NodeId,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
     ) -> Self {
         // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
         // Any pre-existing `warp_id` on the store is overwritten.
@@ -381,6 +486,9 @@ impl Engine {
             tick_history: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
+            bus,
+            last_materialization: Vec::new(),
+            last_materialization_errors: Vec::new(),
         }
     }
 
@@ -437,8 +545,7 @@ impl Engine {
 
     /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry.
     ///
-    /// This is the canonical constructor for existing state; [`Engine::with_state`] delegates here
-    /// with a null telemetry sink.
+    /// This constructor delegates to [`Engine::with_state_telemetry_and_bus`] with a fresh bus.
     ///
     /// # Errors
     ///
@@ -451,6 +558,42 @@ impl Engine {
         kind: SchedulerKind,
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
+    ) -> Result<Self, EngineError> {
+        Self::with_state_telemetry_and_bus(
+            state,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            MaterializationBus::new(),
+        )
+    }
+
+    /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry and bus.
+    ///
+    /// This is the canonical constructor for existing state; [`Engine::with_state`] and
+    /// [`Engine::with_state_and_telemetry`] delegate here.
+    ///
+    /// # Parameters
+    /// - `state`: Pre-constructed multi-instance state.
+    /// - `root`: The root node for snapshot hashing and commits.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp ID is not present in the state.
+    /// Returns [`EngineError::InternalCorruption`] if the root instance declares a parent
+    /// or if the root node does not match the instance's `root_node`.
+    pub fn with_state_telemetry_and_bus(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
     ) -> Result<Self, EngineError> {
         let Some(root_instance) = state.instance(&root.warp_id) else {
             return Err(EngineError::UnknownWarp(root.warp_id));
@@ -486,6 +629,9 @@ impl Engine {
             tick_history: Vec::new(),
             intent_log: Vec::new(),
             initial_state,
+            bus,
+            last_materialization: Vec::new(),
+            last_materialization_errors: Vec::new(),
         })
     }
 
@@ -669,6 +815,21 @@ impl Engine {
 
         self.apply_reserved_rewrites(reserved_rewrites)?;
 
+        // Finalize materialization bus and store results.
+        // Note: Rules don't emit yet (requires executor signature change), but the
+        // bus is wired in and ready. When rules do emit, this will capture their output.
+        //
+        // The FinalizeReport partitions channels into successes and errors:
+        // - `channels`: Successfully finalized outputs
+        // - `errors`: Channels that failed (e.g., StrictSingle conflicts)
+        //
+        // We store both. A non-empty `errors` list indicates boundary errors:
+        // state committed successfully, but some materialization channels failed.
+        // Callers can inspect `last_materialization_errors()` to handle this.
+        let mat_report = self.bus.finalize();
+        self.last_materialization = mat_report.channels;
+        self.last_materialization_errors = mat_report.errors;
+
         // Delta tick patch (Paper III boundary artifact).
         let ops = diff_state(&state_before, &self.state);
         let patch = WarpTickPatchV1::new(
@@ -719,9 +880,15 @@ impl Engine {
     /// Aborts a transaction without committing a tick.
     ///
     /// This closes the transaction and releases any resources reserved in the scheduler.
+    /// Also clears pending materialization emissions (`bus`), as well as the cached results
+    /// from the previous successful commit (`last_materialization` and `last_materialization_errors`).
+    /// This invalidation ensures that stale materialization state is not observed after an abort.
     pub fn abort(&mut self, tx: TxId) {
         self.live_txs.remove(&tx.value());
         self.scheduler.finalize_tx(tx);
+        self.bus.clear();
+        self.last_materialization.clear();
+        self.last_materialization_errors.clear();
     }
 
     fn reserve_for_receipt(
@@ -1131,6 +1298,82 @@ impl Engine {
     /// Returns a mutable view of the current warp state.
     pub fn state_mut(&mut self) -> &mut WarpState {
         &mut self.state
+    }
+
+    /// Returns a shared reference to the materialization bus.
+    ///
+    /// The bus collects emissions from rewrite rules during a tick. Rules emit
+    /// via [`ScopedEmitter`](crate::materialization::ScopedEmitter) adapters that auto-construct [`EmitKey`](crate::materialization::EmitKey)s from
+    /// execution context.
+    #[must_use]
+    pub fn materialization_bus(&self) -> &MaterializationBus {
+        &self.bus
+    }
+
+    /// Returns a mutable reference to the materialization bus.
+    ///
+    /// Use this to register channels with custom policies before commit:
+    /// ```ignore
+    /// engine.materialization_bus_mut().register_channel(ch, ChannelPolicy::StrictSingle);
+    /// ```
+    pub fn materialization_bus_mut(&mut self) -> &mut MaterializationBus {
+        &mut self.bus
+    }
+
+    /// Returns the finalized materialization channels from the last commit.
+    ///
+    /// This is populated by [`Engine::commit_with_receipt`] and cleared by
+    /// [`Engine::abort`]. Returns an empty slice before the first commit.
+    #[must_use]
+    pub fn last_materialization(&self) -> &[FinalizedChannel] {
+        &self.last_materialization
+    }
+
+    /// Returns materialization errors from the last commit.
+    ///
+    /// # WARNING: Callers MUST check this after every commit!
+    ///
+    /// **Ignoring errors can lead to silent data loss.** When materialization
+    /// channels fail (e.g., `StrictSingle` conflicts), the intended output is
+    /// discarded. If you don't check for errors, your application may appear
+    /// to work while silently dropping critical data.
+    ///
+    /// A non-empty list indicates boundary errors: the tick committed successfully
+    /// (graph state updated, receipt generated), but one or more materialization
+    /// channels failed to finalize. Common causes:
+    ///
+    /// - `StrictSingle` channel received multiple emissions (rule authoring bug)
+    ///
+    /// This is populated by [`Engine::commit_with_receipt`] and cleared by
+    /// [`Engine::abort`]. Returns an empty slice if the last commit had no errors.
+    #[must_use]
+    pub fn last_materialization_errors(&self) -> &[ChannelConflict] {
+        &self.last_materialization_errors
+    }
+
+    /// Returns `true` if the last commit had materialization boundary errors.
+    ///
+    /// # WARNING: Callers MUST check this after every commit!
+    ///
+    /// **Ignoring errors can lead to silent data loss.** When this returns `true`,
+    /// one or more materialization channels failed to produce output. The graph
+    /// state committed successfully, but the boundary output is incomplete.
+    ///
+    /// Typical usage:
+    /// ```ignore
+    /// engine.commit_with_receipt(tx)?;
+    /// if engine.has_materialization_errors() {
+    ///     // Handle or log errors - do NOT ignore!
+    ///     for err in engine.last_materialization_errors() {
+    ///         eprintln!("Materialization failed: {:?}", err);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// This is a convenience method equivalent to `!last_materialization_errors().is_empty()`.
+    #[must_use]
+    pub fn has_materialization_errors(&self) -> bool {
+        !self.last_materialization_errors.is_empty()
     }
 
     /// Returns a shared view of a node when it exists.

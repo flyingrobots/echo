@@ -60,6 +60,8 @@ mod graph;
 mod ident;
 /// Canonical inbox management for deterministic intent sequencing.
 pub mod inbox;
+/// Materialization subsystem for deterministic channel-based output.
+pub mod materialization;
 mod payload;
 mod receipt;
 mod record;

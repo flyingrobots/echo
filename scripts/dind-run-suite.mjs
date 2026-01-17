@@ -99,7 +99,39 @@ function main() {
             execSync(cmd, { stdio: "inherit" });
             passed = true;
         } catch (e) {
-            console.error(`!!! FAILED: ${scenario.desc}`);
+            console.error(`\n!!! FAILED: ${scenario.desc}`);
+            // Print repro command for easy copy/paste debugging
+            // Build repro command from actual invocation values (without --quiet for more output)
+            const reproParts = [];
+            if (process.env.DIND_ROOT) {
+                reproParts.push(`DIND_ROOT=${JSON.stringify(process.env.DIND_ROOT)}`);
+            }
+            reproParts.push("cargo run -p echo-dind-harness --");
+            reproParts.push(config.mode);
+            reproParts.push(JSON.stringify(scenarioPath));
+            if (config.mode === "run") {
+                const golden = path.resolve(
+                    ROOT_DIR,
+                    "testdata/dind",
+                    scenario.path.replace(".eintlog", ".hashes.json")
+                );
+                if (fs.existsSync(golden)) {
+                    reproParts.push("--golden", JSON.stringify(golden));
+                }
+            } else if (config.mode === "torture") {
+                reproParts.push("--runs", String(config.runs));
+            }
+            if (config.emitRepro) {
+                const reproDir = path.resolve(
+                    ROOT_DIR,
+                    "test-results/dind",
+                    scenario.path.replace(".eintlog", "")
+                );
+                reproParts.push("--emit-repro", JSON.stringify(reproDir));
+            }
+            const reproCmd = reproParts.join(" ");
+            console.error(`\nDIND FAILED. Repro command:`);
+            console.error(`  ${reproCmd}\n`);
             failedCount++;
         }
         const duration = performance.now() - start;

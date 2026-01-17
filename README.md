@@ -66,6 +66,7 @@ If you’re building anything that benefits from “Git‑like” properties for
   - snapshot hashing (`state_root`) + commit hashing (`commit_id`)
   - deterministic math + PRNG (`math::{Vec3, Mat4, Quat, Prng}`)
   - WSC (Write-Streaming Columnar) snapshot format (`wsc::*`) for zero-copy mmap access
+  - materialization bus (`MaterializationBus`) for order-independent channel emissions
 - `crates/warp-geom` — geometry primitives shared by engine/tools.
 
 ### Session + streaming pipeline
@@ -163,6 +164,12 @@ Run Spec‑000 (WASM dev server; requires `trunk` installed):
 
 ```bash
 make spec-000-dev
+```
+
+Run DIND (cross-platform determinism verification):
+
+```bash
+cargo xtask dind run
 ```
 
 ---

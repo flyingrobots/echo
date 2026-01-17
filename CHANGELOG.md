@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+- Added `codec` module to `echo-wasm-abi`:
+  - Deterministic binary codec (`Reader`/`Writer`) for length-prefixed LE scalars
+  - Q32.32 fixed-point helpers (`fx_from_i64`, `fx_from_f32`, `vec3_fx_from_*`)
+  - Overflow-safe conversions with saturation for out-of-range inputs
+  - `Encode`/`Decode` traits for composable serialization
+- Added `fixed` module to `warp-core`:
+  - `Fx32` scalar type for Q32.32 fixed-point arithmetic
+  - `Vec3Fx` 3D vector type with fixed-point components
+  - Overflow-safe constructors with range validation
 - Added WSC (Write-Streaming Columnar) snapshot format to `warp-core`:
   - Deterministic serialization of WARP graph state with zero-copy mmap deserialization
   - 8-byte aligned columnar layout for SIMD-friendly access

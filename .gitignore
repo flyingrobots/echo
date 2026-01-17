@@ -6,6 +6,10 @@ node_modules
 dist
 coverage
 target
+target-fmt
+target-clippy
+target-test
+target-doc
 docs/.vitepress/cache
 
 # Editor cruft

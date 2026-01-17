@@ -103,30 +103,22 @@ impl WscFile {
     ///
     /// Returns an error if the index is out of bounds or the instance data
     /// is malformed.
-    #[allow(clippy::cast_possible_truncation)] // We bounds-check before casting
     pub fn warp_view(&self, index: usize) -> Result<WarpView<'_>, ReadError> {
         let count = self.warp_count();
         if index >= count {
             return Err(ReadError::WarpIndexOutOfBounds { index, count });
         }
 
-        // Read directory entry
-        let dir_off = self.header().warp_dir_off() as usize;
-        let entry_size = std::mem::size_of::<WarpDirEntry>();
-        let entry_off = dir_off + index * entry_size;
+        // Use read_slice to safely get the directory entries
+        let dir_entries = read_slice::<WarpDirEntry>(
+            &self.data,
+            self.header().warp_dir_off(),
+            count as u64,
+            "warp_directory",
+        )?;
 
-        if entry_off + entry_size > self.data.len() {
-            return Err(ReadError::SectionOutOfBounds {
-                name: "warp_directory",
-                offset: entry_off as u64,
-                length: entry_size as u64,
-                file_size: self.data.len(),
-            });
-        }
-
-        // Use bytemuck for safe transmutation
-        let entry: &WarpDirEntry =
-            bytemuck::from_bytes(&self.data[entry_off..entry_off + entry_size]);
+        // Get the specific entry (bounds already checked above)
+        let entry = &dir_entries[index];
 
         WarpView::new(&self.data, entry)
     }

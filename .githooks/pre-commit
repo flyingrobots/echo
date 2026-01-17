@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
+# Get staged files once for reuse throughout the hook
+STAGED=$(git diff --cached --name-only)
+
 # 1) PRNG coupling guard (existing logic)
 PRNG_FILE="crates/warp-core/src/math/prng.rs"
 if git diff --cached --name-only | grep -qx "$PRNG_FILE"; then

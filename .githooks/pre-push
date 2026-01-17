@@ -22,25 +22,26 @@ else
   SCRIPT="$SCRIPT_DIR/pre-push-parallel"
 fi
 
-# Check if any Rust files are being pushed
-RUST_CHANGES=$(git diff --name-only origin/HEAD..HEAD 2>/dev/null | grep -E '\.(rs|toml)$' | head -1 || true)
-
 echo "📊 pre-push benchmark: running $VARIANT (#$((COUNT + 1)))"
 
-# Time the run
+# Capture output to check if compilation happened
+OUTFILE=$(mktemp)
+trap 'rm -f "$OUTFILE"' EXIT
+
+# Time the run, tee output to both terminal and file
 START=$(date +%s.%N)
-"$SCRIPT"
-RC=$?
+"$SCRIPT" 2>&1 | tee "$OUTFILE"
+RC=${PIPESTATUS[0]}
 END=$(date +%s.%N)
 
-# Only log timing if Rust files changed (otherwise data is meaningless)
-if [[ -n "$RUST_CHANGES" ]]; then
+# Only log timing if cargo actually compiled something
+if grep -q "Compiling" "$OUTFILE"; then
   DURATION=$(echo "$END - $START" | bc)
   TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo "{\"ts\":\"$TIMESTAMP\",\"variant\":\"$VARIANT\",\"duration\":$DURATION,\"exit\":$RC}" >> "$LOGFILE"
-  echo "📊 $VARIANT completed in ${DURATION}s (logged to $LOGFILE)"
+  echo "📊 $VARIANT completed in ${DURATION}s (logged)"
 else
-  echo "📊 $VARIANT completed (no Rust changes, timing not logged)"
+  echo "📊 $VARIANT completed (no compilation, timing not logged)"
 fi
 
 exit $RC

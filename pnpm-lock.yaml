@@ -17,6 +17,9 @@ importers:
       '@playwright/test':
         specifier: ^1.48.0
         version: 1.57.0
+      asciichart:
+        specifier: ^1.5.25
+        version: 1.5.25
       vitepress:
         specifier: 1.6.4
         version: 1.6.4(@algolia/client-search@5.46.2)(@types/node@24.10.1)(postcss@8.5.6)(search-insights@2.17.3)
@@ -553,6 +556,9 @@ packages:
   algoliasearch@5.46.2:
     resolution: {integrity: sha512-qqAXW9QvKf2tTyhpDA4qXv1IfBwD2eduSW6tUEBFIfCeE9gn9HQ9I5+MaKoenRuHrzk5sQoNh1/iof8mY7uD6Q==}
     engines: {node: '>= 14.0.0'}
+
+  asciichart@1.5.25:
+    resolution: {integrity: sha512-PNxzXIPPOtWq8T7bgzBtk9cI2lgS4SJZthUHEiQ1aoIc3lNzGfUvIvo9LiAnq26TACo9t1/4qP6KTGAUbzX9Xg==}
 
   birpc@2.9.0:
     resolution: {integrity: sha512-KrayHS5pBi69Xi9JmvoqrIgYGDkD6mcSe/i6YKi3w5kekCLzrX4+nawcXqrj2tIp50Kw/mT/s3p+GVK0A0sKxw==}
@@ -1307,6 +1313,8 @@ snapshots:
       '@algolia/requester-browser-xhr': 5.46.2
       '@algolia/requester-fetch': 5.46.2
       '@algolia/requester-node-http': 5.46.2
+
+  asciichart@1.5.25: {}
 
   birpc@2.9.0: {}
 

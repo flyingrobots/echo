@@ -10,6 +10,9 @@ target-fmt
 target-clippy
 target-test
 target-doc
+
+# Pre-push benchmark timing data
+.githooks/timing.jsonl
 docs/.vitepress/cache
 
 # Editor cruft

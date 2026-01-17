@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+set -euo pipefail
+# Resolve the pinned toolchain from rust-toolchain.toml, fallback to explicit env or a sane default
+PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
+PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
+
+for cmd in cargo rustup rg; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "[pre-push] missing dependency: $cmd. Install it and retry." >&2
+    exit 1
+  fi
+done
+
+echo "🐰 BunBun 🐇"
+
+
+echo "[pre-push] fmt (stable)"
+cargo fmt --all -- --check
+
+echo "[pre-push] clippy (workspace, stable)"
+cargo clippy --all-targets -- -D warnings -D missing_docs
+
+echo "[pre-push] tests (workspace, stable)"
+cargo test --workspace
+
+# MSRV lane removed: policy is stable everywhere.
+
+# Rustdoc warnings guard (public crates)
+required_crates=(warp-core warp-geom)
+optional_crates=(warp-ffi warp-wasm)
+missing_required=0
+
+for krate in "${required_crates[@]}"; do
+  if [ -f "crates/${krate}/Cargo.toml" ]; then
+    echo "[pre-push] rustdoc warnings gate (${krate} @ $PINNED)"
+    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${krate}" --no-deps
+  else
+    echo "[pre-push] ERROR: required crate missing: crates/${krate}/Cargo.toml" >&2
+    missing_required=1
+  fi
+done
+
+for krate in "${optional_crates[@]}"; do
+  if [ -f "crates/${krate}/Cargo.toml" ]; then
+    echo "[pre-push] rustdoc warnings gate (${krate} @ $PINNED)"
+    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${krate}" --no-deps
+  else
+    echo "[pre-push] skipping ${krate}: missing crates/${krate}/Cargo.toml"
+  fi
+done
+
+if [ "$missing_required" -ne 0 ]; then
+  echo "[pre-push] One or more required crates are missing; aborting push." >&2
+  exit 1
+fi
+
+# Banned patterns
+echo "[pre-push] scanning banned patterns"
+# Forbid crate-level allow(missing_docs) in library source files, but allow in tests and build scripts
+if rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
+  crates \
+  --glob 'crates/**/src/**/*.rs' \
+  --glob '!**/telemetry.rs' \
+  --glob '!**/tests/**' \
+  --glob '!**/build.rs' \
+  --glob '!**/*.generated.rs' >/dev/null; then
+  echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs and *.generated.rs)." >&2
+  rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' crates \
+    --glob 'crates/**/src/**/*.rs' \
+    --glob '!**/telemetry.rs' \
+    --glob '!**/tests/**' \
+    --glob '!**/build.rs' \
+    --glob '!**/*.generated.rs' | cat >&2 || true
+  exit 1
+fi
+if rg -n "\\#\[unsafe\(no_mangle\)\]" crates >/dev/null; then
+  echo "pre-push: #[unsafe(no_mangle)] is invalid; use #[no_mangle]." >&2
+  rg -n "\\#\[unsafe\(no_mangle\)\]" crates | cat >&2 || true
+  exit 1
+fi
+
+# SPDX Header Check
+echo "[pre-push] checking SPDX headers..."
+if [[ -x scripts/check_spdx.sh ]]; then
+  scripts/check_spdx.sh || { echo "[pre-push] SPDX check failed. Run ./scripts/ensure_spdx.sh --all to fix."; exit 1; }
+fi
+
+exit 0

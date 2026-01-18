@@ -1100,6 +1100,7 @@ Goal: you now have "immutable snapshot + delta commit" working.
   - [x] No GraphStore mutations during execution — emit ops only.
   - [x] State updated after execution via `apply_to_state()`.
   - [x] Legacy `&mut GraphStore` path removed from executor signature.
+  - [x] `#![forbid(unsafe_code)]` required in all crates containing executors.
 
 Goal: execution is pure — reads from snapshot, writes to delta.
 

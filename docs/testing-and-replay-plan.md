@@ -32,6 +32,7 @@ interface VerificationReport {
 ---
 
 ## Golden Hash Dataset
+
 - Maintained under `tests/golden/` with recorded blocks for canonical scenarios (each engine subsystem).
 - CI job replays golden datasets across Node, Chromium, WebKit; asserts identical hashes.
 - Golden scenarios include: idle world, branching + merge, paradox quarantine, entropy surges.
@@ -39,18 +40,21 @@ interface VerificationReport {
 ---
 
 ## Differential Merge Checker
+
 - For any branch merge, store both diff chains and run a comparer ensuring three-way merge produced expected result.
 - Tool `echo diff-compare --base <node> --a <node> --b <node>` outputs conflict list and merged hash; used in tests.
 
 ---
 
 ## Entropy Regression Tests
+
 - Simulate deterministic sequences (forks, merges, paradoxes) and assert entropy meter matches expected values.
 - Tests fail if entropy formula or weights change without updating test expectations.
 
 ---
 
 ## Automation Plan
+
 Once implemented, the automated test suite will include:
 
 - PLANNED: `cargo test --package warp-core --features determinism` – runs replay and comparers for golden datasets.
@@ -59,9 +63,19 @@ Once implemented, the automated test suite will include:
 - PLANNED: `cargo test --package warp-core --test bridge` – covers temporal bridge retro/reroute.
 - TODO: Add Criterion-based scheduler benches to CI once implemented (Phase 1 task).
 
+### BOAW Compliance Tests (Implemented)
+
+The BOAW (Base-Overlay-Apply-Write) test harness is now implemented per ADR-0007:
+
+- `cargo test --package warp-core --test boaw_determinism` – 8 determinism tests with real engine hashes
+- `EngineHarness` trait provides a real harness that wraps `warp-core::Engine`
+- `BoawSnapshot` captures state for determinism verification
+- `boaw/touch` test rule exercises the core rewrite pipeline
+
 ---
 
 ## Manual Validation
+
 - Provide scripts to run long-form simulations (50k ticks) and ensure replay matches.
 - Document steps in README for reproducibility.
 

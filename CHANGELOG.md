@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- Added real `EngineHarness` implementation for BOAW compliance tests (ADR-0007)
+- Added `BoawSnapshot` struct and `boaw/touch` test rule
+- 8 BOAW determinism tests now pass with real engine hashes
+
 ## 2026-01-17 — MaterializationBus Phase 3 Complete
 
 - Completed MaterializationBus Phase 3 implementation:

@@ -9,7 +9,7 @@ use warp_core::{
     encode_motion_payload, encode_motion_payload_q32_32, make_node_id, make_type_id,
     motion_payload_type_id, pack_port_key, AttachmentKey, AttachmentSet, AttachmentValue,
     ConflictPolicy, Engine, Footprint, GraphStore, Hash, IdSet, NodeId, NodeKey, NodeRecord,
-    PatternGraph, PortSet, RewriteRule,
+    PatternGraph, PortSet, RewriteRule, TickDelta,
 };
 
 // =============================================================================
@@ -53,7 +53,7 @@ mod motion_scalar_backend {
 
 use motion_scalar_backend::{scalar_from_raw, scalar_to_raw};
 
-fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
+fn motion_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
     if store.node(scope).is_none() {
         return;
     }
@@ -173,7 +173,7 @@ fn port_matcher(_: &GraphStore, _: &NodeId) -> bool {
     true
 }
 
-fn port_executor(store: &mut GraphStore, scope: &NodeId) {
+fn port_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
     if store.node(scope).is_none() {
         return;
     }

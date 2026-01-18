@@ -178,7 +178,7 @@ pub enum PortalInit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct WarpOpKey {
+pub(crate) struct WarpOpKey {
     kind: u8,
     warp: ContentHash,
     a: ContentHash,
@@ -204,7 +204,7 @@ impl WarpOp {
     /// use delete-before-upsert. Patches are expected not to contain both operations for the
     /// same `warp_id`; if they do, this ordering makes the resulting state (and any subsequent
     /// invalid references) deterministic rather than silently ambiguous.
-    fn sort_key(&self) -> WarpOpKey {
+    pub(crate) fn sort_key(&self) -> WarpOpKey {
         match self {
             Self::OpenPortal { key, .. } => {
                 let (owner_tag, plane_tag) = key.tag();

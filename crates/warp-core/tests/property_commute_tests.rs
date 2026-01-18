@@ -4,7 +4,8 @@
 #![allow(missing_docs)]
 use echo_dry_tests::motion_rule;
 use warp_core::{
-    encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
+    encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore,
+    NodeRecord, TickDelta,
 };
 mod common;
 use common::snapshot_hash_of;
@@ -62,13 +63,15 @@ fn independent_motion_rewrites_commute_on_distinct_nodes() {
     let rule = motion_rule();
 
     // Order 1: apply to A then B
-    (rule.executor)(&mut store1, &a);
-    (rule.executor)(&mut store1, &b);
+    let mut delta = TickDelta::new();
+    (rule.executor)(&mut store1, &a, &mut delta);
+    (rule.executor)(&mut store1, &b, &mut delta);
     let h1 = snapshot_hash_of(store1, root);
 
     // Order 2: apply to B then A
-    (rule.executor)(&mut store2, &b);
-    (rule.executor)(&mut store2, &a);
+    let mut delta = TickDelta::new();
+    (rule.executor)(&mut store2, &b, &mut delta);
+    (rule.executor)(&mut store2, &a, &mut delta);
     let h2 = snapshot_hash_of(store2, root);
 
     assert_eq!(h1, h2, "independent rewrites must commute");

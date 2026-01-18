@@ -22,6 +22,7 @@ use crate::telemetry::{NullTelemetrySink, TelemetrySink};
 use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
+use crate::TickDelta;
 use std::sync::Arc;
 
 /// Result of calling [`Engine::apply`].
@@ -969,6 +970,7 @@ impl Engine {
         &mut self,
         rewrites: Vec<PendingRewrite>,
     ) -> Result<(), EngineError> {
+        let mut delta = TickDelta::new();
         for rewrite in rewrites {
             let id = rewrite.compact_rule;
             let executor = {
@@ -988,8 +990,10 @@ impl Engine {
                 );
                 return Err(EngineError::UnknownWarp(rewrite.scope.warp_id));
             };
-            (executor)(store, &rewrite.scope.local_id);
+            (executor)(store, &rewrite.scope.local_id, &mut delta);
         }
+        // TODO(Phase 3): validate delta matches diff_state() output
+        let _ = delta; // suppress unused warning for now
         Ok(())
     }
 
@@ -1653,7 +1657,7 @@ mod tests {
                     Some(AttachmentValue::Atom(payload)) if crate::payload::decode_motion_atom_payload(payload).is_some()
                 )
             },
-            executor: |store, scope| {
+            executor: |store, scope, _delta| {
                 let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
                     return;
                 };
@@ -1723,7 +1727,7 @@ mod tests {
             name: "bad/join",
             left: crate::rule::PatternGraph { nodes: vec![] },
             matcher: |_s, _n| true,
-            executor: |_s, _n| {},
+            executor: |_s, _n, _delta| {},
             compute_footprint: |_s, _n| crate::footprint::Footprint::default(),
             factor_mask: 0,
             conflict_policy: crate::rule::ConflictPolicy::Join,

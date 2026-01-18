@@ -5,13 +5,13 @@ use blake3::Hasher;
 use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     make_node_id, make_type_id, ConflictPolicy, Engine, GraphStore, NodeRecord, PatternGraph,
-    RewriteRule,
+    RewriteRule, TickDelta,
 };
 
 fn noop_match(_: &GraphStore, _: &warp_core::NodeId) -> bool {
     true
 }
-fn noop_exec(_: &mut GraphStore, _: &warp_core::NodeId) {}
+fn noop_exec(_: &mut GraphStore, _: &warp_core::NodeId, _delta: &mut TickDelta) {}
 fn noop_fp(_: &GraphStore, _: &warp_core::NodeId) -> warp_core::Footprint {
     warp_core::Footprint::default()
 }

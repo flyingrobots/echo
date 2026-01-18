@@ -6,7 +6,9 @@
 //! and a builder for creating custom synthetic rules.
 
 use crate::hashes::make_rule_id;
-use warp_core::{ConflictPolicy, Footprint, GraphStore, Hash, NodeId, PatternGraph, RewriteRule};
+use warp_core::{
+    ConflictPolicy, Footprint, GraphStore, Hash, NodeId, PatternGraph, RewriteRule, TickDelta,
+};
 
 /// Type alias for join functions matching warp-core's `JoinFn`.
 pub type JoinFn = fn(&NodeId, &NodeId) -> bool;
@@ -31,7 +33,7 @@ pub fn scope_exists(store: &GraphStore, scope: &NodeId) -> bool {
 // --- Executor Functions ---
 
 /// Executor that does nothing.
-pub fn noop_exec(_: &mut GraphStore, _: &NodeId) {}
+pub fn noop_exec(_: &mut GraphStore, _: &NodeId, _: &mut TickDelta) {}
 
 // --- Footprint Functions ---
 
@@ -118,7 +120,7 @@ pub struct SyntheticRuleBuilder {
     name: &'static str,
     id: Option<Hash>,
     matcher: fn(&GraphStore, &NodeId) -> bool,
-    executor: fn(&mut GraphStore, &NodeId),
+    executor: fn(&mut GraphStore, &NodeId, &mut TickDelta),
     footprint: fn(&GraphStore, &NodeId) -> Footprint,
     factor_mask: u64,
     conflict_policy: ConflictPolicy,
@@ -156,7 +158,7 @@ impl SyntheticRuleBuilder {
     }
 
     /// Set the executor function.
-    pub fn executor(mut self, f: fn(&mut GraphStore, &NodeId)) -> Self {
+    pub fn executor(mut self, f: fn(&mut GraphStore, &NodeId, &mut TickDelta)) -> Self {
         self.executor = f;
         self
     }

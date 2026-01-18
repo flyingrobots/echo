@@ -4,6 +4,7 @@
 use crate::footprint::Footprint;
 use crate::graph::GraphStore;
 use crate::ident::{Hash, NodeId, TypeId};
+use crate::TickDelta;
 
 /// Pattern metadata used by a rewrite rule to describe the input graph shape.
 #[derive(Debug)]
@@ -16,7 +17,12 @@ pub struct PatternGraph {
 pub type MatchFn = fn(&GraphStore, &NodeId) -> bool;
 
 /// Function pointer that applies a rewrite to the given scope.
-pub type ExecuteFn = fn(&mut GraphStore, &NodeId);
+///
+/// Parameters:
+/// - `&mut GraphStore`: Mutable reference to the graph being rewritten
+/// - `&NodeId`: The node ID where the rewrite is applied
+/// - `&mut TickDelta`: Mutable reference to track tick delta changes
+pub type ExecuteFn = fn(&mut GraphStore, &NodeId, &mut TickDelta);
 
 /// Function pointer that computes a rewrite footprint at the provided scope.
 pub type FootprintFn = fn(&GraphStore, &NodeId) -> Footprint;

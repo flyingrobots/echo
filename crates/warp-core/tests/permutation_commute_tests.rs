@@ -4,7 +4,8 @@
 #![allow(missing_docs)]
 use echo_dry_tests::motion_rule;
 use warp_core::{
-    encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
+    encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore,
+    NodeRecord, TickDelta,
 };
 mod common;
 use common::snapshot_hash_of;
@@ -58,8 +59,9 @@ fn n_permutation_commute_n3_and_n4() {
         let mut baseline: Option<[u8; 32]> = None;
         for p in perms {
             let mut s = store.clone();
+            let mut delta = TickDelta::new();
             for &idx in &p {
-                (rule.executor)(&mut s, &scopes[idx]);
+                (rule.executor)(&mut s, &scopes[idx], &mut delta);
             }
             let h = snapshot_hash_of(s, root);
             if let Some(b) = baseline {

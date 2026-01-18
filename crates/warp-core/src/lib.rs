@@ -72,6 +72,7 @@ mod scheduler;
 mod serializable;
 mod snapshot;
 mod telemetry;
+mod tick_delta;
 mod tick_patch;
 mod tx;
 mod warp_state;
@@ -109,6 +110,7 @@ pub use serializable::{
 };
 pub use snapshot::Snapshot;
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
+pub use tick_delta::{DeltaStats, OpOrigin, TickDelta};
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpTickPatchV1,

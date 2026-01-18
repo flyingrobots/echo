@@ -48,5 +48,8 @@ serde = ["dep:serde", "bytes/serde"]
 det_float = []
 det_fixed = []
 
+# Validation feature for delta operations
+delta_validate = []
+
 [build-dependencies]
 blake3 = "1.0"

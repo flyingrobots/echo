@@ -54,7 +54,7 @@ pub fn route_push_rule() -> RewriteRule {
         name: ROUTE_PUSH_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::route_push::OP_ID),
-        executor: |s, scope| {
+        executor: |s, scope, _delta| {
             if let Some(args) =
                 decode_op_args::<ops::route_push::Args>(s, scope, ops::route_push::decode_vars)
             {
@@ -77,7 +77,7 @@ pub fn set_theme_rule() -> RewriteRule {
         name: SET_THEME_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::set_theme::OP_ID),
-        executor: |s, scope| {
+        executor: |s, scope, _delta| {
             if let Some(args) =
                 decode_op_args::<ops::set_theme::Args>(s, scope, ops::set_theme::decode_vars)
             {
@@ -100,7 +100,7 @@ pub fn toggle_nav_rule() -> RewriteRule {
         name: TOGGLE_NAV_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::toggle_nav::OP_ID),
-        executor: |s, _scope| {
+        executor: |s, _scope, _delta| {
             apply_toggle_nav(s);
         },
         compute_footprint: |s, scope| footprint_for_state_node(s, scope, "sim/state/navOpen"),
@@ -119,7 +119,7 @@ pub fn toast_rule() -> RewriteRule {
         name: TOAST_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::toast::OP_ID),
-        executor: |s, scope| {
+        executor: |s, scope, _delta| {
             if let Some(args) =
                 decode_op_args::<ops::toast::Args>(s, scope, ops::toast::decode_vars)
             {
@@ -142,7 +142,7 @@ pub fn drop_ball_rule() -> RewriteRule {
         name: DROP_BALL_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::drop_ball::OP_ID),
-        executor: |s, _scope| {
+        executor: |s, _scope, _delta| {
             let ball_id = make_node_id("ball");
             // Q32.32 fixed-point: 1 unit = 1 << 32
             // Initial: y=400 units, downward velocity 5 units/tick
@@ -188,7 +188,7 @@ pub fn ball_physics_rule() -> RewriteRule {
             }
             false
         },
-        executor: |s, scope| {
+        executor: |s, scope, _delta| {
             if let Some(m) = MotionV2View::try_from_node(s, scope) {
                 let mut pos = m.pos_raw();
                 let mut vel = m.vel_raw();
@@ -239,7 +239,7 @@ pub fn put_kv_rule() -> RewriteRule {
         name: PUT_KV_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |s, scope| matcher_for_op(s, scope, ops::put_kv::OP_ID),
-        executor: |s, scope| {
+        executor: |s, scope, _delta| {
             if let Some(args) =
                 decode_op_args::<ops::put_kv::Args>(s, scope, ops::put_kv::decode_vars)
             {

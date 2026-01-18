@@ -25,6 +25,7 @@ use crate::footprint::{AttachmentSet, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, EdgeId, Hash, NodeId};
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+use crate::TickDelta;
 
 /// Human-readable name for the dispatch rule.
 pub const DISPATCH_INBOX_RULE_NAME: &str = "sys/dispatch_inbox";
@@ -105,7 +106,7 @@ fn inbox_matcher(store: &GraphStore, scope: &NodeId) -> bool {
         && store.edges_from(scope).any(|e| e.ty == pending_ty)
 }
 
-fn inbox_executor(store: &mut GraphStore, scope: &NodeId) {
+fn inbox_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
     // Drain the pending set by deleting `edge:pending` edges only.
     //
     // Ledger nodes are append-only; removing pending edges is queue maintenance.
@@ -157,7 +158,7 @@ fn ack_pending_matcher(store: &GraphStore, scope: &NodeId) -> bool {
     store.has_edge(&edge_id)
 }
 
-fn ack_pending_executor(store: &mut GraphStore, scope: &NodeId) {
+fn ack_pending_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
     let inbox_id = make_node_id(INBOX_PATH);
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
     let _ = store.delete_edge_exact(inbox_id, edge_id);

@@ -177,7 +177,7 @@ fn make_boaw_touch_rule() -> RewriteRule {
             // Match if the node exists
             store.node(scope).is_some()
         },
-        executor: |store, scope| {
+        executor: |store, scope, _delta| {
             // Set a marker attachment on the scope node
             let marker_payload =
                 AtomPayload::new(boaw_marker_type_id(), bytes::Bytes::from_static(b"touched"));

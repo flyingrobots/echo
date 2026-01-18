@@ -10,7 +10,7 @@
 use echo_dry_tests::{motion_rule, port_rule, MOTION_RULE_NAME, PORT_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, ApplyResult, AttachmentValue, Engine,
-    EngineError, Footprint, GraphStore, NodeId, NodeRecord, PatternGraph, RewriteRule,
+    EngineError, Footprint, GraphStore, NodeId, NodeRecord, PatternGraph, RewriteRule, TickDelta,
 };
 
 const LITMUS_PORT_READ_0: &str = "litmus/port_read_0";
@@ -27,7 +27,7 @@ fn litmus_port_read_matcher(store: &GraphStore, scope: &NodeId) -> bool {
     store.node(scope).is_some()
 }
 
-fn litmus_port_read_executor(_store: &mut GraphStore, _scope: &NodeId) {}
+fn litmus_port_read_executor(_store: &mut GraphStore, _scope: &NodeId, _delta: &mut TickDelta) {}
 
 fn litmus_port_read_0_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     let mut fp = Footprint::default();

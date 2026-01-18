@@ -7,7 +7,8 @@ use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, AttachmentValue,
     ConflictPolicy, Engine, Footprint, GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph,
-    RewriteRule, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId, WarpId,
+    RewriteRule, TickDelta, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId,
+    WarpId,
 };
 
 fn rule_id(name: &str) -> Hash {
@@ -49,7 +50,7 @@ fn always_match(_: &GraphStore, _: &NodeId) -> bool {
     true
 }
 
-fn exec_noop(_: &mut GraphStore, _: &NodeId) {}
+fn exec_noop(_: &mut GraphStore, _: &NodeId, _delta: &mut TickDelta) {}
 
 fn other_of(scope: &NodeId) -> NodeId {
     NodeId(blake3::hash(&scope.0).into())

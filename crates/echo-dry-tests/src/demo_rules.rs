@@ -7,9 +7,9 @@
 use warp_core::{
     decode_motion_atom_payload_q32_32, decode_motion_payload, encode_motion_atom_payload,
     encode_motion_payload, encode_motion_payload_q32_32, make_node_id, make_type_id,
-    motion_payload_type_id, pack_port_key, AttachmentKey, AttachmentSet, AttachmentValue,
-    ConflictPolicy, Engine, Footprint, GraphStore, Hash, IdSet, NodeId, NodeKey, NodeRecord,
-    PatternGraph, PortSet, RewriteRule, TickDelta,
+    motion_payload_type_id, pack_port_key, AtomPayload, AttachmentKey, AttachmentSet,
+    AttachmentValue, ConflictPolicy, Engine, Footprint, GraphStore, Hash, IdSet, NodeId, NodeKey,
+    NodeRecord, PatternGraph, PortSet, RewriteRule, TickDelta, WarpOp,
 };
 
 // =============================================================================
@@ -53,10 +53,14 @@ mod motion_scalar_backend {
 
 use motion_scalar_backend::{scalar_from_raw, scalar_to_raw};
 
-fn motion_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
+fn motion_executor(store: &mut GraphStore, scope: &NodeId, delta: &mut TickDelta) {
     if store.node(scope).is_none() {
         return;
     }
+
+    // Capture warp_id before mutable borrow
+    let warp_id = store.warp_id();
+
     let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
         return;
     };
@@ -91,8 +95,27 @@ fn motion_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelt
         scalar_to_raw(vel[2]),
     ];
 
-    payload.type_id = motion_payload_type_id();
-    payload.bytes = encode_motion_payload_q32_32(new_pos_raw, vel_out_raw);
+    // Build new bytes
+    let new_bytes = encode_motion_payload_q32_32(new_pos_raw, vel_out_raw);
+
+    // Only emit if bytes actually changed
+    if payload.bytes != new_bytes {
+        let key = AttachmentKey::node_alpha(NodeKey {
+            warp_id,
+            local_id: *scope,
+        });
+        delta.push(WarpOp::SetAttachment {
+            key,
+            value: Some(AttachmentValue::Atom(AtomPayload {
+                type_id: motion_payload_type_id(),
+                bytes: new_bytes.clone(),
+            })),
+        });
+
+        // Then mutate in place
+        payload.type_id = motion_payload_type_id();
+        payload.bytes = new_bytes;
+    }
 }
 
 fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
@@ -173,18 +196,28 @@ fn port_matcher(_: &GraphStore, _: &NodeId) -> bool {
     true
 }
 
-fn port_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
+fn port_executor(store: &mut GraphStore, scope: &NodeId, delta: &mut TickDelta) {
     if store.node(scope).is_none() {
         return;
     }
 
+    let key = AttachmentKey::node_alpha(NodeKey {
+        warp_id: store.warp_id(),
+        local_id: *scope,
+    });
+
     let Some(attachment) = store.node_attachment_mut(scope) else {
         let pos = [1.0, 0.0, 0.0];
         let vel = [0.0, 0.0, 0.0];
-        store.set_node_attachment(
-            *scope,
-            Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
-        );
+        let new_value = Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel)));
+
+        // Emit SetAttachment op before mutating
+        delta.push(WarpOp::SetAttachment {
+            key,
+            value: new_value.clone(),
+        });
+
+        store.set_node_attachment(*scope, new_value);
         return;
     };
 
@@ -196,7 +229,19 @@ fn port_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta)
     }
     if let Some((mut pos, vel)) = decode_motion_payload(&payload.bytes) {
         pos[0] += 1.0;
-        payload.bytes = encode_motion_payload(pos, vel);
+        let new_bytes = encode_motion_payload(pos, vel);
+
+        // Emit SetAttachment op before mutating
+        let new_value = Some(AttachmentValue::Atom(AtomPayload {
+            type_id: motion_payload_type_id(),
+            bytes: new_bytes.clone(),
+        }));
+        delta.push(WarpOp::SetAttachment {
+            key,
+            value: new_value,
+        });
+
+        payload.bytes = new_bytes;
     }
 }
 

@@ -2,6 +2,28 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Changelog
 
+## [Unreleased] - 2026-01-18
+
+### Added - Phase 4: SnapshotAccumulator (ADR-0007)
+
+- **`SnapshotAccumulator`** (`snapshot_accum.rs`): Columnar accumulator that builds WSC directly from `base + ops` without reconstructing GraphStore
+  - `from_warp_state()`: Captures immutable base state
+  - `apply_ops()`: Processes all 8 `WarpOp` variants
+  - `compute_state_root()`: Computes state hash directly from accumulator tables
+  - `build()`: Produces WSC bytes and state_root
+
+### Changed
+
+- `apply_reserved_rewrites()` now returns `Vec<WarpOp>` (the finalized delta ops)
+- Added validation under `delta_validate` feature: asserts accumulator's `state_root` matches legacy computation
+- `TickDelta::finalize()` uses `sort_by_key` for cleaner sorting
+
+### Architecture
+
+- Delta ops are now the source of truth for state changes
+- `SnapshotAccumulator` validates that `base + ops → state_root` matches legacy path
+- Paves the way for Phase 5: read-only execution with accumulator as primary output
+
 ## Unreleased
 
 - Added real `EngineHarness` implementation for BOAW compliance tests (ADR-0007)

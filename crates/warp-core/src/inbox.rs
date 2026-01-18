@@ -25,6 +25,7 @@ use crate::footprint::{AttachmentSet, Footprint, IdSet, PortSet};
 use crate::graph::GraphStore;
 use crate::ident::{make_node_id, make_type_id, EdgeId, Hash, NodeId};
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+use crate::tick_patch::WarpOp;
 use crate::TickDelta;
 
 /// Human-readable name for the dispatch rule.
@@ -106,17 +107,30 @@ fn inbox_matcher(store: &GraphStore, scope: &NodeId) -> bool {
         && store.edges_from(scope).any(|e| e.ty == pending_ty)
 }
 
-fn inbox_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
+fn inbox_executor(store: &mut GraphStore, scope: &NodeId, delta: &mut TickDelta) {
     // Drain the pending set by deleting `edge:pending` edges only.
     //
     // Ledger nodes are append-only; removing pending edges is queue maintenance.
+    let warp_id = store.warp_id();
     let pending_ty = make_type_id(PENDING_EDGE_TYPE);
-    let mut pending_edges: Vec<EdgeId> = store
+
+    // 1. Gather (read-only)
+    let pending_edges: Vec<EdgeId> = store
         .edges_from(scope)
         .filter(|e| e.ty == pending_ty)
         .map(|e| e.id)
         .collect();
-    pending_edges.sort_unstable();
+
+    // 2. Emit ops
+    for edge_id in &pending_edges {
+        delta.push(WarpOp::DeleteEdge {
+            warp_id,
+            from: *scope,
+            edge_id: *edge_id,
+        });
+    }
+
+    // 3. Mutate
     for edge_id in pending_edges {
         let _ = store.delete_edge_exact(*scope, edge_id);
     }
@@ -158,9 +172,19 @@ fn ack_pending_matcher(store: &GraphStore, scope: &NodeId) -> bool {
     store.has_edge(&edge_id)
 }
 
-fn ack_pending_executor(store: &mut GraphStore, scope: &NodeId, _delta: &mut TickDelta) {
+fn ack_pending_executor(store: &mut GraphStore, scope: &NodeId, delta: &mut TickDelta) {
+    let warp_id = store.warp_id();
     let inbox_id = make_node_id(INBOX_PATH);
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
+
+    // Emit
+    delta.push(WarpOp::DeleteEdge {
+        warp_id,
+        from: inbox_id,
+        edge_id,
+    });
+
+    // Mutate
     let _ = store.delete_edge_exact(inbox_id, edge_id);
 }
 

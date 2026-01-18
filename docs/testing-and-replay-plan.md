@@ -77,6 +77,15 @@ The BOAW (Base-Overlay-Apply-Write) test harness is now implemented per ADR-0007
 - `TickDelta` module now available for collecting ops during execution
 - Validation infrastructure ready with `assert_delta_matches_diff()` helper (gated by `delta_validate` feature)
 
+## Phase 4: SnapshotAccumulator Validation
+
+Under the `delta_validate` feature, Phase 4 adds a second validation layer:
+
+1. **Delta-to-diff validation** (Phase 3): `delta.finalize()` ops must match `diff_state()` output
+2. **Accumulator validation** (Phase 4): `SnapshotAccumulator` built from `base + ops` must produce the same `state_root` as legacy computation
+
+Run with: `cargo test -p warp-core --features delta_validate`
+
 ---
 
 ## Manual Validation

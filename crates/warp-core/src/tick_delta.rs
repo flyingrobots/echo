@@ -12,7 +12,7 @@ use crate::tick_patch::WarpOp;
 ///
 /// This metadata supports future canonical tie-breaking when multiple
 /// rules produce semantically equivalent operations in the same tick.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct OpOrigin {
     /// Intent ID (for future canonical ordering).
     pub intent_id: u64,
@@ -26,25 +26,67 @@ pub struct OpOrigin {
 ///
 /// The delta collects operations as they are produced, then finalizes
 /// them into canonical order for patch construction.
+///
+/// # Origin Tracking
+///
+/// When the `delta_validate` feature is enabled (or in tests), the delta
+/// also tracks [`OpOrigin`] metadata for each operation. This metadata
+/// is stored in a separate vector and is not included in the finalized
+/// output.
 pub struct TickDelta {
-    ops: Vec<(WarpOp, Option<OpOrigin>)>,
+    ops: Vec<WarpOp>,
+    #[cfg(any(test, feature = "delta_validate"))]
+    origins: Vec<OpOrigin>,
 }
 
 impl TickDelta {
     /// Creates a new empty delta.
     #[must_use]
     pub fn new() -> Self {
-        Self { ops: Vec::new() }
+        Self {
+            ops: Vec::new(),
+            #[cfg(any(test, feature = "delta_validate"))]
+            origins: Vec::new(),
+        }
+    }
+
+    /// Emits an operation with no origin metadata.
+    ///
+    /// This is the primary method for adding operations to the delta.
+    /// When origin tracking is enabled, a default [`OpOrigin`] is recorded.
+    pub fn emit(&mut self, op: WarpOp) {
+        self.ops.push(op);
+        #[cfg(any(test, feature = "delta_validate"))]
+        self.origins.push(OpOrigin::default());
+    }
+
+    /// Emits an operation with explicit origin metadata.
+    ///
+    /// Use this when the origin of an operation needs to be tracked
+    /// for debugging, validation, or future tie-breaking logic.
+    pub fn emit_with_origin(&mut self, op: WarpOp, origin: OpOrigin) {
+        self.ops.push(op);
+        #[cfg(any(test, feature = "delta_validate"))]
+        self.origins.push(origin);
+        #[cfg(not(any(test, feature = "delta_validate")))]
+        let _ = origin; // Suppress unused warning in release builds
     }
 
     /// Pushes an operation with no origin metadata.
+    ///
+    /// This is an alias for [`emit()`](Self::emit) for backward compatibility.
+    #[inline]
     pub fn push(&mut self, op: WarpOp) {
-        self.ops.push((op, None));
+        self.emit(op);
     }
 
     /// Pushes an operation with origin metadata for tie-breaking.
+    ///
+    /// This is an alias for [`emit_with_origin()`](Self::emit_with_origin)
+    /// for backward compatibility.
+    #[inline]
     pub fn push_with_origin(&mut self, op: WarpOp, origin: OpOrigin) {
-        self.ops.push((op, Some(origin)));
+        self.emit_with_origin(op, origin);
     }
 
     /// Returns the number of collected operations.
@@ -62,11 +104,11 @@ impl TickDelta {
     /// Finalizes the delta into canonically sorted operations.
     ///
     /// Operations are sorted by [`WarpOp::sort_key()`] to ensure
-    /// deterministic replay order. Origin metadata is stripped.
+    /// deterministic replay order. Origin metadata is discarded.
     #[must_use]
     pub fn finalize(mut self) -> Vec<WarpOp> {
-        self.ops.sort_by(|a, b| a.0.sort_key().cmp(&b.0.sort_key()));
-        self.ops.into_iter().map(|(op, _)| op).collect()
+        self.ops.sort_by_key(WarpOp::sort_key);
+        self.ops
     }
 
     /// Returns the operations without sorting (for testing).
@@ -75,14 +117,14 @@ impl TickDelta {
     /// that operations were collected in the expected sequence.
     #[must_use]
     pub fn into_ops_unsorted(self) -> Vec<WarpOp> {
-        self.ops.into_iter().map(|(op, _)| op).collect()
+        self.ops
     }
 
     /// Computes statistics about the collected operations.
     #[must_use]
     pub fn stats(&self) -> DeltaStats {
         let mut stats = DeltaStats::default();
-        for (op, _) in &self.ops {
+        for op in &self.ops {
             match op {
                 WarpOp::UpsertNode { .. } => stats.upsert_node += 1,
                 WarpOp::DeleteNode { .. } => stats.delete_node += 1,
@@ -96,11 +138,67 @@ impl TickDelta {
         }
         stats
     }
+
+    /// Returns the collected origins (only available with `delta_validate` feature).
+    ///
+    /// This is useful for debugging and validation to see which rule/intent
+    /// produced each operation.
+    #[cfg(any(test, feature = "delta_validate"))]
+    #[must_use]
+    pub fn origins(&self) -> &[OpOrigin] {
+        &self.origins
+    }
 }
 
 impl Default for TickDelta {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// A scoped wrapper around [`TickDelta`] that applies a default origin to all emitted ops.
+///
+/// This is useful when a rule executor wants to emit multiple operations with the
+/// same origin metadata without repeating the origin on each call.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut delta = TickDelta::new();
+/// let origin = OpOrigin { intent_id: 42, rule_id: 1, match_ix: 0 };
+/// let mut scoped = ScopedDelta::new(&mut delta, origin);
+///
+/// // All operations emitted through `scoped` will have the same origin
+/// scoped.emit(WarpOp::UpsertNode { ... });
+/// scoped.emit(WarpOp::SetAttachment { ... });
+/// ```
+pub struct ScopedDelta<'a> {
+    inner: &'a mut TickDelta,
+    origin: OpOrigin,
+}
+
+impl<'a> ScopedDelta<'a> {
+    /// Creates a new scoped delta with the given default origin.
+    pub fn new(delta: &'a mut TickDelta, origin: OpOrigin) -> Self {
+        Self {
+            inner: delta,
+            origin,
+        }
+    }
+
+    /// Emits an operation with the scoped origin.
+    pub fn emit(&mut self, op: WarpOp) {
+        self.inner.emit_with_origin(op, self.origin);
+    }
+
+    /// Returns a reference to the underlying [`TickDelta`].
+    pub fn inner(&self) -> &TickDelta {
+        self.inner
+    }
+
+    /// Returns a mutable reference to the underlying [`TickDelta`].
+    pub fn inner_mut(&mut self) -> &mut TickDelta {
+        self.inner
     }
 }
 
@@ -629,6 +727,121 @@ mod tests {
         // Should preserve insertion order, not canonical order
         assert!(matches!(ops[0], WarpOp::SetAttachment { .. }));
         assert!(matches!(ops[1], WarpOp::UpsertNode { .. }));
+    }
+
+    #[test]
+    fn emit_records_default_origin() {
+        let warp_id = make_warp_id("emit-warp");
+        let node_id = make_node_id("emit-node");
+
+        let mut delta = TickDelta::new();
+        delta.emit(WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id,
+                local_id: node_id,
+            },
+            record: NodeRecord {
+                ty: make_type_id("TestNode"),
+            },
+        });
+
+        assert_eq!(delta.len(), 1);
+        assert_eq!(delta.origins().len(), 1);
+        assert_eq!(delta.origins()[0], OpOrigin::default());
+    }
+
+    #[test]
+    fn emit_with_origin_records_explicit_origin() {
+        let warp_id = make_warp_id("emit-origin-warp");
+        let node_id = make_node_id("emit-origin-node");
+        let origin = OpOrigin {
+            intent_id: 123,
+            rule_id: 456,
+            match_ix: 789,
+        };
+
+        let mut delta = TickDelta::new();
+        delta.emit_with_origin(
+            WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: node_id,
+                },
+                record: NodeRecord {
+                    ty: make_type_id("TestNode"),
+                },
+            },
+            origin,
+        );
+
+        assert_eq!(delta.len(), 1);
+        assert_eq!(delta.origins().len(), 1);
+        assert_eq!(delta.origins()[0], origin);
+    }
+
+    #[test]
+    fn scoped_delta_applies_origin_to_all_ops() {
+        let warp_id = make_warp_id("scoped-warp");
+        let node_a = make_node_id("scoped-node-a");
+        let node_b = make_node_id("scoped-node-b");
+        let origin = OpOrigin {
+            intent_id: 100,
+            rule_id: 200,
+            match_ix: 300,
+        };
+
+        let mut delta = TickDelta::new();
+        {
+            let mut scoped = ScopedDelta::new(&mut delta, origin);
+            scoped.emit(WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: node_a,
+                },
+                record: NodeRecord {
+                    ty: make_type_id("TestNode"),
+                },
+            });
+            scoped.emit(WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: node_b,
+                },
+                record: NodeRecord {
+                    ty: make_type_id("TestNode"),
+                },
+            });
+        }
+
+        assert_eq!(delta.len(), 2);
+        assert_eq!(delta.origins().len(), 2);
+        assert_eq!(delta.origins()[0], origin);
+        assert_eq!(delta.origins()[1], origin);
+    }
+
+    #[test]
+    fn scoped_delta_inner_accessors() {
+        let mut delta = TickDelta::new();
+        let origin = OpOrigin::default();
+        let mut scoped = ScopedDelta::new(&mut delta, origin);
+
+        // Test inner() returns reference
+        assert!(scoped.inner().is_empty());
+
+        // Test inner_mut() allows modification
+        let warp_id = make_warp_id("inner-warp");
+        let node_id = make_node_id("inner-node");
+        scoped.inner_mut().emit(WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id,
+                local_id: node_id,
+            },
+            record: NodeRecord {
+                ty: make_type_id("TestNode"),
+            },
+        });
+
+        assert_eq!(scoped.inner().len(), 1);
     }
 
     #[test]

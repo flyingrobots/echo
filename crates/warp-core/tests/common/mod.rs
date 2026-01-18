@@ -5,7 +5,7 @@
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, AtomPayload, AttachmentKey, AttachmentSet,
     AttachmentValue, ConflictPolicy, EdgeRecord, Engine, EngineBuilder, Footprint, GraphStore,
-    Hash, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule,
+    Hash, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, WarpOp,
 };
 
 // =============================================================================
@@ -177,11 +177,24 @@ fn make_boaw_touch_rule() -> RewriteRule {
             // Match if the node exists
             store.node(scope).is_some()
         },
-        executor: |store, scope, _delta| {
-            // Set a marker attachment on the scope node
+        executor: |store, scope, delta| {
+            // 1. Gather info (read-only)
             let marker_payload =
                 AtomPayload::new(boaw_marker_type_id(), bytes::Bytes::from_static(b"touched"));
-            store.set_node_attachment(*scope, Some(AttachmentValue::Atom(marker_payload)));
+            let value = Some(AttachmentValue::Atom(marker_payload));
+
+            // 2. Emit op
+            let key = AttachmentKey::node_alpha(NodeKey {
+                warp_id: store.warp_id(),
+                local_id: *scope,
+            });
+            delta.push(WarpOp::SetAttachment {
+                key,
+                value: value.clone(),
+            });
+
+            // 3. Mutate store
+            store.set_node_attachment(*scope, value);
         },
         compute_footprint: |store, scope| {
             let mut a_write = AttachmentSet::default();

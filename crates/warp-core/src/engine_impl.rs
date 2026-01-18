@@ -19,7 +19,7 @@ use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
 use crate::telemetry::{NullTelemetrySink, TelemetrySink};
-use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpTickPatchV1};
+use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
 use crate::TickDelta;
@@ -787,6 +787,11 @@ impl Engine {
     /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
     ///   corrupted (e.g., a reserved rewrite references a missing rule).
+    ///
+    /// # Panics
+    ///
+    /// Panics if delta validation is enabled and the `SnapshotAccumulator` produces
+    /// a different `state_root` than the legacy computation.
     pub fn commit_with_receipt(
         &mut self,
         tx: TxId,
@@ -814,6 +819,13 @@ impl Engine {
         // PERF: Full state clone; consider COW or incremental tracking for large graphs.
         let state_before = self.state.clone();
 
+        #[cfg(feature = "delta_validate")]
+        let delta_ops = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
+
+        #[cfg(all(any(test, feature = "delta_validate"), not(feature = "delta_validate")))]
+        let _ = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
+
+        #[cfg(not(any(test, feature = "delta_validate")))]
         self.apply_reserved_rewrites(reserved_rewrites)?;
 
         // Finalize materialization bus and store results.
@@ -844,6 +856,27 @@ impl Engine {
         let patch_digest = patch.digest();
 
         let state_root = crate::snapshot::compute_state_root(&self.state, &self.current_root);
+
+        #[cfg(feature = "delta_validate")]
+        {
+            use crate::snapshot_accum::SnapshotAccumulator;
+
+            let mut accumulator = SnapshotAccumulator::from_warp_state(&state_before);
+            accumulator.apply_ops(delta_ops);
+
+            // Use placeholder values for schema_hash and tick since WSC bytes aren't used yet
+            let schema_hash = [0u8; 32];
+            let tick = tx.value();
+
+            let accum_output = accumulator.build(&self.current_root, schema_hash, tick);
+
+            assert_eq!(
+                state_root, accum_output.state_root,
+                "SnapshotAccumulator state_root mismatch: legacy={:?} vs accumulator={:?}",
+                state_root, accum_output.state_root
+            );
+        }
+
         let parents: Vec<Hash> = self
             .last_snapshot
             .as_ref()
@@ -969,7 +1002,8 @@ impl Engine {
     fn apply_reserved_rewrites(
         &mut self,
         rewrites: Vec<PendingRewrite>,
-    ) -> Result<(), EngineError> {
+        #[cfg(any(test, feature = "delta_validate"))] state_before: &WarpState,
+    ) -> Result<Vec<WarpOp>, EngineError> {
         let mut delta = TickDelta::new();
         for rewrite in rewrites {
             let id = rewrite.compact_rule;
@@ -992,9 +1026,19 @@ impl Engine {
             };
             (executor)(store, &rewrite.scope.local_id, &mut delta);
         }
-        // TODO(Phase 3): validate delta matches diff_state() output
-        let _ = delta; // suppress unused warning for now
-        Ok(())
+        #[cfg(any(test, feature = "delta_validate"))]
+        {
+            use crate::tick_delta::assert_delta_matches_diff;
+            use crate::tick_patch::diff_state;
+
+            let diff_ops = diff_state(state_before, &self.state);
+            let delta_ops = delta.finalize();
+            assert_delta_matches_diff(&delta_ops, &diff_ops);
+            Ok(delta_ops)
+        }
+
+        #[cfg(not(any(test, feature = "delta_validate")))]
+        Ok(delta.finalize())
     }
 
     /// Returns a snapshot for the current graph state without executing rewrites.
@@ -1635,10 +1679,11 @@ fn extend_slots_from_footprint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::attachment::{AttachmentKey, AttachmentValue};
+    use crate::attachment::{AtomPayload, AttachmentKey, AttachmentValue};
     use crate::ident::{make_node_id, make_type_id};
     use crate::payload::encode_motion_atom_payload;
     use crate::record::NodeRecord;
+    use crate::tick_patch::WarpOp;
 
     const TEST_RULE_NAME: &str = "test/motion";
 
@@ -1657,7 +1702,10 @@ mod tests {
                     Some(AttachmentValue::Atom(payload)) if crate::payload::decode_motion_atom_payload(payload).is_some()
                 )
             },
-            executor: |store, scope, _delta| {
+            executor: |store, scope, delta| {
+                // Capture warp_id before mutable borrow
+                let warp_id = store.warp_id();
+
                 let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
                     return;
                 };
@@ -1666,13 +1714,35 @@ mod tests {
                 else {
                     return;
                 };
+
+                // Compute the new position
                 let new_pos_raw = [
                     pos_raw[0].saturating_add(vel_raw[0]),
                     pos_raw[1].saturating_add(vel_raw[1]),
                     pos_raw[2].saturating_add(vel_raw[2]),
                 ];
-                payload.type_id = crate::payload::motion_payload_type_id();
-                payload.bytes = crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
+
+                // Build new bytes
+                let new_bytes = crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
+
+                // Only emit if bytes actually changed
+                if payload.bytes != new_bytes {
+                    let key = AttachmentKey::node_alpha(NodeKey {
+                        warp_id,
+                        local_id: *scope,
+                    });
+                    delta.push(WarpOp::SetAttachment {
+                        key,
+                        value: Some(AttachmentValue::Atom(AtomPayload {
+                            type_id: crate::payload::motion_payload_type_id(),
+                            bytes: new_bytes.clone(),
+                        })),
+                    });
+
+                    // Mutate in place
+                    payload.type_id = crate::payload::motion_payload_type_id();
+                    payload.bytes = new_bytes;
+                }
             },
             compute_footprint: |store, scope| {
                 let mut a_write = crate::AttachmentSet::default();

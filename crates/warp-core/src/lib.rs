@@ -71,6 +71,7 @@ mod scheduler;
 #[cfg(feature = "serde")]
 mod serializable;
 mod snapshot;
+mod snapshot_accum;
 mod telemetry;
 mod tick_delta;
 mod tick_patch;
@@ -110,7 +111,7 @@ pub use serializable::{
 };
 pub use snapshot::Snapshot;
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
-pub use tick_delta::{DeltaStats, OpOrigin, TickDelta};
+pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
     WarpTickPatchV1,

@@ -44,3 +44,6 @@ temp
 # Playwright artifacts
 test-results
 playwright-report
+
+# Experimental benchmark binaries (not ready for CI)
+crates/warp-benches/src/bin/

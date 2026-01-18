@@ -72,6 +72,11 @@ The BOAW (Base-Overlay-Apply-Write) test harness is now implemented per ADR-0007
 - `BoawSnapshot` captures state for determinism verification
 - `boaw/touch` test rule exercises the core rewrite pipeline
 
+**Phase 3 Progress:**
+
+- `TickDelta` module now available for collecting ops during execution
+- Validation infrastructure ready with `assert_delta_matches_diff()` helper (gated by `delta_validate` feature)
+
 ---
 
 ## Manual Validation

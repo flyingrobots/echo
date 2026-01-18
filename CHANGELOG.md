@@ -7,6 +7,9 @@
 - Added real `EngineHarness` implementation for BOAW compliance tests (ADR-0007)
 - Added `BoawSnapshot` struct and `boaw/touch` test rule
 - 8 BOAW determinism tests now pass with real engine hashes
+- Added `TickDelta` module for collecting ops during execution (ADR-0007 Phase 3)
+- Changed `ExecuteFn` signature to accept `&mut TickDelta` parameter
+- Added `assert_delta_matches_diff()` validation helper with `delta_validate` feature
 
 ## 2026-01-17 — MaterializationBus Phase 3 Complete
 

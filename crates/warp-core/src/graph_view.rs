@@ -43,6 +43,17 @@ use crate::record::{EdgeRecord, NodeRecord};
 /// This wrapper exposes only the query methods of the underlying store,
 /// enforcing read-only access at compile time. Used by execute functions
 /// in Phase 5 BOAW to safely inspect graph state without mutation.
+///
+/// # BOAW Enforcement Boundary (Phase 5)
+///
+/// **DO NOT** add any of the following to this type:
+/// - `Deref<Target=GraphStore>` or `AsRef<GraphStore>`
+/// - `into_inner()`, `as_inner()`, or any method returning `&GraphStore`
+/// - `as_mut()` or any method returning `&mut GraphStore`
+/// - Interior mutability (`Cell`, `RefCell`, `UnsafeCell`)
+///
+/// This type is the read-only capability that enforces the BOAW contract:
+/// executors observe through `GraphView`, mutate through `TickDelta`.
 #[derive(Debug, Clone, Copy)]
 pub struct GraphView<'a> {
     store: &'a GraphStore,
@@ -176,5 +187,31 @@ mod tests {
         assert!(view.node_attachment(&b).is_none());
         assert!(view.edge_attachment(&e1).is_some());
         assert!(view.edge_attachment(&make_edge_id("nonexistent")).is_none());
+    }
+
+    /// Invariant: `GraphView` must be exactly one pointer wide.
+    ///
+    /// This ensures it remains a cheap pass-by-value type (`Copy`).
+    /// If someone adds extra fields, this test will fail.
+    #[test]
+    fn graph_view_is_pointer_sized() {
+        use core::mem::size_of;
+        assert_eq!(size_of::<GraphView<'_>>(), size_of::<*const ()>());
+    }
+
+    /// Invariant: `GraphView` must be `Sync` for Phase 6 parallel execution.
+    ///
+    /// Workers will share `&GraphStore` across threads; `GraphView` wraps that.
+    #[test]
+    fn graph_view_is_sync() {
+        fn assert_sync<T: Sync>() {}
+        assert_sync::<GraphView<'_>>();
+    }
+
+    /// Invariant: `GraphView` must be `Send` for Phase 6 parallel execution.
+    #[test]
+    fn graph_view_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<GraphView<'_>>();
     }
 }

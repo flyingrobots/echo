@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
+use crate::graph_view::GraphView;
 use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
 };
@@ -727,7 +728,8 @@ impl Engine {
         let Some(store) = self.state.store(&warp_id) else {
             return Err(EngineError::UnknownWarp(warp_id));
         };
-        let matches = (rule.matcher)(store, scope);
+        let view = GraphView::new(store);
+        let matches = (rule.matcher)(view, scope);
         if !matches {
             return Ok(ApplyResult::NoMatch);
         }
@@ -737,7 +739,7 @@ impl Engine {
             local_id: *scope,
         };
         let scope_fp = scope_hash(&rule.id, &scope_key);
-        let mut footprint = (rule.compute_footprint)(store, scope);
+        let mut footprint = (rule.compute_footprint)(view, scope);
         // Stage B1 law: any match/exec inside a descended instance must READ
         // every attachment slot in the descent chain.
         for key in descent_stack {
@@ -1004,6 +1006,10 @@ impl Engine {
         rewrites: Vec<PendingRewrite>,
         #[cfg(any(test, feature = "delta_validate"))] state_before: &WarpState,
     ) -> Result<Vec<WarpOp>, EngineError> {
+        use crate::tick_patch::WarpTickPatchV1;
+
+        // Phase 5 BOAW: executors read from immutable GraphView and emit ops to delta.
+        // After all executors have run, we apply the delta to the state.
         let mut delta = TickDelta::new();
         for rewrite in rewrites {
             let id = rewrite.compact_rule;
@@ -1016,7 +1022,7 @@ impl Engine {
                 };
                 rule.executor
             };
-            let Some(store) = self.state.store_mut(&rewrite.scope.warp_id) else {
+            let Some(store) = self.state.store(&rewrite.scope.warp_id) else {
                 debug_assert!(
                     false,
                     "missing store for warp id: {:?}",
@@ -1024,21 +1030,38 @@ impl Engine {
                 );
                 return Err(EngineError::UnknownWarp(rewrite.scope.warp_id));
             };
-            (executor)(store, &rewrite.scope.local_id, &mut delta);
+            let view = GraphView::new(store);
+            (executor)(view, &rewrite.scope.local_id, &mut delta);
         }
+
+        // Finalize the delta (sorts ops into canonical order)
+        let ops = delta.finalize();
+
+        // Apply the collected ops to the state
+        let patch = WarpTickPatchV1::new(
+            self.policy_id,
+            self.compute_rule_pack_id(),
+            crate::tick_patch::TickCommitStatus::Committed,
+            Vec::new(), // in_slots
+            Vec::new(), // out_slots
+            ops.clone(),
+        );
+        patch.apply_to_state(&mut self.state).map_err(|e| {
+            EngineError::InternalCorruption(Box::leak(
+                format!("apply_reserved_rewrites: failed to apply ops: {e:?}").into_boxed_str(),
+            ))
+        })?;
+
         #[cfg(any(test, feature = "delta_validate"))]
         {
             use crate::tick_delta::assert_delta_matches_diff;
             use crate::tick_patch::diff_state;
 
             let diff_ops = diff_state(state_before, &self.state);
-            let delta_ops = delta.finalize();
-            assert_delta_matches_diff(&delta_ops, &diff_ops);
-            Ok(delta_ops)
+            assert_delta_matches_diff(&ops, &diff_ops);
         }
 
-        #[cfg(not(any(test, feature = "delta_validate")))]
-        Ok(delta.finalize())
+        Ok(ops)
     }
 
     /// Returns a snapshot for the current graph state without executing rewrites.
@@ -1696,17 +1719,17 @@ mod tests {
             id,
             name: TEST_RULE_NAME,
             left: crate::rule::PatternGraph { nodes: vec![] },
-            matcher: |store, scope| {
+            matcher: |view: GraphView<'_>, scope| {
                 matches!(
-                    store.node_attachment(scope),
+                    view.node_attachment(scope),
                     Some(AttachmentValue::Atom(payload)) if crate::payload::decode_motion_atom_payload(payload).is_some()
                 )
             },
-            executor: |store, scope, delta| {
-                // Capture warp_id before mutable borrow
-                let warp_id = store.warp_id();
+            executor: |view: GraphView<'_>, scope, delta| {
+                // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+                let warp_id = view.warp_id();
 
-                let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
+                let Some(AttachmentValue::Atom(payload)) = view.node_attachment(scope) else {
                     return;
                 };
                 let Some((pos_raw, vel_raw)) =
@@ -1735,20 +1758,16 @@ mod tests {
                         key,
                         value: Some(AttachmentValue::Atom(AtomPayload {
                             type_id: crate::payload::motion_payload_type_id(),
-                            bytes: new_bytes.clone(),
+                            bytes: new_bytes,
                         })),
                     });
-
-                    // Mutate in place
-                    payload.type_id = crate::payload::motion_payload_type_id();
-                    payload.bytes = new_bytes;
                 }
             },
-            compute_footprint: |store, scope| {
+            compute_footprint: |view: GraphView<'_>, scope| {
                 let mut a_write = crate::AttachmentSet::default();
-                if store.node(scope).is_some() {
+                if view.node(scope).is_some() {
                     a_write.insert(AttachmentKey::node_alpha(NodeKey {
-                        warp_id: store.warp_id(),
+                        warp_id: view.warp_id(),
                         local_id: *scope,
                     }));
                 }
@@ -1796,9 +1815,9 @@ mod tests {
             id: [0u8; 32],
             name: "bad/join",
             left: crate::rule::PatternGraph { nodes: vec![] },
-            matcher: |_s, _n| true,
-            executor: |_s, _n, _delta| {},
-            compute_footprint: |_s, _n| crate::footprint::Footprint::default(),
+            matcher: |_s: GraphView<'_>, _n| true,
+            executor: |_s: GraphView<'_>, _n, _delta| {},
+            compute_footprint: |_s: GraphView<'_>, _n| crate::footprint::Footprint::default(),
             factor_mask: 0,
             conflict_policy: crate::rule::ConflictPolicy::Join,
             join_fn: None,

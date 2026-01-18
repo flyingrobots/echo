@@ -173,34 +173,27 @@ fn make_boaw_touch_rule() -> RewriteRule {
         id,
         name: BOAW_TOUCH_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
-        matcher: |store, scope| {
+        matcher: |view, scope| {
             // Match if the node exists
-            store.node(scope).is_some()
+            view.node(scope).is_some()
         },
-        executor: |store, scope, delta| {
-            // 1. Gather info (read-only)
+        executor: |view, scope, delta| {
+            // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
             let marker_payload =
                 AtomPayload::new(boaw_marker_type_id(), bytes::Bytes::from_static(b"touched"));
             let value = Some(AttachmentValue::Atom(marker_payload));
 
-            // 2. Emit op
             let key = AttachmentKey::node_alpha(NodeKey {
-                warp_id: store.warp_id(),
+                warp_id: view.warp_id(),
                 local_id: *scope,
             });
-            delta.push(WarpOp::SetAttachment {
-                key,
-                value: value.clone(),
-            });
-
-            // 3. Mutate store
-            store.set_node_attachment(*scope, value);
+            delta.push(WarpOp::SetAttachment { key, value });
         },
-        compute_footprint: |store, scope| {
+        compute_footprint: |view, scope| {
             let mut a_write = AttachmentSet::default();
-            if store.node(scope).is_some() {
+            if view.node(scope).is_some() {
                 a_write.insert(AttachmentKey::node_alpha(NodeKey {
-                    warp_id: store.warp_id(),
+                    warp_id: view.warp_id(),
                     local_id: *scope,
                 }));
             }

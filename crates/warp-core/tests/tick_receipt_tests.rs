@@ -6,9 +6,9 @@
 use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
     encode_motion_atom_payload, make_node_id, make_type_id, scope_hash, AttachmentValue,
-    ConflictPolicy, Engine, Footprint, GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph,
-    RewriteRule, TickDelta, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection, TxId,
-    WarpId,
+    ConflictPolicy, Engine, Footprint, GraphStore, GraphView, Hash, NodeId, NodeKey, NodeRecord,
+    PatternGraph, RewriteRule, TickDelta, TickReceiptDisposition, TickReceiptEntry,
+    TickReceiptRejection, TxId, WarpId,
 };
 
 fn rule_id(name: &str) -> Hash {
@@ -46,24 +46,24 @@ fn compute_rewrites_digest(entries: &[TickReceiptEntry]) -> Hash {
     hasher.finalize().into()
 }
 
-fn always_match(_: &GraphStore, _: &NodeId) -> bool {
+fn always_match(_: GraphView<'_>, _: &NodeId) -> bool {
     true
 }
 
-fn exec_noop(_: &mut GraphStore, _: &NodeId, _delta: &mut TickDelta) {}
+fn exec_noop(_: GraphView<'_>, _: &NodeId, _delta: &mut TickDelta) {}
 
 fn other_of(scope: &NodeId) -> NodeId {
     NodeId(blake3::hash(&scope.0).into())
 }
 
-fn fp_write_scope(_: &GraphStore, scope: &NodeId) -> Footprint {
+fn fp_write_scope(_: GraphView<'_>, scope: &NodeId) -> Footprint {
     let mut fp = Footprint::default();
     fp.n_write.insert_node(scope);
     fp.factor_mask = 1;
     fp
 }
 
-fn fp_write_scope_and_other(_: &GraphStore, scope: &NodeId) -> Footprint {
+fn fp_write_scope_and_other(_: GraphView<'_>, scope: &NodeId) -> Footprint {
     let mut fp = Footprint::default();
     fp.n_write.insert_node(scope);
     fp.n_write.insert_node(&other_of(scope));

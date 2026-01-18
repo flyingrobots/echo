@@ -86,6 +86,22 @@ Under the `delta_validate` feature, Phase 4 adds a second validation layer:
 
 Run with: `cargo test -p warp-core --features delta_validate`
 
+## Phase 5: Read-Only Execution (Complete)
+
+Phase 5 completes the BOAW execution model transition:
+
+1. **Read-only execution**: Executors receive `GraphView` (read-only) instead of `&mut GraphStore`
+2. **Op emission only**: No GraphStore mutations during execution — rules emit ops to `TickDelta`
+3. **Post-execution state update**: State updated after execution via `apply_to_state()`
+4. **Signature change**: `ExecuteFn` now takes `(&GraphView, &mut TickDelta, &NodeId)` instead of `(&mut GraphStore, &NodeId)`
+
+This milestone enables:
+
+- True parallel execution (thread-local deltas, no shared mutable state)
+- Removal of `state_before = self.state.clone()` overhead
+- Removal of `diff_state()` post-hoc diffing
+- Foundation for structural sharing and immutable snapshots
+
 ---
 
 ## Manual Validation

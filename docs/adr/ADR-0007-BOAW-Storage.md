@@ -1059,49 +1059,57 @@ Once that’s in, the tests stop being “ideas” and start being the drill ser
 
 ## Sequencing
 
-- [ ] 1) First commit: add the BOAW ADR + tests (red on purpose)
-  
-  - [ ] Add the ADR (single doc with the COW section folded in).
-  - [ ] Add the test skeletons exactly like above.
-  - [ ] Don’t touch engine code yet.
-  - [ ] Goal: establish the contract + the drill sergeant.
+- [x] 1) First commit: add the BOAW ADR + tests (red on purpose)
 
-- [ ] 2) Second commit: wire the TestHarness to whatever you have now
+  - [x] Add the ADR (single doc with the COW section folded in).
+  - [x] Add the test skeletons exactly like above.
+  - [x] Don't touch engine code yet.
+  - [x] Goal: establish the contract + the drill sergeant.
+
+- [x] 2) Second commit: wire the TestHarness to whatever you have now
 
 Don't build BOAW yet. Just make the harness call your current pipeline:
 
-- [ ] base snapshot builder (even if it's GraphStore → canonical hash)
-- [ ] execute_serial / execute_parallel can both call serial for now
-- [ ] return real hashes so the test runner is alive
+- [x] base snapshot builder (even if it's GraphStore → canonical hash)
+- [x] execute_serial / execute_parallel can both call serial for now
+- [x] return real hashes so the test runner is alive
 
 Goal: tests compile, fail only where you todo!().
 
-- [ ] 3) Third commit: flip executors to “emit ops” (TickDelta)
+- [x] 3) Third commit: flip executors to "emit ops" (TickDelta)
 
 This is the real pivot:
 
-- [ ] Change ExecuteFn signature to take:
-- [ ] &WarpView (read-only view of snapshot)
-- [ ] &mut TickDelta (append-only ops)
-- [ ] Implement minimal TickDelta + canonical merge (sort ops by key).
+- [x] Change ExecuteFn signature to take:
+- [x] `&GraphView` (read-only view of snapshot)
+- [x] `&mut TickDelta` (append-only ops)
+- [x] Implement minimal TickDelta + canonical merge (sort ops by key).
 
 Goal: parallelism becomes safe because writes are thread-local.
 
-- [ ] 4) Fourth commit: SnapshotBuilder v0 (no segment sharing yet)
-  - [ ] Apply merged ops to produce next snapshot tables.
-  - [ ] Write WSC bytes.
-  - [ ] Compute state_root from that snapshot.
-  - [ ] Make the god test pass for Small + ManyIndependent.
+- [x] 4) Fourth commit: SnapshotBuilder v0 (no segment sharing yet)
+  - [x] Apply merged ops to produce next snapshot tables.
+  - [x] Write WSC bytes.
+  - [x] Compute state_root from that snapshot.
+  - [x] Make the god test pass for Small + ManyIndependent.
 
-Goal: you now have “immutable snapshot + delta commit” working.
+Goal: you now have "immutable snapshot + delta commit" working.
 
-- [ ] 5) Only then: parallelism + footprints + shards
+- [x] 5) Read-only execution (Phase 5)
+  - [x] Executors receive `GraphView` (read-only) instead of `&mut GraphStore`.
+  - [x] No GraphStore mutations during execution — emit ops only.
+  - [x] State updated after execution via `apply_to_state()`.
+  - [x] Legacy `&mut GraphStore` path removed from executor signature.
+
+Goal: execution is pure — reads from snapshot, writes to delta.
+
+- [ ] 6) Only then: parallelism + footprints + shards
   - [ ] Make admission deterministic.
   - [ ] Add worker execution producing per-worker deltas.
   - [ ] Merge deltas canonically.
   - [ ] Prove worker-count invariance (the tests).
 
-Goal: “free money” without compromising determinism.
+Goal: "free money" without compromising determinism.
 
 ---
 

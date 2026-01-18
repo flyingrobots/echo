@@ -4,6 +4,29 @@
 
 ## [Unreleased] - 2026-01-18
 
+### Added - Phase 5: Read-Only Execution (ADR-0007)
+
+- **`GraphView<'a>`** (`graph_view.rs`): Read-only wrapper for `GraphStore`
+  - Provides immutable access to nodes, edges, and state during execution
+  - Enforces the emit-only contract for executors
+  - Engine holds immutable store reference during tick execution
+
+### Changed - Phase 5
+
+- `ExecuteFn` signature now takes `&GraphView` instead of `&mut GraphStore`
+- `MatchFn` signature updated to use `&GraphView` for rule matching
+- `FootprintFn` signature updated to use `&GraphView` for footprint computation
+- Executors are now emit-only: no direct `GraphStore` mutations during execution
+- State updates applied via `WarpTickPatchV1::apply_to_state()` after execution completes
+
+### Architecture - Phase 5
+
+- Execution phase is now purely read-only with respect to graph state
+- All mutations flow through the delta/patch system
+- All BOAW determinism tests pass with read-only execution model
+
+---
+
 ### Added - Phase 4: SnapshotAccumulator (ADR-0007)
 
 - **`SnapshotAccumulator`** (`snapshot_accum.rs`): Columnar accumulator that builds WSC directly from `base + ops` without reconstructing GraphStore
@@ -12,13 +35,13 @@
   - `compute_state_root()`: Computes state hash directly from accumulator tables
   - `build()`: Produces WSC bytes and state_root
 
-### Changed
+### Changed - Phase 4
 
 - `apply_reserved_rewrites()` now returns `Vec<WarpOp>` (the finalized delta ops)
 - Added validation under `delta_validate` feature: asserts accumulator's `state_root` matches legacy computation
 - `TickDelta::finalize()` uses `sort_by_key` for cleaner sorting
 
-### Architecture
+### Architecture - Phase 4
 
 - Delta ops are now the source of truth for state changes
 - `SnapshotAccumulator` validates that `base + ops → state_root` matches legacy path

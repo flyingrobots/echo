@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # `warp-core` — WARP Core Runtime & API Tour
+>
 > **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
-
 
 This document is a **tour of the `warp-core` crate**: the core data model,
 deterministic boundary artifacts, and the runtime APIs that higher layers (`warp-ffi`,
@@ -188,9 +188,9 @@ A registered rule is a `RewriteRule`:
 
 - `id: Hash` (rule family id; stable and deterministic)
 - `name: &'static str` (human name used by `Engine::apply`)
-- `matcher: fn(&GraphStore, &NodeId) -> bool`
-- `executor: fn(&mut GraphStore, &NodeId)`
-- `compute_footprint: fn(&GraphStore, &NodeId) -> Footprint`
+- `matcher: fn(&GraphView, &NodeId) -> bool`
+- `executor: fn(&GraphView, &mut TickDelta, &NodeId)` (BOAW Phase 5: read-only execution)
+- `compute_footprint: fn(&GraphView, &NodeId) -> Footprint`
 - `factor_mask: u64` (fast prefilter; must remain conservative)
 - `conflict_policy: ConflictPolicy` (`Abort`, `Retry`, `Join`)
 
@@ -423,13 +423,15 @@ use warp_core::{
     make_node_id, make_type_id, make_warp_id,
 };
 
-fn b1_rule_match(_store: &GraphStore, _scope: &NodeId) -> bool {
+fn b1_rule_match(_view: &GraphView, _scope: &NodeId) -> bool {
     true
 }
 
-fn b1_rule_exec(store: &mut GraphStore, _scope: &NodeId) {
+// BOAW Phase 5: Executors receive read-only GraphView and emit ops to TickDelta.
+// No GraphStore mutations during execution.
+fn b1_rule_exec(_view: &GraphView, delta: &mut TickDelta, _scope: &NodeId) {
     let child_node = make_node_id("child-node");
-    store.insert_node(
+    delta.upsert_node(
         child_node,
         NodeRecord {
             ty: make_type_id("ChildTy"),
@@ -437,7 +439,7 @@ fn b1_rule_exec(store: &mut GraphStore, _scope: &NodeId) {
     );
 }
 
-fn b1_rule_footprint(_store: &GraphStore, _scope: &NodeId) -> Footprint {
+fn b1_rule_footprint(_view: &GraphView, _scope: &NodeId) -> Footprint {
     let mut fp = Footprint::default();
     // Conservative: record the write so patch out_slots is slice-safe.
     fp.n_write.insert_node(&make_node_id("child-node"));

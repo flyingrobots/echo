@@ -127,9 +127,9 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
            pub id: Hash,                              // Deterministic rule ID
            pub name: &'static str,                    // Human-readable name
            pub left: PatternGraph,                    // Pattern metadata
-           pub matcher: MatchFn,                      // fn(&GraphStore, &NodeId) -> bool
-           pub executor: ExecuteFn,                   // fn(&mut GraphStore, &NodeId)
-           pub compute_footprint: FootprintFn,        // fn(&GraphStore, &NodeId) -> Footprint
+           pub matcher: MatchFn,                      // fn(&GraphView, &NodeId) -> bool
+           pub executor: ExecuteFn,                   // fn(&GraphView, &mut TickDelta, &NodeId) [Phase 5]
+           pub compute_footprint: FootprintFn,        // fn(&GraphView, &NodeId) -> Footprint
            pub factor_mask: u64,                      // O(1) spatial prefilter
            pub conflict_policy: ConflictPolicy,       // Abort, Retry, or Join
            pub join_fn: Option<JoinFn>,              // Optional join strategy
@@ -3020,25 +3020,24 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
   5. TickPatch (tick_patch.rs, 1694 lines): Has:
     - WarpOp enum (UpsertNode, DeleteNode, UpsertEdge, DeleteEdge, SetAttachment, etc.)
     - WarpTickPatchV1 with ops, in_slots, out_slots, patch_digest
-    - Used for post-hoc diff, NOT for execution emissions
-  6. Engine (engine_impl.rs, 1806 lines): Current flow:
-    - Executors receive &mut GraphStore directly and mutate shared state in-place
-    - Post-commit diff generates TickPatch
+    - **[Phase 5 Complete]**: Now used for execution emissions via TickDelta
+  6. Engine (engine_impl.rs, 1806 lines): **[Phase 5 Complete]**: Current flow:
+    - Executors receive `&GraphView` (read-only) and emit ops to `&mut TickDelta`
+    - No GraphStore mutation during execution
+    - State updated post-execution via `apply_to_state()`
   7. Materialization (materialization/): Mature bus system for output emissions with deterministic ordering.
 
   What ADR-0007 Requires
 
-  The ADR outlines a migration plan:
+  The ADR outlines a migration plan (status as of 2026-01-18):
 
-  1. Step 1: Introduce TickDelta + canonical merge alongside existing GraphStore
-  2. Step 2: Change executors to emit ops into TickDelta (stop writing GraphStore)
-  3. Step 3: Implement SnapshotBuilder
-
-  that applies TickDelta to produce next snapshot
-  4. Step 4: Wire WSC writer as canonical snapshot output
-  5. Step 5: Replace GraphStore with immutable snapshot + overlay model
-  6. Step 6: Add collapse/merge phase with typed registry
-  7. Step 7: Add mind/diagnostics enforcement gates
+  1. Step 1: Introduce TickDelta + canonical merge alongside existing GraphStore **[COMPLETE]**
+  2. Step 2: Change executors to emit ops into TickDelta (stop writing GraphStore) **[COMPLETE - Phase 5]**
+  3. Step 3: Implement SnapshotBuilder that applies TickDelta to produce next snapshot **[COMPLETE - Phase 4]**
+  4. Step 4: Wire WSC writer as canonical snapshot output **[COMPLETE]**
+  5. Step 5: Read-only execution - GraphView instead of &mut GraphStore **[COMPLETE - Phase 5]**
+  6. Step 6: Add collapse/merge phase with typed registry **[PENDING]**
+  7. Step 7: Add mind/diagnostics enforcement gates **[PENDING]**
 
   My Implementation Plan
 
@@ -3070,10 +3069,10 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
 - GraphStore uses BTreeMaps for deterministic iteration
 - Footprint infrastructure already tracks read/write sets with factor_mask prefiltering
 - RadixScheduler provides O(n) deterministic ordering and O(1) conflict detection via GenSet
-- TickPatch has WarpOp enum for delta operations (but currently used post-hoc, not during execution)
+- TickPatch has WarpOp enum for delta operations (now used for execution emissions via TickDelta)
 - WSC is production-ready with zero-copy Pod types, ready for mmap
 
-  The key pivot is: move from "mutate GraphStore → diff after" to "emit ops into TickDelta → apply to snapshot"
+  The key pivot was: move from "mutate GraphStore → diff after" to "emit ops into TickDelta → apply to snapshot" **[COMPLETE - Phase 5]**
   ─────────────────────────────────────────────────
 
   ---
@@ -3120,10 +3119,12 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
       pub set_attachments: Vec<(AttachmentKey, Option<AttachmentValue>)>,
   }
   2. Modify ExecuteFn signature to take:
-    - &WarpView (read-only snapshot view) instead of &mut GraphStore
+    - &GraphView (read-only snapshot view) instead of &mut GraphStore
     - &mut TickDelta (append-only ops collector)
   3. Implement canonical merge - sort ops by key for deterministic ordering
   4. Add DeltaView - overlay that resolves reads from (snapshot + delta)
+
+  **Status: COMPLETE** (2026-01-18)
 
   ---
   Phase 4: SnapshotBuilder
@@ -3135,8 +3136,22 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
   3. Writes WSC bytes via existing write_wsc_one_warp
   4. Computes state_root from materialized snapshot
 
+  **Status: COMPLETE** (2026-01-18) - See `docs/memorials/2026-01-18-phase4-rubicon.md`
+
   ---
-  Phase 5: Parallel Execution with Per-Worker Deltas
+  Phase 5: Read-Only Execution
+
+  Goal: Pure execution - executors read from snapshot, write to delta only
+
+  1. ExecuteFn signature changed: `fn(&GraphView, &mut TickDelta, &NodeId)`
+  2. No GraphStore mutations during execution - emit ops only
+  3. State updated after execution via `apply_to_state()`
+  4. Legacy `&mut GraphStore` path removed from executor signature
+
+  **Status: COMPLETE** (2026-01-18)
+
+  ---
+  Phase 6: Parallel Execution with Per-Worker Deltas
 
   Goal: Lockless parallelism without compromising determinism
 
@@ -3145,7 +3160,7 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
   3. Prove worker-count invariance - the "god test" passes for all worker counts
 
   ---
-  Phase 6+ (Future)
+  Phase 7+ (Future)
 
 - Segment-level structural sharing (content-addressed chunks)
 - Collapse/merge with typed registry

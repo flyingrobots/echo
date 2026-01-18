@@ -57,6 +57,7 @@ mod constants;
 mod engine_impl;
 mod footprint;
 mod graph;
+mod graph_view;
 mod ident;
 /// Canonical inbox management for deterministic intent sequencing.
 pub mod inbox;
@@ -90,6 +91,7 @@ pub use engine_impl::{
 };
 pub use footprint::{pack_port_key, AttachmentSet, Footprint, IdSet, PortKey, PortSet};
 pub use graph::GraphStore;
+pub use graph_view::GraphView;
 pub use ident::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeId, EdgeKey, Hash, NodeId, NodeKey,
     TypeId, WarpId,

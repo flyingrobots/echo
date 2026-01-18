@@ -20,17 +20,18 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use warp_core::{GraphStore, GraphView};
+//! ```rust
+//! use warp_core::{make_node_id, make_type_id, GraphStore, GraphView, NodeRecord};
 //!
-//! let store = GraphStore::default();
+//! let mut store = GraphStore::default();
+//! let root = make_node_id("root");
+//! store.insert_node(root, NodeRecord { ty: make_type_id("demo:root") });
+//!
 //! let view = GraphView::new(&store);
 //!
 //! // Read-only access
-//! let warp_id = view.warp_id();
-//! if let Some(node) = view.node(&some_node_id) {
-//!     // Inspect node...
-//! }
+//! let _warp_id = view.warp_id();
+//! assert!(view.node(&root).is_some());
 //! ```
 
 use crate::attachment::AttachmentValue;

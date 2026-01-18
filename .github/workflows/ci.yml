@@ -74,7 +74,7 @@ jobs:
       - name: cargo test (workspace)
         run: cargo test --workspace
       - name: PRNG golden regression (warp-core)
-        run: cargo test -p warp-core --features golden_prng -- tests::next_int_golden_regression
+        run: cargo test -p warp-core --features golden_prng --test prng_golden_regression
 
   test-musl:
     name: Tests (musl)

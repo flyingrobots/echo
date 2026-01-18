@@ -7,13 +7,18 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```rust,no_run
+//! use warp_core::wsc::{ReadError, WscFile};
+//!
+//! # fn main() -> Result<(), ReadError> {
 //! let file = WscFile::open("state.wsc")?;
 //! let view = file.warp_view(0)?;
 //!
 //! for node in view.nodes() {
 //!     println!("Node: {:?}", node.node_id);
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 use std::path::Path;

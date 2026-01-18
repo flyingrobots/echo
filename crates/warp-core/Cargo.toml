@@ -55,5 +55,9 @@ delta_validate = []
 name = "boaw_parallel_exec"
 required-features = ["delta_validate"]
 
+[[test]]
+name = "prng_golden_regression"
+required-features = ["golden_prng"]
+
 [build-dependencies]
 blake3 = "1.0"

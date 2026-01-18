@@ -105,8 +105,9 @@ impl TickDelta {
 
     /// Finalizes the delta into canonically sorted operations.
     ///
-    /// Operations are sorted by [`WarpOp::sort_key()`] to ensure
-    /// deterministic replay order. Origin metadata is discarded.
+    /// Operations are sorted into canonical replay order (derived from the
+    /// operation contents) to ensure deterministic patch application. Origin
+    /// metadata is discarded.
     #[must_use]
     pub fn finalize(mut self) -> Vec<WarpOp> {
         self.ops.sort_by_key(WarpOp::sort_key);
@@ -183,14 +184,35 @@ impl Default for TickDelta {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// use warp_core::{
+///     make_node_id, make_type_id, make_warp_id, NodeKey, NodeRecord, OpOrigin, ScopedDelta,
+///     TickDelta, WarpOp,
+/// };
+///
 /// let mut delta = TickDelta::new();
-/// let origin = OpOrigin { intent_id: 42, rule_id: 1, match_ix: 0 };
+/// let origin = OpOrigin {
+///     intent_id: 42,
+///     rule_id: 1,
+///     match_ix: 0,
+///     op_ix: 0,
+/// };
 /// let mut scoped = ScopedDelta::new(&mut delta, origin);
 ///
-/// // All operations emitted through `scoped` will have the same origin
-/// scoped.emit(WarpOp::UpsertNode { ... });
-/// scoped.emit(WarpOp::SetAttachment { ... });
+/// let warp_id = make_warp_id("demo-warp");
+/// let node_id = make_node_id("demo-node");
+/// let node = NodeKey {
+///     warp_id,
+///     local_id: node_id,
+/// };
+///
+/// // All operations emitted through `scoped` will have the same base origin.
+/// scoped.emit(WarpOp::UpsertNode {
+///     node,
+///     record: NodeRecord {
+///         ty: make_type_id("demo:type"),
+///     },
+/// });
 /// ```
 pub struct ScopedDelta<'a> {
     inner: &'a mut TickDelta,

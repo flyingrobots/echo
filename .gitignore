@@ -45,5 +45,31 @@ temp
 test-results
 playwright-report
 
+# LaTeX build artifacts (keep PDFs tracked)
+*.aux
+*.log
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.xdv
+*.ps
+*.dvi
+*.out
+*.nav
+*.snm
+*.vrb
+*.run.xml
+*.bbl
+*.blg
+*.bcf
+*.idx
+*.ind
+*.ilg
+*.lbx
+_minted*
+
 # Experimental benchmark binaries (not ready for CI)
 crates/warp-benches/src/bin/

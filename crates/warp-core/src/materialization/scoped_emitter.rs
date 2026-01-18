@@ -19,10 +19,25 @@ use super::emit_key::EmitKey;
 ///
 /// # Usage
 ///
-/// ```ignore
-/// // In Engine::execute_rule() or similar
-/// let emitter = ScopedEmitter::new(&self.bus, scope_node.hash(), rule.id());
-/// rule.execute(context, &emitter)?;
+/// ```rust
+/// use warp_core::materialization::{
+///     make_channel_id, EmissionPort, MaterializationBus, ScopedEmitter,
+/// };
+///
+/// # fn main() -> Result<(), warp_core::materialization::DuplicateEmission> {
+/// let bus = MaterializationBus::new();
+/// let scope_hash = [0u8; 32];
+/// let rule_id = 7u32;
+///
+/// let emitter = ScopedEmitter::new(&bus, scope_hash, rule_id);
+/// let channel = make_channel_id("demo:position");
+///
+/// emitter.emit(channel, vec![1, 2, 3])?;
+///
+/// let report = bus.finalize();
+/// report.assert_clean();
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// # Key Construction

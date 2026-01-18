@@ -118,8 +118,16 @@ pub struct ExistingState {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let engine = EngineBuilder::new(store, root)
+/// ```rust
+/// use warp_core::{
+///     make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord, SchedulerKind,
+/// };
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let _engine = EngineBuilder::new(store, root)
 ///     .scheduler(SchedulerKind::Radix)
 ///     .policy_id(42)
 ///     .build();
@@ -130,11 +138,19 @@ pub struct ExistingState {
 /// For testing or custom configurations, you can inject a pre-configured
 /// [`MaterializationBus`]:
 ///
-/// ```ignore
+/// ```rust
+/// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+/// use warp_core::materialization::{make_channel_id, ChannelPolicy, MaterializationBus};
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let ch = make_channel_id("demo:ch");
 /// let mut bus = MaterializationBus::new();
 /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
 ///
-/// let engine = EngineBuilder::new(store, root)
+/// let _engine = EngineBuilder::new(store, root)
 ///     .with_materialization_bus(bus)
 ///     .build();
 /// ```
@@ -256,11 +272,19 @@ impl<S> EngineBuilder<S> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+    /// use warp_core::materialization::{make_channel_id, ChannelPolicy, MaterializationBus};
+    ///
+    /// let mut store = GraphStore::default();
+    /// let root = make_node_id("root");
+    /// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+    ///
+    /// let ch = make_channel_id("demo:ch");
     /// let mut bus = MaterializationBus::new();
     /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
     ///
-    /// let engine = EngineBuilder::new(store, root)
+    /// let _engine = EngineBuilder::new(store, root)
     ///     .with_materialization_bus(bus)
     ///     .build();
     /// ```
@@ -289,8 +313,16 @@ impl<S> EngineBuilder<S> {
 ///
 /// Use [`EngineBuilder`] for fluent configuration:
 ///
-/// ```ignore
-/// let engine = EngineBuilder::new(store, root)
+/// ```rust
+/// use warp_core::{
+///     make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord, SchedulerKind,
+/// };
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let _engine = EngineBuilder::new(store, root)
 ///     .scheduler(SchedulerKind::Radix)
 ///     .policy_id(42)
 ///     .build();
@@ -299,11 +331,19 @@ impl<S> EngineBuilder<S> {
 /// For testing or custom configurations, inject a pre-configured
 /// [`MaterializationBus`]:
 ///
-/// ```ignore
+/// ```rust
+/// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+/// use warp_core::materialization::{make_channel_id, ChannelPolicy, MaterializationBus};
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let ch = make_channel_id("demo:ch");
 /// let mut bus = MaterializationBus::new();
 /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
 ///
-/// let engine = EngineBuilder::new(store, root)
+/// let _engine = EngineBuilder::new(store, root)
 ///     .with_materialization_bus(bus)
 ///     .build();
 /// ```
@@ -1384,8 +1424,20 @@ impl Engine {
     /// Returns a mutable reference to the materialization bus.
     ///
     /// Use this to register channels with custom policies before commit:
-    /// ```ignore
-    /// engine.materialization_bus_mut().register_channel(ch, ChannelPolicy::StrictSingle);
+    /// ```rust
+    /// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+    /// use warp_core::materialization::{make_channel_id, ChannelPolicy};
+    ///
+    /// let mut store = GraphStore::default();
+    /// let root = make_node_id("root");
+    /// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+    ///
+    /// let mut engine = EngineBuilder::new(store, root).build();
+    /// let ch = make_channel_id("demo:ch");
+    ///
+    /// engine
+    ///     .materialization_bus_mut()
+    ///     .register_channel(ch, ChannelPolicy::StrictSingle);
     /// ```
     pub fn materialization_bus_mut(&mut self) -> &mut MaterializationBus {
         &mut self.bus
@@ -1431,14 +1483,32 @@ impl Engine {
     /// state committed successfully, but the boundary output is incomplete.
     ///
     /// Typical usage:
-    /// ```ignore
-    /// engine.commit_with_receipt(tx)?;
+    /// ```rust
+    /// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+    /// use warp_core::materialization::{make_channel_id, ChannelPolicy};
+    ///
+    /// # fn main() -> Result<(), warp_core::EngineError> {
+    /// let mut store = GraphStore::default();
+    /// let root = make_node_id("root");
+    /// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+    ///
+    /// let mut engine = EngineBuilder::new(store, root).build();
+    /// let ch = make_channel_id("demo:ch");
+    /// engine
+    ///     .materialization_bus_mut()
+    ///     .register_channel(ch, ChannelPolicy::StrictSingle);
+    ///
+    /// let tx = engine.begin();
+    /// let _ = engine.commit_with_receipt(tx)?;
+    ///
     /// if engine.has_materialization_errors() {
     ///     // Handle or log errors - do NOT ignore!
     ///     for err in engine.last_materialization_errors() {
-    ///         eprintln!("Materialization failed: {:?}", err);
+    ///         let _ = err;
     ///     }
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// This is a convenience method equivalent to `!last_materialization_errors().is_empty()`.

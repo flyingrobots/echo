@@ -21,19 +21,28 @@
 //!
 //! ## Writing
 //!
-//! ```ignore
+//! ```rust,no_run
+//! use warp_core::{blake3_empty, make_node_id, make_type_id, GraphStore, NodeRecord};
 //! use warp_core::wsc::{build_one_warp_input, write_wsc_one_warp};
 //!
+//! # fn main() -> Result<(), std::io::Error> {
+//! let mut store = GraphStore::default();
+//! let root_node_id = make_node_id("root");
+//! store.insert_node(root_node_id, NodeRecord { ty: make_type_id("world") });
+//!
 //! let input = build_one_warp_input(&store, root_node_id);
-//! let bytes = write_wsc_one_warp(input, schema_hash, tick)?;
+//! let bytes = write_wsc_one_warp(&input, blake3_empty(), 0)?;
 //! std::fs::write("state.wsc", bytes)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Reading
 //!
-//! ```ignore
-//! use warp_core::wsc::{WscFile, validate_wsc};
+//! ```rust,no_run
+//! use warp_core::wsc::{validate_wsc, ReadError, WscFile};
 //!
+//! # fn main() -> Result<(), ReadError> {
 //! let file = WscFile::open("state.wsc")?;
 //! validate_wsc(&file)?;
 //!
@@ -41,6 +50,8 @@
 //! for node in view.nodes() {
 //!     println!("Node: {:?}", node.node_id);
 //! }
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Format Specification

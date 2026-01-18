@@ -5,7 +5,7 @@ set -euo pipefail
 # 0) Sweep stale build artifacts on odd hours (keeps target/ from ballooning)
 #    Manual: ./scripts/sweep-stale-artifacts.sh [days]
 HOUR=$(date +%H)
-if (( HOUR % 2 == 1 )) && [[ -x scripts/sweep-stale-artifacts.sh ]]; then
+if (( 10#$HOUR % 2 == 1 )) && [[ -x scripts/sweep-stale-artifacts.sh ]]; then
   scripts/sweep-stale-artifacts.sh 14
 fi
 

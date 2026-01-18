@@ -12,7 +12,7 @@ use crate::tick_patch::WarpOp;
 ///
 /// This metadata supports future canonical tie-breaking when multiple
 /// rules produce semantically equivalent operations in the same tick.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OpOrigin {
     /// Intent ID (for future canonical ordering).
     pub intent_id: u64,
@@ -20,6 +20,8 @@ pub struct OpOrigin {
     pub rule_id: u32,
     /// Match index within rule.
     pub match_ix: u32,
+    /// Operation index within this scoped emission (auto-assigned by `ScopedDelta`).
+    pub op_ix: u32,
 }
 
 /// Accumulates [`WarpOp`]s during rule execution.
@@ -120,6 +122,24 @@ impl TickDelta {
         self.ops
     }
 
+    /// Returns both ops and origins without sorting (for testing/validation).
+    ///
+    /// This preserves insertion order and is useful for verifying
+    /// that operations and their origins were collected correctly.
+    #[cfg(any(test, feature = "delta_validate"))]
+    #[must_use]
+    pub fn into_parts_unsorted(self) -> (Vec<WarpOp>, Vec<OpOrigin>) {
+        (self.ops, self.origins)
+    }
+
+    /// Creates a [`ScopedDelta`] with the given origin.
+    ///
+    /// This is a convenience method for creating a scoped delta that
+    /// applies the same origin metadata to all emitted operations.
+    pub fn scoped(&mut self, origin: OpOrigin) -> ScopedDelta<'_> {
+        ScopedDelta::new(self, origin)
+    }
+
     /// Computes statistics about the collected operations.
     #[must_use]
     pub fn stats(&self) -> DeltaStats {
@@ -175,6 +195,7 @@ impl Default for TickDelta {
 pub struct ScopedDelta<'a> {
     inner: &'a mut TickDelta,
     origin: OpOrigin,
+    next_op_ix: u32,
 }
 
 impl<'a> ScopedDelta<'a> {
@@ -183,12 +204,16 @@ impl<'a> ScopedDelta<'a> {
         Self {
             inner: delta,
             origin,
+            next_op_ix: 0,
         }
     }
 
-    /// Emits an operation with the scoped origin.
+    /// Emits an operation with the scoped origin (auto-assigns `op_ix`).
     pub fn emit(&mut self, op: WarpOp) {
-        self.inner.emit_with_origin(op, self.origin);
+        let mut origin = self.origin;
+        origin.op_ix = self.next_op_ix;
+        self.next_op_ix += 1;
+        self.inner.emit_with_origin(op, origin);
     }
 
     /// Returns a reference to the underlying [`TickDelta`].
@@ -686,6 +711,7 @@ mod tests {
                 intent_id: 42,
                 rule_id: 1,
                 match_ix: 0,
+                op_ix: 0,
             },
         );
 
@@ -758,6 +784,7 @@ mod tests {
             intent_id: 123,
             rule_id: 456,
             match_ix: 789,
+            op_ix: 42,
         };
 
         let mut delta = TickDelta::new();
@@ -788,6 +815,7 @@ mod tests {
             intent_id: 100,
             rule_id: 200,
             match_ix: 300,
+            op_ix: 0, // Will be overwritten by ScopedDelta
         };
 
         let mut delta = TickDelta::new();
@@ -815,8 +843,25 @@ mod tests {
 
         assert_eq!(delta.len(), 2);
         assert_eq!(delta.origins().len(), 2);
-        assert_eq!(delta.origins()[0], origin);
-        assert_eq!(delta.origins()[1], origin);
+        // ScopedDelta auto-assigns op_ix: 0 for first, 1 for second
+        assert_eq!(
+            delta.origins()[0],
+            OpOrigin {
+                intent_id: 100,
+                rule_id: 200,
+                match_ix: 300,
+                op_ix: 0,
+            }
+        );
+        assert_eq!(
+            delta.origins()[1],
+            OpOrigin {
+                intent_id: 100,
+                rule_id: 200,
+                match_ix: 300,
+                op_ix: 1,
+            }
+        );
     }
 
     #[test]

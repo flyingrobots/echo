@@ -51,5 +51,9 @@ det_fixed = []
 # Validation feature for delta operations
 delta_validate = []
 
+[[test]]
+name = "boaw_parallel_exec"
+required-features = ["delta_validate"]
+
 [build-dependencies]
 blake3 = "1.0"

@@ -1104,13 +1104,16 @@ Goal: you now have "immutable snapshot + delta commit" working.
 
 Goal: execution is pure — reads from snapshot, writes to delta.
 
-- [ ] 6) Only then: parallelism + footprints + shards
-  - [ ] Make admission deterministic.
-  - [ ] Add worker execution producing per-worker deltas.
-  - [ ] Merge deltas canonically.
-  - [ ] Prove worker-count invariance (the tests).
+- [~] 6) Only then: parallelism + footprints + shards
+  - [x] Make admission deterministic. (RadixScheduler, Phase 5)
+  - [x] Add worker execution producing per-worker deltas. (`boaw::execute_parallel`)
+  - [x] Merge deltas canonically. (`boaw::merge_deltas` — sort by WarpOpKey, OpOrigin)
+  - [x] Prove worker-count invariance (the tests). (7 tests in `boaw_parallel_exec.rs`)
+  - [ ] Wire into Engine pipeline (Phase 6B)
+  - [ ] Virtual shards for locality (Phase 6B)
 
 Goal: "free money" without compromising determinism.
+**Status: Phase 6A COMPLETE** (2026-01-18) — parallel exec + canonical merge proven.
 
 ---
 

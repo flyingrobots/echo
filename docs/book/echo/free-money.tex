@@ -1,0 +1,290 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+%
+% Stand-alone LaTeX for the Phase 6A “Free Money” BOAW TikZ diagram.
+%
+% Build (recommended):
+%   latexmk -pdf -interaction=nonstopmode -halt-on-error boaw_phase6_free_money.tex
+%
+\documentclass[tikz,border=6pt]{standalone}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+\usepackage{tikz}
+\usetikzlibrary{
+  arrows.meta,
+  positioning,
+  fit,
+  calc,
+  backgrounds,
+  shapes.misc,
+  shapes.geometric,
+  shadows
+}
+
+\begin{document}
+
+\begin{tikzpicture}[
+  font=\small,
+  >=Latex,
+  node distance=8mm and 10mm,
+
+  % --- Styles ---
+  block/.style={
+    draw,
+    rounded corners=2pt,
+    thick,
+    align=left,
+    inner xsep=6pt,
+    inner ysep=6pt,
+    fill=white
+  },
+  title/.style={font=\bfseries},
+  tinytext/.style={font=\scriptsize},
+  pill/.style={
+    draw,
+    rounded corners=999pt,
+    thick,
+    inner xsep=8pt,
+    inner ysep=4pt,
+    fill=white
+  },
+  note/.style={
+    draw,
+    rounded corners=2pt,
+    thick,
+    inner xsep=6pt,
+    inner ysep=6pt,
+    fill=white
+  },
+  group/.style={
+    draw,
+    rounded corners=4pt,
+    thick,
+    inner xsep=8pt,
+    inner ysep=10pt
+  },
+  arrow/.style={thick, -{Latex[length=2.2mm,width=1.7mm]}},
+  dashedarrow/.style={thick, dashed, -{Latex[length=2.2mm,width=1.7mm]}},
+  emph/.style={font=\bfseries},
+  shadowed/.style={drop shadow={opacity=0.15, shadow xshift=1.2pt, shadow yshift=-1.2pt}},
+
+  % Worker boxes
+  worker/.style={
+    draw,
+    rounded corners=2pt,
+    thick,
+    fill=white,
+    inner xsep=5pt,
+    inner ysep=5pt,
+    minimum width=35mm
+  }
+]
+
+% -----------------------------------------------------------------------------
+% Left: Ingress / Plan / Admit
+% -----------------------------------------------------------------------------
+\node[block, shadowed] (ingress) {
+  \textbf{Ingress (canonical)}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Intents $\rightarrow$ \emph{intent\_id}\\
+    Stable ordering (radix permitted)
+  \end{tabular}
+};
+
+\node[block, shadowed, right=of ingress] (plan) {
+  \textbf{Plan}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Match rules on \texttt{GraphView}\\
+    Compute \emph{Footprint}\\
+    Emit \texttt{PlannedRewrite}
+  \end{tabular}
+};
+
+\node[block, shadowed, right=of plan] (admit) {
+  \textbf{Admit (deterministic)}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Greedy, canonical order\\
+    Footprint independence gate\\
+    Output: \texttt{ExecItem} list
+  \end{tabular}
+};
+
+\node[pill, below=4mm of admit, shadowed] (admitkey) {
+  \begin{tabular}{@{}c@{}}
+    \textbf{Admission order}\\
+    \scriptsize $(scope\_hash,\ compact\_rule,\ nonce)$
+  \end{tabular}
+};
+
+\draw[arrow] (ingress) -- (plan);
+\draw[arrow] (plan) -- (admit);
+\draw[dashedarrow] (admit) -- (admitkey);
+
+% -----------------------------------------------------------------------------
+% Middle: Execute (parallel, lockless)
+% -----------------------------------------------------------------------------
+\node[block, shadowed, right=18mm of admit] (snapshot) {
+  \textbf{Base Snapshot (immutable)}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Reachable-only view\\
+    WSC / zero-copy IO\\
+    \texttt{GraphView} reads only
+  \end{tabular}
+};
+
+\node[block, shadowed, below=5mm of snapshot] (execitems) {
+  \textbf{ExecItem list (canonical)}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    \texttt{exec: ExecuteFn}\\
+    \texttt{scope: NodeId}\\
+    \texttt{origin: OpOrigin}
+  \end{tabular}
+};
+
+\draw[arrow] (admit) -- (snapshot);
+\draw[arrow] (admit) -- (execitems);
+
+% Workers stack (Phase 6A stride partition)
+\node[worker, shadowed, right=16mm of snapshot] (w1) {
+  \textbf{Worker 0}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Read: \texttt{GraphView}\\
+    Write: \texttt{TickDelta\_0}
+  \end{tabular}
+};
+\node[worker, shadowed, below=3mm of w1] (w2) {
+  \textbf{Worker 1}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Read: \texttt{GraphView}\\
+    Write: \texttt{TickDelta\_1}
+  \end{tabular}
+};
+\node[worker, shadowed, below=3mm of w2] (w3) {
+  \textbf{Worker $\dots$}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Read: \texttt{GraphView}\\
+    Write: \texttt{TickDelta\_k}
+  \end{tabular}
+};
+
+% Execution arrows
+\draw[arrow] (snapshot.east) -- ++(6mm,0) |- (w1.west);
+\draw[arrow] (snapshot.east) -- ++(6mm,0) |- (w2.west);
+\draw[arrow] (snapshot.east) -- ++(6mm,0) |- (w3.west);
+
+\draw[arrow] (execitems.east) -- ++(6mm,0) |- (w1.west);
+\draw[arrow] (execitems.east) -- ++(6mm,0) |- (w2.west);
+\draw[arrow] (execitems.east) -- ++(6mm,0) |- (w3.west);
+
+\node[note, shadowed, below=7mm of w2, align=left] (origin_note) {
+  \textbf{Origin tie-break (Phase 6)}\\[-2pt]
+  \scriptsize \texttt{OpOrigin = (intent\_id, rule\_id, match\_ix, op\_ix)}\\
+  \scriptsize \texttt{op\_ix} assigned by scoped emission within a rewrite
+};
+
+% -----------------------------------------------------------------------------
+% Merge: canonical, worker-count invariant
+% -----------------------------------------------------------------------------
+\node[block, shadowed, right=16mm of w2] (merge) {
+  \textbf{Canonical Merge}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Flatten all \texttt{TickDelta}s\\
+    Sort by $(WarpOpKey,\ OpOrigin)$\\
+    Dedupe identical ops\\
+    \emph{Explode on divergence} (footprint bug)
+  \end{tabular}
+};
+
+\draw[arrow] (w1.east) -- (merge.west);
+\draw[arrow] (w2.east) -- (merge.west);
+\draw[arrow] (w3.east) -- (merge.west);
+
+\node[pill, shadowed, below=4mm of merge] (mergekey) {
+  \begin{tabular}{@{}c@{}}
+    \textbf{Merge sort key}\\
+    \scriptsize $(WarpOpKey,\ OpOrigin)$
+  \end{tabular}
+};
+\draw[dashedarrow] (merge) -- (mergekey);
+
+% -----------------------------------------------------------------------------
+% Commit: patch digest, state root, commit hash
+% -----------------------------------------------------------------------------
+\node[block, shadowed, right=16mm of merge] (patch) {
+  \textbf{Tick Patch (merged ops)}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Canonical op sequence\\
+    \texttt{patch\_digest = H(ops)}
+  \end{tabular}
+};
+
+\node[block, shadowed, right=of patch] (build) {
+  \textbf{Commit / Materialize}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Apply ops to base snapshot\\
+    Produce next snapshot (reachable-only)\\
+    \texttt{state\_root = H(state)}
+  \end{tabular}
+};
+
+\node[block, shadowed, above=6mm of build] (commit) {
+  \textbf{Commit Hash}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    \scriptsize $commit = H(parents \parallel state\_root \parallel patch\_digest \parallel schema \parallel tick \parallel policy)$
+  \end{tabular}
+};
+
+\draw[arrow] (merge) -- (patch);
+\draw[arrow] (patch) -- (build);
+\draw[arrow] (build) -- (commit);
+
+\node[block, shadowed, right=8mm of build] (dag) {
+  \textbf{Worldline (commit DAG)}\\[-2pt]
+  \begin{tabular}{@{}l@{}}
+    Fork / merge ready\\
+    Reproducible history\\
+    Deterministic replay
+  \end{tabular}
+};
+\draw[arrow] (build) -- (dag);
+
+% -----------------------------------------------------------------------------
+% Invariance callout (worker-count invariance)
+% -----------------------------------------------------------------------------
+\node[note, shadowed, below=10mm of patch, align=left] (invar) {
+  \textbf{Free Money\texttrademark\ Invariance}\\[-2pt]
+  \scriptsize For workers $\in \{1,2,4,8,16,32\}$ and any ingress permutation:\\
+  \scriptsize \emph{patch\_digest}, \emph{state\_root}, \emph{commit} are identical.
+};
+
+\draw[dashedarrow] (merge.south) -- ++(0,-5mm) -| (invar.west);
+
+% -----------------------------------------------------------------------------
+% Phase 6B note (virtual shards)
+% -----------------------------------------------------------------------------
+\node[note, shadowed, below=10mm of snapshot, xshift=8mm, align=left] (shards) {
+  \textbf{Phase 6B (optional): Virtual shards}\\[-2pt]
+  \scriptsize Route by fixed shard count (power-of-two)\\
+  \scriptsize $shard = lowbits(id)\ \&\ (SHARDS-1)$\\
+  \scriptsize Scheduling changes; merge/commit unchanged.
+};
+
+\draw[dashedarrow] (execitems.south) -- (shards.north);
+
+% -----------------------------------------------------------------------------
+% Group boxes (visual architecture layering)
+% -----------------------------------------------------------------------------
+\begin{pgfonlayer}{background}
+  \node[group, fit=(ingress)(plan)(admit)(admitkey), label={[title]north:Plan \& Admit}] {};
+  \node[group, fit=(snapshot)(execitems)(w1)(w2)(w3)(origin_note)(shards),
+    label={[title]north:Execute (read-only) + Per-worker deltas}] {};
+  \node[group, fit=(merge)(mergekey)(invar), label={[title]north:Canonical merge (determinism choke-point)}] {};
+  \node[group, fit=(patch)(build)(commit)(dag), label={[title]north:Commit (hashes + worldline)}] {};
+\end{pgfonlayer}
+
+\end{tikzpicture}
+
+\end{document}

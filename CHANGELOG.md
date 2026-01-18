@@ -4,6 +4,42 @@
 
 ## [Unreleased] - 2026-01-18
 
+### Added - Phase 6A: Parallel Execution "FREE MONEY" (ADR-0007)
+
+- **`boaw` module** (`boaw/mod.rs`, `boaw/exec.rs`, `boaw/merge.rs`): Parallel execution with canonical merge
+  - `execute_serial()`: Baseline serial execution for determinism comparison
+  - `execute_parallel()`: Lockless stride-partitioned parallel execution across N workers
+  - `merge_deltas()`: Canonical merge sorting by `(WarpOpKey, OpOrigin)` with conflict detection
+  - `ExecItem`: Execution unit bundling executor, scope, and origin metadata
+  - `MergeConflict`: Error type for footprint violations (conflicts = bugs in Phase 6A)
+
+- **`OpOrigin` enhanced** (`tick_delta.rs`):
+  - Added `op_ix: u32` field for per-rewrite sequential ordering
+  - Added `PartialOrd`, `Ord`, `Hash` derives for canonical sorting
+  - `ScopedDelta` now auto-increments `op_ix` on each `emit()` call
+
+- **`TickDelta::into_parts_unsorted()`**: Returns `(Vec<WarpOp>, Vec<OpOrigin>)` for merge
+
+- **`WarpOp` derives** (`tick_patch.rs`): Added `PartialEq`, `Eq` for merge deduplication
+
+- **7 new determinism tests** (`tests/boaw_parallel_exec.rs`):
+  - `parallel_equals_serial_basic`: Serial and parallel produce identical merged results
+  - `worker_count_invariance`: Identical output across worker counts [1, 2, 4, 8, 16, 32]
+  - `permutation_invariance_under_parallelism`: Shuffled input × varied workers = same output
+  - `merge_dedupes_identical_ops`: Merge correctly deduplicates identical ops
+  - `empty_execution_produces_empty_result`: Edge case coverage
+  - `single_item_execution`: Edge case coverage
+  - `large_workload_worker_count_invariance`: 100 items × all worker counts
+
+### Architecture - Phase 6A
+
+- **Determinism is a merge decision, not an execution constraint**: Workers execute in arbitrary order; canonical sort at merge enforces determinism
+- **Worker-count invariance proven**: Same `patch_digest`, `state_root`, `commit_hash` regardless of worker count
+- **Conflicts are bugs**: Phase 6A treats merge conflicts as footprint model violations (explode loudly)
+- **No worker ID in output**: `OpOrigin` contains only `(intent_id, rule_id, match_ix, op_ix)` — no thread/worker information
+
+---
+
 ### Added - Phase 5: Read-Only Execution (ADR-0007)
 
 - **`GraphView<'a>`** (`graph_view.rs`): Read-only wrapper for `GraphStore`

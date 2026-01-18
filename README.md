@@ -62,6 +62,7 @@ If you’re building anything that benefits from “Git‑like” properties for
 - `crates/warp-core` — deterministic rewrite engine spike:
   - `Engine::{begin, apply, commit, snapshot}`
   - deterministic scheduler (radix drain ordering + footprint independence checks)
+  - **parallel execution** (`boaw::execute_parallel`) with canonical merge — worker-count invariant
   - snapshot hashing (`state_root`) + commit hashing (`commit_id`)
   - deterministic math + PRNG (`math::{Vec3, Mat4, Quat, Prng}`)
   - WSC (Write-Streaming Columnar) snapshot format (`wsc::*`) for zero-copy mmap access

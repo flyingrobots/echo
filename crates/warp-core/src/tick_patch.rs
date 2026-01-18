@@ -92,7 +92,7 @@ impl Ord for SlotId {
 }
 
 /// A canonical delta operation applied to the graph store.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WarpOp {
     /// Open a descended attachment portal atomically (Stage B1.1).
@@ -165,7 +165,7 @@ pub enum WarpOp {
 }
 
 /// Initialization policy for [`WarpOp::OpenPortal`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PortalInit {
     /// Create a new child instance with only a root node (using `root_record`).

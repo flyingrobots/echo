@@ -52,6 +52,7 @@ pub mod math;
 pub mod wsc;
 
 mod attachment;
+pub mod boaw;
 mod cmd;
 mod constants;
 mod engine_impl;
@@ -84,6 +85,9 @@ pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
+#[cfg(any(test, feature = "delta_validate"))]
+pub use boaw::merge_deltas;
+pub use boaw::{execute_parallel, execute_serial, ExecItem, MergeConflict};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,

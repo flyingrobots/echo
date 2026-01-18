@@ -1,0 +1,11 @@
+{
+  "elog_version": 1,
+  "schema_hash_hex": "0427e9fd236e92dfc8c0765f7bd429fc233bfbfab3cb67c9d03b22a0f31e7f8a",
+  "hash_domain": "DIND_STATE_HASH_V2",
+  "hash_alg": "BLAKE3",
+  "hashes_hex": [
+    "735cc97c3644839430223c0f4df36d4a9fd9f3efb6d7c9558bc96745c1c181b8",
+    "23e38f92f098e7b313af3304f16a0f012029ccd7977e6bc128eac87c5ac70a68",
+    "0f156a2531b7ef5893e298c6068cbd65cbda9b17b8cb41ea47dc72a209c81489"
+  ]
+}

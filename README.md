@@ -5,198 +5,211 @@
   <img alt="ECHO" src="https://github.com/user-attachments/assets/bef3fab9-cfc7-4601-b246-67ef7416ae75" />
 </p>
 
----
+<p align="center">
+  <strong>State is a graph. Time is a hash chain. Determinism isn't optional.</strong>
+</p>
 
-Echo is a **deterministic graph‑rewrite engine + tooling** for building simulations you can replay, verify, and synchronize without guessing.
+<p align="center">
+  <a href="docs/guide/start-here.md">Get Started</a> •
+  <a href="docs/architecture-outline.md">Architecture</a> •
+  <a href="docs/meta/docs-index.md">Docs</a> •
+  <a href="https://github.com/flyingrobots/aion">AIΩN Framework</a>
+</p>
 
-Instead of treating a game/simulation as a pile of mutable objects, Echo treats **state as a typed graph**. Each “tick” proposes a set of rewrites, executes them in a deterministic order, and emits **cryptographic hashes** of the resulting state and provenance so tools/peers can validate and converge.
-
-## Project Status
-
-**Status (2026-01):** Active R&D. The deterministic core (`warp-core`) and session/tooling pipeline are implemented. Higher-level layers (ECS storage, system scheduler, timeline tree) are specced but not yet built. See [`docs/architecture-outline.md`](docs/architecture-outline.md) for per-section implementation status.
-
-[I post weekly updates in Echo's GitHub Discussions](https://github.com/flyingrobots/echo/discussions/255)
-
-## Buckle Up
-
-Start here:
-
-- Start Here: [`docs/guide/start-here.md`](docs/guide/start-here.md)
-- Non-programmer on-ramp: [`docs/guide/eli5.md`](docs/guide/eli5.md)
-- WARP primer: [`docs/guide/warp-primer.md`](docs/guide/warp-primer.md)
-- Docs map: [`docs/meta/docs-index.md`](docs/meta/docs-index.md)
-- AIΩN bridge doc: [`docs/aion-papers-bridge.md`](docs/aion-papers-bridge.md)
-- Architecture outline: [`docs/architecture-outline.md`](docs/architecture-outline.md)
-- Commit hashing spec: [`docs/spec-merkle-commit.md`](docs/spec-merkle-commit.md)
-
-## AIΩN Framework
-
-Echo is part of the **AIΩN Framework**:
-
-- AIΩN repo: <https://github.com/flyingrobots/aion>
-
-Research lineage (AIΩN Foundations series):
-
-- Paper I — *WARP Graphs: A Worldline Algebra for Recursive Provenance* ([doi:10.5281/zenodo.17908005](https://doi.org/10.5281/zenodo.17908005))
-- Paper II — *WARP Graphs: Canonical State Evolution and Deterministic Worldlines* ([doi:10.5281/zenodo.17934512](https://doi.org/10.5281/zenodo.17934512))
-- Paper III — *WARP Graphs: Computational Holography & Provenance Payloads* ([doi:10.5281/zenodo.17963669](https://doi.org/10.5281/zenodo.17963669))
-- Paper IV — *WARP Graphs: Rulial Distance & Observer Geometry* ([doi:10.5281/zenodo.18038297](https://doi.org/10.5281/zenodo.18038297))
-- Paper V — *WARP Graphs: Ethics of Deterministic Replay & Provenance Sovereignty* (not yet published)
-- Paper VI — *The AIΩN Computer: Architecture & Operating System* (not yet published)
+<p align="center">
+    <a href="https://github.com/flyingrobots/echo/actions/workflows/determinism.yml" ><img src="https://github.com/flyingrobots/echo/actions/workflows/determinism.yml/badge.svg" /></a>  
+    <a href="https://github.com/flyingrobots/echo/actions/workflows/ci.yml" ><img src="https://github.com/flyingrobots/echo/actions/workflows/ci.yml/badge.svg" /></a>
+    <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Platforms" />
+</p>
 
 ---
+
+## What is Echo?
+
+Echo is a **deterministic state machine** where every transition is cryptographically verifiable. Run the same inputs on any machine, get the same hashes. Always.
+
+```text
+tick 0 ──hash──► tick 1 ──hash──► tick 2 ──hash──► ...
+         │              │              │
+         ▼              ▼              ▼
+      provable       provable       provable
+```
+
+No floating-point drift. No unordered iteration surprises. No "it works on my machine." Just math you can trust.
+
+**Prove it:**
+
+```text
+$ cargo xtask dind run
+[DIND] Running 50 seeds across 3 platforms...
+[DIND] linux-x64:   7f3a9c...d82e1a ✅
+[DIND] macos-arm64: 7f3a9c...d82e1a ✅
+[DIND] windows-x64: 7f3a9c...d82e1a ✅
+
+Hashes match. Determinism verified.
+```
+
+> **Naming:** Echo is the product. WARP is the underlying graph algebra. The `warp-*` and `echo-*` crates are internal modules—same project, different layers.
 
 ## Why?
 
-- **Determinism first:** same inputs → same ordered rewrites → same hashes.
-- **Provenance you can trust:** snapshots and commits are content‑addressed.
-- **Tooling as a first‑class citizen:** graphs stream over a canonical wire protocol; consumers verify hashes and detect desync early.
+| Problem                                | Echo's Answer                              |
+| -------------------------------------- | ------------------------------------------ |
+| "Replay diverged after 10,000 ticks"   | Deterministic scheduler + fixed-point math |
+| "Which client has the correct state?"  | Compare 32-byte tick hashes                |
+| "We can't reproduce that bug"          | Every tick is content-addressed and replayable |
+| "Syncing state is expensive"           | Stream diffs, verify hashes, done          |
 
-If you’re building anything that benefits from “Git‑like” properties for state (replay, branching, inspection, synchronization), Echo is designed for that.
+If you've ever built a game, simulation, or distributed system and wished state had Git-like properties—branches, merges, provable history—that's what we're building.
 
----
+## Project Status
 
-## What It Does Right Now
+> [!WARNING]
+> **Echo is early. Sharp edges.**
+>
+> - ✅ **Stable:** Core determinism, hashing, replay invariants
+> - ⚠️ **Changing:** Schema/IR, APIs, file formats, viewer protocol
+> - ❌ **Not yet:** Nice UX, polished docs, batteries-included examples
+>
+> If you need a plug-and-play game engine today, this isn't that (yet).
+> If you need deterministic, replayable state transitions you can prove, it is.
 
-### Core engine + math
+See the [architecture outline](docs/architecture-outline.md) for what's implemented vs. planned.
 
-- `crates/warp-core` — deterministic rewrite engine spike:
-  - `Engine::{begin, apply, commit, snapshot}`
-  - deterministic scheduler (radix drain ordering + footprint independence checks)
-  - snapshot hashing (`state_root`) + commit hashing (`commit_id`)
-  - deterministic math + PRNG (`math::{Vec3, Mat4, Quat, Prng}`)
-  - WSC (Write-Streaming Columnar) snapshot format (`wsc::*`) for zero-copy mmap access
-  - materialization bus (`MaterializationBus`) for order-independent channel emissions
-- `crates/warp-geom` — geometry primitives shared by engine/tools.
+### Roadmap
 
-### Session + streaming pipeline
+Echo is a high-performance graph rewriting engine written in Rust, designed to run everywhere. All upcoming milestones target Echo-in-the-browser so people can try it out with minimal friction.
 
-- `crates/echo-graph` — canonical renderable graph (`RenderGraph`) + diff ops (`WarpOp`) + deterministic graph hashing.
-- `crates/echo-session-proto` — deterministic JS‑ABI v1.0 framing + canonical CBOR + wire schema.
-- `crates/echo-session-service` — headless Unix‑socket hub:
-  - handshake + monotonic `ts`
-  - subscriptions per `WarpId`
-  - gapless diff enforcement (snapshot resets; diffs must be consecutive epochs)
-- `crates/echo-session-client` — client helpers + tool port abstraction (`tool::SessionPort`).
-- `crates/echo-session-ws-gateway` — WebSocket ↔ Unix‑socket bridge for browser‑based tools.
+1. **WARPSITE**—a website powered by WARP graph rewriting
+2. **Splash Guy**—a demo game designed to introduce Echo concepts
+3. **Tumble Tower**—a demo game designed to demonstrate Echo's physics determinism
 
-### Tools + adapters
+#### Time Travel Debugger + WARPSITE
 
-- `crates/warp-viewer` — native WGPU viewer:
-  - subscribes to a WARP stream,
-  - applies snapshots/diffs,
-  - verifies `state_hash` per frame (declares desync on mismatch).
-- `crates/echo-app-core` / `crates/echo-config-fs` — “tool hexagon” ports + filesystem config adapter.
-- `crates/warp-ffi` / `crates/warp-wasm` — bindings around `warp-core`.
-- `crates/warp-benches` — Criterion microbenchmarks (scheduler drain, snapshot hash, etc.).
-- `crates/echo-dind-harness` — determinism drill runner (DIND suite; cross‑platform hash verification).
-- `crates/echo-dind-tests` — stable test app used by the DIND harness.
+True, deterministic **Time Travel Debugging** (TTD) is always available by default—not something you have to record or prepare for in advance. Made possible by [WARP graph](https://doi.org/10.5281/zenodo.17908005) [rewriting](https://doi.org/10.5281/zenodo.17963669), each tick's [computational hologram](https://doi.org/10.5281/zenodo.17963669) is captured in an immutable, append-only, tamper-evident ledger. Step backwards to any previous tick, then forward again. Exactly the same every time, bit-for-bit, cryptographically verified. Want to see what *could* have happened? Fork to a different worldline, try something different, then discard it and return to your original timeline.
 
-### Living specs (teaching slice)
+- Time Travel Debugging (TTD) Part 1—Tick Inspector + Rewind/Jump to Previous Tick (In Progress)
+- WARPSITE (In Progress)
+- [Wesley](https://github.com/flyingrobots/wesley)—GraphQL-as-schema → Rust/TypeScript Compiler
+- TTD Part 2—Fork Worldlines
 
-- `specs/spec-000-rewrite` — Leptos + Trunk scaffold for “Spec‑000: Everything is a Rewrite”.
-- `crates/echo-wasm-abi` — WASM‑friendly DTO schema for specs.
-- `crates/echo-wasm-bindings` — demo kernel + rewrite history (teaching slice; not the production engine).
+#### Then: Splash Guy Tutorial Demo
 
-For a deeper tour, see [`docs/meta/docs-index.md`](docs/meta/docs-index.md).
+Navigate a grid-based maze and strategically place timed water balloons to clear obstacles and trap opponents in a chaotic bid to be the last one dry. A simple game demo designed to teach Echo concepts.
 
----
+- Rhai Scripting API
+- Graphics
+- Input
 
-## Quickstart
+#### After: Tumble Tower Demo
 
-### Requirements
+Carefully extract load-bearing blocks from a precarious tower and place them at the summit without triggering a catastrophic collapse. A block-stacking game that demonstrates deterministic physics.
 
-- Rust toolchain pinned by `rust-toolchain.toml` (currently `1.90.0`).
-- Node.js (for docs site). The docs toolchain uses `vitepress@1.6.4`; supported Node versions are pinned via `package.json` (currently `>=18 <25`). For best results, use an LTS (Node 18/20/22).
+- Physics Engine
+- Collision Resolution
 
-### Common commands
-
-Install repo hooks:
+## Quick Tour
 
 ```bash
+# Install hooks (formats code, runs clippy, checks docs)
 make hooks
-```
 
-Run the workspace tests:
-
-```bash
+# Run the test suite
 cargo test --workspace
-```
 
-Run clippy with the repo’s docs gate:
+# Run determinism verification
+cargo xtask dind run
 
-```bash
-cargo clippy --all-targets -- -D warnings -D missing_docs
-```
+# Launch the viewer
+cargo run -p warp-viewer
 
-Run the docs site (VitePress):
-
-```bash
+# Build the docs site
 make docs
 ```
 
-Directly (useful when debugging):
+## The Stack
 
-```bash
-pnpm install
-pnpm docs:dev
+```mermaid
+flowchart TB
+  %% Authoring
+  A["GraphQL Schema<br />(Types + Ops + Docs)"] -->|author + version| B["Wesley<br />(schema compiler)"]
+
+  %% Codegen outputs
+  B --> C["Rust Types + Op IDs<br />(structs/enums, stable IDs)"]
+  B --> D["ABI / Wire Layout<br />(canonical encoding)"]
+  B --> E["Client Stubs<br/>(TS/Rust helpers)"]
+  B --> F["Registry Metadata<br/>(introspection, docs index)"]
+
+  %% App layer
+  C --> G["Game / App Code<br/>(rules + gameplay)"]
+  D --> G
+  F --> G
+
+  %% Runtime
+  G --> H["Echo Core Runtime<br/>(deterministic tick loop)"]
+  H --> I["WARP Graph Engine<br/>(rewrite + commit + hash)"]
+  I --> J["WARP Graph Executable<br/>(content-addressed worldline)"]
+
+  %% Tooling
+  F --> K["Devtools / Viewer<br/>(inspect ops, decode vars)"]
+  I --> K
+  J --> K
 ```
 
-CI-style build (includes link checking):
+**Core** — `crates/warp-core`
 
-```bash
-pnpm docs:build
-```
+- Graph-rewrite engine with transactional commits
+- Deterministic math (fixed-point, PRNG, Vec3/Mat4/Quat)
+- **Materialization bus**—order-independent channel for outputs; emitters don't need to coordinate
+- **WSC** (Write-Streaming Columnar)—zero-copy snapshot format (mmap-friendly) for fast state reload + verification
 
-Run the session hub:
+**Pipeline** — `crates/echo-session-*`
 
-```bash
-cargo run -p echo-session-service
-```
+- Unix socket hub with gapless diff streaming
+- WebSocket gateway for browser tools
+- Canonical CBOR wire format
 
-Run the viewer:
+**Tools** — `crates/warp-viewer`, `crates/echo-dind-*`
 
-```bash
-cargo run -p warp-viewer
-```
+- Native GPU viewer with per-frame hash verification
+- **DIND** (Determinism-in-Determinism)—cross-platform test harness that proves hash convergence
 
-Run Spec‑000 (WASM dev server; requires `trunk` installed):
+## Research Foundation
 
-```bash
-make spec-000-dev
-```
+Echo implements ideas from the **AIΩN Foundations** paper series:
 
-Run DIND (cross-platform determinism verification):
+1. [WARP Graphs: A Worldline Algebra for Recursive Provenance](https://doi.org/10.5281/zenodo.17908005)
+2. [Canonical State Evolution and Deterministic Worldlines](https://doi.org/10.5281/zenodo.17934512)
+3. [Computational Holography & Provenance Payloads](https://doi.org/10.5281/zenodo.17963669)
+4. [Rulial Distance & Observer Geometry](https://doi.org/10.5281/zenodo.18038297)
 
-```bash
-cargo xtask dind run
-```
+Part of the [AIΩN Framework](https://github.com/flyingrobots/aion).
 
----
+## Contributing
 
-## Contributions
+Determinism is sacred. Before you change anything:
 
-- Start with `CONTRIBUTING.md`.
-- Echo is docs-driven: behavior changes should be reflected in specs and ADRs.
-- Determinism is sacred: avoid wall‑clock time, uncontrolled randomness, and unspecified iteration order.
+1. Read [`CONTRIBUTING.md`](CONTRIBUTING.md)
+2. Run `make hooks` to install the guardrails
+3. Write tests. If it's not tested, it's not deterministic.
 
-### Determinism guard scripts
+The codebase enforces:
 
-Echo enforces determinism guardrails via scripts in `scripts/`:
+- No global state (`scripts/ban-globals.sh`)
+- No wall-clock time or uncontrolled randomness (`scripts/ban-nondeterminism.sh`)
+- No unordered iteration (`scripts/ban-unordered-abi.sh`)
 
-- `scripts/ban-globals.sh`
-- `scripts/ban-nondeterminism.sh`
-- `scripts/ban-unordered-abi.sh`
+## Requirements
 
-## Workflows
-
-Echo has a few “official workflows” (policy + blessed scripts/entrypoints), documented here:
-
-- [`docs/workflows.md`](docs/workflows.md) — contributor playbook (PR policy, docs guard, `cargo xtask`, scheduled automations)
-- [`docs/dependency-dags.md`](docs/dependency-dags.md) — issue + milestone dependency DAGs (DOT/SVG) and how to regenerate them
-
----
+- **Rust** — pinned in `rust-toolchain.toml` (currently 1.90.0)
+- **Node.js 18+** — for the docs site (VitePress)
 
 ## License
 
-Echo is dual‑licensed. See `LICENSE`, `LICENSE-APACHE`, `LICENSE-MIND-UCAL`, and `LEGAL.md` for details.
+Dual-licensed under Apache 2.0 and MIND-UCAL 1.0. See [`LEGAL.md`](LEGAL.md) for details.
+
+---
+
+<p align="center">
+  <sub>Built by <a href="https://github.com/flyingrobots">FLYING•ROBOTS</a></sub>
+</p>

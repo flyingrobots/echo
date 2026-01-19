@@ -5,3 +5,6 @@ crates/warp-wasm/src/lib.rs
 # This is intentional - WSC is for native tooling, not WASM determinism
 crates/warp-core/src/wsc/mod.rs
 crates/warp-core/src/wsc/view.rs
+# BOAW exec uses std::env for feature-gated stride fallback (ECHO_PARALLEL_STRIDE)
+# This is a build-time debug toggle, not runtime non-determinism
+crates/warp-core/src/boaw/exec.rs

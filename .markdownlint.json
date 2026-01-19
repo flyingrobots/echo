@@ -1,10 +1,12 @@
 {
   "MD013": false,
   "MD033": {
-    "allowed_elements": ["u8", "br", "p", "img"]
+    "allowed_elements": ["u8", "br", "p", "img", "a", "strong", "sub"]
   },
   "MD041": false,
+  "MD045": false,
   "MD046": {
     "style": "fenced"
-  }
+  },
+  "MD060": false
 }

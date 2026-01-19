@@ -72,11 +72,14 @@ struct Shard {
 
 fn main() {
     let num_shards = num_cpus::get(); // 10
-    let mut shards = Vec::with_capacity(num_shards);
-    
+    // Initialize shards with actual Shard instances (not just capacity)
+    let mut shards: Vec<Shard> = (0..num_shards)
+        .map(|_| Shard { entities: HashMap::new() })
+        .collect();
+
     // Partition Data (Round-Robin)
     for i in 0..1_000_000 {
-        shards[i % num_shards].insert(i, payload.clone());
+        shards[i % num_shards].entities.insert(i as u64, payload.clone());
     }
 
     // Execution: One thread per shard ("Blast Through")
@@ -100,7 +103,10 @@ The experiments conclusively demonstrate that **spatial partitioning (sharding) 
 Migrate `warp-core` from a monolithic `GraphStore` to a **Partitioned Store**:
 
 1. **Shard the Graph:** Replace `BTreeMap<NodeId, Record>` with `Vec<Shard>`.
-2. **Routing:** Map `NodeId` to shards deterministically (e.g., `hash(id) % N`).
+2. **Routing:** Map `NodeId` to shards deterministically using existing BLAKE3-derived bits:
+   `shard = lowbits(NodeId) & (SHARDS - 1)` where `SHARDS` is a power-of-two.
+   This preserves Echo's determinism guarantee (no std::hash, no rehashing).
+   See `crates/warp-core/tests/boaw_footprints.rs` for the working pattern.
 3. **Scheduler:** Dispatch non-conflicting rewrites to per-shard work queues.
 4. **Execution:** Run $N$ executor threads, each processing its shard's queue exclusively and lock-free.
 

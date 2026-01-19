@@ -8,6 +8,7 @@
 //! - Conflicting valid claims produce conflict artifacts
 //! - Commitments are dictionary-safe with pepper
 
+#[allow(unused)]
 mod common;
 
 // =============================================================================

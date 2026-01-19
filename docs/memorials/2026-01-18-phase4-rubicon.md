@@ -15,7 +15,7 @@ There's a moment in every architecture when the old way dies and the new way bre
 
 For Echo, that moment was Phase 4.
 
-Before: GraphStore was truth. Executors mutated it. We diffed afterward to learn what changed.
+Before: GraphStore was truth. Executors mutated it. We computed the diff afterward to learn what changed.
 After: The delta is truth. Ops flow through. State is computed, not mutated.
 
 The accumulator doesn't care how you got here. It only knows: *base + ops = next*.
@@ -46,7 +46,7 @@ The accumulator doesn't care how you got here. It only knows: *base + ops = next
 
 ## The Gotcha
 
-The state_root didn't match. Off by miles—completely different hashes.
+The state_root didn't match. Off by miles—different hashes.
 
 The bug? `hash_attachment_key()` tag values:
 

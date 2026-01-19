@@ -197,15 +197,23 @@ fn t4_1_shard_routing_is_stable_across_machines() {
         },
     ];
 
-    for hash in &test_hashes {
+    // Pre-computed expected shard IDs using the routing rule: hash[0] & (SHARDS - 1)
+    // SHARDS = 256, so mask is 0xFF (all low bits pass through)
+    let expected_shards: [usize; 5] = [
+        0x00, // [0x00; 32] → 0x00 & 0xFF = 0
+        0xFF, // [0xFF; 32] → 0xFF & 0xFF = 255
+        0x42, // [0x42; 32] → 0x42 & 0xFF = 66
+        0xAB, // h[0] = 0xAB → 0xAB & 0xFF = 171
+        0x00, // h[31] = 0xCD, h[0] = 0 → 0x00 & 0xFF = 0
+    ];
+
+    for (i, hash) in test_hashes.iter().enumerate() {
         let node_id = NodeId(*hash);
         // Use low bits of the hash for shard routing (deterministic)
         let shard = (hash[0] as usize) & (SHARDS - 1);
 
-        // Verify same node always routes to same shard
-        let shard2 = (hash[0] as usize) & (SHARDS - 1);
         assert_eq!(
-            shard, shard2,
+            shard, expected_shards[i],
             "Shard routing must be stable for {node_id:?}"
         );
     }

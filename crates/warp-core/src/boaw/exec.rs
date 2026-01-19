@@ -24,7 +24,7 @@ use super::shard::{partition_into_shards, NUM_SHARDS};
 /// - `exec`: plain function pointer (always Sync+Send)
 /// - `scope`: `NodeId` is `[u8; 32]` newtype (Copy, no interior mutability)
 /// - `origin`: `OpOrigin` contains only primitives (u64, u32, u32, u32)
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ExecItem {
     /// The execution function to run.
     pub exec: ExecuteFn,

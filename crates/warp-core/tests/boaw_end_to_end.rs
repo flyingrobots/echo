@@ -16,6 +16,12 @@ use common::{
     WORKER_COUNTS,
 };
 
+/// Tick value used for end-to-end determinism tests.
+const TEST_TICK: u64 = 42;
+
+/// Number of shuffle iterations per seed to verify permutation invariance.
+const SHUFFLE_ITERATIONS: usize = 20;
+
 #[test]
 #[ignore = "BOAW harness not yet wired"]
 fn boaw_end_to_end_is_deterministic_across_permutations_and_workers() {
@@ -25,11 +31,11 @@ fn boaw_end_to_end_is_deterministic_across_permutations_and_workers() {
 
     for &seed in SEEDS {
         let mut rng = XorShift64::new(seed);
-        let tick = 42;
+        let tick = TEST_TICK;
 
         let mut ingress = h.make_ingress(scenario, tick);
         // Permute ingress to prove canonicalization doesn't care about arrival order.
-        for _ in 0..20 {
+        for _ in 0..SHUFFLE_ITERATIONS {
             shuffle(&mut rng, &mut ingress);
 
             // Reference run: serial
@@ -106,28 +112,32 @@ fn boaw_conflicts_scenario_deterministic_across_permutations() {
         let mut rng = XorShift64::new(seed);
         let mut ingress = h.make_ingress(scenario, tick);
 
-        // Baseline
-        let r_base = h.execute_parallel(&base, &ingress, tick, 8);
+        // Baseline with serial (1 worker)
+        let r_base = h.execute_serial(&base, &ingress, tick);
 
         for _ in 0..50 {
             shuffle(&mut rng, &mut ingress);
-            let r = h.execute_parallel(&base, &ingress, tick, 8);
 
-            assert_hash_eq(
-                &r_base.state_root,
-                &r.state_root,
-                &format!("Conflicts scenario: state_root differs (seed={seed:#x})"),
-            );
-            assert_hash_eq(
-                &r_base.patch_digest,
-                &r.patch_digest,
-                &format!("Conflicts scenario: patch_digest differs (seed={seed:#x})"),
-            );
-            assert_hash_eq(
-                &r_base.commit_hash,
-                &r.commit_hash,
-                &format!("Conflicts scenario: commit_hash differs (seed={seed:#x})"),
-            );
+            // Test across multiple worker counts for determinism
+            for &workers in WORKER_COUNTS {
+                let r = h.execute_parallel(&base, &ingress, tick, workers);
+
+                assert_hash_eq(
+                    &r_base.state_root,
+                    &r.state_root,
+                    &format!("Conflicts scenario: state_root differs (seed={seed:#x}, workers={workers})"),
+                );
+                assert_hash_eq(
+                    &r_base.patch_digest,
+                    &r.patch_digest,
+                    &format!("Conflicts scenario: patch_digest differs (seed={seed:#x}, workers={workers})"),
+                );
+                assert_hash_eq(
+                    &r_base.commit_hash,
+                    &r.commit_hash,
+                    &format!("Conflicts scenario: commit_hash differs (seed={seed:#x}, workers={workers})"),
+                );
+            }
         }
     }
 }

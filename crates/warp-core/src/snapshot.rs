@@ -51,6 +51,8 @@ pub struct Snapshot {
     pub root: NodeKey,
     /// Canonical commit hash derived from `state_root` + metadata (see below).
     pub hash: Hash,
+    /// Graph-only state hash (excludes commit metadata).
+    pub state_root: Hash,
     /// Parent snapshot hashes (empty for initial commit, 1 for linear history, 2+ for merges).
     pub parents: Vec<Hash>,
     /// Deterministic digest of the candidate ready set and its canonical ordering.

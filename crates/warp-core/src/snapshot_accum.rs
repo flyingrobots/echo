@@ -251,6 +251,8 @@ impl SnapshotAccumulator {
                     plane: AttachmentPlane::Alpha,
                 };
                 self.node_attachments.remove(&att_key);
+                // Cascade: remove incident edges (GraphStore semantics)
+                self.remove_incident_edges(node);
             }
 
             WarpOp::UpsertEdge { warp_id, record } => {
@@ -302,6 +304,32 @@ impl SnapshotAccumulator {
             None => {
                 map.remove(&key);
             }
+        }
+    }
+
+    /// Remove all edges incident to a node and their attachments.
+    ///
+    /// This implements cascade delete semantics matching `GraphStore`.
+    fn remove_incident_edges(&mut self, node: NodeKey) {
+        let edges_to_remove: Vec<_> = self
+            .edges
+            .iter()
+            .filter(|((w, _), e)| {
+                *w == node.warp_id && (e.from == node.local_id || e.to == node.local_id)
+            })
+            .map(|((w, eid), _)| (*w, *eid))
+            .collect();
+
+        for (warp_id, edge_id) in edges_to_remove {
+            self.edges.remove(&(warp_id, edge_id));
+            let edge_att_key = AttachmentKey {
+                owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
+                    warp_id,
+                    local_id: edge_id,
+                }),
+                plane: AttachmentPlane::Beta,
+            };
+            self.edge_attachments.remove(&edge_att_key);
         }
     }
 

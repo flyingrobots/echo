@@ -177,8 +177,13 @@ pub enum PortalInit {
     RequireExisting,
 }
 
+/// Canonical ordering key for [`WarpOp`] used by patch construction and merge sorting.
+///
+/// This is a compact, byte-stable representation of an op’s ordering identity:
+/// - `kind` defines the global phase ordering across op variants
+/// - `warp`, `a`, and `b` encode the op’s target within that phase
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct WarpOpKey {
+pub struct WarpOpKey {
     kind: u8,
     warp: ContentHash,
     a: ContentHash,

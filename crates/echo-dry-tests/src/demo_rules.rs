@@ -225,15 +225,20 @@ fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
         pos[0] += 1.0;
         let new_bytes = encode_motion_payload(pos, vel);
 
-        // Phase 5 BOAW: only emit delta ops, no direct mutation
-        let new_value = Some(AttachmentValue::Atom(AtomPayload {
-            type_id: motion_payload_type_id(),
-            bytes: new_bytes,
-        }));
-        delta.push(WarpOp::SetAttachment {
-            key,
-            value: new_value,
-        });
+        // Phase 5 BOAW: only emit delta ops, no direct mutation.
+        //
+        // Guard emission by byte equality so no-op rewrites don't bloat the delta
+        // stream (e.g. f32 increments that quantize to the same Q32.32 value).
+        if payload.bytes != new_bytes {
+            let new_value = Some(AttachmentValue::Atom(AtomPayload {
+                type_id: motion_payload_type_id(),
+                bytes: new_bytes,
+            }));
+            delta.push(WarpOp::SetAttachment {
+                key,
+                value: new_value,
+            });
+        }
     }
 }
 
@@ -295,4 +300,36 @@ pub fn build_port_demo_engine() -> Engine {
         .register_rule(port_rule())
         .expect("port rule should register successfully in fresh engine");
     engine
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_executor_skips_emitting_when_quantized_bytes_do_not_change() {
+        // Choose a value where `pos[0] += 1.0` is a no-op in f32 (ulp >= 2),
+        // so the canonical Q32.32 encoding remains unchanged.
+        let pos = [16_777_216.0, 0.0, 0.0];
+        let vel = [0.0, 0.0, 0.0];
+
+        let mut store = GraphStore::default();
+        let node_id = make_node_id("port/noop");
+        store.insert_node(
+            node_id,
+            NodeRecord {
+                ty: make_type_id("test"),
+            },
+        );
+        store.set_node_attachment(
+            node_id,
+            Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
+        );
+
+        let view = GraphView::new(&store);
+        let mut delta = TickDelta::new();
+        port_executor(view, &node_id, &mut delta);
+
+        assert!(delta.is_empty(), "no-op update should not emit a delta op");
+    }
 }

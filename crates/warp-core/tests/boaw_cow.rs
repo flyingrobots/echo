@@ -60,12 +60,14 @@ fn t2_3_structural_sharing_reuses_unchanged_segments() {
 }
 
 // =============================================================================
-// Reachable-only semantics (§4.1)
+// Reachable-only semantics (§5.4 - COW view)
+// NOTE: This test uses COW naming (t2_4) to stay with COW tests.
+// If boaw_snapshot.rs is added later, consider moving this test there as t1_3.
 // =============================================================================
 
 #[test]
 #[ignore = "BOAW reachability not yet wired to harness"]
-fn t1_3_reachable_only_semantics() {
+fn t2_4_reachable_only_semantics() {
     // Given: unreachable node/edge exists in object store but not reachable from root
     // Expect: snapshot excludes it; state_root unchanged if only unreachable changes
     //

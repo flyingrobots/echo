@@ -2,7 +2,7 @@
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # Changelog
 
-## [Unreleased] - 2026-01-18
+## Unreleased
 
 ### Added - Phase 6B: Virtual Shards (ADR-0007)
 
@@ -35,6 +35,12 @@
 - **NUM_SHARDS = 256**: Protocol constant, cannot change without version bump
 - **Merge is unchanged**: Canonical merge by `(WarpOpKey, OpOrigin)` still enforces determinism
 - **Engine integration deferred**: Sharded execution primitives are ready; wiring into `engine_impl.rs` is a separate task
+
+### Fixed - Phase 6B
+
+- Benchmarks: removed unseeded randomness from `scheduler_adversarial` by generating inputs via deterministic `warp_core::math::Prng` (no `rand::thread_rng()`).
+- `demo_rules::port_executor` now skips emitting `SetAttachment` when the canonical motion payload bytes do not change after update.
+- Docs: fixed `spec-warp-core.md` Stage B1 executor example to match the Phase 5 BOAW `ExecuteFn` signature and `TickDelta::push` API.
 
 ---
 
@@ -111,7 +117,7 @@
 - Added validation under `delta_validate` feature: asserts accumulator's `state_root` matches legacy computation
 - `TickDelta::finalize()` uses `sort_by_key` for cleaner sorting
 
-### Fixed
+### Fixed - Phase 4
 
 - `assert_delta_matches_diff()` / `validate_delta_matches_diff()` now compare full `WarpOp` values (payload included), not just `sort_key()`, so executor-emitted ops that target the same key but carry the wrong data are caught under `delta_validate`.
 
@@ -121,7 +127,7 @@
 - `SnapshotAccumulator` validates that `base + ops → state_root` matches legacy path
 - Paves the way for Phase 5: read-only execution with accumulator as primary output
 
-## Unreleased
+### Added - Pre-Phase 4 Foundations
 
 - Added real `EngineHarness` implementation for BOAW compliance tests (ADR-0007)
 - Added `BoawSnapshot` struct and `boaw/touch` test rule

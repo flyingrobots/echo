@@ -17,10 +17,14 @@ GROUPS = [
 INPUTS = [10, 100, 1000, 3000, 10000, 30000]
 
 def fmt_ns(ns):
-    if ns < 1000: return f"{ns:.2f} ns"
-    if ns < 1e6: return f"{ns/1000:.2f} µs"
-    if ns < 1e9: return f"{ns/1e6:.2f} ms"
-    return f"{ns/1e9:.2f} s"
+    if ns < 1000:
+        return f"{ns:.2f} ns"
+    elif ns < 1e6:
+        return f"{ns/1000:.2f} µs"
+    elif ns < 1e9:
+        return f"{ns/1e6:.2f} ms"
+    else:
+        return f"{ns/1e9:.2f} s"
 
 def main():
     print("### Benchmark Results (Median from latest run)\n")
@@ -43,20 +47,31 @@ def main():
                 content = json.loads(path.read_text())
                 iters = content["iters"]
                 times = content["times"]
-                
+
+                # Validate lengths match before zipping
+                if len(times) != len(iters):
+                    print(f"# Warning: {path}: times/iters length mismatch", file=sys.stderr)
+                    continue
+
                 # Calculate time per iteration (ns)
-                samples_ns = [t / i for t, i in zip(times, iters)]
-                
+                samples_ns = [t / i for t, i in zip(times, iters, strict=True)]
+
                 if not samples_ns:
                     continue
 
                 med_ns = statistics.median(samples_ns)
                 count = len(samples_ns)
                 val_str = fmt_ns(med_ns)
-                
+
                 print(f"| {group} | {n} | {val_str} | {count} |")
-            except Exception as e:
-                pass
+            except json.JSONDecodeError as e:
+                print(f"# Failed to parse {path}: {e}", file=sys.stderr)
+            except KeyError as e:
+                print(f"# Missing key in {path}: {e}", file=sys.stderr)
+            except ValueError as e:
+                print(f"# Value error in {path}: {e}", file=sys.stderr)
+            except OSError as e:
+                print(f"# IO error reading {path}: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

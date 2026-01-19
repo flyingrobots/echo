@@ -936,6 +936,7 @@ impl Engine {
         let snapshot = Snapshot {
             root: self.current_root,
             hash,
+            state_root,
             parents,
             plan_digest,
             decision_digest,
@@ -1086,10 +1087,8 @@ impl Engine {
             Vec::new(), // out_slots
             ops.clone(),
         );
-        patch.apply_to_state(&mut self.state).map_err(|e| {
-            EngineError::InternalCorruption(Box::leak(
-                format!("apply_reserved_rewrites: failed to apply ops: {e:?}").into_boxed_str(),
-            ))
+        patch.apply_to_state(&mut self.state).map_err(|_| {
+            EngineError::InternalCorruption("apply_reserved_rewrites: failed to apply ops")
         })?;
 
         #[cfg(any(test, feature = "delta_validate"))]
@@ -1136,6 +1135,7 @@ impl Engine {
         Snapshot {
             root: self.current_root,
             hash,
+            state_root,
             parents,
             plan_digest: empty_digest,
             decision_digest: decision_empty,

@@ -64,6 +64,13 @@ pub const SEEDS: &[u64] = &[
 /// Worker counts to prove "doesn't depend on num_cpus".
 pub const WORKER_COUNTS: &[usize] = &[1, 2, 4, 8, 16, 32];
 
+/// Converts a 32-byte hash (`Hash32`) to its lowercase hexadecimal string representation.
+///
+/// # Arguments
+/// * `h` - A reference to a 32-byte hash array
+///
+/// # Returns
+/// A 64-character lowercase hexadecimal string
 pub fn hex32(h: &Hash32) -> String {
     h.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -517,8 +524,7 @@ impl BoawTestHarness for EngineHarness {
 
         BoawExecResult {
             commit_hash: snapshot.hash,
-            // TODO: expose proper state_root later; for now use snapshot.hash
-            state_root: snapshot.hash,
+            state_root: snapshot.state_root,
             patch_digest: snapshot.patch_digest,
             // Phase 2: WSC bytes
             wsc_bytes: None,
@@ -538,8 +544,8 @@ impl BoawTestHarness for EngineHarness {
     }
 
     fn wsc_roundtrip_state_root(&self, _wsc: &[u8]) -> Hash32 {
-        // TODO: Phase 2 - implement WSC roundtrip verification
-        [0u8; 32]
+        // Panic until SnapshotBuilder is wired - tests should fail visibly
+        todo!("WSC roundtrip verification not yet implemented: SnapshotBuilder not wired")
     }
 }
 

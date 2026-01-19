@@ -77,7 +77,7 @@ fn t1_2_zero_copy_read_roundtrip_is_exact() {
             "T1.2: WSC roundtrip state_root mismatch",
         );
     } else {
-        // WSC bytes not yet produced - test will be meaningful once SnapshotBuilder lands
+        panic!("T1.2: WSC bytes not produced - SnapshotBuilder not wired");
     }
 }
 
@@ -160,6 +160,11 @@ fn t5_2_permutation_invariance_under_parallelism() {
 fn t4_2_admission_does_not_depend_on_num_cpus() {
     // Given: same ingress set; run scheduler with worker counts {1,2,8,32}
     // Expect: same admitted set, same patch_digest, same state_root
+    //
+    // NOTE: We use state_root and patch_digest equality as a proxy for admission
+    // invariance because BoawExecResult does not currently expose the admitted set.
+    // Once admitted_items is added to ExecuteResult, update this test to directly
+    // compare r_baseline.admitted vs r.admitted.
     let h = boaw_harness();
     let scenario = BoawScenario::ManyConflicts;
     let base = h.build_base_snapshot(scenario);

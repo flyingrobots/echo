@@ -123,11 +123,13 @@ pub fn toast_rule() -> RewriteRule {
             if let Some(args) =
                 decode_op_args::<ops::toast::Args>(s, scope, ops::toast::decode_vars)
             {
+                let op_ix = delta.len(); // Deterministic per-op sequence
                 emit_view_op_delta(
                     s.warp_id(),
                     delta,
                     TYPEID_VIEW_OP_SHOWTOAST,
                     args.message.as_bytes(),
+                    op_ix,
                 );
             }
         },
@@ -515,7 +517,16 @@ fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
 }
 
 /// Emit ops for a view operation.
-fn emit_view_op_delta(warp_id: WarpId, delta: &mut TickDelta, type_id: TypeId, payload: &[u8]) {
+///
+/// The `op_ix` parameter provides a deterministic per-op sequence to avoid ID collisions.
+/// Callers should pass `delta.len()` to get a unique index for each op in the tick.
+fn emit_view_op_delta(
+    warp_id: WarpId,
+    delta: &mut TickDelta,
+    type_id: TypeId,
+    payload: &[u8],
+    op_ix: usize,
+) {
     let view_id = make_node_id("sim/view");
     delta.push(WarpOp::UpsertNode {
         node: NodeKey {
@@ -526,10 +537,8 @@ fn emit_view_op_delta(warp_id: WarpId, delta: &mut TickDelta, type_id: TypeId, p
             ty: make_type_id("sim/view"),
         },
     });
-    // Note: sequence tracking is simplified here since we can't read the view's attachment
-    // in a pure delta-emit context. The full implementation would need to track sequence
-    // in a different way for Phase 5 BOAW.
-    let seq = 0u64;
+    // Use op_ix from caller (typically delta.len() before this call) for unique sequencing
+    let seq = op_ix as u64;
     let op_id = make_node_id(&format!("sim/view/op:{:016}", seq));
     delta.push(WarpOp::UpsertNode {
         node: NodeKey {

@@ -59,15 +59,8 @@ If you’re building anything that benefits from “Git‑like” properties for
 
 ### Core engine + math
 
-- `crates/warp-core` — deterministic rewrite engine spike:
-  - `Engine::{begin, apply, commit, snapshot}`
-  - deterministic scheduler (radix drain ordering + footprint independence checks)
-  - **parallel execution** (`boaw::execute_parallel_sharded`) with virtual shard partitioning + canonical merge — worker-count invariant
-  - snapshot hashing (`state_root`) + commit hashing (`commit_id`)
-  - deterministic math + PRNG (`math::{Vec3, Mat4, Quat, Prng}`)
-  - WSC (Write-Streaming Columnar) snapshot format (`wsc::*`) for zero-copy mmap access
-  - materialization bus (`MaterializationBus`) for order-independent channel emissions
-- `crates/warp-geom` — geometry primitives shared by engine/tools.
+- `crates/warp-core` — deterministic rewrite engine: canonical scheduling, parallel execution with deterministic results independent of CPU count, snapshot and commit hashing. See [`docs/architecture-outline.md`](docs/architecture-outline.md) for detailed API documentation.
+- `crates/warp-geom` — geometry primitives (currently isolated).
 
 ### Session + streaming pipeline
 

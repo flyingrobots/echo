@@ -22,8 +22,8 @@ INPUTS = [10, 100, 1000, 3000, 10000, 30000]
 def run_bench():
     # Run cargo bench with reduced time (1s) to make 10 runs feasible
     cmd = ["cargo", "bench", "-p", "warp-benches", "--", "--measurement-time", "1"]
-    # Stream output to console so user sees progress
-    subprocess.run(cmd, check=True)
+    # Stream output to console so user sees progress; capture stderr for error reporting
+    subprocess.run(cmd, check=True, capture_output=False)
 
 def extract_samples(run_idx):
     data = []
@@ -39,18 +39,27 @@ def extract_samples(run_idx):
                 content = json.loads(path.read_text())
                 iters = content["iters"]
                 times = content["times"]
-                
+
+                # Validate lengths match before zipping
+                if len(times) != len(iters):
+                    print(f"Warning: {path}: times/iters length mismatch ({len(times)} vs {len(iters)})", file=sys.stderr)
+                    continue
+
                 # Calculate time per iteration (ns)
-                samples_ns = [t / i for t, i in zip(times, iters)]
-                
+                samples_ns = [t / i for t, i in zip(times, iters, strict=True)]
+
                 data.append({
                     "group": group,
                     "n": n,
                     "run": run_idx,
                     "samples_ns": samples_ns
                 })
-            except Exception as e:
-                print(f"Error reading {path}: {e}", file=sys.stderr)
+            except json.JSONDecodeError as e:
+                print(f"Error parsing JSON {path}: {e}", file=sys.stderr)
+            except KeyError as e:
+                print(f"Missing key in {path}: {e}", file=sys.stderr)
+            except ValueError as e:
+                print(f"Value error reading {path}: {e}", file=sys.stderr)
     return data
 
 def fmt_ns(ns):
@@ -74,7 +83,11 @@ def main():
             accumulated.extend(run_data)
             print(" Done.")
         except subprocess.CalledProcessError as e:
-            print(f"\nBenchmark failed: {e.stderr.decode()}")
+            stderr_msg = getattr(e, 'stderr', None)
+            if stderr_msg:
+                print(f"\nBenchmark failed: {stderr_msg.decode() if isinstance(stderr_msg, bytes) else stderr_msg}")
+            else:
+                print(f"\nBenchmark failed: {e}")
             sys.exit(1)
         
     # Save raw accumulated

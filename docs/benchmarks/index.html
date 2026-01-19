@@ -70,8 +70,8 @@
     </header>
     <main class="row panel">
       <div class="chart-controls">
-        <button class="toggle-btn active" id="btn-budget">Budget View</button>
-        <button class="toggle-btn" id="btn-complexity">Complexity View</button>
+        <button class="toggle-btn active" id="btn-budget" aria-pressed="true">Budget View</button>
+        <button class="toggle-btn" id="btn-complexity" aria-pressed="false">Complexity View</button>
         <span class="legend" id="legend"></span>
       </div>
       <div id="chart"></div>
@@ -161,7 +161,7 @@
 
         const schedulerMs = scheduler1k.mean / 1e6;
         const schedulerPct = ((scheduler1k.mean / FRAME_BUDGET_NS) * 100).toFixed(1);
-        const schedulerCI = `${fmtMs(scheduler1k.lb)} – ${fmtMs(scheduler1k.ub)}`;
+        const schedulerCI = `${fmtMs(scheduler1k.lb ?? scheduler1k.mean)} – ${fmtMs(scheduler1k.ub ?? scheduler1k.mean)}`;
 
         let html = `<strong>At n=1000:</strong> Scheduler total is <strong>${fmtMs(scheduler1k.mean)}</strong> `;
         html += `(95% CI: ${schedulerCI}), ~<strong>${schedulerPct}%</strong> of a 60 FPS frame budget.`;
@@ -205,6 +205,8 @@
         currentView = view;
         document.getElementById('btn-budget').classList.toggle('active', view === 'budget');
         document.getElementById('btn-complexity').classList.toggle('active', view === 'complexity');
+        document.getElementById('btn-budget').setAttribute('aria-pressed', view === 'budget' ? 'true' : 'false');
+        document.getElementById('btn-complexity').setAttribute('aria-pressed', view === 'complexity' ? 'true' : 'false');
         render(cachedData, cachedMissing);
       }
 

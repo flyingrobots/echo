@@ -4,6 +4,40 @@
 
 ## [Unreleased] - 2026-01-18
 
+### Added - Phase 6B: Virtual Shards (ADR-0007)
+
+- **`boaw/shard.rs`**: Virtual shard partitioning for cache locality
+  - `NUM_SHARDS = 256`: Protocol constant, frozen once shipped
+  - `shard_of(scope: &NodeId) -> usize`: Byte-stable routing via `LE_u64(node_id.as_bytes()[0..8]) & 0xFF`
+  - `partition_into_shards(items) -> Vec<VirtualShard>`: Distributes ExecItems by scope locality
+  - 5 hardcoded test vectors to prevent routing regression
+
+- **`execute_parallel_sharded()`** (`boaw/exec.rs`): Shard-based parallel execution
+  - Workers claim shards via `AtomicUsize` (lockless work-stealing)
+  - Items in same shard processed together for cache locality
+  - Worker count capped at `min(workers, NUM_SHARDS)` to prevent over-threading
+
+- **Stride fallback** (`boaw/exec.rs`): Feature-gated Phase 6A fallback
+  - Requires `parallel-stride-fallback` feature + `ECHO_PARALLEL_STRIDE=1` env var
+  - Prints loud ASCII warning banner when activated
+  - Kept for A/B benchmarking; delete after one release
+
+- **5 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
+  - `sharded_equals_stride`: Key correctness proof for 6A → 6B transition
+  - `sharded_equals_stride_permuted`: Permutation invariance with sharded execution
+  - `worker_count_capped_at_num_shards`: Verifies cap at 256 workers
+  - `sharded_distribution_is_deterministic`: Shard routing stability
+  - `default_parallel_uses_sharded`: Default path verification
+
+### Architecture - Phase 6B
+
+- **Shard routing is frozen**: `LE_u64(node_id.as_bytes()[0..8]) & (NUM_SHARDS - 1)` — documented in ADR-0007 § 7.1
+- **NUM_SHARDS = 256**: Protocol constant, cannot change without version bump
+- **Merge is unchanged**: Canonical merge by `(WarpOpKey, OpOrigin)` still enforces determinism
+- **Engine integration deferred**: Sharded execution primitives are ready; wiring into `engine_impl.rs` is a separate task
+
+---
+
 ### Added - Phase 6A: Parallel Execution "FREE MONEY" (ADR-0007)
 
 - **`boaw` module** (`boaw/mod.rs`, `boaw/exec.rs`, `boaw/merge.rs`): Parallel execution with canonical merge
@@ -76,6 +110,10 @@
 - `apply_reserved_rewrites()` now returns `Vec<WarpOp>` (the finalized delta ops)
 - Added validation under `delta_validate` feature: asserts accumulator's `state_root` matches legacy computation
 - `TickDelta::finalize()` uses `sort_by_key` for cleaner sorting
+
+### Fixed
+
+- `assert_delta_matches_diff()` / `validate_delta_matches_diff()` now compare full `WarpOp` values (payload included), not just `sort_key()`, so executor-emitted ops that target the same key but carry the wrong data are caught under `delta_validate`.
 
 ### Architecture - Phase 4
 

@@ -1,0 +1,7 @@
+flowchart TD
+    A[apply called] --> B{Matcher returns true?}
+    B -->|No| C[Return NoMatch]
+    B -->|Yes| D[Compute Footprint]
+    D --> E[Create PendingRewrite]
+    E --> F[Enqueue to Scheduler]
+    F --> G[Return Matched]

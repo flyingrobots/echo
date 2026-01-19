@@ -1,0 +1,126 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Hash Computation}
+\label{chap:tour-hashing}
+
+\begin{bigpicture}
+Hashes are the fingerprints of determinism. Three hashes define a commit: the \texttt{state\_root} (what the graph looks like), the \texttt{patch\_digest} (what operations produced it), and the \texttt{commit\_hash} (the unique identity of this point in history).
+
+If any of these differ between runs, determinism is broken.
+\end{bigpicture}
+
+\section{State Root}
+
+\textbf{Entry Point:} \texttt{compute\_state\_root()} \\
+\textbf{File:} \texttt{crates/warp-core/src/hashing.rs:45-89}
+
+\begin{verbatim}
+compute_state_root(graph: &GraphStore) → Hash32
+|
++-- let mut hasher = Blake3::new()
+|
++-- // Hash nodes in canonical order
+|   FOR (id, record) IN graph.nodes.iter() (sorted by id):
+|       hasher.update(id.as_bytes())
+|       hasher.update(&record.type_id.to_le_bytes())
+|
++-- // Hash edges in canonical order
+|   FOR (id, edge) IN graph.edges.iter() (sorted by id):
+|       hasher.update(id.as_bytes())
+|       hasher.update(edge.from.as_bytes())
+|       hasher.update(edge.to.as_bytes())
+|
++-- // Hash attachments in canonical order
+|   FOR ((node, key), value) IN graph.attachments.iter():
+|       hasher.update(node.as_bytes())
+|       hasher.update(key.as_bytes())
+|       hasher.update(&value.len().to_le_bytes())
+|       hasher.update(value)
+|
++-- hasher.finalize() → [u8; 32]
+\end{verbatim}
+
+\begin{commentary}
+Why BLAKE3? It's fast (parallel by design), cryptographically secure, and has a simple API. The 32-byte output is enough for collision resistance while being compact.
+
+Why sort everything? The graph's internal storage might use hash maps, which have non-deterministic iteration order. Sorting by ID ensures the same graph always produces the same hash, regardless of insertion order.
+
+Why include lengths? Without length prefixes, \texttt{value = "ab"} followed by \texttt{next = "cd"} hashes the same as \texttt{value = "abcd"}. Length prefixes prevent this ambiguity.
+\end{commentary}
+
+\section{Commit Hash v2}
+
+\textbf{Entry Point:} \texttt{compute\_commit\_hash\_v2()} \\
+\textbf{File:} \texttt{crates/warp-core/src/hashing.rs:120-156}
+
+\begin{lstlisting}[language=Rust]
+pub fn compute_commit_hash_v2(
+    parents: &[Hash32],
+    state_root: &Hash32,
+    patch_digest: &Hash32,
+    schema_hash: &Hash32,
+    tick: u64,
+    policy_hash: &Hash32,
+) -> Hash32 {
+    let mut hasher = Blake3::new();
+    hasher.update(b"echo-commit-v2");  // Domain separator
+
+    // Parents (sorted for determinism)
+    let mut sorted_parents = parents.to_vec();
+    sorted_parents.sort();
+    hasher.update(&(sorted_parents.len() as u64).to_le_bytes());
+    for p in &sorted_parents {
+        hasher.update(p);
+    }
+
+    hasher.update(state_root);
+    hasher.update(patch_digest);
+    hasher.update(schema_hash);
+    hasher.update(&tick.to_le_bytes());
+    hasher.update(policy_hash);
+
+    hasher.finalize().into()
+}
+\end{lstlisting}
+
+\begin{watchout}
+The domain separator \texttt{b"echo-commit-v2"} is crucial. Without it, a commit hash could collide with a state root or patch digest that happens to have the same bytes. Domain separation is a cryptographic best practice.
+
+The \texttt{v2} suffix leaves room for future commit hash formats while maintaining backward compatibility.
+\end{watchout}
+
+\section{Patch Digest}
+
+\textbf{Entry Point:} \texttt{compute\_patch\_digest()} \\
+\textbf{File:} \texttt{crates/warp-core/src/hashing.rs:95-115}
+
+\begin{verbatim}
+compute_patch_digest(delta: &TickDelta) → Hash32
+|
++-- let mut hasher = Blake3::new()
++-- hasher.update(b"echo-patch-v1")
+|
++-- FOR (op, origin) IN delta.ops.iter().zip(&delta.origins):
+    |
+    +-- hasher.update(&op.discriminant().to_le_bytes())
+    |   The operation type (create/delete/set/etc.)
+    |
+    +-- op.hash_payload(&mut hasher)
+    |   Operation-specific data
+    |
+    +-- hasher.update(&origin.to_bytes())
+        Who produced this op
+|
+hasher.finalize()
+\end{verbatim}
+
+\begin{commentary}
+The patch digest captures \emph{how} we got to the state, not just the final state. Two different sequences of operations might produce the same \texttt{state\_root}, but they'll have different \texttt{patch\_digest}s.
+
+This matters for auditing and replay: you can verify not just the result, but the exact sequence of operations that produced it.
+\end{commentary}
+
+\begin{protip}
+When debugging determinism failures, compare patch digests first. If they differ but state roots match, you have operations happening in different orders. If state roots differ, the operations themselves are producing different effects.
+\end{protip}

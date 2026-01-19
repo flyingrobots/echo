@@ -1,0 +1,760 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+]{book}
+\usepackage[letterpaper, margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\newenvironment{Shaded}{}{}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\BuiltInTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{#1}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{#1}}
+\newcommand{\ImportTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{\textbf{#1}}}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{#1}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\usepackage{longtable,booktabs,array}
+\newcounter{none} % for unnumbered tables
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\author{}
+\date{}
+
+\begin{document}
+\frontmatter
+
+\mainmatter
+\chapter{Echo Visual Atlas}\label{echo-visual-atlas}
+
+\begin{quote}
+Standalone diagrams for understanding Echo's architecture. These
+diagrams complement the main guide ``What Makes Echo Tick?''
+\end{quote}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{1. The Complete Tick
+Pipeline}\label{the-complete-tick-pipeline}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart TB}
+\NormalTok{    subgraph PHASE1["Phase 1: BEGIN"]}
+\NormalTok{        B1[engine.begin]}
+\NormalTok{        B2[Increment tx\_counter]}
+\NormalTok{        B3[Add to live\_txs]}
+\NormalTok{        B4[Return TxId]}
+\NormalTok{        B1 {-}{-}\textgreater{} B2 {-}{-}\textgreater{} B3 {-}{-}\textgreater{} B4}
+\NormalTok{    end}
+
+\NormalTok{    subgraph PHASE2["Phase 2: APPLY (0..N times)"]}
+\NormalTok{        A1[engine.apply]}
+\NormalTok{        A2\{Matcher?\}}
+\NormalTok{        A3[Compute Footprint]}
+\NormalTok{        A4[Create PendingRewrite]}
+\NormalTok{        A5[Enqueue to Scheduler]}
+\NormalTok{        A6[NoMatch]}
+\NormalTok{        A1 {-}{-}\textgreater{} A2}
+\NormalTok{        A2 {-}{-}\textgreater{}|true| A3 {-}{-}\textgreater{} A4 {-}{-}\textgreater{} A5}
+\NormalTok{        A2 {-}{-}\textgreater{}|false| A6}
+\NormalTok{    end}
+
+\NormalTok{    subgraph PHASE3["Phase 3: COMMIT"]}
+\NormalTok{        subgraph DRAIN["3a. Drain"]}
+\NormalTok{            D1[Radix sort pending]}
+\NormalTok{            D2[Canonical order]}
+\NormalTok{        end}
+\NormalTok{        subgraph RESERVE["3b. Reserve"]}
+\NormalTok{            R1[For each rewrite]}
+\NormalTok{            R2\{Footprint conflict?\}}
+\NormalTok{            R3[Accept]}
+\NormalTok{            R4[Reject + witness]}
+\NormalTok{            R1 {-}{-}\textgreater{} R2}
+\NormalTok{            R2 {-}{-}\textgreater{}|no| R3}
+\NormalTok{            R2 {-}{-}\textgreater{}|yes| R4}
+\NormalTok{        end}
+\NormalTok{        subgraph EXECUTE["3c. Execute"]}
+\NormalTok{            E1[For each accepted]}
+\NormalTok{            E2[Call executor]}
+\NormalTok{            E3[Emit to TickDelta]}
+\NormalTok{            E1 {-}{-}\textgreater{} E2 {-}{-}\textgreater{} E3}
+\NormalTok{        end}
+\NormalTok{        subgraph MERGE["3d. Merge"]}
+\NormalTok{            M1[Collect all deltas]}
+\NormalTok{            M2[Sort by key+origin]}
+\NormalTok{            M3[Dedupe/detect conflicts]}
+\NormalTok{            M1 {-}{-}\textgreater{} M2 {-}{-}\textgreater{} M3}
+\NormalTok{        end}
+\NormalTok{        subgraph FINALIZE["3e. Finalize"]}
+\NormalTok{            F1[Apply ops to state]}
+\NormalTok{            F2[Update indexes]}
+\NormalTok{            F1 {-}{-}\textgreater{} F2}
+\NormalTok{        end}
+\NormalTok{        DRAIN {-}{-}\textgreater{} RESERVE {-}{-}\textgreater{} EXECUTE {-}{-}\textgreater{} MERGE {-}{-}\textgreater{} FINALIZE}
+\NormalTok{    end}
+
+\NormalTok{    subgraph PHASE4["Phase 4: HASH"]}
+\NormalTok{        H1[BFS reachable nodes]}
+\NormalTok{        H2[Canonical encode]}
+\NormalTok{        H3[BLAKE3 state\_root]}
+\NormalTok{        H4[BLAKE3 patch\_digest]}
+\NormalTok{        H5[Compute commit\_hash]}
+\NormalTok{        H1 {-}{-}\textgreater{} H2 {-}{-}\textgreater{} H3 {-}{-}\textgreater{} H4 {-}{-}\textgreater{} H5}
+\NormalTok{    end}
+
+\NormalTok{    subgraph PHASE5["Phase 5: RECORD"]}
+\NormalTok{        REC1[Append Snapshot]}
+\NormalTok{        REC2[Append Receipt]}
+\NormalTok{        REC3[Append Patch]}
+\NormalTok{        REC1 {-}{-}\textgreater{} REC2 {-}{-}\textgreater{} REC3}
+\NormalTok{    end}
+
+\NormalTok{    PHASE1 {-}{-}\textgreater{} PHASE2 {-}{-}\textgreater{} PHASE3 {-}{-}\textgreater{} PHASE4 {-}{-}\textgreater{} PHASE5}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{2. BOAW Parallel Execution
+Model}\label{boaw-parallel-execution-model}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart LR}
+\NormalTok{    subgraph INPUT["Input"]}
+\NormalTok{        I[ExecItems\textless{}br/\textgreater{}n items]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph PARTITION["Partition Phase"]}
+\NormalTok{        P[partition\_into\_shards]}
+\NormalTok{        S0[Shard 0]}
+\NormalTok{        S1[Shard 1]}
+\NormalTok{        S2[...]}
+\NormalTok{        S255[Shard 255]}
+\NormalTok{        P {-}{-}\textgreater{} S0}
+\NormalTok{        P {-}{-}\textgreater{} S1}
+\NormalTok{        P {-}{-}\textgreater{} S2}
+\NormalTok{        P {-}{-}\textgreater{} S255}
+\NormalTok{    end}
+
+\NormalTok{    subgraph EXECUTE["Execute Phase (Parallel)"]}
+\NormalTok{        W0[Worker 0\textless{}br/\textgreater{}TickDelta]}
+\NormalTok{        W1[Worker 1\textless{}br/\textgreater{}TickDelta]}
+\NormalTok{        W2[Worker 2\textless{}br/\textgreater{}TickDelta]}
+\NormalTok{        WN[Worker N\textless{}br/\textgreater{}TickDelta]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph STEAL["Work Stealing"]}
+\NormalTok{        AC[AtomicUsize\textless{}br/\textgreater{}next\_shard]}
+\NormalTok{        AC {-}.{-}\textgreater{}|fetch\_add| W0}
+\NormalTok{        AC {-}.{-}\textgreater{}|fetch\_add| W1}
+\NormalTok{        AC {-}.{-}\textgreater{}|fetch\_add| W2}
+\NormalTok{        AC {-}.{-}\textgreater{}|fetch\_add| WN}
+\NormalTok{    end}
+
+\NormalTok{    subgraph MERGE["Merge Phase"]}
+\NormalTok{        MG[merge\_deltas]}
+\NormalTok{        SORT[Sort by key+origin]}
+\NormalTok{        DEDUP[Dedupe identical]}
+\NormalTok{        MG {-}{-}\textgreater{} SORT {-}{-}\textgreater{} DEDUP}
+\NormalTok{    end}
+
+\NormalTok{    subgraph OUTPUT["Output"]}
+\NormalTok{        O[Canonical Ops\textless{}br/\textgreater{}deterministic]}
+\NormalTok{    end}
+
+\NormalTok{    I {-}{-}\textgreater{} P}
+\NormalTok{    S0 {-}{-}\textgreater{} W0}
+\NormalTok{    S1 {-}{-}\textgreater{} W1}
+\NormalTok{    S2 {-}{-}\textgreater{} W2}
+\NormalTok{    S255 {-}{-}\textgreater{} WN}
+\NormalTok{    W0 {-}{-}\textgreater{} MG}
+\NormalTok{    W1 {-}{-}\textgreater{} MG}
+\NormalTok{    W2 {-}{-}\textgreater{} MG}
+\NormalTok{    WN {-}{-}\textgreater{} MG}
+\NormalTok{    DEDUP {-}{-}\textgreater{} O}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{3. Virtual Shard Routing}\label{virtual-shard-routing}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart TD}
+\NormalTok{    subgraph NODEID["NodeId (32 bytes)"]}
+\NormalTok{        B0["byte 0"]}
+\NormalTok{        B1["byte 1"]}
+\NormalTok{        B2["byte 2"]}
+\NormalTok{        B3["byte 3"]}
+\NormalTok{        B4["byte 4"]}
+\NormalTok{        B5["byte 5"]}
+\NormalTok{        B6["byte 6"]}
+\NormalTok{        B7["byte 7"]}
+\NormalTok{        REST["bytes 8{-}31\textless{}br/\textgreater{}(ignored)"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph EXTRACT["Extract First 8 Bytes"]}
+\NormalTok{        LE["u64::from\_le\_bytes\textless{}br/\textgreater{}[b0,b1,b2,b3,b4,b5,b6,b7]"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph MASK["Apply Shard Mask"]}
+\NormalTok{        AND["val \& 0xFF\textless{}br/\textgreater{}(NUM\_SHARDS {-} 1)"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph RESULT["Shard ID"]}
+\NormalTok{        SID["0..255"]}
+\NormalTok{    end}
+
+\NormalTok{    B0 {-}{-}\textgreater{} LE}
+\NormalTok{    B1 {-}{-}\textgreater{} LE}
+\NormalTok{    B2 {-}{-}\textgreater{} LE}
+\NormalTok{    B3 {-}{-}\textgreater{} LE}
+\NormalTok{    B4 {-}{-}\textgreater{} LE}
+\NormalTok{    B5 {-}{-}\textgreater{} LE}
+\NormalTok{    B6 {-}{-}\textgreater{} LE}
+\NormalTok{    B7 {-}{-}\textgreater{} LE}
+\NormalTok{    LE {-}{-}\textgreater{} AND {-}{-}\textgreater{} SID}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{Test Vectors (Frozen
+Protocol)}\label{test-vectors-frozen-protocol}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Input (first 8 bytes) & LE u64 & Shard \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{0xDEADBEEFCAFEBABE} & \texttt{0xBEBAFECAEFBEADDE} & 190
+(0xBE) \\
+\texttt{0x0000000000000000} & \texttt{0x0000000000000000} & 0 \\
+\texttt{0x2A00000000000000} & \texttt{0x000000000000002A} & 42 \\
+\texttt{0xFFFFFFFFFFFFFFFF} & \texttt{0xFFFFFFFFFFFFFFFF} & 255 \\
+\end{longtable}
+}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{4. Two-Plane WARP
+Architecture}\label{two-plane-warp-architecture}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{graph TB}
+\NormalTok{    subgraph SKELETON["Skeleton Plane (Structure)"]}
+\NormalTok{        direction TB}
+\NormalTok{        N1["Node A\textless{}br/\textgreater{}id: 0x1234"]}
+\NormalTok{        N2["Node B\textless{}br/\textgreater{}id: 0x5678"]}
+\NormalTok{        N3["Node C\textless{}br/\textgreater{}id: 0x9ABC"]}
+
+\NormalTok{        N1 {-}{-}\textgreater{}|"edge:link\textless{}br/\textgreater{}id: 0xE001"| N2}
+\NormalTok{        N1 {-}{-}\textgreater{}|"edge:child\textless{}br/\textgreater{}id: 0xE002"| N3}
+\NormalTok{        N2 {-}{-}\textgreater{}|"edge:ref\textless{}br/\textgreater{}id: 0xE003"| N3}
+\NormalTok{    end}
+
+\NormalTok{    subgraph ALPHA["Attachment Plane (α)"]}
+\NormalTok{        direction TB}
+\NormalTok{        A1["N1.α[\textquotesingle{}title\textquotesingle{}]\textless{}br/\textgreater{}Atom\{string, \textquotesingle{}Home\textquotesingle{}\}"]}
+\NormalTok{        A2["N2.α[\textquotesingle{}url\textquotesingle{}]\textless{}br/\textgreater{}Atom\{string, \textquotesingle{}/page/b\textquotesingle{}\}"]}
+\NormalTok{        A3["N3.α[\textquotesingle{}body\textquotesingle{}]\textless{}br/\textgreater{}Atom\{html, \textquotesingle{}\&lt;p\&gt;...\&lt;/p\&gt;\textquotesingle{}\}"]}
+\NormalTok{        A4["N3.α[\textquotesingle{}portal\textquotesingle{}]\textless{}br/\textgreater{}Descend(\textquotesingle{}child{-}instance\textquotesingle{})"]}
+\NormalTok{    end}
+
+\NormalTok{    N1 {-}.{-} A1}
+\NormalTok{    N2 {-}.{-} A2}
+\NormalTok{    N3 {-}.{-} A3}
+\NormalTok{    N3 {-}.{-} A4}
+
+\NormalTok{    subgraph DESCENDED["Descended Instance"]}
+\NormalTok{        direction TB}
+\NormalTok{        C1["Child Root\textless{}br/\textgreater{}id: 0xCCC1"]}
+\NormalTok{        C2["Child Node\textless{}br/\textgreater{}id: 0xCCC2"]}
+\NormalTok{        C1 {-}{-}\textgreater{} C2}
+\NormalTok{    end}
+
+\NormalTok{    A4 {-}.{-}\textgreater{}|"Descend pointer"| C1}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{5. GraphView Contract
+Enforcement}\label{graphview-contract-enforcement}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart TD}
+\NormalTok{    subgraph EXECUTOR["Executor Function"]}
+\NormalTok{        EX["fn executor(view: GraphView, scope: \&NodeId, delta: \&mut TickDelta)"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph READ["Read Path (GraphView)"]}
+\NormalTok{        R1["view.node(id)"]}
+\NormalTok{        R2["view.edges\_from(id)"]}
+\NormalTok{        R3["view.attachment(id, key)"]}
+\NormalTok{        R4["view.has\_edge(id)"]}
+
+\NormalTok{        R1 {-}{-}\textgreater{} GS}
+\NormalTok{        R2 {-}{-}\textgreater{} GS}
+\NormalTok{        R3 {-}{-}\textgreater{} GS}
+\NormalTok{        R4 {-}{-}\textgreater{} GS}
+\NormalTok{    end}
+
+\NormalTok{    subgraph GS["GraphStore (Immutable)"]}
+\NormalTok{        NODES["nodes: BTreeMap"]}
+\NormalTok{        EDGES["edges\_from: BTreeMap"]}
+\NormalTok{        ATTACH["attachments: BTreeMap"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph WRITE["Write Path (TickDelta)"]}
+\NormalTok{        W1["delta.emit(UpsertNode)"]}
+\NormalTok{        W2["delta.emit(UpsertEdge)"]}
+\NormalTok{        W3["delta.emit(SetAttachment)"]}
+\NormalTok{        W4["delta.emit(DeleteNode)"]}
+
+\NormalTok{        W1 {-}{-}\textgreater{} OPS}
+\NormalTok{        W2 {-}{-}\textgreater{} OPS}
+\NormalTok{        W3 {-}{-}\textgreater{} OPS}
+\NormalTok{        W4 {-}{-}\textgreater{} OPS}
+\NormalTok{    end}
+
+\NormalTok{    subgraph OPS["Accumulated Ops"]}
+\NormalTok{        OPLIST["Vec\&lt;(WarpOp, OpOrigin)\&gt;"]}
+\NormalTok{    end}
+
+\NormalTok{    EX {-}{-}\textgreater{} READ}
+\NormalTok{    EX {-}{-}\textgreater{} WRITE}
+
+\NormalTok{    style GS fill:\#e8f5e9}
+\NormalTok{    style OPS fill:\#fff3e0}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{6. State Root Hash
+Computation}\label{state-root-hash-computation}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart TD}
+\NormalTok{    subgraph BFS["1. Deterministic BFS"]}
+\NormalTok{        START["Start at root"]}
+\NormalTok{        VISIT["Visit reachable nodes"]}
+\NormalTok{        DESCEND["Follow Descend() attachments"]}
+\NormalTok{        COLLECT["Collect reachable set"]}
+\NormalTok{        START {-}{-}\textgreater{} VISIT {-}{-}\textgreater{} DESCEND {-}{-}\textgreater{} COLLECT}
+\NormalTok{    end}
+
+\NormalTok{    subgraph ENCODE["2. Canonical Encoding"]}
+\NormalTok{        subgraph INSTANCE["Per Instance (BTreeMap order)"]}
+\NormalTok{            IH["warp\_id header"]}
+\NormalTok{            subgraph NODE["Per Node (ascending NodeId)"]}
+\NormalTok{                NH["node\_id[32]"]}
+\NormalTok{                NT["node\_type[32]"]}
+\NormalTok{                subgraph EDGE["Per Edge (ascending EdgeId)"]}
+\NormalTok{                    EH["edge\_id[32]"]}
+\NormalTok{                    ET["edge\_type[32]"]}
+\NormalTok{                    ED["to\_node[32]"]}
+\NormalTok{                end}
+\NormalTok{                subgraph ATTACH["Per Attachment"]}
+\NormalTok{                    AK["key\_len[8] + key"]}
+\NormalTok{                    AT["type\_id[32]"]}
+\NormalTok{                    AV["value\_len[8] + value"]}
+\NormalTok{                end}
+\NormalTok{            end}
+\NormalTok{        end}
+\NormalTok{    end}
+
+\NormalTok{    subgraph HASH["3. BLAKE3 Digest"]}
+\NormalTok{        STREAM["Byte stream"]}
+\NormalTok{        DIGEST["state\_root[32]"]}
+\NormalTok{        STREAM {-}{-}\textgreater{} DIGEST}
+\NormalTok{    end}
+
+\NormalTok{    BFS {-}{-}\textgreater{} ENCODE {-}{-}\textgreater{} HASH}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{7. Commit Hash v2 Structure}\label{commit-hash-v2-structure}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart LR}
+\NormalTok{    subgraph INPUTS["Commit Hash Inputs"]}
+\NormalTok{        V["version[4]\textless{}br/\textgreater{}protocol tag"]}
+\NormalTok{        P["parents[]\textless{}br/\textgreater{}parent hashes"]}
+\NormalTok{        SR["state\_root[32]\textless{}br/\textgreater{}graph hash"]}
+\NormalTok{        PD["patch\_digest[32]\textless{}br/\textgreater{}ops hash"]}
+\NormalTok{        PI["policy\_id[4]\textless{}br/\textgreater{}aion policy"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph CONCAT["Concatenation"]}
+\NormalTok{        BYTES["version || parents || state\_root || patch\_digest || policy\_id"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph OUTPUT["Output"]}
+\NormalTok{        CH["commit\_hash[32]\textless{}br/\textgreater{}BLAKE3"]}
+\NormalTok{    end}
+
+\NormalTok{    V {-}{-}\textgreater{} BYTES}
+\NormalTok{    P {-}{-}\textgreater{} BYTES}
+\NormalTok{    SR {-}{-}\textgreater{} BYTES}
+\NormalTok{    PD {-}{-}\textgreater{} BYTES}
+\NormalTok{    PI {-}{-}\textgreater{} BYTES}
+\NormalTok{    BYTES {-}{-}\textgreater{} CH}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{8. WSC Snapshot Format}\label{wsc-snapshot-format}
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        WSC SNAPSHOT FILE                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ HEADER (fixed size)                                                 │ │
+│  │ ┌──────────┬──────────┬──────────┬──────────┬──────────┐          │ │
+│  │ │  magic   │ version  │ node_cnt │ edge_cnt │ offsets  │          │ │
+│  │ │  8 bytes │ 8 bytes  │ 8 bytes  │ 8 bytes  │ 8×N bytes│          │ │
+│  │ └──────────┴──────────┴──────────┴──────────┴──────────┘          │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ NODES TABLE (sorted by NodeId, 8-byte aligned)                      │ │
+│  │ ┌─────────────────┬─────────────────┬─────────────────┐            │ │
+│  │ │    NodeRow      │    NodeRow      │    NodeRow      │  ...       │ │
+│  │ │    64 bytes     │    64 bytes     │    64 bytes     │            │ │
+│  │ │ [id:32][type:32]│ [id:32][type:32]│ [id:32][type:32]│            │ │
+│  │ └─────────────────┴─────────────────┴─────────────────┘            │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ EDGES TABLE (sorted by EdgeId, 8-byte aligned)                      │ │
+│  │ ┌─────────────────────────┬─────────────────────────┐              │ │
+│  │ │       EdgeRow           │       EdgeRow           │  ...         │ │
+│  │ │       128 bytes         │       128 bytes         │              │ │
+│  │ │[id:32][from:32][to:32]  │[id:32][from:32][to:32]  │              │ │
+│  │ │[type:32]                │[type:32]                │              │ │
+│  │ └─────────────────────────┴─────────────────────────┘              │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ OUT_INDEX (per-node ranges into out_edges)                          │ │
+│  │ ┌──────────────┬──────────────┬──────────────┐                     │ │
+│  │ │    Range     │    Range     │    Range     │  ...                │ │
+│  │ │   16 bytes   │   16 bytes   │   16 bytes   │                     │ │
+│  │ │[start:8][len:8]│[start:8][len:8]│[start:8][len:8]│                │ │
+│  │ └──────────────┴──────────────┴──────────────┘                     │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ ATTACHMENT INDEX (per-slot ranges)                                  │ │
+│  │ Similar structure to OUT_INDEX                                      │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ BLOB ARENA (variable-length payloads)                               │ │
+│  │ ┌─────────────────────────────────────────────────────────────┐    │ │
+│  │ │ [payload bytes...] [payload bytes...] [payload bytes...] ...│    │ │
+│  │ └─────────────────────────────────────────────────────────────┘    │ │
+│  │ Referenced by (offset: u64, length: u64) tuples                     │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{9. Footprint Independence
+Check}\label{footprint-independence-check}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart TD}
+\NormalTok{    subgraph REWRITE1["Rewrite A"]}
+\NormalTok{        R1\_READ["reads: \{N1, N2\}"]}
+\NormalTok{        R1\_WRITE["writes: \{N3\}"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph REWRITE2["Rewrite B"]}
+\NormalTok{        R2\_READ["reads: \{N4, N5\}"]}
+\NormalTok{        R2\_WRITE["writes: \{N6\}"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph REWRITE3["Rewrite C"]}
+\NormalTok{        R3\_READ["reads: \{N1, N3\}"]}
+\NormalTok{        R3\_WRITE["writes: \{N7\}"]}
+\NormalTok{    end}
+
+\NormalTok{    subgraph CHECK["Independence Check"]}
+\NormalTok{        C1\{\{"A ∩ B"\}\}}
+\NormalTok{        C2\{\{"A ∩ C"\}\}}
+\NormalTok{        C3\{\{"B ∩ C"\}\}}
+\NormalTok{    end}
+
+\NormalTok{    subgraph RESULT["Results"]}
+\NormalTok{        OK1["A || B: OK\textless{}br/\textgreater{}(no overlap)"]}
+\NormalTok{        CONFLICT["A || C: CONFLICT\textless{}br/\textgreater{}(A.write ∩ C.read = \{N3\})"]}
+\NormalTok{        OK2["B || C: OK\textless{}br/\textgreater{}(no overlap)"]}
+\NormalTok{    end}
+
+\NormalTok{    R1\_WRITE {-}{-}\textgreater{} C1}
+\NormalTok{    R2\_WRITE {-}{-}\textgreater{} C1}
+\NormalTok{    R1\_WRITE {-}{-}\textgreater{} C2}
+\NormalTok{    R3\_READ {-}{-}\textgreater{} C2}
+\NormalTok{    R2\_WRITE {-}{-}\textgreater{} C3}
+\NormalTok{    R3\_WRITE {-}{-}\textgreater{} C3}
+
+\NormalTok{    C1 {-}{-}\textgreater{} OK1}
+\NormalTok{    C2 {-}{-}\textgreater{} CONFLICT}
+\NormalTok{    C3 {-}{-}\textgreater{} OK2}
+
+\NormalTok{    style CONFLICT fill:\#ffcdd2}
+\NormalTok{    style OK1 fill:\#c8e6c9}
+\NormalTok{    style OK2 fill:\#c8e6c9}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{10. Complete Data Flow: Intent to
+Render}\label{complete-data-flow-intent-to-render}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{sequenceDiagram}
+\NormalTok{    autonumber}
+\NormalTok{    participant U as User}
+\NormalTok{    participant V as Viewer}
+\NormalTok{    participant H as Session Hub}
+\NormalTok{    participant E as Engine}
+\NormalTok{    participant S as Scheduler}
+\NormalTok{    participant B as BOAW}
+\NormalTok{    participant G as GraphStore}
+\NormalTok{    participant W as WSC}
+
+\NormalTok{    U{-}\textgreater{}\textgreater{}V: Click action}
+\NormalTok{    V{-}\textgreater{}\textgreater{}V: Encode intent bytes}
+\NormalTok{    V{-}\textgreater{}\textgreater{}H: ingest\_intent(bytes)}
+\NormalTok{    H{-}\textgreater{}\textgreater{}E: forward intent}
+
+\NormalTok{    Note over E: Phase 1: BEGIN}
+\NormalTok{    E{-}\textgreater{}\textgreater{}E: begin() → TxId}
+
+\NormalTok{    Note over E: Intent Processing}
+\NormalTok{    E{-}\textgreater{}\textgreater{}E: dispatch\_next\_intent(tx)}
+\NormalTok{    E{-}\textgreater{}\textgreater{}G: GraphView lookup}
+\NormalTok{    G{-}{-}\textgreater{}\textgreater{}E: intent data}
+
+\NormalTok{    Note over E: Phase 2: APPLY}
+\NormalTok{    E{-}\textgreater{}\textgreater{}S: apply(tx, rule, scope)}
+\NormalTok{    S{-}\textgreater{}\textgreater{}G: matcher(view, scope)}
+\NormalTok{    G{-}{-}\textgreater{}\textgreater{}S: match result}
+\NormalTok{    S{-}\textgreater{}\textgreater{}S: compute footprint}
+\NormalTok{    S{-}\textgreater{}\textgreater{}S: enqueue PendingRewrite}
+
+\NormalTok{    Note over E: Phase 3: COMMIT}
+\NormalTok{    E{-}\textgreater{}\textgreater{}S: commit(tx)}
+\NormalTok{    S{-}\textgreater{}\textgreater{}S: radix sort (drain)}
+\NormalTok{    S{-}\textgreater{}\textgreater{}S: independence check (reserve)}
+
+\NormalTok{    Note over B: Parallel Execution}
+\NormalTok{    S{-}\textgreater{}\textgreater{}B: execute\_parallel(items)}
+\NormalTok{    B{-}\textgreater{}\textgreater{}B: partition into shards}
+\NormalTok{    par Worker 0}
+\NormalTok{        B{-}\textgreater{}\textgreater{}G: read via GraphView}
+\NormalTok{        G{-}{-}\textgreater{}\textgreater{}B: data}
+\NormalTok{        B{-}\textgreater{}\textgreater{}B: emit to TickDelta}
+\NormalTok{    and Worker 1}
+\NormalTok{        B{-}\textgreater{}\textgreater{}G: read via GraphView}
+\NormalTok{        G{-}{-}\textgreater{}\textgreater{}B: data}
+\NormalTok{        B{-}\textgreater{}\textgreater{}B: emit to TickDelta}
+\NormalTok{    and Worker N}
+\NormalTok{        B{-}\textgreater{}\textgreater{}G: read via GraphView}
+\NormalTok{        G{-}{-}\textgreater{}\textgreater{}B: data}
+\NormalTok{        B{-}\textgreater{}\textgreater{}B: emit to TickDelta}
+\NormalTok{    end}
+\NormalTok{    B{-}\textgreater{}\textgreater{}B: merge\_deltas (canonical)}
+\NormalTok{    B{-}{-}\textgreater{}\textgreater{}S: merged ops}
+
+\NormalTok{    S{-}\textgreater{}\textgreater{}G: apply ops}
+
+\NormalTok{    Note over E: Phase 4: HASH}
+\NormalTok{    E{-}\textgreater{}\textgreater{}G: compute state\_root}
+\NormalTok{    G{-}{-}\textgreater{}\textgreater{}E: hash}
+\NormalTok{    E{-}\textgreater{}\textgreater{}E: compute commit\_hash}
+
+\NormalTok{    Note over E: Phase 5: RECORD}
+\NormalTok{    E{-}\textgreater{}\textgreater{}W: store snapshot}
+\NormalTok{    E{-}\textgreater{}\textgreater{}E: append to history}
+
+\NormalTok{    Note over H: Emit to Tools}
+\NormalTok{    E{-}\textgreater{}\textgreater{}H: WarpDiff}
+\NormalTok{    H{-}\textgreater{}\textgreater{}V: WarpFrame}
+
+\NormalTok{    Note over V: Apply \& Render}
+\NormalTok{    V{-}\textgreater{}\textgreater{}V: apply\_op (each op)}
+\NormalTok{    V{-}\textgreater{}\textgreater{}V: verify state\_hash}
+\NormalTok{    V{-}\textgreater{}\textgreater{}V: render frame}
+\NormalTok{    V{-}\textgreater{}\textgreater{}U: Display result}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{11. Viewer Event Loop}\label{viewer-event-loop}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{flowchart TD}
+\NormalTok{    subgraph FRAME["Frame Loop"]}
+\NormalTok{        START[frame start]}
+
+\NormalTok{        subgraph DRAIN["1. Drain Session"]}
+\NormalTok{            DN[drain\_notifications]}
+\NormalTok{            DF[drain\_frames]}
+\NormalTok{        end}
+
+\NormalTok{        subgraph PROCESS["2. Process Frames"]}
+\NormalTok{            PF[process\_frames]}
+\NormalTok{            SNAP\{Snapshot?\}}
+\NormalTok{            DIFF\{Diff?\}}
+\NormalTok{            APPLY[apply\_op each]}
+\NormalTok{            VERIFY[verify hash]}
+\NormalTok{        end}
+
+\NormalTok{        subgraph EVENTS["3. Handle Events"]}
+\NormalTok{            UE[apply\_ui\_event]}
+\NormalTok{            REDUCE[reduce pure]}
+\NormalTok{            EFFECTS[run effects]}
+\NormalTok{        end}
+
+\NormalTok{        subgraph RENDER["4. Render"]}
+\NormalTok{            MATCH\{screen?\}}
+\NormalTok{            TITLE[draw\_title]}
+\NormalTok{            VIEW[draw\_view]}
+\NormalTok{            HUD[draw\_hud]}
+\NormalTok{        end}
+
+\NormalTok{        END[frame end]}
+
+\NormalTok{        START {-}{-}\textgreater{} DRAIN}
+\NormalTok{        DN {-}{-}\textgreater{} DF}
+\NormalTok{        DF {-}{-}\textgreater{} PROCESS}
+\NormalTok{        PF {-}{-}\textgreater{} SNAP}
+\NormalTok{        SNAP {-}{-}\textgreater{}|yes| APPLY}
+\NormalTok{        PF {-}{-}\textgreater{} DIFF}
+\NormalTok{        DIFF {-}{-}\textgreater{}|yes| APPLY}
+\NormalTok{        APPLY {-}{-}\textgreater{} VERIFY}
+\NormalTok{        VERIFY {-}{-}\textgreater{} EVENTS}
+\NormalTok{        UE {-}{-}\textgreater{} REDUCE}
+\NormalTok{        REDUCE {-}{-}\textgreater{} EFFECTS}
+\NormalTok{        EFFECTS {-}{-}\textgreater{} RENDER}
+\NormalTok{        MATCH {-}{-}\textgreater{}|Title| TITLE}
+\NormalTok{        MATCH {-}{-}\textgreater{}|View| VIEW}
+\NormalTok{        VIEW {-}{-}\textgreater{} HUD}
+\NormalTok{        TITLE {-}{-}\textgreater{} END}
+\NormalTok{        HUD {-}{-}\textgreater{} END}
+\NormalTok{    end}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\emph{Visual Atlas generated 2026-01-18. Use alongside ``What Makes Echo
+Tick?'' for complete understanding.}
+
+\backmatter
+\end{document}

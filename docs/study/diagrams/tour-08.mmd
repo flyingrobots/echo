@@ -1,0 +1,9 @@
+flowchart TD
+    A[For each rewrite] --> B{Footprint conflicts with active frontier?}
+    B -->|No conflict| C[Accept: add to active frontier]
+    B -->|Conflict| D[Reject: record blocking witness]
+    C --> E[Continue to next]
+    D --> E
+    E --> F{More rewrites?}
+    F -->|Yes| A
+    F -->|No| G[Done: have accepted/rejected sets]

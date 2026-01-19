@@ -1,0 +1,17 @@
+flowchart LR
+    subgraph "Before Tick"
+        S1[Snapshot N<br/>immutable]
+    end
+
+    subgraph "During Tick"
+        GV[GraphView<br/>reads from S1]
+        TD[TickDelta<br/>accumulates ops]
+        GV -->|reads| S1
+    end
+
+    subgraph "After Commit"
+        S2[Snapshot N+1<br/>new immutable]
+        S1 -.->|structural sharing| S2
+    end
+
+    TD -->|apply ops| S2

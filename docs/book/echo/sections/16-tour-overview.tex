@@ -1,0 +1,70 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Tour de Code: Overview}
+\label{chap:tour-overview}
+
+\begin{quote}
+\textbf{The complete function-by-function trace of Echo's execution pipeline.}
+
+This tour traces every function call involved in processing a user action through the Echo engine. File paths and line numbers are accurate as of 2026-01-18.
+\end{quote}
+
+\begin{commentary}
+Welcome to the Tour de Code. I'm going to walk you through this codebase like we're pair programming. When I see something clever, I'll tell you why it's clever. When there's a non-obvious design decision, I'll explain the trade-offs.
+
+The goal: by the end of this tour, you'll understand not just \emph{what} the code does, but \emph{why} it's structured the way it is.
+\end{commentary}
+
+\section{The Pipeline at a Glance}
+
+A user action flows through Echo in eight stages:
+
+\begin{enumerate}
+    \item \textbf{Intent Ingestion} --- User action becomes an \texttt{Intent}
+    \item \textbf{Transaction Lifecycle} --- Intents are batched into transactions
+    \item \textbf{Rule Matching} --- Rules produce \texttt{PendingRewrite}s
+    \item \textbf{Scheduler: Drain \& Reserve} --- Radix sort + independence check
+    \item \textbf{BOAW Parallel Execution} --- Workers execute in parallel
+    \item \textbf{Delta Merge} --- Thread-local deltas merge canonically
+    \item \textbf{Hash Computation} --- State root, patch digest, commit hash
+    \item \textbf{Commit Orchestration} --- Final state materialization
+\end{enumerate}
+
+\begin{bigpicture}
+Every stage is designed around one principle: \textbf{determinism}. Given the same inputs, the engine must produce identical outputs regardless of thread scheduling, CPU count, or platform.
+
+This isn't just about correctness---it enables replay, forking, and distributed consensus.
+\end{bigpicture}
+
+\section{Key Files}
+
+\begin{tabular}{ll}
+\toprule
+\textbf{Component} & \textbf{Primary File} \\
+\midrule
+Engine core & \texttt{crates/echo-core/src/engine.rs} \\
+Transaction handling & \texttt{crates/echo-core/src/transaction.rs} \\
+Rule matching & \texttt{crates/warp-core/src/rule\_matching.rs} \\
+Scheduler (Radix) & \texttt{crates/warp-core/src/radix\_scheduler.rs} \\
+BOAW execution & \texttt{crates/warp-core/src/boaw/exec.rs} \\
+Shard routing & \texttt{crates/warp-core/src/boaw/shard.rs} \\
+Delta/merge & \texttt{crates/warp-core/src/tick\_delta.rs} \\
+Hashing & \texttt{crates/warp-core/src/hashing.rs} \\
+\bottomrule
+\end{tabular}
+
+\section{Reading This Tour}
+
+Each section follows a consistent format:
+
+\begin{itemize}
+    \item \textbf{Entry Point} --- The function that kicks off this stage
+    \item \textbf{Call Trace} --- Indented tree showing the execution flow
+    \item \textbf{Data Structures} --- Key types involved
+    \item \textbf{Commentary} --- Why it works this way
+\end{itemize}
+
+\begin{protip}
+Keep a terminal open with the codebase. When you see a file reference like \texttt{src/boaw/exec.rs:61-83}, jump to that location and read the actual code alongside this tour.
+\end{protip}

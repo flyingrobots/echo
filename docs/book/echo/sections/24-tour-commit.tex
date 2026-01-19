@@ -1,0 +1,124 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Commit Orchestration}
+\label{chap:tour-commit}
+
+\textbf{Entry Point:} \texttt{Engine::commit()} \\
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:785-892}
+
+\begin{bigpicture}
+Commit is the grand finale of each tick. All the pieces come together: scheduled rewrites execute in parallel, deltas merge canonically, hashes are computed, and the worldline advances. This is where determinism is proven or broken.
+\end{bigpicture}
+
+\section{Complete Call Trace}
+
+\begin{verbatim}
+Engine::commit(tx: TxId) → Result<CommitResult, EngineError>
+|
++-- // Phase 1: Drain and Schedule
+|   let drained = self.scheduler.drain()
+|   let admitted = self.scheduler.reserve(drained)
+|
++-- // Phase 2: BOAW Parallel Execution
+|   let view = self.graph.view()
+|   let deltas = execute_parallel(view, &admitted, self.workers)
+|
++-- // Phase 3: Merge Deltas
+|   let merged = merge_deltas(deltas)
+|
++-- // Phase 4: Apply to State
+|   self.graph.apply_delta(&merged)
+|
++-- // Phase 5: Compute Hashes
+|   let state_root = compute_state_root(&self.graph)
+|   let patch_digest = compute_patch_digest(&merged)
+|   let commit_hash = compute_commit_hash_v2(
+|       &self.parents,
+|       &state_root,
+|       &patch_digest,
+|       &self.schema_hash,
+|       self.tick,
+|       &self.policy_hash,
+|   )
+|
++-- // Phase 6: Finalize
+|   self.tick += 1
+|   self.parents = vec![commit_hash]
+|   self.live_txs.remove(&tx.value())
+|
++-- RETURN CommitResult {
+       commit_hash,
+       state_root,
+       patch_digest,
+       ops_applied: merged.ops.len(),
+   }
+\end{verbatim}
+
+\begin{commentary}
+Notice how the commit is structured as a pipeline. Each phase has a clear input and output:
+
+\begin{enumerate}
+    \item Drain/Schedule: \texttt{PendingRewrite} $\rightarrow$ \texttt{ExecItem}
+    \item Execute: \texttt{ExecItem} $\rightarrow$ \texttt{Vec<TickDelta>}
+    \item Merge: \texttt{Vec<TickDelta>} $\rightarrow$ \texttt{TickDelta}
+    \item Apply: \texttt{TickDelta} $\rightarrow$ mutated graph
+    \item Hash: graph $\rightarrow$ \texttt{Hash32}s
+\end{enumerate}
+
+This clean separation makes the code testable. You can unit test each phase independently.
+\end{commentary}
+
+\section{Commit Hash Inputs}
+
+The commit hash is a function of:
+
+\begin{tabular}{ll}
+\toprule
+\textbf{Input} & \textbf{Source} \\
+\midrule
+\texttt{parents} & Previous commit(s)---usually one, multiple for merges \\
+\texttt{state\_root} & Hash of the entire graph state \\
+\texttt{patch\_digest} & Hash of the operations applied \\
+\texttt{schema\_hash} & Hash of the type/rule schema \\
+\texttt{tick} & Monotonic tick counter \\
+\texttt{policy\_hash} & Hash of active policies \\
+\bottomrule
+\end{tabular}
+
+\begin{watchout}
+If you change the schema (add a rule, modify a type), the \texttt{schema\_hash} changes, which changes all subsequent commit hashes. This is intentional---it prevents replaying a commit against an incompatible schema.
+
+When evolving your schema, consider migration strategies. Breaking changes should bump the schema version.
+\end{watchout}
+
+\section{Error Handling}
+
+\begin{lstlisting}[language=Rust]
+pub enum CommitError {
+    NoActiveTransaction,
+    SchedulerEmpty,       // Nothing to commit
+    ExecutionFailed(String),
+    HashMismatch {        // Determinism violation!
+        expected: Hash32,
+        actual: Hash32,
+    },
+}
+\end{lstlisting}
+
+\begin{watchout}
+\texttt{HashMismatch} is the ``determinism alarm.'' If you ever see this error, something is seriously wrong---the same operations produced different results. Common causes:
+
+\begin{itemize}
+    \item Floating-point operations in rules (use \texttt{F32Scalar})
+    \item HashMap iteration in footprint computation
+    \item Time/random dependencies in rule logic
+    \item Thread-local state leaking into rules
+\end{itemize}
+
+Echo includes a determinism fuzzer (\texttt{run\_pair\_determinism}) that runs commits twice with different schedulers and compares hashes.
+\end{watchout}
+
+\begin{protip}
+Enable the \texttt{delta\_validate} feature during development. It records \texttt{OpOrigin} for every operation, making it easy to trace which rule produced unexpected state changes.
+\end{protip}

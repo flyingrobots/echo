@@ -1,0 +1,29 @@
+flowchart LR
+    subgraph "1. Begin"
+        B[begin]
+    end
+
+    subgraph "2. Apply"
+        A1[apply rule 1]
+        A2[apply rule 2]
+        A3[apply rule N]
+    end
+
+    subgraph "3. Commit"
+        C1[Drain]
+        C2[Reserve]
+        C3[Execute]
+        C4[Merge]
+        C5[Finalize]
+    end
+
+    subgraph "4. Hash"
+        H1[State Root]
+        H2[Commit Hash]
+    end
+
+    subgraph "5. Record"
+        R[Append to History]
+    end
+
+    B --> A1 --> A2 --> A3 --> C1 --> C2 --> C3 --> C4 --> C5 --> H1 --> H2 --> R

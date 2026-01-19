@@ -1,0 +1,64 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Transaction Lifecycle}
+\label{chap:tour-transaction}
+
+\section{Begin Transaction}
+
+\textbf{Entry Point:} \texttt{Engine::begin()} \\
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:711-719}
+
+\begin{lstlisting}[language=Rust]
+pub fn begin(&mut self) -> TxId {
+    self.tx_counter = self.tx_counter.wrapping_add(1);
+    if self.tx_counter == 0 {
+        self.tx_counter = 1;  // Zero is reserved
+    }
+    self.live_txs.insert(self.tx_counter);
+    TxId::from_raw(self.tx_counter)
+}
+\end{lstlisting}
+
+\begin{watchout}
+\textbf{The Zero Invariant}: \texttt{TxId(0)} is reserved as an invalid/sentinel value. Without line 715's check, after $2^{64}$ transactions the counter would wrap to zero and confuse code that uses zero to mean ``no transaction.'' Defensive programming at its finest.
+\end{watchout}
+
+\begin{verbatim}
+Engine::begin()
+|
++-- self.tx_counter.wrapping_add(1)
+|   Handles u64::MAX → 0 overflow
+|
++-- if self.tx_counter == 0: self.tx_counter = 1
+|   INVARIANT: TxId(0) is reserved as invalid
+|
++-- self.live_txs.insert(self.tx_counter)
+|   TYPE: HashSet<u64>
+|
++-- TxId::from_raw(self.tx_counter)
+    TYPE: #[repr(transparent)] struct TxId(u64)
+\end{verbatim}
+
+\begin{commentary}
+The \texttt{\#[repr(transparent)]} on \texttt{TxId} guarantees the same memory layout as \texttt{u64}. You get type safety (can't accidentally pass a \texttt{NodeId} where a \texttt{TxId} is expected) with no runtime overhead.
+\end{commentary}
+
+\section{Abort Transaction}
+
+\textbf{Entry Point:} \texttt{Engine::abort()} \\
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:962-968}
+
+\begin{lstlisting}[language=Rust]
+pub fn abort(&mut self, tx: TxId) {
+    self.live_txs.remove(&tx.value());
+    self.scheduler.finalize_tx(tx);
+    self.bus.clear();
+    self.last_materialization.clear();
+    self.last_materialization_errors.clear();
+}
+\end{lstlisting}
+
+\begin{commentary}
+Abort is refreshingly simple---just remove the transaction from tracking and clear transient state. No rollback needed because Echo hasn't mutated the graph yet! All graph mutations happen atomically during commit. This is a key architectural decision: the graph is effectively immutable until commit time.
+\end{commentary}

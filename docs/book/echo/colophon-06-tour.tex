@@ -1,0 +1,53 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter*{Colophon}
+\addcontentsline{toc}{chapter}{Colophon}
+
+\section*{About This Document}
+
+This \emph{Tour de Code} was generated from the Echo source repository. File
+paths and line numbers are accurate as of the document date; code evolves, so
+verify against \texttt{HEAD} when in doubt.
+
+\section*{Notation Conventions}
+
+\begin{description}
+  \item[Rust paths] Module paths like \texttt{warp\_core::scheduler::drain}
+        correspond to \texttt{crates/warp-core/src/scheduler/drain.rs}.
+  \item[Complexity] Big-O notation uses $n$ for input size, $F$ for footprint
+        cardinality, $V$ and $E$ for graph vertices and edges.
+  \item[Hash functions] ``$H(\cdot)$'' always means BLAKE3 unless otherwise noted.
+\end{description}
+
+\section*{Key Invariants to Remember}
+
+\begin{enumerate}
+  \item \textbf{Determinism.} Same inputs $\Rightarrow$ same commit hash,
+        regardless of worker count or thread scheduling.
+  \item \textbf{Content addressing.} Identity derives from content---intents,
+        nodes, and commits are all hashed.
+  \item \textbf{Canonical ordering.} Radix sort with $(scope\_hash, rule\_id, nonce)$
+        keys ensures reproducible execution order.
+  \item \textbf{Isolation.} Workers write to private deltas; only the canonical
+        merge touches shared state.
+\end{enumerate}
+
+\section*{Further Reading}
+
+\begin{itemize}
+  \item \textbf{ADR-0007} --- BOAW storage and shard routing
+  \item \textbf{Phase 6 planning docs} --- Virtual shards and parallelism model
+  \item \textbf{Booklet 02: Core Concepts} --- Higher-level architecture overview
+  \item \textbf{Booklet 03: Math Foundations} --- Formal properties and proofs
+\end{itemize}
+
+\vfill
+
+\begin{center}
+\rule{0.4\linewidth}{0.4pt}\\[6pt]
+\textit{Document generated \today.}\\[2pt]
+\textit{Commentary by your friendly AI tour guide.}
+\end{center}
+
+\clearpage

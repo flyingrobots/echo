@@ -1,0 +1,6 @@
+flowchart TD
+    A[Find pending event<br/>with minimum intent_id] --> B[For each cmd/* rule<br/>in stable order]
+    B --> C{Rule matches?}
+    C -->|No| B
+    C -->|Yes| D[Apply matching rule]
+    D --> E[Apply sys/ack_pending<br/>remove pending edge]

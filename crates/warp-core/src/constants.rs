@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Canonical digests and constants used across the engine.
+//!
+//! # Protocol Constants
+//!
+//! Protocol constants affect determinism and are frozen once shipped:
+//!
+//! - [`POLICY_ID_NO_POLICY_V0`]: Placeholder policy identifier (in hash domain)
+//! - [`crate::boaw::NUM_SHARDS`]: Virtual shard count (frozen at 256)
+//!
+//! If any of these values ever need to change, it constitutes a protocol
+//! version bump and requires explicit migration handling.
+
 use crate::ident::Hash;
 
 /// Placeholder policy identifier for the current `warp-core` engine spike.

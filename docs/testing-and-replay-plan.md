@@ -81,7 +81,7 @@ The BOAW (Base-Overlay-Apply-Write) test harness is now implemented per ADR-0007
 
 Under the `delta_validate` feature, Phase 4 adds a second validation layer:
 
-1. **Delta-to-diff validation** (Phase 3): `delta.finalize()` ops must match `diff_state()` output
+1. **Delta-to-diff validation** (Phase 3): `delta.finalize()` ops must match `diff_state()` output *exactly* (full `WarpOp` equality, including payloads — not just `sort_key()`)
 2. **Accumulator validation** (Phase 4): `SnapshotAccumulator` built from `base + ops` must produce the same `state_root` as legacy computation
 
 Run with: `cargo test -p warp-core --features delta_validate`

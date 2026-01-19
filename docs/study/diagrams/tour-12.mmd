@@ -1,0 +1,16 @@
+graph TD
+    subgraph "Initial State"
+        ROOT[Root<br/>type: site]
+        HOME[Home Page<br/>type: page<br/>α.title: 'Welcome']
+        ABOUT[About Page<br/>type: page<br/>α.title: 'About Us']
+        LINK[Link<br/>type: link<br/>α.target: About]
+
+        ROOT -->|edge:root_page| HOME
+        ROOT -->|edge:page| ABOUT
+        HOME -->|edge:content| LINK
+        LINK -.->|resolves to| ABOUT
+    end
+
+    subgraph "View State"
+        V[Viewer<br/>α.current: Home]
+    end

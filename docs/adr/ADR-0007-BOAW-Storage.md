@@ -215,7 +215,7 @@ We enforce with one of:
 
 ## 7) Scheduling/queues (virtual shards)
 
-We explicitly reject “queue per CPU” as the partition key because it is hardware-dependent and cache-hostile.
+We explicitly reject "queue per CPU" as the partition key because it is hardware-dependent and cache-hostile.
 
 - We use fixed virtual shards (e.g., 256/1024, power-of-two).
 - Route by existing `NodeId`/`EdgeId` bits (no rehash): `shard = lowbits(id) & (SHARDS-1)`.
@@ -223,6 +223,22 @@ We explicitly reject “queue per CPU” as the partition key because it is hard
 - Workers = hardware threads; workers pull/claim shards dynamically to balance load.
 
 This preserves determinism across machines and improves locality.
+
+### 7.1 Shard Routing Specification (FROZEN - Phase 6B)
+
+```text
+NUM_SHARDS = 256
+shard = LE_u64(node_id.as_bytes()[0..8]) & (NUM_SHARDS - 1)
+```
+
+This formula is **frozen once shipped**. The routing takes the first 8 bytes of the NodeId's 32-byte
+BLAKE3 hash, interprets them as a little-endian u64, and masks to the shard count.
+
+- **NUM_SHARDS = 256**: Protocol constant, cannot change without version bump
+- **Little-endian**: Explicit and platform-independent
+- **First 8 bytes only**: Remaining 24 bytes don't affect routing
+
+Implementation: `crates/warp-core/src/boaw/shard.rs::shard_of()`
 
 ---
 

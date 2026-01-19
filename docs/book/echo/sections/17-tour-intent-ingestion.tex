@@ -1,0 +1,169 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Intent Ingestion}
+\label{chap:tour-intent}
+
+\textbf{Entry Point:} \texttt{Engine::ingest\_intent()} \\
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:1216}
+
+\begin{tourguide}
+This is where user actions enter the system. Notice how Echo treats intents as \emph{immutable, content-addressed} data from the very first moment. The intent bytes are hashed to create a unique identifier, ensuring that duplicate intents are detected automatically---no coordination required.
+\end{tourguide}
+
+\section{Function Signature}
+
+\begin{lstlisting}[language=Rust]
+pub fn ingest_intent(&mut self, intent_bytes: &[u8]) -> Result<IngestDisposition, EngineError>
+\end{lstlisting}
+
+\textbf{Returns:}
+\begin{itemize}
+  \item \texttt{IngestDisposition::Accepted \{ intent\_id: Hash \}} --- New intent accepted
+  \item \texttt{IngestDisposition::Duplicate \{ intent\_id: Hash \}} --- Already ingested
+\end{itemize}
+
+\section{Complete Call Trace}
+
+\begin{lstlisting}[style=callgraph]
+Engine::ingest_intent(intent_bytes: &[u8])
+|
++--[1] compute_intent_id(intent_bytes) -> Hash
+|     FILE: crates/warp-core/src/inbox.rs:205
+|     CODE:
+|       let mut hasher = blake3::Hasher::new();
+|       hasher.update(b"intent:");           // Domain separation
+|       hasher.update(intent_bytes);
+|       hasher.finalize().into()             // -> [u8; 32]
+|
++--[2] NodeId(intent_id)
+|     Creates strongly-typed NodeId from Hash
+|
++--[3] self.state.store_mut(&warp_id) -> Option<&mut GraphStore>
+|     FILE: crates/warp-core/src/engine_impl.rs:1221
+|     ERROR: EngineError::UnknownWarp if None
+|
++--[4] Extract root_node_id from self.current_root.local_id
+|
++--[5] STRUCTURAL NODE CREATION (Idempotent)
+|     +-- make_node_id("sim") -> NodeId
+|     |   FILE: crates/warp-core/src/ident.rs:93
+|     |   CODE: blake3("node:" || "sim")
+|     |
+|     +-- make_node_id("sim/inbox") -> NodeId
+|     |   CODE: blake3("node:" || "sim/inbox")
+|     |
+|     +-- make_type_id("sim") -> TypeId
+|     |   FILE: crates/warp-core/src/ident.rs:85
+|     |   CODE: blake3("type:" || "sim")
+|     |
+|     +-- make_type_id("sim/inbox") -> TypeId
+|     +-- make_type_id("sim/inbox/event") -> TypeId
+|     |
+|     +-- store.insert_node(sim_id, NodeRecord { ty: sim_ty })
+|     |   FILE: crates/warp-core/src/graph.rs:175
+|     |   CODE: self.nodes.insert(id, record)
+|     |
+|     +-- store.insert_node(inbox_id, NodeRecord { ty: inbox_ty })
+|
++--[6] STRUCTURAL EDGE CREATION
+|     +-- make_edge_id("edge:root/sim") -> EdgeId
+|     |   FILE: crates/warp-core/src/ident.rs:109
+|     |   CODE: blake3("edge:" || "edge:root/sim")
+|     |
+|     +-- store.insert_edge(root_id, EdgeRecord { ... })
+|     |   FILE: crates/warp-core/src/graph.rs:188
+|     |   +-- GraphStore::upsert_edge_record(from, edge)
+|     |       FILE: crates/warp-core/src/graph.rs:196
+|     |       UPDATES:
+|     |         self.edge_index.insert(edge_id, from)
+|     |         self.edge_to_index.insert(edge_id, to)
+|     |         self.edges_from.entry(from).or_default().push(edge)
+|     |         self.edges_to.entry(to).or_default().push(edge_id)
+|     |
+|     +-- store.insert_edge(sim_id, EdgeRecord { ... }) [sim -> inbox]
+|
++--[7] DUPLICATE DETECTION
+|     store.node(&event_id) -> Option<&NodeRecord>
+|     FILE: crates/warp-core/src/graph.rs:87
+|     CODE: self.nodes.get(id)
+|     IF Some(_): return Ok(IngestDisposition::Duplicate { intent_id })
+|
++--[8] EVENT NODE CREATION
+|     store.insert_node(event_id, NodeRecord { ty: event_ty })
+|     NOTE: event_id = intent_id (content-addressed)
+|
++--[9] INTENT ATTACHMENT
+|     +-- AtomPayload::new(type_id, bytes)
+|     |   FILE: crates/warp-core/src/attachment.rs:149
+|     |   CODE: Self { type_id, bytes: Bytes::copy_from_slice(intent_bytes) }
+|     |
+|     +-- store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)))
+|         FILE: crates/warp-core/src/graph.rs:125
+|         CODE: self.node_attachments.insert(id, v)
+|
++--[10] PENDING EDGE CREATION (Queue Membership)
+|      +-- pending_edge_id(&inbox_id, &intent_id) -> EdgeId
+|      |   FILE: crates/warp-core/src/inbox.rs:212
+|      |   CODE: blake3("edge:" || "sim/inbox/pending:" || inbox_id || intent_id)
+|      |
+|      +-- store.insert_edge(inbox_id, EdgeRecord {
+|             id: pending_edge_id,
+|             from: inbox_id,
+|             to: event_id,
+|             ty: make_type_id("edge:pending")
+|         })
+|
++--[11] return Ok(IngestDisposition::Accepted { intent_id })
+\end{lstlisting}
+
+\begin{cleverpattern}
+\textbf{Domain Separation in Hashing}
+
+Notice step [1]: the hasher prefixes with \texttt{b"intent:"} before the actual data. This is a cryptographic best practice called \emph{domain separation}---it prevents a hash collision between an intent and, say, a node ID that happens to have the same bytes.
+
+Echo uses this pattern consistently:
+\begin{itemize}
+  \item \texttt{"intent:"} for intent IDs
+  \item \texttt{"node:"} for node IDs
+  \item \texttt{"type:"} for type IDs
+  \item \texttt{"edge:"} for edge IDs
+\end{itemize}
+
+This ensures that even if two different domain values have the same raw bytes, they'll produce different hashes.
+\end{cleverpattern}
+
+\begin{deepdive}
+\textbf{Why Content-Addressed Event IDs?}
+
+In step [8], note that \texttt{event\_id = intent\_id}. This is a profound design choice:
+
+\begin{enumerate}
+  \item \textbf{Automatic deduplication}: If the same intent arrives twice, it hashes to the same ID, and step [7] catches it.
+  \item \textbf{Reproducibility}: Given the same intent bytes, any node in a distributed system will compute the same event ID.
+  \item \textbf{Auditability}: You can verify an event's integrity by re-hashing its content.
+\end{enumerate}
+
+This is the foundation of Echo's deterministic execution model---events are identified by \emph{what they are}, not \emph{when they arrived}.
+\end{deepdive}
+
+\section{Data Structures Modified}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Structure} & \textbf{Field} & \textbf{Change} \\
+\midrule
+\texttt{GraphStore} & \texttt{nodes} & +3 entries (sim, inbox, event) \\
+\texttt{GraphStore} & \texttt{edges\_from} & +3 edges (root$\to$sim, sim$\to$inbox, inbox$\to$event) \\
+\texttt{GraphStore} & \texttt{edges\_to} & +3 reverse entries \\
+\texttt{GraphStore} & \texttt{edge\_index} & +3 edge$\to$from mappings \\
+\texttt{GraphStore} & \texttt{edge\_to\_index} & +3 edge$\to$to mappings \\
+\texttt{GraphStore} & \texttt{node\_attachments} & +1 (event $\to$ intent payload) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{tourguide}
+Notice the \textbf{four separate edge indices}: \texttt{edges\_from}, \texttt{edges\_to}, \texttt{edge\_index}, and \texttt{edge\_to\_index}. This redundancy enables O(1) lookups in any direction---find edges from a node, to a node, or look up either endpoint given an edge ID. The space cost is modest (pointers/IDs are small), but the query flexibility is enormous.
+\end{tourguide}

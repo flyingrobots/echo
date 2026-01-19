@@ -482,9 +482,16 @@ pub fn validate_delta_matches_diff(
         }));
     }
 
-    // Find first mismatch
+    // Find first mismatch.
+    //
+    // IMPORTANT: Compare the full op value, not just the `sort_key()`.
+    // The sort key is only the canonical ordering/deduplication key; two ops
+    // can target the same key while carrying different payloads (e.g. an
+    // `UpsertNode` with a different `record`, or a `SetAttachment` with a
+    // different `value`). Treating those as "equal" would let real state
+    // transition bugs slip through undetected under `delta_validate`.
     for (i, (delta_op, diff_op)) in delta_sorted.iter().zip(diff_sorted.iter()).enumerate() {
-        if delta_op.sort_key() != diff_op.sort_key() {
+        if delta_op != diff_op {
             return Err(Box::new(DeltaMismatch {
                 delta_len: delta_sorted.len(),
                 diff_len: diff_sorted.len(),
@@ -1171,6 +1178,40 @@ mod tests {
                 warp_id,
                 local_id: node_b, // Different node
             },
+            record: NodeRecord {
+                ty: make_type_id("TypeB"),
+            },
+        }];
+
+        let result = validate_delta_matches_diff(&ops_delta, &ops_diff);
+        assert!(result.is_err());
+        let mismatch = result.unwrap_err();
+        assert_eq!(mismatch.delta_len, 1);
+        assert_eq!(mismatch.diff_len, 1);
+        assert_eq!(mismatch.first_mismatch_index, Some(0));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn validate_delta_matches_diff_detects_value_mismatch_for_same_sort_key() {
+        let warp_id = make_warp_id("test-warp");
+        let node_id = make_node_id("node-a");
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        // Same target key, but different record payload.
+        // This must be treated as a mismatch even though `sort_key()` is identical.
+        let ops_delta = vec![WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("TypeA"),
+            },
+        }];
+
+        let ops_diff = vec![WarpOp::UpsertNode {
+            node: node_key,
             record: NodeRecord {
                 ty: make_type_id("TypeB"),
             },

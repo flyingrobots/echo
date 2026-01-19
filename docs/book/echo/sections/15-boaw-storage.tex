@@ -1,0 +1,122 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{BOAW: Best of All Worlds Storage}
+\label{chap:boaw}
+
+The BOAW architecture replaces the spike-era monolithic in-place mutation model with immutable snapshots, COW overlays, and lockless parallel execution. The result: deterministic convergence across platforms, massive parallel throughput without locks, and zero-copy snapshot IO.
+
+\section{The BOAW Stack}
+
+\begin{enumerate}
+    \item \textbf{Immutable Base} --- Snapshots are immutable and read-only (WSC-backed; optionally memory-mapped).
+    \item \textbf{TickDelta Overlay} --- Rewrites do not mutate a shared store. They emit ops into thread-local deltas.
+    \item \textbf{Deterministic Admission} --- Only independent rewrites are admitted per tick (footprints). Ordering is canonical.
+    \item \textbf{Lockless Parallel Execute} --- Workers execute admitted rewrites against a read-only snapshot, emitting ops locally.
+    \item \textbf{Deterministic Merge-of-Deltas} --- Thread-local deltas are merged canonically into a single tick patch.
+    \item \textbf{Canonical Commit} --- Apply patch to build the next snapshot, compute state root + patch digest + commit hash.
+    \item \textbf{Collapse/Merge} --- Multi-parent merges reconcile claims and structured state, with typed merge rules.
+    \item \textbf{Privacy} --- In mind mode, the ledger records only commitments/proofs---never sensitive bytes.
+\end{enumerate}
+
+\section{Key Concepts}
+
+\begin{description}
+    \item[Snapshot (WSC)] Immutable, canonical, readable without copying: sorted tables + ranges + blob arena.
+    \item[COW] ``Delete'' means unlink from the worldline view, not physical destruction; physical reclamation is optional GC.
+    \item[Footprint] Declared read/write sets (nodes, edges, attachments, boundary ports) used for independence checks.
+    \item[TickDelta] Thread-local append-only ops produced during execution.
+    \item[Mind mode] Ledger must be publishable; secrets never enter provenance.
+\end{description}
+
+\section{COW Mechanics}
+
+During a tick, nothing shared is mutated. Writes produce an overlay delta. The next commit produces a new immutable snapshot that structurally shares with prior snapshots.
+
+\begin{itemize}
+    \item Base snapshot is immutable
+    \item Overlay is per-worldline/per-tick
+    \item Commit materializes a new snapshot (sharing unchanged segments)
+    \item Delete semantics are ``Unlink''---absent from next snapshot's reachable-only view
+\end{itemize}
+
+\section{Tick Pipeline}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[>=stealth, node distance=1.5cm, scale=0.85, every node/.style={transform shape}]
+        \tikzstyle{phase}=[rectangle, draw, rounded corners, fill=blue!8, minimum width=2cm, minimum height=1cm, align=center]
+        \tikzstyle{note}=[font=\scriptsize, align=center]
+
+        \node[phase] (ingress) {Ingress};
+        \node[phase, right=of ingress] (plan) {Plan};
+        \node[phase, right=of plan] (admit) {Admit};
+        \node[phase, right=of admit] (exec) {Execute};
+        \node[phase, right=of exec] (merge) {Merge};
+        \node[phase, right=of merge] (commit) {Commit};
+
+        \draw[->, thick] (ingress) -- (plan);
+        \draw[->, thick] (plan) -- (admit);
+        \draw[->, thick] (admit) -- (exec);
+        \draw[->, thick] (exec) -- (merge);
+        \draw[->, thick] (merge) -- (commit);
+
+        \node[note, below=3mm of ingress] {intents};
+        \node[note, below=3mm of plan] {footprints};
+        \node[note, below=3mm of admit] {ExecItems};
+        \node[note, below=3mm of exec] {TickDeltas};
+        \node[note, below=3mm of merge] {patch};
+        \node[note, below=3mm of commit] {snapshot};
+    \end{tikzpicture}
+    \caption{BOAW tick pipeline: ingress $\rightarrow$ plan $\rightarrow$ admit $\rightarrow$ parallel execute $\rightarrow$ merge $\rightarrow$ commit.}
+    \label{fig:boaw-pipeline}
+\end{figure}
+
+\subsection{Canonical Ingress}
+Ingest intents into an ingress list keyed by canonical \texttt{intent\_id}. Sort deterministically (radix sort permitted if stable and defined).
+
+\subsection{Plan}
+For each candidate intent/rule match: compute footprint, compute \texttt{factor\_mask}, produce a \texttt{PlannedRewrite} handle that reads from snapshot only.
+
+\subsection{Admit (Deterministic)}
+Greedy admit in canonical order by \texttt{intent\_id} (and tie-breakers like \texttt{rule\_id}, \texttt{match\_ix}). Reject or defer conflicts deterministically.
+
+\subsection{Execute (Parallel, Lockless)}
+Workers execute admitted rewrites against read-only snapshot. Output is a thread-local \texttt{TickDelta} (append-only ops).
+
+\subsection{Merge Deltas (Deterministic)}
+Concatenate all thread-local ops. Sort canonically by \texttt{(op\_kind, object\_key, tie\_breaker)} where tie-breaker is stable (\texttt{intent\_id / rule\_id / match\_ix}). Apply per-type conflict policies.
+
+\subsection{Commit}
+Build next reachable-only snapshot from previous snapshot + merged ops. Compute:
+\begin{itemize}
+    \item \texttt{state\_root} --- canonical hash of materialized reachable state
+    \item \texttt{patch\_digest} --- canonical hash of merged ops
+    \item \texttt{commit\_hash} = $H(\text{parents} \parallel \text{state\_root} \parallel \text{patch\_digest} \parallel \text{schema} \parallel \text{tick} \parallel \text{policy})$
+\end{itemize}
+
+\section{Free Money Invariance}
+
+The ``free money'' property: workers $\in \{1, 2, 4, 8, 16, 32\}$, any ingress permutation---\texttt{patch\_digest}, \texttt{state\_root}, \texttt{commit\_hash} are identical.
+
+This is the determinism drill sergeant for BOAW. If this invariant fails, a footprint bug exists.
+
+\section{Virtual Shards}
+
+We explicitly reject ``queue per CPU'' as the partition key because it is hardware-dependent. Instead:
+
+\begin{itemize}
+    \item Fixed virtual shards (e.g., 256, power-of-two)
+    \item Route by existing \texttt{NodeId}/\texttt{EdgeId} bits: \texttt{shard = lowbits(id) \& (SHARDS-1)}
+    \item Work queues are per shard, not per core
+    \item Workers pull/claim shards dynamically to balance load
+\end{itemize}
+
+This preserves determinism across machines and improves locality.
+
+\section{Doctrine}
+
+\begin{quote}
+\itshape
+State is an immutable snapshot. Time is a commit DAG. Writes are deltas. Deletes are unlinks. Proofs are claims. Privacy is non-negotiable. Determinism isn't optional.
+\end{quote}

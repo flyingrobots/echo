@@ -1,0 +1,26 @@
+flowchart TD
+    subgraph "Partitioning"
+        I[Items] --> P[partition_into_shards]
+        P --> S0[Shard 0]
+        P --> S1[Shard 1]
+        P --> S2[...]
+        P --> S255[Shard 255]
+    end
+
+    subgraph "Work Stealing"
+        W0[Worker 0] -->|claims| S0
+        W0 -->|claims| S1
+        W1[Worker 1] -->|claims| S2
+        W1 -->|claims| S3
+    end
+
+    subgraph "Execution"
+        S0 --> D0[TickDelta 0]
+        S2 --> D1[TickDelta 1]
+    end
+
+    subgraph "Merge"
+        D0 --> M[merge_deltas]
+        D1 --> M
+        M --> O[Canonical Ops]
+    end

@@ -1,0 +1,7 @@
+flowchart TD
+    A[Intent bytes arrive] --> B[Compute intent_id = BLAKE3 bytes]
+    B --> C{intent_id seen before?}
+    C -->|Yes| D[Return Duplicate]
+    C -->|No| E[Create event node<br/>keyed by intent_id]
+    E --> F[Create edge: inbox → event<br/>type: pending]
+    F --> G[Return Accepted]

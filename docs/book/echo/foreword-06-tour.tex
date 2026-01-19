@@ -1,0 +1,33 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter*{Foreword}
+\addcontentsline{toc}{chapter}{Foreword}
+
+This booklet is a guided walk through Echo's source code. Rather than explaining
+concepts in the abstract, we trace actual function calls, examine real data
+structures, and follow intents from ingestion to commit.
+
+\bigskip
+\textbf{How to read this tour:}
+\begin{itemize}
+  \item \textbf{With the code open.} Each chapter references specific files and
+        line numbers. Open the crate in your editor and follow along.
+  \item \textbf{In order, the first time.} The chapters mirror the runtime flow:
+        ingestion $\to$ planning $\to$ execution $\to$ commit. Later, dip in
+        anywhere.
+  \item \textbf{Focus on the ``why.''} The code shows \emph{what} happens; the
+        commentary explains \emph{why} it's designed that way.
+\end{itemize}
+
+\bigskip
+The final chapter assembles a complete call graph from user action to committed
+state, with complexity annotations. Use it as a reference map when you get lost
+in the codebase.
+
+\bigskip
+\begin{flushright}
+\textit{``The code rewards careful study.''}
+\end{flushright}
+
+\clearpage

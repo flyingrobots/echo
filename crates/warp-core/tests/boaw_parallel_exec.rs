@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Direct tests for BOAW Phase 6A parallel execution.
+//! Direct tests for BOAW Phase 6 parallel execution.
+//!
+//! - **Phase 6A tests**: Validate stride partitioning + canonical merge
+//! - **Phase 6B tests**: Validate sharded partitioning + stride equivalence
 //!
 //! These tests validate the core parallel execution and merge logic
 //! without going through the full Engine pipeline.
@@ -16,9 +19,10 @@
 // The merge_deltas function is feature-gated.
 
 use warp_core::{
-    execute_parallel, execute_serial, make_node_id, make_type_id, merge_deltas, AtomPayload,
-    AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord,
-    OpOrigin, TickDelta, WarpOp,
+    execute_parallel, execute_parallel_sharded, execute_parallel_stride, execute_serial,
+    make_node_id, make_type_id, merge_deltas, AtomPayload, AttachmentKey, AttachmentValue,
+    ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
+    NUM_SHARDS,
 };
 
 mod common;
@@ -283,5 +287,212 @@ fn large_workload_worker_count_invariance() {
         for (i, (b, o)) in baseline_ops.iter().zip(ops.iter()).enumerate() {
             assert_eq!(b, o, "large workload: op {i} differs for {workers} workers");
         }
+    }
+}
+
+// =============================================================================
+// PHASE 6B TESTS: Sharded Execution
+// =============================================================================
+
+/// Phase 6B: Sharded execution must produce identical results to stride execution.
+///
+/// This is the key correctness test for the Phase 6A → 6B transition.
+/// If sharded and stride produce different results, we have a bug.
+#[test]
+fn sharded_equals_stride() {
+    eprintln!("\n=== SHARDED vs STRIDE EQUIVALENCE TEST ===");
+
+    let (store, nodes) = make_test_store(50);
+    let view = GraphView::new(&store);
+    let items = make_exec_items(&nodes);
+
+    for &workers in WORKER_COUNTS {
+        // Stride execution (Phase 6A)
+        let stride_deltas = execute_parallel_stride(view, &items, workers);
+        let stride_ops = merge_deltas(stride_deltas).expect("stride merge failed");
+
+        // Sharded execution (Phase 6B)
+        let sharded_deltas = execute_parallel_sharded(view, &items, workers);
+        let sharded_ops = merge_deltas(sharded_deltas).expect("sharded merge failed");
+
+        eprintln!(
+            "  workers={:2} → stride={} ops, sharded={} ops",
+            workers,
+            stride_ops.len(),
+            sharded_ops.len()
+        );
+
+        assert_eq!(
+            stride_ops.len(),
+            sharded_ops.len(),
+            "op count differs: stride={} sharded={} (workers={})",
+            stride_ops.len(),
+            sharded_ops.len(),
+            workers
+        );
+
+        for (i, (s, h)) in stride_ops.iter().zip(sharded_ops.iter()).enumerate() {
+            assert_eq!(
+                s, h,
+                "op {i} differs between stride and sharded (workers={})",
+                workers
+            );
+        }
+    }
+    eprintln!("=== SHARDED EQUALS STRIDE: PASS ===\n");
+}
+
+/// Phase 6B: Sharded execution with permuted input still matches stride.
+#[test]
+fn sharded_equals_stride_permuted() {
+    let (store, nodes) = make_test_store(32);
+    let view = GraphView::new(&store);
+    let mut items = make_exec_items(&nodes);
+
+    // Get baseline from stride with original order
+    let baseline_deltas = execute_parallel_stride(view, &items, 4);
+    let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
+
+    for &seed in SEEDS {
+        let mut rng = XorShift64::new(seed);
+
+        for _ in 0..5 {
+            shuffle(&mut rng, &mut items);
+
+            for &workers in &[1, 4, 8, 16] {
+                // Sharded with permuted items
+                let sharded_deltas = execute_parallel_sharded(view, &items, workers);
+                let sharded_ops = merge_deltas(sharded_deltas).expect("merge failed");
+
+                assert_eq!(
+                    baseline_ops.len(),
+                    sharded_ops.len(),
+                    "sharded permuted: count differs (seed={seed:#x}, workers={workers})"
+                );
+
+                for (i, (b, s)) in baseline_ops.iter().zip(sharded_ops.iter()).enumerate() {
+                    assert_eq!(
+                        b, s,
+                        "sharded permuted: op {i} differs (seed={seed:#x}, workers={workers})"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Phase 6B: Worker count is capped at NUM_SHARDS.
+///
+/// Requesting 512 workers should not spawn 512 threads when NUM_SHARDS is 256.
+/// This test verifies the capping behavior produces correct results.
+#[test]
+fn worker_count_capped_at_num_shards() {
+    let (store, nodes) = make_test_store(20);
+    let view = GraphView::new(&store);
+    let items = make_exec_items(&nodes);
+
+    // Baseline with NUM_SHARDS workers (the cap)
+    let baseline_deltas = execute_parallel(view, &items, NUM_SHARDS);
+    let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
+
+    // Request more workers than shards - should be capped
+    let capped_deltas = execute_parallel(view, &items, NUM_SHARDS * 2);
+
+    // The number of deltas returned should be capped
+    assert_eq!(
+        capped_deltas.len(),
+        NUM_SHARDS,
+        "expected {} deltas (capped), got {}",
+        NUM_SHARDS,
+        capped_deltas.len()
+    );
+
+    let capped_ops = merge_deltas(capped_deltas).expect("merge failed");
+
+    // Results should still be correct
+    assert_eq!(
+        baseline_ops.len(),
+        capped_ops.len(),
+        "capped execution produced different op count"
+    );
+
+    for (i, (b, c)) in baseline_ops.iter().zip(capped_ops.iter()).enumerate() {
+        assert_eq!(b, c, "capped execution: op {i} differs");
+    }
+}
+
+/// Phase 6B: Sharded execution distributes work by shard_of(scope).
+///
+/// This test verifies that items are partitioned correctly - items with
+/// the same shard ID should be processed together (though we can't directly
+/// observe which worker got which shard without instrumentation).
+#[test]
+fn sharded_distribution_is_deterministic() {
+    use warp_core::shard_of;
+
+    let (store, nodes) = make_test_store(64);
+    let view = GraphView::new(&store);
+    let items = make_exec_items(&nodes);
+
+    // Verify shard distribution is consistent
+    let mut shard_counts = [0usize; 256];
+    for item in &items {
+        let shard = shard_of(&item.scope);
+        shard_counts[shard] += 1;
+    }
+
+    // With 64 items spread across 256 shards, we expect sparse distribution
+    let non_empty_shards: usize = shard_counts.iter().filter(|&&c| c > 0).count();
+    eprintln!(
+        "64 items distributed across {} non-empty shards (of {})",
+        non_empty_shards, NUM_SHARDS
+    );
+
+    // Run sharded execution multiple times - should be deterministic
+    let first_deltas = execute_parallel_sharded(view, &items, 8);
+    let first_ops = merge_deltas(first_deltas).expect("merge failed");
+
+    for run in 1..=5 {
+        let deltas = execute_parallel_sharded(view, &items, 8);
+        let ops = merge_deltas(deltas).expect("merge failed");
+
+        assert_eq!(
+            first_ops.len(),
+            ops.len(),
+            "run {run}: op count differs from first run"
+        );
+
+        for (i, (f, o)) in first_ops.iter().zip(ops.iter()).enumerate() {
+            assert_eq!(f, o, "run {run}: op {i} differs from first run");
+        }
+    }
+}
+
+/// Phase 6B: Default execute_parallel uses sharded (not stride).
+///
+/// This test verifies that the default path is sharded execution.
+/// The result should match execute_parallel_sharded exactly.
+#[test]
+fn default_parallel_uses_sharded() {
+    let (store, nodes) = make_test_store(30);
+    let view = GraphView::new(&store);
+    let items = make_exec_items(&nodes);
+
+    // Default execute_parallel
+    let default_deltas = execute_parallel(view, &items, 4);
+    let default_ops = merge_deltas(default_deltas).expect("merge failed");
+
+    // Explicit sharded
+    let sharded_deltas = execute_parallel_sharded(view, &items, 4);
+    let sharded_ops = merge_deltas(sharded_deltas).expect("merge failed");
+
+    assert_eq!(
+        default_ops.len(),
+        sharded_ops.len(),
+        "default should use sharded implementation"
+    );
+
+    for (i, (d, s)) in default_ops.iter().zip(sharded_ops.iter()).enumerate() {
+        assert_eq!(d, s, "default vs sharded: op {i} differs");
     }
 }

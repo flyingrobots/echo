@@ -1,0 +1,39 @@
+graph TB
+    subgraph "Layer 5: Tools & Viewers"
+        V[warp-viewer]
+        T[External Tools]
+    end
+
+    subgraph "Layer 4: Session Protocol"
+        SS[echo-session-service]
+        SC[echo-session-client]
+        WS[WebSocket Gateway]
+    end
+
+    subgraph "Layer 3: Wire Format"
+        EG[echo-graph]
+        SP[echo-session-proto]
+    end
+
+    subgraph "Layer 2: Storage"
+        WSC[WSC Format]
+        CAS[Content-Addressed Store]
+    end
+
+    subgraph "Layer 1: Core Engine"
+        E[warp-core Engine]
+        S[Scheduler]
+        B[BOAW Executor]
+    end
+
+    V --> SC
+    T --> WS
+    WS --> SS
+    SC --> SS
+    SS --> EG
+    EG --> SP
+    SP --> E
+    E --> S
+    S --> B
+    B --> WSC
+    WSC --> CAS

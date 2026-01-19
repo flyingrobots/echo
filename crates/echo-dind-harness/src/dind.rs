@@ -16,6 +16,19 @@ use std::path::{Path, PathBuf};
 use warp_core::{make_node_id, make_warp_id, AttachmentValue, GraphStore};
 
 // -----------------------------------------------------------------------------
+// Golden file format constants
+// -----------------------------------------------------------------------------
+
+/// Current event log format version.
+pub const ELOG_VERSION: u16 = 1;
+
+/// Hash domain identifier for DIND state hashes.
+pub const HASH_DOMAIN: &str = "DIND_STATE_HASH_V2";
+
+/// Hash algorithm used for state hashes.
+pub const HASH_ALG: &str = "BLAKE3";
+
+// -----------------------------------------------------------------------------
 // Permutation-mode termination constants
 // -----------------------------------------------------------------------------
 

@@ -105,13 +105,22 @@ impl TickDelta {
 
     /// Finalizes the delta into canonically sorted operations.
     ///
-    /// Operations are sorted into canonical replay order (derived from the
-    /// operation contents) to ensure deterministic patch application. Origin
-    /// metadata is discarded.
+    /// Operations are sorted by `(WarpOp::sort_key(), insertion_index)` to ensure
+    /// deterministic patch application. The insertion index provides a stable
+    /// tie-breaker when multiple ops have the same sort key.
     #[must_use]
-    pub fn finalize(mut self) -> Vec<WarpOp> {
-        self.ops.sort_by_key(WarpOp::sort_key);
-        self.ops
+    pub fn finalize(self) -> Vec<WarpOp> {
+        // Pair each op with its insertion index for stable tie-breaking
+        let mut indexed: Vec<_> = self.ops.into_iter().enumerate().collect();
+        indexed.sort_by(|(i_a, a), (i_b, b)| {
+            let key_cmp = a.sort_key().cmp(&b.sort_key());
+            if key_cmp == std::cmp::Ordering::Equal {
+                i_a.cmp(i_b)
+            } else {
+                key_cmp
+            }
+        });
+        indexed.into_iter().map(|(_, op)| op).collect()
     }
 
     /// Returns the operations without sorting (for testing).

@@ -1130,6 +1130,7 @@ Goal: execution is pure — reads from snapshot, writes to delta.
 
 Goal: "free money" without compromising determinism.
 **Status: Phase 6A COMPLETE** (2026-01-18) — parallel exec + canonical merge proven.
+Phase 6B work tracked: TODO(PHASE-6B) - see `boaw::execute_parallel`, `boaw::merge_deltas`, and tests in `boaw_parallel_exec.rs`.
 
 ---
 

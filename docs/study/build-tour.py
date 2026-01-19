@@ -22,14 +22,33 @@ OUTPUT_TEX = STUDY_DIR / "what-makes-echo-tick.tex"
 OUTPUT_PDF = STUDY_DIR / "what-makes-echo-tick.pdf"
 
 
+def escape_latex(text: str) -> str:
+    """Escape LaTeX special characters in text."""
+    replacements = [
+        ('\\', r'\textbackslash{}'),
+        ('&', r'\&'),
+        ('%', r'\%'),
+        ('$', r'\$'),
+        ('#', r'\#'),
+        ('_', r'\_'),
+        ('{', r'\{'),
+        ('}', r'\}'),
+        ('~', r'\textasciitilde{}'),
+        ('^', r'\textasciicircum{}'),
+    ]
+    for char, replacement in replacements:
+        text = text.replace(char, replacement)
+    return text
+
+
 def convert_commentary_to_latex(md_content: str) -> str:
     """Convert CLAUDE_COMMENTARY markers to LaTeX red boxes."""
 
     def replace_commentary(match):
         inner = match.group(1).strip()
-        # Escape LaTeX special chars in the content
-        # We'll handle this more carefully - just wrap in our environment
-        return f'\n\n\\begin{{claudecommentary}}\n{inner}\n\\end{{claudecommentary}}\n\n'
+        # Escape LaTeX special chars in the commentary content
+        escaped = escape_latex(inner)
+        return f'\n\n\\begin{{claudecommentary}}\n{escaped}\n\\end{{claudecommentary}}\n\n'
 
     # Replace <!-- CLAUDE_COMMENTARY_START --> ... <!-- CLAUDE_COMMENTARY_END -->
     pattern = r'<!-- CLAUDE_COMMENTARY_START -->\s*(.*?)\s*<!-- CLAUDE_COMMENTARY_END -->'
@@ -81,14 +100,12 @@ def postprocess_tex(tex_file: Path) -> None:
     content = tex_file.read_text()
 
     # Add required packages and styling
+    # Note: graphicx and geometry are already loaded by Pandoc, so we only add
+    # adjustbox, tcolorbox, and fvextra here
     packages = r"""
-\usepackage{graphicx}
 \usepackage[export]{adjustbox}
 \usepackage{tcolorbox}
 \tcbuselibrary{breakable,skins}
-
-% Page layout - small margins
-\usepackage[margin=0.75in,letterpaper]{geometry}
 
 % Make code blocks smaller to fit
 \usepackage{fvextra}

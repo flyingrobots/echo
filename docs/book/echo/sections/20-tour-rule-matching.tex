@@ -5,7 +5,7 @@
 \label{chap:tour-rules}
 
 \textbf{Entry Point:} \texttt{Engine::apply()} \\
-\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:730-737}
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs}
 
 \begin{bigpicture}
 Now we enter the heart of Echo's reactive model. Rules are matched against graph patterns, and when they match, they're enqueued for execution. The beauty is that matching is \emph{pure}---it reads the graph but doesn't modify it.

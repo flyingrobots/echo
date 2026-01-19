@@ -94,7 +94,7 @@ Engine::commit_with_receipt(tx)
 Ingest & $O(1)$ & Hash + insert \\
 Begin/Abort & $O(1)$ & Counter increment \\
 Apply & $O(F)$ & $F$ = footprint size \\
-Drain & $O(n \log n)$ & Radix or comparison sort \\
+Drain & $O(n)$ & Radix sort; comparison sort fallback for small $n$ \\
 Reserve & $O(n \cdot F)$ & GenSet lookups \\
 Execute & $O(n \cdot W)$ & $W$ = work per rule \\
 Delta Merge & $O(n \log n)$ & Dedup sort \\

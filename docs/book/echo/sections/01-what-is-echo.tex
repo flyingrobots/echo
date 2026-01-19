@@ -17,10 +17,10 @@ It is built on the concepts described by the \AION{} Foundations Series papers--
 Echo was born from earlier prototypes and operates under a set of strict cultural principles:
 
 \begin{enumerate}
-    \item \textbf{Tests Are The Spec:} Documentation as performance art.
-    \item \textbf{Hexagonal Domain Boundary:} Pattern of patterns.
-    \item \textbf{We Do Not Rewrite History:} Reminder: The immutable ledger makes git blame eternal.
-    \item \textbf{Predictable Loop:} Every frame has a cryptographic description.
+    \item \textbf{Tests Are The Spec:} Tests document expected behavior and serve as living documentation---if a test passes, the feature works as intended.
+    \item \textbf{Hexagonal Domain Boundary:} Core domain logic is isolated from external interfaces (rendering, networking, persistence) via clean adapter boundaries.
+    \item \textbf{We Do Not Rewrite History:} The immutable commit ledger is permanent; every state change is recorded and auditable.
+    \item \textbf{Predictable Loop:} Every frame/tick has a deterministic, cryptographically-verifiable state description.
 \end{enumerate}
 
 \subsection{Who is Echo For?}

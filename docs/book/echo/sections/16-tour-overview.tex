@@ -43,14 +43,14 @@ This isn't just about correctness---it enables replay, forking, and distributed 
 \toprule
 \textbf{Component} & \textbf{Primary File} \\
 \midrule
-Engine core & \texttt{crates/echo-core/src/engine.rs} \\
-Transaction handling & \texttt{crates/echo-core/src/transaction.rs} \\
-Rule matching & \texttt{crates/warp-core/src/rule\_matching.rs} \\
-Scheduler (Radix) & \texttt{crates/warp-core/src/radix\_scheduler.rs} \\
+Engine core & \texttt{crates/echo-app-core/src/engine.rs} \\
+Transaction handling & \texttt{crates/echo-app-core/src/transaction.rs} \\
+Rule matching & \texttt{crates/warp-core/src/rule.rs} \\
+Scheduler (Radix) & \texttt{crates/warp-core/src/scheduler.rs} \\
 BOAW execution & \texttt{crates/warp-core/src/boaw/exec.rs} \\
 Shard routing & \texttt{crates/warp-core/src/boaw/shard.rs} \\
 Delta/merge & \texttt{crates/warp-core/src/tick\_delta.rs} \\
-Hashing & \texttt{crates/warp-core/src/hashing.rs} \\
+Hashing & \texttt{crates/warp-core/src/snapshot.rs} \\
 \bottomrule
 \end{tabular}
 

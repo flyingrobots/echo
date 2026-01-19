@@ -1142,7 +1142,7 @@ We snapshot the state \emph{before} executing anything. This enables:
 \item Potential rollback: If something goes wrong, we have the original
 \end{enumerate}
 
-The clone isn't as expensive as it looks. Rust's clone is typically copy-on-write under the hood for large structures. Most of the data is shared until mutation.
+The clone isn't as expensive as it looks. \texttt{WarpState} uses \texttt{Arc} internally for shared data structures, so cloning is cheap---it increments reference counts rather than deep-copying. True copy-on-write semantics require explicit \texttt{Arc}/\texttt{Rc}/\texttt{Cow} wrappers; Rust's \texttt{Clone} trait itself performs deep copies unless the type uses such wrappers.
 \end{directors}
 
 \begin{directors}

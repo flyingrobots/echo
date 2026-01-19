@@ -66,7 +66,10 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
 
     #[cfg(feature = "parallel-stride-fallback")]
     {
-        if std::env::var("ECHO_PARALLEL_STRIDE").is_ok() {
+        if std::env::var("ECHO_PARALLEL_STRIDE")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
             // LOUD WARNING: This is a fallback mode for benchmarking only
             eprintln!(
                 "\n\
@@ -98,11 +101,17 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
 /// - `GraphView` is `Clone + Sync + Send` (read-only snapshot reference)
 /// - `ExecItem` is `Sync + Send` (function pointer + primitives)
 /// - Each worker gets its own `TickDelta` (no shared mutable state)
+///
+/// # Panics
+///
+/// Panics if `workers` is 0.
 pub fn execute_parallel_sharded(
     view: GraphView<'_>,
     items: &[ExecItem],
     workers: usize,
 ) -> Vec<TickDelta> {
+    assert!(workers > 0, "workers must be > 0");
+
     if items.is_empty() {
         // Can't use vec![TickDelta::new(); workers] because TickDelta doesn't impl Clone
         return (0..workers).map(|_| TickDelta::new()).collect();
@@ -160,12 +169,18 @@ pub fn execute_parallel_sharded(
 ///
 /// Only available when `parallel-stride-fallback` feature is enabled.
 /// Activated at runtime by setting `ECHO_PARALLEL_STRIDE=1` env var.
+///
+/// # Panics
+///
+/// Panics if `workers` is 0.
 #[cfg(any(test, feature = "parallel-stride-fallback"))]
 pub fn execute_parallel_stride(
     view: GraphView<'_>,
     items: &[ExecItem],
     workers: usize,
 ) -> Vec<TickDelta> {
+    assert!(workers > 0, "workers must be > 0");
+
     std::thread::scope(|s| {
         let mut handles = Vec::with_capacity(workers);
         for w in 0..workers {

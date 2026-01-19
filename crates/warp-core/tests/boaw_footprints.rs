@@ -7,8 +7,8 @@
 
 mod common;
 
-use common::XorShift64;
-use warp_core::{AttachmentKey, EdgeId, Footprint, NodeId, NodeKey, WarpId};
+use common::{random_footprint, XorShift64};
+use warp_core::NodeId;
 
 // =============================================================================
 // T3: Footprints & Independence
@@ -34,72 +34,23 @@ fn t3_1_footprint_independence_is_symmetric() {
             "Footprint independence is not symmetric:\n  fp_a: {fp_a:?}\n  fp_b: {fp_b:?}"
         );
     }
-
-    fn random_footprint(rng: &mut XorShift64) -> Footprint {
-        let mut fp = Footprint::default();
-        let warp_id = WarpId([0u8; 32]); // Use a fixed WarpId for testing
-
-        // Add random nodes
-        for _ in 0..(rng.gen_range_usize(5)) {
-            let node_id = NodeId(random_hash(rng));
-            if rng.next_u64().is_multiple_of(2) {
-                fp.n_read.insert_node(&node_id);
-            } else {
-                fp.n_write.insert_node(&node_id);
-            }
-        }
-
-        // Add random edges
-        for _ in 0..(rng.gen_range_usize(3)) {
-            let edge_id = EdgeId(random_hash(rng));
-            if rng.next_u64().is_multiple_of(2) {
-                fp.e_read.insert_edge(&edge_id);
-            } else {
-                fp.e_write.insert_edge(&edge_id);
-            }
-        }
-
-        // Add random attachments
-        for _ in 0..(rng.gen_range_usize(3)) {
-            let node_id = NodeId(random_hash(rng));
-            let node_key = NodeKey {
-                warp_id,
-                local_id: node_id,
-            };
-            let key = AttachmentKey::node_alpha(node_key);
-            if rng.next_u64().is_multiple_of(2) {
-                fp.a_read.insert(key);
-            } else {
-                fp.a_write.insert(key);
-            }
-        }
-
-        fp
-    }
-
-    fn random_hash(rng: &mut XorShift64) -> [u8; 32] {
-        let mut h = [0u8; 32];
-        for chunk in h.chunks_mut(8) {
-            let bytes = rng.next_u64().to_le_bytes();
-            chunk.copy_from_slice(&bytes[..chunk.len()]);
-        }
-        h
-    }
 }
 
+// TODO(FP-001): Implement once bucket target enforcement exists.
 #[test]
-#[ignore = "BOAW bucket target enforcement not yet implemented"]
+#[ignore = "FP-001: BOAW bucket target enforcement not yet implemented"]
 fn t3_2_no_write_read_overlap_admitted() {
     // Given: two planned rewrites where one writes a node the other reads
     // Expect: only one admitted
-    unimplemented!(
-        "Implement: build two PlannedRewrites with write/read overlap; \
+    todo!(
+        "FP-001: build two PlannedRewrites with write/read overlap; \
          assert only one is admitted"
     );
 }
 
+// TODO(FP-002): Implement once bucket target enforcement exists.
 #[test]
-#[ignore = "BOAW bucket target enforcement not yet implemented"]
+#[ignore = "FP-002: BOAW bucket target enforcement not yet implemented"]
 fn t3_3_deletes_that_share_adjacency_bucket_must_conflict() {
     // The classic race: delete e1=(A->B) and e2=(A->C) both mutate edges_from[A].
     // Your footprint model must claim the bucket target
@@ -109,14 +60,15 @@ fn t3_3_deletes_that_share_adjacency_bucket_must_conflict() {
     // Expect: independence fails when adjacency bucket target is claimed
     //
     // (This test prevents the "retain() race" forever.)
-    unimplemented!(
-        "Implement: build two PlannedRewrites deleting edges from same node; \
+    todo!(
+        "FP-002: build two PlannedRewrites deleting edges from same node; \
          assert admission rejects running both concurrently"
     );
 }
 
+// TODO(FP-003): Implement once FootprintGuard is implemented.
 #[test]
-#[ignore = "BOAW FootprintGuard not yet implemented"]
+#[ignore = "FP-003: BOAW FootprintGuard not yet implemented"]
 fn t3_4_footprint_guard_catches_executor_drift() {
     // Given: executor emits an op not claimed in footprint
     // Expect: panic in debug (or deterministic error in release mode)
@@ -126,8 +78,8 @@ fn t3_4_footprint_guard_catches_executor_drift() {
     // - Plan→Apply fusion: planning returns {footprint, apply_closure},
     //   and apply uses footprint-derived capabilities
     // - FootprintGuard: all mutation emission paths validate the target was claimed
-    unimplemented!(
-        "Implement: run executor under FootprintGuard; \
+    todo!(
+        "FP-003: run executor under FootprintGuard; \
          attempt forbidden write; assert panic/error"
     );
 }

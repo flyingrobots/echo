@@ -13,8 +13,10 @@ verify against \texttt{HEAD} when in doubt.
 \section*{Notation Conventions}
 
 \begin{description}
-  \item[Rust paths] Module paths like \texttt{warp\_core::scheduler::drain}
-        correspond to \texttt{crates/warp-core/src/scheduler/drain.rs}.
+  \item[Rust paths] Module paths like \texttt{warp\_core::scheduler}
+        correspond to \texttt{crates/warp-core/src/scheduler.rs}. Functions like
+        \texttt{drain\_for\_tx()} exist inside that file. Submodules like
+        \texttt{warp\_core::boaw::shard} map to \texttt{crates/warp-core/src/boaw/shard.rs}.
   \item[Complexity] Big-O notation uses $n$ for input size, $F$ for footprint
         cardinality, $V$ and $E$ for graph vertices and edges.
   \item[Hash functions] ``$H(\cdot)$'' always means BLAKE3 unless otherwise noted.

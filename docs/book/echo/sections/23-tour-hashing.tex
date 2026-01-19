@@ -13,30 +13,28 @@ If any of these differ between runs, determinism is broken.
 \section{State Root}
 
 \textbf{Entry Point:} \texttt{compute\_state\_root()} \\
-\textbf{File:} \texttt{crates/warp-core/src/hashing.rs:45-89}
+\textbf{File:} \texttt{crates/warp-core/src/snapshot.rs}
 
 \begin{verbatim}
-compute_state_root(graph: &GraphStore) → Hash32
+compute_state_root(state: &WarpState, root: &NodeKey) → Hash32
 |
 +-- let mut hasher = Blake3::new()
 |
-+-- // Hash nodes in canonical order
-|   FOR (id, record) IN graph.nodes.iter() (sorted by id):
-|       hasher.update(id.as_bytes())
-|       hasher.update(&record.type_id.to_le_bytes())
++-- // BFS from root, hashing reachable nodes
+|   FOR node IN reachable_nodes_bfs(state, root):
+|       hasher.update(node.id.as_bytes())
+|       hasher.update(&node.type_id.to_le_bytes())
+|       // Hash attachments for this node
+|       FOR (key, value) IN node.attachments.iter():
+|           hasher.update(key.as_bytes())
+|           hasher.update(&value.len().to_le_bytes())
+|           hasher.update(value)
 |
-+-- // Hash edges in canonical order
-|   FOR (id, edge) IN graph.edges.iter() (sorted by id):
-|       hasher.update(id.as_bytes())
++-- // Hash reachable edges
+|   FOR edge IN reachable_edges:
+|       hasher.update(edge.id.as_bytes())
 |       hasher.update(edge.from.as_bytes())
 |       hasher.update(edge.to.as_bytes())
-|
-+-- // Hash attachments in canonical order
-|   FOR ((node, key), value) IN graph.attachments.iter():
-|       hasher.update(node.as_bytes())
-|       hasher.update(key.as_bytes())
-|       hasher.update(&value.len().to_le_bytes())
-|       hasher.update(value)
 |
 +-- hasher.finalize() → [u8; 32]
 \end{verbatim}
@@ -52,67 +50,68 @@ Why include lengths? Without length prefixes, \texttt{value = "ab"} followed by 
 \section{Commit Hash v2}
 
 \textbf{Entry Point:} \texttt{compute\_commit\_hash\_v2()} \\
-\textbf{File:} \texttt{crates/warp-core/src/hashing.rs:120-156}
+\textbf{File:} \texttt{crates/warp-core/src/snapshot.rs}
 
 \begin{lstlisting}[language=Rust]
 pub fn compute_commit_hash_v2(
     parents: &[Hash32],
     state_root: &Hash32,
     patch_digest: &Hash32,
-    schema_hash: &Hash32,
-    tick: u64,
-    policy_hash: &Hash32,
+    policy_id: &Hash32,
 ) -> Hash32 {
     let mut hasher = Blake3::new();
-    hasher.update(b"echo-commit-v2");  // Domain separator
+    // Version tag as 2u16 little-endian
+    hasher.update(&2u16.to_le_bytes());
 
-    // Parents (sorted for determinism)
-    let mut sorted_parents = parents.to_vec();
-    sorted_parents.sort();
-    hasher.update(&(sorted_parents.len() as u64).to_le_bytes());
-    for p in &sorted_parents {
+    // Parents length prefix + parents
+    hasher.update(&(parents.len() as u64).to_le_bytes());
+    for p in parents {
         hasher.update(p);
     }
 
     hasher.update(state_root);
     hasher.update(patch_digest);
-    hasher.update(schema_hash);
-    hasher.update(&tick.to_le_bytes());
-    hasher.update(policy_hash);
+    hasher.update(policy_id);
 
     hasher.finalize().into()
 }
 \end{lstlisting}
 
 \begin{watchout}
-The domain separator \texttt{b"echo-commit-v2"} is crucial. Without it, a commit hash could collide with a state root or patch digest that happens to have the same bytes. Domain separation is a cryptographic best practice.
-
-The \texttt{v2} suffix leaves room for future commit hash formats while maintaining backward compatibility.
+The version tag (\texttt{2u16.to\_le\_bytes()}) provides domain separation and versioning. This prevents hash collisions with other hash types and allows future format changes.
 \end{watchout}
 
 \section{Patch Digest}
 
-\textbf{Entry Point:} \texttt{compute\_patch\_digest()} \\
-\textbf{File:} \texttt{crates/warp-core/src/hashing.rs:95-115}
+\textbf{Entry Point:} \texttt{compute\_patch\_digest\_v2()} \\
+\textbf{File:} \texttt{crates/warp-core/src/snapshot.rs}
 
 \begin{verbatim}
-compute_patch_digest(delta: &TickDelta) → Hash32
+compute_patch_digest_v2(
+    policy_id: &Hash32,
+    rule_pack_id: &Hash32,
+    commit_status: CommitStatus,
+    in_slots: &[SlotValue],
+    out_slots: &[SlotValue],
+    ops: &[WarpOp],
+) → Hash32
 |
 +-- let mut hasher = Blake3::new()
-+-- hasher.update(b"echo-patch-v1")
++-- hasher.update(policy_id)
++-- hasher.update(rule_pack_id)
++-- hasher.update(&commit_status.to_bytes())
 |
-+-- FOR (op, origin) IN delta.ops.iter().zip(&delta.origins):
-    |
-    +-- hasher.update(&op.discriminant().to_le_bytes())
-    |   The operation type (create/delete/set/etc.)
-    |
-    +-- op.hash_payload(&mut hasher)
-    |   Operation-specific data
-    |
-    +-- hasher.update(&origin.to_bytes())
-        Who produced this op
++-- // Hash input/output slots
++-- hasher.update(&(in_slots.len() as u64).to_le_bytes())
++-- FOR slot IN in_slots: slot.hash_into(&mut hasher)
++-- hasher.update(&(out_slots.len() as u64).to_le_bytes())
++-- FOR slot IN out_slots: slot.hash_into(&mut hasher)
 |
-hasher.finalize()
++-- // Hash operations
++-- hasher.update(&(ops.len() as u64).to_le_bytes())
++-- FOR op IN ops: op.hash_into(&mut hasher)
+|
++-- hasher.finalize()
 \end{verbatim}
 
 \begin{commentary}

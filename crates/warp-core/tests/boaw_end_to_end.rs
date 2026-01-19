@@ -23,7 +23,6 @@ const TEST_TICK: u64 = 42;
 const SHUFFLE_ITERATIONS: usize = 20;
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
 fn boaw_end_to_end_is_deterministic_across_permutations_and_workers() {
     let h = boaw_harness();
     let scenario = BoawScenario::ManyIndependent;
@@ -78,7 +77,6 @@ fn boaw_end_to_end_is_deterministic_across_permutations_and_workers() {
 }
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
 fn boaw_small_scenario_serial_parallel_equivalence() {
     let h = boaw_harness();
     let scenario = BoawScenario::Small;
@@ -101,7 +99,6 @@ fn boaw_small_scenario_serial_parallel_equivalence() {
 }
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
 fn boaw_conflicts_scenario_deterministic_across_permutations() {
     let h = boaw_harness();
     let scenario = BoawScenario::ManyConflicts;

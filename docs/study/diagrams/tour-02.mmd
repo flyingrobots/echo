@@ -12,9 +12,13 @@ sequenceDiagram
     Engine->>Engine: apply() rules
     Engine->>Store: read via GraphView
     Engine->>Engine: compute footprints
-    Engine->>Engine: commit()
-    Engine->>Store: apply delta
-    Engine->>Engine: compute hashes
-    Engine->>Hub: emit snapshot/diff
+
+    rect rgb(240, 248, 255)
+        Note over Engine,Store: commit() internals
+        Engine->>Store: apply delta
+        Engine->>Engine: compute hashes
+        Engine->>Hub: emit snapshot/diff
+    end
+
     Hub->>Tool: WarpFrame
     Tool->>User: render new state

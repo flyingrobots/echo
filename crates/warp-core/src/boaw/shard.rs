@@ -44,6 +44,12 @@ use crate::NodeId;
 /// - Low overhead for small workloads
 pub const NUM_SHARDS: usize = 256;
 
+// Compile-time assertion: NUM_SHARDS must be a power of two for SHARD_MASK to work.
+const _: () = assert!(
+    NUM_SHARDS.is_power_of_two(),
+    "NUM_SHARDS must be a power of two"
+);
+
 const SHARD_MASK: u64 = (NUM_SHARDS - 1) as u64;
 
 /// Compute shard ID from a scope `NodeId`.

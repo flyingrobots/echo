@@ -91,9 +91,10 @@ Concatenate all thread-local ops. Sort canonically by \texttt{(op\_kind, object\
 Build next reachable-only snapshot from previous snapshot + merged ops. Compute:
 \begin{itemize}
     \item \texttt{state\_root} --- canonical hash of materialized reachable state
-    \item \texttt{patch\_digest} --- canonical hash of merged ops
-    \item \texttt{commit\_hash} = $H(\text{parents} \parallel \text{state\_root} \parallel \text{patch\_digest} \parallel \text{schema} \parallel \text{tick} \parallel \text{policy})$
+    \item \texttt{patch\_digest} --- canonical hash of merged ops (includes policy\_id, rule\_pack\_id, commit\_status, in/out slots, ops)
+    \item \texttt{commit\_hash} = $H(\text{version\_tag} \parallel \text{parents\_len} \parallel \text{parents} \parallel \text{state\_root} \parallel \text{patch\_digest} \parallel \text{policy\_id})$
 \end{itemize}
+See \texttt{compute\_commit\_hash\_v2()} for the authoritative implementation.
 
 \section{Free Money Invariance}
 

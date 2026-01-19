@@ -8,7 +8,8 @@
 \usepackage[letterpaper, margin=1in]{geometry}
 \usepackage{xcolor}
 \usepackage{amsmath,amssymb}
-\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+% Section numbering disabled: titles contain manual numeric prefixes for stable cross-references
+\setcounter{secnumdepth}{-\maxdimen}
 \usepackage{iftex}
 \ifPDFTeX
   \usepackage[T1]{fontenc}
@@ -20,9 +21,6 @@
   \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
 \fi
 \usepackage{lmodern}
-\ifPDFTeX\else
-  % xetex/luatex font selection
-\fi
 % Use upquote if available, for straight quotes in verbatim environments
 \IfFileExists{upquote.sty}{\usepackage{upquote}}{}
 \IfFileExists{microtype.sty}{% use microtype if available
@@ -80,7 +78,6 @@
 \usepackage{graphicx}
 \usepackage[export]{adjustbox}
 \usepackage{longtable,booktabs,array}
-\newcounter{none} % for unnumbered tables
 \usepackage{calc} % for calculating minipage widths
 % Correct order of tables after \paragraph or \subparagraph
 \usepackage{etoolbox}
@@ -100,13 +97,10 @@
   hidelinks,
   pdfcreator={LaTeX via pandoc}}
 
-\author{}
-\date{}
+\author{Echo Project Contributors}
+\date{2026-01-19}
 
 \begin{document}
-\frontmatter
-
-\mainmatter
 \chapter{Echo Visual Atlas}\label{echo-visual-atlas}
 
 \begin{quote}
@@ -120,7 +114,7 @@ diagrams complement the main guide ``What Makes Echo Tick?''
 Pipeline}\label{the-complete-tick-pipeline}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-01.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-06.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -129,7 +123,7 @@ Pipeline}\label{the-complete-tick-pipeline}
 Model}\label{boaw-parallel-execution-model}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-02.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-10.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -137,7 +131,7 @@ Model}\label{boaw-parallel-execution-model}
 \section{3. Virtual Shard Routing}\label{virtual-shard-routing}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-03.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-10.pdf}
 \end{center}
 
 \subsection{Test Vectors (Frozen
@@ -165,7 +159,7 @@ Input (first 8 bytes) & LE u64 & Shard \\
 Architecture}\label{two-plane-warp-architecture}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-04.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-03.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -174,7 +168,7 @@ Architecture}\label{two-plane-warp-architecture}
 Enforcement}\label{graphview-contract-enforcement}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-05.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-11.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -183,7 +177,7 @@ Enforcement}\label{graphview-contract-enforcement}
 Computation}\label{state-root-hash-computation}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-06.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-09.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -191,7 +185,7 @@ Computation}\label{state-root-hash-computation}
 \section{7. Commit Hash v2 Structure}\label{commit-hash-v2-structure}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-07.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-09.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -261,7 +255,7 @@ Computation}\label{state-root-hash-computation}
 Check}\label{footprint-independence-check}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-08.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-08.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -270,7 +264,7 @@ Check}\label{footprint-independence-check}
 Render}\label{complete-data-flow-intent-to-render}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-09.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-02.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -278,7 +272,7 @@ Render}\label{complete-data-flow-intent-to-render}
 \section{11. Viewer Event Loop}\label{viewer-event-loop}
 
 \begin{center}
-\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/echo-visual-atlas-10.pdf}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-15.pdf}
 \end{center}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
@@ -286,5 +280,4 @@ Render}\label{complete-data-flow-intent-to-render}
 \emph{Visual Atlas generated 2026-01-18. Use alongside ``What Makes Echo
 Tick?'' for complete understanding.}
 
-\backmatter
 \end{document}

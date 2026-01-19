@@ -4,8 +4,8 @@
 \chapter{Commit Orchestration}
 \label{chap:tour-commit}
 
-\textbf{Entry Point:} \texttt{Engine::commit()} \\
-\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:785-892}
+\textbf{Entry Point:} \texttt{Engine::commit\_with\_receipt()} \\
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs}
 
 \begin{bigpicture}
 Commit is the grand finale of each tick. All the pieces come together: scheduled rewrites execute in parallel, deltas merge canonically, hashes are computed, and the worldline advances. This is where determinism is proven or broken.
@@ -14,45 +14,43 @@ Commit is the grand finale of each tick. All the pieces come together: scheduled
 \section{Complete Call Trace}
 
 \begin{verbatim}
-Engine::commit(tx: TxId) → Result<CommitResult, EngineError>
+Engine::commit_with_receipt(tx: TxId) → Result<(Snapshot, Receipt, Patch), EngineError>
 |
-+-- // Phase 1: Drain and Schedule
-|   let drained = self.scheduler.drain()
-|   let admitted = self.scheduler.reserve(drained)
++-- // Phase 1: Drain and Reserve
+|   let drained = self.scheduler.drain_for_tx(tx)
+|   let reserved = self.scheduler.reserve_for_receipt(&drained)
 |
-+-- // Phase 2: BOAW Parallel Execution
++-- // Phase 2: Clone pre-state for delta tracking
+|   let pre_state = self.graph.clone()
+|
++-- // Phase 3: BOAW Parallel Execution
 |   let view = self.graph.view()
-|   let deltas = execute_parallel(view, &admitted, self.workers)
+|   let deltas = execute_parallel(view, &reserved, self.workers)
 |
-+-- // Phase 3: Merge Deltas
++-- // Phase 4: Merge Deltas + Build Patch
 |   let merged = merge_deltas(deltas)
+|   let patch = construct_delta_patch(&pre_state, &merged)
 |
-+-- // Phase 4: Apply to State
-|   self.graph.apply_delta(&merged)
++-- // Phase 5: Apply Reserved Rewrites
+|   self.apply_reserved_rewrites(&merged)
+|   self.materialization_bus.finalize()
 |
-+-- // Phase 5: Compute Hashes
-|   let state_root = compute_state_root(&self.graph)
-|   let patch_digest = compute_patch_digest(&merged)
++-- // Phase 6: Compute Hashes
+|   let state_root = compute_state_root(&self.graph, &self.root)
+|   let patch_digest = compute_patch_digest_v2(...)
 |   let commit_hash = compute_commit_hash_v2(
 |       &self.parents,
 |       &state_root,
 |       &patch_digest,
-|       &self.schema_hash,
-|       self.tick,
-|       &self.policy_hash,
+|       &self.policy_id,
 |   )
 |
-+-- // Phase 6: Finalize
++-- // Phase 7: Finalize
 |   self.tick += 1
 |   self.parents = vec![commit_hash]
 |   self.live_txs.remove(&tx.value())
 |
-+-- RETURN CommitResult {
-       commit_hash,
-       state_root,
-       patch_digest,
-       ops_applied: merged.ops.len(),
-   }
++-- RETURN (Snapshot { hash, state_root, ... }, Receipt, Patch)
 \end{verbatim}
 
 \begin{commentary}
@@ -80,9 +78,7 @@ The commit hash is a function of:
 \texttt{parents} & Previous commit(s)---usually one, multiple for merges \\
 \texttt{state\_root} & Hash of the entire graph state \\
 \texttt{patch\_digest} & Hash of the operations applied \\
-\texttt{schema\_hash} & Hash of the type/rule schema \\
-\texttt{tick} & Monotonic tick counter \\
-\texttt{policy\_hash} & Hash of active policies \\
+\texttt{policy\_id} & Policy identifier for this commit \\
 \bottomrule
 \end{tabular}
 

@@ -7,7 +7,7 @@
 \section{Begin Transaction}
 
 \textbf{Entry Point:} \texttt{Engine::begin()} \\
-\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:711-719}
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs}
 
 \begin{lstlisting}[language=Rust]
 pub fn begin(&mut self) -> TxId {
@@ -21,7 +21,7 @@ pub fn begin(&mut self) -> TxId {
 \end{lstlisting}
 
 \begin{watchout}
-\textbf{The Zero Invariant}: \texttt{TxId(0)} is reserved as an invalid/sentinel value. Without line 715's check, after $2^{64}$ transactions the counter would wrap to zero and confuse code that uses zero to mean ``no transaction.'' Defensive programming at its finest.
+\textbf{The Zero Invariant}: \texttt{TxId(0)} is reserved as an invalid/sentinel value. Without the \texttt{self.tx\_counter == 0} check, after $2^{64}$ transactions the counter would wrap to zero and confuse code that uses zero to mean ``no transaction.'' Defensive programming at its finest.
 \end{watchout}
 
 \begin{verbatim}
@@ -47,7 +47,7 @@ The \texttt{\#[repr(transparent)]} on \texttt{TxId} guarantees the same memory l
 \section{Abort Transaction}
 
 \textbf{Entry Point:} \texttt{Engine::abort()} \\
-\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:962-968}
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs}
 
 \begin{lstlisting}[language=Rust]
 pub fn abort(&mut self, tx: TxId) {

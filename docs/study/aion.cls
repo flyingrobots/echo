@@ -123,9 +123,13 @@
         \paperauthor \par}
         \vspace{4pt}
 
-        {\normalsize
-        \paperaffiliation \\
-        ORCID: \paperorcid \par}
+        % Only show affiliation/ORCID if defined
+        \ifx\paperaffiliation\empty\else
+        {\normalsize \paperaffiliation \par}
+        \fi
+        \ifx\paperorcid\empty\else
+        {\normalsize ORCID: \paperorcid \par}
+        \fi
 
         \vspace{10pt}
 
@@ -147,6 +151,7 @@
 
 % ------------------------------------------------------------
 % Table of Contents formatting
+% TODO: implement custom TOC styling if needed
 % ------------------------------------------------------------
 
 \endinput

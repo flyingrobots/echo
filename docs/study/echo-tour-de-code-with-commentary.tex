@@ -957,7 +957,7 @@ The hash map only grows---it's never shrunk. But since the same keys tend to be 
 \texttt{crates/warp-core/src/boaw/exec.rs:61-83}
 
 \begin{tourguide}
-BOAW---``Bag of Asynchronous Work''---is where Echo's determinism meets parallelism. The key insight: \emph{order of execution doesn't matter if we sort the outputs}. Rules execute in arbitrary order on worker threads, but their outputs are merged canonically.
+BOAW---``Best Of All Worlds''---is where Echo's determinism meets parallelism. The key insight: \emph{order of execution doesn't matter if we sort the outputs}. Rules execute in arbitrary order on worker threads, but their outputs are merged canonically.
 \end{tourguide}
 
 \subsection{5.1 Entry Point}\label{entry-point}

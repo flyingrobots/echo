@@ -52,6 +52,26 @@ pub mod math;
 pub mod wsc;
 
 mod attachment;
+/// BOAW (Best Of All Worlds) parallel execution module.
+///
+/// Provides both serial and parallel execution strategies for rewrite rules,
+/// with deterministic results guaranteed through canonical merge sorting.
+///
+/// # Key Types
+///
+/// - [`ExecItem`]: Encapsulates a single rewrite ready for execution
+/// - [`MergeConflict`]: Error type for footprint model violations
+///
+/// # Key Functions
+///
+/// - [`execute_serial`]: Baseline serial execution
+/// - [`execute_parallel`]: Parallel execution with shard partitioning
+/// - [`shard_of`]: Compute shard ID from a scope `NodeId`
+///
+/// # Determinism Guarantee
+///
+/// Execution order across workers is non-deterministic, but the final merged
+/// output is always canonical regardless of worker count or thread scheduling.
 pub mod boaw;
 mod cmd;
 mod constants;

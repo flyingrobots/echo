@@ -71,7 +71,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
                 intent_id: i as u64,
                 rule_id: 1,
                 match_ix: 0,
-                op_ix: 0, // Will be assigned by ScopedDelta
+                op_ix: 0,
             },
         })
         .collect()
@@ -108,9 +108,6 @@ fn parallel_equals_serial_basic() {
 
 #[test]
 fn worker_count_invariance() {
-    eprintln!("\n=== WORKER COUNT INVARIANCE TEST ===");
-    eprintln!("Testing worker counts: {:?}", WORKER_COUNTS);
-
     let (store, nodes) = make_test_store(20);
     let view = GraphView::new(&store);
     let items = make_exec_items(&nodes);
@@ -118,14 +115,11 @@ fn worker_count_invariance() {
     // Baseline with 1 worker
     let baseline_deltas = execute_parallel(view, &items, 1);
     let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
-    eprintln!("Baseline: {} ops from 1 worker", baseline_ops.len());
 
     // Test all worker counts
     for &workers in WORKER_COUNTS {
         let deltas = execute_parallel(view, &items, workers);
         let ops = merge_deltas(deltas).expect("merge failed");
-
-        eprintln!("  workers={:2} → {} ops ✓", workers, ops.len());
 
         assert_eq!(
             baseline_ops.len(),
@@ -137,7 +131,6 @@ fn worker_count_invariance() {
             assert_eq!(b, o, "op {i} differs for {workers} workers");
         }
     }
-    eprintln!("=== ALL WORKER COUNTS PASS ===\n");
 }
 
 #[test]
@@ -300,8 +293,6 @@ fn large_workload_worker_count_invariance() {
 /// If sharded and stride produce different results, we have a bug.
 #[test]
 fn sharded_equals_stride() {
-    eprintln!("\n=== SHARDED vs STRIDE EQUIVALENCE TEST ===");
-
     let (store, nodes) = make_test_store(50);
     let view = GraphView::new(&store);
     let items = make_exec_items(&nodes);
@@ -314,13 +305,6 @@ fn sharded_equals_stride() {
         // Sharded execution (Phase 6B)
         let sharded_deltas = execute_parallel_sharded(view, &items, workers);
         let sharded_ops = merge_deltas(sharded_deltas).expect("sharded merge failed");
-
-        eprintln!(
-            "  workers={:2} → stride={} ops, sharded={} ops",
-            workers,
-            stride_ops.len(),
-            sharded_ops.len()
-        );
 
         assert_eq!(
             stride_ops.len(),
@@ -339,7 +323,6 @@ fn sharded_equals_stride() {
             );
         }
     }
-    eprintln!("=== SHARDED EQUALS STRIDE: PASS ===\n");
 }
 
 /// Phase 6B: Sharded execution with permuted input still matches stride.
@@ -359,7 +342,7 @@ fn sharded_equals_stride_permuted() {
         for _ in 0..5 {
             shuffle(&mut rng, &mut items);
 
-            for &workers in &[1, 4, 8, 16] {
+            for &workers in WORKER_COUNTS {
                 // Sharded with permuted items
                 let sharded_deltas = execute_parallel_sharded(view, &items, workers);
                 let sharded_ops = merge_deltas(sharded_deltas).expect("merge failed");
@@ -443,9 +426,10 @@ fn sharded_distribution_is_deterministic() {
 
     // With 64 items spread across 256 shards, we expect sparse distribution
     let non_empty_shards: usize = shard_counts.iter().filter(|&&c| c > 0).count();
-    eprintln!(
-        "64 items distributed across {} non-empty shards (of {})",
-        non_empty_shards, NUM_SHARDS
+    // Sanity check: items should be distributed across multiple shards
+    assert!(
+        non_empty_shards > 1,
+        "items should be distributed across shards"
     );
 
     // Run sharded execution multiple times - should be deterministic

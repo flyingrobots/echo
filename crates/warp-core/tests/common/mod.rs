@@ -4,8 +4,8 @@
 
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, AtomPayload, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, EdgeRecord, Engine, EngineBuilder, Footprint, GraphStore,
-    Hash, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, WarpOp,
+    AttachmentValue, ConflictPolicy, EdgeId, EdgeRecord, Engine, EngineBuilder, Footprint,
+    GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, WarpId, WarpOp,
 };
 
 // =============================================================================
@@ -22,10 +22,18 @@ pub struct XorShift64 {
 }
 
 impl XorShift64 {
+    /// Creates a new PRNG with the given seed.
+    ///
+    /// If `seed` is 0, it is replaced with 1 (zero seeds would produce
+    /// all-zero output in xorshift).
     pub fn new(seed: u64) -> Self {
         Self { state: seed.max(1) }
     }
 
+    /// Returns the next pseudo-random `u64` in the xorshift64* sequence.
+    ///
+    /// The output is the internal state multiplied by the xorshift64*
+    /// constant after applying three shift-xor operations.
     pub fn next_u64(&mut self) -> u64 {
         // xorshift64*
         let mut x = self.state;
@@ -36,6 +44,10 @@ impl XorShift64 {
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
 
+    /// Returns a pseudo-random value in `[0, upper)`.
+    ///
+    /// Uses simple modulo reduction, which introduces slight bias when
+    /// `upper` is not a power of two. This is acceptable for test usage.
     pub fn gen_range_usize(&mut self, upper: usize) -> usize {
         if upper <= 1 {
             return 0;
@@ -50,6 +62,64 @@ pub fn shuffle<T>(rng: &mut XorShift64, items: &mut [T]) {
         let j = rng.gen_range_usize(i + 1);
         items.swap(i, j);
     }
+}
+
+/// Generate a random 32-byte hash from the RNG.
+///
+/// Fills each 8-byte chunk with `rng.next_u64()` bytes in little-endian order.
+pub fn random_hash(rng: &mut XorShift64) -> [u8; 32] {
+    let mut h = [0u8; 32];
+    for chunk in h.chunks_mut(8) {
+        let bytes = rng.next_u64().to_le_bytes();
+        chunk.copy_from_slice(&bytes[..chunk.len()]);
+    }
+    h
+}
+
+/// Generate a random footprint for testing independence checks.
+///
+/// Creates a [`Footprint`] with random nodes, edges, and attachments,
+/// using the provided RNG. Suitable for fuzz-like symmetry tests.
+pub fn random_footprint(rng: &mut XorShift64) -> Footprint {
+    let mut fp = Footprint::default();
+    let warp_id = WarpId([0u8; 32]); // Use a fixed WarpId for testing
+
+    // Add random nodes
+    for _ in 0..(rng.gen_range_usize(5)) {
+        let node_id = NodeId(random_hash(rng));
+        if rng.next_u64().is_multiple_of(2) {
+            fp.n_read.insert_node(&node_id);
+        } else {
+            fp.n_write.insert_node(&node_id);
+        }
+    }
+
+    // Add random edges
+    for _ in 0..(rng.gen_range_usize(3)) {
+        let edge_id = EdgeId(random_hash(rng));
+        if rng.next_u64().is_multiple_of(2) {
+            fp.e_read.insert_edge(&edge_id);
+        } else {
+            fp.e_write.insert_edge(&edge_id);
+        }
+    }
+
+    // Add random attachments
+    for _ in 0..(rng.gen_range_usize(3)) {
+        let node_id = NodeId(random_hash(rng));
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+        let key = AttachmentKey::node_alpha(node_key);
+        if rng.next_u64().is_multiple_of(2) {
+            fp.a_read.insert(key);
+        } else {
+            fp.a_write.insert(key);
+        }
+    }
+
+    fp
 }
 
 /// Useful seed set for determinism drills.
@@ -85,9 +155,13 @@ pub fn assert_hash_eq(a: &Hash32, b: &Hash32, msg: &str) {
 /// Results from BOAW execution that can be compared deterministically.
 #[derive(Clone)]
 pub struct BoawExecResult {
+    /// The BOAW commit identifier (hash of the commit).
     pub commit_hash: Hash32,
+    /// The resulting state root hash after execution.
     pub state_root: Hash32,
+    /// Digest of the produced patch (operations applied).
     pub patch_digest: Hash32,
+    /// Optional WebStateChange bytes for roundtrip verification.
     pub wsc_bytes: Option<Vec<u8>>,
 }
 
@@ -112,8 +186,11 @@ pub enum BoawScenario {
 
 /// Snapshot state for BOAW compliance tests.
 pub struct BoawSnapshot {
+    /// GraphStore holding the snapshot data.
     pub store: GraphStore,
+    /// NodeId for the scenario root node.
     pub root: NodeId,
+    /// BoawScenario describing the BOAW test setup.
     pub scenario: BoawScenario,
 }
 
@@ -512,9 +589,12 @@ impl BoawTestHarness for EngineHarness {
         // Begin transaction
         let tx = engine.begin();
 
-        // Apply each ingress item
+        // Apply each ingress item (NoMatch is expected for non-matching rules)
         for (rule_name, scope) in ingress {
-            let _ = engine.apply(tx, rule_name, scope);
+            match engine.apply(tx, rule_name, scope) {
+                Ok(_) => {}
+                Err(e) => panic!("unexpected error applying rule '{rule_name}': {e:?}"),
+            }
         }
 
         // Commit and get receipt
@@ -531,15 +611,16 @@ impl BoawTestHarness for EngineHarness {
         }
     }
 
+    #[allow(unused_variables)]
     fn execute_parallel(
         &self,
         base: &Self::Snapshot,
         ingress: &[Self::IngressItem],
         tick: u64,
-        _workers: usize,
+        workers: usize,
     ) -> BoawExecResult {
-        // Phase 2: parallel delegates to serial
-        // Phase 5: real parallel implementation
+        // TODO(PHASE-5): Implement multi-worker execution for test harness.
+        // Currently delegates to serial execution; workers param is ignored.
         self.execute_serial(base, ingress, tick)
     }
 

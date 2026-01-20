@@ -5,6 +5,22 @@
 
 ## Unreleased
 
+### Changed - API
+
+- **`WarpOpKey` now public** (`tick_patch.rs`): Export `WarpOpKey` from `warp_core` public API
+- **`WarpOp::sort_key()` now public**: Changed from `pub(crate)` to `pub` to enable external determinism verification
+
+### Fixed - PR #257 Review
+
+- **pre-commit hook**: Preserve stderr in prettier checks (changed `>/dev/null 2>&1` to `>/dev/null`) so errors are visible
+- **`boaw_end_to_end.rs`**: Added `state_root` and `patch_digest` checks to `boaw_small_scenario_serial_parallel_equivalence` for full hash parity
+- **`boaw_merge_tripwire.rs`**: Replaced brittle Debug string assertion with direct `WarpOpKey` comparison in `merge_conflict_reports_correct_key`
+- **`boaw_stress_multiwarp.rs`**: Corrected misleading "10k rewrites" description to "5k rewrites" (test only executed one warp)
+
+### Documentation - PR #257 Review
+
+- **OpenPortal placeholder tests** (`boaw_openportal_rules.rs`): Added `TODO(T7.1)` tracking comments to 4 ignored tests for discoverability
+
 ### Documentation - Agent Context System
 
 - **2-tier context system** (`AGENTS.md`): Documented Redis + knowledge graph handoff protocol

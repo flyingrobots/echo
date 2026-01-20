@@ -124,20 +124,22 @@ if [[ -x scripts/ensure_spdx.sh ]]; then
 fi
 
 # 9) Markdown formatting and linting for staged .md files
-MD_FILES=$(echo "$STAGED" | grep -E '\.md$' || true)
-if [[ -n "$MD_FILES" ]] && command -v npx >/dev/null 2>&1; then
+# Use -z and --diff-filter=ACMRT to exclude deletions and handle whitespace safely
+mapfile -d '' MD_FILES < <(git diff --cached --name-only -z --diff-filter=ACMRT -- '*.md')
+if [[ ${#MD_FILES[@]} -gt 0 ]] && command -v npx >/dev/null 2>&1; then
   echo "pre-commit: linting markdown files"
 
   # Auto-format with prettier if ECHO_AUTO_FMT is enabled (handles tables, etc.)
   case "${_auto_fmt}" in
     1|true|TRUE|yes|YES|on|ON)
-      # shellcheck disable=SC2086
-      if npx prettier --check $MD_FILES >/dev/null 2>&1; then
+      if npx prettier --check "${MD_FILES[@]}" >/dev/null 2>&1; then
         : # Already formatted
       else
         echo "pre-commit: running prettier on markdown files" >&2
-        # shellcheck disable=SC2086
-        npx prettier --write $MD_FILES >/dev/null 2>&1 || true
+        if ! npx prettier --write "${MD_FILES[@]}" >/dev/null 2>&1; then
+          echo "pre-commit: prettier failed" >&2
+          exit 1
+        fi
         echo "pre-commit: prettier updated markdown files. Aborting commit to preserve index integrity." >&2
         echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
         exit 1
@@ -145,8 +147,7 @@ if [[ -n "$MD_FILES" ]] && command -v npx >/dev/null 2>&1; then
       ;;
   esac
 
-  # shellcheck disable=SC2086
-  if ! npx markdownlint-cli2 $MD_FILES; then
+  if ! npx markdownlint-cli2 "${MD_FILES[@]}"; then
     echo "pre-commit: markdown lint failed. Run: npx markdownlint-cli2 --fix <files>" >&2
     exit 1
   fi

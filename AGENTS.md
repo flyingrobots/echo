@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo Agent Briefing
 
 Welcome to the **Echo** project. This file captures expectations for any LLM agent (and future-human collaborator) who touches the repo.
@@ -21,10 +22,10 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 
 Agents use a **2-tier context system** to maintain continuity across sessions:
 
-| Tier | Store | Purpose | Update Frequency |
-| ---- | ----- | ------- | ---------------- |
-| **Immediate** | Redis stream | Current task state, branch, blockers | Every significant action |
-| **Deep** | Knowledge graph | Architecture decisions, patterns, entities | When learning something reusable |
+| Tier          | Store           | Purpose                                    | Update Frequency                 |
+| ------------- | --------------- | ------------------------------------------ | -------------------------------- |
+| **Immediate** | Redis stream    | Current task state, branch, blockers       | Every significant action         |
+| **Deep**      | Knowledge graph | Architecture decisions, patterns, entities | When learning something reusable |
 
 ### Session Start (Bootstrap)
 
@@ -32,16 +33,16 @@ Agents use a **2-tier context system** to maintain continuity across sessions:
 
 2. **Check Redis handoff stream**: `echo:agent:handoff` (most recent entry)
 
-   ```text
-   XRANGE echo:agent:handoff - + COUNT 5
-   ```
+    ```text
+    XRANGE echo:agent:handoff - + COUNT 5
+    ```
 
 3. **Query knowledge graph** for relevant entities:
 
-   ```python
-   search_nodes("<feature_name>")  # e.g., "BOAW", "MaterializationBus"
-   search_nodes("Echo")            # General project context
-   ```
+    ```python
+    search_nodes("<feature_name>")  # e.g., "BOAW", "MaterializationBus"
+    search_nodes("Echo")            # General project context
+    ```
 
 ### During Work (Continuous Updates)
 
@@ -59,7 +60,7 @@ XADD echo:agent:handoff * \
   summary "Fixing determinism bug in view op emission" \
   current_task "Updating emit_view_op_delta_scoped()" \
   blockers "none" \
-  timestamp "2026-01-19T22:00:00-08:00"
+  timestamp "<ISO-8601 timestamp>"
 ```
 
 **Knowledge graph** — Create/update entities when you:
@@ -71,13 +72,13 @@ XADD echo:agent:handoff * \
 
 ```json
 {
-  "name": "BOAW_Determinism_Fix",
-  "entityType": "BugFix",
-  "observations": [
-    "Root cause: emit_view_op_delta() used delta.len() for view op IDs",
-    "delta.len() is worker-local and varies by shard claim order",
-    "Fix: derive op ID from intent scope (NodeId) which is content-addressed"
-  ]
+    "name": "BOAW_Determinism_Fix",
+    "entityType": "BugFix",
+    "observations": [
+        "Root cause: emit_view_op_delta() used delta.len() for view op IDs",
+        "delta.len() is worker-local and varies by shard claim order",
+        "Fix: derive op ID from intent scope (NodeId) which is content-addressed"
+    ]
 }
 ```
 
@@ -142,9 +143,9 @@ The 2-tier system means handoffs are seamless—no context is lost between agent
 ### PRs & Issues (Linkage Policy)
 
 - Every PR must be tied to a GitHub Issue.
-  - If no suitable issue exists, open one before you open the PR.
-  - Use explicit closing keywords in the PR body: include a line like `Closes #<issue-number>` so the issue auto‑closes on merge.
-  - Keep PRs single‑purpose: 1 PR = 1 thing. Avoid bundling unrelated changes.
+    - If no suitable issue exists, open one before you open the PR.
+    - Use explicit closing keywords in the PR body: include a line like `Closes #<issue-number>` so the issue auto‑closes on merge.
+    - Keep PRs single‑purpose: 1 PR = 1 thing. Avoid bundling unrelated changes.
 - Branch naming: prefer `echo/<short-feature-name>` or `timeline/<experiment>` and include the issue number in the PR title.
 - Project hygiene: assign the PR's linked issue to the correct Milestone and Board column (Blocked/Ready/Done) as part of the PR.
 
@@ -154,9 +155,9 @@ The 2-tier system means handoffs are seamless—no context is lost between agent
 - Formatting: pre-commit auto-fixes with `cargo fmt` by default. Set `ECHO_AUTO_FMT=0` to run check-only instead.
 - Toolchain: pre-commit verifies your active toolchain matches `rust-toolchain.toml`.
 - SPDX header policy (source): every source file must start with exactly:
-  - `// SPDX-License-Identifier: Apache-2.0`
-  - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
-  Use the repository scripts/hooks; do not add dual-license headers to code.
+    - `// SPDX-License-Identifier: Apache-2.0`
+    - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
+      Use the repository scripts/hooks; do not add dual-license headers to code.
 
 ## Git Real
 

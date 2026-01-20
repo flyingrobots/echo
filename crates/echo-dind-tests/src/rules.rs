@@ -178,13 +178,22 @@ pub fn drop_ball_rule() -> RewriteRule {
                 value: Some(AttachmentValue::Atom(atom)),
             });
         },
-        compute_footprint: |s, scope| {
-            let mut fp = footprint_for_state_node(s, scope, "ball");
-            fp.n_write.insert(NodeKey {
+        compute_footprint: |s, _scope| {
+            // Minimal footprint: executor only creates the ball node and its attachment.
+            // No sim/state hierarchy or edges are created by this rule.
+            let ball_key = NodeKey {
                 warp_id: s.warp_id(),
                 local_id: make_node_id("ball"),
-            });
-            fp
+            };
+            let mut n_write = NodeSet::default();
+            n_write.insert(ball_key);
+            let mut a_write = AttachmentSet::default();
+            a_write.insert(AttachmentKey::node_alpha(ball_key));
+            Footprint {
+                n_write,
+                a_write,
+                ..Default::default()
+            }
         },
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,

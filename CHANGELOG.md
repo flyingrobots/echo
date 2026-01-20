@@ -1,33 +1,57 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Changelog
 
 ## Unreleased
 
-### Added - Agent Context System
+### Documentation - Agent Context System
 
 - **2-tier context system** (`AGENTS.md`): Documented Redis + knowledge graph handoff protocol
-  - Session start: Bootstrap from `echo:agent:handoff` stream + `search_nodes()`
-  - During work: Continuous updates to Redis stream after significant actions
-  - Session end: Mandatory handoff entry with branch, status, next steps
-  - Entity naming conventions: `<Feature>_Architecture`, `<Feature>_Phase<N>`, `<Feature>_BugFix`
+    - Session start: Bootstrap from `echo:agent:handoff` stream + `search_nodes()`
+    - During work: Continuous updates to Redis stream after significant actions
+    - Session end: Mandatory handoff entry with branch, status, next steps
+    - Entity naming conventions: `<Feature>_Architecture`, `<Feature>_Phase<N>`, `<Feature>_BugFix`
 
 ### Fixed - Documentation
 
 - **rustdoc links**: Changed intra-doc links to private `default_worker_count()` to plain code spans
 - **determinism allowlist**: Added `engine_impl.rs` for `ECHO_WORKERS` env var (configuration, not runtime non-determinism)
 
-### Added - Phase 6B Engine Integration (ADR-0007)
+### Added - Phase 6B (ADR-0007)
+
+#### Virtual Shards
+
+- **`boaw/shard.rs`**: Virtual shard partitioning for cache locality
+    - `NUM_SHARDS = 256`: Protocol constant, frozen once shipped
+    - `shard_of(scope: &NodeId) -> usize`: Byte-stable routing (see ADR-0007 § 7.1)
+    - `partition_into_shards(items) -> Vec<VirtualShard>`: Distributes ExecItems by scope locality
+    - 5 hardcoded test vectors to prevent routing regression
+
+- **`execute_parallel_sharded()`** (`boaw/exec.rs`): Shard-based parallel execution
+    - Workers claim shards via `AtomicUsize` (lockless work-stealing)
+    - Items in same shard processed together for cache locality
+    - Worker count capped at `min(workers, NUM_SHARDS)` to prevent over-threading
+
+- **Stride fallback** (`boaw/exec.rs`): Feature-gated Phase 6A fallback
+    - Requires `parallel-stride-fallback` feature + `ECHO_PARALLEL_STRIDE=1` env var
+    - Prints loud ASCII warning banner when activated
+    - Temporary A/B benchmarking path; will be removed in a future release
+
+- **5 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
+    - `sharded_equals_stride`: Key correctness proof for 6A → 6B transition
+    - `sharded_equals_stride_permuted`: Permutation invariance with sharded execution
+    - `worker_count_capped_at_num_shards`: Verifies cap at 256 workers
+    - `sharded_distribution_is_deterministic`: Shard routing stability
+    - `default_parallel_uses_sharded`: Default path verification
+
+#### Engine Integration
 
 - **Engine parallel execution** (`engine_impl.rs`): `apply_reserved_rewrites()` now uses
   `execute_parallel_sharded()` for per-warp parallel execution
-  - Rewrites grouped by `warp_id`, parallelized within each warp
-  - Worker count configurable via `ECHO_WORKERS` env var or `EngineBuilder::workers(n)`
-  - Defaults to `available_parallelism().min(NUM_SHARDS)` (capped at 256)
-
-- **`emit_view_op_delta_scoped()`** (`echo-dind-tests/rules.rs`): Deterministic view op IDs
-  - Derives op ID from intent scope (NodeId) instead of `delta.len()`
-  - Fixes non-determinism bug under parallel execution
+    - Rewrites grouped by `warp_id`, parallelized within each warp
+    - Worker count configurable via `ECHO_WORKERS` env var or `EngineBuilder::workers(n)`
+    - Defaults to `available_parallelism().min(NUM_SHARDS)` (capped at 256)
 
 - **Warp-scoped footprints** (`echo-dind-tests/rules.rs`): Footprint helpers now use
   `NodeSet`/`EdgeSet` with explicit warp scoping via `insert_with_warp()`
@@ -35,48 +59,15 @@
 - **`WarpOpKey` warp distinction test** (`tick_patch.rs`): Verifies ops targeting same
   local node but different warps have distinct sort keys
 
-### Fixed - Phase 6B Engine Integration
-
-- **DIND determinism**: Regenerated all golden hash files with parallel execution
-- **View op ID collisions**: Fixed `emit_view_op_delta()` using worker-local `delta.len()`
-  which varied based on shard claim order under parallel execution
-
----
-
-### Added - Phase 6B: Virtual Shards (ADR-0007)
-
-- **`boaw/shard.rs`**: Virtual shard partitioning for cache locality
-  - `NUM_SHARDS = 256`: Protocol constant, frozen once shipped
-  - `shard_of(scope: &NodeId) -> usize`: Byte-stable routing via `LE_u64(node_id.as_bytes()[0..8]) & 0xFF`
-  - `partition_into_shards(items) -> Vec<VirtualShard>`: Distributes ExecItems by scope locality
-  - 5 hardcoded test vectors to prevent routing regression
-
-- **`execute_parallel_sharded()`** (`boaw/exec.rs`): Shard-based parallel execution
-  - Workers claim shards via `AtomicUsize` (lockless work-stealing)
-  - Items in same shard processed together for cache locality
-  - Worker count capped at `min(workers, NUM_SHARDS)` to prevent over-threading
-
-- **Stride fallback** (`boaw/exec.rs`): Feature-gated Phase 6A fallback
-  - Requires `parallel-stride-fallback` feature + `ECHO_PARALLEL_STRIDE=1` env var
-  - Prints loud ASCII warning banner when activated
-  - Kept for A/B benchmarking; delete after one release
-
-- **5 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
-  - `sharded_equals_stride`: Key correctness proof for 6A → 6B transition
-  - `sharded_equals_stride_permuted`: Permutation invariance with sharded execution
-  - `worker_count_capped_at_num_shards`: Verifies cap at 256 workers
-  - `sharded_distribution_is_deterministic`: Shard routing stability
-  - `default_parallel_uses_sharded`: Default path verification
-
 ### Architecture - Phase 6B
 
-- **Shard routing is frozen**: `LE_u64(node_id.as_bytes()[0..8]) & (NUM_SHARDS - 1)` — documented in ADR-0007 § 7.1
-- **NUM_SHARDS = 256**: Protocol constant, cannot change without version bump
-- **Merge is unchanged**: Canonical merge by `(WarpOpKey, OpOrigin)` still enforces determinism
-- **Engine integration complete**: `apply_reserved_rewrites()` uses `execute_parallel_sharded()` with per-warp parallelism
+- **Merge invariant**: Canonical merge by `(WarpOpKey, OpOrigin)` enforces determinism regardless of execution order
+- **Engine integration**: `apply_reserved_rewrites()` uses `execute_parallel_sharded()` with per-warp parallelism
 
 ### Fixed - Phase 6B
 
+- **DIND determinism**: Regenerated all golden hash files with parallel execution
+- **View op ID collisions** (`echo-dind-tests/rules.rs`): Fixed `emit_view_op_delta()` using worker-local `delta.len()` which varied based on shard claim order; created `emit_view_op_delta_scoped()` that derives op ID from intent scope (NodeId) for deterministic sequencing
 - Benchmarks: removed unseeded randomness from `scheduler_adversarial` by generating inputs via deterministic `warp_core::math::Prng` (no `rand::thread_rng()`).
 - `demo_rules::port_executor` now skips emitting `SetAttachment` when the canonical motion payload bytes do not change after update.
 - Docs: fixed `spec-warp-core.md` Stage B1 executor example to match the Phase 5 BOAW `ExecuteFn` signature and `TickDelta::push` API.
@@ -86,29 +77,29 @@
 ### Added - Phase 6A: Parallel Execution "FREE MONEY" (ADR-0007)
 
 - **`boaw` module** (`boaw/mod.rs`, `boaw/exec.rs`, `boaw/merge.rs`): Parallel execution with canonical merge
-  - `execute_serial()`: Baseline serial execution for determinism comparison
-  - `execute_parallel()`: Lockless stride-partitioned parallel execution across N workers
-  - `merge_deltas()`: Canonical merge sorting by `(WarpOpKey, OpOrigin)` with conflict detection
-  - `ExecItem`: Execution unit bundling executor, scope, and origin metadata
-  - `MergeConflict`: Error type for footprint violations (conflicts = bugs in Phase 6A)
+    - `execute_serial()`: Baseline serial execution for determinism comparison
+    - `execute_parallel()`: Lockless stride-partitioned parallel execution across N workers
+    - `merge_deltas()`: Canonical merge sorting by `(WarpOpKey, OpOrigin)` with conflict detection
+    - `ExecItem`: Execution unit bundling executor, scope, and origin metadata
+    - `MergeConflict`: Error type for footprint violations (conflicts = bugs in Phase 6A)
 
 - **`OpOrigin` enhanced** (`tick_delta.rs`):
-  - Added `op_ix: u32` field for per-rewrite sequential ordering
-  - Added `PartialOrd`, `Ord`, `Hash` derives for canonical sorting
-  - `ScopedDelta` now auto-increments `op_ix` on each `emit()` call
+    - Added `op_ix: u32` field for per-rewrite sequential ordering
+    - Added `PartialOrd`, `Ord`, `Hash` derives for canonical sorting
+    - `ScopedDelta` now auto-increments `op_ix` on each `emit()` call
 
 - **`TickDelta::into_parts_unsorted()`**: Returns `(Vec<WarpOp>, Vec<OpOrigin>)` for merge
 
 - **`WarpOp` derives** (`tick_patch.rs`): Added `PartialEq`, `Eq` for merge deduplication
 
 - **7 new determinism tests** (`tests/boaw_parallel_exec.rs`):
-  - `parallel_equals_serial_basic`: Serial and parallel produce identical merged results
-  - `worker_count_invariance`: Identical output across worker counts [1, 2, 4, 8, 16, 32]
-  - `permutation_invariance_under_parallelism`: Shuffled input × varied workers = same output
-  - `merge_dedupes_identical_ops`: Merge correctly deduplicates identical ops
-  - `empty_execution_produces_empty_result`: Edge case coverage
-  - `single_item_execution`: Edge case coverage
-  - `large_workload_worker_count_invariance`: 100 items × all worker counts
+    - `parallel_equals_serial_basic`: Serial and parallel produce identical merged results
+    - `worker_count_invariance`: Identical output across worker counts [1, 2, 4, 8, 16, 32]
+    - `permutation_invariance_under_parallelism`: Shuffled input × varied workers = same output
+    - `merge_dedupes_identical_ops`: Merge correctly deduplicates identical ops
+    - `empty_execution_produces_empty_result`: Edge case coverage
+    - `single_item_execution`: Edge case coverage
+    - `large_workload_worker_count_invariance`: 100 items × all worker counts
 
 ### Architecture - Phase 6A
 
@@ -122,9 +113,9 @@
 ### Added - Phase 5: Read-Only Execution (ADR-0007)
 
 - **`GraphView<'a>`** (`graph_view.rs`): Read-only wrapper for `GraphStore`
-  - Provides immutable access to nodes, edges, and state during execution
-  - Enforces the emit-only contract for executors
-  - Engine holds immutable store reference during tick execution
+    - Provides immutable access to nodes, edges, and state during execution
+    - Enforces the emit-only contract for executors
+    - Engine holds immutable store reference during tick execution
 
 ### Changed - Phase 5
 
@@ -145,10 +136,10 @@
 ### Added - Phase 4: SnapshotAccumulator (ADR-0007)
 
 - **`SnapshotAccumulator`** (`snapshot_accum.rs`): Columnar accumulator that builds WSC directly from `base + ops` without reconstructing GraphStore
-  - `from_warp_state()`: Captures immutable base state
-  - `apply_ops()`: Processes all 8 `WarpOp` variants
-  - `compute_state_root()`: Computes state hash directly from accumulator tables
-  - `build()`: Produces WSC bytes and state_root
+    - `from_warp_state()`: Captures immutable base state
+    - `apply_ops()`: Processes all 8 `WarpOp` variants
+    - `compute_state_root()`: Computes state hash directly from accumulator tables
+    - `build()`: Produces WSC bytes and state_root
 
 ### Changed - Phase 4
 
@@ -178,34 +169,34 @@
 ## 2026-01-17 — MaterializationBus Phase 3 Complete
 
 - Completed MaterializationBus Phase 3 implementation:
-  - FinalizeReport pattern: `finalize()` never fails, returns `{channels, errors}`
-  - Prevents silent data loss when one channel has StrictSingle conflict
-  - 7 new SPEC Police tests for conflict preservation
+    - FinalizeReport pattern: `finalize()` never fails, returns `{channels, errors}`
+    - Prevents silent data loss when one channel has StrictSingle conflict
+    - 7 new SPEC Police tests for conflict preservation
 - Added new modules to `warp-core/src/materialization`:
-  - `emission_port.rs` — Port abstraction for emission routing
-  - `reduce_op.rs` — Reduction operation definitions
-  - `scoped_emitter.rs` — Scoped emission context management
+    - `emission_port.rs` — Port abstraction for emission routing
+    - `reduce_op.rs` — Reduction operation definitions
+    - `scoped_emitter.rs` — Scoped emission context management
 - Added CI workflows:
-  - `determinism.yml` — PR-gated determinism tests
-  - `dind-cross-platform.yml` — Weekly cross-platform determinism proof (Linux x64/ARM64, Windows, macOS)
+    - `determinism.yml` — PR-gated determinism tests
+    - `dind-cross-platform.yml` — Weekly cross-platform determinism proof (Linux x64/ARM64, Windows, macOS)
 - Added tooling:
-  - `cargo xtask dind` command with `run`, `record`, `torture`, and `converge` subcommands
+    - `cargo xtask dind` command with `run`, `record`, `torture`, and `converge` subcommands
 - DIND mission 100% complete.
 
 - Added `codec` module to `echo-wasm-abi`:
-  - Deterministic binary codec (`Reader`/`Writer`) for length-prefixed LE scalars
-  - Q32.32 fixed-point helpers (`fx_from_i64`, `fx_from_f32`, `vec3_fx_from_*`)
-  - Overflow-safe conversions with saturation for out-of-range inputs
-  - `Encode`/`Decode` traits for composable serialization
+    - Deterministic binary codec (`Reader`/`Writer`) for length-prefixed LE scalars
+    - Q32.32 fixed-point helpers (`fx_from_i64`, `fx_from_f32`, `vec3_fx_from_*`)
+    - Overflow-safe conversions with saturation for out-of-range inputs
+    - `Encode`/`Decode` traits for composable serialization
 - Added `fixed` module to `warp-core`:
-  - `Fx32` scalar type for Q32.32 fixed-point arithmetic
-  - `Vec3Fx` 3D vector type with fixed-point components
-  - Overflow-safe constructors with range validation
+    - `Fx32` scalar type for Q32.32 fixed-point arithmetic
+    - `Vec3Fx` 3D vector type with fixed-point components
+    - Overflow-safe constructors with range validation
 - Added WSC (Write-Streaming Columnar) snapshot format to `warp-core`:
-  - Deterministic serialization of WARP graph state with zero-copy mmap deserialization
-  - 8-byte aligned columnar layout for SIMD-friendly access
-  - New modules: `wsc::{build, read, types, validate, view, write}`
-  - Uses `bytemuck` for safe Pod/Zeroable transmutation (no `unsafe` code)
+    - Deterministic serialization of WARP graph state with zero-copy mmap deserialization
+    - 8-byte aligned columnar layout for SIMD-friendly access
+    - New modules: `wsc::{build, read, types, validate, view, write}`
+    - Uses `bytemuck` for safe Pod/Zeroable transmutation (no `unsafe` code)
 - Upgraded canonical state hash from V1 (u32 counts) to V2 (u64 counts) for future-proofing.
 - Changed generated file convention from `generated/*.rs` to `*.generated.rs`.
 - Updated pre-push hook to exclude `*.generated.rs` files from `missing_docs` lint.

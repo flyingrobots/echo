@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # BOAW Tech Debt & Future Work
 
 **Last Updated:** 2026-01-19
@@ -12,12 +13,12 @@ related to the BOAW (Bag of Active Workers) parallel execution system.
 
 ## Priority Legend
 
-| Priority | Meaning | When to Address |
-| -------- | ------- | --------------- |
-| **P0** | Blocking / correctness risk | Before next release |
-| **P1** | High value / low effort | Next sprint |
-| **P2** | Medium value / medium effort | When convenient |
-| **P3** | Nice to have / exploratory | Backlog |
+| Priority | Meaning                      | When to Address     |
+| -------- | ---------------------------- | ------------------- |
+| **P0**   | Blocking / correctness risk  | Before next release |
+| **P1**   | High value / low effort      | Next sprint         |
+| **P2**   | Medium value / medium effort | When convenient     |
+| **P3**   | Nice to have / exploratory   | Backlog             |
 
 ---
 
@@ -173,15 +174,15 @@ standard sort is already well-optimized.
 **Issue:** The current implementation uses `format!` and string collection:
 
 ```rust
-let scope_hex: String = scope.0[..16].iter().map(|b| format!("{:02x}", b)).collect();
+let scope_hex: String = scope.0.iter().map(|b| format!("{:02x}", b)).collect();
 let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
 ```
 
 **Opportunity:** Use a fixed-size buffer and `write!` to avoid heap allocations:
 
 ```rust
-let mut buf = [0u8; 32];
-hex::encode_to_slice(&scope.0[..16], &mut buf).unwrap();
+let mut buf = [0u8; 64];
+hex::encode_to_slice(&scope.0, &mut buf).unwrap();
 let op_id = make_node_id_from_parts(b"sim/view/op:", &buf);
 ```
 
@@ -237,9 +238,9 @@ Defaults to `available_parallelism().min(NUM_SHARDS)`.
 
 | Priority | Count | Estimated Effort |
 | -------- | ----- | ---------------- |
-| P1 | 2 | ~2 hours |
-| P2 | 3 | ~2-4 days |
-| P3 | 4 | ~1-2 weeks |
+| P1       | 2     | ~2 hours         |
+| P2       | 3     | ~2-4 days        |
+| P3       | 4     | ~1-2 weeks       |
 
 **Recommendation:** Address P1 items in the next cleanup pass. P2 items should be
 data-driven (benchmark first, then optimize). P3 items are exploratory and should

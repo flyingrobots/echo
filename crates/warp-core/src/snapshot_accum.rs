@@ -380,10 +380,25 @@ impl SnapshotAccumulator {
     /// Compute reachability via BFS from the root node.
     ///
     /// Returns (`reachable_nodes`, `reachable_warps`).
+    ///
+    /// # Performance
+    ///
+    /// Builds a temporary adjacency index once at the start (O(E)), then performs
+    /// BFS with O(1) edge lookups per node. Total complexity: O(V + E) instead of O(V × E).
     fn compute_reachability(&self, root: &NodeKey) -> (BTreeSet<NodeKey>, BTreeSet<WarpId>) {
         let mut reachable_nodes: BTreeSet<NodeKey> = BTreeSet::new();
         let mut reachable_warps: BTreeSet<WarpId> = BTreeSet::new();
         let mut queue: VecDeque<NodeKey> = VecDeque::new();
+
+        // Build adjacency index: (warp_id, from_node) -> list of (edge_id, edge_parts)
+        // This avoids O(V×E) full-scan of self.edges for each BFS node.
+        let mut edges_from: BTreeMap<(WarpId, NodeId), Vec<&EdgeRowParts>> = BTreeMap::new();
+        for ((warp_id, _edge_id), edge) in &self.edges {
+            edges_from
+                .entry((*warp_id, edge.from))
+                .or_default()
+                .push(edge);
+        }
 
         // Seed with root
         reachable_nodes.insert(*root);
@@ -391,37 +406,35 @@ impl SnapshotAccumulator {
         queue.push_back(*root);
 
         while let Some(current) = queue.pop_front() {
-            // Follow edges from this node (within same instance)
-            for ((warp_id, _edge_id), edge) in &self.edges {
-                if *warp_id != current.warp_id || edge.from != current.local_id {
-                    continue;
-                }
+            // Follow edges from this node using the adjacency index
+            if let Some(outgoing_edges) = edges_from.get(&(current.warp_id, current.local_id)) {
+                for edge in outgoing_edges {
+                    let target = NodeKey {
+                        warp_id: current.warp_id,
+                        local_id: edge.to,
+                    };
+                    if reachable_nodes.insert(target) {
+                        queue.push_back(target);
+                    }
 
-                let target = NodeKey {
-                    warp_id: current.warp_id,
-                    local_id: edge.to,
-                };
-                if reachable_nodes.insert(target) {
-                    queue.push_back(target);
-                }
-
-                // Check edge attachment for Descend
-                let edge_att_key = AttachmentKey {
-                    owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
-                        warp_id: *warp_id,
-                        local_id: edge.edge_id,
-                    }),
-                    plane: AttachmentPlane::Beta,
-                };
-                if let Some(AttachmentValue::Descend(child_warp)) =
-                    self.edge_attachments.get(&edge_att_key)
-                {
-                    self.enqueue_descend(
-                        *child_warp,
-                        &mut reachable_warps,
-                        &mut reachable_nodes,
-                        &mut queue,
-                    );
+                    // Check edge attachment for Descend
+                    let edge_att_key = AttachmentKey {
+                        owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
+                            warp_id: current.warp_id,
+                            local_id: edge.edge_id,
+                        }),
+                        plane: AttachmentPlane::Beta,
+                    };
+                    if let Some(AttachmentValue::Descend(child_warp)) =
+                        self.edge_attachments.get(&edge_att_key)
+                    {
+                        self.enqueue_descend(
+                            *child_warp,
+                            &mut reachable_warps,
+                            &mut reachable_nodes,
+                            &mut queue,
+                        );
+                    }
                 }
             }
 
@@ -489,7 +502,6 @@ impl SnapshotAccumulator {
 
         // Collect edges for this instance (sorted by EdgeId)
         let mut edges: Vec<EdgeRow> = Vec::new();
-        let mut edge_id_to_ix: BTreeMap<EdgeId, usize> = BTreeMap::new();
 
         // Also build edges_from for out_index/out_edges
         let mut edges_from: BTreeMap<NodeId, Vec<(EdgeId, usize)>> = BTreeMap::new();
@@ -516,7 +528,6 @@ impl SnapshotAccumulator {
             }
 
             let edge_ix = edges.len();
-            edge_id_to_ix.insert(parts.edge_id, edge_ix);
             edges.push(EdgeRow {
                 edge_id: parts.edge_id.0,
                 from_node_id: parts.from.0,
@@ -587,23 +598,19 @@ impl SnapshotAccumulator {
             });
         }
 
-        // Build edge attachments (parallel to edges)
+        // Build edge attachments (parallel to edges vector, not self.edges)
+        // We iterate over `edges` to ensure:
+        // 1. Only reachable edges are considered (both endpoints in reachable_nodes)
+        // 2. The index order matches the edges vector order
         let mut edge_atts_index: Vec<Range> = Vec::with_capacity(edges.len());
         let mut edge_atts: Vec<AttRow> = Vec::new();
 
-        for (w, edge_id) in self.edges.keys() {
-            if *w != warp_id {
-                continue;
-            }
-            // Check if this edge is included (both endpoints reachable)
-            if !edge_id_to_ix.contains_key(edge_id) {
-                continue;
-            }
-
+        for edge_row in &edges {
+            let edge_id = EdgeId(edge_row.edge_id);
             let att_key = AttachmentKey {
                 owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
                     warp_id,
-                    local_id: *edge_id,
+                    local_id: edge_id,
                 }),
                 plane: AttachmentPlane::Beta,
             };
@@ -1224,5 +1231,121 @@ mod tests {
         assert!(!acc.instances.contains_key(&warp_id));
         assert!(acc.nodes.is_empty());
         assert!(acc.edges.is_empty());
+    }
+
+    #[test]
+    fn test_from_warp_state_roundtrip() {
+        // Build accumulator via ops, then verify state_root consistency
+        let warp_id = make_warp_id("roundtrip-test");
+        let root_id = make_node_id("root");
+        let child_id = make_node_id("child");
+        let edge_id = make_edge_id("root-to-child");
+        let root_key = NodeKey {
+            warp_id,
+            local_id: root_id,
+        };
+        let child_key = NodeKey {
+            warp_id,
+            local_id: child_id,
+        };
+
+        // Build initial accumulator
+        let mut acc1 = SnapshotAccumulator::new();
+        let ops = vec![
+            WarpOp::UpsertWarpInstance {
+                instance: WarpInstance {
+                    warp_id,
+                    root_node: root_id,
+                    parent: None,
+                },
+            },
+            WarpOp::UpsertNode {
+                node: root_key,
+                record: NodeRecord {
+                    ty: make_type_id("Root"),
+                },
+            },
+            WarpOp::UpsertNode {
+                node: child_key,
+                record: NodeRecord {
+                    ty: make_type_id("Child"),
+                },
+            },
+            WarpOp::UpsertEdge {
+                warp_id,
+                record: EdgeRecord {
+                    id: edge_id,
+                    from: root_id,
+                    to: child_id,
+                    ty: make_type_id("Link"),
+                },
+            },
+        ];
+        acc1.apply_ops(ops.clone());
+
+        // Build second accumulator with same ops
+        let mut acc2 = SnapshotAccumulator::new();
+        acc2.apply_ops(ops);
+
+        // Verify both have identical structure
+        assert_eq!(acc1.instances.len(), acc2.instances.len());
+        assert_eq!(acc1.nodes.len(), acc2.nodes.len());
+        assert_eq!(acc1.edges.len(), acc2.edges.len());
+
+        // Verify state_roots match
+        let schema_hash = [0xEEu8; 32];
+        let tick = 1;
+        let out1 = acc1.build(&root_key, schema_hash, tick);
+        let out2 = acc2.build(&root_key, schema_hash, tick);
+        assert_eq!(
+            out1.state_root, out2.state_root,
+            "identical ops must produce identical state_root"
+        );
+    }
+
+    #[test]
+    fn test_build_idempotence() {
+        // Calling build() multiple times should produce identical state_root
+        let warp_id = make_warp_id("idempotence-test");
+        let root_id = make_node_id("root");
+        let root_key = NodeKey {
+            warp_id,
+            local_id: root_id,
+        };
+
+        let mut acc = SnapshotAccumulator::new();
+        acc.apply_ops(vec![
+            WarpOp::UpsertWarpInstance {
+                instance: WarpInstance {
+                    warp_id,
+                    root_node: root_id,
+                    parent: None,
+                },
+            },
+            WarpOp::UpsertNode {
+                node: root_key,
+                record: NodeRecord {
+                    ty: make_type_id("Root"),
+                },
+            },
+        ]);
+
+        let schema_hash = [0xCDu8; 32];
+        let tick = 100;
+
+        // Build multiple times
+        let output1 = acc.build(&root_key, schema_hash, tick);
+        let output2 = acc.build(&root_key, schema_hash, tick);
+        let output3 = acc.build(&root_key, schema_hash, tick);
+
+        // All state_roots must be identical
+        assert_eq!(
+            output1.state_root, output2.state_root,
+            "build() must be idempotent"
+        );
+        assert_eq!(
+            output2.state_root, output3.state_root,
+            "build() must be idempotent"
+        );
     }
 }

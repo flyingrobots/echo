@@ -7,8 +7,9 @@ use crate::type_ids::*;
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, AtomPayload, AtomView, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, EdgeRecord, Footprint, GraphStore, GraphView, Hash, IdSet,
-    NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, TickDelta, TypeId, WarpId, WarpOp,
+    AttachmentValue, ConflictPolicy, EdgeRecord, EdgeSet, Footprint, GraphStore, GraphView, Hash,
+    NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, RewriteRule, TickDelta, TypeId, WarpId,
+    WarpOp,
 };
 
 const TYPE_VIEW_OP: &str = "sys/view/op";
@@ -123,13 +124,15 @@ pub fn toast_rule() -> RewriteRule {
             if let Some(args) =
                 decode_op_args::<ops::toast::Args>(s, scope, ops::toast::decode_vars)
             {
-                let op_ix = delta.len(); // Deterministic per-op sequence
-                emit_view_op_delta(
+                // Use intent scope (NodeId) for deterministic view op sequencing.
+                // This ensures the same intent always produces the same view op ID,
+                // regardless of parallel execution order.
+                emit_view_op_delta_scoped(
                     s.warp_id(),
                     delta,
                     TYPEID_VIEW_OP_SHOWTOAST,
                     args.message.as_bytes(),
-                    op_ix,
+                    scope,
                 );
             }
         },
@@ -177,7 +180,10 @@ pub fn drop_ball_rule() -> RewriteRule {
         },
         compute_footprint: |s, scope| {
             let mut fp = footprint_for_state_node(s, scope, "ball");
-            fp.n_write.insert_node(&make_node_id("ball"));
+            fp.n_write.insert(NodeKey {
+                warp_id: s.warp_id(),
+                local_id: make_node_id("ball"),
+            });
             fp
         },
         factor_mask: 0,
@@ -325,15 +331,16 @@ pub fn footprint_for_state_node(
     scope: &NodeId,
     state_node_path: &str,
 ) -> Footprint {
-    let mut n_read = IdSet::default();
-    let mut n_write = IdSet::default();
-    let mut e_write = IdSet::default();
+    let warp_id = view.warp_id();
+    let mut n_read = NodeSet::default();
+    let mut n_write = NodeSet::default();
+    let mut e_write = EdgeSet::default();
     let mut a_read = AttachmentSet::default();
     let mut a_write = AttachmentSet::default();
 
-    n_read.insert_node(scope);
+    n_read.insert_with_warp(warp_id, *scope);
     a_read.insert(AttachmentKey::node_alpha(NodeKey {
-        warp_id: view.warp_id(),
+        warp_id,
         local_id: *scope,
     }));
 
@@ -341,15 +348,15 @@ pub fn footprint_for_state_node(
     let sim_state_id = make_node_id("sim/state");
     let target_id = make_node_id(state_node_path);
 
-    n_write.insert_node(&sim_id);
-    n_write.insert_node(&sim_state_id);
-    n_write.insert_node(&target_id);
+    n_write.insert_with_warp(warp_id, sim_id);
+    n_write.insert_with_warp(warp_id, sim_state_id);
+    n_write.insert_with_warp(warp_id, target_id);
 
-    e_write.insert_edge(&make_edge_id("edge:sim/state"));
-    e_write.insert_edge(&make_edge_id(&format!("edge:{state_node_path}")));
+    e_write.insert_with_warp(warp_id, make_edge_id("edge:sim/state"));
+    e_write.insert_with_warp(warp_id, make_edge_id(&format!("edge:{state_node_path}")));
 
     a_write.insert(AttachmentKey::node_alpha(NodeKey {
-        warp_id: view.warp_id(),
+        warp_id,
         local_id: target_id,
     }));
 
@@ -516,10 +523,71 @@ fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
     });
 }
 
+/// Emit ops for a view operation with scope-derived deterministic sequencing.
+///
+/// Uses the triggering intent's scope (NodeId) to derive a unique view op ID.
+/// This ensures determinism under parallel execution since the same intent
+/// always produces the same view op ID regardless of worker assignment.
+fn emit_view_op_delta_scoped(
+    warp_id: WarpId,
+    delta: &mut TickDelta,
+    type_id: TypeId,
+    payload: &[u8],
+    scope: &NodeId,
+) {
+    let view_id = make_node_id("sim/view");
+    delta.push(WarpOp::UpsertNode {
+        node: NodeKey {
+            warp_id,
+            local_id: view_id,
+        },
+        record: NodeRecord {
+            ty: make_type_id("sim/view"),
+        },
+    });
+    // Derive view op ID from the intent's scope (NodeId) for deterministic sequencing.
+    // The scope is content-addressed and unique per intent, ensuring no collisions.
+    // Use first 16 bytes of scope as hex for a compact, collision-resistant identifier.
+    let scope_hex: String = scope.0[..16].iter().map(|b| format!("{:02x}", b)).collect();
+    let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
+    let edge_id = make_edge_id(&format!("edge:view/op:{}", scope_hex));
+    delta.push(WarpOp::UpsertNode {
+        node: NodeKey {
+            warp_id,
+            local_id: op_id,
+        },
+        record: NodeRecord {
+            ty: make_type_id(TYPE_VIEW_OP),
+        },
+    });
+    delta.push(WarpOp::UpsertEdge {
+        warp_id,
+        record: EdgeRecord {
+            id: edge_id,
+            from: view_id,
+            to: op_id,
+            ty: make_type_id("edge:view/op"),
+        },
+    });
+    delta.push(WarpOp::SetAttachment {
+        key: AttachmentKey::node_alpha(NodeKey {
+            warp_id,
+            local_id: op_id,
+        }),
+        value: Some(AttachmentValue::Atom(AtomPayload::new(
+            type_id,
+            bytes::Bytes::copy_from_slice(payload),
+        ))),
+    });
+}
+
 /// Emit ops for a view operation.
 ///
 /// The `op_ix` parameter provides a deterministic per-op sequence to avoid ID collisions.
 /// Callers should pass `delta.len()` to get a unique index for each op in the tick.
+///
+/// **DEPRECATED**: Use [`emit_view_op_delta_scoped`] instead for parallel-safe determinism.
+#[allow(dead_code)]
 fn emit_view_op_delta(
     warp_id: WarpId,
     delta: &mut TickDelta,

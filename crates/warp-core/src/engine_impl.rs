@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Core rewrite engine implementation.
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
+#[cfg(any(test, feature = "delta_validate"))]
+use crate::boaw::merge_deltas;
+use crate::boaw::{execute_parallel_sharded, ExecItem, NUM_SHARDS};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::ident::{
@@ -20,6 +23,7 @@ use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
 use crate::telemetry::{NullTelemetrySink, TelemetrySink};
+use crate::tick_delta::OpOrigin;
 use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
@@ -111,6 +115,30 @@ pub struct ExistingState {
     root: NodeKey,
 }
 
+/// Returns the default worker count for parallel execution.
+///
+/// Precedence:
+/// 1. `ECHO_WORKERS` environment variable (if set and valid)
+/// 2. `available_parallelism().min(NUM_SHARDS)` (capped at shard count)
+///
+/// # Environment Variable
+///
+/// Set `ECHO_WORKERS=N` to override the default. Useful for:
+/// - CI environments (deterministic worker count)
+/// - Debugging (force serial with `ECHO_WORKERS=1`)
+/// - Benchmarking (compare different parallelism levels)
+fn default_worker_count() -> usize {
+    if let Ok(val) = std::env::var("ECHO_WORKERS") {
+        if let Ok(n) = val.parse::<usize>() {
+            return n.max(1);
+        }
+    }
+    std::thread::available_parallelism()
+        .map(std::num::NonZero::get)
+        .unwrap_or(1)
+        .min(NUM_SHARDS)
+}
+
 /// Fluent builder for constructing [`Engine`] instances.
 ///
 /// Use [`EngineBuilder::new`] to start from a fresh [`GraphStore`], or
@@ -158,6 +186,7 @@ pub struct EngineBuilder<Source> {
     source: Source,
     scheduler: SchedulerKind,
     policy_id: u32,
+    worker_count: usize,
     telemetry: Option<Arc<dyn TelemetrySink>>,
     bus: Option<MaterializationBus>,
 }
@@ -168,6 +197,7 @@ impl EngineBuilder<FreshStore> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Worker count: [`default_worker_count()`] (env `ECHO_WORKERS` or `available_parallelism`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn new(store: GraphStore, root: NodeId) -> Self {
@@ -175,6 +205,7 @@ impl EngineBuilder<FreshStore> {
             source: FreshStore { store, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            worker_count: default_worker_count(),
             telemetry: None,
             bus: None,
         }
@@ -187,13 +218,14 @@ impl EngineBuilder<FreshStore> {
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
         let bus = self.bus.unwrap_or_default();
-        Engine::with_telemetry_and_bus(
+        Engine::with_telemetry_bus_and_workers(
             self.source.store,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
             bus,
+            self.worker_count,
         )
     }
 }
@@ -204,6 +236,7 @@ impl EngineBuilder<ExistingState> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Worker count: [`default_worker_count()`] (env `ECHO_WORKERS` or `available_parallelism`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn from_state(state: WarpState, root: NodeKey) -> Self {
@@ -211,6 +244,7 @@ impl EngineBuilder<ExistingState> {
             source: ExistingState { state, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            worker_count: default_worker_count(),
             telemetry: None,
             bus: None,
         }
@@ -227,13 +261,14 @@ impl EngineBuilder<ExistingState> {
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
         let bus = self.bus.unwrap_or_default();
-        Engine::with_state_telemetry_and_bus(
+        Engine::with_state_telemetry_bus_and_workers(
             self.source.state,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
             bus,
+            self.worker_count,
         )
     }
 }
@@ -252,6 +287,21 @@ impl<S> EngineBuilder<S> {
     #[must_use]
     pub fn policy_id(mut self, id: u32) -> Self {
         self.policy_id = id;
+        self
+    }
+
+    /// Sets the worker count for parallel execution.
+    ///
+    /// Default: [`default_worker_count()`] (env `ECHO_WORKERS` or `available_parallelism`).
+    ///
+    /// # Notes
+    ///
+    /// - Workers are capped at `NUM_SHARDS` (256) internally
+    /// - Values less than 1 are treated as 1
+    /// - Use `ECHO_WORKERS=1` environment variable to force serial execution for debugging
+    #[must_use]
+    pub fn workers(mut self, n: usize) -> Self {
+        self.worker_count = n.max(1);
         self
     }
 
@@ -362,6 +412,11 @@ pub struct Engine {
     /// This is part of the deterministic boundary. Callers select it explicitly
     /// via constructors like [`Engine::with_policy_id`].
     policy_id: u32,
+    /// Worker count for parallel execution.
+    ///
+    /// Capped at `NUM_SHARDS` internally. Use [`EngineBuilder::workers`] to override
+    /// the default (which respects `ECHO_WORKERS` env var).
+    worker_count: usize,
     tx_counter: u64,
     live_txs: HashSet<u64>,
     current_root: NodeKey,
@@ -475,7 +530,8 @@ impl Engine {
 
     /// Constructs a new engine with explicit telemetry sink and materialization bus.
     ///
-    /// This is the canonical constructor; all other constructors delegate here.
+    /// This constructor delegates to [`Engine::with_telemetry_bus_and_workers`] with
+    /// the default worker count.
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
@@ -493,6 +549,40 @@ impl Engine {
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
         bus: MaterializationBus,
+    ) -> Self {
+        Self::with_telemetry_bus_and_workers(
+            store,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            bus,
+            default_worker_count(),
+        )
+    }
+
+    /// Constructs a new engine with explicit telemetry sink, materialization bus, and worker count.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    /// - `worker_count`: Number of workers for parallel execution (capped at `NUM_SHARDS`).
+    pub fn with_telemetry_bus_and_workers(
+        store: GraphStore,
+        root: NodeId,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
+        worker_count: usize,
     ) -> Self {
         // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
         // Any pre-existing `warp_id` on the store is overwritten.
@@ -518,6 +608,7 @@ impl Engine {
             rules_by_compact: HashMap::new(),
             scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
+            worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
             live_txs: HashSet::new(),
             current_root: NodeKey {
@@ -613,8 +704,8 @@ impl Engine {
 
     /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry and bus.
     ///
-    /// This is the canonical constructor for existing state; [`Engine::with_state`] and
-    /// [`Engine::with_state_and_telemetry`] delegate here.
+    /// This constructor delegates to [`Engine::with_state_telemetry_bus_and_workers`] with
+    /// the default worker count.
     ///
     /// # Parameters
     /// - `state`: Pre-constructed multi-instance state.
@@ -636,6 +727,45 @@ impl Engine {
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
         bus: MaterializationBus,
+    ) -> Result<Self, EngineError> {
+        Self::with_state_telemetry_bus_and_workers(
+            state,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            bus,
+            default_worker_count(),
+        )
+    }
+
+    /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry, bus, and worker count.
+    ///
+    /// This is the canonical constructor for existing state; [`Engine::with_state`] and
+    /// [`Engine::with_state_and_telemetry`] delegate here.
+    ///
+    /// # Parameters
+    /// - `state`: Pre-constructed multi-instance state.
+    /// - `root`: The root node for snapshot hashing and commits.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    /// - `worker_count`: Number of workers for parallel execution (capped at `NUM_SHARDS`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp ID is not present in the state.
+    /// Returns [`EngineError::InternalCorruption`] if the root instance declares a parent
+    /// or if the root node does not match the instance's `root_node`.
+    pub fn with_state_telemetry_bus_and_workers(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
+        worker_count: usize,
     ) -> Result<Self, EngineError> {
         let Some(root_instance) = state.instance(&root.warp_id) else {
             return Err(EngineError::UnknownWarp(root.warp_id));
@@ -664,6 +794,7 @@ impl Engine {
             rules_by_compact: HashMap::new(),
             scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
+            worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
             live_txs: HashSet::new(),
             current_root: root,
@@ -1049,9 +1180,15 @@ impl Engine {
     ) -> Result<Vec<WarpOp>, EngineError> {
         use crate::tick_patch::WarpTickPatchV1;
 
-        // Phase 5 BOAW: executors read from immutable GraphView and emit ops to delta.
-        // After all executors have run, we apply the delta to the state.
-        let mut delta = TickDelta::new();
+        // Defensive guardrail: clamp workers to valid range
+        let workers = self.worker_count.clamp(1, NUM_SHARDS);
+
+        // Phase 6 BOAW: Group by warp_id and execute in parallel per warp.
+        // BTreeMap ensures deterministic iteration order (WarpId: Ord from [u8; 32]).
+
+        // 1. Pre-validate all rewrites and group by warp_id
+        let mut by_warp: BTreeMap<WarpId, Vec<(PendingRewrite, crate::rule::ExecuteFn)>> =
+            BTreeMap::new();
         for rewrite in rewrites {
             let id = rewrite.compact_rule;
             let executor = {
@@ -1063,22 +1200,90 @@ impl Engine {
                 };
                 rule.executor
             };
-            let Some(store) = self.state.store(&rewrite.scope.warp_id) else {
+            // Validate store exists for this warp
+            if self.state.store(&rewrite.scope.warp_id).is_none() {
                 debug_assert!(
                     false,
                     "missing store for warp id: {:?}",
                     rewrite.scope.warp_id
                 );
                 return Err(EngineError::UnknownWarp(rewrite.scope.warp_id));
-            };
-            let view = GraphView::new(store);
-            (executor)(view, &rewrite.scope.local_id, &mut delta);
+            }
+            by_warp
+                .entry(rewrite.scope.warp_id)
+                .or_default()
+                .push((rewrite, executor));
         }
 
-        // Finalize the delta (sorts ops into canonical order)
-        let ops = delta.finalize();
+        // 2. Execute per-warp in deterministic order, collect deltas
+        let mut all_deltas: Vec<TickDelta> = Vec::new();
+        for (warp_id, warp_rewrites) in by_warp {
+            // Borrow the store for this warp - validated to exist above
+            let Some(store) = self.state.store(&warp_id) else {
+                return Err(EngineError::UnknownWarp(warp_id));
+            };
+            let view = GraphView::new(store);
 
-        // Apply the collected ops to the state
+            // Convert PendingRewrites to ExecItems
+            let items: Vec<ExecItem> = warp_rewrites
+                .into_iter()
+                .map(|(rw, exec)| ExecItem {
+                    exec,
+                    scope: rw.scope.local_id,
+                    origin: OpOrigin::default(),
+                })
+                .collect();
+
+            // Execute in parallel, collect deltas
+            let deltas = execute_parallel_sharded(view, &items, workers);
+            all_deltas.extend(deltas);
+        }
+        // view borrows end here - no borrow held across warps
+
+        // 3. Merge deltas - use merge_deltas for conflict detection under delta_validate
+        #[cfg(any(test, feature = "delta_validate"))]
+        let ops = {
+            merge_deltas(all_deltas).map_err(|conflict| {
+                debug_assert!(false, "merge conflict: {conflict:?}");
+                EngineError::InternalCorruption("apply_reserved_rewrites: merge conflict")
+            })?
+        };
+
+        #[cfg(not(any(test, feature = "delta_validate")))]
+        let ops = {
+            // Without delta_validate, flatten and sort by sort_key for determinism.
+            // Ops with the same sort_key are deduplicated (footprint ensures they're identical).
+            let mut flat: Vec<_> = all_deltas
+                .into_iter()
+                .flat_map(TickDelta::into_ops_unsorted)
+                .map(|op| (op.sort_key(), op))
+                .collect();
+
+            // Sort by sort_key for canonical order.
+            // Use unstable sort for efficiency; equal keys become consecutive for dedup.
+            // Unstable sort doesn't preserve input order for equal elements, but since
+            // we deduplicate afterwards and the footprint invariant guarantees identical
+            // content for ops with the same key, the final output is deterministic.
+            flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+            // Dedupe by sort_key. By footprint invariant, ops with same key are identical.
+            // We verify this in debug builds to catch invariant violations early.
+            flat.dedup_by(|a, b| {
+                if a.0 == b.0 {
+                    debug_assert_eq!(
+                        a.1, b.1,
+                        "footprint invariant violated: ops with same sort_key differ"
+                    );
+                    true
+                } else {
+                    false
+                }
+            });
+
+            flat.into_iter().map(|(_, op)| op).collect::<Vec<_>>()
+        };
+
+        // 4. Apply the merged ops to the state
         let patch = WarpTickPatchV1::new(
             self.policy_id,
             self.compute_rule_pack_id(),

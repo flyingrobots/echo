@@ -616,16 +616,45 @@ impl BoawTestHarness for EngineHarness {
         &self,
         base: &Self::Snapshot,
         ingress: &[Self::IngressItem],
-        tick: u64,
+        _tick: u64,
         workers: usize,
     ) -> BoawExecResult {
-        // TODO(PHASE-5): Implement multi-worker execution for test harness.
-        // Currently delegates to serial execution.
-        debug_assert_eq!(
-            workers, 1,
-            "execute_parallel called with workers != 1, but multi-worker not yet implemented"
-        );
-        self.execute_serial(base, ingress, tick)
+        // Clone the base store
+        let store = base.store.clone();
+
+        // Create Engine with specified worker count via EngineBuilder
+        let mut engine = EngineBuilder::new(store, base.root)
+            .workers(workers)
+            .build();
+
+        // Register the "boaw/touch" rule
+        engine
+            .register_rule(make_boaw_touch_rule())
+            .expect("failed to register boaw/touch rule");
+
+        // Begin transaction
+        let tx = engine.begin();
+
+        // Apply each ingress item (NoMatch is expected for non-matching rules)
+        for (rule_name, scope) in ingress {
+            match engine.apply(tx, rule_name, scope) {
+                Ok(_) => {}
+                Err(e) => panic!("unexpected error applying rule '{rule_name}': {e:?}"),
+            }
+        }
+
+        // Commit and get receipt
+        let (snapshot, _receipt, _patch) = engine
+            .commit_with_receipt(tx)
+            .expect("commit_with_receipt failed");
+
+        BoawExecResult {
+            commit_hash: snapshot.hash,
+            state_root: snapshot.state_root,
+            patch_digest: snapshot.patch_digest,
+            // Phase 2: WSC bytes
+            wsc_bytes: None,
+        }
     }
 
     fn wsc_roundtrip_state_root(&self, _wsc: &[u8]) -> Hash32 {

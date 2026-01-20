@@ -1701,4 +1701,51 @@ mod tests {
             Err(TickPatchError::PortalInvariantViolation)
         ));
     }
+
+    #[test]
+    fn warp_op_key_distinguishes_by_warp() {
+        use std::collections::BTreeSet;
+
+        let warp_a = make_warp_id("warp-a");
+        let warp_b = make_warp_id("warp-b");
+        let same_node = make_node_id("same-node");
+
+        // Create two UpsertNode ops targeting the same local node but different warps
+        let op_a = WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id: warp_a,
+                local_id: same_node,
+            },
+            record: NodeRecord {
+                ty: make_type_id("test"),
+            },
+        };
+        let op_b = WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id: warp_b,
+                local_id: same_node,
+            },
+            record: NodeRecord {
+                ty: make_type_id("test"),
+            },
+        };
+
+        let key_a = op_a.sort_key();
+        let key_b = op_b.sort_key();
+
+        // Keys must be distinct
+        assert_ne!(key_a, key_b, "WarpOpKey must distinguish different warps");
+
+        // Keys must have total order
+        assert!(
+            key_a < key_b || key_b < key_a,
+            "WarpOpKey must have total order"
+        );
+
+        // No collision in sets
+        let mut set = BTreeSet::new();
+        set.insert(key_a);
+        set.insert(key_b);
+        assert_eq!(set.len(), 2, "WarpOpKeys must not collide in BTreeSet");
+    }
 }

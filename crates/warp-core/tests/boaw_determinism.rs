@@ -17,7 +17,6 @@ use common::{
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
 fn t1_1_snapshot_hash_is_invariant_under_insertion_order() {
     // Given: same logical graph built from ops in different order
     // Expect: identical state_root, identical WSC bytes (or identical segment manifest)
@@ -86,7 +85,6 @@ fn t1_2_zero_copy_read_roundtrip_is_exact() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
 fn t5_1_parallel_equals_serial_functional_equivalence() {
     // Given: identical inputs
     // Expect: serial execute and parallel execute produce identical merged ops,
@@ -117,7 +115,6 @@ fn t5_1_parallel_equals_serial_functional_equivalence() {
 }
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
 fn t5_2_permutation_invariance_under_parallelism() {
     // Given: shuffled ingress order + varied worker counts
     // Expect: identical commit hash
@@ -156,7 +153,6 @@ fn t5_2_permutation_invariance_under_parallelism() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
 fn t4_2_admission_does_not_depend_on_num_cpus() {
     // Given: same ingress set; run scheduler with worker counts {1,2,8,32}
     // Expect: same admitted set, same patch_digest, same state_root

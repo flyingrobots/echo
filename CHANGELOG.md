@@ -4,6 +4,19 @@
 
 ## Unreleased
 
+### Added - Agent Context System
+
+- **2-tier context system** (`AGENTS.md`): Documented Redis + knowledge graph handoff protocol
+  - Session start: Bootstrap from `echo:agent:handoff` stream + `search_nodes()`
+  - During work: Continuous updates to Redis stream after significant actions
+  - Session end: Mandatory handoff entry with branch, status, next steps
+  - Entity naming conventions: `<Feature>_Architecture`, `<Feature>_Phase<N>`, `<Feature>_BugFix`
+
+### Fixed - Documentation
+
+- **rustdoc links**: Changed intra-doc links to private `default_worker_count()` to plain code spans
+- **determinism allowlist**: Added `engine_impl.rs` for `ECHO_WORKERS` env var (configuration, not runtime non-determinism)
+
 ### Added - Phase 6B Engine Integration (ADR-0007)
 
 - **Engine parallel execution** (`engine_impl.rs`): `apply_reserved_rewrites()` now uses

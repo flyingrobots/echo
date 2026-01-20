@@ -13,6 +13,21 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 - Record architectural decisions in ADRs (`docs/adr/`) or PR descriptions.
 - Before opening a PR, run the validation workflow below.
 
+### Agent Context System (AI Agents)
+
+AI agents use a **2-tier context system** for seamless handoffs. See [`AGENTS.md`](../AGENTS.md) for full details.
+
+| Tier | Store | Purpose |
+| ---- | ----- | ------- |
+| Immediate | Redis stream (`echo:agent:handoff`) | Current task state, branch, blockers |
+| Deep | Knowledge graph | Architecture decisions, patterns, entities |
+
+**Quick reference:**
+
+- **Session start**: `XRANGE echo:agent:handoff - + COUNT 5` + `search_nodes("<feature>")`
+- **During work**: Update Redis after significant actions
+- **Session end**: Always write a handoff entry with `branch`, `status`, `next_steps`
+
 ---
 
 ## Branch + PR Workflow

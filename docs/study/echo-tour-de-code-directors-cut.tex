@@ -846,7 +846,7 @@ partition_into_shards(items.to_vec()) → Vec<VirtualShard>
     ├─ shard_of(&item.scope) → usize
     │   CODE:
     │     let bytes = scope.as_bytes();
-    │     let first_8: [u8; 8] = [bytes[0..8]];
+    │     let first_8: [u8; 8] = bytes[0..8].try_into().unwrap();
     │     let val = u64::from_le_bytes(first_8);
     │     (val & 255) as usize  // SHARD_MASK = 255
     │

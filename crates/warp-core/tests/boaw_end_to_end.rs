@@ -91,6 +91,16 @@ fn boaw_small_scenario_serial_parallel_equivalence() {
         let r_parallel = h.execute_parallel(&base, &ingress, tick, workers);
 
         assert_hash_eq(
+            &r_serial.state_root,
+            &r_parallel.state_root,
+            &format!("Small scenario: state_root differs for {workers} workers"),
+        );
+        assert_hash_eq(
+            &r_serial.patch_digest,
+            &r_parallel.patch_digest,
+            &format!("Small scenario: patch_digest differs for {workers} workers"),
+        );
+        assert_hash_eq(
             &r_serial.commit_hash,
             &r_parallel.commit_hash,
             &format!("Small scenario: commit_hash differs for {workers} workers"),

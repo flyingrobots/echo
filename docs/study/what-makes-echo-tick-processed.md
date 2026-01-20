@@ -533,7 +533,7 @@ The patch is **prescriptive**: it can be replayed without re-matching to reprodu
 
 ### 6.1 What is BOAW?
 
-BOAW stands for **Bag of Autonomous Workers**. It's Echo's parallel execution architecture that enables:
+BOAW stands for **Best Of All Worlds**. It's Echo's parallel execution architecture that enables:
 
 - **Massive parallelism** without locks
 - **Deterministic convergence** across platforms

@@ -132,11 +132,13 @@ if [[ ${#MD_FILES[@]} -gt 0 ]] && command -v npx >/dev/null 2>&1; then
   # Auto-format with prettier if ECHO_AUTO_FMT is enabled (handles tables, etc.)
   case "${_auto_fmt}" in
     1|true|TRUE|yes|YES|on|ON)
-      if npx prettier --check "${MD_FILES[@]}" >/dev/null 2>&1; then
+      # Check formatting; suppress stdout (file list) but preserve stderr for errors
+      if npx prettier --check "${MD_FILES[@]}" >/dev/null; then
         : # Already formatted
       else
         echo "pre-commit: running prettier on markdown files" >&2
-        if ! npx prettier --write "${MD_FILES[@]}" >/dev/null 2>&1; then
+        # Write changes; suppress stdout but preserve stderr for errors
+        if ! npx prettier --write "${MD_FILES[@]}" >/dev/null; then
           echo "pre-commit: prettier failed" >&2
           exit 1
         fi

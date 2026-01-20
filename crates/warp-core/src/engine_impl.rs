@@ -1266,19 +1266,16 @@ impl Engine {
             // content for ops with the same key, the final output is deterministic.
             flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
-            // Dedupe by sort_key. By footprint invariant, ops with same key are identical.
-            // We verify this in debug builds to catch invariant violations early.
-            flat.dedup_by(|a, b| {
-                if a.0 == b.0 {
-                    debug_assert_eq!(
-                        a.1, b.1,
-                        "footprint invariant violated: ops with same sort_key differ"
-                    );
-                    true
-                } else {
-                    false
+            // Reject conflicting ops with same sort_key in all builds.
+            for w in flat.windows(2) {
+                if w[0].0 == w[1].0 && w[0].1 != w[1].1 {
+                    return Err(EngineError::InternalCorruption(
+                        "apply_reserved_rewrites: conflicting ops share sort_key",
+                    ));
                 }
-            });
+            }
+
+            flat.dedup_by(|a, b| a.0 == b.0);
 
             flat.into_iter().map(|(_, op)| op).collect::<Vec<_>>()
         };

@@ -54,8 +54,8 @@ impl WarpOp {
                 WarpOpKey::CreateNode(*id),
             WarpOp::DeleteNode(id) =>
                 WarpOpKey::DeleteNode(*id),
-            WarpOp::SetAttachment { node, key, .. } =>
-                WarpOpKey::SetAttachment(*node, *key),
+            WarpOp::SetAttachment { key, .. } =>
+                WarpOpKey::SetAttachment(key.owner, *key),
             WarpOp::CreateEdge { id, .. } =>
                 WarpOpKey::CreateEdge(*id),
             // ... etc

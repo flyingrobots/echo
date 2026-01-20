@@ -773,11 +773,11 @@ SORT ORDER: (scope_hash, rule_id, nonce) ascending lexicographic
 \begin{cleverpattern}
 \textbf{LSD Radix Sort: O(n) Guaranteed}
 
-This is a \textbf{Least Significant Digit} radix sort---it processes from the least significant bits to the most significant. After 20 passes (160 bits total), the array is sorted by:
+This is a \textbf{Least Significant Digit} radix sort---it processes from the least significant bits to the most significant. After 20 passes (320 bits total), the array is sorted by:
 \begin{enumerate}
-\item \texttt{scope\_hash} (256 bits, but only 128 bits processed --- the top 128 bits provide enough entropy)
-\item then \texttt{rule\_id} (32 bits)
-\item then \texttt{nonce} (32 bits)
+\item \texttt{scope\_hash} (256 bits = 16 passes)
+\item then \texttt{rule\_id} (32 bits = 2 passes)
+\item then \texttt{nonce} (32 bits = 2 passes)
 \end{enumerate}
 
 Why radix sort instead of comparison sort?

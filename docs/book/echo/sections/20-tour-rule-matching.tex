@@ -54,15 +54,16 @@ Engine::apply(tx, rule_name, scope)
 
 \section{PendingRewrite Structure}
 
-\textbf{File:} \texttt{crates/warp-core/src/pending.rs}
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs}
 
 \begin{lstlisting}[language=Rust]
-pub struct PendingRewrite {
-    pub tx: TxId,
-    pub rule_id: RuleId,
-    pub scope: NodeId,
-    pub match_ix: usize,       // Which match (0..N)
-    pub footprint: Footprint,  // Read/write sets
+pub(crate) struct PendingRewrite {
+    pub rule_id: Hash,            // Identifier of the rule
+    pub compact_rule: CompactRuleId, // In-process handle
+    pub scope_hash: Hash,         // For deterministic ordering
+    pub scope: NodeKey,           // Scope node from apply()
+    pub footprint: Footprint,     // Independence checks
+    pub phase: RewritePhase,      // State machine phase
 }
 \end{lstlisting}
 
@@ -78,18 +79,22 @@ This index is part of the canonical sort key, ensuring deterministic ordering ev
 
 \begin{lstlisting}[language=Rust]
 pub struct Footprint {
-    pub n_read: BTreeSet<NodeId>,   // Nodes read
-    pub n_write: BTreeSet<NodeId>,  // Nodes written
-    pub e_read: BTreeSet<EdgeId>,   // Edges read
-    pub e_write: BTreeSet<EdgeId>,  // Edges written
-    pub factor_mask: u64,           // Coarse prefilter
+    pub n_read: NodeSet,       // Nodes read
+    pub n_write: NodeSet,      // Nodes written/created/deleted
+    pub e_read: EdgeSet,       // Edges read
+    pub e_write: EdgeSet,      // Edges written/created/deleted
+    pub a_read: AttachmentSet, // Attachment slots read
+    pub a_write: AttachmentSet,// Attachment slots written
+    pub b_in: PortSet,         // Boundary input ports
+    pub b_out: PortSet,        // Boundary output ports
+    pub factor_mask: u64,      // Coarse O(1) prefilter
 }
 \end{lstlisting}
 
 \begin{bigpicture}
 The footprint is the foundation of BOAW's parallel safety. Two rewrites can execute in parallel if and only if their footprints don't overlap (read-read is allowed, but read-write or write-write conflicts).
 
-The \texttt{factor\_mask} is a bloom-filter-like optimization: if the masks don't overlap, the footprints definitely don't conflict, allowing fast rejection without checking every element.
+The \texttt{factor\_mask} is a bloom-filter-like optimization: if the mask values do \emph{not} overlap (bitwise AND is zero), the footprints definitely don't conflict---this is a true negative, allowing fast rejection without checking every element. However, if the masks \emph{do} overlap, this only indicates a \emph{potential} conflict (a false positive is possible); the full footprint intersection check must still be performed.
 \end{bigpicture}
 
 \begin{protip}

@@ -278,7 +278,7 @@ Implementation: `crates/warp-core/src/boaw/shard.rs::shard_of()`
 - Compute:
   - `state_root` (canonical hash of materialized reachable state)
   - `patch_digest` (canonical hash of merged ops)
-  - `commit_hash = H(parents || state_root || patch_digest || schema_hash || tick || policy_hashes)`
+  - `commit_hash = H(version_tag || parents_len || parents || state_root || patch_digest || policy_id)`
 
 ---
 

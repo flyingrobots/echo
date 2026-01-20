@@ -23,26 +23,26 @@ OUTPUT_PDF = STUDY_DIR / "what-makes-echo-tick.pdf"
 
 
 def escape_latex(text: str) -> str:
-    """Escape LaTeX special characters in text.
+    """Escape LaTeX special characters in text."""
+    # Use placeholder to avoid double-escaping braces in \textbackslash{}
+    BACKSLASH_PLACEHOLDER = "\x00BACKSLASH\x00"
+    text = text.replace('\\', BACKSLASH_PLACEHOLDER)
 
-    Order matters: { and } must be escaped BEFORE \\ to avoid corrupting
-    \\textbackslash{} (the replacement for \\).
-    """
     replacements = [
-        ('{', r'\{'),
-        ('}', r'\}'),
-        ('\\', r'\textbackslash{}'),
         ('&', r'\&'),
         ('%', r'\%'),
         ('$', r'\$'),
         ('#', r'\#'),
         ('_', r'\_'),
+        ('{', r'\{'),
+        ('}', r'\}'),
         ('~', r'\textasciitilde{}'),
         ('^', r'\textasciicircum{}'),
     ]
     for char, replacement in replacements:
         text = text.replace(char, replacement)
-    return text
+
+    return text.replace(BACKSLASH_PLACEHOLDER, r'\textbackslash{}')
 
 
 def convert_commentary_to_latex(md_content: str) -> str:
@@ -169,7 +169,7 @@ def postprocess_tex(tex_file: Path) -> None:
 
     # Also handle bare includegraphics
     content = re.sub(
-        r'(?<!max width=0\.95\\textwidth,max height=0\.4\\textheight,keepaspectratio\]\{)\\includegraphics\{(diagrams/[^}]+)\}',
+        r'\\includegraphics\{(diagrams/[^}]+)\}',
         r'\\begin{center}\\includegraphics[max width=0.95\\textwidth,max height=0.4\\textheight,keepaspectratio]{\1}\\end{center}',
         content
     )
@@ -194,16 +194,24 @@ def run_xelatex(tex_file: Path) -> bool:
                 timeout=120,
                 cwd=tex_file.parent
             )
-            print("OK" if result.returncode == 0 else "warnings")
+            success = result.returncode == 0
+            print("OK" if success else "warnings")
 
-        return tex_file.with_suffix('.pdf').exists()
+        pdf_file = tex_file.with_suffix('.pdf')
+        if not pdf_file.exists():
+            print("PDF not generated!", file=sys.stderr)
+            return False
+        if not success:
+            print("xelatex failed on final pass", file=sys.stderr)
+            return False
+        return True
 
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         print(f"xelatex error: {e}", file=sys.stderr)
         return False
 
 
-def main():
+def main() -> None:
     print("=== Building What Makes Echo Tick ===\n")
 
     if not INPUT_MD.exists():
@@ -241,7 +249,7 @@ def main():
     # Run xelatex
     print("6. Running xelatex...")
     if run_xelatex(OUTPUT_TEX):
-        print(f"\n=== Success! ===")
+        print("\n=== Success! ===")
         print(f"Output: {OUTPUT_PDF}")
     else:
         print("\n   PDF generation may have issues, check .log file")

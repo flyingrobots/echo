@@ -183,9 +183,20 @@ pub enum PortalInit {
 
 /// Canonical ordering key for [`WarpOp`] used by patch construction and merge sorting.
 ///
-/// This is a compact, byte-stable representation of an op’s ordering identity:
+/// This is a compact, byte-stable representation of an op's ordering identity:
 /// - `kind` defines the global phase ordering across op variants
-/// - `warp`, `a`, and `b` encode the op’s target within that phase
+/// - `warp`, `a`, and `b` encode the op's target within that phase
+///
+/// # Invariants
+///
+/// - Keys are totally ordered and deterministic across runs.
+/// - Two ops with identical keys are considered duplicates for deduplication purposes.
+/// - The ordering ensures structural dependencies (instances before nodes, deletes before upserts).
+///
+/// # Usage
+///
+/// Primarily used internally by [`WarpTickPatchV1::new`] for canonicalization and
+/// [`crate::boaw::merge_deltas`] for deterministic merge ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WarpOpKey {
     kind: u8,

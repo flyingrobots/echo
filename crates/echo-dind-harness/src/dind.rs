@@ -295,9 +295,10 @@ pub fn entrypoint() -> Result<()> {
                 hashes_hex: hashes,
             };
 
-            let f = File::create(&out).context("failed to create output file")?;
-            serde_json::to_writer_pretty(f, &golden)
+            let mut f = File::create(&out).context("failed to create output file")?;
+            serde_json::to_writer_pretty(&mut f, &golden)
                 .context("failed to serialize golden output")?;
+            f.sync_all().context("failed to sync golden output")?;
             println!(
                 "DIND: Recorded {} steps to {:?}",
                 golden.hashes_hex.len(),

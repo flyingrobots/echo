@@ -547,8 +547,8 @@ fn emit_view_op_delta_scoped(
     });
     // Derive view op ID from the intent's scope (NodeId) for deterministic sequencing.
     // The scope is content-addressed and unique per intent, ensuring no collisions.
-    // Use first 16 bytes of scope as hex for a compact, collision-resistant identifier.
-    let scope_hex: String = scope.0[..16].iter().map(|b| format!("{:02x}", b)).collect();
+    // Use all 32 bytes of scope as hex for a collision-free identifier.
+    let scope_hex: String = scope.0.iter().map(|b| format!("{:02x}", b)).collect();
     let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
     let edge_id = make_edge_id(&format!("edge:view/op:{}", scope_hex));
     delta.push(WarpOp::UpsertNode {

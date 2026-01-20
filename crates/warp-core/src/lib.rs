@@ -105,8 +105,6 @@ pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
-#[cfg(any(test, feature = "parallel-stride-fallback"))]
-pub use boaw::execute_parallel_stride;
 pub use boaw::{
     execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
     NUM_SHARDS,

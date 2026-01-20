@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Direct tests for BOAW Phase 6 parallel execution.
+//! Direct tests for BOAW Phase 6B parallel execution.
 //!
-//! - **Phase 6A tests**: Validate stride partitioning + canonical merge
-//! - **Phase 6B tests**: Validate sharded partitioning + stride equivalence
-//!
-//! These tests validate the core parallel execution and merge logic
-//! without going through the full Engine pipeline.
+//! Tests validate sharded partitioning, canonical merge ordering, and
+//! determinism under various worker counts and input permutations.
 //!
 //! # Feature Requirements
 //!
@@ -19,10 +16,9 @@
 // The merge_deltas function is feature-gated.
 
 use warp_core::{
-    execute_parallel, execute_parallel_sharded, execute_parallel_stride, execute_serial,
-    make_node_id, make_type_id, merge_deltas, AtomPayload, AttachmentKey, AttachmentValue,
-    ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
-    NUM_SHARDS,
+    execute_parallel, execute_parallel_sharded, execute_serial, make_node_id, make_type_id,
+    merge_deltas, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
+    NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp, NUM_SHARDS,
 };
 
 mod common;
@@ -286,83 +282,6 @@ fn large_workload_worker_count_invariance() {
 // =============================================================================
 // PHASE 6B TESTS: Sharded Execution
 // =============================================================================
-
-/// Phase 6B: Sharded execution must produce identical results to stride execution.
-///
-/// This is the key correctness test for the Phase 6A → 6B transition.
-/// If sharded and stride produce different results, we have a bug.
-#[test]
-fn sharded_equals_stride() {
-    let (store, nodes) = make_test_store(50);
-    let view = GraphView::new(&store);
-    let items = make_exec_items(&nodes);
-
-    for &workers in WORKER_COUNTS {
-        // Stride execution (Phase 6A)
-        let stride_deltas = execute_parallel_stride(view, &items, workers);
-        let stride_ops = merge_deltas(stride_deltas).expect("stride merge failed");
-
-        // Sharded execution (Phase 6B)
-        let sharded_deltas = execute_parallel_sharded(view, &items, workers);
-        let sharded_ops = merge_deltas(sharded_deltas).expect("sharded merge failed");
-
-        assert_eq!(
-            stride_ops.len(),
-            sharded_ops.len(),
-            "op count differs: stride={} sharded={} (workers={})",
-            stride_ops.len(),
-            sharded_ops.len(),
-            workers
-        );
-
-        for (i, (s, h)) in stride_ops.iter().zip(sharded_ops.iter()).enumerate() {
-            assert_eq!(
-                s, h,
-                "op {i} differs between stride and sharded (workers={})",
-                workers
-            );
-        }
-    }
-}
-
-/// Phase 6B: Sharded execution with permuted input still matches stride.
-#[test]
-fn sharded_equals_stride_permuted() {
-    let (store, nodes) = make_test_store(32);
-    let view = GraphView::new(&store);
-    let mut items = make_exec_items(&nodes);
-
-    // Get baseline from stride with original order
-    let baseline_deltas = execute_parallel_stride(view, &items, 4);
-    let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
-
-    for &seed in SEEDS {
-        let mut rng = XorShift64::new(seed);
-
-        for _ in 0..5 {
-            shuffle(&mut rng, &mut items);
-
-            for &workers in WORKER_COUNTS {
-                // Sharded with permuted items
-                let sharded_deltas = execute_parallel_sharded(view, &items, workers);
-                let sharded_ops = merge_deltas(sharded_deltas).expect("merge failed");
-
-                assert_eq!(
-                    baseline_ops.len(),
-                    sharded_ops.len(),
-                    "sharded permuted: count differs (seed={seed:#x}, workers={workers})"
-                );
-
-                for (i, (b, s)) in baseline_ops.iter().zip(sharded_ops.iter()).enumerate() {
-                    assert_eq!(
-                        b, s,
-                        "sharded permuted: op {i} differs (seed={seed:#x}, workers={workers})"
-                    );
-                }
-            }
-        }
-    }
-}
 
 /// Phase 6B: Worker count is capped at NUM_SHARDS.
 ///

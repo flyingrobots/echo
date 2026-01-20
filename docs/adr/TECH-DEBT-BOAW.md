@@ -3,7 +3,7 @@
 
 # BOAW Tech Debt & Future Work
 
-**Last Updated:** 2026-01-19
+**Last Updated:** 2026-01-20
 **Related:** ADR-0007-BOAW-Storage.md, PLAN-PHASE-6B-VIRTUAL-SHARDS.md
 
 This document tracks known technical debt, optimization opportunities, and future work
@@ -19,49 +19,6 @@ related to the BOAW (Bag of Active Workers) parallel execution system.
 | **P1**   | High value / low effort      | Next sprint         |
 | **P2**   | Medium value / medium effort | When convenient     |
 | **P3**   | Nice to have / exploratory   | Backlog             |
-
----
-
-## P1: High Priority
-
-### 1. Delete Stride Fallback (Post-Release)
-
-**Location:** `crates/warp-core/src/boaw/exec.rs`
-
-**Issue:** The `execute_parallel_stride()` function is kept for A/B benchmarking but adds
-code complexity and maintenance burden.
-
-**Current State:**
-
-- Feature-gated behind `parallel-stride-fallback`
-- Requires `ECHO_PARALLEL_STRIDE=1` env var
-- Prints loud ASCII warning banner
-
-**Action:** Delete after one release cycle once we're confident sharded execution
-performs well in production.
-
-**Rationale:** P1 because it's low effort, removes dead code, and was explicitly
-planned for deletion.
-
----
-
-### 2. Remove Deprecated `emit_view_op_delta()`
-
-**Location:** `crates/echo-dind-tests/src/rules.rs:591`
-
-**Issue:** The old `emit_view_op_delta()` function is marked `#[allow(dead_code)]` with
-a `**DEPRECATED**` comment. It uses `delta.len()` for sequencing which is non-deterministic
-under parallel execution.
-
-**Current State:**
-
-- No call sites (verified)
-- Kept for reference only
-
-**Action:** Delete entirely once confident no downstream code references it.
-
-**Rationale:** P1 because dead code is confusing, and the deprecation pattern (using
-`delta.len()`) could be accidentally copied.
 
 ---
 
@@ -234,14 +191,58 @@ Defaults to `available_parallelism().min(NUM_SHARDS)`.
 
 ---
 
+### ✅ Delete Stride Fallback
+
+**Completed:** 2026-01-20
+
+**Location:** `crates/warp-core/src/boaw/exec.rs`
+
+**Issue:** The `execute_parallel_stride()` function is kept for A/B benchmarking but adds
+code complexity and maintenance burden.
+
+**Current State:**
+
+- Feature-gated behind `parallel-stride-fallback`
+- Requires `ECHO_PARALLEL_STRIDE=1` env var
+- Prints loud ASCII warning banner
+
+**Action:** Delete after one release cycle once we're confident sharded execution
+performs well in production.
+
+**Rationale:** P1 because it's low effort, removes dead code, and was explicitly
+planned for deletion.
+
+---
+
+### ✅ Remove Deprecated `emit_view_op_delta()`
+
+**Completed:** 2026-01-20
+
+**Location:** `crates/echo-dind-tests/src/rules.rs:591`
+
+**Issue:** The old `emit_view_op_delta()` function is marked `#[allow(dead_code)]` with
+a `**DEPRECATED**` comment. It uses `delta.len()` for sequencing which is non-deterministic
+under parallel execution.
+
+**Current State:**
+
+- No call sites (verified)
+- Kept for reference only
+
+**Action:** Delete entirely once confident no downstream code references it.
+
+**Rationale:** P1 because dead code is confusing, and the deprecation pattern (using
+`delta.len()`) could be accidentally copied.
+
+---
+
 ## Summary Statistics
 
 | Priority | Count | Estimated Effort |
 | -------- | ----- | ---------------- |
-| P1       | 2     | ~2 hours         |
+| P1       | 0     | —                |
 | P2       | 3     | ~2-4 days        |
 | P3       | 4     | ~1-2 weeks       |
 
-**Recommendation:** Address P1 items in the next cleanup pass. P2 items should be
-data-driven (benchmark first, then optimize). P3 items are exploratory and should
-only be pursued if profiling reveals bottlenecks.
+**Recommendation:** P2 items should be data-driven (benchmark first, then optimize).
+P3 items are exploratory and should only be pursued if profiling reveals bottlenecks.

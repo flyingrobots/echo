@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! BOAW Phase 6: Parallel Execution with Canonical Merge.
+//! BOAW Phase 6B: Parallel Execution with Canonical Merge.
 //!
-//! - **Phase 6A**: Stride partitioning + canonical merge (proven)
-//! - **Phase 6B**: Virtual shard partitioning for cache locality
+//! Virtual shard partitioning for cache locality + canonical merge ordering.
 
 mod exec;
 mod merge;
 pub mod shard;
 
-#[cfg(any(test, feature = "parallel-stride-fallback"))]
-pub use exec::execute_parallel_stride;
 pub use exec::{execute_parallel, execute_parallel_sharded, execute_serial, ExecItem};
 pub use merge::MergeConflict;
 #[cfg(any(test, feature = "delta_validate"))]

@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Parallel and serial execution for BOAW Phase 6.
+//! Parallel and serial execution for BOAW Phase 6B.
 //!
-//! - **Phase 6A**: Stride partitioning (`execute_parallel_stride`)
-//! - **Phase 6B**: Virtual shard partitioning (`execute_parallel_sharded`)
-//!
-//! Default is sharded (Phase 6B). Stride fallback requires feature flag.
+//! Uses virtual shard partitioning (`execute_parallel_sharded`) for cache locality.
+//! Workers dynamically claim shards via atomic counter (work-stealing).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -63,24 +61,6 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
 
     // Cap workers at NUM_SHARDS - no point spawning 512 threads for 256 shards
     let capped_workers = workers.min(NUM_SHARDS);
-
-    #[cfg(feature = "parallel-stride-fallback")]
-    {
-        if std::env::var("ECHO_PARALLEL_STRIDE")
-            .map(|v| v == "1")
-            .unwrap_or(false)
-        {
-            // LOUD WARNING: This is a fallback mode for benchmarking only
-            eprintln!(
-                "\n\
-                ╔══════════════════════════════════════════════════════════════╗\n\
-                ║  WARNING: STRIDE FALLBACK ENABLED (ECHO_PARALLEL_STRIDE=1)   ║\n\
-                ║  This is for A/B benchmarking only. Do NOT ship in prod.     ║\n\
-                ╚══════════════════════════════════════════════════════════════╝\n"
-            );
-            return execute_parallel_stride(view, items, capped_workers);
-        }
-    }
 
     execute_parallel_sharded(view, items, capped_workers)
 }
@@ -150,52 +130,6 @@ pub fn execute_parallel_sharded(
             })
             .collect();
 
-        handles
-            .into_iter()
-            .map(|h| match h.join() {
-                Ok(delta) => delta,
-                Err(e) => std::panic::resume_unwind(e),
-            })
-            .collect()
-    })
-}
-
-/// Parallel execution with stride partitioning (Phase 6A legacy).
-///
-/// Each worker processes indices: `w, w + workers, w + 2*workers, ...`
-/// This is the original Phase 6A implementation, kept for A/B benchmarking.
-///
-/// # Feature Gate
-///
-/// Only available when `parallel-stride-fallback` feature is enabled.
-/// Activated at runtime by setting `ECHO_PARALLEL_STRIDE=1` env var.
-///
-/// # Panics
-///
-/// Panics if `workers` is 0.
-#[cfg(any(test, feature = "parallel-stride-fallback"))]
-pub fn execute_parallel_stride(
-    view: GraphView<'_>,
-    items: &[ExecItem],
-    workers: usize,
-) -> Vec<TickDelta> {
-    assert!(workers > 0, "workers must be > 0");
-
-    std::thread::scope(|s| {
-        let mut handles = Vec::with_capacity(workers);
-        for w in 0..workers {
-            handles.push(s.spawn(move || {
-                let mut delta = TickDelta::new();
-                let mut i = w;
-                while i < items.len() {
-                    let item = &items[i];
-                    let mut scoped = delta.scoped(item.origin);
-                    (item.exec)(view, &item.scope, scoped.inner_mut());
-                    i += workers;
-                }
-                delta
-            }));
-        }
         handles
             .into_iter()
             .map(|h| match h.join() {

@@ -590,63 +590,6 @@ fn emit_view_op_delta_scoped(
     });
 }
 
-/// Emit ops for a view operation.
-///
-/// The `op_ix` parameter provides a deterministic per-op sequence to avoid ID collisions.
-/// Callers should pass `delta.len()` to get a unique index for each op in the tick.
-///
-/// **DEPRECATED**: Use [`emit_view_op_delta_scoped`] instead for parallel-safe determinism.
-#[allow(dead_code)]
-fn emit_view_op_delta(
-    warp_id: WarpId,
-    delta: &mut TickDelta,
-    type_id: TypeId,
-    payload: &[u8],
-    op_ix: usize,
-) {
-    let view_id = make_node_id("sim/view");
-    delta.push(WarpOp::UpsertNode {
-        node: NodeKey {
-            warp_id,
-            local_id: view_id,
-        },
-        record: NodeRecord {
-            ty: make_type_id("sim/view"),
-        },
-    });
-    // Use op_ix from caller (typically delta.len() before this call) for unique sequencing
-    let seq = op_ix as u64;
-    let op_id = make_node_id(&format!("sim/view/op:{:016}", seq));
-    delta.push(WarpOp::UpsertNode {
-        node: NodeKey {
-            warp_id,
-            local_id: op_id,
-        },
-        record: NodeRecord {
-            ty: make_type_id(TYPE_VIEW_OP),
-        },
-    });
-    delta.push(WarpOp::UpsertEdge {
-        warp_id,
-        record: EdgeRecord {
-            id: make_edge_id(&format!("edge:view/op:{:016}", seq)),
-            from: view_id,
-            to: op_id,
-            ty: make_type_id("edge:view/op"),
-        },
-    });
-    delta.push(WarpOp::SetAttachment {
-        key: AttachmentKey::node_alpha(NodeKey {
-            warp_id,
-            local_id: op_id,
-        }),
-        value: Some(AttachmentValue::Atom(AtomPayload::new(
-            type_id,
-            bytes::Bytes::copy_from_slice(payload),
-        ))),
-    });
-}
-
 /// Emit ops for a put KV operation.
 #[cfg(feature = "dind_ops")]
 fn emit_put_kv(warp_id: WarpId, delta: &mut TickDelta, key: String, value: String) {

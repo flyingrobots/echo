@@ -10,6 +10,14 @@
 - **`WarpOpKey` now public** (`tick_patch.rs`): Export `WarpOpKey` from `warp_core` public API
 - **`WarpOp::sort_key()` now public**: Changed from `pub(crate)` to `pub` to enable external determinism verification
 
+### Removed - Tier 0 Cleanup
+
+- **Stride fallback** (`boaw/exec.rs`): Deleted `execute_parallel_stride()` and `parallel-stride-fallback` feature
+    - Phase 6A stride execution superseded by Phase 6B sharded execution
+    - Removed feature gate, env var check, and ASCII warning banner
+    - Deleted `sharded_equals_stride` and `sharded_equals_stride_permuted` tests (no longer needed post-transition)
+- **Deprecated `emit_view_op_delta()`** (`rules.rs`): Deleted non-deterministic function that used `delta.len()` sequencing
+
 ### Fixed - PR #257 Review
 
 - **pre-commit hook**: Preserve stderr in prettier checks (changed `>/dev/null 2>&1` to `>/dev/null`) so errors are visible

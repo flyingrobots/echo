@@ -197,7 +197,7 @@ impl EngineBuilder<FreshStore> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
-    /// - Worker count: [`default_worker_count()`] (env `ECHO_WORKERS` or `available_parallelism`)
+    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn new(store: GraphStore, root: NodeId) -> Self {
@@ -236,7 +236,7 @@ impl EngineBuilder<ExistingState> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
-    /// - Worker count: [`default_worker_count()`] (env `ECHO_WORKERS` or `available_parallelism`)
+    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn from_state(state: WarpState, root: NodeKey) -> Self {
@@ -292,7 +292,7 @@ impl<S> EngineBuilder<S> {
 
     /// Sets the worker count for parallel execution.
     ///
-    /// Default: [`default_worker_count()`] (env `ECHO_WORKERS` or `available_parallelism`).
+    /// Default: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`).
     ///
     /// # Notes
     ///

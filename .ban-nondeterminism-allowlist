@@ -8,3 +8,7 @@ crates/warp-core/src/wsc/view.rs
 # BOAW exec uses std::env for feature-gated stride fallback (ECHO_PARALLEL_STRIDE)
 # This is a build-time debug toggle, not runtime non-determinism
 crates/warp-core/src/boaw/exec.rs
+# engine_impl uses std::env for ECHO_WORKERS configuration
+# This is read once at engine construction for worker count - determinism is not affected
+# because the worker count doesn't change execution results, only parallelism level
+crates/warp-core/src/engine_impl.rs

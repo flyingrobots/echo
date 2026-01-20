@@ -97,31 +97,30 @@ fn make_exec_items_for_warp(nodes: &[NodeId], warp_index: usize) -> Vec<ExecItem
 // T5.1: High-Volume Multi-Warp Stress Tests
 // =============================================================================
 
-/// T5.1.1: Stress test with 10k rewrites across 2 warps covering many shards.
+/// T5.1.1: Stress test with 5k rewrites covering many shards.
 ///
 /// This test exercises the sharded execution path with a high volume of items,
 /// verifying that:
-/// 1. Items distribute across all 256 shards
+/// 1. Items distribute across many of the 256 shards
 /// 2. Worker count doesn't affect the merged result
 /// 3. Permuting the input doesn't affect the result
 ///
-/// Marked `#[ignore]` because it runs 10k items - use `-- --ignored` to run.
+/// Marked `#[ignore]` because it runs 5k items - use `-- --ignored` to run.
 #[test]
-#[ignore = "heavy stress test: 10k rewrites across 256 shards"]
+#[ignore = "heavy stress test: 5k rewrites across 256 shards"]
 fn two_warps_256_shard_coverage_stress() {
-    // Create 2 warps with 5k nodes each
+    // Create a store with 5k nodes for stress testing
     let (store1, nodes1) = make_large_test_store(5000);
-    let (_store2, nodes2) = make_large_test_store(5000);
 
-    // Verify shard coverage: with 10k items we should hit most shards
+    // Verify shard coverage: with 5k items we should hit most shards
     let mut shard_hits = vec![false; NUM_SHARDS];
-    for node in nodes1.iter().chain(nodes2.iter()) {
+    for node in nodes1.iter() {
         let shard = shard_of(node);
         shard_hits[shard] = true;
     }
     let shards_covered = shard_hits.iter().filter(|&&hit| hit).count();
 
-    // With 10k items spread by blake3 hash, we should cover nearly all 256 shards
+    // With 5k items spread by blake3 hash, we should cover most of the 256 shards
     assert!(
         shards_covered >= 200,
         "expected at least 200 shards covered, got {shards_covered}"

@@ -23,16 +23,20 @@ OUTPUT_PDF = STUDY_DIR / "what-makes-echo-tick.pdf"
 
 
 def escape_latex(text: str) -> str:
-    """Escape LaTeX special characters in text."""
+    """Escape LaTeX special characters in text.
+
+    Order matters: { and } must be escaped BEFORE \\ to avoid corrupting
+    \\textbackslash{} (the replacement for \\).
+    """
     replacements = [
+        ('{', r'\{'),
+        ('}', r'\}'),
         ('\\', r'\textbackslash{}'),
         ('&', r'\&'),
         ('%', r'\%'),
         ('$', r'\$'),
         ('#', r'\#'),
         ('_', r'\_'),
-        ('{', r'\{'),
-        ('}', r'\}'),
         ('~', r'\textasciitilde{}'),
         ('^', r'\textasciicircum{}'),
     ]

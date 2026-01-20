@@ -43,7 +43,7 @@ Tracking all CodeRabbit review feedback for systematic resolution.
 | C25 | `crates/warp-core/tests/common/mod.rs`         | 658  | Needs investigation (truncated)                                | P2       | OPEN           |                                                              |
 | C26 | `crates/warp-core/tests/common/mod.rs`         | -    | TODO returns all-zero hash; hides failures                     | P2       | OPEN           |                                                              |
 | C27 | `crates/warp-core/tests/common/mod.rs`         | -    | Silent error discarding in `apply` loop                        | P2       | OPEN           |                                                              |
-| C28 | `crates/echo-dind-harness/tests/coverage.rs`   | 75   | `hex::encode(SCHEMA_HASH)` double-encodes hex string           | P0       | OPEN           |                                                              |
+| C28 | `crates/echo-dind-harness/tests/coverage.rs`   | 75   | `hex::encode(SCHEMA_HASH)` double-encodes hex string           | P0       | FALSE_POSITIVE | Already uses `.to_string()`                                  |
 | C29 | `crates/echo-dind-harness/tests/coverage.rs`   | -    | Environment variable check overly permissive                   | P2       | OPEN           |                                                              |
 | C30 | `crates/echo-dind-harness/tests/coverage.rs`   | -    | Silent success message lacks context for CI                    | P3       | OPEN           |                                                              |
 | C31 | `crates/echo-dind-tests/src/rules.rs`          | 137  | Needs investigation (truncated)                                | P1       | OPEN           |                                                              |
@@ -69,7 +69,7 @@ Tracking all CodeRabbit review feedback for systematic resolution.
 | D15 | `docs/study/echo-tour-de-code-with-commentary.tex`  | 115  | `\ding{46}` used before pifont loaded                    | P1       | OPEN           | LaTeX will explode                |
 | D16 | `docs/study/echo-tour-de-code-with-commentary.tex`  | 182  | Remove redundant `\usepackage{pifont}`                   | P2       | OPEN           |                                   |
 | D17 | `docs/study/echo-tour-de-code-with-commentary.tex`  | 808  | Radix sort pass math inconsistent                        | P2       | OPEN           |                                   |
-| D18 | `docs/study/echo-tour-de-code-with-commentary.tex`  | 963  | BOAW expansion incorrect                                 | P2       | OPEN           | Still says wrong thing            |
+| D18 | `docs/study/echo-tour-de-code-with-commentary.tex`  | 963  | BOAW expansion incorrect                                 | P2       | FALSE_POSITIVE | Already "Best Of All Worlds"      |
 | D19 | `docs/study/echo-visual-atlas-with-diagrams.tex`    | 120  | Needs investigation (truncated)                          | P0       | OPEN           |                                   |
 | D20 | `docs/study/echo-visual-atlas-with-diagrams.tex`    | -    | Date inconsistency                                       | P2       | OPEN           |                                   |
 | D21 | `docs/study/echo-visual-atlas-with-diagrams.tex`    | -    | Vacuous frontmatter/backmatter declarations              | P3       | OPEN           |                                   |
@@ -124,7 +124,7 @@ Tracking all CodeRabbit review feedback for systematic resolution.
 
 | #   | File                            | Line | Issue                                    | Priority | Status | Notes                    |
 | --- | ------------------------------- | ---- | ---------------------------------------- | -------- | ------ | ------------------------ |
-| S01 | `docs/study/build-tour.py`      | 41   | Escape order corrupts `\textbackslash{}` | P0       | OPEN   |                          |
+| S01 | `docs/study/build-tour.py`      | 41   | Escape order corrupts `\textbackslash{}` | P0       | FIXED  | Reordered {} before \\   |
 | S02 | `docs/study/build-tour.py`      | 57   | Needs investigation (truncated)          | P1       | OPEN   |                          |
 | S03 | `docs/study/build-tour.py`      | 153  | Needs investigation (truncated)          | P1       | OPEN   |                          |
 | S04 | `docs/study/build-tour.py`      | 195  | xelatex return code ignored              | P1       | OPEN   | Stale PDFs mask failures |
@@ -167,11 +167,11 @@ Tracking all CodeRabbit review feedback for systematic resolution.
 
 | Priority    | Total | Open | Fixed | Won't Fix | False Positive |
 | ----------- | ----- | ---- | ----- | --------- | -------------- |
-| P0 Critical | 12    | 11   | 0     | 0         | 1              |
+| P0 Critical | 12    | 9    | 1     | 0         | 2              |
 | P1 Major    | 19    | 19   | 0     | 0         | 0              |
-| P2 Minor    | 35    | 31   | 4     | 0         | 0              |
+| P2 Minor    | 35    | 30   | 4     | 0         | 1              |
 | P3 Trivial  | 24    | 17   | 0     | 0         | 7              |
-| Total       | 90    | 78   | 4     | 0         | 8              |
+| Total       | 90    | 75   | 5     | 0         | 10             |
 
 ---
 

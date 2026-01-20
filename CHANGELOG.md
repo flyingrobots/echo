@@ -4,6 +4,32 @@
 
 ## Unreleased
 
+### Added - Phase 6B Engine Integration (ADR-0007)
+
+- **Engine parallel execution** (`engine_impl.rs`): `apply_reserved_rewrites()` now uses
+  `execute_parallel_sharded()` for per-warp parallel execution
+  - Rewrites grouped by `warp_id`, parallelized within each warp
+  - Worker count configurable via `ECHO_WORKERS` env var or `EngineBuilder::workers(n)`
+  - Defaults to `available_parallelism().min(NUM_SHARDS)` (capped at 256)
+
+- **`emit_view_op_delta_scoped()`** (`echo-dind-tests/rules.rs`): Deterministic view op IDs
+  - Derives op ID from intent scope (NodeId) instead of `delta.len()`
+  - Fixes non-determinism bug under parallel execution
+
+- **Warp-scoped footprints** (`echo-dind-tests/rules.rs`): Footprint helpers now use
+  `NodeSet`/`EdgeSet` with explicit warp scoping via `insert_with_warp()`
+
+- **`WarpOpKey` warp distinction test** (`tick_patch.rs`): Verifies ops targeting same
+  local node but different warps have distinct sort keys
+
+### Fixed - Phase 6B Engine Integration
+
+- **DIND determinism**: Regenerated all golden hash files with parallel execution
+- **View op ID collisions**: Fixed `emit_view_op_delta()` using worker-local `delta.len()`
+  which varied based on shard claim order under parallel execution
+
+---
+
 ### Added - Phase 6B: Virtual Shards (ADR-0007)
 
 - **`boaw/shard.rs`**: Virtual shard partitioning for cache locality
@@ -34,7 +60,7 @@
 - **Shard routing is frozen**: `LE_u64(node_id.as_bytes()[0..8]) & (NUM_SHARDS - 1)` — documented in ADR-0007 § 7.1
 - **NUM_SHARDS = 256**: Protocol constant, cannot change without version bump
 - **Merge is unchanged**: Canonical merge by `(WarpOpKey, OpOrigin)` still enforces determinism
-- **Engine integration deferred**: Sharded execution primitives are ready; wiring into `engine_impl.rs` is a separate task
+- **Engine integration complete**: `apply_reserved_rewrites()` uses `execute_parallel_sharded()` with per-warp parallelism
 
 ### Fixed - Phase 6B
 

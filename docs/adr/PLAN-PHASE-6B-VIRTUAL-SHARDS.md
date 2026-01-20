@@ -1,28 +1,49 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Phase 6B Handoff: Engine Integration Planning
+# Phase 6B: Engine Integration — COMPLETE
 
-**Status:** HANDOFF — Ready for next agent
-**Date:** 2026-01-18
+**Status:** ✅ COMPLETE
+**Date:** 2026-01-19
 **Branch:** `graph-boaw`
+**Commit:** `feat(boaw): parallel execution with deterministic merge ordering`
 
 ---
 
-## TL;DR FOR THE NEXT AGENT
+## SUMMARY
 
-You're here to **plan how to wire Phase 6B sharded execution into the Engine pipeline**.
+Phase 6B is **COMPLETE**. The sharded parallel execution primitives have been integrated into
+`engine_impl.rs::apply_reserved_rewrites()`. All success criteria have been met.
 
-Phase 6B primitives are DONE and TESTED. What remains is integrating them with `engine_impl.rs`.
+### What Was Delivered
 
-**Read these first:**
+1. **Engine integration**: `apply_reserved_rewrites()` now uses `execute_parallel_sharded()`
+2. **Per-warp parallelism**: Rewrites grouped by `warp_id`, parallelized within each warp
+3. **Configurable workers**: `ECHO_WORKERS` env var or `EngineBuilder::workers(n)`
+4. **Determinism fix**: `emit_view_op_delta_scoped()` derives IDs from intent scope, not `delta.len()`
+5. **All tests pass**: Including DIND golden hashes regenerated with parallel execution
+
+### Success Criteria — All Met ✅
+
+| Criterion | Status |
+| --------- | ------ |
+| `apply_reserved_rewrites()` uses `execute_parallel_sharded()` | ✅ |
+| All existing tests pass (including DIND golden hashes) | ✅ |
+| Worker count defaults to `available_parallelism()` | ✅ |
+| Serial fallback for edge cases | ✅ (`ECHO_WORKERS=1`) |
+| No new `unsafe` code | ✅ |
+
+---
+
+## REFERENCE DOCS
 
 1. `docs/adr/ADR-0007-BOAW-Storage.md` — full architecture context
 2. `docs/adr/ADR-0007-PART-6-FREE-MONEY.md` — Phase 6 locked spec
-3. `crates/warp-core/src/boaw/` — the implementation you're integrating
+3. `docs/adr/TECH-DEBT-BOAW.md` — future work and optimization opportunities
+4. `crates/warp-core/src/boaw/` — the parallel execution implementation
 
 ---
 
-## WHAT WAS JUST SHIPPED (Phase 6B)
+## WHAT WAS SHIPPED (Phase 6B Primitives)
 
 ### New Files
 
@@ -68,52 +89,67 @@ Phase 6B primitives are DONE and TESTED. What remains is integrating them with `
 
 ---
 
-## WHAT YOU NEED TO PLAN
+## IMPLEMENTATION DETAILS (Commit 2)
 
-### The Problem
+### Approach Chosen: Per-Warp Parallelism
 
-`engine_impl.rs::apply_reserved_rewrites()` (lines 1044-1105) currently uses **serial execution**:
+We chose **Option 1: Per-warp parallelism** from the original options. Rewrites are grouped by
+`warp_id`, and `execute_parallel_sharded()` runs within each warp's scope.
 
 ```rust
-let mut delta = TickDelta::new();
-for rewrite in rewrites {
-    let executor = self.rule_by_compact(id).executor;
-    let store = self.state.store(&rewrite.scope.warp_id);
+// engine_impl.rs::apply_reserved_rewrites() - simplified
+let by_warp: BTreeMap<WarpId, Vec<_>> = group_by_warp(rewrites);
+
+for (warp_id, warp_rewrites) in by_warp {
+    let store = self.state.store(&warp_id);
     let view = GraphView::new(store);
-    (executor)(view, &rewrite.scope.local_id, &mut delta);
+
+    let items: Vec<ExecItem> = warp_rewrites.into_iter()
+        .map(|(rw, exec)| ExecItem { exec, scope: rw.scope.local_id, origin: ... })
+        .collect();
+
+    let deltas = execute_parallel_sharded(view, &items, workers);
+    all_deltas.extend(deltas);
 }
-let ops = delta.finalize();
+
+let ops = merge_deltas(all_deltas)?;  // Canonical merge
 ```
 
-### The Challenge
+### Why Per-Warp?
 
-The Phase 6B `execute_parallel_sharded()` was designed for testing with a **single GraphView**. The real Engine handles:
+1. **Preserves `GraphView` invariant**: `GraphView` borrows a single `GraphStore` immutably
+2. **Simple and correct**: No new abstractions needed
+3. **Still gets parallelism**: Most ticks operate on a single warp anyway
+4. **Cross-warp optimization deferred**: See TECH-DEBT-BOAW.md for future work
 
-1. **Multiple warps**: Each rewrite can be on a different `warp_id`
-2. **Executor lookup**: Need to map `compact_rule_id` → executor function
-3. **Store lookup**: Need to get the right `GraphStore` for each warp
+### Key Bug Fixed: Non-Deterministic View Op IDs
 
-### Options to Explore
+The DIND tests were producing different hashes under parallel execution because
+`emit_view_op_delta()` used `delta.len()` to sequence view operations:
 
-1. **Per-warp parallelism**: Group rewrites by `warp_id`, parallelize within each warp
-2. **Cross-warp view**: Create a unified view abstraction that handles multi-warp lookups
-3. **Executor registry**: Pass executor registry to workers instead of baking it into `ExecItem`
-4. **Staged approach**: Use sharded execution for single-warp cases first
+```rust
+// BEFORE (non-deterministic under parallel)
+let op_ix = delta.len();  // Worker-local! Varies by shard claim order
+let op_id = make_node_id(&format!("sim/view/op:{:016}", op_ix));
+```
 
-### Key Files to Study
+**Fix**: New `emit_view_op_delta_scoped()` derives the op ID from the intent's scope (NodeId),
+which is content-addressed and deterministic:
 
-- `engine_impl.rs:1044-1105` — Current serial execution path
-- `engine_impl.rs:860-900` — How `reserve_for_receipt()` produces `Vec<PendingRewrite>`
-- `scheduler.rs` — How footprints relate to parallelism
-- `boaw/exec.rs` — Current `ExecItem` + `execute_parallel_sharded()`
-- `graph_view.rs` — `GraphView` constraints
+```rust
+// AFTER (deterministic)
+let scope_hex: String = scope.0[..16].iter().map(|b| format!("{:02x}", b)).collect();
+let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
+```
 
-### Questions to Answer
+### Files Changed in Commit 2
 
-1. How often does a single tick have rewrites across multiple warps?
-2. Should `ExecItem` store a `warp_id` or just a unified scope?
-3. Can we create a "multi-warp GraphView" that handles lookups?
-4. What's the simplest correct integration vs. the optimal one?
+| File | Changes |
+| ---- | ------- |
+| `engine_impl.rs` | +231 lines: worker infrastructure, per-warp parallel execution |
+| `rules.rs` | +102 lines: `emit_view_op_delta_scoped()`, warp-scoped footprints |
+| `tick_patch.rs` | +47 lines: `WarpOpKey` warp-distinction test |
+| `*.hashes.json` | Regenerated golden files |
 
 ---
 
@@ -142,12 +178,16 @@ cargo test -p echo-dind-harness
 
 ---
 
-## GO TIME
+## COMPLETION NOTES
 
-1. Read `ADR-0007-BOAW-Storage.md` (especially § 7 and § 8)
-2. Read `ADR-0007-PART-6-FREE-MONEY.md` for phase invariants
-3. Study `engine_impl.rs::apply_reserved_rewrites()`
-4. Propose an integration plan
-5. Get approval before implementing
+Phase 6B engine integration is **DONE**. For future optimization opportunities, see:
+
+- `docs/adr/TECH-DEBT-BOAW.md` — prioritized tech debt and future work
+
+### Next Steps (Optional)
+
+1. **Benchmark** parallel vs serial performance on real workloads
+2. **Consider** cross-warp parallelism if profiling shows warp iteration as a bottleneck
+3. **Delete** stride fallback after one release cycle
 
 CLAUDESPEED. 🫡

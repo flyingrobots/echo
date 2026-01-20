@@ -145,6 +145,9 @@
         \ifx\AION@paperorcid\@empty\else
         {\normalsize ORCID: \AION@paperorcid \par}
         \fi
+        \ifx\AION@paperdoi\@empty\else
+        {\normalsize DOI: \AION@paperdoi \par}
+        \fi
 
         \vspace{10pt}
 

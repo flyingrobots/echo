@@ -4,12 +4,12 @@
 
 Echo is a \textbf{deterministic, multiverse-aware Entity Component System (ECS)} engine. Unlike traditional game engines that prioritize visual fidelity or editor convenience, Echo prioritizes \textbf{determinism}, \textbf{state preservation}, and \textbf{simulation integrity}.
 
-It is built on the concepts described by the \AION{} Foundations Series papers---"Worldline Algebra for Recursive Provenance"  (WARP) graphs---meaning that the entire game state is a WARP graph, and updates are deterministic graph rewrites. This allows for features that are practically impossible in standard engines, such as:
+It is built on the concepts described by the \AION{} Foundations Series papers---"Worldline Algebra for Recursive Provenance" (WARP) graphs---meaning that the entire game state is a WARP graph, and updates are deterministic graph rewrites. This allows for features that are practically impossible in standard engines, such as:
 
 \begin{itemize}
     \item \textbf{Perfect Determinism:} Given the same initial state and inputs, the simulation will evolve identically on any machine (x86, ARM, WASM).
     \item \textbf{Time Travel:} The ability to rollback the simulation to any previous tick, branch time into alternative realities, and merge them back.
-    \item \textbf{Renderer Agnosticism:} Echo does not care how it is drawn. It emits an event stream that describes the latest graph writes applied to the \WARP{} State at a given tick.
+    \item \textbf{Renderer Agnosticism:} Echo does not care how it is drawn. It emits an event stream that describes the latest graph writes applied to the \WARP{} state at a given tick.
 \end{itemize}
 
 \subsection{Core Philosophy}

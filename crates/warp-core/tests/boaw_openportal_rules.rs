@@ -499,6 +499,13 @@ fn openportal_with_require_existing_init() {
 // Future tests (blocked on scheduler integration)
 // =============================================================================
 
+// TODO(T7.1): Implement when OpenPortal scheduling lands.
+// Steps to wire this test:
+// 1. Execute tick N with R1 (creates child_warp via OpenPortal)
+// 2. Commit tick N
+// 3. Execute tick N+1 with R2 (writes to child_warp)
+// 4. Assert tick N+1 commits successfully
+// 5. Assert the child warp contains both child_root and the new node
 #[test]
 #[ignore = "OpenPortal scheduling not yet implemented - tracks T7.1"]
 fn openportal_creates_valid_child_warp() {
@@ -537,19 +544,15 @@ fn openportal_creates_valid_child_warp() {
         },
     };
 
-    // TODO: When OpenPortal scheduling is implemented:
-    // 1. Execute tick N with R1
-    // 2. Commit tick N
-    // 3. Execute tick N+1 with R2
-    // 4. Assert tick N+1 commits successfully
-    // 5. Assert the child warp contains both child_root and _tick_n1_target_node
-
+    // TODO(T7.1): Wire the execution harness when OpenPortal scheduling is implemented.
     unimplemented!(
         "OpenPortal scheduling not yet implemented: \
          verify child warp is accessible in subsequent ticks"
     );
 }
 
+// FIXME(T7.1): Implement when OpenPortal scheduling lands.
+// Footprint should declare: (1) attachment slot write, (2) child warp creation.
 #[test]
 #[ignore = "OpenPortal scheduling not yet implemented - tracks T7.1"]
 fn openportal_footprint_declares_child_warp_write() {
@@ -563,12 +566,15 @@ fn openportal_footprint_declares_child_warp_write() {
     // 1. Detect conflicts with other rules touching the same attachment slot
     // 2. Track "new warps this tick" for same-tick write filtering
 
+    // TODO(T7.1): Wire footprint assertions when scheduling lands.
     unimplemented!(
         "OpenPortal footprint tracking not yet implemented: \
          footprint should declare both attachment write and child warp creation"
     );
 }
 
+// TODO(T7.1): Implement when OpenPortal scheduling lands.
+// Verify multiple independent OpenPortal ops execute in same tick correctly.
 #[test]
 #[ignore = "OpenPortal scheduling not yet implemented - tracks T7.1"]
 fn openportal_multiple_child_warps_same_tick() {
@@ -584,12 +590,15 @@ fn openportal_multiple_child_warps_same_tick() {
     // - Neither child_a nor child_b is writable in this tick
     // - Both are writable in the next tick
 
+    // TODO(T7.1): Wire execution harness when scheduling lands.
     unimplemented!(
         "OpenPortal multiple creations not yet tested: \
          verify multiple independent OpenPortal ops in same tick"
     );
 }
 
+// TODO(T7.1): Implement when OpenPortal scheduling lands.
+// Verify same-slot OpenPortal conflict is detected and resolved by canonical ordering.
 #[test]
 #[ignore = "OpenPortal scheduling not yet implemented - tracks T7.1"]
 fn openportal_same_attachment_slot_conflict() {
@@ -605,6 +614,7 @@ fn openportal_same_attachment_slot_conflict() {
     // - Exactly one wins based on conflict policy (canonical ordering)
     // - The loser is rejected
 
+    // TODO(T7.1): Wire conflict detection tests when scheduling lands.
     unimplemented!(
         "OpenPortal conflict detection not yet tested: \
          verify same-slot OpenPortal conflict handling"

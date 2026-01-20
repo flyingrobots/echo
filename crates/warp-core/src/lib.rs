@@ -147,7 +147,7 @@ pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
-    WarpTickPatchV1,
+    WarpOpKey, WarpTickPatchV1,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

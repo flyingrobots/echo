@@ -13,7 +13,7 @@
 
 use warp_core::{
     make_node_id, make_type_id, make_warp_id, merge_deltas, AtomPayload, AttachmentKey,
-    AttachmentValue, MergeError, NodeKey, OpOrigin, TickDelta, WarpOp,
+    AttachmentValue, MergeError, NodeKey, OpOrigin, TickDelta, WarpOp, WarpOpKey,
 };
 
 // =============================================================================
@@ -151,6 +151,10 @@ fn merge_conflict_reports_correct_key() {
     let op1 = make_set_attachment(key, b"first");
     let op2 = make_set_attachment(key, b"second");
 
+    // Compute the expected key before ops are moved into deltas.
+    // Both ops target the same attachment key, so they have the same sort_key.
+    let expected_key: WarpOpKey = op1.sort_key();
+
     delta1.push_with_origin(op1, origin1);
     delta2.push_with_origin(op2, origin2);
 
@@ -163,14 +167,9 @@ fn merge_conflict_reports_correct_key() {
         panic!("Expected MergeError::Conflict, got: {:?}", err);
     };
 
-    // The MergeConflict.key field is a WarpOpKey - we verify it's populated
-    // by checking that sort_key.kind is 8 (SetAttachment kind in WarpOpKey)
-    // Since WarpOpKey is internal, we just verify the error exists and has
-    // the expected structure via Debug formatting
-    let debug_str = format!("{:?}", conflict.key);
-    assert!(
-        debug_str.contains("kind: 8"),
-        "MergeConflict.key should indicate SetAttachment (kind=8), got: {debug_str}"
+    assert_eq!(
+        conflict.key, expected_key,
+        "MergeConflict.key should match the sort_key of the conflicting ops"
     );
 }
 

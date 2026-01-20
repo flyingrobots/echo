@@ -210,7 +210,7 @@ impl WarpOp {
     ///
     /// This ordering is used for two purposes:
     /// - to define the deterministic replay order of a tick patch, and
-    /// - to define which operations are considered “the same” for patch construction
+    /// - to define which operations are considered "the same" for patch construction
     ///   (see [`WarpTickPatchV1::new`], which dedupes by this key with last-wins semantics).
     ///
     /// Ordering rationale (v2):
@@ -224,7 +224,7 @@ impl WarpOp {
     /// use delete-before-upsert. Patches are expected not to contain both operations for the
     /// same `warp_id`; if they do, this ordering makes the resulting state (and any subsequent
     /// invalid references) deterministic rather than silently ambiguous.
-    pub(crate) fn sort_key(&self) -> WarpOpKey {
+    pub fn sort_key(&self) -> WarpOpKey {
         match self {
             Self::OpenPortal { key, .. } => {
                 let (owner_tag, plane_tag) = key.tag();

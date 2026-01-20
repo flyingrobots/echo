@@ -829,6 +829,7 @@ fn hash_attachment_value(hasher: &mut blake3::Hasher, value: &AttachmentValue) {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -841,4 +842,398 @@ mod tests {
     }
 
     // More tests will be added as we integrate with the engine
+
+    use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
+    use crate::record::{EdgeRecord, NodeRecord};
+    use crate::tick_patch::WarpOp;
+    use crate::warp_state::WarpInstance;
+
+    /// Helper to create a basic accumulator with a single instance and root node.
+    fn setup_single_instance() -> (SnapshotAccumulator, WarpId, NodeId) {
+        let warp_id = make_warp_id("test-warp");
+        let root_id = make_node_id("root");
+
+        let mut acc = SnapshotAccumulator::new();
+
+        // Add instance metadata
+        acc.instances.insert(
+            warp_id,
+            WarpInstance {
+                warp_id,
+                root_node: root_id,
+                parent: None,
+            },
+        );
+
+        // Add root node
+        let root_key = NodeKey {
+            warp_id,
+            local_id: root_id,
+        };
+        acc.nodes.insert(
+            root_key,
+            NodeRowParts {
+                node_id: root_id,
+                node_type: make_type_id("RootType"),
+            },
+        );
+
+        (acc, warp_id, root_id)
+    }
+
+    #[test]
+    fn test_apply_ops_create_node() {
+        let (mut acc, warp_id, _root_id) = setup_single_instance();
+
+        let new_node_id = make_node_id("new-node");
+        let new_node_key = NodeKey {
+            warp_id,
+            local_id: new_node_id,
+        };
+        let node_type = make_type_id("NewNodeType");
+
+        // Apply CreateNode via UpsertNode op
+        acc.apply_ops(vec![WarpOp::UpsertNode {
+            node: new_node_key,
+            record: NodeRecord { ty: node_type },
+        }]);
+
+        // Verify node exists
+        assert!(acc.nodes.contains_key(&new_node_key));
+        let node_parts = acc.nodes.get(&new_node_key).expect("node should exist");
+        assert_eq!(node_parts.node_id, new_node_id);
+        assert_eq!(node_parts.node_type, node_type);
+    }
+
+    #[test]
+    fn test_apply_ops_update_node() {
+        let (mut acc, warp_id, root_id) = setup_single_instance();
+
+        let root_key = NodeKey {
+            warp_id,
+            local_id: root_id,
+        };
+        let new_type = make_type_id("UpdatedRootType");
+
+        // Verify original type
+        let original_type = acc
+            .nodes
+            .get(&root_key)
+            .expect("root should exist")
+            .node_type;
+        assert_eq!(original_type, make_type_id("RootType"));
+
+        // Apply update
+        acc.apply_ops(vec![WarpOp::UpsertNode {
+            node: root_key,
+            record: NodeRecord { ty: new_type },
+        }]);
+
+        // Verify type changed
+        let updated_type = acc
+            .nodes
+            .get(&root_key)
+            .expect("root should exist")
+            .node_type;
+        assert_eq!(updated_type, new_type);
+        assert_ne!(updated_type, original_type);
+    }
+
+    #[test]
+    fn test_apply_ops_delete_node() {
+        let (mut acc, warp_id, _root_id) = setup_single_instance();
+
+        // First create a node to delete
+        let temp_node_id = make_node_id("temp-node");
+        let temp_node_key = NodeKey {
+            warp_id,
+            local_id: temp_node_id,
+        };
+
+        acc.apply_ops(vec![WarpOp::UpsertNode {
+            node: temp_node_key,
+            record: NodeRecord {
+                ty: make_type_id("TempType"),
+            },
+        }]);
+
+        assert!(acc.nodes.contains_key(&temp_node_key));
+
+        // Now delete it
+        acc.apply_ops(vec![WarpOp::DeleteNode {
+            node: temp_node_key,
+        }]);
+
+        // Verify removal
+        assert!(!acc.nodes.contains_key(&temp_node_key));
+    }
+
+    #[test]
+    fn test_apply_ops_edges() {
+        let (mut acc, warp_id, root_id) = setup_single_instance();
+
+        // Create a second node to connect to
+        let target_node_id = make_node_id("target-node");
+        let target_node_key = NodeKey {
+            warp_id,
+            local_id: target_node_id,
+        };
+
+        acc.apply_ops(vec![WarpOp::UpsertNode {
+            node: target_node_key,
+            record: NodeRecord {
+                ty: make_type_id("TargetType"),
+            },
+        }]);
+
+        // Create an edge from root to target
+        let edge_id = make_edge_id("root-to-target");
+        let edge_type = make_type_id("ConnectsTo");
+
+        acc.apply_ops(vec![WarpOp::UpsertEdge {
+            warp_id,
+            record: EdgeRecord {
+                id: edge_id,
+                from: root_id,
+                to: target_node_id,
+                ty: edge_type,
+            },
+        }]);
+
+        // Verify edge exists
+        let edge_key = (warp_id, edge_id);
+        assert!(acc.edges.contains_key(&edge_key));
+
+        let edge_parts = acc.edges.get(&edge_key).expect("edge should exist");
+        assert_eq!(edge_parts.edge_id, edge_id);
+        assert_eq!(edge_parts.from, root_id);
+        assert_eq!(edge_parts.to, target_node_id);
+        assert_eq!(edge_parts.edge_type, edge_type);
+    }
+
+    #[test]
+    fn test_filter_reachable_removes_unreachable() {
+        let (mut acc, warp_id, root_id) = setup_single_instance();
+
+        // Create a reachable node connected from root
+        let reachable_id = make_node_id("reachable");
+        let reachable_key = NodeKey {
+            warp_id,
+            local_id: reachable_id,
+        };
+
+        acc.apply_ops(vec![
+            WarpOp::UpsertNode {
+                node: reachable_key,
+                record: NodeRecord {
+                    ty: make_type_id("ReachableType"),
+                },
+            },
+            WarpOp::UpsertEdge {
+                warp_id,
+                record: EdgeRecord {
+                    id: make_edge_id("root-to-reachable"),
+                    from: root_id,
+                    to: reachable_id,
+                    ty: make_type_id("Link"),
+                },
+            },
+        ]);
+
+        // Create an unreachable node (no edge from root or reachable)
+        let unreachable_id = make_node_id("unreachable");
+        let unreachable_key = NodeKey {
+            warp_id,
+            local_id: unreachable_id,
+        };
+
+        acc.apply_ops(vec![WarpOp::UpsertNode {
+            node: unreachable_key,
+            record: NodeRecord {
+                ty: make_type_id("UnreachableType"),
+            },
+        }]);
+
+        // Verify both nodes exist in the accumulator
+        assert!(acc.nodes.contains_key(&reachable_key));
+        assert!(acc.nodes.contains_key(&unreachable_key));
+
+        // Compute reachability from root
+        let root_key = NodeKey {
+            warp_id,
+            local_id: root_id,
+        };
+        let (reachable_nodes, _reachable_warps) = acc.compute_reachability(&root_key);
+
+        // Verify reachable set contains root and reachable node, but not unreachable
+        assert!(reachable_nodes.contains(&root_key));
+        assert!(reachable_nodes.contains(&reachable_key));
+        assert!(!reachable_nodes.contains(&unreachable_key));
+    }
+
+    #[test]
+    fn test_state_root_deterministic() {
+        // Create two identical accumulators via the same ops
+        let warp_id = make_warp_id("determinism-test");
+        let root_id = make_node_id("root");
+        let root_key = NodeKey {
+            warp_id,
+            local_id: root_id,
+        };
+
+        let ops = vec![
+            WarpOp::UpsertWarpInstance {
+                instance: WarpInstance {
+                    warp_id,
+                    root_node: root_id,
+                    parent: None,
+                },
+            },
+            WarpOp::UpsertNode {
+                node: root_key,
+                record: NodeRecord {
+                    ty: make_type_id("RootType"),
+                },
+            },
+            WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("child"),
+                },
+                record: NodeRecord {
+                    ty: make_type_id("ChildType"),
+                },
+            },
+            WarpOp::UpsertEdge {
+                warp_id,
+                record: EdgeRecord {
+                    id: make_edge_id("root-to-child"),
+                    from: root_id,
+                    to: make_node_id("child"),
+                    ty: make_type_id("ParentOf"),
+                },
+            },
+        ];
+
+        // First accumulator
+        let mut acc1 = SnapshotAccumulator::new();
+        acc1.apply_ops(ops.clone());
+
+        // Second accumulator
+        let mut acc2 = SnapshotAccumulator::new();
+        acc2.apply_ops(ops);
+
+        // Build both with the same parameters
+        let schema_hash = [0xABu8; 32];
+        let tick = 42;
+
+        let output1 = acc1.build(&root_key, schema_hash, tick);
+        let output2 = acc2.build(&root_key, schema_hash, tick);
+
+        // Verify state_root is deterministic
+        assert_eq!(
+            output1.state_root, output2.state_root,
+            "state_root must be deterministic for identical ops"
+        );
+    }
+
+    #[test]
+    fn test_delete_node_cascades_edges() {
+        let (mut acc, warp_id, root_id) = setup_single_instance();
+
+        // Create a node with edges
+        let node_id = make_node_id("connected-node");
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        let edge_from_root = make_edge_id("from-root");
+        let edge_to_root = make_edge_id("to-root");
+
+        acc.apply_ops(vec![
+            WarpOp::UpsertNode {
+                node: node_key,
+                record: NodeRecord {
+                    ty: make_type_id("Connected"),
+                },
+            },
+            WarpOp::UpsertEdge {
+                warp_id,
+                record: EdgeRecord {
+                    id: edge_from_root,
+                    from: root_id,
+                    to: node_id,
+                    ty: make_type_id("Link"),
+                },
+            },
+            WarpOp::UpsertEdge {
+                warp_id,
+                record: EdgeRecord {
+                    id: edge_to_root,
+                    from: node_id,
+                    to: root_id,
+                    ty: make_type_id("BackLink"),
+                },
+            },
+        ]);
+
+        // Verify setup
+        assert!(acc.edges.contains_key(&(warp_id, edge_from_root)));
+        assert!(acc.edges.contains_key(&(warp_id, edge_to_root)));
+
+        // Delete the connected node
+        acc.apply_ops(vec![WarpOp::DeleteNode { node: node_key }]);
+
+        // Verify node is gone
+        assert!(!acc.nodes.contains_key(&node_key));
+
+        // Verify incident edges are cascade-deleted
+        assert!(!acc.edges.contains_key(&(warp_id, edge_from_root)));
+        assert!(!acc.edges.contains_key(&(warp_id, edge_to_root)));
+    }
+
+    #[test]
+    fn test_delete_warp_instance_cascades() {
+        let (mut acc, warp_id, root_id) = setup_single_instance();
+
+        // Add another node and edge to the instance
+        let extra_node_id = make_node_id("extra");
+        let extra_node_key = NodeKey {
+            warp_id,
+            local_id: extra_node_id,
+        };
+        let edge_id = make_edge_id("test-edge");
+
+        acc.apply_ops(vec![
+            WarpOp::UpsertNode {
+                node: extra_node_key,
+                record: NodeRecord {
+                    ty: make_type_id("Extra"),
+                },
+            },
+            WarpOp::UpsertEdge {
+                warp_id,
+                record: EdgeRecord {
+                    id: edge_id,
+                    from: root_id,
+                    to: extra_node_id,
+                    ty: make_type_id("Link"),
+                },
+            },
+        ]);
+
+        // Verify instance exists with content
+        assert!(acc.instances.contains_key(&warp_id));
+        assert_eq!(acc.nodes.len(), 2);
+        assert_eq!(acc.edges.len(), 1);
+
+        // Delete the entire instance
+        acc.apply_ops(vec![WarpOp::DeleteWarpInstance { warp_id }]);
+
+        // Verify everything is gone
+        assert!(!acc.instances.contains_key(&warp_id));
+        assert!(acc.nodes.is_empty());
+        assert!(acc.edges.is_empty());
+    }
 }

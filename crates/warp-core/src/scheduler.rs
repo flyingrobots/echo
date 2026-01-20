@@ -16,28 +16,32 @@ use rustc_hash::FxHashMap;
 
 use std::sync::Arc;
 
-use crate::footprint::Footprint;
-use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeId, NodeKey};
+use crate::footprint::{Footprint, WarpScopedPortKey};
+use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeKey};
 use crate::telemetry::TelemetrySink;
 use crate::tx::TxId;
 
 /// Active footprint tracking using generation-stamped sets for O(1) conflict detection.
+///
+/// All resource keys are warp-scoped: they include both `warp_id` and local identifiers.
+/// This ensures rewrites in different warps don't cause false conflicts when they
+/// happen to touch resources with the same local ID.
 #[derive(Debug)]
 pub(crate) struct ActiveFootprints {
-    /// Nodes written by reserved rewrites
+    /// Nodes written by reserved rewrites (warp-scoped)
     nodes_written: GenSet<NodeKey>,
-    /// Nodes read by reserved rewrites
+    /// Nodes read by reserved rewrites (warp-scoped)
     nodes_read: GenSet<NodeKey>,
-    /// Edges written by reserved rewrites
+    /// Edges written by reserved rewrites (warp-scoped)
     edges_written: GenSet<EdgeKey>,
-    /// Edges read by reserved rewrites
+    /// Edges read by reserved rewrites (warp-scoped)
     edges_read: GenSet<EdgeKey>,
-    /// Attachments written by reserved rewrites
+    /// Attachments written by reserved rewrites (already warp-scoped via NodeKey/EdgeKey)
     attachments_written: GenSet<crate::attachment::AttachmentKey>,
-    /// Attachments read by reserved rewrites
+    /// Attachments read by reserved rewrites (already warp-scoped via NodeKey/EdgeKey)
     attachments_read: GenSet<crate::attachment::AttachmentKey>,
-    /// Boundary ports touched (both `b_in` and `b_out`, since any intersection conflicts)
-    ports: GenSet<crate::footprint::PortKey>,
+    /// Boundary ports touched - warp-scoped (both `b_in` and `b_out`, since any intersection conflicts)
+    ports: GenSet<WarpScopedPortKey>,
 }
 
 impl ActiveFootprints {
@@ -156,52 +160,33 @@ impl RadixScheduler {
 
     #[inline]
     fn has_conflict(active: &ActiveFootprints, pr: &PendingRewrite) -> bool {
-        use crate::ident::EdgeId;
+        // Footprint sets are now warp-scoped: they contain full NodeKey/EdgeKey/WarpScopedPortKey
+        // values, so we can directly check for conflicts without constructing keys.
 
         // Node writes conflict with prior writes OR reads
-        for node_hash in pr.footprint.n_write.iter() {
-            let node_id = NodeId(*node_hash);
-            let key = NodeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: node_id,
-            };
-            if active.nodes_written.contains(key) || active.nodes_read.contains(key) {
+        for key in pr.footprint.n_write.iter() {
+            if active.nodes_written.contains(*key) || active.nodes_read.contains(*key) {
                 return true;
             }
         }
 
         // Node reads conflict with prior writes (but NOT prior reads)
-        for node_hash in pr.footprint.n_read.iter() {
-            let node_id = NodeId(*node_hash);
-            let key = NodeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: node_id,
-            };
-            if active.nodes_written.contains(key) {
+        for key in pr.footprint.n_read.iter() {
+            if active.nodes_written.contains(*key) {
                 return true;
             }
         }
 
         // Edge writes conflict with prior writes OR reads
-        for edge_hash in pr.footprint.e_write.iter() {
-            let edge_id = EdgeId(*edge_hash);
-            let key = EdgeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: edge_id,
-            };
-            if active.edges_written.contains(key) || active.edges_read.contains(key) {
+        for key in pr.footprint.e_write.iter() {
+            if active.edges_written.contains(*key) || active.edges_read.contains(*key) {
                 return true;
             }
         }
 
         // Edge reads conflict with prior writes (but NOT prior reads)
-        for edge_hash in pr.footprint.e_read.iter() {
-            let edge_id = EdgeId(*edge_hash);
-            let key = EdgeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: edge_id,
-            };
-            if active.edges_written.contains(key) {
+        for key in pr.footprint.e_read.iter() {
+            if active.edges_written.contains(*key) {
                 return true;
             }
         }
@@ -221,6 +206,7 @@ impl RadixScheduler {
         }
 
         // Boundary ports: any intersection conflicts (b_in and b_out combined)
+        // Port keys are now warp-scoped: (WarpId, PortKey)
         for port_key in pr.footprint.b_in.keys() {
             if active.ports.contains(*port_key) {
                 return true;
@@ -237,31 +223,20 @@ impl RadixScheduler {
 
     #[inline]
     fn mark_all(active: &mut ActiveFootprints, pr: &PendingRewrite) {
-        use crate::ident::EdgeId;
+        // Footprint sets are now warp-scoped: they contain full keys, so we can
+        // directly mark them without constructing keys on the fly.
 
-        for node_hash in pr.footprint.n_write.iter() {
-            active.nodes_written.mark(NodeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: NodeId(*node_hash),
-            });
+        for key in pr.footprint.n_write.iter() {
+            active.nodes_written.mark(*key);
         }
-        for node_hash in pr.footprint.n_read.iter() {
-            active.nodes_read.mark(NodeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: NodeId(*node_hash),
-            });
+        for key in pr.footprint.n_read.iter() {
+            active.nodes_read.mark(*key);
         }
-        for edge_hash in pr.footprint.e_write.iter() {
-            active.edges_written.mark(EdgeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: EdgeId(*edge_hash),
-            });
+        for key in pr.footprint.e_write.iter() {
+            active.edges_written.mark(*key);
         }
-        for edge_hash in pr.footprint.e_read.iter() {
-            active.edges_read.mark(EdgeKey {
-                warp_id: pr.scope.warp_id,
-                local_id: EdgeId(*edge_hash),
-            });
+        for key in pr.footprint.e_read.iter() {
+            active.edges_read.mark(*key);
         }
         for key in pr.footprint.a_write.iter() {
             active.attachments_written.mark(*key);
@@ -714,21 +689,8 @@ impl DeterministicScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::footprint::pack_port_key;
     use crate::ident::{make_node_id, NodeKey, WarpId};
-
-    // Test-only helper: pack a boundary port key from components.
-    #[inline]
-    fn pack_port(
-        node: &crate::ident::NodeId,
-        port_id: u32,
-        dir_in: bool,
-    ) -> crate::footprint::PortKey {
-        let mut node_hi = [0u8; 8];
-        node_hi.copy_from_slice(&node.0[0..8]);
-        let node_bits = u64::from_le_bytes(node_hi);
-        let dir_bit = u64::from(dir_in);
-        (node_bits << 32) | (u64::from(port_id) << 2) | dir_bit
-    }
 
     fn h(byte: u8) -> Hash {
         let mut out = [0u8; 32];
@@ -744,6 +706,51 @@ mod tests {
         NodeKey {
             warp_id: test_warp_id(),
             local_id: make_node_id(label),
+        }
+    }
+
+    /// Helper to insert a warp-scoped node into a footprint's [`NodeSet`].
+    fn insert_node_scoped(
+        fp: &mut Footprint,
+        warp_id: WarpId,
+        node: &crate::ident::NodeId,
+        write: bool,
+    ) {
+        if write {
+            fp.n_write.insert_with_warp(warp_id, *node);
+        } else {
+            fp.n_read.insert_with_warp(warp_id, *node);
+        }
+    }
+
+    /// Helper to insert a warp-scoped edge into a footprint's [`EdgeSet`].
+    fn insert_edge_scoped(
+        fp: &mut Footprint,
+        warp_id: WarpId,
+        edge: &crate::ident::EdgeId,
+        write: bool,
+    ) {
+        if write {
+            fp.e_write.insert_with_warp(warp_id, *edge);
+        } else {
+            fp.e_read.insert_with_warp(warp_id, *edge);
+        }
+    }
+
+    /// Helper to insert a warp-scoped port into a footprint's [`PortSet`].
+    fn insert_port_scoped(
+        fp: &mut Footprint,
+        warp_id: WarpId,
+        node: &crate::ident::NodeId,
+        port_id: u32,
+        dir_in: bool,
+        is_input: bool,
+    ) {
+        let port_key = pack_port_key(node, port_id, dir_in);
+        if is_input {
+            fp.b_in.insert(warp_id, port_key);
+        } else {
+            fp.b_out.insert(warp_id, port_key);
         }
     }
 
@@ -836,11 +843,10 @@ mod tests {
 
     #[test]
     fn reserve_should_detect_node_write_read_conflict() {
-        use crate::ident::make_node_id;
-
         let tx = TxId::from_raw(1);
         let mut sched = RadixScheduler::default();
         let shared_node = make_node_id("shared");
+        let warp_id = test_warp_id();
 
         // First rewrite writes to a node
         let mut rewrite1 = PendingRewrite {
@@ -854,7 +860,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite1.footprint.n_write.insert_node(&shared_node);
+        insert_node_scoped(&mut rewrite1.footprint, warp_id, &shared_node, true);
 
         // Second rewrite reads from the same node
         let mut rewrite2 = PendingRewrite {
@@ -868,7 +874,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite2.footprint.n_read.insert_node(&shared_node);
+        insert_node_scoped(&mut rewrite2.footprint, warp_id, &shared_node, false);
 
         // First should succeed, second should fail due to conflict
         assert!(
@@ -893,6 +899,7 @@ mod tests {
         let tx = TxId::from_raw(1);
         let mut sched = RadixScheduler::default();
         let shared_edge = make_edge_id("shared");
+        let warp_id = test_warp_id();
 
         // First rewrite writes to an edge
         let mut rewrite1 = PendingRewrite {
@@ -906,7 +913,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite1.footprint.e_write.insert_edge(&shared_edge);
+        insert_edge_scoped(&mut rewrite1.footprint, warp_id, &shared_edge, true);
 
         // Second rewrite also writes to the same edge
         let mut rewrite2 = PendingRewrite {
@@ -920,7 +927,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite2.footprint.e_write.insert_edge(&shared_edge);
+        insert_edge_scoped(&mut rewrite2.footprint, warp_id, &shared_edge, true);
 
         // First should succeed, second should fail due to conflict
         assert!(
@@ -945,6 +952,7 @@ mod tests {
         let tx = TxId::from_raw(1);
         let mut sched = RadixScheduler::default();
         let shared_edge = make_edge_id("shared");
+        let warp_id = test_warp_id();
 
         // First rewrite writes to an edge
         let mut rewrite1 = PendingRewrite {
@@ -958,7 +966,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite1.footprint.e_write.insert_edge(&shared_edge);
+        insert_edge_scoped(&mut rewrite1.footprint, warp_id, &shared_edge, true);
 
         // Second rewrite reads from the same edge
         let mut rewrite2 = PendingRewrite {
@@ -972,7 +980,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite2.footprint.e_read.insert_edge(&shared_edge);
+        insert_edge_scoped(&mut rewrite2.footprint, warp_id, &shared_edge, false);
 
         // First should succeed, second should fail due to conflict
         assert!(
@@ -995,6 +1003,7 @@ mod tests {
         let tx = TxId::from_raw(1);
         let mut sched = RadixScheduler::default();
         let node = make_node_id("port_node");
+        let warp_id = test_warp_id();
 
         // First rewrite touches a boundary input port
         let mut rewrite1 = PendingRewrite {
@@ -1008,7 +1017,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite1.footprint.b_in.insert(pack_port(&node, 0, true));
+        insert_port_scoped(&mut rewrite1.footprint, warp_id, &node, 0, true, true);
 
         // Second rewrite touches the same boundary input port
         let mut rewrite2 = PendingRewrite {
@@ -1022,7 +1031,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite2.footprint.b_in.insert(pack_port(&node, 0, true));
+        insert_port_scoped(&mut rewrite2.footprint, warp_id, &node, 0, true, true);
 
         // First should succeed, second should fail due to conflict
         assert!(
@@ -1105,6 +1114,7 @@ mod tests {
 
         let tx = TxId::from_raw(1);
         let mut sched = RadixScheduler::default();
+        let warp_id = test_warp_id();
 
         // First rewrite: writes node A
         let mut rewrite1 = PendingRewrite {
@@ -1119,7 +1129,7 @@ mod tests {
             phase: RewritePhase::Matched,
         };
         let node_a = make_node_id("node_a");
-        rewrite1.footprint.n_write.insert_node(&node_a);
+        insert_node_scoped(&mut rewrite1.footprint, warp_id, &node_a, true);
 
         assert!(
             sched.reserve(tx, &mut rewrite1),
@@ -1139,8 +1149,8 @@ mod tests {
             phase: RewritePhase::Matched,
         };
         let node_b = make_node_id("node_b");
-        rewrite2.footprint.n_read.insert_node(&node_a); // Conflicts!
-        rewrite2.footprint.n_write.insert_node(&node_b); // Would not conflict
+        insert_node_scoped(&mut rewrite2.footprint, warp_id, &node_a, false); // Conflicts!
+        insert_node_scoped(&mut rewrite2.footprint, warp_id, &node_b, true); // Would not conflict
 
         assert!(
             !sched.reserve(tx, &mut rewrite2),
@@ -1159,7 +1169,7 @@ mod tests {
             },
             phase: RewritePhase::Matched,
         };
-        rewrite3.footprint.n_write.insert_node(&node_b);
+        insert_node_scoped(&mut rewrite3.footprint, warp_id, &node_b, true);
 
         // This MUST succeed, proving rewrite2 did NOT mark node_b despite checking it
         assert!(
@@ -1177,20 +1187,26 @@ mod tests {
             let tx = TxId::from_raw(1);
             let mut sched = RadixScheduler::default();
             let mut results = Vec::new();
+            let warp_id = crate::ident::make_warp_id("scheduler-test-warp");
 
             // Rewrite 1: writes A
             let mut r1 = PendingRewrite {
                 rule_id: h(1),
                 compact_rule: CompactRuleId(1),
                 scope_hash: h(1),
-                scope: scope_key("s1"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("s1"),
+                },
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
             };
-            r1.footprint.n_write.insert_node(&make_node_id("A"));
+            r1.footprint
+                .n_write
+                .insert_with_warp(warp_id, make_node_id("A"));
             results.push(sched.reserve(tx, &mut r1));
 
             // Rewrite 2: reads A (should fail - conflicts with r1)
@@ -1198,14 +1214,19 @@ mod tests {
                 rule_id: h(2),
                 compact_rule: CompactRuleId(2),
                 scope_hash: h(2),
-                scope: scope_key("s2"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("s2"),
+                },
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
             };
-            r2.footprint.n_read.insert_node(&make_node_id("A"));
+            r2.footprint
+                .n_read
+                .insert_with_warp(warp_id, make_node_id("A"));
             results.push(sched.reserve(tx, &mut r2));
 
             // Rewrite 3: writes B (should succeed - independent)
@@ -1213,14 +1234,19 @@ mod tests {
                 rule_id: h(3),
                 compact_rule: CompactRuleId(3),
                 scope_hash: h(3),
-                scope: scope_key("s3"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("s3"),
+                },
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
             };
-            r3.footprint.n_write.insert_node(&make_node_id("B"));
+            r3.footprint
+                .n_write
+                .insert_with_warp(warp_id, make_node_id("B"));
             results.push(sched.reserve(tx, &mut r3));
 
             // Rewrite 4: reads B (should fail - conflicts with r3)
@@ -1228,14 +1254,19 @@ mod tests {
                 rule_id: h(4),
                 compact_rule: CompactRuleId(4),
                 scope_hash: h(4),
-                scope: scope_key("s4"),
+                scope: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("s4"),
+                },
                 footprint: Footprint {
                     factor_mask: 1,
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
             };
-            r4.footprint.n_read.insert_node(&make_node_id("B"));
+            r4.footprint
+                .n_read
+                .insert_with_warp(warp_id, make_node_id("B"));
             results.push(sched.reserve(tx, &mut r4));
 
             results
@@ -1263,6 +1294,7 @@ mod tests {
     fn reserve_allows_independent_rewrites() {
         let tx = TxId::from_raw(1);
         let mut sched = RadixScheduler::default();
+        let warp_id = test_warp_id();
 
         // Two rewrites with completely disjoint footprints
         let mut rewrite1 = PendingRewrite {
@@ -1273,10 +1305,12 @@ mod tests {
             footprint: Footprint::default(),
             phase: RewritePhase::Matched,
         };
-        rewrite1
-            .footprint
-            .n_write
-            .insert_node(&make_node_id("node_a"));
+        insert_node_scoped(
+            &mut rewrite1.footprint,
+            warp_id,
+            &make_node_id("node_a"),
+            true,
+        );
 
         let mut rewrite2 = PendingRewrite {
             rule_id: h(2),
@@ -1286,10 +1320,12 @@ mod tests {
             footprint: Footprint::default(),
             phase: RewritePhase::Matched,
         };
-        rewrite2
-            .footprint
-            .n_write
-            .insert_node(&make_node_id("node_b"));
+        insert_node_scoped(
+            &mut rewrite2.footprint,
+            warp_id,
+            &make_node_id("node_b"),
+            true,
+        );
 
         // Both should be allowed to reserve since they're independent
         assert!(
@@ -1299,6 +1335,66 @@ mod tests {
         assert!(
             sched.reserve(tx, &mut rewrite2),
             "second reserve should succeed for independent rewrites"
+        );
+    }
+
+    #[test]
+    fn reserve_different_warps_no_conflict() {
+        // Test that the same local node ID in different warps does NOT conflict
+        let tx = TxId::from_raw(1);
+        let mut sched = RadixScheduler::default();
+
+        let warp_a = crate::ident::make_warp_id("warp-a");
+        let warp_b = crate::ident::make_warp_id("warp-b");
+        let same_local_node = make_node_id("shared-local-id");
+
+        // First rewrite writes to a node in warp A
+        let mut rewrite1 = PendingRewrite {
+            rule_id: h(1),
+            compact_rule: CompactRuleId(1),
+            scope_hash: h(1),
+            scope: NodeKey {
+                warp_id: warp_a,
+                local_id: make_node_id("scope1"),
+            },
+            footprint: Footprint {
+                factor_mask: 0b0001,
+                ..Default::default()
+            },
+            phase: RewritePhase::Matched,
+        };
+        insert_node_scoped(&mut rewrite1.footprint, warp_a, &same_local_node, true);
+
+        // Second rewrite writes the SAME LOCAL NODE ID but in warp B
+        let mut rewrite2 = PendingRewrite {
+            rule_id: h(2),
+            compact_rule: CompactRuleId(2),
+            scope_hash: h(2),
+            scope: NodeKey {
+                warp_id: warp_b,
+                local_id: make_node_id("scope2"),
+            },
+            footprint: Footprint {
+                factor_mask: 0b0001,
+                ..Default::default()
+            },
+            phase: RewritePhase::Matched,
+        };
+        insert_node_scoped(&mut rewrite2.footprint, warp_b, &same_local_node, true);
+
+        // Both should succeed - different warps = no conflict
+        assert!(
+            sched.reserve(tx, &mut rewrite1),
+            "first reserve should succeed"
+        );
+        assert!(
+            sched.reserve(tx, &mut rewrite2),
+            "second reserve should succeed - different warp, no conflict"
+        );
+        assert_eq!(
+            rewrite2.phase,
+            RewritePhase::Reserved,
+            "second rewrite should be reserved (not aborted)"
         );
     }
 }

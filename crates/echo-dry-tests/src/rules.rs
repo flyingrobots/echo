@@ -45,26 +45,29 @@ pub fn empty_footprint(_: GraphView<'_>, _: &NodeId) -> Footprint {
 }
 
 /// Footprint that writes to the scope node.
-pub fn write_scope_footprint(_: GraphView<'_>, scope: &NodeId) -> Footprint {
+pub fn write_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_write.insert_node(scope);
+    fp.n_write.insert_with_warp(warp_id, *scope);
     fp.factor_mask = 1;
     fp
 }
 
 /// Footprint that reads from the scope node.
-pub fn read_scope_footprint(_: GraphView<'_>, scope: &NodeId) -> Footprint {
+pub fn read_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_read.insert_node(scope);
+    fp.n_read.insert_with_warp(warp_id, *scope);
     fp.factor_mask = 1;
     fp
 }
 
 /// Footprint that writes to scope and a derived "other" node.
-pub fn write_scope_and_other_footprint(_: GraphView<'_>, scope: &NodeId) -> Footprint {
+pub fn write_scope_and_other_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_write.insert_node(scope);
-    fp.n_write.insert_node(&other_node_of(scope));
+    fp.n_write.insert_with_warp(warp_id, *scope);
+    fp.n_write.insert_with_warp(warp_id, other_node_of(scope));
     fp.factor_mask = 1;
     fp
 }
@@ -287,9 +290,12 @@ mod tests {
 
     // --- Behavioral Tests ---
 
-    /// Helper to check if an IdSet contains a specific node hash.
-    fn id_set_contains(set: &warp_core::IdSet, node: &NodeId) -> bool {
-        set.iter().any(|h| *h == node.0)
+    /// Helper to check if a NodeSet contains a specific node for the default (root) warp.
+    fn node_set_contains(set: &warp_core::NodeSet, node: &NodeId) -> bool {
+        // For tests with GraphStore::default(), the warp_id is make_warp_id("root")
+        let root_warp = warp_core::make_warp_id("root");
+        set.iter()
+            .any(|key| key.warp_id == root_warp && key.local_id == *node)
     }
 
     #[test]
@@ -330,8 +336,8 @@ mod tests {
 
         let fp = write_scope_footprint(view, &scope);
 
-        assert!(id_set_contains(&fp.n_write, &scope));
-        assert!(!id_set_contains(&fp.n_read, &scope));
+        assert!(node_set_contains(&fp.n_write, &scope));
+        assert!(!node_set_contains(&fp.n_read, &scope));
         assert_eq!(fp.factor_mask, 1);
     }
 
@@ -343,8 +349,8 @@ mod tests {
 
         let fp = read_scope_footprint(view, &scope);
 
-        assert!(id_set_contains(&fp.n_read, &scope));
-        assert!(!id_set_contains(&fp.n_write, &scope));
+        assert!(node_set_contains(&fp.n_read, &scope));
+        assert!(!node_set_contains(&fp.n_write, &scope));
         assert_eq!(fp.factor_mask, 1);
     }
 
@@ -357,8 +363,8 @@ mod tests {
 
         let fp = write_scope_and_other_footprint(view, &scope);
 
-        assert!(id_set_contains(&fp.n_write, &scope));
-        assert!(id_set_contains(&fp.n_write, &other));
+        assert!(node_set_contains(&fp.n_write, &scope));
+        assert!(node_set_contains(&fp.n_write, &other));
         assert_eq!(fp.factor_mask, 1);
     }
 
@@ -370,8 +376,8 @@ mod tests {
 
         let fp = empty_footprint(view, &scope);
 
-        assert!(!id_set_contains(&fp.n_read, &scope));
-        assert!(!id_set_contains(&fp.n_write, &scope));
+        assert!(!node_set_contains(&fp.n_read, &scope));
+        assert!(!node_set_contains(&fp.n_write, &scope));
         assert_eq!(fp.factor_mask, 0);
     }
 

@@ -118,7 +118,9 @@ pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
     ExistingState, FreshStore, IngestDisposition,
 };
-pub use footprint::{pack_port_key, AttachmentSet, Footprint, IdSet, PortKey, PortSet};
+pub use footprint::{
+    pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
+};
 pub use graph::GraphStore;
 pub use graph_view::GraphView;
 pub use ident::{

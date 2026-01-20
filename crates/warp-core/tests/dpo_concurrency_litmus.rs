@@ -31,19 +31,23 @@ fn litmus_port_read_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
 fn litmus_port_read_executor(_view: GraphView<'_>, _scope: &NodeId, _delta: &mut TickDelta) {}
 
 fn litmus_port_read_0_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
     if view.node(scope).is_some() {
-        fp.n_read.insert_node(scope);
-        fp.b_in.insert(warp_core::pack_port_key(scope, 0, true));
+        fp.n_read.insert_with_warp(warp_id, *scope);
+        fp.b_in
+            .insert(warp_id, warp_core::pack_port_key(scope, 0, true));
     }
     fp
 }
 
 fn litmus_port_read_1_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
     if view.node(scope).is_some() {
-        fp.n_read.insert_node(scope);
-        fp.b_in.insert(warp_core::pack_port_key(scope, 1, true));
+        fp.n_read.insert_with_warp(warp_id, *scope);
+        fp.b_in
+            .insert(warp_id, warp_core::pack_port_key(scope, 1, true));
     }
     fp
 }

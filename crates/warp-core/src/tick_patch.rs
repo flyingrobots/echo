@@ -18,7 +18,7 @@ use thiserror::Error;
 use crate::attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue,
 };
-use crate::footprint::PortKey;
+use crate::footprint::WarpScopedPortKey;
 use crate::graph::GraphStore;
 use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
@@ -44,17 +44,21 @@ impl TickCommitStatus {
 }
 
 /// Unversioned slot identifier for slicing and provenance bookkeeping.
+///
+/// All variants are warp-scoped: they include both `WarpId` and local identifiers.
+/// This ensures resources in different warps are tracked distinctly for receipt
+/// attribution and provenance bookkeeping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SlotId {
-    /// Full node record at `NodeKey` (instance-scoped skeleton record).
+    /// Full node record at `NodeKey` (warp-scoped skeleton record).
     Node(NodeKey),
-    /// Full edge record at `EdgeKey` (instance-scoped skeleton record).
+    /// Full edge record at `EdgeKey` (warp-scoped skeleton record).
     Edge(EdgeKey),
     /// Attachment slot (node/edge plane payload, including `Descend` links).
     Attachment(AttachmentKey),
-    /// Boundary port value (opaque key).
-    Port(PortKey),
+    /// Boundary port value (warp-scoped: `(WarpId, PortKey)`).
+    Port(WarpScopedPortKey),
 }
 
 impl SlotId {
@@ -796,9 +800,10 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
                 h.update(&[3u8]);
                 encode_attachment_key(h, key);
             }
-            SlotId::Port(key) => {
+            SlotId::Port((warp_id, port_key)) => {
                 h.update(&[4u8]);
-                h.update(&key.to_le_bytes());
+                h.update(&warp_id.0);
+                h.update(&port_key.to_le_bytes());
             }
         }
     }

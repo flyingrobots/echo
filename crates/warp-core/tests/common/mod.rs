@@ -84,23 +84,23 @@ pub fn random_footprint(rng: &mut XorShift64) -> Footprint {
     let mut fp = Footprint::default();
     let warp_id = WarpId([0u8; 32]); // Use a fixed WarpId for testing
 
-    // Add random nodes
+    // Add random nodes (warp-scoped)
     for _ in 0..(rng.gen_range_usize(5)) {
         let node_id = NodeId(random_hash(rng));
         if rng.next_u64().is_multiple_of(2) {
-            fp.n_read.insert_node(&node_id);
+            fp.n_read.insert_with_warp(warp_id, node_id);
         } else {
-            fp.n_write.insert_node(&node_id);
+            fp.n_write.insert_with_warp(warp_id, node_id);
         }
     }
 
-    // Add random edges
+    // Add random edges (warp-scoped)
     for _ in 0..(rng.gen_range_usize(3)) {
         let edge_id = EdgeId(random_hash(rng));
         if rng.next_u64().is_multiple_of(2) {
-            fp.e_read.insert_edge(&edge_id);
+            fp.e_read.insert_with_warp(warp_id, edge_id);
         } else {
-            fp.e_write.insert_edge(&edge_id);
+            fp.e_write.insert_with_warp(warp_id, edge_id);
         }
     }
 
@@ -282,10 +282,10 @@ fn make_boaw_touch_rule() -> RewriteRule {
                 }));
             }
             Footprint {
-                n_read: warp_core::IdSet::default(),
-                n_write: warp_core::IdSet::default(),
-                e_read: warp_core::IdSet::default(),
-                e_write: warp_core::IdSet::default(),
+                n_read: warp_core::NodeSet::default(),
+                n_write: warp_core::NodeSet::default(),
+                e_read: warp_core::EdgeSet::default(),
+                e_write: warp_core::EdgeSet::default(),
                 a_read: AttachmentSet::default(),
                 a_write,
                 b_in: warp_core::PortSet::default(),

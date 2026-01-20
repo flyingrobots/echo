@@ -10,7 +10,7 @@ use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::ident::{
-    make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
+    make_edge_id, make_node_id, make_type_id, CompactRuleId, Hash, NodeId, NodeKey, WarpId,
 };
 use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::materialization::{ChannelConflict, FinalizedChannel, MaterializationBus};
@@ -1717,42 +1717,37 @@ pub fn scope_hash(rule_id: &Hash, scope: &NodeKey) -> Hash {
     hasher.finalize().into()
 }
 
+/// Extends the slot sets with resources from a warp-scoped footprint.
+///
+/// Footprint sets are now warp-scoped: they contain full `NodeKey`, `EdgeKey`,
+/// and `WarpScopedPortKey` values directly. The `_warp_id` parameter is kept
+/// for call-site compatibility but is no longer used (the `warp_id` is embedded
+/// in the footprint keys).
 fn extend_slots_from_footprint(
     in_slots: &mut std::collections::BTreeSet<SlotId>,
     out_slots: &mut std::collections::BTreeSet<SlotId>,
-    warp_id: &WarpId,
+    _warp_id: &WarpId, // Kept for API compat; warp_id is now in the footprint keys
     fp: &crate::footprint::Footprint,
 ) {
-    for node_hash in fp.n_read.iter() {
-        in_slots.insert(SlotId::Node(NodeKey {
-            warp_id: *warp_id,
-            local_id: NodeId(*node_hash),
-        }));
+    // Nodes (warp-scoped NodeKey)
+    for key in fp.n_read.iter() {
+        in_slots.insert(SlotId::Node(*key));
     }
-    for node_hash in fp.n_write.iter() {
-        let id = NodeId(*node_hash);
-        let key = NodeKey {
-            warp_id: *warp_id,
-            local_id: id,
-        };
-        in_slots.insert(SlotId::Node(key));
-        out_slots.insert(SlotId::Node(key));
+    for key in fp.n_write.iter() {
+        in_slots.insert(SlotId::Node(*key));
+        out_slots.insert(SlotId::Node(*key));
     }
-    for edge_hash in fp.e_read.iter() {
-        in_slots.insert(SlotId::Edge(crate::ident::EdgeKey {
-            warp_id: *warp_id,
-            local_id: EdgeId(*edge_hash),
-        }));
+
+    // Edges (warp-scoped EdgeKey)
+    for key in fp.e_read.iter() {
+        in_slots.insert(SlotId::Edge(*key));
     }
-    for edge_hash in fp.e_write.iter() {
-        let id = EdgeId(*edge_hash);
-        let key = crate::ident::EdgeKey {
-            warp_id: *warp_id,
-            local_id: id,
-        };
-        in_slots.insert(SlotId::Edge(key));
-        out_slots.insert(SlotId::Edge(key));
+    for key in fp.e_write.iter() {
+        in_slots.insert(SlotId::Edge(*key));
+        out_slots.insert(SlotId::Edge(*key));
     }
+
+    // Attachments (already warp-scoped via AttachmentKey)
     for key in fp.a_read.iter() {
         in_slots.insert(SlotId::Attachment(*key));
     }
@@ -1760,6 +1755,8 @@ fn extend_slots_from_footprint(
         in_slots.insert(SlotId::Attachment(*key));
         out_slots.insert(SlotId::Attachment(*key));
     }
+
+    // Ports (warp-scoped: (WarpId, PortKey))
     for port_key in fp.b_in.keys() {
         in_slots.insert(SlotId::Port(*port_key));
     }
@@ -1842,10 +1839,10 @@ mod tests {
                     }));
                 }
                 crate::Footprint {
-                    n_read: crate::IdSet::default(),
-                    n_write: crate::IdSet::default(),
-                    e_read: crate::IdSet::default(),
-                    e_write: crate::IdSet::default(),
+                    n_read: crate::NodeSet::default(),
+                    n_write: crate::NodeSet::default(),
+                    e_read: crate::EdgeSet::default(),
+                    e_write: crate::EdgeSet::default(),
                     a_read: crate::AttachmentSet::default(),
                     a_write,
                     b_in: crate::PortSet::default(),

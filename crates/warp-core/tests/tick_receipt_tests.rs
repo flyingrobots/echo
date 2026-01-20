@@ -56,17 +56,19 @@ fn other_of(scope: &NodeId) -> NodeId {
     NodeId(blake3::hash(&scope.0).into())
 }
 
-fn fp_write_scope(_: GraphView<'_>, scope: &NodeId) -> Footprint {
+fn fp_write_scope(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_write.insert_node(scope);
+    fp.n_write.insert_with_warp(warp_id, *scope);
     fp.factor_mask = 1;
     fp
 }
 
-fn fp_write_scope_and_other(_: GraphView<'_>, scope: &NodeId) -> Footprint {
+fn fp_write_scope_and_other(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_write.insert_node(scope);
-    fp.n_write.insert_node(&other_of(scope));
+    fp.n_write.insert_with_warp(warp_id, *scope);
+    fp.n_write.insert_with_warp(warp_id, other_of(scope));
     fp.factor_mask = 1;
     fp
 }

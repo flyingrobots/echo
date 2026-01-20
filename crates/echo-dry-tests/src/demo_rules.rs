@@ -8,8 +8,8 @@ use warp_core::{
     decode_motion_atom_payload_q32_32, decode_motion_payload, encode_motion_atom_payload,
     encode_motion_payload, encode_motion_payload_q32_32, make_node_id, make_type_id,
     motion_payload_type_id, pack_port_key, AtomPayload, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, Engine, Footprint, GraphStore, GraphView, Hash, IdSet, NodeId,
-    NodeKey, NodeRecord, PatternGraph, PortSet, RewriteRule, TickDelta, WarpOp,
+    AttachmentValue, ConflictPolicy, EdgeSet, Engine, Footprint, GraphStore, GraphView, Hash,
+    NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, WarpOp,
 };
 
 // =============================================================================
@@ -136,10 +136,10 @@ fn compute_motion_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
         }));
     }
     Footprint {
-        n_read: IdSet::default(),
-        n_write: IdSet::default(),
-        e_read: IdSet::default(),
-        e_write: IdSet::default(),
+        n_read: NodeSet::default(),
+        n_write: NodeSet::default(),
+        e_read: EdgeSet::default(),
+        e_write: EdgeSet::default(),
         a_read: AttachmentSet::default(),
         a_write,
         b_in: PortSet::default(),
@@ -243,22 +243,23 @@ fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
 }
 
 fn compute_port_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
-    let mut n_write = IdSet::default();
+    let warp_id = view.warp_id();
+    let mut n_write = NodeSet::default();
     let mut a_write = AttachmentSet::default();
     let mut b_in = PortSet::default();
     if view.node(scope).is_some() {
-        n_write.insert_node(scope);
+        n_write.insert_with_warp(warp_id, *scope);
         a_write.insert(AttachmentKey::node_alpha(NodeKey {
-            warp_id: view.warp_id(),
+            warp_id,
             local_id: *scope,
         }));
-        b_in.insert(pack_port_key(scope, 0, true));
+        b_in.insert(warp_id, pack_port_key(scope, 0, true));
     }
     Footprint {
-        n_read: IdSet::default(),
+        n_read: NodeSet::default(),
         n_write,
-        e_read: IdSet::default(),
-        e_write: IdSet::default(),
+        e_read: EdgeSet::default(),
+        e_write: EdgeSet::default(),
         a_read: AttachmentSet::default(),
         a_write,
         b_in,

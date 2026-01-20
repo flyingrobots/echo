@@ -240,10 +240,18 @@ impl<'a> ScopedDelta<'a> {
     }
 
     /// Emits an operation with the scoped origin (auto-assigns `op_ix`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `op_ix` would overflow `u32::MAX`. This indicates a pathological
+    /// rule emitting billions of ops, which is a bug.
+    #[allow(clippy::panic)]
     pub fn emit(&mut self, op: WarpOp) {
         let mut origin = self.origin;
         origin.op_ix = self.next_op_ix;
-        self.next_op_ix += 1;
+        self.next_op_ix = self.next_op_ix.checked_add(1).unwrap_or_else(|| {
+            panic!("ScopedDelta next_op_ix overflow: rule emitted > u32::MAX ops");
+        });
         self.inner.emit_with_origin(op, origin);
     }
 
@@ -450,11 +458,158 @@ fn compute_stats(ops: &[WarpOp]) -> DeltaStats {
     stats
 }
 
-/// Canonicalizes ops by sorting by `sort_key`.
+/// Computes a deterministic hash of a [`WarpOp`] for use as a tie-breaker.
+///
+/// This ensures that ops with the same `sort_key()` but different payloads
+/// are ordered deterministically, regardless of their insertion order.
+#[cfg(any(test, feature = "delta_validate"))]
+fn op_content_hash(op: &WarpOp) -> [u8; 32] {
+    use blake3::Hasher;
+
+    let mut h = Hasher::new();
+
+    match op {
+        WarpOp::OpenPortal {
+            key,
+            child_warp,
+            child_root,
+            init,
+        } => {
+            h.update(&[1u8]);
+            hash_attachment_key(&mut h, key);
+            h.update(&child_warp.0);
+            h.update(&child_root.0);
+            hash_portal_init(&mut h, init);
+        }
+        WarpOp::UpsertWarpInstance { instance } => {
+            h.update(&[2u8]);
+            h.update(&instance.warp_id.0);
+            h.update(&instance.root_node.0);
+            if let Some(parent) = &instance.parent {
+                h.update(&[1u8]);
+                hash_attachment_key(&mut h, parent);
+            } else {
+                h.update(&[0u8]);
+            }
+        }
+        WarpOp::DeleteWarpInstance { warp_id } => {
+            h.update(&[3u8]);
+            h.update(&warp_id.0);
+        }
+        WarpOp::UpsertNode { node, record } => {
+            h.update(&[4u8]);
+            h.update(&node.warp_id.0);
+            h.update(&node.local_id.0);
+            h.update(&record.ty.0);
+        }
+        WarpOp::DeleteNode { node } => {
+            h.update(&[5u8]);
+            h.update(&node.warp_id.0);
+            h.update(&node.local_id.0);
+        }
+        WarpOp::UpsertEdge { warp_id, record } => {
+            h.update(&[6u8]);
+            h.update(&warp_id.0);
+            h.update(&record.id.0);
+            h.update(&record.from.0);
+            h.update(&record.to.0);
+            h.update(&record.ty.0);
+        }
+        WarpOp::DeleteEdge {
+            warp_id,
+            from,
+            edge_id,
+        } => {
+            h.update(&[7u8]);
+            h.update(&warp_id.0);
+            h.update(&from.0);
+            h.update(&edge_id.0);
+        }
+        WarpOp::SetAttachment { key, value } => {
+            h.update(&[8u8]);
+            hash_attachment_key(&mut h, key);
+            if let Some(v) = value {
+                h.update(&[1u8]);
+                hash_attachment_value(&mut h, v);
+            } else {
+                h.update(&[0u8]);
+            }
+        }
+    }
+
+    *h.finalize().as_bytes()
+}
+
+/// Hashes an attachment key for content hashing.
+#[cfg(any(test, feature = "delta_validate"))]
+fn hash_attachment_key(h: &mut blake3::Hasher, key: &crate::attachment::AttachmentKey) {
+    use crate::attachment::AttachmentOwner;
+
+    let (owner_tag, plane_tag) = key.tag();
+    h.update(&<[u8; 2]>::from((owner_tag, plane_tag)));
+    match &key.owner {
+        AttachmentOwner::Node(node) => {
+            h.update(&node.warp_id.0);
+            h.update(&node.local_id.0);
+        }
+        AttachmentOwner::Edge(edge) => {
+            h.update(&edge.warp_id.0);
+            h.update(&edge.local_id.0);
+        }
+    }
+}
+
+/// Hashes an attachment value for content hashing.
+#[cfg(any(test, feature = "delta_validate"))]
+fn hash_attachment_value(h: &mut blake3::Hasher, value: &crate::attachment::AttachmentValue) {
+    use crate::attachment::AttachmentValue;
+
+    match value {
+        AttachmentValue::Atom(atom) => {
+            h.update(&[1u8]);
+            h.update(&atom.type_id.0);
+            h.update(&atom.bytes);
+        }
+        AttachmentValue::Descend(warp_id) => {
+            h.update(&[2u8]);
+            h.update(&warp_id.0);
+        }
+    }
+}
+
+/// Hashes portal init for content hashing.
+#[cfg(any(test, feature = "delta_validate"))]
+fn hash_portal_init(h: &mut blake3::Hasher, init: &crate::tick_patch::PortalInit) {
+    use crate::tick_patch::PortalInit;
+
+    match init {
+        PortalInit::Empty { root_record } => {
+            h.update(&[1u8]);
+            h.update(&root_record.ty.0);
+        }
+        PortalInit::RequireExisting => {
+            h.update(&[2u8]);
+        }
+    }
+}
+
+/// Canonicalizes ops by sorting by `(sort_key, content_hash)`.
+///
+/// The content hash provides a deterministic tie-breaker when multiple ops
+/// share the same `sort_key()`, ensuring consistent ordering regardless of
+/// insertion order. This is critical for validation where delta ops and
+/// diff ops may have been collected in different orders.
 #[cfg(any(test, feature = "delta_validate"))]
 fn canonicalize_ops(ops: &[WarpOp]) -> Vec<WarpOp> {
     let mut sorted = ops.to_vec();
-    sorted.sort_by_key(WarpOp::sort_key);
+    sorted.sort_by(|a, b| {
+        let key_cmp = a.sort_key().cmp(&b.sort_key());
+        if key_cmp == std::cmp::Ordering::Equal {
+            op_content_hash(a).cmp(&op_content_hash(b))
+        } else {
+            key_cmp
+        }
+    });
     sorted
 }
 
@@ -1306,5 +1461,109 @@ mod tests {
 
         // Should panic with detailed error message
         assert_delta_matches_diff(&ops_delta, &ops_diff);
+    }
+
+    #[test]
+    fn canonicalize_ops_produces_deterministic_order_for_same_sort_key() {
+        // Two UpsertNode ops with the same NodeKey (same sort_key) but different records.
+        // This tests that the content hash tie-breaker produces consistent ordering.
+        let warp_id = make_warp_id("test-warp");
+        let node_id = make_node_id("same-node");
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        let op_type_a = WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("TypeA"),
+            },
+        };
+        let op_type_b = WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("TypeB"),
+            },
+        };
+
+        // These have the same sort_key() since they target the same node
+        assert_eq!(op_type_a.sort_key(), op_type_b.sort_key());
+
+        // Canonicalize in different input orders
+        let order_ab = canonicalize_ops(&[op_type_a.clone(), op_type_b.clone()]);
+        let order_ba = canonicalize_ops(&[op_type_b, op_type_a]);
+
+        // Both should produce the same output order (deterministic tie-breaking)
+        assert_eq!(order_ab.len(), 2);
+        assert_eq!(order_ba.len(), 2);
+        assert_eq!(
+            order_ab[0], order_ba[0],
+            "First op should be the same regardless of input order"
+        );
+        assert_eq!(
+            order_ab[1], order_ba[1],
+            "Second op should be the same regardless of input order"
+        );
+    }
+
+    #[test]
+    fn op_content_hash_differs_for_different_payloads() {
+        let warp_id = make_warp_id("test-warp");
+        let node_id = make_node_id("same-node");
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        let op_type_a = WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("TypeA"),
+            },
+        };
+        let op_type_b = WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("TypeB"),
+            },
+        };
+
+        // Same sort_key but different content hashes
+        assert_eq!(op_type_a.sort_key(), op_type_b.sort_key());
+        assert_ne!(
+            op_content_hash(&op_type_a),
+            op_content_hash(&op_type_b),
+            "Different payloads should produce different content hashes"
+        );
+    }
+
+    #[test]
+    fn op_content_hash_is_stable_for_identical_ops() {
+        let warp_id = make_warp_id("test-warp");
+        let node_id = make_node_id("test-node");
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        let op1 = WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("TestType"),
+            },
+        };
+        let op2 = WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("TestType"),
+            },
+        };
+
+        assert_eq!(
+            op_content_hash(&op1),
+            op_content_hash(&op2),
+            "Identical ops should produce identical content hashes"
+        );
     }
 }

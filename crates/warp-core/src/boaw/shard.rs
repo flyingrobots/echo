@@ -88,8 +88,8 @@ const SHARD_MASK: u64 = (NUM_SHARDS - 1) as u64;
 #[inline]
 pub fn shard_of(scope: &NodeId) -> usize {
     let bytes = scope.as_bytes();
-    // NodeId is [u8; 32], so this is always valid.
-    // Using explicit indexing + try_into for clarity.
+    // NodeId is [u8; 32], so first 8 bytes always exist.
+    // Copy directly to avoid try_into() + expect().
     let first_8: [u8; 8] = [
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
     ];
@@ -98,7 +98,7 @@ pub fn shard_of(scope: &NodeId) -> usize {
 }
 
 /// A virtual shard containing `ExecItem`s that share locality.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct VirtualShard {
     /// Items assigned to this shard.
     pub items: Vec<ExecItem>,
@@ -109,15 +109,20 @@ pub struct VirtualShard {
 /// Items with the same `shard_of(scope)` are grouped together,
 /// enabling cache locality when a worker processes a shard.
 ///
+/// # Arguments
+///
+/// * `items` - Slice of execution items to partition. Items are copied into
+///   their respective shards (since `ExecItem` is `Copy`).
+///
 /// # Returns
 ///
 /// A vector of exactly `NUM_SHARDS` shards. Empty shards have empty `items` vecs.
-pub fn partition_into_shards(items: Vec<ExecItem>) -> Vec<VirtualShard> {
+pub fn partition_into_shards(items: &[ExecItem]) -> Vec<VirtualShard> {
     let mut shards: Vec<VirtualShard> = (0..NUM_SHARDS).map(|_| VirtualShard::default()).collect();
 
     for item in items {
         let shard_id = shard_of(&item.scope);
-        shards[shard_id].items.push(item);
+        shards[shard_id].items.push(*item);
     }
 
     shards
@@ -226,7 +231,7 @@ mod tests {
 
     #[test]
     fn partition_creates_correct_shard_count() {
-        let shards = partition_into_shards(vec![]);
+        let shards = partition_into_shards(&[]);
         assert_eq!(shards.len(), NUM_SHARDS);
     }
 
@@ -248,7 +253,7 @@ mod tests {
             })
             .collect();
 
-        let shards = partition_into_shards(items);
+        let shards = partition_into_shards(&items);
 
         // Verify all items are accounted for
         let total_items: usize = shards.iter().map(|s| s.items.len()).sum();

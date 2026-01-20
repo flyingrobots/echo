@@ -100,6 +100,7 @@
 % ═══════════════════════════════════════════════════════════════════════════════
 % TOUR GUIDE COMMENTARY STYLING
 % ═══════════════════════════════════════════════════════════════════════════════
+\usepackage{pifont}      % Required for \ding symbols in tcolorbox titles
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}
 
@@ -796,14 +797,14 @@ The 1024-element threshold is a practical optimization: for small arrays, the ov
 
 Each pass extracts 16 bits (bucket size 65536). To sort by:
 \begin{itemize}
-\item 128 bits of scope\_hash = 8 passes
-\item 32 bits of rule\_id = 2 passes
-\item 32 bits of nonce = 2 passes
+\item 256 bits of scope\_hash = 16 passes (passes 4--19)
+\item 32 bits of rule\_id = 2 passes (passes 2--3)
+\item 32 bits of nonce = 2 passes (passes 0--1)
 \end{itemize}
 
-Wait, that's only 12 passes! The extra 8 passes cover more of the scope\_hash for better distribution. Since LSD radix sort processes from least significant to most significant, passes 4-19 progressively refine the scope ordering.
+That's exactly 20 passes processing 320 bits total. Since LSD radix sort processes from least significant to most significant, passes 4--19 progressively refine the scope ordering from least significant bytes to most significant.
 
-The nonce is processed first (passes 0-1) because it's the tiebreaker---when scope\_hash and rule\_id are equal, the nonce determines order, and we want that to be the finest-grained distinction.
+The nonce is processed first (passes 0--1) because it's the tiebreaker---when scope\_hash and rule\_id are equal, the nonce determines order, and we want that to be the finest-grained distinction.
 \end{deepdive}
 
 \subsection{4.2 Reserve Phase (Independence

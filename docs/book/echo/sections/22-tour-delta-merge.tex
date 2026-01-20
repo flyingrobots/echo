@@ -88,8 +88,8 @@ apply_delta(delta: &TickDelta)
     |     self.nodes.remove(&id)
     |     // Cascades to edges referencing this node
     |
-    +-- WarpOp::SetAttachment { node, key, value } →
-    |     self.attachments.insert((node, key), value)
+    +-- WarpOp::SetAttachment { key, value } →
+    |     self.attachments.insert(key, value)
     |
     +-- ... (edges, etc.)
 \end{verbatim}

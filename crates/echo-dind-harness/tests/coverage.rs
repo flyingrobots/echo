@@ -68,7 +68,7 @@ fn run_suite(manifest_path: PathBuf) -> Result<()> {
             // Update mode: write new golden file
             let golden = echo_dind_harness::dind::Golden {
                 elog_version: ELOG_VERSION,
-                schema_hash_hex: hex::encode(SCHEMA_HASH),
+                schema_hash_hex: SCHEMA_HASH.to_string(),
                 hash_domain: HASH_DOMAIN.to_string(),
                 hash_alg: HASH_ALG.to_string(),
                 hashes_hex: hashes.clone(),

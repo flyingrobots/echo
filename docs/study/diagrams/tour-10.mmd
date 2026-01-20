@@ -17,7 +17,9 @@ flowchart TD
 
     subgraph "Execution"
         S0 --> D0[TickDelta 0]
+        S1 --> D0
         S2 --> D1[TickDelta 1]
+        S3 --> D1
     end
 
     subgraph "Merge"

@@ -118,7 +118,7 @@ pub fn execute_parallel_sharded(
     }
 
     // Partition into virtual shards by scope
-    let shards = partition_into_shards(items.to_vec());
+    let shards = partition_into_shards(items);
     let next_shard = AtomicUsize::new(0);
 
     std::thread::scope(|s| {

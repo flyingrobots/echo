@@ -620,7 +620,11 @@ impl BoawTestHarness for EngineHarness {
         workers: usize,
     ) -> BoawExecResult {
         // TODO(PHASE-5): Implement multi-worker execution for test harness.
-        // Currently delegates to serial execution; workers param is ignored.
+        // Currently delegates to serial execution.
+        debug_assert_eq!(
+            workers, 1,
+            "execute_parallel called with workers != 1, but multi-worker not yet implemented"
+        );
         self.execute_serial(base, ingress, tick)
     }
 

@@ -81,26 +81,41 @@
 % ------------------------------------------------------------
 % Metadata Commands
 % ------------------------------------------------------------
-\newcommand{\papertitle}{}
-\newcommand{\papernumber}{}
-\newcommand{\paperversion}{}
-\newcommand{\paperdate}{}
-\newcommand{\paperauthor}{}
-\newcommand{\paperaffiliation}{}
-\newcommand{\paperorcid}{}
-\newcommand{\paperdoi}{}
+% Internal storage macros (initialized to \@empty for robust checking)
+\makeatletter
+\newcommand{\AION@papertitle}{\@empty}
+\newcommand{\AION@papernumber}{\@empty}
+\newcommand{\AION@paperversion}{\@empty}
+\newcommand{\AION@paperdate}{\@empty}
+\newcommand{\AION@paperauthor}{\@empty}
+\newcommand{\AION@paperaffiliation}{\@empty}
+\newcommand{\AION@paperorcid}{\@empty}
+\newcommand{\AION@paperdoi}{\@empty}
 
+% User-facing setter commands
+\newcommand{\papertitle}[1]{\gdef\AION@papertitle{#1}}
+\newcommand{\papernumber}[1]{\gdef\AION@papernumber{#1}}
+\newcommand{\paperversion}[1]{\gdef\AION@paperversion{#1}}
+\newcommand{\paperdate}[1]{\gdef\AION@paperdate{#1}}
+\newcommand{\paperauthor}[1]{\gdef\AION@paperauthor{#1}}
+\newcommand{\paperaffiliation}[1]{\gdef\AION@paperaffiliation{#1}}
+\newcommand{\paperorcid}[1]{\gdef\AION@paperorcid{#1}}
+\newcommand{\paperdoi}[1]{\gdef\AION@paperdoi{#1}}
+
+% Robust emptiness check using \@empty
 \newcommand{\AION@require}[2]{%
-  \ifx#1\empty
-    \ClassError{aion}{#2 not set}{You must define #2 before \string\AIONTitlePage}
+  \ifx#1\@empty
+    \ClassError{aion}{#2 not set}{You must call #2 before \string\AIONTitlePage}
   \fi
 }
+\makeatother
 
-\newcommand{\AIONTitlePage}{
-    \AION@require{\papertitle}{\string\papertitle}
-    \AION@require{\papernumber}{\string\papernumber}
-    \AION@require{\paperauthor}{\string\paperauthor}
-    \AION@require{\paperdate}{\string\paperdate}
+\makeatletter
+\newcommand{\AIONTitlePage}{%
+    \AION@require{\AION@papertitle}{\string\papertitle}%
+    \AION@require{\AION@papernumber}{\string\papernumber}%
+    \AION@require{\AION@paperauthor}{\string\paperauthor}%
+    \AION@require{\AION@paperdate}{\string\paperdate}%
 
     \thispagestyle{empty}
     \begin{center}
@@ -109,37 +124,37 @@
         \vspace*{1.5cm}
 
         % Title (primary anchor)
-        {\Huge\bfseries \papertitle \par}
+        {\Huge\bfseries \AION@papertitle \par}
         \vspace{14pt}
 
         % Series / paper number (subtitle energy)
         {\normalsize\scshape\color{AIONBlue}
-        AI$\Omega$N Foundations Series — \papernumber \par}
+        AI$\Omega$N Foundations Series — \AION@papernumber \par}
 
         \vspace{16pt}
 
         % Author block (confident, quiet)
         {\large
-        \paperauthor \par}
+        \AION@paperauthor \par}
         \vspace{4pt}
 
         % Only show affiliation/ORCID if defined
-        \ifx\paperaffiliation\empty\else
-        {\normalsize \paperaffiliation \par}
+        \ifx\AION@paperaffiliation\@empty\else
+        {\normalsize \AION@paperaffiliation \par}
         \fi
-        \ifx\paperorcid\empty\else
-        {\normalsize ORCID: \paperorcid \par}
+        \ifx\AION@paperorcid\@empty\else
+        {\normalsize ORCID: \AION@paperorcid \par}
         \fi
 
         \vspace{10pt}
 
         {\normalsize
-        \paperdate \par}
+        \AION@paperdate \par}
 
     \end{center}
-
     \vspace{2cm}
 }
+\makeatother
 
 \newcommand{\AIONFrontMatter}[1]{%
     \begin{center}

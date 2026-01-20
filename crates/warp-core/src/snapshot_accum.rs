@@ -341,6 +341,7 @@ impl SnapshotAccumulator {
     /// 3. Builds columnar structures (`OneWarpInput` per instance)
     /// 4. Writes WSC bytes
     /// 5. Computes `state_root` from the tables
+    #[allow(clippy::panic)] // Vec-backed Write is infallible; panic indicates a bug
     pub fn build(&self, root: &NodeKey, schema_hash: Hash, tick: u64) -> SnapshotOutput {
         // Phase 1: Compute reachability
         let (reachable_nodes, reachable_warps) = self.compute_reachability(root);
@@ -362,9 +363,9 @@ impl SnapshotAccumulator {
         } else {
             // Use the first (root) warp's input
             // TODO: Support multi-warp WSC files
-            // Note: unwrap_or_default is safe here because write_wsc_one_warp only fails
-            // on IO errors, and we're writing to a Vec which shouldn't fail.
-            write_wsc_one_warp(&warp_inputs[0], schema_hash, tick).unwrap_or_default()
+            write_wsc_one_warp(&warp_inputs[0], schema_hash, tick).unwrap_or_else(|e| {
+                panic!("write_wsc_one_warp failed (should be infallible for Vec): {e}")
+            })
         };
 
         // Phase 4: Compute state_root

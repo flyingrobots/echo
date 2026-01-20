@@ -44,7 +44,7 @@ def escape_latex(text: str) -> str:
 def convert_commentary_to_latex(md_content: str) -> str:
     """Convert CLAUDE_COMMENTARY markers to LaTeX red boxes."""
 
-    def replace_commentary(match):
+    def replace_commentary(match: re.Match[str]) -> str:
         inner = match.group(1).strip()
         # Escape LaTeX special chars in the commentary content
         escaped = escape_latex(inner)

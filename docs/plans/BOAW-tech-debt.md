@@ -227,12 +227,12 @@ _Run at end of each tier. Catch regressions early._
 
 These are **not scheduled**. Only pursue if perf gate shows regression:
 
-| Item                   | Trigger                            |
-| ---------------------- | ---------------------------------- |
-| Cross-warp parallelism | Multi-warp ticks show poor scaling |
-| State clone overhead   | CI times unacceptable              |
-| Shard rebalancing      | Skewed distributions measured      |
-| SIMD merge sort        | Merge becomes bottleneck           |
+| Item                       | Trigger                            | Status        |
+| -------------------------- | ---------------------------------- | ------------- |
+| ~~Cross-warp parallelism~~ | Multi-warp ticks show poor scaling | ✅ Done       |
+| State clone overhead       | CI times unacceptable              | Not scheduled |
+| Shard rebalancing          | Skewed distributions measured      | Not scheduled |
+| SIMD merge sort            | Merge becomes bottleneck           | Not scheduled |
 
 ---
 

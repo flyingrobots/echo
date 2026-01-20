@@ -8,7 +8,10 @@ mod exec;
 mod merge;
 pub mod shard;
 
-pub use exec::{execute_parallel, execute_parallel_sharded, execute_serial, ExecItem};
+pub use exec::{
+    build_work_units, execute_parallel, execute_parallel_sharded, execute_serial,
+    execute_work_queue, ExecItem, WorkUnit,
+};
 pub use merge::MergeConflict;
 #[cfg(any(test, feature = "delta_validate"))]
 pub use merge::{merge_deltas, MergeError};

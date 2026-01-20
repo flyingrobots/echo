@@ -7,7 +7,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
+use crate::ident::WarpId;
 use crate::rule::ExecuteFn;
 use crate::tick_delta::{OpOrigin, TickDelta};
 use crate::NodeId;
@@ -123,6 +125,145 @@ pub fn execute_parallel_sharded(
                             let mut scoped = delta.scoped(item.origin);
                             (item.exec)(view_copy, &item.scope, scoped.inner_mut());
                         }
+                    }
+
+                    delta
+                })
+            })
+            .collect();
+
+        handles
+            .into_iter()
+            .map(|h| match h.join() {
+                Ok(delta) => delta,
+                Err(e) => std::panic::resume_unwind(e),
+            })
+            .collect()
+    })
+}
+
+// =============================================================================
+// Cross-Warp Parallelism (Phase 6B+)
+// =============================================================================
+
+/// A unit of work: items from one shard within one warp.
+///
+/// The global work queue processes units in parallel across all warps,
+/// eliminating the serial per-warp loop.
+#[derive(Debug)]
+pub struct WorkUnit {
+    /// Which warp this unit belongs to.
+    pub warp_id: WarpId,
+    /// Items to execute (from one shard). Processed serially within the unit.
+    pub items: Vec<ExecItem>,
+}
+
+/// Builds work units from warp-partitioned items.
+///
+/// Creates `(warp, shard)` units by partitioning each warp's items into shards.
+/// Only non-empty shards produce units. Units are ordered canonically:
+/// `warp_id` (lexicographic via `BTreeMap`) then `shard_id` (ascending).
+///
+/// # Arguments
+///
+/// * `by_warp` - Iterator of `(WarpId, Vec<ExecItem>)` pairs, typically from a `BTreeMap`.
+///
+/// # Returns
+///
+/// Vector of work units in canonical order.
+pub fn build_work_units(by_warp: impl Iterator<Item = (WarpId, Vec<ExecItem>)>) -> Vec<WorkUnit> {
+    let mut units = Vec::new();
+
+    for (warp_id, items) in by_warp {
+        let shards = partition_into_shards(&items);
+        for shard in shards {
+            if !shard.items.is_empty() {
+                units.push(WorkUnit {
+                    warp_id,
+                    items: shard.items,
+                });
+            }
+        }
+    }
+
+    units
+}
+
+/// Execute work queue with parallel workers (cross-warp parallelism).
+///
+/// This is the **only** spawn site for cross-warp execution. Workers claim
+/// units atomically and execute items serially within each unit.
+///
+/// # Constraints (Non-Negotiable)
+///
+/// 1. **No nested threading**: Items within a unit are executed serially.
+/// 2. **No long-lived borrows**: `GraphView` is resolved per-unit and dropped
+///    before claiming the next unit.
+/// 3. **`ExecItem` unchanged**: Work units carry items, items don't know their warp.
+///
+/// # Arguments
+///
+/// * `units` - Work units to execute (from `build_work_units`).
+/// * `workers` - Number of parallel workers.
+/// * `resolve_store` - Closure to resolve `&GraphStore` for a `WarpId`.
+///
+/// # Returns
+///
+/// One `TickDelta` per worker, to be merged by caller.
+///
+/// # Panics
+///
+/// Panics if `workers == 0` or if any worker thread panics.
+pub fn execute_work_queue<'state, F>(
+    units: &[WorkUnit],
+    workers: usize,
+    resolve_store: F,
+) -> Vec<TickDelta>
+where
+    F: Fn(&WarpId) -> Option<&'state GraphStore> + Sync,
+{
+    assert!(workers > 0, "workers must be > 0");
+
+    if units.is_empty() {
+        return (0..workers).map(|_| TickDelta::new()).collect();
+    }
+
+    let next_unit = AtomicUsize::new(0);
+
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                let units = &units;
+                let next_unit = &next_unit;
+                let resolve_store = &resolve_store;
+
+                s.spawn(move || {
+                    let mut delta = TickDelta::new();
+
+                    // Work-stealing loop: claim units until none remain
+                    loop {
+                        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
+                        if unit_idx >= units.len() {
+                            break;
+                        }
+
+                        let unit = &units[unit_idx];
+
+                        // Resolve view for this warp (per-unit, NOT cached across units)
+                        let Some(store) = resolve_store(&unit.warp_id) else {
+                            // Should not happen if units are validated at build time
+                            debug_assert!(false, "missing store for warp: {:?}", unit.warp_id);
+                            continue;
+                        };
+                        let view = GraphView::new(store);
+
+                        // Execute items SERIALLY (no nested threading!)
+                        for item in &unit.items {
+                            let mut scoped = delta.scoped(item.origin);
+                            (item.exec)(view, &item.scope, scoped.inner_mut());
+                        }
+
+                        // View dropped here - no long-lived borrows across warps
                     }
 
                     delta

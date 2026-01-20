@@ -24,34 +24,26 @@ related to the BOAW (Bag of Active Workers) parallel execution system.
 
 ## P2: Medium Priority
 
-### 3. Cross-Warp Parallelism
+### 3. ~~Cross-Warp Parallelism~~ ✅ DONE (2026-01-20)
 
-**Location:** `crates/warp-core/src/engine_impl.rs:1196-1240`
+**Location:** `crates/warp-core/src/engine_impl.rs`, `crates/warp-core/src/boaw/exec.rs`
 
-**Issue:** Currently, rewrites are grouped by `warp_id` and executed sequentially across
-warps. If a tick has rewrites across many warps, we lose parallelism.
+**Resolution:** Implemented global work queue of `(warp_id, shard_id)` units.
 
-**Current State:**
+**Implementation:**
 
-```rust
-for (warp_id, warp_rewrites) in by_warp {
-    // Serial iteration across warps
-    let deltas = execute_parallel_sharded(view, &items, workers);
-}
-```
+- `WorkUnit { warp_id, items }` - unit of work for one shard within one warp
+- `build_work_units()` - partitions by warp, then by shard (256 shards)
+- `execute_work_queue()` - atomic unit claiming, single spawn site, no nested threading
+- Views resolved per-unit inside worker threads, dropped before claiming next unit
 
-**Opportunity:** Create a "multi-warp GraphView" abstraction that can handle lookups
-across multiple `GraphStore` instances, enabling full parallelism regardless of warp
-distribution.
+**Constraints enforced:**
 
-**Questions to Answer First:**
+1. No nested threading - `execute_work_queue()` is the only spawn site
+2. No long-lived borrows - GraphView resolved per-unit, dropped immediately after
+3. ExecItem unchanged - WorkUnit wraps items without widening API
 
-1. How often does a single tick have rewrites across multiple warps? (Measure in prod)
-2. What's the overhead of a multi-warp view vs. per-warp iteration?
-3. Can `GraphView` be generalized without breaking the borrowing invariant?
-
-**Rationale:** P2 because per-warp parallelism likely covers 90%+ of real workloads,
-and this requires significant design work.
+**See:** `docs/plans/cross-warp-parallelism.md`
 
 ---
 

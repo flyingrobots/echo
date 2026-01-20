@@ -5,6 +5,23 @@
 
 ## Unreleased
 
+### Added - Cross-Warp Parallelism (Phase 6B+)
+
+- **`WorkUnit` struct** (`boaw/exec.rs`): Work unit carrying `warp_id` + items for one shard
+- **`build_work_units()`** (`boaw/exec.rs`): Partitions items by warp then by shard into work units
+- **`execute_work_queue()`** (`boaw/exec.rs`): Global work queue with atomic unit claiming
+    - Single spawn site (no nested threading)
+    - Workers claim `(warp, shard)` units via `AtomicUsize`
+    - Views resolved per-unit, dropped before claiming next unit
+    - Fixed worker pool sized to `available_parallelism()`
+
+### Changed - Cross-Warp Parallelism
+
+- **Engine execution** (`engine_impl.rs`): Replaced serial per-warp for-loop with global work queue
+    - Previous: `for (warp_id, rewrites) in by_warp { execute_parallel_sharded(...) }`
+    - Now: `execute_work_queue(&units, workers, |warp_id| state.store(warp_id))`
+    - Multi-warp ticks now parallelize across all `(warp, shard)` units simultaneously
+
 ### Changed - API
 
 - **`WarpOpKey` now public** (`tick_patch.rs`): Export `WarpOpKey` from `warp_core` public API

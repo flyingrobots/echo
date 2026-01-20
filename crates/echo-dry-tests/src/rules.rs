@@ -6,7 +6,11 @@
 //! and a builder for creating custom synthetic rules.
 
 use crate::hashes::make_rule_id;
-use warp_core::{ConflictPolicy, Footprint, GraphStore, Hash, NodeId, PatternGraph, RewriteRule};
+#[cfg(test)]
+use warp_core::GraphStore;
+use warp_core::{
+    ConflictPolicy, Footprint, GraphView, Hash, NodeId, PatternGraph, RewriteRule, TickDelta,
+};
 
 /// Type alias for join functions matching warp-core's `JoinFn`.
 pub type JoinFn = fn(&NodeId, &NodeId) -> bool;
@@ -14,53 +18,56 @@ pub type JoinFn = fn(&NodeId, &NodeId) -> bool;
 // --- Matcher Functions ---
 
 /// Matcher that always returns true.
-pub fn always_match(_: &GraphStore, _: &NodeId) -> bool {
+pub fn always_match(_: GraphView<'_>, _: &NodeId) -> bool {
     true
 }
 
 /// Matcher that always returns false.
-pub fn never_match(_: &GraphStore, _: &NodeId) -> bool {
+pub fn never_match(_: GraphView<'_>, _: &NodeId) -> bool {
     false
 }
 
 /// Matcher that returns true if the scope node exists.
-pub fn scope_exists(store: &GraphStore, scope: &NodeId) -> bool {
-    store.node(scope).is_some()
+pub fn scope_exists(view: GraphView<'_>, scope: &NodeId) -> bool {
+    view.node(scope).is_some()
 }
 
 // --- Executor Functions ---
 
 /// Executor that does nothing.
-pub fn noop_exec(_: &mut GraphStore, _: &NodeId) {}
+pub fn noop_exec(_: GraphView<'_>, _: &NodeId, _: &mut TickDelta) {}
 
 // --- Footprint Functions ---
 
 /// Footprint that claims no reads or writes.
-pub fn empty_footprint(_: &GraphStore, _: &NodeId) -> Footprint {
+pub fn empty_footprint(_: GraphView<'_>, _: &NodeId) -> Footprint {
     Footprint::default()
 }
 
 /// Footprint that writes to the scope node.
-pub fn write_scope_footprint(_: &GraphStore, scope: &NodeId) -> Footprint {
+pub fn write_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_write.insert_node(scope);
+    fp.n_write.insert_with_warp(warp_id, *scope);
     fp.factor_mask = 1;
     fp
 }
 
 /// Footprint that reads from the scope node.
-pub fn read_scope_footprint(_: &GraphStore, scope: &NodeId) -> Footprint {
+pub fn read_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_read.insert_node(scope);
+    fp.n_read.insert_with_warp(warp_id, *scope);
     fp.factor_mask = 1;
     fp
 }
 
 /// Footprint that writes to scope and a derived "other" node.
-pub fn write_scope_and_other_footprint(_: &GraphStore, scope: &NodeId) -> Footprint {
+pub fn write_scope_and_other_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
     let mut fp = Footprint::default();
-    fp.n_write.insert_node(scope);
-    fp.n_write.insert_node(&other_node_of(scope));
+    fp.n_write.insert_with_warp(warp_id, *scope);
+    fp.n_write.insert_with_warp(warp_id, other_node_of(scope));
     fp.factor_mask = 1;
     fp
 }
@@ -102,6 +109,15 @@ impl NoOpRule {
     }
 }
 
+/// Type alias for Phase 5 BOAW matcher functions.
+pub type MatcherFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool;
+
+/// Type alias for Phase 5 BOAW executor functions.
+pub type ExecutorFn = for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta);
+
+/// Type alias for Phase 5 BOAW footprint functions.
+pub type FootprintFn = for<'a> fn(GraphView<'a>, &NodeId) -> Footprint;
+
 /// Builder for creating synthetic rules in tests.
 ///
 /// # Example
@@ -117,9 +133,9 @@ impl NoOpRule {
 pub struct SyntheticRuleBuilder {
     name: &'static str,
     id: Option<Hash>,
-    matcher: fn(&GraphStore, &NodeId) -> bool,
-    executor: fn(&mut GraphStore, &NodeId),
-    footprint: fn(&GraphStore, &NodeId) -> Footprint,
+    matcher: MatcherFn,
+    executor: ExecutorFn,
+    footprint: FootprintFn,
     factor_mask: u64,
     conflict_policy: ConflictPolicy,
     join_fn: Option<JoinFn>,
@@ -150,19 +166,19 @@ impl SyntheticRuleBuilder {
     }
 
     /// Set the matcher function.
-    pub fn matcher(mut self, f: fn(&GraphStore, &NodeId) -> bool) -> Self {
+    pub fn matcher(mut self, f: MatcherFn) -> Self {
         self.matcher = f;
         self
     }
 
     /// Set the executor function.
-    pub fn executor(mut self, f: fn(&mut GraphStore, &NodeId)) -> Self {
+    pub fn executor(mut self, f: ExecutorFn) -> Self {
         self.executor = f;
         self
     }
 
     /// Set the footprint function.
-    pub fn footprint(mut self, f: fn(&GraphStore, &NodeId) -> Footprint) -> Self {
+    pub fn footprint(mut self, f: FootprintFn) -> Self {
         self.footprint = f;
         self
     }
@@ -274,9 +290,12 @@ mod tests {
 
     // --- Behavioral Tests ---
 
-    /// Helper to check if an IdSet contains a specific node hash.
-    fn id_set_contains(set: &warp_core::IdSet, node: &NodeId) -> bool {
-        set.iter().any(|h| *h == node.0)
+    /// Helper to check if a NodeSet contains a specific node for the default (root) warp.
+    fn node_set_contains(set: &warp_core::NodeSet, node: &NodeId) -> bool {
+        // For tests with GraphStore::default(), the warp_id is make_warp_id("root")
+        let root_warp = warp_core::make_warp_id("root");
+        set.iter()
+            .any(|key| key.warp_id == root_warp && key.local_id == *node)
     }
 
     #[test]
@@ -288,70 +307,77 @@ mod tests {
         let ty = warp_core::make_type_id("test-type");
 
         // Node not yet present: matcher should return false
-        assert!(!scope_exists(&store, &scope));
+        let view = GraphView::new(&store);
+        assert!(!scope_exists(view, &scope));
 
         // Insert node into store
         store.insert_node(scope, NodeRecord { ty });
 
         // Node now present: matcher should return true
-        assert!(scope_exists(&store, &scope));
+        let view = GraphView::new(&store);
+        assert!(scope_exists(view, &scope));
     }
 
     #[test]
     fn matcher_always_and_never_match_behavior() {
         let store = GraphStore::default();
+        let view = GraphView::new(&store);
         let scope = NodeId([0xBBu8; 32]);
 
-        assert!(always_match(&store, &scope));
-        assert!(!never_match(&store, &scope));
+        assert!(always_match(view, &scope));
+        assert!(!never_match(view, &scope));
     }
 
     #[test]
     fn footprint_write_scope_produces_expected_footprint() {
         let store = GraphStore::default();
+        let view = GraphView::new(&store);
         let scope = NodeId([0xCCu8; 32]);
 
-        let fp = write_scope_footprint(&store, &scope);
+        let fp = write_scope_footprint(view, &scope);
 
-        assert!(id_set_contains(&fp.n_write, &scope));
-        assert!(!id_set_contains(&fp.n_read, &scope));
+        assert!(node_set_contains(&fp.n_write, &scope));
+        assert!(!node_set_contains(&fp.n_read, &scope));
         assert_eq!(fp.factor_mask, 1);
     }
 
     #[test]
     fn footprint_read_scope_produces_expected_footprint() {
         let store = GraphStore::default();
+        let view = GraphView::new(&store);
         let scope = NodeId([0xDDu8; 32]);
 
-        let fp = read_scope_footprint(&store, &scope);
+        let fp = read_scope_footprint(view, &scope);
 
-        assert!(id_set_contains(&fp.n_read, &scope));
-        assert!(!id_set_contains(&fp.n_write, &scope));
+        assert!(node_set_contains(&fp.n_read, &scope));
+        assert!(!node_set_contains(&fp.n_write, &scope));
         assert_eq!(fp.factor_mask, 1);
     }
 
     #[test]
     fn footprint_write_scope_and_other_includes_both_nodes() {
         let store = GraphStore::default();
+        let view = GraphView::new(&store);
         let scope = NodeId([0xEEu8; 32]);
         let other = other_node_of(&scope);
 
-        let fp = write_scope_and_other_footprint(&store, &scope);
+        let fp = write_scope_and_other_footprint(view, &scope);
 
-        assert!(id_set_contains(&fp.n_write, &scope));
-        assert!(id_set_contains(&fp.n_write, &other));
+        assert!(node_set_contains(&fp.n_write, &scope));
+        assert!(node_set_contains(&fp.n_write, &other));
         assert_eq!(fp.factor_mask, 1);
     }
 
     #[test]
     fn footprint_empty_produces_default_footprint() {
         let store = GraphStore::default();
+        let view = GraphView::new(&store);
         let scope = NodeId([0xFFu8; 32]);
 
-        let fp = empty_footprint(&store, &scope);
+        let fp = empty_footprint(view, &scope);
 
-        assert!(!id_set_contains(&fp.n_read, &scope));
-        assert!(!id_set_contains(&fp.n_write, &scope));
+        assert!(!node_set_contains(&fp.n_read, &scope));
+        assert!(!node_set_contains(&fp.n_write, &scope));
         assert_eq!(fp.factor_mask, 0);
     }
 

@@ -1,0 +1,16 @@
+graph TB
+    subgraph "Root Instance (warp_id: 'root')"
+        R[Root Node]
+        P1[Page 1]
+        P2[Page 2]
+        R --> P1
+        R --> P2
+    end
+
+    subgraph "Child Instance (warp_id: 'child-abc')"
+        C1[Child Root]
+        C2[Child Node]
+        C1 --> C2
+    end
+
+    P2 -.->|"α[portal] = Descend('child-abc')"| C1

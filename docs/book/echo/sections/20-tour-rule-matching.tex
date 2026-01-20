@@ -1,0 +1,102 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Rule Matching}
+\label{chap:tour-rules}
+
+\textbf{Entry Point:} \texttt{Engine::apply()} \\
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs}
+
+\begin{bigpicture}
+Now we enter the heart of Echo's reactive model. Rules are matched against graph patterns, and when they match, they're enqueued for execution. The beauty is that matching is \emph{pure}---it reads the graph but doesn't modify it.
+\end{bigpicture}
+
+\section{Function Signature}
+
+\begin{lstlisting}[language=Rust]
+pub fn apply(
+    &mut self,
+    tx: TxId,
+    rule_name: &str,
+    scope: &NodeId,
+) -> Result<ApplyResult, EngineError>
+\end{lstlisting}
+
+\section{Call Trace}
+
+\begin{verbatim}
+Engine::apply(tx, rule_name, scope)
+|
++-- self.rules.get(rule_name) → Option<&Rule>
+|   FILE: crates/warp-core/src/rules.rs
+|   Returns None if rule not registered
+|
++-- rule.match_at(view, scope) → Vec<Match>
+|   FILE: crates/warp-core/src/rule.rs
+|   |
+|   +-- FOR pattern IN rule.patterns:
+|       |
+|       +-- pattern.try_match(view, scope) → Option<Match>
+|       |   Evaluates pattern predicates against graph
+|       |
+|       +-- IF matched: matches.push(Match { ... })
+|
++-- FOR (idx, m) IN matches.enumerate():
+    |
+    +-- self.scheduler.enqueue(PendingRewrite {
+           tx,
+           rule_id: rule.id(),
+           scope: *scope,
+           match_ix: idx,
+           footprint: m.footprint.clone(),
+       })
+\end{verbatim}
+
+\section{PendingRewrite Structure}
+
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs}
+
+\begin{lstlisting}[language=Rust]
+pub(crate) struct PendingRewrite {
+    pub rule_id: Hash,            // Identifier of the rule
+    pub compact_rule: CompactRuleId, // In-process handle
+    pub scope_hash: Hash,         // For deterministic ordering
+    pub scope: NodeKey,           // Scope node from apply()
+    pub footprint: Footprint,     // Independence checks
+    pub phase: RewritePhase,      // State machine phase
+}
+\end{lstlisting}
+
+\begin{commentary}
+The \texttt{match\_ix} field is subtle but important. A single rule can match multiple times at the same scope (e.g., a ``connect all neighbors'' rule). Each match becomes a separate \texttt{PendingRewrite} with a different \texttt{match\_ix}.
+
+This index is part of the canonical sort key, ensuring deterministic ordering even when multiple matches occur.
+\end{commentary}
+
+\section{Footprint Computation}
+
+\textbf{File:} \texttt{crates/warp-core/src/footprint.rs}
+
+\begin{lstlisting}[language=Rust]
+pub struct Footprint {
+    pub n_read: NodeSet,       // Nodes read
+    pub n_write: NodeSet,      // Nodes written/created/deleted
+    pub e_read: EdgeSet,       // Edges read
+    pub e_write: EdgeSet,      // Edges written/created/deleted
+    pub a_read: AttachmentSet, // Attachment slots read
+    pub a_write: AttachmentSet,// Attachment slots written
+    pub b_in: PortSet,         // Boundary input ports
+    pub b_out: PortSet,        // Boundary output ports
+    pub factor_mask: u64,      // Coarse O(1) prefilter
+}
+\end{lstlisting}
+
+\begin{bigpicture}
+The footprint is the foundation of BOAW's parallel safety. Two rewrites can execute in parallel if and only if their footprints don't overlap (read-read is allowed, but read-write or write-write conflicts).
+
+The \texttt{factor\_mask} is a bloom-filter-like optimization: if the mask values do \emph{not} overlap (bitwise AND is zero), the footprints definitely don't conflict---this is a true negative, allowing fast rejection without checking every element. However, if the masks \emph{do} overlap, this only indicates a \emph{potential} conflict (a false positive is possible); the full footprint intersection check must still be performed.
+\end{bigpicture}
+
+\begin{protip}
+When designing rules, minimize footprint size. A rule that reads the entire graph can never run in parallel with anything. A rule that touches only its immediate neighbors can parallelize heavily.
+\end{protip}

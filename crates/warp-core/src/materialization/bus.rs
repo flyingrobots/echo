@@ -141,7 +141,10 @@ impl FinalizeReport {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// use warp_core::materialization::MaterializationBus;
+    ///
+    /// let bus = MaterializationBus::new();
     /// let report = bus.finalize();
     /// report.assert_clean(); // Panics if any errors
     /// ```

@@ -1,0 +1,8 @@
+flowchart TD
+    A[Create GraphStore] --> B[Create WarpState]
+    B --> C[Create root WarpInstance]
+    C --> D[Initialize DeterministicScheduler]
+    D --> E[Create empty rules HashMap]
+    E --> F[Initialize MaterializationBus]
+    F --> G[Preserve U0 state for replay]
+    G --> H[Engine ready]

@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Core rewrite engine implementation.
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
+#[cfg(any(test, feature = "delta_validate"))]
+use crate::boaw::merge_deltas;
+use crate::boaw::{execute_parallel_sharded, ExecItem, NUM_SHARDS};
 use crate::graph::GraphStore;
+use crate::graph_view::GraphView;
 use crate::ident::{
-    make_edge_id, make_node_id, make_type_id, CompactRuleId, EdgeId, Hash, NodeId, NodeKey, WarpId,
+    make_edge_id, make_node_id, make_type_id, CompactRuleId, Hash, NodeId, NodeKey, WarpId,
 };
 use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::materialization::{ChannelConflict, FinalizedChannel, MaterializationBus};
@@ -19,9 +23,11 @@ use crate::rule::{ConflictPolicy, RewriteRule};
 use crate::scheduler::{DeterministicScheduler, PendingRewrite, RewritePhase, SchedulerKind};
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root, Snapshot};
 use crate::telemetry::{NullTelemetrySink, TelemetrySink};
-use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpTickPatchV1};
+use crate::tick_delta::OpOrigin;
+use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
+use crate::TickDelta;
 use std::sync::Arc;
 
 /// Result of calling [`Engine::apply`].
@@ -109,6 +115,30 @@ pub struct ExistingState {
     root: NodeKey,
 }
 
+/// Returns the default worker count for parallel execution.
+///
+/// Precedence:
+/// 1. `ECHO_WORKERS` environment variable (if set and valid)
+/// 2. `available_parallelism().min(NUM_SHARDS)` (capped at shard count)
+///
+/// # Environment Variable
+///
+/// Set `ECHO_WORKERS=N` to override the default. Useful for:
+/// - CI environments (deterministic worker count)
+/// - Debugging (force serial with `ECHO_WORKERS=1`)
+/// - Benchmarking (compare different parallelism levels)
+fn default_worker_count() -> usize {
+    if let Ok(val) = std::env::var("ECHO_WORKERS") {
+        if let Ok(n) = val.parse::<usize>() {
+            return n.max(1);
+        }
+    }
+    std::thread::available_parallelism()
+        .map(std::num::NonZero::get)
+        .unwrap_or(1)
+        .min(NUM_SHARDS)
+}
+
 /// Fluent builder for constructing [`Engine`] instances.
 ///
 /// Use [`EngineBuilder::new`] to start from a fresh [`GraphStore`], or
@@ -116,8 +146,16 @@ pub struct ExistingState {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let engine = EngineBuilder::new(store, root)
+/// ```rust
+/// use warp_core::{
+///     make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord, SchedulerKind,
+/// };
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let _engine = EngineBuilder::new(store, root)
 ///     .scheduler(SchedulerKind::Radix)
 ///     .policy_id(42)
 ///     .build();
@@ -128,11 +166,19 @@ pub struct ExistingState {
 /// For testing or custom configurations, you can inject a pre-configured
 /// [`MaterializationBus`]:
 ///
-/// ```ignore
+/// ```rust
+/// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+/// use warp_core::materialization::{make_channel_id, ChannelPolicy, MaterializationBus};
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let ch = make_channel_id("demo:ch");
 /// let mut bus = MaterializationBus::new();
 /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
 ///
-/// let engine = EngineBuilder::new(store, root)
+/// let _engine = EngineBuilder::new(store, root)
 ///     .with_materialization_bus(bus)
 ///     .build();
 /// ```
@@ -140,6 +186,7 @@ pub struct EngineBuilder<Source> {
     source: Source,
     scheduler: SchedulerKind,
     policy_id: u32,
+    worker_count: usize,
     telemetry: Option<Arc<dyn TelemetrySink>>,
     bus: Option<MaterializationBus>,
 }
@@ -150,6 +197,7 @@ impl EngineBuilder<FreshStore> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn new(store: GraphStore, root: NodeId) -> Self {
@@ -157,6 +205,7 @@ impl EngineBuilder<FreshStore> {
             source: FreshStore { store, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            worker_count: default_worker_count(),
             telemetry: None,
             bus: None,
         }
@@ -169,13 +218,14 @@ impl EngineBuilder<FreshStore> {
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
         let bus = self.bus.unwrap_or_default();
-        Engine::with_telemetry_and_bus(
+        Engine::with_telemetry_bus_and_workers(
             self.source.store,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
             bus,
+            self.worker_count,
         )
     }
 }
@@ -186,6 +236,7 @@ impl EngineBuilder<ExistingState> {
     /// Defaults:
     /// - Scheduler: [`SchedulerKind::Radix`]
     /// - Policy ID: [`crate::POLICY_ID_NO_POLICY_V0`]
+    /// - Worker count: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`)
     /// - Telemetry: [`NullTelemetrySink`]
     /// - `MaterializationBus`: A fresh bus with no pre-registered channels
     pub fn from_state(state: WarpState, root: NodeKey) -> Self {
@@ -193,6 +244,7 @@ impl EngineBuilder<ExistingState> {
             source: ExistingState { state, root },
             scheduler: SchedulerKind::Radix,
             policy_id: crate::POLICY_ID_NO_POLICY_V0,
+            worker_count: default_worker_count(),
             telemetry: None,
             bus: None,
         }
@@ -209,13 +261,14 @@ impl EngineBuilder<ExistingState> {
             .telemetry
             .unwrap_or_else(|| Arc::new(NullTelemetrySink));
         let bus = self.bus.unwrap_or_default();
-        Engine::with_state_telemetry_and_bus(
+        Engine::with_state_telemetry_bus_and_workers(
             self.source.state,
             self.source.root,
             self.scheduler,
             self.policy_id,
             telemetry,
             bus,
+            self.worker_count,
         )
     }
 }
@@ -237,6 +290,21 @@ impl<S> EngineBuilder<S> {
         self
     }
 
+    /// Sets the worker count for parallel execution.
+    ///
+    /// Default: `default_worker_count()` (env `ECHO_WORKERS` or `available_parallelism`).
+    ///
+    /// # Notes
+    ///
+    /// - Workers are capped at `NUM_SHARDS` (256) internally
+    /// - Values less than 1 are treated as 1
+    /// - Use `ECHO_WORKERS=1` environment variable to force serial execution for debugging
+    #[must_use]
+    pub fn workers(mut self, n: usize) -> Self {
+        self.worker_count = n.max(1);
+        self
+    }
+
     /// Sets the telemetry sink for observability events.
     #[must_use]
     pub fn telemetry(mut self, sink: Arc<dyn TelemetrySink>) -> Self {
@@ -254,11 +322,19 @@ impl<S> EngineBuilder<S> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+    /// use warp_core::materialization::{make_channel_id, ChannelPolicy, MaterializationBus};
+    ///
+    /// let mut store = GraphStore::default();
+    /// let root = make_node_id("root");
+    /// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+    ///
+    /// let ch = make_channel_id("demo:ch");
     /// let mut bus = MaterializationBus::new();
     /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
     ///
-    /// let engine = EngineBuilder::new(store, root)
+    /// let _engine = EngineBuilder::new(store, root)
     ///     .with_materialization_bus(bus)
     ///     .build();
     /// ```
@@ -287,8 +363,16 @@ impl<S> EngineBuilder<S> {
 ///
 /// Use [`EngineBuilder`] for fluent configuration:
 ///
-/// ```ignore
-/// let engine = EngineBuilder::new(store, root)
+/// ```rust
+/// use warp_core::{
+///     make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord, SchedulerKind,
+/// };
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let _engine = EngineBuilder::new(store, root)
 ///     .scheduler(SchedulerKind::Radix)
 ///     .policy_id(42)
 ///     .build();
@@ -297,11 +381,19 @@ impl<S> EngineBuilder<S> {
 /// For testing or custom configurations, inject a pre-configured
 /// [`MaterializationBus`]:
 ///
-/// ```ignore
+/// ```rust
+/// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+/// use warp_core::materialization::{make_channel_id, ChannelPolicy, MaterializationBus};
+///
+/// let mut store = GraphStore::default();
+/// let root = make_node_id("root");
+/// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+///
+/// let ch = make_channel_id("demo:ch");
 /// let mut bus = MaterializationBus::new();
 /// bus.register_channel(ch, ChannelPolicy::StrictSingle);
 ///
-/// let engine = EngineBuilder::new(store, root)
+/// let _engine = EngineBuilder::new(store, root)
 ///     .with_materialization_bus(bus)
 ///     .build();
 /// ```
@@ -320,6 +412,11 @@ pub struct Engine {
     /// This is part of the deterministic boundary. Callers select it explicitly
     /// via constructors like [`Engine::with_policy_id`].
     policy_id: u32,
+    /// Worker count for parallel execution.
+    ///
+    /// Capped at `NUM_SHARDS` internally. Use [`EngineBuilder::workers`] to override
+    /// the default (which respects `ECHO_WORKERS` env var).
+    worker_count: usize,
     tx_counter: u64,
     live_txs: HashSet<u64>,
     current_root: NodeKey,
@@ -433,7 +530,8 @@ impl Engine {
 
     /// Constructs a new engine with explicit telemetry sink and materialization bus.
     ///
-    /// This is the canonical constructor; all other constructors delegate here.
+    /// This constructor delegates to [`Engine::with_telemetry_bus_and_workers`] with
+    /// the default worker count.
     ///
     /// # Parameters
     /// - `store`: Backing graph store.
@@ -451,6 +549,40 @@ impl Engine {
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
         bus: MaterializationBus,
+    ) -> Self {
+        Self::with_telemetry_bus_and_workers(
+            store,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            bus,
+            default_worker_count(),
+        )
+    }
+
+    /// Constructs a new engine with explicit telemetry sink, materialization bus, and worker count.
+    ///
+    /// This is the canonical constructor; all other constructors delegate here.
+    ///
+    /// # Parameters
+    /// - `store`: Backing graph store.
+    ///   The supplied store is assigned to the canonical root warp instance; any pre-existing
+    ///   `warp_id` on the store is overwritten.
+    /// - `root`: Root node id for snapshot hashing.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    /// - `worker_count`: Number of workers for parallel execution (capped at `NUM_SHARDS`).
+    pub fn with_telemetry_bus_and_workers(
+        store: GraphStore,
+        root: NodeId,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
+        worker_count: usize,
     ) -> Self {
         // NOTE: The supplied `GraphStore` is assigned to the canonical root warp instance.
         // Any pre-existing `warp_id` on the store is overwritten.
@@ -476,6 +608,7 @@ impl Engine {
             rules_by_compact: HashMap::new(),
             scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
+            worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
             live_txs: HashSet::new(),
             current_root: NodeKey {
@@ -571,8 +704,8 @@ impl Engine {
 
     /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry and bus.
     ///
-    /// This is the canonical constructor for existing state; [`Engine::with_state`] and
-    /// [`Engine::with_state_and_telemetry`] delegate here.
+    /// This constructor delegates to [`Engine::with_state_telemetry_bus_and_workers`] with
+    /// the default worker count.
     ///
     /// # Parameters
     /// - `state`: Pre-constructed multi-instance state.
@@ -594,6 +727,45 @@ impl Engine {
         policy_id: u32,
         telemetry: Arc<dyn TelemetrySink>,
         bus: MaterializationBus,
+    ) -> Result<Self, EngineError> {
+        Self::with_state_telemetry_bus_and_workers(
+            state,
+            root,
+            kind,
+            policy_id,
+            telemetry,
+            bus,
+            default_worker_count(),
+        )
+    }
+
+    /// Constructs an engine from an existing multi-instance [`WarpState`] with telemetry, bus, and worker count.
+    ///
+    /// This is the canonical constructor for existing state; [`Engine::with_state`] and
+    /// [`Engine::with_state_and_telemetry`] delegate here.
+    ///
+    /// # Parameters
+    /// - `state`: Pre-constructed multi-instance state.
+    /// - `root`: The root node for snapshot hashing and commits.
+    /// - `kind`: Scheduler variant (Radix vs Legacy).
+    /// - `policy_id`: Policy identifier committed into `patch_digest` and `commit_id` v2.
+    /// - `telemetry`: Telemetry sink for observability events.
+    /// - `bus`: Pre-configured materialization bus for dependency injection.
+    /// - `worker_count`: Number of workers for parallel execution (capped at `NUM_SHARDS`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::UnknownWarp`] if the root warp ID is not present in the state.
+    /// Returns [`EngineError::InternalCorruption`] if the root instance declares a parent
+    /// or if the root node does not match the instance's `root_node`.
+    pub fn with_state_telemetry_bus_and_workers(
+        state: WarpState,
+        root: NodeKey,
+        kind: SchedulerKind,
+        policy_id: u32,
+        telemetry: Arc<dyn TelemetrySink>,
+        bus: MaterializationBus,
+        worker_count: usize,
     ) -> Result<Self, EngineError> {
         let Some(root_instance) = state.instance(&root.warp_id) else {
             return Err(EngineError::UnknownWarp(root.warp_id));
@@ -622,6 +794,7 @@ impl Engine {
             rules_by_compact: HashMap::new(),
             scheduler: DeterministicScheduler::new(kind, telemetry),
             policy_id,
+            worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
             live_txs: HashSet::new(),
             current_root: root,
@@ -726,7 +899,8 @@ impl Engine {
         let Some(store) = self.state.store(&warp_id) else {
             return Err(EngineError::UnknownWarp(warp_id));
         };
-        let matches = (rule.matcher)(store, scope);
+        let view = GraphView::new(store);
+        let matches = (rule.matcher)(view, scope);
         if !matches {
             return Ok(ApplyResult::NoMatch);
         }
@@ -736,7 +910,7 @@ impl Engine {
             local_id: *scope,
         };
         let scope_fp = scope_hash(&rule.id, &scope_key);
-        let mut footprint = (rule.compute_footprint)(store, scope);
+        let mut footprint = (rule.compute_footprint)(view, scope);
         // Stage B1 law: any match/exec inside a descended instance must READ
         // every attachment slot in the descent chain.
         for key in descent_stack {
@@ -786,6 +960,11 @@ impl Engine {
     /// - Returns [`EngineError::UnknownTx`] if `tx` does not refer to a live transaction.
     /// - Returns [`EngineError::InternalCorruption`] if internal rule tables are
     ///   corrupted (e.g., a reserved rewrite references a missing rule).
+    ///
+    /// # Panics
+    ///
+    /// Panics if delta validation is enabled and the `SnapshotAccumulator` produces
+    /// a different `state_root` than the legacy computation.
     pub fn commit_with_receipt(
         &mut self,
         tx: TxId,
@@ -813,6 +992,13 @@ impl Engine {
         // PERF: Full state clone; consider COW or incremental tracking for large graphs.
         let state_before = self.state.clone();
 
+        #[cfg(feature = "delta_validate")]
+        let delta_ops = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
+
+        #[cfg(all(any(test, feature = "delta_validate"), not(feature = "delta_validate")))]
+        let _ = self.apply_reserved_rewrites(reserved_rewrites, &state_before)?;
+
+        #[cfg(not(any(test, feature = "delta_validate")))]
         self.apply_reserved_rewrites(reserved_rewrites)?;
 
         // Finalize materialization bus and store results.
@@ -843,6 +1029,27 @@ impl Engine {
         let patch_digest = patch.digest();
 
         let state_root = crate::snapshot::compute_state_root(&self.state, &self.current_root);
+
+        #[cfg(feature = "delta_validate")]
+        {
+            use crate::snapshot_accum::SnapshotAccumulator;
+
+            let mut accumulator = SnapshotAccumulator::from_warp_state(&state_before);
+            accumulator.apply_ops(delta_ops);
+
+            // Use placeholder values for schema_hash and tick since WSC bytes aren't used yet
+            let schema_hash = [0u8; 32];
+            let tick = tx.value();
+
+            let accum_output = accumulator.build(&self.current_root, schema_hash, tick);
+
+            assert_eq!(
+                state_root, accum_output.state_root,
+                "SnapshotAccumulator state_root mismatch: legacy={:?} vs accumulator={:?}",
+                state_root, accum_output.state_root
+            );
+        }
+
         let parents: Vec<Hash> = self
             .last_snapshot
             .as_ref()
@@ -860,6 +1067,7 @@ impl Engine {
         let snapshot = Snapshot {
             root: self.current_root,
             hash,
+            state_root,
             parents,
             plan_digest,
             decision_digest,
@@ -968,7 +1176,19 @@ impl Engine {
     fn apply_reserved_rewrites(
         &mut self,
         rewrites: Vec<PendingRewrite>,
-    ) -> Result<(), EngineError> {
+        #[cfg(any(test, feature = "delta_validate"))] state_before: &WarpState,
+    ) -> Result<Vec<WarpOp>, EngineError> {
+        use crate::tick_patch::WarpTickPatchV1;
+
+        // Defensive guardrail: clamp workers to valid range
+        let workers = self.worker_count.clamp(1, NUM_SHARDS);
+
+        // Phase 6 BOAW: Group by warp_id and execute in parallel per warp.
+        // BTreeMap ensures deterministic iteration order (WarpId: Ord from [u8; 32]).
+
+        // 1. Pre-validate all rewrites and group by warp_id
+        let mut by_warp: BTreeMap<WarpId, Vec<(PendingRewrite, crate::rule::ExecuteFn)>> =
+            BTreeMap::new();
         for rewrite in rewrites {
             let id = rewrite.compact_rule;
             let executor = {
@@ -980,17 +1200,109 @@ impl Engine {
                 };
                 rule.executor
             };
-            let Some(store) = self.state.store_mut(&rewrite.scope.warp_id) else {
+            // Validate store exists for this warp
+            if self.state.store(&rewrite.scope.warp_id).is_none() {
                 debug_assert!(
                     false,
                     "missing store for warp id: {:?}",
                     rewrite.scope.warp_id
                 );
                 return Err(EngineError::UnknownWarp(rewrite.scope.warp_id));
-            };
-            (executor)(store, &rewrite.scope.local_id);
+            }
+            by_warp
+                .entry(rewrite.scope.warp_id)
+                .or_default()
+                .push((rewrite, executor));
         }
-        Ok(())
+
+        // 2. Execute per-warp in deterministic order, collect deltas
+        let mut all_deltas: Vec<TickDelta> = Vec::new();
+        for (warp_id, warp_rewrites) in by_warp {
+            // Borrow the store for this warp - validated to exist above
+            let Some(store) = self.state.store(&warp_id) else {
+                return Err(EngineError::UnknownWarp(warp_id));
+            };
+            let view = GraphView::new(store);
+
+            // Convert PendingRewrites to ExecItems
+            let items: Vec<ExecItem> = warp_rewrites
+                .into_iter()
+                .map(|(rw, exec)| ExecItem {
+                    exec,
+                    scope: rw.scope.local_id,
+                    origin: OpOrigin::default(),
+                })
+                .collect();
+
+            // Execute in parallel, collect deltas
+            let deltas = execute_parallel_sharded(view, &items, workers);
+            all_deltas.extend(deltas);
+        }
+        // view borrows end here - no borrow held across warps
+
+        // 3. Merge deltas - use merge_deltas for conflict detection under delta_validate
+        #[cfg(any(test, feature = "delta_validate"))]
+        let ops = {
+            merge_deltas(all_deltas).map_err(|conflict| {
+                debug_assert!(false, "merge conflict: {conflict:?}");
+                EngineError::InternalCorruption("apply_reserved_rewrites: merge conflict")
+            })?
+        };
+
+        #[cfg(not(any(test, feature = "delta_validate")))]
+        let ops = {
+            // Without delta_validate, flatten and sort by sort_key for determinism.
+            // Ops with the same sort_key are deduplicated (footprint ensures they're identical).
+            let mut flat: Vec<_> = all_deltas
+                .into_iter()
+                .flat_map(TickDelta::into_ops_unsorted)
+                .map(|op| (op.sort_key(), op))
+                .collect();
+
+            // Sort by sort_key for canonical order.
+            // Use unstable sort for efficiency; equal keys become consecutive for dedup.
+            // Unstable sort doesn't preserve input order for equal elements, but since
+            // we deduplicate afterwards and the footprint invariant guarantees identical
+            // content for ops with the same key, the final output is deterministic.
+            flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+            // Reject conflicting ops with same sort_key in all builds.
+            for w in flat.windows(2) {
+                if w[0].0 == w[1].0 && w[0].1 != w[1].1 {
+                    return Err(EngineError::InternalCorruption(
+                        "apply_reserved_rewrites: conflicting ops share sort_key",
+                    ));
+                }
+            }
+
+            flat.dedup_by(|a, b| a.0 == b.0);
+
+            flat.into_iter().map(|(_, op)| op).collect::<Vec<_>>()
+        };
+
+        // 4. Apply the merged ops to the state
+        let patch = WarpTickPatchV1::new(
+            self.policy_id,
+            self.compute_rule_pack_id(),
+            crate::tick_patch::TickCommitStatus::Committed,
+            Vec::new(), // in_slots
+            Vec::new(), // out_slots
+            ops.clone(),
+        );
+        patch.apply_to_state(&mut self.state).map_err(|_| {
+            EngineError::InternalCorruption("apply_reserved_rewrites: failed to apply ops")
+        })?;
+
+        #[cfg(any(test, feature = "delta_validate"))]
+        {
+            use crate::tick_delta::assert_delta_matches_diff;
+            use crate::tick_patch::diff_state;
+
+            let diff_ops = diff_state(state_before, &self.state);
+            assert_delta_matches_diff(&ops, &diff_ops);
+        }
+
+        Ok(ops)
     }
 
     /// Returns a snapshot for the current graph state without executing rewrites.
@@ -1025,6 +1337,7 @@ impl Engine {
         Snapshot {
             root: self.current_root,
             hash,
+            state_root,
             parents,
             plan_digest: empty_digest,
             decision_digest: decision_empty,
@@ -1313,8 +1626,20 @@ impl Engine {
     /// Returns a mutable reference to the materialization bus.
     ///
     /// Use this to register channels with custom policies before commit:
-    /// ```ignore
-    /// engine.materialization_bus_mut().register_channel(ch, ChannelPolicy::StrictSingle);
+    /// ```rust
+    /// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+    /// use warp_core::materialization::{make_channel_id, ChannelPolicy};
+    ///
+    /// let mut store = GraphStore::default();
+    /// let root = make_node_id("root");
+    /// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+    ///
+    /// let mut engine = EngineBuilder::new(store, root).build();
+    /// let ch = make_channel_id("demo:ch");
+    ///
+    /// engine
+    ///     .materialization_bus_mut()
+    ///     .register_channel(ch, ChannelPolicy::StrictSingle);
     /// ```
     pub fn materialization_bus_mut(&mut self) -> &mut MaterializationBus {
         &mut self.bus
@@ -1360,14 +1685,32 @@ impl Engine {
     /// state committed successfully, but the boundary output is incomplete.
     ///
     /// Typical usage:
-    /// ```ignore
-    /// engine.commit_with_receipt(tx)?;
+    /// ```rust
+    /// use warp_core::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+    /// use warp_core::materialization::{make_channel_id, ChannelPolicy};
+    ///
+    /// # fn main() -> Result<(), warp_core::EngineError> {
+    /// let mut store = GraphStore::default();
+    /// let root = make_node_id("root");
+    /// store.insert_node(root, NodeRecord { ty: make_type_id("world") });
+    ///
+    /// let mut engine = EngineBuilder::new(store, root).build();
+    /// let ch = make_channel_id("demo:ch");
+    /// engine
+    ///     .materialization_bus_mut()
+    ///     .register_channel(ch, ChannelPolicy::StrictSingle);
+    ///
+    /// let tx = engine.begin();
+    /// let _ = engine.commit_with_receipt(tx)?;
+    ///
     /// if engine.has_materialization_errors() {
     ///     // Handle or log errors - do NOT ignore!
     ///     for err in engine.last_materialization_errors() {
-    ///         eprintln!("Materialization failed: {:?}", err);
+    ///         let _ = err;
     ///     }
     /// }
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// This is a convenience method equivalent to `!last_materialization_errors().is_empty()`.
@@ -1576,42 +1919,37 @@ pub fn scope_hash(rule_id: &Hash, scope: &NodeKey) -> Hash {
     hasher.finalize().into()
 }
 
+/// Extends the slot sets with resources from a warp-scoped footprint.
+///
+/// Footprint sets are now warp-scoped: they contain full `NodeKey`, `EdgeKey`,
+/// and `WarpScopedPortKey` values directly. The `_warp_id` parameter is kept
+/// for call-site compatibility but is no longer used (the `warp_id` is embedded
+/// in the footprint keys).
 fn extend_slots_from_footprint(
     in_slots: &mut std::collections::BTreeSet<SlotId>,
     out_slots: &mut std::collections::BTreeSet<SlotId>,
-    warp_id: &WarpId,
+    _warp_id: &WarpId, // Kept for API compat; warp_id is now in the footprint keys
     fp: &crate::footprint::Footprint,
 ) {
-    for node_hash in fp.n_read.iter() {
-        in_slots.insert(SlotId::Node(NodeKey {
-            warp_id: *warp_id,
-            local_id: NodeId(*node_hash),
-        }));
+    // Nodes (warp-scoped NodeKey)
+    for key in fp.n_read.iter() {
+        in_slots.insert(SlotId::Node(*key));
     }
-    for node_hash in fp.n_write.iter() {
-        let id = NodeId(*node_hash);
-        let key = NodeKey {
-            warp_id: *warp_id,
-            local_id: id,
-        };
-        in_slots.insert(SlotId::Node(key));
-        out_slots.insert(SlotId::Node(key));
+    for key in fp.n_write.iter() {
+        in_slots.insert(SlotId::Node(*key));
+        out_slots.insert(SlotId::Node(*key));
     }
-    for edge_hash in fp.e_read.iter() {
-        in_slots.insert(SlotId::Edge(crate::ident::EdgeKey {
-            warp_id: *warp_id,
-            local_id: EdgeId(*edge_hash),
-        }));
+
+    // Edges (warp-scoped EdgeKey)
+    for key in fp.e_read.iter() {
+        in_slots.insert(SlotId::Edge(*key));
     }
-    for edge_hash in fp.e_write.iter() {
-        let id = EdgeId(*edge_hash);
-        let key = crate::ident::EdgeKey {
-            warp_id: *warp_id,
-            local_id: id,
-        };
-        in_slots.insert(SlotId::Edge(key));
-        out_slots.insert(SlotId::Edge(key));
+    for key in fp.e_write.iter() {
+        in_slots.insert(SlotId::Edge(*key));
+        out_slots.insert(SlotId::Edge(*key));
     }
+
+    // Attachments (already warp-scoped via AttachmentKey)
     for key in fp.a_read.iter() {
         in_slots.insert(SlotId::Attachment(*key));
     }
@@ -1619,6 +1957,8 @@ fn extend_slots_from_footprint(
         in_slots.insert(SlotId::Attachment(*key));
         out_slots.insert(SlotId::Attachment(*key));
     }
+
+    // Ports (warp-scoped: (WarpId, PortKey))
     for port_key in fp.b_in.keys() {
         in_slots.insert(SlotId::Port(*port_key));
     }
@@ -1631,10 +1971,11 @@ fn extend_slots_from_footprint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::attachment::{AttachmentKey, AttachmentValue};
+    use crate::attachment::{AtomPayload, AttachmentKey, AttachmentValue};
     use crate::ident::{make_node_id, make_type_id};
     use crate::payload::encode_motion_atom_payload;
     use crate::record::NodeRecord;
+    use crate::tick_patch::WarpOp;
 
     const TEST_RULE_NAME: &str = "test/motion";
 
@@ -1647,14 +1988,17 @@ mod tests {
             id,
             name: TEST_RULE_NAME,
             left: crate::rule::PatternGraph { nodes: vec![] },
-            matcher: |store, scope| {
+            matcher: |view: GraphView<'_>, scope| {
                 matches!(
-                    store.node_attachment(scope),
+                    view.node_attachment(scope),
                     Some(AttachmentValue::Atom(payload)) if crate::payload::decode_motion_atom_payload(payload).is_some()
                 )
             },
-            executor: |store, scope| {
-                let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
+            executor: |view: GraphView<'_>, scope, delta| {
+                // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+                let warp_id = view.warp_id();
+
+                let Some(AttachmentValue::Atom(payload)) = view.node_attachment(scope) else {
                     return;
                 };
                 let Some((pos_raw, vel_raw)) =
@@ -1662,27 +2006,45 @@ mod tests {
                 else {
                     return;
                 };
+
+                // Compute the new position
                 let new_pos_raw = [
                     pos_raw[0].saturating_add(vel_raw[0]),
                     pos_raw[1].saturating_add(vel_raw[1]),
                     pos_raw[2].saturating_add(vel_raw[2]),
                 ];
-                payload.type_id = crate::payload::motion_payload_type_id();
-                payload.bytes = crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
+
+                // Build new bytes
+                let new_bytes = crate::payload::encode_motion_payload_q32_32(new_pos_raw, vel_raw);
+
+                // Only emit if bytes actually changed
+                if payload.bytes != new_bytes {
+                    let key = AttachmentKey::node_alpha(NodeKey {
+                        warp_id,
+                        local_id: *scope,
+                    });
+                    delta.push(WarpOp::SetAttachment {
+                        key,
+                        value: Some(AttachmentValue::Atom(AtomPayload {
+                            type_id: crate::payload::motion_payload_type_id(),
+                            bytes: new_bytes,
+                        })),
+                    });
+                }
             },
-            compute_footprint: |store, scope| {
+            compute_footprint: |view: GraphView<'_>, scope| {
                 let mut a_write = crate::AttachmentSet::default();
-                if store.node(scope).is_some() {
+                if view.node(scope).is_some() {
                     a_write.insert(AttachmentKey::node_alpha(NodeKey {
-                        warp_id: store.warp_id(),
+                        warp_id: view.warp_id(),
                         local_id: *scope,
                     }));
                 }
                 crate::Footprint {
-                    n_read: crate::IdSet::default(),
-                    n_write: crate::IdSet::default(),
-                    e_read: crate::IdSet::default(),
-                    e_write: crate::IdSet::default(),
+                    n_read: crate::NodeSet::default(),
+                    n_write: crate::NodeSet::default(),
+                    e_read: crate::EdgeSet::default(),
+                    e_write: crate::EdgeSet::default(),
                     a_read: crate::AttachmentSet::default(),
                     a_write,
                     b_in: crate::PortSet::default(),
@@ -1722,9 +2084,9 @@ mod tests {
             id: [0u8; 32],
             name: "bad/join",
             left: crate::rule::PatternGraph { nodes: vec![] },
-            matcher: |_s, _n| true,
-            executor: |_s, _n| {},
-            compute_footprint: |_s, _n| crate::footprint::Footprint::default(),
+            matcher: |_s: GraphView<'_>, _n| true,
+            executor: |_s: GraphView<'_>, _n, _delta| {},
+            compute_footprint: |_s: GraphView<'_>, _n| crate::footprint::Footprint::default(),
             factor_mask: 0,
             conflict_policy: crate::rule::ConflictPolicy::Join,
             join_fn: None,

@@ -2,8 +2,9 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Rewrite rule definitions.
 use crate::footprint::Footprint;
-use crate::graph::GraphStore;
+use crate::graph_view::GraphView;
 use crate::ident::{Hash, NodeId, TypeId};
+use crate::TickDelta;
 
 /// Pattern metadata used by a rewrite rule to describe the input graph shape.
 #[derive(Debug)]
@@ -13,13 +14,36 @@ pub struct PatternGraph {
 }
 
 /// Function pointer used to determine whether a rule matches the provided scope.
-pub type MatchFn = fn(&GraphStore, &NodeId) -> bool;
+///
+/// Phase 5 BOAW signature: matchers read from an immutable [`GraphView`]
+/// to inspect graph state without mutation.
+///
+/// Parameters:
+/// - `GraphView`: Read-only view over the graph state (Copy type, 8 bytes)
+/// - `&NodeId`: The candidate scope node to test
+pub type MatchFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool;
 
 /// Function pointer that applies a rewrite to the given scope.
-pub type ExecuteFn = fn(&mut GraphStore, &NodeId);
+///
+/// Phase 5 BOAW signature: executors read from an immutable [`GraphView`]
+/// and emit mutations to a [`TickDelta`]. This enforces the separation
+/// between observation and mutation required by the deterministic execution model.
+///
+/// Parameters:
+/// - `GraphView`: Read-only view over the graph state (Copy type, 8 bytes)
+/// - `&NodeId`: The node ID where the rewrite is applied
+/// - `&mut TickDelta`: Mutable reference to record emitted changes
+pub type ExecuteFn = for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta);
 
 /// Function pointer that computes a rewrite footprint at the provided scope.
-pub type FootprintFn = fn(&GraphStore, &NodeId) -> Footprint;
+///
+/// Phase 5 BOAW signature: footprint computation reads from an immutable
+/// [`GraphView`] to declare the read/write sets without mutation.
+///
+/// Parameters:
+/// - `GraphView`: Read-only view over the graph state (Copy type, 8 bytes)
+/// - `&NodeId`: The scope node for which to compute the footprint
+pub type FootprintFn = for<'a> fn(GraphView<'a>, &NodeId) -> Footprint;
 
 /// Conflict resolution policies for independence failures.
 #[derive(Debug, Clone, Copy)]

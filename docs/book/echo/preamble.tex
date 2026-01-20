@@ -14,6 +14,11 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{caption}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+% FONTS - Modern, clean typography
+% ═══════════════════════════════════════════════════════════════════════════════
+\usepackage{inconsolata}        % Clean monospace font for code
 \usepackage[
     colorlinks=true,
     linkcolor=blue,
@@ -25,34 +30,83 @@
 \newcommand{\EchoLogo}{graphics/ECHO.pdf}
 \newcommand{\EchoChunky}{graphics/ECHO_chunky.pdf}
 
-% Minimal Rust syntax highlighting for listings
+% ═══════════════════════════════════════════════════════════════════════════════
+% CODE LISTINGS - Clean, modern styling
+% ═══════════════════════════════════════════════════════════════════════════════
+
+% Color definitions for syntax highlighting
+\definecolor{codebg}{RGB}{250,250,250}
+\definecolor{codeframe}{RGB}{200,200,200}
+\definecolor{codekeyword}{RGB}{0,100,170}
+\definecolor{codetype}{RGB}{0,128,128}
+\definecolor{codestring}{RGB}{163,21,21}
+\definecolor{codecomment}{RGB}{100,100,100}
+\definecolor{codenumber}{RGB}{150,150,150}
+
+% Rust syntax highlighting
 \lstdefinelanguage{Rust}{
-    keywords={pub,fn,let,mut,struct,enum,impl,for,while,loop,match,if,else,Self,self,where,crate,super,mod,use,as,trait,const,static,ref,move,async,await,dyn,return},
-    keywordstyle=\color{blue}\bfseries,
-    ndkeywords={u8,u16,u32,u64,usize,i8,i16,i32,i64,isize,f32,f64,bool,str,String,Vec,Option,Result},
-    ndkeywordstyle=\color{teal}\bfseries,
+    keywords={pub,fn,let,mut,struct,enum,impl,for,while,loop,match,if,else,Self,self,where,crate,super,mod,use,as,trait,const,static,ref,move,async,await,dyn,return,in,type,true,false},
+    keywordstyle=\color{codekeyword}\bfseries,
+    ndkeywords={u8,u16,u32,u64,usize,i8,i16,i32,i64,isize,f32,f64,bool,str,String,Vec,Option,Result,Box,Rc,Arc,HashMap,HashSet,BTreeMap,BTreeSet},
+    ndkeywordstyle=\color{codetype},
     identifierstyle=\color{black},
     sensitive=true,
     comment=[l]{//},
     morecomment=[s]{/*}{*/},
-    commentstyle=\color{gray}\ttfamily,
-    stringstyle=\color{orange}\ttfamily,
-    morestring=[b]{"}
+    commentstyle=\color{codecomment}\itshape,
+    stringstyle=\color{codestring},
+    morestring=[b]{"}{"}
 }
+
+% Global listing style
 \lstset{
-    basicstyle=\ttfamily\small,
+    basicstyle=\ttfamily\footnotesize,
     numbers=left,
-    numberstyle=\tiny,
+    numberstyle=\tiny\color{codenumber},
     stepnumber=1,
-    numbersep=5pt,
+    numbersep=8pt,
     showstringspaces=false,
     tabsize=4,
     breaklines=true,
-    frame=single
+    breakatwhitespace=true,
+    frame=l,                        % Left bar only
+    framerule=2pt,
+    rulecolor=\color{codeframe},
+    backgroundcolor=\color{codebg},
+    xleftmargin=12pt,
+    framexleftmargin=8pt,
+    aboveskip=10pt,
+    belowskip=8pt,
+    columns=flexible,
+    keepspaces=true,
+    literate={*}{{\char42}}1         % Fix asterisk rendering
 }
 
+% Call graph style - for ASCII art flowcharts
+\lstdefinestyle{callgraph}{
+    basicstyle=\ttfamily\footnotesize,
+    frame=none,
+    numbers=none,                   % No line numbers for call graphs
+    backgroundcolor=\color{codebg},
+    xleftmargin=8pt,
+    xrightmargin=8pt,
+    aboveskip=10pt,
+    belowskip=8pt,
+    columns=fixed,
+    keepspaces=true,
+    breaklines=false,
+}
+
+% Geometry settings (paper size from documentclass, margins here)
 \geometry{margin=1in}
 \setlength{\emergencystretch}{1.5em}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+% TYPOGRAPHY - Widow/orphan control and page breaking
+% ═══════════════════════════════════════════════════════════════════════════════
+\widowpenalty=10000          % Prevent widows (single line at top of page)
+\clubpenalty=10000           % Prevent orphans (single line at bottom of page)
+\raggedbottom                % Allow pages to end at natural breaks (no stretching)
 
 % Document metadata placeholders (set in each driver)
 \newcommand{\BookTitle}{ECHO}
@@ -64,6 +118,144 @@
 
 % Simple section/page break helper for chapters/sections
 \newcommand{\sectionbreak}{\clearpage}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+% COMMENTARY BOX STYLING (for Tour de Code and annotated content)
+% ═══════════════════════════════════════════════════════════════════════════════
+\usepackage{mdframed}
+
+% Director's Commentary - conversational asides (blue left border)
+\newenvironment{commentary}
+{\begin{mdframed}[
+  linecolor=blue!60,
+  linewidth=2pt,
+  leftline=true,
+  rightline=false,
+  topline=false,
+  bottomline=false,
+  backgroundcolor=blue!3,
+  innerleftmargin=12pt,
+  innerrightmargin=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=10pt,
+  skipbelow=10pt
+]\small}
+{\end{mdframed}}
+
+% Pro Tip - practical advice (green left border)
+\newenvironment{protip}
+{\begin{mdframed}[
+  linecolor=green!60!black,
+  linewidth=2pt,
+  leftline=true,
+  rightline=false,
+  topline=false,
+  bottomline=false,
+  backgroundcolor=green!5,
+  innerleftmargin=12pt,
+  innerrightmargin=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=10pt,
+  skipbelow=10pt
+]\small\textbf{Pro Tip:} }
+{\end{mdframed}}
+
+% Watch Out - warnings and gotchas (orange left border)
+\newenvironment{watchout}
+{\begin{mdframed}[
+  linecolor=orange!80!black,
+  linewidth=2pt,
+  leftline=true,
+  rightline=false,
+  topline=false,
+  bottomline=false,
+  backgroundcolor=orange!5,
+  innerleftmargin=12pt,
+  innerrightmargin=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=10pt,
+  skipbelow=10pt
+]\small\textbf{Watch Out:} }
+{\end{mdframed}}
+
+% Big Picture - architectural context (purple left border)
+\newenvironment{bigpicture}
+{\begin{mdframed}[
+  linecolor=purple!60,
+  linewidth=2pt,
+  leftline=true,
+  rightline=false,
+  topline=false,
+  bottomline=false,
+  backgroundcolor=purple!3,
+  innerleftmargin=12pt,
+  innerrightmargin=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=10pt,
+  skipbelow=10pt
+]\small\textbf{The Big Picture:} }
+{\end{mdframed}}
+
+% Tour Guide - conversational asides for the Tour de Code (teal left border)
+\newenvironment{tourguide}
+{\begin{mdframed}[
+  linecolor=teal!70,
+  linewidth=2pt,
+  leftline=true,
+  rightline=false,
+  topline=false,
+  bottomline=false,
+  backgroundcolor=teal!3,
+  innerleftmargin=12pt,
+  innerrightmargin=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=10pt,
+  skipbelow=10pt
+]\small\textbf{Tour Guide:} }
+{\end{mdframed}}
+
+% Clever Pattern - highlighting elegant design patterns (cyan left border)
+\newenvironment{cleverpattern}
+{\begin{mdframed}[
+  linecolor=cyan!70!black,
+  linewidth=2pt,
+  leftline=true,
+  rightline=false,
+  topline=false,
+  bottomline=false,
+  backgroundcolor=cyan!5,
+  innerleftmargin=12pt,
+  innerrightmargin=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=10pt,
+  skipbelow=10pt
+]\small\textbf{Clever Pattern:} }
+{\end{mdframed}}
+
+% Deep Dive - detailed technical explanations (indigo left border)
+\newenvironment{deepdive}
+{\begin{mdframed}[
+  linecolor=blue!70!black,
+  linewidth=2pt,
+  leftline=true,
+  rightline=false,
+  topline=false,
+  bottomline=false,
+  backgroundcolor=blue!5,
+  innerleftmargin=12pt,
+  innerrightmargin=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=10pt,
+  skipbelow=10pt
+]\small\textbf{Deep Dive:} }
+{\end{mdframed}}
 
 \AtBeginDocument{%
     \hypersetup{

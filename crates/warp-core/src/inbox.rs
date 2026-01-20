@@ -21,10 +21,12 @@
 
 use blake3::Hasher;
 
-use crate::footprint::{AttachmentSet, Footprint, IdSet, PortSet};
-use crate::graph::GraphStore;
+use crate::footprint::{AttachmentSet, EdgeSet, Footprint, NodeSet, PortSet};
+use crate::graph_view::GraphView;
 use crate::ident::{make_node_id, make_type_id, EdgeId, Hash, NodeId};
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
+use crate::tick_patch::WarpOp;
+use crate::TickDelta;
 
 /// Human-readable name for the dispatch rule.
 pub const DISPATCH_INBOX_RULE_NAME: &str = "sys/dispatch_inbox";
@@ -97,50 +99,54 @@ pub fn ack_pending_rule() -> RewriteRule {
     }
 }
 
-fn inbox_matcher(store: &GraphStore, scope: &NodeId) -> bool {
+fn inbox_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
     let pending_ty = make_type_id(PENDING_EDGE_TYPE);
-    store
-        .node(scope)
+    view.node(scope)
         .is_some_and(|n| n.ty == make_type_id(INBOX_PATH))
-        && store.edges_from(scope).any(|e| e.ty == pending_ty)
+        && view.edges_from(scope).any(|e| e.ty == pending_ty)
 }
 
-fn inbox_executor(store: &mut GraphStore, scope: &NodeId) {
+fn inbox_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
     // Drain the pending set by deleting `edge:pending` edges only.
     //
     // Ledger nodes are append-only; removing pending edges is queue maintenance.
+    // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+    let warp_id = view.warp_id();
     let pending_ty = make_type_id(PENDING_EDGE_TYPE);
-    let mut pending_edges: Vec<EdgeId> = store
-        .edges_from(scope)
-        .filter(|e| e.ty == pending_ty)
-        .map(|e| e.id)
-        .collect();
-    pending_edges.sort_unstable();
-    for edge_id in pending_edges {
-        let _ = store.delete_edge_exact(*scope, edge_id);
+
+    // Gather pending edges and emit delete ops
+    for edge in view.edges_from(scope) {
+        if edge.ty == pending_ty {
+            delta.push(WarpOp::DeleteEdge {
+                warp_id,
+                from: *scope,
+                edge_id: edge.id,
+            });
+        }
     }
 }
 
-fn inbox_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
-    let mut n_read = IdSet::default();
-    let mut e_read = IdSet::default();
-    let mut e_write = IdSet::default();
+fn inbox_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
+    let mut n_read = NodeSet::default();
+    let mut e_read = EdgeSet::default();
+    let mut e_write = EdgeSet::default();
     let pending_ty = make_type_id(PENDING_EDGE_TYPE);
 
-    n_read.insert_node(scope);
+    n_read.insert_with_warp(warp_id, *scope);
 
-    for e in store.edges_from(scope) {
+    for e in view.edges_from(scope) {
         if e.ty != pending_ty {
             continue;
         }
         // Record edge read for conflict detection before writing
-        e_read.insert_edge(&e.id);
-        e_write.insert_edge(&e.id);
+        e_read.insert_with_warp(warp_id, e.id);
+        e_write.insert_with_warp(warp_id, e.id);
     }
 
     Footprint {
         n_read,
-        n_write: IdSet::default(),
+        n_write: NodeSet::default(),
         e_read,
         e_write,
         a_read: AttachmentSet::default(),
@@ -151,35 +157,43 @@ fn inbox_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
     }
 }
 
-fn ack_pending_matcher(store: &GraphStore, scope: &NodeId) -> bool {
+fn ack_pending_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
     let inbox_id = make_node_id(INBOX_PATH);
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
-    store.has_edge(&edge_id)
+    view.has_edge(&edge_id)
 }
 
-fn ack_pending_executor(store: &mut GraphStore, scope: &NodeId) {
+fn ack_pending_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+    // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+    let warp_id = view.warp_id();
     let inbox_id = make_node_id(INBOX_PATH);
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
-    let _ = store.delete_edge_exact(inbox_id, edge_id);
+
+    delta.push(WarpOp::DeleteEdge {
+        warp_id,
+        from: inbox_id,
+        edge_id,
+    });
 }
 
-fn ack_pending_footprint(_store: &GraphStore, scope: &NodeId) -> Footprint {
-    let mut n_read = IdSet::default();
-    let mut e_read = IdSet::default();
-    let mut e_write = IdSet::default();
+fn ack_pending_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
+    let mut n_read = NodeSet::default();
+    let mut e_read = EdgeSet::default();
+    let mut e_write = EdgeSet::default();
 
     let inbox_id = make_node_id(INBOX_PATH);
-    n_read.insert_node(&inbox_id);
-    n_read.insert_node(scope);
+    n_read.insert_with_warp(warp_id, inbox_id);
+    n_read.insert_with_warp(warp_id, *scope);
 
     let edge_id = pending_edge_id(&inbox_id, &scope.0);
     // Record edge read for conflict detection before writing
-    e_read.insert_edge(&edge_id);
-    e_write.insert_edge(&edge_id);
+    e_read.insert_with_warp(warp_id, edge_id);
+    e_write.insert_with_warp(warp_id, edge_id);
 
     Footprint {
         n_read,
-        n_write: IdSet::default(),
+        n_write: NodeSet::default(),
         e_read,
         e_write,
         a_read: AttachmentSet::default(),

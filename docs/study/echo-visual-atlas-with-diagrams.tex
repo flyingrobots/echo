@@ -1,0 +1,279 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+]{book}
+\usepackage[letterpaper, margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb}
+% Enable section numbering (sections within chapters)
+\setcounter{secnumdepth}{2}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\newenvironment{Shaded}{}{}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\BuiltInTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{#1}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{#1}}
+\newcommand{\ImportTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{\textbf{#1}}}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{#1}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\usepackage{graphicx}
+\usepackage[export]{adjustbox}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+% Single source of truth for document date
+\newcommand{\docdate}{2026-01-19}
+
+\author{Echo Project Contributors}
+\date{\docdate}
+
+\begin{document}
+\chapter{Echo Visual Atlas}\label{echo-visual-atlas}
+
+\begin{quote}
+Standalone diagrams for understanding Echo's architecture. These
+diagrams complement the main guide ``What Makes Echo Tick?''
+\end{quote}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{The Complete Tick Pipeline}\label{the-complete-tick-pipeline}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-06.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{BOAW Parallel Execution Model}\label{boaw-parallel-execution-model}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-08.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Virtual Shard Routing}\label{virtual-shard-routing}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-10.pdf}
+\end{center}
+
+\subsection{Test Vectors (Frozen
+Protocol)}\label{test-vectors-frozen-protocol}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Input (first 8 bytes) & LE u64 & Shard \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{0xDEADBEEFCAFEBABE} & \texttt{0xBEBAFECAEFBEADDE} & 190
+(0xBE) \\
+\texttt{0x0000000000000000} & \texttt{0x0000000000000000} & 0 \\
+\texttt{0x2A00000000000000} & \texttt{0x000000000000002A} & 42 \\
+\texttt{0xFFFFFFFFFFFFFFFF} & \texttt{0xFFFFFFFFFFFFFFFF} & 255 \\
+\end{longtable}
+}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Two-Plane WARP Architecture}\label{two-plane-warp-architecture}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-03.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{GraphView Contract Enforcement}\label{graphview-contract-enforcement}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-11.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{State Root Hash Computation}\label{state-root-hash-computation}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-09.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Commit Hash v2 Structure}\label{commit-hash-v2-structure}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-07.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{WSC Snapshot Format}\label{wsc-snapshot-format}
+
+\begin{verbatim}
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        WSC SNAPSHOT FILE                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ HEADER (fixed size)                                                 │ │
+│  │ ┌──────────┬──────────┬──────────┬──────────┬──────────┐          │ │
+│  │ │  magic   │ version  │ node_cnt │ edge_cnt │ offsets  │          │ │
+│  │ │  8 bytes │ 8 bytes  │ 8 bytes  │ 8 bytes  │ 8×N bytes│          │ │
+│  │ └──────────┴──────────┴──────────┴──────────┴──────────┘          │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ NODES TABLE (sorted by NodeId, 8-byte aligned)                      │ │
+│  │ ┌─────────────────┬─────────────────┬─────────────────┐            │ │
+│  │ │    NodeRow      │    NodeRow      │    NodeRow      │  ...       │ │
+│  │ │    64 bytes     │    64 bytes     │    64 bytes     │            │ │
+│  │ │ [id:32][type:32]│ [id:32][type:32]│ [id:32][type:32]│            │ │
+│  │ └─────────────────┴─────────────────┴─────────────────┘            │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ EDGES TABLE (sorted by EdgeId, 8-byte aligned)                      │ │
+│  │ ┌─────────────────────────┬─────────────────────────┐              │ │
+│  │ │       EdgeRow           │       EdgeRow           │  ...         │ │
+│  │ │       128 bytes         │       128 bytes         │              │ │
+│  │ │[id:32][from:32][to:32]  │[id:32][from:32][to:32]  │              │ │
+│  │ │[type:32]                │[type:32]                │              │ │
+│  │ └─────────────────────────┴─────────────────────────┘              │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ OUT_INDEX (per-node ranges into out_edges)                          │ │
+│  │ ┌──────────────┬──────────────┬──────────────┐                     │ │
+│  │ │    Range     │    Range     │    Range     │  ...                │ │
+│  │ │   16 bytes   │   16 bytes   │   16 bytes   │                     │ │
+│  │ │[start:8][len:8]│[start:8][len:8]│[start:8][len:8]│                │ │
+│  │ └──────────────┴──────────────┴──────────────┘                     │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ ATTACHMENT INDEX (per-slot ranges)                                  │ │
+│  │ Similar structure to OUT_INDEX                                      │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │ BLOB ARENA (variable-length payloads)                               │ │
+│  │ ┌─────────────────────────────────────────────────────────────┐    │ │
+│  │ │ [payload bytes...] [payload bytes...] [payload bytes...] ...│    │ │
+│  │ └─────────────────────────────────────────────────────────────┘    │ │
+│  │ Referenced by (offset: u64, length: u64) tuples                     │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+\end{verbatim}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Footprint Independence Check}\label{footprint-independence-check}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-08.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Complete Data Flow: Intent to Render}\label{complete-data-flow-intent-to-render}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-02.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Viewer Event Loop}\label{viewer-event-loop}
+
+\begin{center}
+\includegraphics[max width=\textwidth,max height=0.4\textheight,keepaspectratio]{diagrams/tour-15.pdf}
+\end{center}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\emph{Visual Atlas generated \docdate. Use alongside ``What Makes Echo
+Tick?'' for complete understanding.}
+
+\end{document}

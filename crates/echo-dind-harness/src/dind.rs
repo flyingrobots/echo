@@ -16,6 +16,19 @@ use std::path::{Path, PathBuf};
 use warp_core::{make_node_id, make_warp_id, AttachmentValue, GraphStore};
 
 // -----------------------------------------------------------------------------
+// Golden file format constants
+// -----------------------------------------------------------------------------
+
+/// Current event log format version.
+pub const ELOG_VERSION: u16 = 1;
+
+/// Hash domain identifier for DIND state hashes.
+pub const HASH_DOMAIN: &str = "DIND_STATE_HASH_V2";
+
+/// Hash algorithm used for state hashes.
+pub const HASH_ALG: &str = "BLAKE3";
+
+// -----------------------------------------------------------------------------
 // Permutation-mode termination constants
 // -----------------------------------------------------------------------------
 
@@ -147,23 +160,29 @@ pub fn create_repro_bundle(
 
     // 2. Write actual hashes
     let actual_golden = Golden {
-        elog_version: 1,
+        elog_version: ELOG_VERSION,
         schema_hash_hex: hex::encode(header.schema_hash),
-        hash_domain: "DIND_STATE_HASH_V2".to_string(),
-        hash_alg: "BLAKE3".to_string(),
+        hash_domain: HASH_DOMAIN.to_string(),
+        hash_alg: HASH_ALG.to_string(),
         hashes_hex: actual_hashes.to_vec(),
     };
-    let f_actual = File::create(out_dir.join("actual.hashes.json"))
+    let mut f_actual = File::create(out_dir.join("actual.hashes.json"))
         .context("failed to create actual.hashes.json")?;
-    serde_json::to_writer_pretty(f_actual, &actual_golden)
+    serde_json::to_writer_pretty(&mut f_actual, &actual_golden)
         .context("failed to serialize actual.hashes.json")?;
+    f_actual
+        .sync_all()
+        .context("failed to sync actual.hashes.json")?;
 
     // 3. Write expected hashes if available
     if let Some(exp) = expected_golden {
-        let f_exp = File::create(out_dir.join("expected.hashes.json"))
+        let mut f_exp = File::create(out_dir.join("expected.hashes.json"))
             .context("failed to create expected.hashes.json")?;
-        serde_json::to_writer_pretty(f_exp, exp)
+        serde_json::to_writer_pretty(&mut f_exp, exp)
             .context("failed to serialize expected.hashes.json")?;
+        f_exp
+            .sync_all()
+            .context("failed to sync expected.hashes.json")?;
     }
 
     // 4. Write diff.txt
@@ -269,16 +288,17 @@ pub fn entrypoint() -> Result<()> {
             let (hashes, header) = run_scenario(&scenario)?;
 
             let golden = Golden {
-                elog_version: 1,
+                elog_version: ELOG_VERSION,
                 schema_hash_hex: hex::encode(header.schema_hash),
-                hash_domain: "DIND_STATE_HASH_V2".to_string(),
-                hash_alg: "BLAKE3".to_string(),
+                hash_domain: HASH_DOMAIN.to_string(),
+                hash_alg: HASH_ALG.to_string(),
                 hashes_hex: hashes,
             };
 
-            let f = File::create(&out).context("failed to create output file")?;
-            serde_json::to_writer_pretty(f, &golden)
+            let mut f = File::create(&out).context("failed to create output file")?;
+            serde_json::to_writer_pretty(&mut f, &golden)
                 .context("failed to serialize golden output")?;
+            f.sync_all().context("failed to sync golden output")?;
             println!(
                 "DIND: Recorded {} steps to {:?}",
                 golden.hashes_hex.len(),
@@ -296,10 +316,10 @@ pub fn entrypoint() -> Result<()> {
 
             // Construct a synthetic "Golden" from baseline for reuse in repro
             let baseline_golden = Golden {
-                elog_version: 1,
+                elog_version: ELOG_VERSION,
                 schema_hash_hex: hex::encode(header.schema_hash),
-                hash_domain: "DIND_STATE_HASH_V2".to_string(),
-                hash_alg: "BLAKE3".to_string(),
+                hash_domain: HASH_DOMAIN.to_string(),
+                hash_alg: HASH_ALG.to_string(),
                 hashes_hex: baseline_hashes.clone(),
             };
 

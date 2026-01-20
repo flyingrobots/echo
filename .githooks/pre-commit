@@ -5,7 +5,7 @@ set -euo pipefail
 # 0) Sweep stale build artifacts on odd hours (keeps target/ from ballooning)
 #    Manual: ./scripts/sweep-stale-artifacts.sh [days]
 HOUR=$(date +%H)
-if (( HOUR % 2 == 1 )) && [[ -x scripts/sweep-stale-artifacts.sh ]]; then
+if (( 10#$HOUR % 2 == 1 )) && [[ -x scripts/sweep-stale-artifacts.sh ]]; then
   scripts/sweep-stale-artifacts.sh 14
 fi
 
@@ -123,12 +123,33 @@ if [[ -x scripts/ensure_spdx.sh ]]; then
   scripts/ensure_spdx.sh || exit 1
 fi
 
-# 9) Markdown linting for staged .md files
-MD_FILES=$(echo "$STAGED" | grep -E '\.md$' || true)
-if [[ -n "$MD_FILES" ]] && command -v npx >/dev/null 2>&1; then
+# 9) Markdown formatting and linting for staged .md files
+# Use -z and --diff-filter=ACMRT to exclude deletions and handle whitespace safely
+mapfile -d '' MD_FILES < <(git diff --cached --name-only -z --diff-filter=ACMRT -- '*.md')
+if [[ ${#MD_FILES[@]} -gt 0 ]] && command -v npx >/dev/null 2>&1; then
   echo "pre-commit: linting markdown files"
-  # shellcheck disable=SC2086
-  if ! npx markdownlint-cli2 $MD_FILES; then
+
+  # Auto-format with prettier if ECHO_AUTO_FMT is enabled (handles tables, etc.)
+  case "${_auto_fmt}" in
+    1|true|TRUE|yes|YES|on|ON)
+      # Check formatting; suppress stdout (file list) but preserve stderr for errors
+      if npx prettier --check "${MD_FILES[@]}" >/dev/null; then
+        : # Already formatted
+      else
+        echo "pre-commit: running prettier on markdown files" >&2
+        # Write changes; suppress stdout but preserve stderr for errors
+        if ! npx prettier --write "${MD_FILES[@]}" >/dev/null; then
+          echo "pre-commit: prettier failed" >&2
+          exit 1
+        fi
+        echo "pre-commit: prettier updated markdown files. Aborting commit to preserve index integrity." >&2
+        echo "Hint: review changes, restage (e.g., 'git add -p' or 'git add -A'), then commit again." >&2
+        exit 1
+      fi
+      ;;
+  esac
+
+  if ! npx markdownlint-cli2 "${MD_FILES[@]}"; then
     echo "pre-commit: markdown lint failed. Run: npx markdownlint-cli2 --fix <files>" >&2
     exit 1
   fi

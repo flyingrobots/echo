@@ -1,0 +1,137 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{BOAW Parallel Execution}
+\label{chap:tour-boaw}
+
+\textbf{Entry Point:} \texttt{execute\_parallel()} \\
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:61-83}
+
+\begin{bigpicture}
+BOAW---``Best of All Worlds''---is where Echo's determinism meets parallelism. The key insight: \textbf{execution order doesn't matter if we sort the outputs}.
+
+Workers execute in arbitrary order on different threads, but their outputs are merged canonically. Same inputs $\rightarrow$ same outputs, regardless of thread scheduling.
+\end{bigpicture}
+
+\section{Entry Point}
+
+\begin{lstlisting}[language=Rust]
+pub fn execute_parallel(
+    view: GraphView<'_>,
+    items: &[ExecItem],
+    workers: usize
+) -> Vec<TickDelta> {
+    assert!(workers >= 1);
+    let capped_workers = workers.min(NUM_SHARDS);  // Cap at 256
+    execute_parallel_sharded(view, items, capped_workers)
+}
+\end{lstlisting}
+
+\section{Sharding}
+
+\begin{verbatim}
+partition_into_shards(items) → Vec<VirtualShard>
+|
++-- FOR item IN items:
+    |
+    +-- shard_of(&item.scope) → usize
+    |   CODE:
+    |     let bytes = scope.as_bytes();
+    |     let first_8 = bytes[0..8];
+    |     let val = u64::from_le_bytes(first_8);
+    |     (val & 255) as usize  // SHARD_MASK = 255
+    |
+    +-- shards[shard_id].items.push(item)
+\end{verbatim}
+
+\begin{commentary}
+The sharding is beautifully simple: take the first 8 bytes of the node ID, interpret as a little-endian u64, mask with 255. You get a shard number from 0 to 255.
+
+Why 256 shards?
+\begin{itemize}
+    \item \textbf{Fine enough}: With random node IDs, work distributes evenly
+    \item \textbf{Coarse enough}: Each shard has multiple items, amortizing overhead
+    \item \textbf{Power of 2}: Masking is just a bitwise AND, no division needed
+\end{itemize}
+
+Why is this deterministic? Because shard assignment depends only on the node ID, which is content-addressed. The same node always lands in the same shard.
+\end{commentary}
+
+\section{Work-Stealing Loop}
+
+\begin{verbatim}
+std::thread::scope(|s| {
+    FOR _ IN 0..workers:
+    |
+    +-- s.spawn(move || { ... })  // === WORKER THREAD ===
+        |
+        +-- let mut delta = TickDelta::new()
+        |
+        +-- LOOP:
+            |
+            +-- shard_id = next_shard.fetch_add(1, Relaxed)
+            |   ATOMIC: Returns old value, increments counter
+            |
+            +-- IF shard_id >= 256: break
+            |
+            +-- FOR item IN &shards[shard_id].items:
+                +-- (item.exec)(view, &item.scope, &mut delta)
+})
+\end{verbatim}
+
+\begin{commentary}
+Each worker runs a loop: atomically claim the next shard number, process all items in that shard, repeat until no shards remain.
+
+See \texttt{Ordering::Relaxed}? That's the weakest memory ordering---basically ``no synchronization, just do the atomic operation.''
+
+Why is that safe here?
+\begin{enumerate}
+    \item Each shard is processed by exactly one worker (atomic fetch-add guarantees unique assignment)
+    \item Workers don't need to see each other's results until after \texttt{join()}
+    \item The \texttt{join()} provides the synchronization barrier
+\end{enumerate}
+
+Using \texttt{Relaxed} instead of \texttt{SeqCst} avoids expensive memory barriers. On a 16-core machine, that matters.
+\end{commentary}
+
+\begin{watchout}
+The shard claim order is non-deterministic. Worker 1 might claim shard 5 before worker 2 claims shard 3, or vice versa.
+
+This is fine! The merge phase sorts the outputs canonically. The execution order doesn't affect the final result.
+
+But if you're debugging and wondering why execution traces look different between runs, this is why.
+\end{watchout}
+
+\section{ExecItem Structure}
+
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:19-35}
+
+\begin{lstlisting}[language=Rust]
+#[derive(Clone, Copy)]
+pub struct ExecItem {
+    pub exec: ExecuteFn,     // fn(GraphView, &NodeId, &mut TickDelta)
+    pub scope: NodeId,       // 32-byte node identifier
+    pub origin: OpOrigin,    // { intent_id, rule_id, match_ix, op_ix }
+}
+\end{lstlisting}
+
+\begin{commentary}
+The \texttt{ExecItem} is a closure packaged with its context. The \texttt{origin} field is crucial for determinism---it's how we sort ops during the merge phase.
+
+Notice \texttt{ExecuteFn} is a function pointer, not a \texttt{Box<dyn Fn>}. Function pointers are \texttt{Copy} and don't allocate. This matters when you're creating thousands of exec items per tick.
+\end{commentary}
+
+\section{Thread Safety Guarantees}
+
+The parallel execution is safe because:
+
+\begin{enumerate}
+    \item \textbf{GraphView is read-only}: Workers can't mutate the base state
+    \item \textbf{TickDelta is thread-local}: Each worker has its own delta
+    \item \textbf{Shards are disjoint}: No two workers process the same shard
+    \item \textbf{Merge is sequential}: Happens after all workers join
+\end{enumerate}
+
+\begin{protip}
+If you need to debug parallel execution, set \texttt{ECHO\_WORKERS=1} to force single-threaded mode. Same results, easier to trace.
+\end{protip}

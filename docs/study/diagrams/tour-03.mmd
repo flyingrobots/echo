@@ -1,0 +1,20 @@
+graph LR
+    subgraph "WARP Graph Structure"
+        N1[Node A<br/>id: 0x1234...]
+        N2[Node B<br/>id: 0x5678...]
+        N3[Node C<br/>id: 0x9ABC...]
+
+        N1 -->|edge:link| N2
+        N1 -->|edge:child| N3
+        N2 -->|edge:ref| N3
+    end
+
+    subgraph "Attachments (α plane)"
+        A1[title: 'Home']
+        A2[url: '/page/b']
+        A3[content: '...']
+    end
+
+    N1 -.- A1
+    N2 -.- A2
+    N3 -.- A3

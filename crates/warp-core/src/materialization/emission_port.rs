@@ -62,11 +62,41 @@ pub trait EmissionPort {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// // Rule that emits multiple particles
-    /// for (i, particle) in particles.iter().enumerate() {
-    ///     port.emit_with_subkey(channel, i as u32, particle.encode())?;
+    /// ```rust
+    /// use warp_core::materialization::{make_channel_id, DuplicateEmission, EmissionPort};
+    ///
+    /// # fn main() -> Result<(), DuplicateEmission> {
+    /// struct DemoPort;
+    ///
+    /// impl EmissionPort for DemoPort {
+    ///     fn emit(
+    ///         &self,
+    ///         _channel: warp_core::materialization::ChannelId,
+    ///         _data: Vec<u8>,
+    ///     ) -> Result<(), DuplicateEmission> {
+    ///         Ok(())
+    ///     }
+    ///
+    ///     fn emit_with_subkey(
+    ///         &self,
+    ///         _channel: warp_core::materialization::ChannelId,
+    ///         _subkey: u32,
+    ///         _data: Vec<u8>,
+    ///     ) -> Result<(), DuplicateEmission> {
+    ///         Ok(())
+    ///     }
     /// }
+    ///
+    /// let port = DemoPort;
+    /// let channel = make_channel_id("demo:particles");
+    /// let particles: Vec<Vec<u8>> = vec![vec![1, 2], vec![3, 4]];
+    ///
+    /// // A rule that emits multiple particles deterministically.
+    /// for (i, particle) in particles.iter().enumerate() {
+    ///     port.emit_with_subkey(channel, i as u32, particle.clone())?;
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// # Errors

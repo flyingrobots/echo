@@ -2,12 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
-use echo_dry_tests::motion_rule;
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
-    encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
+    encode_motion_atom_payload, make_edge_id, make_node_id, make_type_id, AttachmentValue,
+    EdgeRecord, Engine, GraphStore, NodeRecord,
 };
-mod common;
-use common::snapshot_hash_of;
 
 #[test]
 fn n_permutation_commute_n3_and_n4() {
@@ -37,8 +36,8 @@ fn n_permutation_commute_n3_and_n4() {
                 ))),
             );
             // Connect entity to root so snapshot reachability includes it.
-            let edge = warp_core::EdgeRecord {
-                id: warp_core::make_edge_id(&format!("root-to-entity-{i}")),
+            let edge = EdgeRecord {
+                id: make_edge_id(&format!("root-to-entity-{i}")),
                 from: root,
                 to: id,
                 ty: make_type_id("contains"),
@@ -46,7 +45,6 @@ fn n_permutation_commute_n3_and_n4() {
             store.insert_edge(root, edge);
             scopes.push(id);
         }
-        let rule = motion_rule();
 
         // Enumerate a few permutations deterministically (not all for n=4 to keep runtime low).
         let perms: Vec<Vec<usize>> = match n {
@@ -57,11 +55,14 @@ fn n_permutation_commute_n3_and_n4() {
 
         let mut baseline: Option<[u8; 32]> = None;
         for p in perms {
-            let mut s = store.clone();
+            let mut engine = Engine::new(store.clone(), root);
+            engine.register_rule(motion_rule()).unwrap();
+            let tx = engine.begin();
             for &idx in &p {
-                (rule.executor)(&mut s, &scopes[idx]);
+                engine.apply(tx, MOTION_RULE_NAME, &scopes[idx]).unwrap();
             }
-            let h = snapshot_hash_of(s, root);
+            let snapshot = engine.commit(tx).unwrap();
+            let h = snapshot.hash;
             if let Some(b) = baseline {
                 assert_eq!(b, h, "commutation failed for n={n} perm={p:?}");
             } else {

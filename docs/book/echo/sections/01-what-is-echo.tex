@@ -4,12 +4,12 @@
 
 Echo is a \textbf{deterministic, multiverse-aware Entity Component System (ECS)} engine. Unlike traditional game engines that prioritize visual fidelity or editor convenience, Echo prioritizes \textbf{determinism}, \textbf{state preservation}, and \textbf{simulation integrity}.
 
-It is built on the concept of a "Rulial Multi-Graph" (WARP), where the entire game state is a graph, and updates are deterministic graph rewrites. This allows for features that are practically impossible in standard engines:
+It is built on the concepts described by the \AION{} Foundations Series papers---"Worldline Algebra for Recursive Provenance" (WARP) graphs---meaning that the entire game state is a WARP graph, and updates are deterministic graph rewrites. This allows for features that are practically impossible in standard engines, such as:
 
 \begin{itemize}
     \item \textbf{Perfect Determinism:} Given the same initial state and inputs, the simulation will evolve identically on any machine (x86, ARM, WASM).
     \item \textbf{Time Travel:} The ability to rollback the simulation to any previous tick, branch time into alternative realities, and merge them back.
-    \item \textbf{Renderer Agnosticism:} Echo does not care how it is drawn. It emits a `FramePacket`\\ (render-agnostic draw list) that adapters feed to WebGL/WebGPU, a terminal UI, or a headless server.
+    \item \textbf{Renderer Agnosticism:} Echo does not care how it is drawn. It emits an event stream that describes the latest graph writes applied to the \WARP{} state at a given tick.
 \end{itemize}
 
 \subsection{Core Philosophy}
@@ -17,14 +17,15 @@ It is built on the concept of a "Rulial Multi-Graph" (WARP), where the entire ga
 Echo was born from earlier prototypes and operates under a set of strict cultural principles:
 
 \begin{enumerate}
-    \item \textbf{Just Ship, But Test:} Rigorous automated testing is not optional.
-    \item \textbf{Hexagonal Domain Boundary:} The core simulation never touches the DOM, WebGL, or system timers directly. Everything is mediated through Ports and Adapters.
-    \item \textbf{Predictable Loop:} A fixed time-step simulation is the default.
+    \item \textbf{Tests Are The Spec:} Tests document expected behavior and serve as living documentation---if a test passes, the feature works as intended.
+    \item \textbf{Hexagonal Domain Boundary:} Core domain logic is isolated from external interfaces (rendering, networking, persistence) via clean adapter boundaries.
+    \item \textbf{We Do Not Rewrite History:} The WARP state history is permanent; every state change is recorded and auditable.
+    \item \textbf{Predictable Loop:} Every frame/tick has a deterministic, cryptographically-verifiable state description.
 \end{enumerate}
 
 \subsection{Who is Echo For?}
 
-Echo is designed for complex simulations where state consistency is paramount:
+Echo is designed for any project where determinism and state integrity matter. Its WARP graph foundation makes it particularly suited for:
 \begin{itemize}
     \item \textbf{RTS Games:} Where thousands of units must remain in sync across a network.
     \item \textbf{Fighting Games:} Where rollback netcode (GGPO-style) is a requirement, not a feature.

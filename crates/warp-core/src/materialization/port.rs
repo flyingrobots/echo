@@ -11,17 +11,25 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```rust
+//! use warp_core::materialization::{make_channel_id, FinalizedChannel, MaterializationPort};
+//!
 //! let mut port = MaterializationPort::new();
+//! let position_channel = make_channel_id("demo:position");
 //!
 //! // Subscribe to a channel (returns cached value if available)
 //! let cached = port.subscribe(position_channel);
+//! assert!(cached.is_none());
 //!
 //! // After engine commit, port receives finalized data
-//! port.receive_finalized(finalized_channels);
+//! port.receive_finalized(vec![FinalizedChannel {
+//!     channel: position_channel,
+//!     data: vec![1, 2, 3],
+//! }]);
 //!
 //! // Drain pending frames for transport
 //! let frames = port.drain();
+//! assert_eq!(frames.len(), 1);
 //! ```
 
 use std::collections::{BTreeMap, BTreeSet};

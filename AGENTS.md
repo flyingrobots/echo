@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo Agent Briefing
 
 Welcome to the **Echo** project. This file captures expectations for any LLM agent (and future-human collaborator) who touches the repo.
@@ -16,6 +17,106 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 
 - Capture milestones, blockers, and decisions in relevant specs, ADRs, or PR descriptions.
 - AGENTS.md and `TASKS-DAG.md` are append-only; see `docs/append-only-invariants.md` plus `scripts/check-append-only.js` for the enforcement plan that CI will run before merges.
+
+## Agent Context System (2-Tier)
+
+Agents use a **2-tier context system** to maintain continuity across sessions:
+
+| Tier          | Store           | Purpose                                    | Update Frequency                 |
+| ------------- | --------------- | ------------------------------------------ | -------------------------------- |
+| **Immediate** | Redis stream    | Current task state, branch, blockers       | Every significant action         |
+| **Deep**      | Knowledge graph | Architecture decisions, patterns, entities | When learning something reusable |
+
+### Session Start (Bootstrap)
+
+1. **Read this file** (`AGENTS.md`) for project conventions
+
+2. **Check Redis handoff stream**: `echo:agent:handoff` (most recent entry)
+
+    ```text
+    XRANGE echo:agent:handoff - + COUNT 5
+    ```
+
+3. **Query knowledge graph** for relevant entities:
+
+    ```python
+    search_nodes("<feature_name>")  # e.g., "BOAW", "MaterializationBus"
+    search_nodes("Echo")            # General project context
+    ```
+
+### During Work (Continuous Updates)
+
+**Redis stream** — Update after every significant action:
+
+- Completing a task or subtask
+- Encountering a blocker
+- Making a key decision
+- Changing branches or PRs
+
+```bash
+XADD echo:agent:handoff * \
+  branch "graph-boaw" \
+  status "IN_PROGRESS" \
+  summary "Fixing determinism bug in view op emission" \
+  current_task "Updating emit_view_op_delta_scoped()" \
+  blockers "none" \
+  timestamp "<ISO-8601 timestamp>"
+```
+
+**Knowledge graph** — Create/update entities when you:
+
+- Discover an architectural pattern worth preserving
+- Complete a milestone (create `<Feature>_Phase<N>` entity)
+- Fix a non-obvious bug (create `<Feature>_BugFix` entity)
+- Make a decision that future agents should know about
+
+```json
+{
+    "name": "BOAW_Determinism_Fix",
+    "entityType": "BugFix",
+    "observations": [
+        "Root cause: emit_view_op_delta() used delta.len() for view op IDs",
+        "delta.len() is worker-local and varies by shard claim order",
+        "Fix: derive op ID from intent scope (NodeId) which is content-addressed"
+    ]
+}
+```
+
+### Session End (Handoff)
+
+Before ending a session, **always** write a handoff entry:
+
+```bash
+XADD echo:agent:handoff * \
+  branch "<current-branch>" \
+  status "<COMPLETE|IN_PROGRESS|BLOCKED>" \
+  summary "<1-2 sentence summary of what was done>" \
+  commits "<recent commit hashes and messages>" \
+  next_steps "<what the next agent should do>" \
+  blockers "<any blockers, or 'none'>" \
+  tech_debt "<any shortcuts taken that need cleanup>" \
+  test_commands "<commands to verify the work>" \
+  timestamp "<ISO-8601 timestamp>"
+```
+
+### Key Entities to Know
+
+The knowledge graph contains ~300+ entities built by prior agents. Key patterns:
+
+- `Echo Project` — Core project info and current focus
+- `<Feature>_Architecture` — Design decisions for major features
+- `<Feature>_Phase<N>` — Milestone completion records
+- `<Feature>_BugFix` — Non-obvious bug fixes worth remembering
+- `<Feature>_Tech_Debt_P<N>` — Tracked technical debt by priority
+
+### Why This Matters
+
+- **Quick tasks**: Redis handoff alone may suffice
+- **Complex tasks**: Query knowledge graph for architectural context
+- **Debugging**: Search for prior bug fixes in similar areas
+- **Decisions**: Check if prior agents already explored an approach
+
+The 2-tier system means handoffs are seamless—no context is lost between agents, and institutional knowledge accumulates over time.
 
 ## Workflows & Automation
 
@@ -42,9 +143,9 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 ### PRs & Issues (Linkage Policy)
 
 - Every PR must be tied to a GitHub Issue.
-  - If no suitable issue exists, open one before you open the PR.
-  - Use explicit closing keywords in the PR body: include a line like `Closes #<issue-number>` so the issue auto‑closes on merge.
-  - Keep PRs single‑purpose: 1 PR = 1 thing. Avoid bundling unrelated changes.
+    - If no suitable issue exists, open one before you open the PR.
+    - Use explicit closing keywords in the PR body: include a line like `Closes #<issue-number>` so the issue auto‑closes on merge.
+    - Keep PRs single‑purpose: 1 PR = 1 thing. Avoid bundling unrelated changes.
 - Branch naming: prefer `echo/<short-feature-name>` or `timeline/<experiment>` and include the issue number in the PR title.
 - Project hygiene: assign the PR's linked issue to the correct Milestone and Board column (Blocked/Ready/Done) as part of the PR.
 
@@ -54,9 +155,9 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - Formatting: pre-commit auto-fixes with `cargo fmt` by default. Set `ECHO_AUTO_FMT=0` to run check-only instead.
 - Toolchain: pre-commit verifies your active toolchain matches `rust-toolchain.toml`.
 - SPDX header policy (source): every source file must start with exactly:
-  - `// SPDX-License-Identifier: Apache-2.0`
-  - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
-  Use the repository scripts/hooks; do not add dual-license headers to code.
+    - `// SPDX-License-Identifier: Apache-2.0`
+    - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
+      Use the repository scripts/hooks; do not add dual-license headers to code.
 
 ## Git Real
 

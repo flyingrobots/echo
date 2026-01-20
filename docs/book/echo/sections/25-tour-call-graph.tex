@@ -1,0 +1,171 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+\chapter{Complete Call Graph}
+
+This chapter assembles the entire journey from user action to committed state.
+Every prior chapter focused on one subsystem; here we see them orchestrated.
+
+\section{Full Journey: Intent $\to$ Commit}
+
+\begin{lstlisting}[style=callgraph]
+USER ACTION
+    |
+    v
+Engine::ingest_intent(intent_bytes)
+    +- compute_intent_id()                // BLAKE3 content hash
+    +- make_node_id(), make_type_id()     // Structural IDs
+    +- store.insert_node()                // Create event node
+    +- store.set_node_attachment()        // Attach intent payload
+    +- store.insert_edge()                // Pending edge to inbox
+    |
+    v
+Engine::begin() -> TxId
+    +- tx_counter.wrapping_add(1)
+    +- live_txs.insert(tx_counter)
+    +- TxId::from_raw(tx_counter)
+    |
+    v
+Engine::dispatch_next_intent(tx)          // (or manual apply)
+    |
+    v
+Engine::apply(tx, rule_name, scope)
+    +- Engine::apply_in_warp(tx, warp_id, rule_name, scope, &[])
+        +- rules.get(rule_name)           // Lookup rule
+        +- GraphView::new(store)          // Read-only view
+        +- (rule.matcher)(view, scope)    // Match check
+        +- scope_hash()                   // BLAKE3 ordering key
+        +- (rule.compute_footprint)(view, scope)  // Footprint
+        +- scheduler.enqueue(tx, PendingRewrite)
+            +- PendingTx::enqueue()       // Last-wins dedup
+    |
+    v
+Engine::commit_with_receipt(tx)
+    |
+    +--[DRAIN]
+    |   scheduler.drain_for_tx(tx)
+    |       +- PendingTx::drain_in_order()
+    |           +- radix_sort() or sort_unstable_by()
+    |               20-pass LSD radix sort
+    |               ORDER: (scope_hash, rule_id, nonce)
+    |
+    +--[RESERVE]
+    |   FOR rewrite IN drained:
+    |       scheduler.reserve(tx, &mut rewrite)
+    |           +- has_conflict(active, pr)
+    |           |   +- GenSet::contains() x N    // O(1) per check
+    |           +- mark_all(active, pr)
+    |               +- GenSet::mark() x M        // O(1) per mark
+    |
+    +--[EXECUTE]
+    |   apply_reserved_rewrites(reserved, state_before)
+    |       FOR rewrite IN reserved:
+    |           (executor)(view, &scope, &mut delta)
+    |               +- scoped.emit(op)
+    |                   +- delta.emit_with_origin(op, origin)
+    |       delta.finalize()              // Sort ops
+    |       patch.apply_to_state(&mut self.state)
+    |
+    +--[MATERIALIZE]
+    |   bus.finalize()
+    |
+    +--[DELTA PATCH]
+    |   diff_state(&state_before, &self.state)
+    |       +- Sort by WarpOp::sort_key()
+    |   WarpTickPatchV1::new(...)
+    |       +- compute_patch_digest_v2()
+    |
+    +--[HASHES]
+    |   compute_state_root(&self.state, &self.current_root)
+    |       +- BFS reachability
+    |       +- BLAKE3 over canonical encoding
+    |   compute_commit_hash_v2(state_root, parents, ...)
+    |       +- BLAKE3(version || parents || state_root || ...)
+    |
+    +--[FINALIZE]
+        CommitReceipt { hash, patch, state_root }
+\end{lstlisting}
+
+\section{Complexity Summary}
+
+\begin{center}
+\begin{tabular}{llp{5cm}}
+\textbf{Phase} & \textbf{Complexity} & \textbf{Notes} \\
+\hline
+Ingest & $O(1)$ & Hash + insert \\
+Begin/Abort & $O(1)$ & Counter increment \\
+Apply & $O(F)$ & $F$ = footprint size \\
+Drain & $O(n)$ & Radix sort; comparison sort fallback for small $n$ \\
+Reserve & $O(n \cdot F)$ & GenSet lookups \\
+Execute & $O(n \cdot W)$ & $W$ = work per rule \\
+Delta Merge & $O(n \log n)$ & Dedup sort \\
+State Root & $O(V + E)$ & BFS traversal \\
+Commit Hash & $O(1)$ & Fixed-size BLAKE3 \\
+\end{tabular}
+\end{center}
+
+All operations are $O(1)$, $O(n)$, or $O(n \log n)$---nothing quadratic or exponential.
+The system scales linearly with work volume.
+
+The one potential bottleneck is \texttt{compute\_state\_root} at $O(V + E)$, traversing the
+reachable graph. In practice, graphs are partitioned across warp instances, keeping each
+traversal manageable.
+
+\section{Determinism Boundaries}
+
+\subsection{Guaranteed Deterministic}
+
+\begin{itemize}
+  \item Radix sort ordering (20-pass LSD)
+  \item \texttt{BTreeMap}/\texttt{BTreeSet} iteration
+  \item BLAKE3 hashing
+  \item GenSet conflict detection
+  \item Canonical merge deduplication
+\end{itemize}
+
+\subsection{Intentionally Non-Deterministic}
+
+These are \emph{handled by the canonical merge}:
+\begin{itemize}
+  \item Worker execution order in BOAW
+  \item Shard claim order (atomic counter)
+\end{itemize}
+
+Echo's determinism guarantee: \emph{given the same inputs (intents, rules, initial state),
+the output (commit hash) is identical across all executions}.
+
+This holds even though workers execute in arbitrary order, shards are claimed
+non-deterministically, and thread scheduling varies between runs. The canonical merge
+absorbs this chaos, producing deterministic output from non-deterministic intermediates.
+
+\subsection{Protocol Constants (Frozen)}
+
+\begin{itemize}
+  \item \texttt{NUM\_SHARDS = 256}
+  \item \texttt{SHARD\_MASK = 255}
+  \item Shard routing: \texttt{LE\_u64(node\_id[0..8]) \& 255}
+  \item Commit hash v2 version tag: \texttt{0x02 0x00}
+\end{itemize}
+
+These constants are ``frozen''---changing them would break compatibility with existing
+commits. Protocol evolution happens through version tags, not by modifying existing
+constants.
+
+\section{End of Tour}
+
+We have seen:
+
+\begin{description}
+  \item[Content-addressed everything] From intents to commits, identity comes from content
+  \item[Deterministic scheduling] Radix sort + footprints = predictable execution
+  \item[Safe parallelism] Sharded execution + canonical merge = speed without chaos
+  \item[Cryptographic integrity] BLAKE3 hashes throughout = verifiable state
+\end{description}
+
+Echo is built from simple, composable primitives---content hashing, sorted iteration,
+conflict-free sharding---assembled into a system that solves hard distributed problems.
+The code rewards careful study.
+
+\bigskip
+\begin{flushright}
+\textit{Happy hacking!}
+\end{flushright}

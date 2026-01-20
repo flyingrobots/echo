@@ -1,0 +1,21 @@
+graph TB
+    subgraph "Viewer"
+        R[Renderer<br/>WGPU]
+        L[Layout Engine<br/>Force-directed]
+        D[Diff Processor]
+        S[State Cache]
+    end
+
+    subgraph "Session"
+        SC[Session Client]
+    end
+
+    subgraph "Output"
+        Screen[Screen]
+    end
+
+    SC -->|WarpDiff| D
+    D -->|updates| S
+    S -->|positions| L
+    L -->|vertices| R
+    R -->|pixels| Screen

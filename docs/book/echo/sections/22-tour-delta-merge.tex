@@ -1,0 +1,110 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Delta Merge \& State Finalization}
+\label{chap:tour-merge}
+
+\begin{bigpicture}
+After BOAW execution, we have $N$ worker threads each with their own \texttt{TickDelta}. The merge phase combines these into a single canonical sequence of operations. This is the ``choke point'' where parallelism meets determinism.
+\end{bigpicture}
+
+\section{Canonical Merge}
+
+\textbf{Entry Point:} \texttt{merge\_deltas()} \\
+\textbf{File:} \texttt{crates/warp-core/src/boaw/merge.rs}
+
+\begin{verbatim}
+merge_deltas(deltas: Vec<TickDelta>) → TickDelta
+|
++-- let mut all_ops: Vec<(WarpOp, OpOrigin)> = Vec::new()
+|
++-- FOR delta IN deltas:
+|   +-- all_ops.extend(delta.ops.into_iter().zip(delta.origins))
+|
++-- all_ops.sort_by_key(|(op, origin)| {
+|       (op.sort_key(), origin.clone())
+|   })
+|   |
+|   +-- Sort key: (WarpOpKey, OpOrigin)
+|       +-- WarpOpKey: (op_kind, target_id)
+|       +-- OpOrigin: (intent_id, rule_id, match_ix, op_ix)
+|
++-- Dedupe identical ops (same key + same effect)
+|
++-- RETURN TickDelta { ops, origins }
+\end{verbatim}
+
+\begin{commentary}
+The sort key is crucial. \texttt{WarpOpKey} groups operations by kind and target (e.g., all \texttt{SetAttachment} ops on node X come together). \texttt{OpOrigin} breaks ties deterministically---the rewrite that was admitted first (lower intent/rule/match IDs) wins.
+
+Why dedupe? Multiple workers might emit identical operations (e.g., two rules both setting the same attribute to the same value). We keep only one.
+
+Why sort, not merge? Merge assumes sorted inputs. Our worker deltas are sorted \emph{within} each worker but not \emph{across} workers. A global sort handles both cases.
+\end{commentary}
+
+\section{WarpOp Sort Key}
+
+\textbf{File:} \texttt{crates/warp-core/src/warp\_op.rs:89-112}
+
+\begin{lstlisting}[language=Rust]
+impl WarpOp {
+    pub fn sort_key(&self) -> WarpOpKey {
+        match self {
+            WarpOp::CreateNode(id) =>
+                WarpOpKey::CreateNode(*id),
+            WarpOp::DeleteNode(id) =>
+                WarpOpKey::DeleteNode(*id),
+            WarpOp::SetAttachment { key, .. } =>
+                WarpOpKey::SetAttachment(key.owner, *key),
+            WarpOp::CreateEdge { id, .. } =>
+                WarpOpKey::CreateEdge(*id),
+            // ... etc
+        }
+    }
+}
+\end{lstlisting}
+
+\begin{watchout}
+The sort key intentionally \emph{excludes} the operation's value. This means two \texttt{SetAttachment} ops to the same node/key will sort together, and only one survives deduplication.
+
+If they have \emph{different} values, that's a conflict! The merge will keep the one with the lower \texttt{OpOrigin}, but this might indicate a footprint bug---two rewrites shouldn't write different values to the same location.
+\end{watchout}
+
+\section{State Mutation Methods}
+
+\textbf{File:} \texttt{crates/warp-core/src/graph\_store.rs}
+
+After merging, the delta is applied to the graph:
+
+\begin{verbatim}
+apply_delta(delta: &TickDelta)
+|
++-- FOR op IN &delta.ops:
+    |
+    +-- WarpOp::CreateNode(id) →
+    |     self.nodes.insert(id, NodeRecord::default())
+    |
+    +-- WarpOp::DeleteNode(id) →
+    |     self.nodes.remove(&id)
+    |     // Cascades to edges referencing this node
+    |
+    +-- WarpOp::SetAttachment { key, value } →
+    |     self.attachments.insert(key, value)
+    |
+    +-- ... (edges, etc.)
+\end{verbatim}
+
+\begin{commentary}
+Application order matters for creates vs deletes vs updates. The sort key ensures:
+\begin{enumerate}
+    \item Creates come before modifications to the created node
+    \item Deletes come after all modifications (so we don't update then immediately delete)
+    \item Within each category, operations are ordered by \texttt{OpOrigin}
+\end{enumerate}
+
+This ordering is baked into the \texttt{WarpOpKey} enum's derived \texttt{Ord} implementation.
+\end{commentary}
+
+\begin{protip}
+If you're debugging unexpected state, dump the merged delta before application. You can see exactly which ops, in which order, will mutate the graph. The \texttt{OpOrigin} tells you which rule produced each op.
+\end{protip}

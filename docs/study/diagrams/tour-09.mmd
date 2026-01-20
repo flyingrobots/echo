@@ -1,0 +1,7 @@
+flowchart TD
+    A[Start at root] --> B[BFS: visit all reachable nodes]
+    B --> C[For each instance: hash in BTreeMap order]
+    C --> D[For each node: hash in ascending NodeId order]
+    D --> E[For each node's edges: hash in ascending EdgeId order]
+    E --> F[BLAKE3 digest of canonical byte stream]
+    F --> G[state_root: Hash]

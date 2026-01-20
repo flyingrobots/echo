@@ -16,6 +16,8 @@
         --accent-b: #9ece6a;
         --grid: #213041;
         --warn: #f78c6c;
+        --budget-60: #ff6b6b;
+        --budget-1ms: #4ecdc4;
       }
       html, body { height: 100%; }
       body {
@@ -30,7 +32,14 @@
       .panel { background: var(--panel); border-radius: 8px; padding: 16px; }
       .row { max-width: 1024px; margin: 0 auto; }
       #chart { height: 420px; }
-      .legend { display: flex; gap: 16px; align-items: center; margin: 0 0 16px 0; color: var(--muted); flex-wrap: wrap; }
+      .chart-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+      .toggle-btn {
+        background: var(--bg); border: 1px solid var(--grid); color: var(--muted);
+        padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+      }
+      .toggle-btn.active { background: var(--accent-a); color: var(--bg); border-color: var(--accent-a); }
+      .toggle-btn:hover { border-color: var(--accent-a); }
+      .legend { display: flex; gap: 16px; align-items: center; color: var(--muted); flex-wrap: wrap; }
       .swatch { width: 12px; height: 12px; display: inline-block; border-radius: 3px; margin-right: 6px; }
       table { width: 100%; border-collapse: collapse; margin-top: 12px; }
       th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1f2a36; }
@@ -45,18 +54,26 @@
       .stat-card table { margin-top: 0; }
       .threshold-marker { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 8,4; opacity: 0.5; }
       .threshold-label { fill: var(--warn); font-size: 11px; }
+      .budget-line { stroke-width: 1.5; stroke-dasharray: 4,4; }
+      .budget-label { font-size: 10px; font-weight: 600; }
+      #dynamic-stats { margin: 8px 0; padding: 12px; background: var(--bg); border-radius: 6px; }
+      #dynamic-stats strong { color: var(--accent-b); }
+      .callout { font-weight: 600; }
     </style>
   </head>
   <body>
     <header class="row">
       <h1>Echo Benchmarks</h1>
       <p><strong>What we're measuring:</strong> Deterministic scheduler overhead for executing <em>n</em> rewrites per transaction. Lower is better.</p>
-      <p><strong>Performance target:</strong> 60 FPS = 16.67ms frame budget. At n=1000 (typical game scene), scheduler uses just 0.75ms (4.5% of budget).</p>
-      <p><strong>Why this is impressive:</strong> The scheduler maintains <strong>O(n)</strong> linear scaling through adaptive sorting—comparison sort (fast) for small batches, radix sort (scalable) beyond 1024 rewrites. The old BTreeMap approach was O(n log n) and ~44% slower at n=1000.</p>
-      <p class="footer"><strong>Chart note:</strong> Log-log scale shows algorithmic complexity. A straight line = perfect linear scaling. Input sizes: 10, 100, 1k, 3k, 10k, 30k.</p>
+      <div id="dynamic-stats">Loading benchmark data...</div>
+      <p><strong>Why this matters:</strong> The scheduler maintains <strong>O(n)</strong> linear scaling through adaptive sorting—comparison sort for small batches, radix sort beyond n=1024.</p>
     </header>
     <main class="row panel">
-      <div class="legend" id="legend"></div>
+      <div class="chart-controls">
+        <button class="toggle-btn active" id="btn-budget" aria-pressed="true">Budget View</button>
+        <button class="toggle-btn" id="btn-complexity" aria-pressed="false">Complexity View</button>
+        <span class="legend" id="legend"></span>
+      </div>
       <div id="chart"></div>
       <div id="tables"></div>
       <div id="missing" class="warn"></div>
@@ -79,6 +96,11 @@
         });
       })();
     </script>
+    <script>
+window.__CRITERION_DATA__ = [{"group":"snapshot_hash","n":10,"mean":6343.916461658106,"lb":6285.127413148029,"ub":6443.158870045333},{"group":"snapshot_hash","n":100,"mean":66821.73582435443,"lb":65273.12956118721,"ub":69476.46194962057},{"group":"snapshot_hash","n":1000,"mean":897286.6173584601,"lb":884656.7216667712,"ub":916628.4884482697},{"group":"snapshot_hash","n":3000,"mean":3251532.5356250005,"lb":3195350.107265625,"ub":3348050.1112343743},{"group":"snapshot_hash","n":10000,"mean":13832498.645000005,"lb":13555535.601875005,"ub":14288448.660500007},{"group":"snapshot_hash","n":30000,"mean":49390823.18125,"lb":48294884.77734375,"ub":51312916.248906255},{"group":"scheduler_drain","n":10,"mean":13571.311351209251,"lb":13415.535321478174,"ub":13800.239681803985},{"group":"scheduler_drain","n":100,"mean":109257.1218025529,"lb":108173.49985540484,"ub":111050.18650707086},{"group":"scheduler_drain","n":1000,"mean":1133694.1217773487,"lb":1113416.9799921596,"ub":1165338.5902870821},{"group":"scheduler_drain","n":3000,"mean":4433089.306450052,"lb":4357723.282807909,"ub":4541730.465290262},{"group":"scheduler_drain","n":10000,"mean":14802722.107407413,"lb":14653819.4712963,"ub":14967013.156064821},{"group":"scheduler_drain","n":30000,"mean":48106166.938888885,"lb":46726612.924166664,"ub":50668710.825555556},{"group":"scheduler_drain/enqueue","n":10,"mean":3897.9776463763756,"lb":3866.669388336257,"ub":3948.1683568338426},{"group":"scheduler_drain/enqueue","n":100,"mean":30738.03833989041,"lb":30685.00275706363,"ub":30803.837851460503},{"group":"scheduler_drain/enqueue","n":1000,"mean":321103.0735634632,"lb":313435.3249763773,"ub":334442.11469972716},{"group":"scheduler_drain/enqueue","n":3000,"mean":1022519.444019182,"lb":1001571.9137688897,"ub":1056834.260123533},{"group":"scheduler_drain/enqueue","n":10000,"mean":4321254.5932922885,"lb":4221955.796108345,"ub":4449342.617842373},{"group":"scheduler_drain/enqueue","n":30000,"mean":13194169.633333333,"lb":12740021.276145833,"ub":13921883.6146875},{"group":"scheduler_drain/drain","n":10,"mean":10327.276484597058,"lb":10128.032549944888,"ub":10618.78663780625},{"group":"scheduler_drain/drain","n":100,"mean":79841.9489484359,"lb":78801.86505604348,"ub":81544.27054015551},{"group":"scheduler_drain/drain","n":1000,"mean":815226.4522605159,"lb":803085.8752216625,"ub":832783.5835266027},{"group":"scheduler_drain/drain","n":3000,"mean":3294043.7194260224,"lb":3243419.15466265,"ub":3351071.0654511866},{"group":"scheduler_drain/drain","n":10000,"mean":11073558.138333334,"lb":10759374.739583334,"ub":11532996.448708337},{"group":"scheduler_drain/drain","n":30000,"mean":35232576.42916667,"lb":34932768.334687494,"ub":35683829.88010417}];
+window.__CRITERION_MISSING__ = [];
+</script>
+<script>
       const GROUPS = [
         { key: 'snapshot_hash', label: 'Snapshot Hash', color: '#bb9af7', dash: null },          // purple
         { key: 'scheduler_drain', label: 'Scheduler Drain (Total)', color: '#9ece6a', dash: null }, // green
@@ -86,9 +108,15 @@
         { key: 'scheduler_drain/drain', label: 'Scheduler Drain Phase', color: '#f7768e', dash: '8,4' }, // red
       ];
       const INPUTS = [10, 100, 1000, 3000, 10000, 30000];
+      const FRAME_BUDGET_NS = 16.67e6; // 60 FPS in nanoseconds
+      const CHEAP_THRESHOLD_NS = 1e6;  // 1ms "this is cheap" line
+
       const params = new URLSearchParams(location.search);
-      // Default to '/' assuming a server at repo root. Override via ?root=../../ if needed.
       const ROOT = params.get('root') ?? '/';
+
+      let currentView = 'budget'; // 'budget' or 'complexity'
+      let cachedData = null;
+      let cachedMissing = null;
 
       async function loadEstimate(group, n) {
         const basePath = `${ROOT}target/criterion/${group}/${n}`;
@@ -100,14 +128,10 @@
           let path = newPath;
           if (!primary.ok) {
             const alt = await fetch(baseAlt);
-            if (alt.ok) {
-              res = alt; path = baseAlt;
-            } else {
-              throw new Error(`new: ${primary.status} ${primary.statusText}; base: ${alt.status} ${alt.statusText}`);
-            }
+            if (alt.ok) { res = alt; path = baseAlt; }
+            else { throw new Error(`new: ${primary.status}; base: ${alt.status}`); }
           }
           const data = await res.json();
-          // Criterion 0.5 uses lowercase keys like { mean: { point_estimate, confidence_interval: { lower_bound, upper_bound } } }
           const mean = (data.mean?.point_estimate ?? data.Mean?.point_estimate);
           const lb = (data.mean?.confidence_interval?.lower_bound ?? data.Mean?.confidence_interval?.lower_bound);
           const ub = (data.mean?.confidence_interval?.upper_bound ?? data.Mean?.confidence_interval?.upper_bound);
@@ -125,24 +149,69 @@
         return `${(ns/1e9).toFixed(2)} s`;
       }
 
-      async function run() {
-        // Offline/inline mode: if a generator injected data, use it and skip fetches.
-        if (Array.isArray(window.__CRITERION_DATA__)) {
-          const missing = Array.isArray(window.__CRITERION_MISSING__) ? window.__CRITERION_MISSING__ : [];
-          render(window.__CRITERION_DATA__, missing);
+      function fmtMs(ns) {
+        return `${(ns / 1e6).toFixed(2)} ms`;
+      }
+
+      function updateDynamicStats(data) {
+        const stats = document.getElementById('dynamic-stats');
+        const scheduler1k = data.find(d => d.group === 'scheduler_drain' && d.n === 1000);
+        const snapshot1k = data.find(d => d.group === 'snapshot_hash' && d.n === 1000);
+
+        if (!scheduler1k) {
+          stats.innerHTML = '<em>Benchmark data not available.</em>';
           return;
         }
-        const results = [];
-        const missing = [];
-        for (const g of GROUPS) {
-          for (const n of INPUTS) {
-            const r = await loadEstimate(g.key, n);
-            if (r.ok) results.push({ group: g.key, n, mean: r.mean, lb: r.lb, ub: r.ub });
-            else missing.push({ group: g.key, n, path: r.path, error: r.error });
+
+        const schedulerMs = scheduler1k.mean / 1e6;
+        const schedulerPct = ((scheduler1k.mean / FRAME_BUDGET_NS) * 100).toFixed(1);
+        const schedulerCI = `${fmtMs(scheduler1k.lb ?? scheduler1k.mean)} – ${fmtMs(scheduler1k.ub ?? scheduler1k.mean)}`;
+
+        let html = `<strong>At n=1000:</strong> Scheduler total is <strong>${fmtMs(scheduler1k.mean)}</strong> `;
+        html += `(95% CI: ${schedulerCI}), ~<strong>${schedulerPct}%</strong> of a 60 FPS frame budget.`;
+
+        if (snapshot1k) {
+          const snapshotMs = snapshot1k.mean / 1e6;
+          html += `<br>Snapshot hash: <strong>${fmtMs(snapshot1k.mean)}</strong>.`;
+          const combined = scheduler1k.mean + snapshot1k.mean;
+          const combinedPct = ((combined / FRAME_BUDGET_NS) * 100).toFixed(1);
+          html += ` Combined tick overhead: ~<strong>${fmtMs(combined)}</strong> (${combinedPct}% of budget).`;
+        }
+
+        stats.innerHTML = html;
+      }
+
+      async function run() {
+        if (Array.isArray(window.__CRITERION_DATA__)) {
+          cachedData = window.__CRITERION_DATA__;
+          cachedMissing = Array.isArray(window.__CRITERION_MISSING__) ? window.__CRITERION_MISSING__ : [];
+        } else {
+          cachedData = [];
+          cachedMissing = [];
+          for (const g of GROUPS) {
+            for (const n of INPUTS) {
+              const r = await loadEstimate(g.key, n);
+              if (r.ok) cachedData.push({ group: g.key, n, mean: r.mean, lb: r.lb, ub: r.ub });
+              else cachedMissing.push({ group: g.key, n, path: r.path, error: r.error });
+            }
           }
         }
 
-        render(results, missing);
+        updateDynamicStats(cachedData);
+        render(cachedData, cachedMissing);
+
+        // Wire up toggle buttons
+        document.getElementById('btn-budget').addEventListener('click', () => setView('budget'));
+        document.getElementById('btn-complexity').addEventListener('click', () => setView('complexity'));
+      }
+
+      function setView(view) {
+        currentView = view;
+        document.getElementById('btn-budget').classList.toggle('active', view === 'budget');
+        document.getElementById('btn-complexity').classList.toggle('active', view === 'complexity');
+        document.getElementById('btn-budget').setAttribute('aria-pressed', view === 'budget' ? 'true' : 'false');
+        document.getElementById('btn-complexity').setAttribute('aria-pressed', view === 'complexity' ? 'true' : 'false');
+        render(cachedData, cachedMissing);
       }
 
       function render(data, missing) {
@@ -150,7 +219,7 @@
         container.selectAll('*').remove();
         const width = Math.max(720, container.node().clientWidth || 720);
         const height = 420;
-        const margin = { top: 10, right: 24, bottom: 40, left: 60 };
+        const margin = { top: 20, right: 24, bottom: 40, left: 70 };
         const innerW = width - margin.left - margin.right;
         const innerH = height - margin.top - margin.bottom;
 
@@ -162,21 +231,35 @@
 
         const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-        // Build series by group
         const byGroup = d3.group(data, d => d.group);
         const allY = data.flatMap(d => [d.lb ?? d.mean, d.ub ?? d.mean]);
-        const yDomain = [d3.min(allY) || 1, d3.max(allY) || 10];
+        const yMax = d3.max(allY) || 10;
 
-        // Log-scale X for inputs (10, 100, 1000)
+        // X is always log scale
         const x = d3.scaleLog().domain([d3.min(INPUTS), d3.max(INPUTS)]).range([0, innerW]).nice();
-        const y = d3.scaleLog().domain([Math.max(1, yDomain[0]), yDomain[1]]).range([innerH, 0]).nice();
+
+        // Y depends on view mode
+        let y, yAxisLabel;
+        if (currentView === 'budget') {
+          // Linear Y, ensure we show the 16.67ms budget line
+          const yDomainMax = Math.max(yMax, FRAME_BUDGET_NS * 1.1);
+          y = d3.scaleLinear().domain([0, yDomainMax]).range([innerH, 0]).nice();
+          yAxisLabel = 'Time (ms)';
+        } else {
+          // Log Y for complexity view
+          const yMin = d3.min(allY) || 1;
+          y = d3.scaleLog().domain([Math.max(1, yMin * 0.5), yMax * 1.5]).range([innerH, 0]).nice();
+          yAxisLabel = 'Time (log scale)';
+        }
 
         const xAxis = d3.axisBottom(x).tickValues(INPUTS).tickFormat(d3.format('~s'));
-        const yAxis = d3.axisLeft(y).ticks(6, '~s');
+        const yAxis = currentView === 'budget'
+          ? d3.axisLeft(y).ticks(8).tickFormat(d => fmtMs(d))
+          : d3.axisLeft(y).ticks(6, '~s').tickFormat(d => fmtNs(d));
 
-        // Grid
+        // Grid lines
         g.append('g')
-          .attr('stroke', getComputedStyle(document.documentElement).getPropertyValue('--grid') || '#213041')
+          .attr('stroke', '#213041')
           .attr('stroke-opacity', 0.5)
           .selectAll('line.h')
           .data(y.ticks(8))
@@ -185,6 +268,43 @@
           .attr('x2', innerW)
           .attr('y1', d => y(d))
           .attr('y2', d => y(d));
+
+        // Budget lines (only in budget view)
+        if (currentView === 'budget') {
+          // 60 FPS budget line (16.67ms)
+          const y60 = y(FRAME_BUDGET_NS);
+          if (y60 >= 0 && y60 <= innerH) {
+            g.append('line')
+              .attr('class', 'budget-line')
+              .attr('stroke', '#ff6b6b')
+              .attr('x1', 0).attr('x2', innerW)
+              .attr('y1', y60).attr('y2', y60);
+            g.append('text')
+              .attr('class', 'budget-label')
+              .attr('fill', '#ff6b6b')
+              .attr('x', innerW - 5)
+              .attr('y', y60 - 5)
+              .attr('text-anchor', 'end')
+              .text('60 FPS budget (16.67ms)');
+          }
+
+          // 1ms "cheap" line
+          const y1ms = y(CHEAP_THRESHOLD_NS);
+          if (y1ms >= 0 && y1ms <= innerH) {
+            g.append('line')
+              .attr('class', 'budget-line')
+              .attr('stroke', '#4ecdc4')
+              .attr('x1', 0).attr('x2', innerW)
+              .attr('y1', y1ms).attr('y2', y1ms);
+            g.append('text')
+              .attr('class', 'budget-label')
+              .attr('fill', '#4ecdc4')
+              .attr('x', innerW - 5)
+              .attr('y', y1ms + 12)
+              .attr('text-anchor', 'end')
+              .text('1ms (cheap)');
+          }
+        }
 
         g.append('g').attr('transform', `translate(0,${innerH})`).call(xAxis).call(g=>g.selectAll('text').attr('fill', '#cbd6e2'));
         g.append('g').call(yAxis).call(g=>g.selectAll('text').attr('fill', '#cbd6e2'));
@@ -200,12 +320,12 @@
 
         g.append('text')
           .attr('text-anchor', 'middle')
-          .attr('transform', `translate(-45,${innerH / 2})rotate(-90)`)
+          .attr('transform', `translate(-55,${innerH / 2})rotate(-90)`)
           .attr('fill', '#cbd6e2')
           .style('font-size', '12px')
-          .text('Time (ns/µs/ms)');
+          .text(yAxisLabel);
 
-        // Threshold marker at n=1024
+        // Radix sort threshold marker at n=1024
         const thresholdX = x(1024);
         g.append('line')
           .attr('class', 'threshold-marker')
@@ -225,8 +345,7 @@
           .attr('text-anchor', 'end')
           .text('comparison ↑');
 
-        const line = d3
-          .line()
+        const line = d3.line()
           .x(d => x(d.n))
           .y(d => y(d.mean))
           .curve(d3.curveMonotoneX);
@@ -236,6 +355,7 @@
           const color = groupInfo?.color || '#7aa2f7';
           const dash = groupInfo?.dash;
           const sorted = series.slice().sort((a,b)=>a.n-b.n);
+
           const path = g.append('path')
             .datum(sorted)
             .attr('fill', 'none')
@@ -244,10 +364,9 @@
             .attr('d', line);
           if (dash) path.attr('stroke-dasharray', dash);
 
-          // CI band (if present)
+          // CI band
           if (sorted.some(d => Number.isFinite(d.lb) && Number.isFinite(d.ub))) {
-            const area = d3
-              .area()
+            const area = d3.area()
               .x(d => x(d.n))
               .y0(d => y(d.lb ?? d.mean))
               .y1(d => y(d.ub ?? d.mean))
@@ -271,9 +390,23 @@
             .attr('fill', color)
             .append('title')
             .text(d => `${groupInfo?.label || group} n=${d.n}\nmean: ${fmtNs(d.mean)}\nCI: ${fmtNs(d.lb ?? d.mean)}–${fmtNs(d.ub ?? d.mean)}`);
+
+          // Callout at n=1000 for main groups
+          if ((group === 'scheduler_drain' || group === 'snapshot_hash') && currentView === 'budget') {
+            const pt1k = sorted.find(d => d.n === 1000);
+            if (pt1k) {
+              g.append('circle')
+                .attr('cx', x(1000))
+                .attr('cy', y(pt1k.mean))
+                .attr('r', 7)
+                .attr('fill', 'none')
+                .attr('stroke', color)
+                .attr('stroke-width', 2);
+            }
+          }
         }
 
-        // Legend with line styles
+        // Legend
         const legend = d3.select('#legend');
         legend.selectAll('*').remove();
         legend.selectAll('div.item')
@@ -285,7 +418,7 @@
             return `<svg width="24" height="12" style="display:inline-block;vertical-align:middle;margin-right:6px"><line x1="0" y1="6" x2="24" y2="6" stroke="${d.color}" stroke-width="2" ${dash}/></svg>${d.label}`;
           });
 
-        // 2x2 grid of color-coded stat cards
+        // Stat cards
         const tables = d3.select('#tables');
         tables.selectAll('*').remove();
         const grid = tables.append('div').attr('class', 'stats-grid');
@@ -306,7 +439,8 @@
           const tbody = tbl.append('tbody');
           tbody.selectAll('tr').data(rows).join('tr').html(d => {
             const ci = `${fmtNs(d.lb ?? d.mean)} – ${fmtNs(d.ub ?? d.mean)}`;
-            return `<td>${d.n}</td><td>${fmtNs(d.mean)}</td><td>${ci}</td>`;
+            const highlight = d.n === 1000 ? ' class="callout"' : '';
+            return `<td${highlight}>${d.n}</td><td${highlight}>${fmtNs(d.mean)}</td><td${highlight}>${ci}</td>`;
           });
         }
 
@@ -316,9 +450,9 @@
         if (missing.length) {
           miss.append('div').html(
             `Some results were not found. Ensure you:<br>` +
-            `1) Serve repo root (e.g., run <code>make bench-serve</code> from the repo root),<br>` +
-            `2) Run <code>cargo bench -p warp-benches</code> to generate <code>target/criterion</code> results,<br>` +
-            `3) If serving from a different base, pass <code>?root=../../</code> or the correct base.`
+            `1) Serve repo root (e.g., run <code>make bench-serve</code>),<br>` +
+            `2) Run <code>cargo bench -p warp-benches</code>,<br>` +
+            `3) If serving elsewhere, pass <code>?root=../../</code>.`
           );
           const ul = miss.append('ul');
           ul.selectAll('li')
@@ -330,9 +464,5 @@
 
       // `run()` is invoked after D3 loads in the loader above.
     </script>
-  <script>
-window.__CRITERION_DATA__ = [{"group":"snapshot_hash","n":10,"mean":5138.761259807942,"lb":5096.852025098336,"ub":5189.070589461724},{"group":"snapshot_hash","n":100,"mean":60492.11590277312,"lb":58509.91881961395,"ub":63147.79258430357},{"group":"snapshot_hash","n":1000,"mean":923553.9687804924,"lb":883157.2058303931,"ub":969658.0464868647},{"group":"snapshot_hash","n":3000,"mean":3009729.4464296764,"lb":2902391.3968759784,"ub":3127295.6744127786},{"group":"snapshot_hash","n":10000,"mean":12371627.699999997,"lb":11857249.499895835,"ub":12984112.591614582},{"group":"snapshot_hash","n":30000,"mean":45408427.89375,"lb":43511293.4871875,"ub":47526424.07},{"group":"scheduler_drain","n":10,"mean":8129.821496316948,"lb":7973.58338916718,"ub":8334.377564932893},{"group":"scheduler_drain","n":100,"mean":80925.4112367039,"lb":78792.05503160399,"ub":83277.59493729657},{"group":"scheduler_drain","n":1000,"mean":910881.9888214057,"lb":870534.1534530107,"ub":955880.3062485228},{"group":"scheduler_drain","n":3000,"mean":3585038.9407373955,"lb":3404279.367065823,"ub":3860871.3721971097},{"group":"scheduler_drain","n":10000,"mean":10884934.280555548,"lb":10583165.000243058,"ub":11223774.291909724},{"group":"scheduler_drain","n":30000,"mean":37610643.416666664,"lb":36420142.35208334,"ub":38970998.611666664},{"group":"scheduler_drain/enqueue","n":10,"mean":3098.1375728937824,"lb":3052.568145200308,"ub":3160.4162909038105},{"group":"scheduler_drain/enqueue","n":100,"mean":34011.30391906203,"lb":31851.717510730985,"ub":36530.74724310192},{"group":"scheduler_drain/enqueue","n":1000,"mean":348749.61409994325,"lb":323447.89077543264,"ub":380090.5635372431},{"group":"scheduler_drain/enqueue","n":3000,"mean":1022939.0103051307,"lb":988446.5097107906,"ub":1064367.17228324},{"group":"scheduler_drain/enqueue","n":10000,"mean":3878554.462516015,"lb":3615239.8435333716,"ub":4186461.360561257},{"group":"scheduler_drain/enqueue","n":30000,"mean":12873715.1,"lb":12479137.205178574,"ub":13310853.86619047},{"group":"scheduler_drain/drain","n":10,"mean":4931.289790387037,"lb":4871.431760949958,"ub":5002.673898364056},{"group":"scheduler_drain/drain","n":100,"mean":60064.97398928134,"lb":57039.05723316673,"ub":63381.897354295805},{"group":"scheduler_drain/drain","n":1000,"mean":533207.9488682137,"lb":504007.9759111935,"ub":569673.9776651806},{"group":"scheduler_drain/drain","n":3000,"mean":2691358.8667292222,"lb":2444961.486722368,"ub":3103765.727536428},{"group":"scheduler_drain/drain","n":10000,"mean":7710865.098484846,"lb":7359810.408787879,"ub":8105907.417613635},{"group":"scheduler_drain/drain","n":30000,"mean":24825764.4,"lb":23268667.6490625,"ub":26524402.085416663}];
-window.__CRITERION_MISSING__ = [];
-</script>
-</body>
-  </html>
+  </body>
+</html>

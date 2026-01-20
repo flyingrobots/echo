@@ -1,0 +1,122 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+\chapter{Scheduler: Drain \& Reserve}
+\label{chap:tour-scheduler}
+
+\begin{bigpicture}
+The scheduler is the traffic cop of Echo. It takes a queue of pending rewrites and determines which ones can execute in this tick without conflicting. The output is a deterministic list of \texttt{ExecItem}s ready for BOAW.
+\end{bigpicture}
+
+\section{Drain Phase (Radix Sort)}
+
+\textbf{Entry Point:} \texttt{RadixScheduler::drain()} \\
+\textbf{File:} \texttt{crates/warp-core/src/radix\_scheduler.rs:156-198}
+
+\begin{verbatim}
+RadixScheduler::drain() → Vec<PendingRewrite>
+|
++-- items = self.pending.drain(..).collect()
+|   Empties the pending queue
+|
++-- radix_sort_stable(&mut items)
+|   FILE: crates/warp-core/src/radix_scheduler.rs:89-120
+|   |
+|   +-- Sort key: (scope_hash, compact_rule, nonce)
+|       |
+|       +-- scope_hash: u64 from NodeId bytes
+|       |   CODE: u64::from_le_bytes(scope.as_bytes()[0..8])
+|       |
+|       +-- compact_rule: u32
+|       |   CODE: (rule_id.0 as u32) << 16 | (match_ix as u32)
+|       |
+|       +-- nonce: u32
+|           Transaction-local uniquifier
+|
++-- RETURN items (now in canonical order)
+\end{verbatim}
+
+\begin{commentary}
+Why radix sort instead of quicksort?
+
+\begin{itemize}
+    \item \textbf{Determinism}: Radix sort is inherently stable---equal keys maintain their original order. Quicksort's pivot selection can introduce non-determinism.
+    \item \textbf{Performance}: For fixed-size keys (we have a 128-bit composite key), radix sort is $O(n)$ instead of $O(n \log n)$.
+    \item \textbf{Cache-friendly}: LSD radix sort makes sequential passes through memory.
+\end{itemize}
+
+The sort key packs three values into a single comparable tuple, ensuring that rewrites at the same scope are grouped together, then ordered by rule, then by match index.
+\end{commentary}
+
+\section{Reserve Phase (Independence Check)}
+
+\textbf{Entry Point:} \texttt{RadixScheduler::reserve()} \\
+\textbf{File:} \texttt{crates/warp-core/src/radix\_scheduler.rs:200-256}
+
+\begin{verbatim}
+RadixScheduler::reserve(items: Vec<PendingRewrite>) → Vec<ExecItem>
+|
++-- let mut admitted: Vec<ExecItem> = Vec::new()
++-- let mut claimed = GenSet::new()  // Tracks claimed resources
+|
++-- FOR item IN items (canonical order):
+    |
+    +-- IF claimed.conflicts_with(&item.footprint):
+    |     // Skip this rewrite (deferred to next tick)
+    |     self.pending.push(item);
+    |     CONTINUE
+    |
+    +-- claimed.mark_all(&item.footprint)
+    |   Records all read/write targets as claimed
+    |
+    +-- admitted.push(ExecItem {
+           exec: lookup_executor(item.rule_id),
+           scope: item.scope,
+           origin: OpOrigin::from(&item),
+       })
+|
+RETURN admitted
+\end{verbatim}
+
+\begin{watchout}
+The order matters! Greedy admission in canonical order means the \emph{first} rewrite at each scope wins. If you have two conflicting rewrites, the one with the lower sort key gets admitted, the other is deferred.
+
+This is deterministic, but it can lead to starvation if the same rewrite keeps winning. Echo doesn't currently have fairness guarantees---a frequently-triggered rule can crowd out others.
+\end{watchout}
+
+\section{GenSet: O(1) Conflict Detection}
+
+\textbf{File:} \texttt{crates/warp-core/src/genset.rs}
+
+\begin{lstlisting}[language=Rust]
+pub struct GenSet {
+    generation: u64,
+    slots: Vec<u64>,  // slot[i] = generation when claimed
+}
+
+impl GenSet {
+    pub fn mark(&mut self, id: u64) {
+        self.slots[id as usize] = self.generation;
+    }
+
+    pub fn is_marked(&self, id: u64) -> bool {
+        self.slots[id as usize] == self.generation
+    }
+
+    pub fn clear(&mut self) {
+        self.generation += 1;  // O(1) clear!
+    }
+}
+\end{lstlisting}
+
+\begin{commentary}
+GenSet is a beautiful optimization. Instead of clearing a hash set (which is $O(n)$), we increment a generation counter. An element is ``marked'' if its slot equals the current generation.
+
+\texttt{clear()} becomes $O(1)$. This matters because we call it every tick, and the set can grow large.
+
+The trade-off: we need to pre-allocate slots. For node IDs, we use the lower bits (masked) as the slot index, accepting some false positives in exchange for constant-time operations.
+\end{commentary}
+
+\begin{protip}
+If you're seeing unexpected conflicts, check your footprint computation. A footprint that's too broad (claiming more than necessary) reduces parallelism. Too narrow, and you'll get data races. The footprint must be a \emph{superset} of actual accesses.
+\end{protip}

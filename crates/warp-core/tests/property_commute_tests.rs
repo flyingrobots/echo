@@ -2,12 +2,11 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 #![allow(missing_docs)]
-use echo_dry_tests::motion_rule;
+use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
-    encode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, GraphStore, NodeRecord,
+    encode_motion_atom_payload, make_edge_id, make_node_id, make_type_id, AttachmentValue,
+    EdgeRecord, Engine, GraphStore, NodeRecord,
 };
-mod common;
-use common::snapshot_hash_of;
 
 #[test]
 fn independent_motion_rewrites_commute_on_distinct_nodes() {
@@ -38,7 +37,6 @@ fn independent_motion_rewrites_commute_on_distinct_nodes() {
     );
     // Make entities reachable from root via edges so snapshots include them.
     let edge_ty = make_type_id("edge");
-    use warp_core::{make_edge_id, EdgeRecord};
     store1.insert_edge(
         root,
         EdgeRecord {
@@ -57,19 +55,25 @@ fn independent_motion_rewrites_commute_on_distinct_nodes() {
             ty: edge_ty,
         },
     );
-    let mut store2 = store1.clone();
-
-    let rule = motion_rule();
+    let store2 = store1.clone();
 
     // Order 1: apply to A then B
-    (rule.executor)(&mut store1, &a);
-    (rule.executor)(&mut store1, &b);
-    let h1 = snapshot_hash_of(store1, root);
+    let mut engine1 = Engine::new(store1, root);
+    engine1.register_rule(motion_rule()).unwrap();
+    let tx1 = engine1.begin();
+    engine1.apply(tx1, MOTION_RULE_NAME, &a).unwrap();
+    engine1.apply(tx1, MOTION_RULE_NAME, &b).unwrap();
+    let snapshot1 = engine1.commit(tx1).unwrap();
+    let h1 = snapshot1.hash;
 
     // Order 2: apply to B then A
-    (rule.executor)(&mut store2, &b);
-    (rule.executor)(&mut store2, &a);
-    let h2 = snapshot_hash_of(store2, root);
+    let mut engine2 = Engine::new(store2, root);
+    engine2.register_rule(motion_rule()).unwrap();
+    let tx2 = engine2.begin();
+    engine2.apply(tx2, MOTION_RULE_NAME, &b).unwrap();
+    engine2.apply(tx2, MOTION_RULE_NAME, &a).unwrap();
+    let snapshot2 = engine2.commit(tx2).unwrap();
+    let h2 = snapshot2.hash;
 
     assert_eq!(h1, h2, "independent rewrites must commute");
 }

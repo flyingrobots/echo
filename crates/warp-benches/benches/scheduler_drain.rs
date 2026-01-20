@@ -16,8 +16,8 @@ use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criteri
 use echo_dry_tests::build_motion_demo_engine;
 use std::time::Duration;
 use warp_core::{
-    make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, Hash, NodeId,
-    NodeRecord, PatternGraph, RewriteRule,
+    make_node_id, make_type_id, ApplyResult, ConflictPolicy, Engine, Footprint, GraphView, Hash,
+    NodeId, NodeRecord, PatternGraph, RewriteRule, TickDelta,
 };
 
 // Bench constants to avoid magic strings.
@@ -34,11 +34,11 @@ fn bench_noop_rule() -> RewriteRule {
         h.update(BENCH_NOOP_RULE_NAME.as_bytes());
         h.finalize().into()
     };
-    fn matcher(_s: &warp_core::GraphStore, _n: &warp_core::NodeId) -> bool {
+    fn matcher(_view: GraphView<'_>, _n: &NodeId) -> bool {
         true
     }
-    fn executor(_s: &mut warp_core::GraphStore, _n: &warp_core::NodeId) {}
-    fn footprint(_s: &warp_core::GraphStore, _n: &warp_core::NodeId) -> Footprint {
+    fn executor(_view: GraphView<'_>, _n: &NodeId, _delta: &mut TickDelta) {}
+    fn footprint(_view: GraphView<'_>, _n: &NodeId) -> Footprint {
         Footprint::default()
     }
     RewriteRule {

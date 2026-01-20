@@ -18,7 +18,7 @@ use thiserror::Error;
 use crate::attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue,
 };
-use crate::footprint::PortKey;
+use crate::footprint::WarpScopedPortKey;
 use crate::graph::GraphStore;
 use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
@@ -44,17 +44,21 @@ impl TickCommitStatus {
 }
 
 /// Unversioned slot identifier for slicing and provenance bookkeeping.
+///
+/// All variants are warp-scoped: they include both `WarpId` and local identifiers.
+/// This ensures resources in different warps are tracked distinctly for receipt
+/// attribution and provenance bookkeeping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SlotId {
-    /// Full node record at `NodeKey` (instance-scoped skeleton record).
+    /// Full node record at `NodeKey` (warp-scoped skeleton record).
     Node(NodeKey),
-    /// Full edge record at `EdgeKey` (instance-scoped skeleton record).
+    /// Full edge record at `EdgeKey` (warp-scoped skeleton record).
     Edge(EdgeKey),
     /// Attachment slot (node/edge plane payload, including `Descend` links).
     Attachment(AttachmentKey),
-    /// Boundary port value (opaque key).
-    Port(PortKey),
+    /// Boundary port value (warp-scoped: `(WarpId, PortKey)`).
+    Port(WarpScopedPortKey),
 }
 
 impl SlotId {
@@ -92,7 +96,7 @@ impl Ord for SlotId {
 }
 
 /// A canonical delta operation applied to the graph store.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum WarpOp {
     /// Open a descended attachment portal atomically (Stage B1.1).
@@ -165,7 +169,7 @@ pub enum WarpOp {
 }
 
 /// Initialization policy for [`WarpOp::OpenPortal`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PortalInit {
     /// Create a new child instance with only a root node (using `root_record`).
@@ -177,8 +181,24 @@ pub enum PortalInit {
     RequireExisting,
 }
 
+/// Canonical ordering key for [`WarpOp`] used by patch construction and merge sorting.
+///
+/// This is a compact, byte-stable representation of an op's ordering identity:
+/// - `kind` defines the global phase ordering across op variants
+/// - `warp`, `a`, and `b` encode the op's target within that phase
+///
+/// # Invariants
+///
+/// - Keys are totally ordered and deterministic across runs.
+/// - Two ops with identical keys are considered duplicates for deduplication purposes.
+/// - The ordering ensures structural dependencies (instances before nodes, deletes before upserts).
+///
+/// # Usage
+///
+/// Primarily used internally by [`WarpTickPatchV1::new`] for canonicalization and
+/// `merge_deltas` (feature-gated) for deterministic merge ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct WarpOpKey {
+pub struct WarpOpKey {
     kind: u8,
     warp: ContentHash,
     a: ContentHash,
@@ -190,7 +210,7 @@ impl WarpOp {
     ///
     /// This ordering is used for two purposes:
     /// - to define the deterministic replay order of a tick patch, and
-    /// - to define which operations are considered “the same” for patch construction
+    /// - to define which operations are considered "the same" for patch construction
     ///   (see [`WarpTickPatchV1::new`], which dedupes by this key with last-wins semantics).
     ///
     /// Ordering rationale (v2):
@@ -204,7 +224,7 @@ impl WarpOp {
     /// use delete-before-upsert. Patches are expected not to contain both operations for the
     /// same `warp_id`; if they do, this ordering makes the resulting state (and any subsequent
     /// invalid references) deterministic rather than silently ambiguous.
-    fn sort_key(&self) -> WarpOpKey {
+    pub fn sort_key(&self) -> WarpOpKey {
         match self {
             Self::OpenPortal { key, .. } => {
                 let (owner_tag, plane_tag) = key.tag();
@@ -791,9 +811,10 @@ fn encode_slots(h: &mut Hasher, slots: &[SlotId]) {
                 h.update(&[3u8]);
                 encode_attachment_key(h, key);
             }
-            SlotId::Port(key) => {
+            SlotId::Port((warp_id, port_key)) => {
                 h.update(&[4u8]);
-                h.update(&key.to_le_bytes());
+                h.update(&warp_id.0);
+                h.update(&port_key.to_le_bytes());
             }
         }
     }
@@ -1690,5 +1711,52 @@ mod tests {
             clear_portal.apply_to_state(&mut state),
             Err(TickPatchError::PortalInvariantViolation)
         ));
+    }
+
+    #[test]
+    fn warp_op_key_distinguishes_by_warp() {
+        use std::collections::BTreeSet;
+
+        let warp_a = make_warp_id("warp-a");
+        let warp_b = make_warp_id("warp-b");
+        let same_node = make_node_id("same-node");
+
+        // Create two UpsertNode ops targeting the same local node but different warps
+        let op_a = WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id: warp_a,
+                local_id: same_node,
+            },
+            record: NodeRecord {
+                ty: make_type_id("test"),
+            },
+        };
+        let op_b = WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id: warp_b,
+                local_id: same_node,
+            },
+            record: NodeRecord {
+                ty: make_type_id("test"),
+            },
+        };
+
+        let key_a = op_a.sort_key();
+        let key_b = op_b.sort_key();
+
+        // Keys must be distinct
+        assert_ne!(key_a, key_b, "WarpOpKey must distinguish different warps");
+
+        // Keys must have total order
+        assert!(
+            key_a < key_b || key_b < key_a,
+            "WarpOpKey must have total order"
+        );
+
+        // No collision in sets
+        let mut set = BTreeSet::new();
+        set.insert(key_a);
+        set.insert(key_b);
+        assert_eq!(set.len(), 2, "WarpOpKeys must not collide in BTreeSet");
     }
 }

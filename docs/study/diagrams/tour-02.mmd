@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant User
+    participant Tool as Tool/Viewer
+    participant Hub as Session Hub
+    participant Engine as warp-core Engine
+    participant Store as Graph Store
+
+    User->>Tool: Click link
+    Tool->>Hub: ingest_intent(bytes)
+    Hub->>Engine: forward intent
+    Engine->>Engine: begin() transaction
+    Engine->>Engine: apply() rules
+    Engine->>Store: read via GraphView
+    Engine->>Engine: compute footprints
+
+    rect rgb(240, 248, 255)
+        Note over Engine,Store: commit() internals
+        Engine->>Store: apply delta
+        Engine->>Engine: compute hashes
+        Engine->>Hub: emit snapshot/diff
+    end
+
+    Hub->>Tool: WarpFrame
+    Tool->>User: render new state

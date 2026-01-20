@@ -7,9 +7,9 @@
 use warp_core::{
     decode_motion_atom_payload_q32_32, decode_motion_payload, encode_motion_atom_payload,
     encode_motion_payload, encode_motion_payload_q32_32, make_node_id, make_type_id,
-    motion_payload_type_id, pack_port_key, AttachmentKey, AttachmentSet, AttachmentValue,
-    ConflictPolicy, Engine, Footprint, GraphStore, Hash, IdSet, NodeId, NodeKey, NodeRecord,
-    PatternGraph, PortSet, RewriteRule,
+    motion_payload_type_id, pack_port_key, AtomPayload, AttachmentKey, AttachmentSet,
+    AttachmentValue, ConflictPolicy, EdgeSet, Engine, Footprint, GraphStore, GraphView, Hash,
+    NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, WarpOp,
 };
 
 // =============================================================================
@@ -53,11 +53,14 @@ mod motion_scalar_backend {
 
 use motion_scalar_backend::{scalar_from_raw, scalar_to_raw};
 
-fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
-    if store.node(scope).is_none() {
+fn motion_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+    if view.node(scope).is_none() {
         return;
     }
-    let Some(AttachmentValue::Atom(payload)) = store.node_attachment_mut(scope) else {
+
+    let warp_id = view.warp_id();
+
+    let Some(AttachmentValue::Atom(payload)) = view.node_attachment(scope) else {
         return;
     };
 
@@ -91,13 +94,28 @@ fn motion_executor(store: &mut GraphStore, scope: &NodeId) {
         scalar_to_raw(vel[2]),
     ];
 
-    payload.type_id = motion_payload_type_id();
-    payload.bytes = encode_motion_payload_q32_32(new_pos_raw, vel_out_raw);
+    // Build new bytes
+    let new_bytes = encode_motion_payload_q32_32(new_pos_raw, vel_out_raw);
+
+    // Phase 5 BOAW: only emit delta ops, no direct mutation
+    if payload.bytes != new_bytes {
+        let key = AttachmentKey::node_alpha(NodeKey {
+            warp_id,
+            local_id: *scope,
+        });
+        delta.push(WarpOp::SetAttachment {
+            key,
+            value: Some(AttachmentValue::Atom(AtomPayload {
+                type_id: motion_payload_type_id(),
+                bytes: new_bytes,
+            })),
+        });
+    }
 }
 
-fn motion_matcher(store: &GraphStore, scope: &NodeId) -> bool {
+fn motion_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
     matches!(
-        store.node_attachment(scope),
+        view.node_attachment(scope),
         Some(AttachmentValue::Atom(payload)) if decode_motion_atom_payload_q32_32(payload).is_some()
     )
 }
@@ -109,19 +127,19 @@ fn motion_rule_id() -> Hash {
     hasher.finalize().into()
 }
 
-fn compute_motion_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
+fn compute_motion_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let mut a_write = AttachmentSet::default();
-    if store.node(scope).is_some() {
+    if view.node(scope).is_some() {
         a_write.insert(AttachmentKey::node_alpha(NodeKey {
-            warp_id: store.warp_id(),
+            warp_id: view.warp_id(),
             local_id: *scope,
         }));
     }
     Footprint {
-        n_read: IdSet::default(),
-        n_write: IdSet::default(),
-        e_read: IdSet::default(),
-        e_write: IdSet::default(),
+        n_read: NodeSet::default(),
+        n_write: NodeSet::default(),
+        e_read: EdgeSet::default(),
+        e_write: EdgeSet::default(),
         a_read: AttachmentSet::default(),
         a_write,
         b_in: PortSet::default(),
@@ -169,22 +187,31 @@ pub fn build_motion_demo_engine() -> Engine {
 /// Public identifier for the port demo rule.
 pub const PORT_RULE_NAME: &str = "demo/port_nop";
 
-fn port_matcher(_: &GraphStore, _: &NodeId) -> bool {
+fn port_matcher(_: GraphView<'_>, _: &NodeId) -> bool {
     true
 }
 
-fn port_executor(store: &mut GraphStore, scope: &NodeId) {
-    if store.node(scope).is_none() {
+fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+    if view.node(scope).is_none() {
         return;
     }
 
-    let Some(attachment) = store.node_attachment_mut(scope) else {
+    let key = AttachmentKey::node_alpha(NodeKey {
+        warp_id: view.warp_id(),
+        local_id: *scope,
+    });
+
+    let Some(attachment) = view.node_attachment(scope) else {
         let pos = [1.0, 0.0, 0.0];
         let vel = [0.0, 0.0, 0.0];
-        store.set_node_attachment(
-            *scope,
-            Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
-        );
+        let new_value = Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel)));
+
+        // Phase 5 BOAW: only emit delta ops, no direct mutation
+        delta.push(WarpOp::SetAttachment {
+            key,
+            value: new_value,
+        });
+
         return;
     };
 
@@ -196,27 +223,43 @@ fn port_executor(store: &mut GraphStore, scope: &NodeId) {
     }
     if let Some((mut pos, vel)) = decode_motion_payload(&payload.bytes) {
         pos[0] += 1.0;
-        payload.bytes = encode_motion_payload(pos, vel);
+        let new_bytes = encode_motion_payload(pos, vel);
+
+        // Phase 5 BOAW: only emit delta ops, no direct mutation.
+        //
+        // Guard emission by byte equality so no-op rewrites don't bloat the delta
+        // stream (e.g. f32 increments that quantize to the same Q32.32 value).
+        if payload.bytes != new_bytes {
+            let new_value = Some(AttachmentValue::Atom(AtomPayload {
+                type_id: motion_payload_type_id(),
+                bytes: new_bytes,
+            }));
+            delta.push(WarpOp::SetAttachment {
+                key,
+                value: new_value,
+            });
+        }
     }
 }
 
-fn compute_port_footprint(store: &GraphStore, scope: &NodeId) -> Footprint {
-    let mut n_write = IdSet::default();
+fn compute_port_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
+    let mut n_write = NodeSet::default();
     let mut a_write = AttachmentSet::default();
     let mut b_in = PortSet::default();
-    if store.node(scope).is_some() {
-        n_write.insert_node(scope);
+    if view.node(scope).is_some() {
+        n_write.insert_with_warp(warp_id, *scope);
         a_write.insert(AttachmentKey::node_alpha(NodeKey {
-            warp_id: store.warp_id(),
+            warp_id,
             local_id: *scope,
         }));
-        b_in.insert(pack_port_key(scope, 0, true));
+        b_in.insert(warp_id, pack_port_key(scope, 0, true));
     }
     Footprint {
-        n_read: IdSet::default(),
+        n_read: NodeSet::default(),
         n_write,
-        e_read: IdSet::default(),
-        e_write: IdSet::default(),
+        e_read: EdgeSet::default(),
+        e_write: EdgeSet::default(),
         a_read: AttachmentSet::default(),
         a_write,
         b_in,
@@ -258,4 +301,36 @@ pub fn build_port_demo_engine() -> Engine {
         .register_rule(port_rule())
         .expect("port rule should register successfully in fresh engine");
     engine
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_executor_skips_emitting_when_quantized_bytes_do_not_change() {
+        // Choose a value where `pos[0] += 1.0` is a no-op in f32 (ulp >= 2),
+        // so the canonical Q32.32 encoding remains unchanged.
+        let pos = [16_777_216.0, 0.0, 0.0];
+        let vel = [0.0, 0.0, 0.0];
+
+        let mut store = GraphStore::default();
+        let node_id = make_node_id("port/noop");
+        store.insert_node(
+            node_id,
+            NodeRecord {
+                ty: make_type_id("test"),
+            },
+        );
+        store.set_node_attachment(
+            node_id,
+            Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel))),
+        );
+
+        let view = GraphView::new(&store);
+        let mut delta = TickDelta::new();
+        port_executor(view, &node_id, &mut delta);
+
+        assert!(delta.is_empty(), "no-op update should not emit a delta op");
+    }
 }

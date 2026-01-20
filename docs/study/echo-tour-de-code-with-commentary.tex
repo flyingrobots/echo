@@ -1,0 +1,1900 @@
+% SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0
+% © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[11pt]{book}
+\usepackage[letterpaper, margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\newenvironment{Shaded}{}{}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\BuiltInTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{#1}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{#1}}
+\newcommand{\ImportTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{\textbf{#1}}}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{#1}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\usepackage{longtable,booktabs,array}
+\newcounter{none} % for unnumbered tables
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+% ═══════════════════════════════════════════════════════════════════════════════
+% TOUR GUIDE COMMENTARY STYLING
+% ═══════════════════════════════════════════════════════════════════════════════
+\usepackage{pifont}      % Required for \ding symbols in tcolorbox titles
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+
+% Tour Guide Commentary Box - the main insight boxes
+\newtcolorbox{tourguide}[1][]{
+  enhanced,
+  breakable,
+  colback=blue!5!white,
+  colframe=blue!60!black,
+  fonttitle=\bfseries,
+  title={\raisebox{-0.2em}{\large\ding{46}} Tour Guide Notes},
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  #1
+}
+
+% Clever Pattern Box - for particularly elegant code patterns
+\newtcolorbox{cleverpattern}[1][]{
+  enhanced,
+  breakable,
+  colback=green!5!white,
+  colframe=green!50!black,
+  fonttitle=\bfseries,
+  title={\raisebox{-0.1em}{\large$\star$} Clever Pattern},
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  #1
+}
+
+% Warning/Gotcha Box - for subtle traps or important invariants
+\newtcolorbox{watchout}[1][]{
+  enhanced,
+  breakable,
+  colback=orange!8!white,
+  colframe=orange!70!black,
+  fonttitle=\bfseries,
+  title={\raisebox{-0.1em}{\large$\triangle$} Watch Out},
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  #1
+}
+
+% Deep Dive Box - for architectural insights
+\newtcolorbox{deepdive}[1][]{
+  enhanced,
+  breakable,
+  colback=purple!5!white,
+  colframe=purple!60!black,
+  fonttitle=\bfseries,
+  title={\raisebox{-0.1em}{\large$\blacktriangledown$} Deep Dive},
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  #1
+}
+
+% Pro Tip Box - for practical advice
+\newtcolorbox{protip}[1][]{
+  enhanced,
+  breakable,
+  colback=teal!5!white,
+  colframe=teal!60!black,
+  fonttitle=\bfseries,
+  title={\raisebox{-0.1em}{\large$\checkmark$} Pro Tip},
+  left=8pt,
+  right=8pt,
+  top=6pt,
+  bottom=6pt,
+  #1
+}
+
+\author{}
+\date{}
+
+\begin{document}
+\frontmatter
+
+\mainmatter
+\chapter{Echo: Tour de Code}\label{echo-tour-de-code}
+
+\begin{quote}
+\textbf{The complete function-by-function trace of Echo's execution
+pipeline.}
+
+This document traces EVERY function call involved in processing a user
+action through the Echo engine. File paths and line numbers are accurate
+as of 2026-01-18.
+
+\emph{Annotated with tour guide commentary --- insights, patterns, and observations from a detailed code review.}
+\end{quote}
+
+\begin{tourguide}
+Welcome to the Echo Tour de Code! I'll be your guide through this remarkable piece of systems engineering.
+
+What strikes me most about Echo's architecture is its \textbf{relentless pursuit of determinism}. Every design decision---from content-addressed identities to 20-pass radix sorts---serves the goal of ensuring that the same inputs always produce the same outputs, regardless of execution timing or parallelism.
+
+As we walk through the pipeline, I'll highlight:
+\begin{itemize}
+\item \textbf{Clever patterns} that solve subtle problems elegantly
+\item \textbf{Invariants} that must hold for correctness
+\item \textbf{Performance optimizations} hidden in plain sight
+\item \textbf{Architectural decisions} and their trade-offs
+\end{itemize}
+
+Let's begin our journey from intent to commit!
+\end{tourguide}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Table of Contents}\label{table-of-contents}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \hyperref[intent-ingestion]{Intent Ingestion}
+\item
+  \hyperref[transaction-lifecycle]{Transaction Lifecycle}
+\item
+  \hyperref[rule-matching]{Rule Matching}
+\item
+  \hyperref[scheduler-drain-reserve]{Scheduler: Drain \& Reserve}
+\item
+  \hyperref[boaw-parallel-execution]{BOAW Parallel Execution}
+\item
+  \hyperref[delta-merge-state-finalization]{Delta Merge \& State
+  Finalization}
+\item
+  \hyperref[hash-computation]{Hash Computation}
+\item
+  \hyperref[commit-orchestration]{Commit Orchestration}
+\item
+  \hyperref[complete-call-graph]{Complete Call Graph}
+\end{enumerate}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{1. Intent Ingestion}\label{intent-ingestion}
+
+\textbf{Entry Point:} \texttt{Engine::ingest\_intent()} \textbf{File:}
+\texttt{crates/warp-core/src/engine\_impl.rs:1216}
+
+\begin{tourguide}
+This is where user actions enter the system. Notice how Echo treats intents as \emph{immutable, content-addressed} data from the very first moment. The intent bytes are hashed to create a unique identifier, ensuring that duplicate intents are detected automatically---no coordination required.
+\end{tourguide}
+
+\subsection{1.1 Function Signature}\label{function-signature}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub} \KeywordTok{fn}\NormalTok{ ingest\_intent(}\OperatorTok{\&}\KeywordTok{mut} \KeywordTok{self}\OperatorTok{,}\NormalTok{ intent\_bytes}\OperatorTok{:} \OperatorTok{\&}\NormalTok{[}\DataTypeTok{u8}\NormalTok{]) }\OperatorTok{{-}\textgreater{}} \DataTypeTok{Result}\OperatorTok{\textless{}}\NormalTok{IngestDisposition}\OperatorTok{,}\NormalTok{ EngineError}\OperatorTok{\textgreater{}}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{Returns:} -
+\texttt{IngestDisposition::Accepted\ \{\ intent\_id:\ Hash\ \}} --- New
+intent accepted -
+\texttt{IngestDisposition::Duplicate\ \{\ intent\_id:\ Hash\ \}} ---
+Already ingested
+
+\subsection{1.2 Complete Call Trace}\label{complete-call-trace}
+
+\begin{verbatim}
+Engine::ingest_intent(intent_bytes: &[u8])
+│
+├─[1] compute_intent_id(intent_bytes) → Hash
+│     FILE: crates/warp-core/src/inbox.rs:205
+│     CODE:
+│       let mut hasher = blake3::Hasher::new();
+│       hasher.update(b"intent:");           // Domain separation
+│       hasher.update(intent_bytes);
+│       hasher.finalize().into()             // → [u8; 32]
+│
+├─[2] NodeId(intent_id)
+│     Creates strongly-typed NodeId from Hash
+│
+├─[3] self.state.store_mut(&warp_id) → Option<&mut GraphStore>
+│     FILE: crates/warp-core/src/engine_impl.rs:1221
+│     ERROR: EngineError::UnknownWarp if None
+│
+├─[4] Extract root_node_id from self.current_root.local_id
+│
+├─[5] STRUCTURAL NODE CREATION (Idempotent)
+│     ├─ make_node_id("sim") → NodeId
+│     │   FILE: crates/warp-core/src/ident.rs:93
+│     │   CODE: blake3("node:" || "sim")
+│     │
+│     ├─ make_node_id("sim/inbox") → NodeId
+│     │   CODE: blake3("node:" || "sim/inbox")
+│     │
+│     ├─ make_type_id("sim") → TypeId
+│     │   FILE: crates/warp-core/src/ident.rs:85
+│     │   CODE: blake3("type:" || "sim")
+│     │
+│     ├─ make_type_id("sim/inbox") → TypeId
+│     ├─ make_type_id("sim/inbox/event") → TypeId
+│     │
+│     ├─ store.insert_node(sim_id, NodeRecord { ty: sim_ty })
+│     │   FILE: crates/warp-core/src/graph.rs:175
+│     │   CODE: self.nodes.insert(id, record)
+│     │
+│     └─ store.insert_node(inbox_id, NodeRecord { ty: inbox_ty })
+│
+├─[6] STRUCTURAL EDGE CREATION
+│     ├─ make_edge_id("edge:root/sim") → EdgeId
+│     │   FILE: crates/warp-core/src/ident.rs:109
+│     │   CODE: blake3("edge:" || "edge:root/sim")
+│     │
+│     ├─ store.insert_edge(root_id, EdgeRecord { ... })
+│     │   FILE: crates/warp-core/src/graph.rs:188
+│     │   └─ GraphStore::upsert_edge_record(from, edge)
+│     │       FILE: crates/warp-core/src/graph.rs:196
+│     │       UPDATES:
+│     │         self.edge_index.insert(edge_id, from)
+│     │         self.edge_to_index.insert(edge_id, to)
+│     │         self.edges_from.entry(from).or_default().push(edge)
+│     │         self.edges_to.entry(to).or_default().push(edge_id)
+│     │
+│     └─ store.insert_edge(sim_id, EdgeRecord { ... }) [sim → inbox]
+│
+├─[7] DUPLICATE DETECTION
+│     store.node(&event_id) → Option<&NodeRecord>
+│     FILE: crates/warp-core/src/graph.rs:87
+│     CODE: self.nodes.get(id)
+│     IF Some(_): return Ok(IngestDisposition::Duplicate { intent_id })
+│
+├─[8] EVENT NODE CREATION
+│     store.insert_node(event_id, NodeRecord { ty: event_ty })
+│     NOTE: event_id = intent_id (content-addressed)
+│
+├─[9] INTENT ATTACHMENT
+│     ├─ AtomPayload::new(type_id, bytes)
+│     │   FILE: crates/warp-core/src/attachment.rs:149
+│     │   CODE: Self { type_id, bytes: Bytes::copy_from_slice(intent_bytes) }
+│     │
+│     └─ store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)))
+│         FILE: crates/warp-core/src/graph.rs:125
+│         CODE: self.node_attachments.insert(id, v)
+│
+├─[10] PENDING EDGE CREATION (Queue Membership)
+│      ├─ pending_edge_id(&inbox_id, &intent_id) → EdgeId
+│      │   FILE: crates/warp-core/src/inbox.rs:212
+│      │   CODE: blake3("edge:" || "sim/inbox/pending:" || inbox_id || intent_id)
+│      │
+│      └─ store.insert_edge(inbox_id, EdgeRecord {
+│             id: pending_edge_id,
+│             from: inbox_id,
+│             to: event_id,
+│             ty: make_type_id("edge:pending")
+│         })
+│
+└─[11] return Ok(IngestDisposition::Accepted { intent_id })
+\end{verbatim}
+
+\begin{cleverpattern}
+\textbf{Domain Separation in Hashing}
+
+Notice step [1]: the hasher prefixes with \texttt{b"intent:"} before the actual data. This is a cryptographic best practice called \emph{domain separation}---it prevents a hash collision between an intent and, say, a node ID that happens to have the same bytes.
+
+Echo uses this pattern consistently:
+\begin{itemize}
+\item \texttt{"intent:"} for intent IDs
+\item \texttt{"node:"} for node IDs
+\item \texttt{"type:"} for type IDs
+\item \texttt{"edge:"} for edge IDs
+\end{itemize}
+
+This ensures that even if two different domain values have the same raw bytes, they'll produce different hashes.
+\end{cleverpattern}
+
+\begin{deepdive}
+\textbf{Why Content-Addressed Event IDs?}
+
+In step [8], note that \texttt{event\_id = intent\_id}. This is a profound design choice:
+
+\begin{enumerate}
+\item \textbf{Automatic deduplication}: If the same intent arrives twice, it hashes to the same ID, and step [7] catches it.
+\item \textbf{Reproducibility}: Given the same intent bytes, any node in a distributed system will compute the same event ID.
+\item \textbf{Auditability}: You can verify an event's integrity by re-hashing its content.
+\end{enumerate}
+
+This is the foundation of Echo's deterministic execution model---events are identified by \emph{what they are}, not \emph{when they arrived}.
+\end{deepdive}
+
+\subsection{1.3 Data Structures
+Modified}\label{data-structures-modified}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.4231}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.2692}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.3077}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Structure
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Field
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Change
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{GraphStore} & \texttt{nodes} & +3 entries (sim, inbox, event) \\
+\texttt{GraphStore} & \texttt{edges\_from} & +3 edges (root→sim,
+sim→inbox, inbox→event) \\
+\texttt{GraphStore} & \texttt{edges\_to} & +3 reverse entries \\
+\texttt{GraphStore} & \texttt{edge\_index} & +3 edge→from mappings \\
+\texttt{GraphStore} & \texttt{edge\_to\_index} & +3 edge→to mappings \\
+\texttt{GraphStore} & \texttt{node\_attachments} & +1 (event → intent
+payload) \\
+\end{longtable}
+}
+
+\begin{tourguide}
+Notice the \textbf{four separate edge indices}: \texttt{edges\_from}, \texttt{edges\_to}, \texttt{edge\_index}, and \texttt{edge\_to\_index}. This redundancy enables O(1) lookups in any direction---find edges from a node, to a node, or look up either endpoint given an edge ID. The space cost is modest (pointers/IDs are small), but the query flexibility is enormous.
+\end{tourguide}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{2. Transaction Lifecycle}\label{transaction-lifecycle}
+
+\subsection{2.1 Begin Transaction}\label{begin-transaction}
+
+\textbf{Entry Point:} \texttt{Engine::begin()} \textbf{File:}
+\texttt{crates/warp-core/src/engine\_impl.rs:711-719}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub} \KeywordTok{fn}\NormalTok{ begin(}\OperatorTok{\&}\KeywordTok{mut} \KeywordTok{self}\NormalTok{) }\OperatorTok{{-}\textgreater{}}\NormalTok{ TxId }\OperatorTok{\{}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{tx\_counter }\OperatorTok{=} \KeywordTok{self}\OperatorTok{.}\NormalTok{tx\_counter}\OperatorTok{.}\NormalTok{wrapping\_add(}\DecValTok{1}\NormalTok{)}\OperatorTok{;}  \CommentTok{// Line 713}
+    \ControlFlowTok{if} \KeywordTok{self}\OperatorTok{.}\NormalTok{tx\_counter }\OperatorTok{==} \DecValTok{0} \OperatorTok{\{}
+        \KeywordTok{self}\OperatorTok{.}\NormalTok{tx\_counter }\OperatorTok{=} \DecValTok{1}\OperatorTok{;}                            \CommentTok{// Line 715: Zero is reserved}
+    \OperatorTok{\}}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{live\_txs}\OperatorTok{.}\NormalTok{insert(}\KeywordTok{self}\OperatorTok{.}\NormalTok{tx\_counter)}\OperatorTok{;}              \CommentTok{// Line 717}
+    \PreprocessorTok{TxId::}\NormalTok{from\_raw(}\KeywordTok{self}\OperatorTok{.}\NormalTok{tx\_counter)                     }\CommentTok{// Line 718}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{watchout}
+\textbf{The Zero Invariant}
+
+Line 715 is subtle but critical: \texttt{TxId(0)} is reserved as an invalid/sentinel value. Without this check, after $2^{64}$ transactions (admittedly unlikely!), the counter would wrap to zero and potentially confuse code that uses zero to mean ``no transaction.''
+
+This is defensive programming at its finest---the cost is one branch that's almost never taken, but it eliminates an entire class of potential bugs.
+\end{watchout}
+
+\textbf{Call Trace:}
+
+\begin{verbatim}
+Engine::begin()
+│
+├─ self.tx_counter.wrapping_add(1)
+│   Rust std: u64::wrapping_add
+│   Handles u64::MAX → 0 overflow
+│
+├─ if self.tx_counter == 0: self.tx_counter = 1
+│   INVARIANT: TxId(0) is reserved as invalid
+│
+├─ self.live_txs.insert(self.tx_counter)
+│   TYPE: HashSet<u64>
+│   Registers transaction as active
+│
+└─ TxId::from_raw(self.tx_counter)
+    FILE: crates/warp-core/src/tx.rs:34
+    CODE: pub const fn from_raw(value: u64) -> Self { Self(value) }
+    TYPE: #[repr(transparent)] struct TxId(u64)
+\end{verbatim}
+
+\begin{tourguide}
+The \texttt{\#[repr(transparent)]} on \texttt{TxId} is worth noting---it guarantees that \texttt{TxId} has exactly the same memory layout as \texttt{u64}. This means zero-cost abstraction: you get type safety (can't accidentally pass a \texttt{NodeId} where a \texttt{TxId} is expected) with no runtime overhead.
+\end{tourguide}
+
+\textbf{State Changes:} - \texttt{tx\_counter}: N → N+1 (or 1 if
+wrapped) - \texttt{live\_txs}: Insert new counter value
+
+\subsection{2.2 Abort Transaction}\label{abort-transaction}
+
+\textbf{Entry Point:} \texttt{Engine::abort()} \textbf{File:}
+\texttt{crates/warp-core/src/engine\_impl.rs:962-968}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub} \KeywordTok{fn}\NormalTok{ abort(}\OperatorTok{\&}\KeywordTok{mut} \KeywordTok{self}\OperatorTok{,}\NormalTok{ tx}\OperatorTok{:}\NormalTok{ TxId) }\OperatorTok{\{}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{live\_txs}\OperatorTok{.}\NormalTok{remove(}\OperatorTok{\&}\NormalTok{tx}\OperatorTok{.}\NormalTok{value())}\OperatorTok{;}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{scheduler}\OperatorTok{.}\NormalTok{finalize\_tx(tx)}\OperatorTok{;}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{bus}\OperatorTok{.}\NormalTok{clear()}\OperatorTok{;}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{last\_materialization}\OperatorTok{.}\NormalTok{clear()}\OperatorTok{;}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{last\_materialization\_errors}\OperatorTok{.}\NormalTok{clear()}\OperatorTok{;}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{tourguide}
+Abort is refreshingly simple---just remove the transaction from tracking and clear transient state. No rollback needed because Echo hasn't mutated the graph yet! All graph mutations happen atomically during commit. This is a key architectural decision: the graph is effectively immutable until commit time.
+\end{tourguide}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{3. Rule Matching}\label{rule-matching}
+
+\textbf{Entry Point:} \texttt{Engine::apply()} \textbf{File:}
+\texttt{crates/warp-core/src/engine\_impl.rs:730-737}
+
+\begin{tourguide}
+Now we enter the heart of Echo's reactive model. Rules are matched against graph patterns, and when they match, they're enqueued for execution. The beauty is that matching is \emph{pure}---it reads the graph but doesn't modify it.
+\end{tourguide}
+
+\subsection{3.1 Function Signature}\label{function-signature-1}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub} \KeywordTok{fn}\NormalTok{ apply(}
+    \OperatorTok{\&}\KeywordTok{mut} \KeywordTok{self}\OperatorTok{,}
+\NormalTok{    tx}\OperatorTok{:}\NormalTok{ TxId}\OperatorTok{,}
+\NormalTok{    rule\_name}\OperatorTok{:} \OperatorTok{\&}\DataTypeTok{str}\OperatorTok{,}
+\NormalTok{    scope}\OperatorTok{:} \OperatorTok{\&}\NormalTok{NodeId}\OperatorTok{,}
+\NormalTok{) }\OperatorTok{{-}\textgreater{}} \DataTypeTok{Result}\OperatorTok{\textless{}}\NormalTok{ApplyResult}\OperatorTok{,}\NormalTok{ EngineError}\OperatorTok{\textgreater{}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{3.2 Complete Call Trace}\label{complete-call-trace-1}
+
+\begin{verbatim}
+Engine::apply(tx, rule_name, scope)
+│
+└─ Engine::apply_in_warp(tx, self.current_root.warp_id, rule_name, scope, &[])
+    FILE: crates/warp-core/src/engine_impl.rs:754-806
+    │
+    ├─[1] TRANSACTION VALIDATION
+    │     CODE: if tx.value() == 0 || !self.live_txs.contains(&tx.value())
+    │     ERROR: EngineError::UnknownTx
+    │
+    ├─[2] RULE LOOKUP
+    │     self.rules.get(rule_name) → Option<&RewriteRule>
+    │     TYPE: HashMap<&'static str, RewriteRule>
+    │     ERROR: EngineError::UnknownRule(rule_name.to_owned())
+    │
+    ├─[3] STORE LOOKUP
+    │     self.state.store(&warp_id) → Option<&GraphStore>
+    │     ERROR: EngineError::UnknownWarp(warp_id)
+    │
+    ├─[4] CREATE GRAPHVIEW
+    │     GraphView::new(store) → GraphView<'_>
+    │     FILE: crates/warp-core/src/graph_view.rs
+    │     TYPE: Read-only wrapper (Copy, 8 bytes)
+    │
+    ├─[5] CALL MATCHER
+    │     (rule.matcher)(view, scope) → bool
+    │     TYPE: MatchFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool
+    │     FILE: crates/warp-core/src/rule.rs:16-24
+    │     IF false: return Ok(ApplyResult::NoMatch)
+    │
+    ├─[6] CREATE SCOPE KEY
+    │     let scope_key = NodeKey { warp_id, local_id: *scope }
+    │
+    ├─[7] COMPUTE SCOPE HASH
+    │     scope_hash(&rule.id, &scope_key) → Hash
+    │     FILE: crates/warp-core/src/engine_impl.rs:1712-1718
+    │     CODE:
+    │       let mut hasher = Hasher::new();
+    │       hasher.update(rule_id);              // 32 bytes
+    │       hasher.update(scope.warp_id.as_bytes());  // 32 bytes
+    │       hasher.update(scope.local_id.as_bytes()); // 32 bytes
+    │       hasher.finalize().into()
+    │
+    ├─[8] COMPUTE FOOTPRINT
+    │     (rule.compute_footprint)(view, scope) → Footprint
+    │     TYPE: FootprintFn = for<'a> fn(GraphView<'a>, &NodeId) -> Footprint
+    │     FILE: crates/warp-core/src/rule.rs:38-46
+    │     RETURNS:
+    │       Footprint {
+    │         n_read: IdSet,           // Nodes read
+    │         n_write: IdSet,          // Nodes written
+    │         e_read: IdSet,           // Edges read
+    │         e_write: IdSet,          // Edges written
+    │         a_read: AttachmentSet,   // Attachments read
+    │         a_write: AttachmentSet,  // Attachments written
+    │         b_in: PortSet,           // Input ports
+    │         b_out: PortSet,          // Output ports
+    │         factor_mask: u64,        // O(1) prefilter
+    │       }
+    │
+    ├─[9] AUGMENT FOOTPRINT WITH DESCENT STACK
+    │     for key in descent_stack:
+    │       footprint.a_read.insert(*key)
+    │     FILE: crates/warp-core/src/footprint.rs:104-107
+    │     PURPOSE: Stage B1 law - READs of all descent chain slots
+    │
+    ├─[10] COMPACT RULE ID LOOKUP
+    │      self.compact_rule_ids.get(&rule.id) → Option<&CompactRuleId>
+    │      TYPE: HashMap<Hash, CompactRuleId>
+    │      ERROR: EngineError::InternalCorruption
+    │
+    └─[11] ENQUEUE TO SCHEDULER
+          self.scheduler.enqueue(tx, PendingRewrite { ... })
+          │
+          └─ DeterministicScheduler::enqueue(tx, rewrite)
+              FILE: crates/warp-core/src/scheduler.rs:654-659
+              │
+              └─ RadixScheduler::enqueue(tx, rewrite)
+                  FILE: crates/warp-core/src/scheduler.rs:102-105
+                  CODE:
+                    let txq = self.pending.entry(tx).or_default();
+                    txq.enqueue(rewrite.scope_hash, rewrite.compact_rule.0, rewrite);
+                  │
+                  └─ PendingTx::enqueue(scope_be32, rule_id, payload)
+                      FILE: crates/warp-core/src/scheduler.rs:331-355
+
+                      CASE 1: Duplicate (scope_hash, rule_id) — LAST WINS
+                        index.get(&key) → Some(&i)
+                        fat[thin[i].handle] = Some(payload)  // Overwrite
+                        thin[i].nonce = next_nonce++         // Refresh nonce
+
+                      CASE 2: New entry
+                        fat.push(Some(payload))
+                        thin.push(RewriteThin { scope_be32, rule_id, nonce, handle })
+                        index.insert(key, thin.len() - 1)
+\end{verbatim}
+
+\begin{cleverpattern}
+\textbf{GraphView: The 8-Byte Read-Only Wrapper}
+
+Step [4] creates a \texttt{GraphView}---and note it's only \textbf{8 bytes} and \texttt{Copy}! This is just a pointer to the underlying \texttt{GraphStore}, but wrapped in a type that only exposes read methods.
+
+This is Rust's type system doing the heavy lifting: you literally \emph{cannot} mutate the graph through a \texttt{GraphView}. The compiler enforces read-only access, enabling safe concurrent reads without any runtime checks.
+\end{cleverpattern}
+
+\begin{deepdive}
+\textbf{The Footprint: Declaring Your Intentions}
+
+Step [8] is architecturally critical. Before a rule can execute, it must declare its \emph{footprint}---exactly which nodes, edges, and attachments it will read and write.
+
+This enables:
+\begin{itemize}
+\item \textbf{Parallel execution}: Rules with non-overlapping footprints can run concurrently
+\item \textbf{Conflict detection}: Rules with conflicting footprints are serialized
+\item \textbf{Determinism}: The scheduler can order rules without knowing their implementation details
+\end{itemize}
+
+The footprint is computed \emph{before} execution, not discovered during execution. This is a constraint on rule authors, but it's what makes the whole system tractable.
+\end{deepdive}
+
+\begin{cleverpattern}
+\textbf{Last-Wins Deduplication}
+
+In step [11], notice the ``LAST WINS'' semantics. If the same (scope\_hash, rule\_id) pair is enqueued twice, the second one \emph{replaces} the first.
+
+Why? Because enqueuing a rule is idempotent: if you match the same rule at the same scope twice in one transaction, you only want to execute it once. The ``last wins'' ensures the most recent footprint is used (which matters if the graph changed between matches).
+\end{cleverpattern}
+
+\subsection{3.3 PendingRewrite
+Structure}\label{pendingrewrite-structure}
+
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs:68-82}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub}\NormalTok{(}\KeywordTok{crate}\NormalTok{) }\KeywordTok{struct}\NormalTok{ PendingRewrite }\OperatorTok{\{}
+    \KeywordTok{pub}\NormalTok{ rule\_id}\OperatorTok{:} \BuiltInTok{Hash}\OperatorTok{,}              \CommentTok{// 32{-}byte rule identifier}
+    \KeywordTok{pub}\NormalTok{ compact\_rule}\OperatorTok{:}\NormalTok{ CompactRuleId}\OperatorTok{,} \CommentTok{// u32 hot{-}path handle}
+    \KeywordTok{pub}\NormalTok{ scope\_hash}\OperatorTok{:} \BuiltInTok{Hash}\OperatorTok{,}           \CommentTok{// 32{-}byte ordering key}
+    \KeywordTok{pub}\NormalTok{ scope}\OperatorTok{:}\NormalTok{ NodeKey}\OperatorTok{,}             \CommentTok{// \{ warp\_id, local\_id \}}
+    \KeywordTok{pub}\NormalTok{ footprint}\OperatorTok{:}\NormalTok{ Footprint}\OperatorTok{,}       \CommentTok{// Read/write declaration}
+    \KeywordTok{pub}\NormalTok{ phase}\OperatorTok{:}\NormalTok{ RewritePhase}\OperatorTok{,}        \CommentTok{// State machine: Matched → Reserved → ...}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{tourguide}
+Notice the dual identity: \texttt{rule\_id} (32-byte hash) for correctness, and \texttt{compact\_rule} (u32) for performance. The hash ensures cryptographic uniqueness; the u32 enables O(1) array indexing. This ``have your cake and eat it too'' pattern appears throughout Echo.
+\end{tourguide}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{4. Scheduler: Drain \& Reserve}\label{scheduler-drain-reserve}
+
+\begin{tourguide}
+The scheduler is where Echo's determinism guarantees are forged. No matter what order rules are enqueued, the scheduler produces a \emph{canonical} execution order. This is perhaps the most technically impressive part of the system.
+\end{tourguide}
+
+\subsection{4.1 Drain Phase (Radix Sort)}\label{drain-phase-radix-sort}
+
+\textbf{Entry Point:} \texttt{RadixScheduler::drain\_for\_tx()}
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs:109-113}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub}\NormalTok{(}\KeywordTok{crate}\NormalTok{) }\KeywordTok{fn}\NormalTok{ drain\_for\_tx(}\OperatorTok{\&}\KeywordTok{mut} \KeywordTok{self}\OperatorTok{,}\NormalTok{ tx}\OperatorTok{:}\NormalTok{ TxId) }\OperatorTok{{-}\textgreater{}} \DataTypeTok{Vec}\OperatorTok{\textless{}}\NormalTok{PendingRewrite}\OperatorTok{\textgreater{}} \OperatorTok{\{}
+    \KeywordTok{self}\OperatorTok{.}\NormalTok{pending}
+        \OperatorTok{.}\NormalTok{remove(}\OperatorTok{\&}\NormalTok{tx)}
+        \OperatorTok{.}\NormalTok{map\_or\_else(}\DataTypeTok{Vec}\PreprocessorTok{::}\NormalTok{new}\OperatorTok{,} \OperatorTok{|}\KeywordTok{mut}\NormalTok{ txq}\OperatorTok{|}\NormalTok{ txq}\OperatorTok{.}\NormalTok{drain\_in\_order())}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{Complete Call Trace:}
+
+\begin{verbatim}
+RadixScheduler::drain_for_tx(tx)
+│
+├─ self.pending.remove(&tx) → Option<PendingTx<PendingRewrite>>
+│
+└─ PendingTx::drain_in_order()
+    FILE: crates/warp-core/src/scheduler.rs:416-446
+    │
+    ├─ DECISION: n <= 1024 (SMALL_SORT_THRESHOLD)?
+    │   ├─ YES: sort_unstable_by(cmp_thin)
+    │   │       Rust std comparison sort
+    │   │
+    │   └─ NO: radix_sort()
+    │          FILE: crates/warp-core/src/scheduler.rs:360-413
+    │
+    └─ radix_sort()
+        │
+        ├─ Initialize scratch buffer: self.scratch.resize(n, default)
+        │
+        ├─ Lazy allocate histogram: self.counts16 = vec![0u32; 65536]
+        │
+        └─ FOR pass IN 0..20:  // ═══ 20 PASSES ═══
+            │
+            ├─ SELECT src/dst buffers (ping-pong)
+            │   flip = false: src=thin, dst=scratch
+            │   flip = true:  src=scratch, dst=thin
+            │
+            ├─ PHASE 1: COUNT BUCKETS
+            │   FOR r IN src:
+            │     b = bucket16(r, pass)
+            │     counts[b] += 1
+            │
+            ├─ PHASE 2: PREFIX SUMS
+            │   sum = 0
+            │   FOR c IN counts:
+            │     t = *c
+            │     *c = sum
+            │     sum += t
+            │
+            ├─ PHASE 3: STABLE SCATTER
+            │   FOR r IN src:
+            │     b = bucket16(r, pass)
+            │     dst[counts[b]] = r
+            │     counts[b] += 1
+            │
+            └─ flip = !flip
+
+BUCKET EXTRACTION (bucket16):
+FILE: crates/warp-core/src/scheduler.rs:481-498
+
+Pass 0:  u16_from_u32_le(r.nonce, 0)      // Nonce bytes [0:2]
+Pass 1:  u16_from_u32_le(r.nonce, 1)      // Nonce bytes [2:4]
+Pass 2:  u16_from_u32_le(r.rule_id, 0)    // Rule ID bytes [0:2]
+Pass 3:  u16_from_u32_le(r.rule_id, 1)    // Rule ID bytes [2:4]
+Pass 4:  u16_be_from_pair32(scope, 15)    // Scope bytes [30:32]
+Pass 5:  u16_be_from_pair32(scope, 14)    // Scope bytes [28:30]
+...
+Pass 19: u16_be_from_pair32(scope, 0)     // Scope bytes [0:2] (MSD)
+
+SORT ORDER: (scope_hash, rule_id, nonce) ascending lexicographic
+\end{verbatim}
+
+\begin{cleverpattern}
+\textbf{LSD Radix Sort: O(n) Guaranteed}
+
+This is a \textbf{Least Significant Digit} radix sort---it processes from the least significant bits to the most significant. After 20 passes (320 bits total), the array is sorted by:
+\begin{enumerate}
+\item \texttt{scope\_hash} (256 bits = 16 passes)
+\item then \texttt{rule\_id} (32 bits = 2 passes)
+\item then \texttt{nonce} (32 bits = 2 passes)
+\end{enumerate}
+
+Why radix sort instead of comparison sort?
+\begin{itemize}
+\item \textbf{Determinism}: Radix sort is inherently stable and makes no comparisons that could be affected by memory layout
+\item \textbf{O(n) complexity}: With fixed key size, radix sort is linear
+\item \textbf{Cache-friendly}: Sequential memory access in each pass
+\end{itemize}
+
+The 1024-element threshold is a practical optimization: for small arrays, the overhead of radix sort exceeds its benefits, so a comparison sort is used instead.
+\end{cleverpattern}
+
+\begin{deepdive}
+\textbf{Why 20 Passes?}
+
+Each pass extracts 16 bits (bucket size 65536). To sort by:
+\begin{itemize}
+\item 256 bits of scope\_hash = 16 passes (passes 4--19)
+\item 32 bits of rule\_id = 2 passes (passes 2--3)
+\item 32 bits of nonce = 2 passes (passes 0--1)
+\end{itemize}
+
+That's exactly 20 passes processing 320 bits total. Since LSD radix sort processes from least significant to most significant, passes 4--19 progressively refine the scope ordering from least significant bytes to most significant.
+
+The nonce is processed first (passes 0--1) because it's the tiebreaker---when scope\_hash and rule\_id are equal, the nonce determines order, and we want that to be the finest-grained distinction.
+\end{deepdive}
+
+\subsection{4.2 Reserve Phase (Independence
+Check)}\label{reserve-phase-independence-check}
+
+\textbf{Entry Point:} \texttt{RadixScheduler::reserve()} \textbf{File:}
+\texttt{crates/warp-core/src/scheduler.rs:134-143}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub}\NormalTok{(}\KeywordTok{crate}\NormalTok{) }\KeywordTok{fn}\NormalTok{ reserve(}\OperatorTok{\&}\KeywordTok{mut} \KeywordTok{self}\OperatorTok{,}\NormalTok{ tx}\OperatorTok{:}\NormalTok{ TxId}\OperatorTok{,}\NormalTok{ pr}\OperatorTok{:} \OperatorTok{\&}\KeywordTok{mut}\NormalTok{ PendingRewrite) }\OperatorTok{{-}\textgreater{}} \DataTypeTok{bool} \OperatorTok{\{}
+    \KeywordTok{let}\NormalTok{ active }\OperatorTok{=} \KeywordTok{self}\OperatorTok{.}\NormalTok{active}\OperatorTok{.}\NormalTok{entry(tx)}\OperatorTok{.}\NormalTok{or\_insert\_with(}\PreprocessorTok{ActiveFootprints::}\NormalTok{new)}\OperatorTok{;}
+    \ControlFlowTok{if} \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{has\_conflict(active}\OperatorTok{,}\NormalTok{ pr) }\OperatorTok{\{}
+        \ControlFlowTok{return} \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{on\_conflict(pr)}\OperatorTok{;}
+    \OperatorTok{\}}
+    \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{mark\_all(active}\OperatorTok{,}\NormalTok{ pr)}\OperatorTok{;}
+    \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{on\_reserved(pr)}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{Complete Call Trace:}
+
+\begin{verbatim}
+RadixScheduler::reserve(tx, pr)
+│
+├─ self.active.entry(tx).or_insert_with(ActiveFootprints::new)
+│   TYPE: HashMap<TxId, ActiveFootprints>
+│   ActiveFootprints contains 7 GenSets:
+│     - nodes_written: GenSet<NodeKey>
+│     - nodes_read: GenSet<NodeKey>
+│     - edges_written: GenSet<EdgeKey>
+│     - edges_read: GenSet<EdgeKey>
+│     - attachments_written: GenSet<AttachmentKey>
+│     - attachments_read: GenSet<AttachmentKey>
+│     - ports: GenSet<PortKey>
+│
+├─ has_conflict(active, pr) → bool
+│   FILE: crates/warp-core/src/scheduler.rs:157-236
+│   │
+│   ├─ FOR node IN pr.footprint.n_write:
+│   │     IF active.nodes_written.contains(node): return true  // W-W conflict
+│   │     IF active.nodes_read.contains(node): return true     // W-R conflict
+│   │
+│   ├─ FOR node IN pr.footprint.n_read:
+│   │     IF active.nodes_written.contains(node): return true  // R-W conflict
+│   │     (R-R is allowed)
+│   │
+│   ├─ FOR edge IN pr.footprint.e_write:
+│   │     IF active.edges_written.contains(edge): return true
+│   │     IF active.edges_read.contains(edge): return true
+│   │
+│   ├─ FOR edge IN pr.footprint.e_read:
+│   │     IF active.edges_written.contains(edge): return true
+│   │
+│   ├─ FOR key IN pr.footprint.a_write:
+│   │     IF active.attachments_written.contains(key): return true
+│   │     IF active.attachments_read.contains(key): return true
+│   │
+│   ├─ FOR key IN pr.footprint.a_read:
+│   │     IF active.attachments_written.contains(key): return true
+│   │
+│   └─ FOR port IN pr.footprint.b_in ∪ pr.footprint.b_out:
+│         IF active.ports.contains(port): return true
+│
+├─ IF conflict:
+│   └─ on_conflict(pr)
+│       FILE: crates/warp-core/src/scheduler.rs:145-149
+│       pr.phase = RewritePhase::Aborted
+│       return false
+│
+├─ mark_all(active, pr)
+│   FILE: crates/warp-core/src/scheduler.rs:238-278
+│   │
+│   ├─ FOR node IN pr.footprint.n_write:
+│   │     active.nodes_written.mark(NodeKey { warp_id, local_id: node })
+│   │
+│   ├─ FOR node IN pr.footprint.n_read:
+│   │     active.nodes_read.mark(NodeKey { ... })
+│   │
+│   ... (similar for edges, attachments, ports)
+│
+└─ on_reserved(pr)
+    FILE: crates/warp-core/src/scheduler.rs:151-155
+    pr.phase = RewritePhase::Reserved
+    return true
+\end{verbatim}
+
+\begin{tourguide}
+This is classic \textbf{two-phase locking} without the locks! The \texttt{has\_conflict} function implements the conflict matrix:
+
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+& Read & Write \\
+\hline
+Read & OK & CONFLICT \\
+\hline
+Write & CONFLICT & CONFLICT \\
+\hline
+\end{tabular}
+\end{center}
+
+Multiple readers are allowed (R-R is OK), but any write conflicts with both reads and writes of the same resource.
+\end{tourguide}
+
+\subsection{4.3 GenSet: O(1) Conflict
+Detection}\label{genset-o1-conflict-detection}
+
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs:509-535}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub}\NormalTok{(}\KeywordTok{crate}\NormalTok{) }\KeywordTok{struct}\NormalTok{ GenSet}\OperatorTok{\textless{}}\NormalTok{K}\OperatorTok{\textgreater{}} \OperatorTok{\{}
+\NormalTok{    gen}\OperatorTok{:} \DataTypeTok{u32}\OperatorTok{,}                    \CommentTok{// Current generation}
+\NormalTok{    seen}\OperatorTok{:}\NormalTok{ FxHashMap}\OperatorTok{\textless{}}\NormalTok{K}\OperatorTok{,} \DataTypeTok{u32}\OperatorTok{\textgreater{},}     \CommentTok{// Key → generation when marked}
+\OperatorTok{\}}
+
+\KeywordTok{impl}\OperatorTok{\textless{}}\NormalTok{K}\OperatorTok{:} \BuiltInTok{Hash} \OperatorTok{+} \BuiltInTok{Eq} \OperatorTok{+} \BuiltInTok{Copy}\OperatorTok{\textgreater{}}\NormalTok{ GenSet}\OperatorTok{\textless{}}\NormalTok{K}\OperatorTok{\textgreater{}} \OperatorTok{\{}
+    \AttributeTok{\#[}\NormalTok{inline}\AttributeTok{]}
+    \KeywordTok{pub} \KeywordTok{fn}\NormalTok{ contains(}\OperatorTok{\&}\KeywordTok{self}\OperatorTok{,}\NormalTok{ key}\OperatorTok{:}\NormalTok{ K) }\OperatorTok{{-}\textgreater{}} \DataTypeTok{bool} \OperatorTok{\{}
+        \PreprocessorTok{matches!}\NormalTok{(}\KeywordTok{self}\OperatorTok{.}\NormalTok{seen}\OperatorTok{.}\NormalTok{get(}\OperatorTok{\&}\NormalTok{key)}\OperatorTok{,} \ConstantTok{Some}\NormalTok{(}\OperatorTok{\&}\NormalTok{g) }\ControlFlowTok{if}\NormalTok{ g }\OperatorTok{==} \KeywordTok{self}\OperatorTok{.}\NormalTok{gen)}
+    \OperatorTok{\}}
+
+    \AttributeTok{\#[}\NormalTok{inline}\AttributeTok{]}
+    \KeywordTok{pub} \KeywordTok{fn}\NormalTok{ mark(}\OperatorTok{\&}\KeywordTok{mut} \KeywordTok{self}\OperatorTok{,}\NormalTok{ key}\OperatorTok{:}\NormalTok{ K) }\OperatorTok{\{}
+        \KeywordTok{self}\OperatorTok{.}\NormalTok{seen}\OperatorTok{.}\NormalTok{insert(key}\OperatorTok{,} \KeywordTok{self}\OperatorTok{.}\NormalTok{gen)}\OperatorTok{;}
+    \OperatorTok{\}}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{Key Insight:} No clearing needed between transactions. Increment
+\texttt{gen} → all old entries become stale.
+
+\begin{cleverpattern}
+\textbf{Generation-Based Set: Amortized O(1) Clear}
+
+This is one of the most elegant patterns in Echo. Instead of clearing the hash map between transactions (O(n) operation), just increment a generation counter!
+
+An entry is ``in the set'' only if its stored generation matches the current generation. Old entries with stale generations are effectively invisible.
+
+The hash map only grows---it's never shrunk. But since the same keys tend to be accessed repeatedly (temporal locality), the map stabilizes quickly. The payoff is enormous: clearing the ``set'' is O(1) instead of O(n).
+\end{cleverpattern}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{5. BOAW Parallel Execution}\label{boaw-parallel-execution}
+
+\textbf{Entry Point:} \texttt{execute\_parallel()} \textbf{File:}
+\texttt{crates/warp-core/src/boaw/exec.rs:61-83}
+
+\begin{tourguide}
+BOAW---``Best Of All Worlds''---is where Echo's determinism meets parallelism. The key insight: \emph{order of execution doesn't matter if we sort the outputs}. Rules execute in arbitrary order on worker threads, but their outputs are merged canonically.
+\end{tourguide}
+
+\subsection{5.1 Entry Point}\label{entry-point}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub} \KeywordTok{fn}\NormalTok{ execute\_parallel(view}\OperatorTok{:}\NormalTok{ GraphView}\OperatorTok{\textless{}}\OtherTok{\textquotesingle{}\_}\OperatorTok{\textgreater{},}\NormalTok{ items}\OperatorTok{:} \OperatorTok{\&}\NormalTok{[ExecItem]}\OperatorTok{,}\NormalTok{ workers}\OperatorTok{:} \DataTypeTok{usize}\NormalTok{) }\OperatorTok{{-}\textgreater{}} \DataTypeTok{Vec}\OperatorTok{\textless{}}\NormalTok{TickDelta}\OperatorTok{\textgreater{}} \OperatorTok{\{}
+    \PreprocessorTok{assert!}\NormalTok{(workers }\OperatorTok{\textgreater{}=} \DecValTok{1}\NormalTok{)}\OperatorTok{;}
+    \KeywordTok{let}\NormalTok{ capped\_workers }\OperatorTok{=}\NormalTok{ workers}\OperatorTok{.}\NormalTok{min(NUM\_SHARDS)}\OperatorTok{;}  \CommentTok{// Cap at 256}
+
+    \AttributeTok{\#[}\NormalTok{cfg}\AttributeTok{(}\NormalTok{feature }\OperatorTok{=} \StringTok{"parallel{-}stride{-}fallback"}\AttributeTok{)]}
+    \ControlFlowTok{if} \PreprocessorTok{std::env::}\NormalTok{var(}\StringTok{"ECHO\_PARALLEL\_STRIDE"}\NormalTok{)}\OperatorTok{.}\NormalTok{is\_ok() }\OperatorTok{\{}
+        \ControlFlowTok{return}\NormalTok{ execute\_parallel\_stride(view}\OperatorTok{,}\NormalTok{ items}\OperatorTok{,}\NormalTok{ capped\_workers)}\OperatorTok{;}
+    \OperatorTok{\}}
+
+\NormalTok{    execute\_parallel\_sharded(view}\OperatorTok{,}\NormalTok{ items}\OperatorTok{,}\NormalTok{ capped\_workers)  }\CommentTok{// DEFAULT}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{5.2 Complete Call Trace}\label{complete-call-trace-2}
+
+\begin{verbatim}
+execute_parallel(view, items, workers)
+│
+└─ execute_parallel_sharded(view, items, capped_workers)
+    FILE: crates/warp-core/src/boaw/exec.rs:101-152
+    │
+    ├─ IF items.is_empty():
+    │     return (0..workers).map(|_| TickDelta::new()).collect()
+    │
+    ├─ partition_into_shards(items.to_vec()) → Vec<VirtualShard>
+    │   FILE: crates/warp-core/src/boaw/shard.rs:109-120
+    │   │
+    │   ├─ Create 256 empty VirtualShard structures
+    │   │
+    │   └─ FOR item IN items:
+    │       │
+    │       ├─ shard_of(&item.scope) → usize
+    │       │   FILE: crates/warp-core/src/boaw/shard.rs:82-92
+    │       │   CODE:
+    │       │     let bytes = scope.as_bytes();
+    │       │     let first_8: [u8; 8] = [bytes[0..8]];
+    │       │     let val = u64::from_le_bytes(first_8);
+    │       │     (val & 255) as usize  // SHARD_MASK = 255
+    │       │
+    │       └─ shards[shard_id].items.push(item)
+    │
+    ├─ let next_shard = AtomicUsize::new(0)
+    │
+    └─ std::thread::scope(|s| { ... })
+        FILE: Rust std (scoped threads)
+        │
+        ├─ FOR _ IN 0..workers:
+        │   │
+        │   └─ s.spawn(move || { ... })  // ═══ WORKER THREAD ═══
+        │       │
+        │       ├─ let mut delta = TickDelta::new()
+        │       │   FILE: crates/warp-core/src/tick_delta.rs:44-52
+        │       │   CREATES: { ops: Vec::new(), origins: Vec::new() }
+        │       │
+        │       └─ LOOP:  // Work-stealing loop
+        │           │
+        │           ├─ shard_id = next_shard.fetch_add(1, Ordering::Relaxed)
+        │           │   ATOMIC: Returns old value, increments counter
+        │           │   ORDERING: Relaxed (no synchronization cost)
+        │           │
+        │           ├─ IF shard_id >= 256: break
+        │           │
+        │           └─ FOR item IN &shards[shard_id].items:
+        │               │
+        │               ├─ let mut scoped = delta.scoped(item.origin)
+        │               │   FILE: crates/warp-core/src/tick_delta.rs:140-142
+        │               │   CREATES: ScopedDelta { inner: &mut delta, origin, next_op_ix: 0 }
+        │               │
+        │               └─ (item.exec)(view, &item.scope, scoped.inner_mut())
+        │                   │
+        │                   └─ INSIDE EXECUTOR:
+        │                       scoped.emit(op)
+        │                       FILE: crates/warp-core/src/tick_delta.rs:234-239
+        │                       CODE:
+        │                         origin.op_ix = self.next_op_ix;
+        │                         self.next_op_ix += 1;
+        │                         self.inner.emit_with_origin(op, origin);
+        │                       │
+        │                       └─ TickDelta::emit_with_origin(op, origin)
+        │                           FILE: crates/warp-core/src/tick_delta.rs:69-75
+        │                           CODE:
+        │                             self.ops.push(op);
+        │                             self.origins.push(origin);  // if delta_validate
+        │
+        └─ COLLECT THREADS:
+            handles.into_iter().map(|h| h.join()).collect()
+            RETURNS: Vec<TickDelta> (one per worker)
+\end{verbatim}
+
+\begin{cleverpattern}
+\textbf{Shard-Based Work Distribution}
+
+The sharding scheme is beautifully simple: take the first 8 bytes of the scope's NodeId, mask with 255, and you have your shard.
+
+Why 256 shards?
+\begin{itemize}
+\item \textbf{Granularity}: Fine enough that work distributes evenly
+\item \textbf{Overhead}: Coarse enough that per-shard overhead is negligible
+\item \textbf{Determinism}: The shard assignment is deterministic (depends only on NodeId)
+\end{itemize}
+
+The work-stealing loop with \texttt{AtomicUsize::fetch\_add} is lock-free and cache-friendly---each worker claims shards sequentially, minimizing contention.
+\end{cleverpattern}
+
+\begin{deepdive}
+\textbf{Why \texttt{Ordering::Relaxed}?}
+
+The atomic counter uses \texttt{Relaxed} ordering---the weakest memory ordering. This is safe because:
+
+\begin{enumerate}
+\item Each shard is processed by exactly one worker (no data races)
+\item Workers don't need to see each other's results until after \texttt{join()}
+\item The \texttt{join()} itself provides the necessary synchronization
+\end{enumerate}
+
+Using \texttt{Relaxed} instead of \texttt{SeqCst} avoids memory barriers, which can be expensive on multi-core CPUs.
+\end{deepdive}
+
+\subsection{5.3 ExecItem Structure}\label{execitem-structure}
+
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:19-35}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\AttributeTok{\#[}\NormalTok{derive}\AttributeTok{(}\BuiltInTok{Clone}\OperatorTok{,} \BuiltInTok{Copy}\AttributeTok{)]}
+\KeywordTok{pub} \KeywordTok{struct}\NormalTok{ ExecItem }\OperatorTok{\{}
+    \KeywordTok{pub}\NormalTok{ exec}\OperatorTok{:}\NormalTok{ ExecuteFn}\OperatorTok{,}     \CommentTok{// fn(GraphView, \&NodeId, \&mut TickDelta)}
+    \KeywordTok{pub}\NormalTok{ scope}\OperatorTok{:}\NormalTok{ NodeId}\OperatorTok{,}       \CommentTok{// 32{-}byte node identifier}
+    \KeywordTok{pub}\NormalTok{ origin}\OperatorTok{:}\NormalTok{ OpOrigin}\OperatorTok{,}    \CommentTok{// \{ intent\_id, rule\_id, match\_ix, op\_ix \}}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{tourguide}
+\texttt{ExecItem} is \texttt{Clone + Copy}---it's just a function pointer plus some IDs. This means workers can own their items without any reference counting or synchronization. The \texttt{origin} field enables tracing any operation back to the intent and rule that produced it.
+\end{tourguide}
+
+\subsection{5.4 Thread Safety}\label{thread-safety}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Type & Safety & Reason \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{GraphView} & \texttt{Sync\ +\ Send\ +\ Clone} & Read-only
+snapshot \\
+\texttt{ExecItem} & \texttt{Sync\ +\ Send\ +\ Copy} & Function pointer +
+primitives \\
+\texttt{TickDelta} & Per-worker exclusive & No shared mutation \\
+\texttt{AtomicUsize} & Lock-free & \texttt{fetch\_add} with
+\texttt{Relaxed} ordering \\
+\end{longtable}
+}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{6. Delta Merge \& State
+Finalization}\label{delta-merge-state-finalization}
+
+\begin{tourguide}
+This is where the magic happens: multiple workers produce independent deltas, and we merge them into a single canonical result. The key invariant: \emph{the merge output depends only on the operations, not on which worker produced them or when}.
+\end{tourguide}
+
+\subsection{6.1 Canonical Merge}\label{canonical-merge}
+
+\textbf{Entry Point:} \texttt{merge\_deltas()} \textbf{File:}
+\texttt{crates/warp-core/src/boaw/merge.rs:36-75}
+
+\begin{verbatim}
+merge_deltas(deltas: Vec<TickDelta>) → Result<Vec<WarpOp>, MergeConflict>
+│
+├─[1] FLATTEN ALL OPS WITH ORIGINS
+│     let mut flat: Vec<(WarpOpKey, OpOrigin, WarpOp)> = Vec::new();
+│     FOR d IN deltas:
+│       let (ops, origins) = d.into_parts_unsorted();
+│       FOR (op, origin) IN ops.zip(origins):
+│         flat.push((op.sort_key(), origin, op));
+│
+├─[2] CANONICAL SORT
+│     flat.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+│     ORDER: (WarpOpKey, OpOrigin) lexicographic
+│
+└─[3] DEDUPE & CONFLICT DETECTION
+      let mut out = Vec::new();
+      let mut i = 0;
+      WHILE i < flat.len():
+        │
+        ├─ GROUP by WarpOpKey
+        │   key = flat[i].0
+        │   start = i
+        │   WHILE i < flat.len() && flat[i].0 == key: i++
+        │
+        ├─ CHECK if all ops identical
+        │   first = &flat[start].2
+        │   all_same = flat[start+1..i].iter().all(|(_, _, op)| op == first)
+        │
+        └─ IF all_same:
+             out.push(first.clone())       // Accept one copy
+           ELSE:
+             writers = flat[start..i].iter().map(|(_, o, _)| *o).collect()
+             return Err(MergeConflict { writers })  // CONFLICT!
+
+      return Ok(out)
+\end{verbatim}
+
+\begin{cleverpattern}
+\textbf{Benevolent Coincidence}
+
+The merge allows multiple writers to produce the same operation---this is called a \emph{benevolent coincidence}. If two rules independently decide to create the same edge, that's fine! The merge keeps one copy.
+
+But if they produce \emph{different} operations for the same key (e.g., setting an attachment to different values), that's a \texttt{MergeConflict}---a bug in the rule definitions.
+
+This policy allows natural redundancy in rule specifications while catching genuine conflicts.
+\end{cleverpattern}
+
+\subsection{6.2 WarpOp Sort Key}\label{warpop-sort-key}
+
+\textbf{File:} \texttt{crates/warp-core/src/tick\_patch.rs:207-287}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub}\NormalTok{(}\KeywordTok{crate}\NormalTok{) }\KeywordTok{fn}\NormalTok{ sort\_key(}\OperatorTok{\&}\KeywordTok{self}\NormalTok{) }\OperatorTok{{-}\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}
+    \ControlFlowTok{match} \KeywordTok{self} \OperatorTok{\{}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{OpenPortal }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}}        \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{1}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{UpsertWarpInstance }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}} \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{2}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{DeleteWarpInstance }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}} \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{3}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{DeleteEdge }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}}        \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{4}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}  \CommentTok{// Delete before upsert}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{DeleteNode }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}}        \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{5}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{UpsertNode }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}}        \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{6}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{UpsertEdge }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}}        \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{7}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}
+        \DataTypeTok{Self}\PreprocessorTok{::}\NormalTok{SetAttachment }\OperatorTok{\{} \OperatorTok{..} \OperatorTok{\}}     \OperatorTok{=\textgreater{}}\NormalTok{ WarpOpKey }\OperatorTok{\{}\NormalTok{ kind}\OperatorTok{:} \DecValTok{8}\OperatorTok{,} \OperatorTok{...} \OperatorTok{\},}  \CommentTok{// Last}
+    \OperatorTok{\}}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{Canonical Order:} 1. OpenPortal (creates child instances) 2.
+UpsertWarpInstance 3. DeleteWarpInstance 4. DeleteEdge (delete before
+upsert) 5. DeleteNode (delete before upsert) 6. UpsertNode 7. UpsertEdge
+8. SetAttachment (after skeleton exists)
+
+\begin{deepdive}
+\textbf{Why This Specific Order?}
+
+The operation order is carefully chosen to maintain invariants:
+
+\begin{enumerate}
+\item \textbf{OpenPortal first}: Creates warp instances that other ops may reference
+\item \textbf{Deletes before upserts}: Ensures we don't accidentally delete something we just created (idempotence)
+\item \textbf{Nodes before edges}: Edges reference nodes, so nodes must exist first
+\item \textbf{Attachments last}: Attachments reference nodes/edges, so the skeleton must be complete
+\end{enumerate}
+
+This ordering means rules don't need to worry about operation sequencing---emit ops in any order, and the merge will sort them correctly.
+\end{deepdive}
+
+\subsection{6.3 State Mutation Methods}\label{state-mutation-methods}
+
+\textbf{File:} \texttt{crates/warp-core/src/graph.rs}
+
+\begin{verbatim}
+GraphStore::insert_node(id, record)
+  LINE: 175-177
+  CODE: self.nodes.insert(id, record)
+
+GraphStore::upsert_edge_record(from, edge)
+  LINE: 196-261
+  UPDATES:
+    - self.edge_index.insert(edge_id, from)
+    - self.edge_to_index.insert(edge_id, to)
+    - Remove old edge from previous bucket if exists
+    - self.edges_from.entry(from).or_default().push(edge)
+    - self.edges_to.entry(to).or_default().push(edge_id)
+
+GraphStore::delete_node_cascade(node)
+  LINE: 277-354
+  CASCADES:
+    - Remove from self.nodes
+    - Remove node attachment
+    - Remove ALL outbound edges (and their attachments)
+    - Remove ALL inbound edges (and their attachments)
+    - Maintain all 4 index maps consistently
+
+GraphStore::delete_edge_exact(from, edge_id)
+  LINE: 360-412
+  VALIDATES: edge is in correct "from" bucket
+  REMOVES:
+    - From edges_from bucket
+    - From edge_index
+    - From edge_to_index
+    - From edges_to bucket
+    - Edge attachment
+
+GraphStore::set_node_attachment(id, value)
+  LINE: 125-134
+  CODE:
+    None → self.node_attachments.remove(&id)
+    Some(v) → self.node_attachments.insert(id, v)
+
+GraphStore::set_edge_attachment(id, value)
+  LINE: 163-172
+  Same pattern as node attachments
+\end{verbatim}
+
+\begin{watchout}
+\textbf{Cascade Deletes Are Dangerous}
+
+\texttt{delete\_node\_cascade} removes not just the node, but all its edges and attachments. This is correct behavior (dangling edges would violate invariants), but rule authors must be aware: deleting a highly-connected node triggers many index updates.
+
+This is why footprints must declare write access to all edges that might be affected---the cascade happens even if the rule only explicitly deletes the node.
+\end{watchout}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{7. Hash Computation}\label{hash-computation}
+
+\begin{tourguide}
+Hashing is Echo's fingerprint technology. The state root captures \emph{what the graph looks like}; the commit hash captures \emph{how we got here}. Both are computed deterministically using BLAKE3, ensuring that identical states produce identical hashes across all nodes in a distributed system.
+\end{tourguide}
+
+\subsection{7.1 State Root}\label{state-root}
+
+\textbf{Entry Point:} \texttt{compute\_state\_root()} \textbf{File:}
+\texttt{crates/warp-core/src/snapshot.rs:88-209}
+
+\begin{verbatim}
+compute_state_root(state: &WarpState, root: &NodeKey) → Hash
+│
+├─[1] BFS REACHABILITY TRAVERSAL
+│     │
+│     ├─ Initialize:
+│     │   reachable_nodes: BTreeSet<NodeKey> = { root }
+│     │   reachable_warps: BTreeSet<WarpId> = { root.warp_id }
+│     │   queue: VecDeque<NodeKey> = [ root ]
+│     │
+│     └─ WHILE let Some(current) = queue.pop_front():
+│         │
+│         ├─ store = state.store(&current.warp_id)
+│         │
+│         ├─ FOR edge IN store.edges_from(&current.local_id):
+│         │   ├─ to = NodeKey { warp_id: current.warp_id, local_id: edge.to }
+│         │   ├─ IF reachable_nodes.insert(to): queue.push_back(to)
+│         │   │
+│         │   └─ IF edge has Descend(child_warp) attachment:
+│         │       └─ enqueue_descend(state, child_warp, ...)
+│         │           Adds child instance root to queue
+│         │
+│         └─ IF current node has Descend(child_warp) attachment:
+│               enqueue_descend(state, child_warp, ...)
+│
+├─[2] HASHING PHASE
+│     │
+│     ├─ let mut hasher = Hasher::new()  // BLAKE3
+│     │
+│     ├─ HASH ROOT BINDING:
+│     │   hasher.update(&root.warp_id.0)     // 32 bytes
+│     │   hasher.update(&root.local_id.0)    // 32 bytes
+│     │
+│     └─ FOR warp_id IN reachable_warps:  // BTreeSet = sorted order
+│         │
+│         ├─ HASH INSTANCE HEADER:
+│         │   hasher.update(&instance.warp_id.0)      // 32 bytes
+│         │   hasher.update(&instance.root_node.0)   // 32 bytes
+│         │   hash_attachment_key_opt(&mut hasher, instance.parent.as_ref())
+│         │
+│         ├─ FOR (node_id, node) IN store.nodes:  // BTreeMap = sorted
+│         │   IF reachable_nodes.contains(&NodeKey { warp_id, local_id: node_id }):
+│         │     hasher.update(&node_id.0)          // 32 bytes
+│         │     hasher.update(&node.ty.0)          // 32 bytes
+│         │     hash_attachment_value_opt(&mut hasher, store.node_attachment(node_id))
+│         │
+│         └─ FOR (from, edges) IN store.edges_from:  // BTreeMap = sorted
+│             IF from is reachable:
+│               sorted_edges = edges.filter(reachable).sort_by(|a,b| a.id.cmp(b.id))
+│               hasher.update(&from.0)                       // 32 bytes
+│               hasher.update(&(sorted_edges.len() as u64).to_le_bytes())  // 8 bytes
+│               FOR edge IN sorted_edges:
+│                 hasher.update(&edge.id.0)                  // 32 bytes
+│                 hasher.update(&edge.ty.0)                  // 32 bytes
+│                 hasher.update(&edge.to.0)                  // 32 bytes
+│                 hash_attachment_value_opt(&mut hasher, store.edge_attachment(&edge.id))
+│
+└─ hasher.finalize().into()  // → [u8; 32]
+\end{verbatim}
+
+\begin{cleverpattern}
+\textbf{BTreeSet/BTreeMap for Determinism}
+
+Notice the use of \texttt{BTreeSet} and \texttt{BTreeMap} throughout. Unlike \texttt{HashSet}/\texttt{HashMap}, B-tree collections iterate in \emph{sorted order}. This is essential for deterministic hashing---the hash must be the same regardless of insertion order.
+
+The trade-off: B-tree operations are O(log n) instead of O(1). But for hashing (which happens once per commit), correctness trumps speed.
+\end{cleverpattern}
+
+\begin{deepdive}
+\textbf{Reachability Pruning}
+
+The BFS traversal only hashes \emph{reachable} nodes and edges. This means:
+
+\begin{enumerate}
+\item Garbage (unreachable nodes) doesn't affect the hash
+\item Two states with the same reachable structure have the same hash
+\item Deleting a disconnected subgraph doesn't change the hash
+\end{enumerate}
+
+This is a subtle but important property for garbage collection---you can safely remove unreachable data without affecting consensus.
+\end{deepdive}
+
+\subsection{7.2 Commit Hash v2}\label{commit-hash-v2}
+
+\textbf{Entry Point:} \texttt{compute\_commit\_hash\_v2()}
+\textbf{File:} \texttt{crates/warp-core/src/snapshot.rs:244-263}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{pub}\NormalTok{(}\KeywordTok{crate}\NormalTok{) }\KeywordTok{fn}\NormalTok{ compute\_commit\_hash\_v2(}
+\NormalTok{    state\_root}\OperatorTok{:} \OperatorTok{\&}\BuiltInTok{Hash}\OperatorTok{,}
+\NormalTok{    parents}\OperatorTok{:} \OperatorTok{\&}\NormalTok{[}\BuiltInTok{Hash}\NormalTok{]}\OperatorTok{,}
+\NormalTok{    patch\_digest}\OperatorTok{:} \OperatorTok{\&}\BuiltInTok{Hash}\OperatorTok{,}
+\NormalTok{    policy\_id}\OperatorTok{:} \DataTypeTok{u32}\OperatorTok{,}
+\NormalTok{) }\OperatorTok{{-}\textgreater{}} \BuiltInTok{Hash} \OperatorTok{\{}
+    \KeywordTok{let} \KeywordTok{mut}\NormalTok{ h }\OperatorTok{=} \BuiltInTok{Hasher}\PreprocessorTok{::}\NormalTok{new()}\OperatorTok{;}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(}\OperatorTok{\&}\DecValTok{2u16}\OperatorTok{.}\NormalTok{to\_le\_bytes())}\OperatorTok{;}              \CommentTok{// Version tag (2 bytes)}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(}\OperatorTok{\&}\NormalTok{(parents}\OperatorTok{.}\NormalTok{len() }\KeywordTok{as} \DataTypeTok{u64}\NormalTok{)}\OperatorTok{.}\NormalTok{to\_le\_bytes())}\OperatorTok{;}  \CommentTok{// Parent count (8 bytes)}
+    \ControlFlowTok{for}\NormalTok{ p }\KeywordTok{in}\NormalTok{ parents }\OperatorTok{\{}
+\NormalTok{        h}\OperatorTok{.}\NormalTok{update(p)}\OperatorTok{;}                            \CommentTok{// Each parent (32 bytes)}
+    \OperatorTok{\}}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(state\_root)}\OperatorTok{;}                       \CommentTok{// Graph hash (32 bytes)}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(patch\_digest)}\OperatorTok{;}                     \CommentTok{// Ops hash (32 bytes)}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(}\OperatorTok{\&}\NormalTok{policy\_id}\OperatorTok{.}\NormalTok{to\_le\_bytes())}\OperatorTok{;}         \CommentTok{// Policy (4 bytes)}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{finalize()}\OperatorTok{.}\NormalTok{into()}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\textbf{Byte Layout:}
+
+\begin{verbatim}
+Offset   Size    Field
+0        2       version_tag (0x02 0x00)
+2        8       parent_count (u64 LE)
+10       32*N    parents[] (N parent hashes)
+10+32N   32      state_root
+42+32N   32      patch_digest
+74+32N   4       policy_id (u32 LE)
+─────────────────────────────────────
+TOTAL: 78 + 32*N bytes → BLAKE3 → 32-byte hash
+\end{verbatim}
+
+\begin{tourguide}
+The version tag (\texttt{0x02 0x00}) is future-proofing: if the commit hash format ever needs to change, the version lets validators distinguish between formats. The ``v2'' in the function name indicates this is already the second iteration of the format.
+\end{tourguide}
+
+\subsection{7.3 Patch Digest}\label{patch-digest}
+
+\textbf{Entry Point:} \texttt{compute\_patch\_digest\_v2()}
+\textbf{File:} \texttt{crates/warp-core/src/tick\_patch.rs:755-774}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{fn}\NormalTok{ compute\_patch\_digest\_v2(}
+\NormalTok{    policy\_id}\OperatorTok{:} \DataTypeTok{u32}\OperatorTok{,}
+\NormalTok{    rule\_pack\_id}\OperatorTok{:} \OperatorTok{\&}\NormalTok{ContentHash}\OperatorTok{,}
+\NormalTok{    commit\_status}\OperatorTok{:}\NormalTok{ TickCommitStatus}\OperatorTok{,}
+\NormalTok{    in\_slots}\OperatorTok{:} \OperatorTok{\&}\NormalTok{[SlotId]}\OperatorTok{,}
+\NormalTok{    out\_slots}\OperatorTok{:} \OperatorTok{\&}\NormalTok{[SlotId]}\OperatorTok{,}
+\NormalTok{    ops}\OperatorTok{:} \OperatorTok{\&}\NormalTok{[WarpOp]}\OperatorTok{,}
+\NormalTok{) }\OperatorTok{{-}\textgreater{}}\NormalTok{ ContentHash }\OperatorTok{\{}
+    \KeywordTok{let} \KeywordTok{mut}\NormalTok{ h }\OperatorTok{=} \BuiltInTok{Hasher}\PreprocessorTok{::}\NormalTok{new()}\OperatorTok{;}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(}\OperatorTok{\&}\DecValTok{2u16}\OperatorTok{.}\NormalTok{to\_le\_bytes())}\OperatorTok{;}         \CommentTok{// Format version}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(}\OperatorTok{\&}\NormalTok{policy\_id}\OperatorTok{.}\NormalTok{to\_le\_bytes())}\OperatorTok{;}    \CommentTok{// 4 bytes}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(rule\_pack\_id)}\OperatorTok{;}                \CommentTok{// 32 bytes}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{update(}\OperatorTok{\&}\NormalTok{[commit\_status}\OperatorTok{.}\NormalTok{code()])}\OperatorTok{;}     \CommentTok{// 1 byte}
+\NormalTok{    encode\_slots(}\OperatorTok{\&}\KeywordTok{mut}\NormalTok{ h}\OperatorTok{,}\NormalTok{ in\_slots)}\OperatorTok{;}
+\NormalTok{    encode\_slots(}\OperatorTok{\&}\KeywordTok{mut}\NormalTok{ h}\OperatorTok{,}\NormalTok{ out\_slots)}\OperatorTok{;}
+\NormalTok{    encode\_ops(}\OperatorTok{\&}\KeywordTok{mut}\NormalTok{ h}\OperatorTok{,}\NormalTok{ ops)}\OperatorTok{;}
+\NormalTok{    h}\OperatorTok{.}\NormalTok{finalize()}\OperatorTok{.}\NormalTok{into()}
+\OperatorTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{8. Commit Orchestration}\label{commit-orchestration}
+
+\textbf{Entry Point:} \texttt{Engine::commit\_with\_receipt()}
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:837-954}
+
+\begin{tourguide}
+This is the grand finale---where all the pieces come together. The commit orchestrator drains the scheduler, reserves resources, executes rules, merges deltas, computes hashes, and records the transaction. Let's trace through every step.
+\end{tourguide}
+
+\subsection{8.1 Complete Call Trace}\label{complete-call-trace-3}
+
+\begin{verbatim}
+Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatchV1), EngineError>
+│
+├─[1] VALIDATE TRANSACTION
+│     IF tx.value() == 0 || !self.live_txs.contains(&tx.value()):
+│       return Err(EngineError::UnknownTx)
+│
+├─[2] DRAIN CANDIDATES
+│     policy_id = self.policy_id                         // Line 844
+│     rule_pack_id = self.compute_rule_pack_id()         // Line 845
+│     │
+│     ├─ compute_rule_pack_id()
+│     │   FILE: engine_impl.rs:1675-1688
+│     │   CODE:
+│     │     ids = self.rules.values().map(|r| r.id).collect()
+│     │     ids.sort_unstable(); ids.dedup()
+│     │     hasher.update(&1u16.to_le_bytes())  // version
+│     │     hasher.update(&(ids.len() as u64).to_le_bytes())
+│     │     FOR id IN ids: hasher.update(&id)
+│     │     hasher.finalize().into()
+│     │
+│     drained = self.scheduler.drain_for_tx(tx)          // Line 847
+│     plan_digest = compute_plan_digest(&drained)        // Line 848
+│
+├─[3] RESERVE (INDEPENDENCE CHECK)
+│     ReserveOutcome { receipt, reserved, in_slots, out_slots }
+│       = self.reserve_for_receipt(tx, drained)?         // Line 850-855
+│     │
+│     └─ reserve_for_receipt(tx, drained)
+│         FILE: engine_impl.rs:970-1042
+│         │
+│         FOR rewrite IN drained (canonical order):
+│           │
+│           ├─ accepted = self.scheduler.reserve(tx, &mut rewrite)
+│           │
+│           ├─ IF !accepted:
+│           │     blockers = find_blocking_rewrites(reserved, &rewrite)
+│           │
+│           ├─ receipt_entries.push(TickReceiptEntry { ... })
+│           │
+│           └─ IF accepted:
+│                 reserved.push(rewrite)
+│                 extend_slots_from_footprint(&mut in_slots, &mut out_slots, ...)
+│         │
+│         return ReserveOutcome { receipt, reserved, in_slots, out_slots }
+│
+│     rewrites_digest = compute_rewrites_digest(&reserved_rewrites)  // Line 858
+│
+├─[4] EXECUTE (PHASE 5 BOAW)
+│     state_before = self.state.clone()                  // Line 862
+│     delta_ops = self.apply_reserved_rewrites(reserved, &state_before)?
+│     │
+│     └─ apply_reserved_rewrites(rewrites, state_before)
+│         FILE: engine_impl.rs:1044-1105
+│         │
+│         ├─ let mut delta = TickDelta::new()
+│         │
+│         ├─ FOR rewrite IN rewrites:
+│         │     executor = self.rule_by_compact(rewrite.compact_rule).executor
+│         │     view = GraphView::new(self.state.store(&rewrite.scope.warp_id))
+│         │     (executor)(view, &rewrite.scope.local_id, &mut delta)
+│         │
+│         ├─ let ops = delta.finalize()  // Canonical sort
+│         │
+│         ├─ patch = WarpTickPatchV1::new(policy_id, rule_pack_id, ..., ops)
+│         │   patch.apply_to_state(&mut self.state)?
+│         │
+│         └─ [delta_validate]: assert_delta_matches_diff(&ops, &diff_ops)
+│
+├─[5] MATERIALIZE
+│     mat_report = self.bus.finalize()                   // Line 884
+│     self.last_materialization = mat_report.channels
+│     self.last_materialization_errors = mat_report.errors
+│
+├─[6] COMPUTE DELTA PATCH
+│     ops = diff_state(&state_before, &self.state)       // Line 889
+│     │
+│     └─ diff_state(before, after)
+│         FILE: tick_patch.rs:979-1069
+│         - Canonicalize portal authoring (OpenPortal)
+│         - Diff instances (delete/upsert)
+│         - Diff nodes, edges, attachments
+│         - Sort by WarpOp::sort_key()
+│     │
+│     patch = WarpTickPatchV1::new(policy_id, rule_pack_id, ..., ops)
+│     patch_digest = patch.digest()                      // Line 898
+│
+├─[7] COMPUTE STATE ROOT
+│     state_root = compute_state_root(&self.state, &self.current_root)  // Line 900
+│
+├─[8] GET PARENTS
+│     parents = self.last_snapshot.as_ref().map(|s| vec![s.hash]).unwrap_or_default()
+│
+├─[9] COMPUTE DECISION DIGEST
+│     decision_digest = receipt.digest()                 // Line 929
+│
+├─[10] COMPUTE COMMIT HASH
+│      hash = compute_commit_hash_v2(&state_root, &parents, &patch_digest, policy_id)
+│
+├─[11] BUILD SNAPSHOT
+│      snapshot = Snapshot {
+│        root: self.current_root,
+│        hash,                    // commit_id v2
+│        parents,
+│        plan_digest,             // Diagnostic
+│        decision_digest,         // Diagnostic
+│        rewrites_digest,         // Diagnostic
+│        patch_digest,            // COMMITTED
+│        policy_id,               // COMMITTED
+│        tx,
+│      }
+│
+├─[12] RECORD TO HISTORY
+│      self.last_snapshot = Some(snapshot.clone())       // Line 947
+│      self.tick_history.push((snapshot, receipt, patch))  // Line 948-949
+│      self.live_txs.remove(&tx.value())                 // Line 951
+│      self.scheduler.finalize_tx(tx)                    // Line 952
+│
+└─[13] RETURN
+       Ok((snapshot, receipt, patch))
+\end{verbatim}
+
+\begin{cleverpattern}
+\textbf{State Snapshot Before Mutation}
+
+In step [4], notice \texttt{state\_before = self.state.clone()}. This clone happens \emph{before} any mutations. Why?
+
+\begin{enumerate}
+\item Enables \texttt{diff\_state()} to compute exactly what changed
+\item Supports rollback if execution fails (though this isn't shown)
+\item Provides validation: the delta from execution should match the diff
+\end{enumerate}
+
+The clone is relatively cheap because it's copy-on-write under the hood---most data is shared until mutation.
+\end{cleverpattern}
+
+\begin{deepdive}
+\textbf{Diagnostic vs. Committed Digests}
+
+The snapshot contains multiple digests, but only some are ``committed'' (affect the hash):
+
+\begin{itemize}
+\item \textbf{Committed}: \texttt{state\_root}, \texttt{patch\_digest}, \texttt{policy\_id}, \texttt{parents}
+\item \textbf{Diagnostic}: \texttt{plan\_digest}, \texttt{decision\_digest}, \texttt{rewrites\_digest}
+\end{itemize}
+
+Diagnostic digests are for debugging and auditing---they help trace what happened, but don't affect consensus. This separation keeps the consensus-critical path minimal while providing rich observability.
+\end{deepdive}
+
+\subsection{8.2 Commit Hash Inputs}\label{commit-hash-inputs}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Input & Committed? & Purpose \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{state\_root} & ✓ & What the graph looks like \\
+\texttt{patch\_digest} & ✓ & How we got here (ops) \\
+\texttt{parents} & ✓ & Chain continuity \\
+\texttt{policy\_id} & ✓ & Aion policy version \\
+\texttt{plan\_digest} & ✗ & Diagnostic only \\
+\texttt{decision\_digest} & ✗ & Diagnostic only \\
+\texttt{rewrites\_digest} & ✗ & Diagnostic only \\
+\end{longtable}
+}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{9. Complete Call Graph}\label{complete-call-graph}
+
+\subsection{9.1 Full Journey: Intent →
+Commit}\label{full-journey-intent-commit}
+
+\begin{verbatim}
+USER ACTION
+    │
+    ▼
+Engine::ingest_intent(intent_bytes)
+    ├─ compute_intent_id()                    // BLAKE3 content hash
+    ├─ make_node_id(), make_type_id()         // Structural IDs
+    ├─ store.insert_node()                    // Create event node
+    ├─ store.set_node_attachment()            // Attach intent payload
+    └─ store.insert_edge()                    // Pending edge to inbox
+    │
+    ▼
+Engine::begin() → TxId
+    ├─ tx_counter.wrapping_add(1)
+    ├─ live_txs.insert(tx_counter)
+    └─ TxId::from_raw(tx_counter)
+    │
+    ▼
+Engine::dispatch_next_intent(tx)              // (or manual apply)
+    │
+    ▼
+Engine::apply(tx, rule_name, scope)
+    └─ Engine::apply_in_warp(tx, warp_id, rule_name, scope, &[])
+        ├─ rules.get(rule_name)               // Lookup rule
+        ├─ GraphView::new(store)              // Read-only view
+        ├─ (rule.matcher)(view, scope)        // Match check
+        ├─ scope_hash()                       // BLAKE3 ordering key
+        ├─ (rule.compute_footprint)(view, scope)  // Footprint
+        └─ scheduler.enqueue(tx, PendingRewrite)
+            └─ PendingTx::enqueue()           // Last-wins dedup
+    │
+    ▼
+Engine::commit_with_receipt(tx)
+    │
+    ├─[DRAIN]
+    │   scheduler.drain_for_tx(tx)
+    │       └─ PendingTx::drain_in_order()
+    │           └─ radix_sort() or sort_unstable_by()
+    │               20-pass LSD radix sort
+    │               ORDER: (scope_hash, rule_id, nonce)
+    │
+    ├─[RESERVE]
+    │   FOR rewrite IN drained:
+    │       scheduler.reserve(tx, &mut rewrite)
+    │           ├─ has_conflict(active, pr)
+    │           │   └─ GenSet::contains() × N    // O(1) per check
+    │           └─ mark_all(active, pr)
+    │               └─ GenSet::mark() × M        // O(1) per mark
+    │
+    ├─[EXECUTE]
+    │   apply_reserved_rewrites(reserved, state_before)
+    │       FOR rewrite IN reserved:
+    │           (executor)(view, &scope, &mut delta)
+    │               └─ scoped.emit(op)
+    │                   └─ delta.emit_with_origin(op, origin)
+    │       delta.finalize()                     // Sort ops
+    │       patch.apply_to_state(&mut self.state)
+    │
+    ├─[MATERIALIZE]
+    │   bus.finalize()
+    │
+    ├─[DELTA PATCH]
+    │   diff_state(&state_before, &self.state)
+    │       └─ Sort by WarpOp::sort_key()
+    │   WarpTickPatchV1::new(...)
+    │       └─ compute_patch_digest_v2()
+    │
+    ├─[HASHES]
+    │   compute_state_root(&self.state, &self.current_root)
+    │       ├─ BFS reachability
+    │       └─ BLAKE3 over canonical encoding
+    │   compute_commit_hash_v2(state_root, parents, patch_digest, policy_id)
+    │       └─ BLAKE3(version || parents || state_root || patch_digest || policy_id)
+    │
+    ├─[SNAPSHOT]
+    │   Snapshot { root, hash, parents, digests..., policy_id, tx }
+    │
+    └─[RECORD]
+        tick_history.push((snapshot, receipt, patch))
+        live_txs.remove(&tx.value())
+        scheduler.finalize_tx(tx)
+    │
+    ▼
+RETURN: (Snapshot, TickReceipt, WarpTickPatchV1)
+\end{verbatim}
+
+\begin{tourguide}
+And there you have it---the complete journey from user action to committed state. Every step is deterministic, every hash is content-addressed, and the system can be replayed or verified by any node with the same inputs.
+
+The elegance lies in the separation of concerns:
+\begin{itemize}
+\item \textbf{Ingestion} is pure data capture
+\item \textbf{Matching} is pure pattern recognition
+\item \textbf{Scheduling} is pure ordering
+\item \textbf{Execution} is pure computation (no side effects escape)
+\item \textbf{Merging} is pure deduplication
+\item \textbf{Hashing} is pure fingerprinting
+\end{itemize}
+
+Each phase can be reasoned about independently, tested independently, and optimized independently. This is the hallmark of well-architected systems.
+\end{tourguide}
+
+\subsection{9.2 File Index}\label{file-index}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Component & Primary File & Key Lines \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Intent Ingestion & \texttt{engine\_impl.rs} & 1216-1281 \\
+Identity Hashing & \texttt{ident.rs} & 85-109 \\
+Transaction Begin & \texttt{engine\_impl.rs} & 711-719 \\
+Rule Apply & \texttt{engine\_impl.rs} & 730-806 \\
+Footprint & \texttt{footprint.rs} & 131-152 \\
+Scheduler Enqueue & \texttt{scheduler.rs} & 102-105, 331-355 \\
+Radix Sort & \texttt{scheduler.rs} & 360-413, 481-498 \\
+Reserve/Conflict & \texttt{scheduler.rs} & 134-278 \\
+GenSet & \texttt{scheduler.rs} & 509-535 \\
+BOAW Execute & \texttt{boaw/exec.rs} & 61-152 \\
+Shard Routing & \texttt{boaw/shard.rs} & 82-120 \\
+Delta Merge & \texttt{boaw/merge.rs} & 36-75 \\
+TickDelta & \texttt{tick\_delta.rs} & 38-172 \\
+WarpOp Sort Key & \texttt{tick\_patch.rs} & 207-287 \\
+State Mutations & \texttt{graph.rs} & 175-412 \\
+Patch Apply & \texttt{tick\_patch.rs} & 434-561 \\
+Diff State & \texttt{tick\_patch.rs} & 979-1069 \\
+State Root Hash & \texttt{snapshot.rs} & 88-209 \\
+Commit Hash v2 & \texttt{snapshot.rs} & 244-263 \\
+Patch Digest & \texttt{tick\_patch.rs} & 755-774 \\
+Commit Orchestrator & \texttt{engine\_impl.rs} & 837-954 \\
+\end{longtable}
+}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Appendix A: Complexity
+Summary}\label{appendix-a-complexity-summary}
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}lll@{}}
+\toprule\noalign{}
+Operation & Complexity & Notes \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{ingest\_intent} & O(1) & Fixed structural insertions \\
+\texttt{begin} & O(1) & Counter increment + set insert \\
+\texttt{apply} & O(m) & m = footprint size \\
+\texttt{drain\_for\_tx} (radix) & O(n) & n = candidates, 20 passes \\
+\texttt{reserve} per rewrite & O(m) & m = footprint size, O(1) per
+check \\
+\texttt{execute\_parallel} & O(n/w) & n = items, w = workers \\
+\texttt{merge\_deltas} & O(k log k) & k = total ops (sort + dedup) \\
+\texttt{compute\_state\_root} & O(V + E) & V = nodes, E = edges \\
+\texttt{compute\_commit\_hash\_v2} & O(P) & P = parents \\
+\end{longtable}
+}
+
+\begin{tourguide}
+Notice that all operations are either O(1), O(n), or O(n log n)---there's nothing quadratic or exponential lurking here. The system scales linearly with the amount of work, which is essential for predictable performance.
+
+The one potential bottleneck is \texttt{compute\_state\_root} at O(V + E), which traverses the entire reachable graph. For very large graphs, this could become expensive. In practice, graphs are partitioned across warp instances, keeping each traversal manageable.
+\end{tourguide}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{Appendix B: Determinism
+Boundaries}\label{appendix-b-determinism-boundaries}
+
+\subsection{Guaranteed Deterministic}\label{guaranteed-deterministic}
+
+\begin{itemize}
+\tightlist
+\item
+  Radix sort ordering (20-pass LSD)
+\item
+  BTreeMap/BTreeSet iteration
+\item
+  BLAKE3 hashing
+\item
+  GenSet conflict detection
+\item
+  Canonical merge deduplication
+\end{itemize}
+
+\subsection{Intentionally Non-Deterministic (Handled by
+Merge)}\label{intentionally-non-deterministic-handled-by-merge}
+
+\begin{itemize}
+\tightlist
+\item
+  Worker execution order in BOAW
+\item
+  Shard claim order (atomic counter)
+\end{itemize}
+
+\begin{deepdive}
+\textbf{The Determinism Contract}
+
+Echo's determinism guarantee is: \emph{given the same inputs (intents, rules, initial state), the output (commit hash) is identical across all executions}.
+
+This holds even though:
+\begin{itemize}
+\item Workers execute in arbitrary order
+\item Shards are claimed non-deterministically
+\item Thread scheduling varies between runs
+\end{itemize}
+
+The canonical merge absorbs this non-determinism, producing a deterministic output from non-deterministic intermediate results. It's a beautiful example of ``eventual determinism''---chaos in the middle, order at the end.
+\end{deepdive}
+
+\subsection{Protocol Constants
+(Frozen)}\label{protocol-constants-frozen}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{NUM\_SHARDS\ =\ 256}
+\item
+  \texttt{SHARD\_MASK\ =\ 255}
+\item
+  Shard routing: \texttt{LE\_u64(node\_id{[}0..8{]})\ \&\ 255}
+\item
+  Commit hash v2 version tag: \texttt{0x02\ 0x00}
+\end{itemize}
+
+\begin{watchout}
+\textbf{Protocol Constants Are Sacred}
+
+These constants are ``frozen''---changing them would break compatibility with existing commits. If you're tempted to tweak \texttt{NUM\_SHARDS} or the shard routing formula, remember: every historical commit was created with these values, and changing them would make replay impossible.
+
+Protocol evolution happens through version tags (like the \texttt{0x02} in commit hash v2), not by modifying existing constants.
+\end{watchout}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\begin{tourguide}
+\textbf{End of Tour}
+
+Thank you for joining me on this journey through Echo's internals! We've seen:
+
+\begin{itemize}
+\item \textbf{Content-addressed everything}: From intents to commits, identity comes from content
+\item \textbf{Deterministic scheduling}: Radix sort + footprints = predictable execution
+\item \textbf{Safe parallelism}: Sharded execution + canonical merge = speed without chaos
+\item \textbf{Cryptographic integrity}: BLAKE3 hashes throughout = verifiable state
+\end{itemize}
+
+Echo is a remarkable piece of engineering---complex enough to solve hard problems, yet built from simple, composable primitives. The code rewards careful study, and I hope these annotations help illuminate the ``why'' behind the ``what.''
+
+Happy hacking!
+\end{tourguide}
+
+\emph{Document generated 2026-01-18. File paths and line numbers
+accurate as of this date. Commentary added by your friendly AI tour guide.}
+
+\backmatter
+\end{document}

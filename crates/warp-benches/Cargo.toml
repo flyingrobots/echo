@@ -10,15 +10,17 @@ license = "Apache-2.0"
 description = "Microbenchmarks for Echo (warp-core): snapshot hashing and scheduler throughput"
 readme = "README.md"
 
-[dev-dependencies]
-criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+[dependencies]
 # Pin version alongside path to satisfy cargo-deny wildcard bans
 warp-core = { version = "0.1.0", path = "../warp-core" }
 echo-dry-tests = { version = "0.1.0", path = "../echo-dry-tests" }
-# Patch-level pin for reproducibility while allowing security fixes; keep defaults off to avoid rayon/parallelism.
+rayon = "~1.10"
+
+[dev-dependencies]
+# Tilde pins for reproducibility: allow patch updates only
+criterion = { version = "~0.5", default-features = false, features = ["html_reports"] }
 blake3 = { version = "~1.8.2", default-features = false, features = ["std"] }
-rustc-hash = "2.1.1"
-rand = "0.8"
+rustc-hash = "~2.1.1"
 
 [[bench]]
 name = "motion_throughput"

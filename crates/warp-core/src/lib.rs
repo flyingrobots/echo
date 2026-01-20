@@ -52,11 +52,33 @@ pub mod math;
 pub mod wsc;
 
 mod attachment;
+/// BOAW (Best Of All Worlds) parallel execution module.
+///
+/// Provides both serial and parallel execution strategies for rewrite rules,
+/// with deterministic results guaranteed through canonical merge sorting.
+///
+/// # Key Types
+///
+/// - [`ExecItem`]: Encapsulates a single rewrite ready for execution
+/// - [`MergeConflict`]: Error type for footprint model violations
+///
+/// # Key Functions
+///
+/// - [`execute_serial`]: Baseline serial execution
+/// - [`execute_parallel`]: Parallel execution with shard partitioning
+/// - [`shard_of`]: Compute shard ID from a scope `NodeId`
+///
+/// # Determinism Guarantee
+///
+/// Execution order across workers is non-deterministic, but the final merged
+/// output is always canonical regardless of worker count or thread scheduling.
+pub mod boaw;
 mod cmd;
 mod constants;
 mod engine_impl;
 mod footprint;
 mod graph;
+mod graph_view;
 mod ident;
 /// Canonical inbox management for deterministic intent sequencing.
 pub mod inbox;
@@ -71,7 +93,9 @@ mod scheduler;
 #[cfg(feature = "serde")]
 mod serializable;
 mod snapshot;
+mod snapshot_accum;
 mod telemetry;
+mod tick_delta;
 mod tick_patch;
 mod tx;
 mod warp_state;
@@ -81,13 +105,24 @@ pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
+#[cfg(any(test, feature = "parallel-stride-fallback"))]
+pub use boaw::execute_parallel_stride;
+pub use boaw::{
+    execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
+    NUM_SHARDS,
+};
+#[cfg(any(test, feature = "delta_validate"))]
+pub use boaw::{merge_deltas, MergeError};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
     ExistingState, FreshStore, IngestDisposition,
 };
-pub use footprint::{pack_port_key, AttachmentSet, Footprint, IdSet, PortKey, PortSet};
+pub use footprint::{
+    pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
+};
 pub use graph::GraphStore;
+pub use graph_view::GraphView;
 pub use ident::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeId, EdgeKey, Hash, NodeId, NodeKey,
     TypeId, WarpId,
@@ -109,9 +144,10 @@ pub use serializable::{
 };
 pub use snapshot::Snapshot;
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
+pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
 pub use tick_patch::{
     slice_worldline_indices, PortalInit, SlotId, TickCommitStatus, TickPatchError, WarpOp,
-    WarpTickPatchV1,
+    WarpOpKey, WarpTickPatchV1,
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};

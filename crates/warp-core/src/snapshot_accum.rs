@@ -732,17 +732,6 @@ impl SnapshotAccumulator {
                     hash_optional_attachment(&mut hasher, self.edge_attachments.get(&att_key));
                 }
             }
-
-            // Hash nodes with zero outgoing edges to maintain parity with legacy
-            for (key, parts) in &self.nodes {
-                if key.warp_id != *warp_id || !reachable_nodes.contains(key) {
-                    continue;
-                }
-                if !edges_by_source.contains_key(&parts.node_id) {
-                    hasher.update(&parts.node_id.0);
-                    hasher.update(&0u64.to_le_bytes()); // Zero edges
-                }
-            }
         }
 
         hasher.finalize().into()

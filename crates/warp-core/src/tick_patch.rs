@@ -196,7 +196,7 @@ pub enum PortalInit {
 /// # Usage
 ///
 /// Primarily used internally by [`WarpTickPatchV1::new`] for canonicalization and
-/// [`crate::boaw::merge_deltas`] for deterministic merge ordering.
+/// `merge_deltas` (feature-gated) for deterministic merge ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WarpOpKey {
     kind: u8,

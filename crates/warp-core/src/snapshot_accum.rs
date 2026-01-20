@@ -709,7 +709,7 @@ impl SnapshotAccumulator {
                 edges_by_source.entry(parts.from).or_default().push(parts);
             }
 
-            for (from_node, mut edge_list) in edges_by_source {
+            for (from_node, edge_list) in &mut edges_by_source {
                 // Sort edges by EdgeId
                 edge_list.sort_by_key(|e| e.edge_id);
 
@@ -730,6 +730,17 @@ impl SnapshotAccumulator {
                         plane: AttachmentPlane::Beta,
                     };
                     hash_optional_attachment(&mut hasher, self.edge_attachments.get(&att_key));
+                }
+            }
+
+            // Hash nodes with zero outgoing edges to maintain parity with legacy
+            for (key, parts) in &self.nodes {
+                if key.warp_id != *warp_id || !reachable_nodes.contains(key) {
+                    continue;
+                }
+                if !edges_by_source.contains_key(&parts.node_id) {
+                    hasher.update(&parts.node_id.0);
+                    hasher.update(&0u64.to_le_bytes()); // Zero edges
                 }
             }
         }

@@ -30,7 +30,7 @@ Tracking all CodeRabbit review feedback for systematic resolution.
 | C12 | `crates/warp-core/tests/boaw_cow.rs`           | 115  | Ignored `unimplemented!` tests need follow-up plan             | P2       | OPEN           |                                                              |
 | C13 | `crates/warp-core/tests/boaw_determinism.rs`   | 81   | Silent no-op when WSC bytes absent is test smell               | P2       | OPEN           |                                                              |
 | C14 | `crates/warp-core/tests/boaw_determinism.rs`   | 187  | Test name says "admission" but only validates hashes           | P3       | OPEN           |                                                              |
-| C15 | `crates/warp-core/tests/boaw_end_to_end.rs`    | 26   | BOAW harness not yet wired                                     | P0       | OPEN           | Tracking issue needed                                        |
+| C15 | `crates/warp-core/tests/boaw_end_to_end.rs`    | 26   | BOAW harness not yet wired                                     | P0       | FIXED          | Stale comment - harness works, updated comment               |
 | C16 | `crates/warp-core/tests/boaw_end_to_end.rs`    | 77   | Magic numbers undocumented (20, 42)                            | P3       | OPEN           |                                                              |
 | C17 | `crates/warp-core/tests/boaw_end_to_end.rs`    | 140  | Conflict scenario only tests at fixed worker count 8           | P2       | OPEN           |                                                              |
 | C18 | `crates/warp-core/tests/boaw_footprints.rs`    | 171  | Shard routing test asserts tautology                           | P3       | OPEN           |                                                              |
@@ -167,11 +167,11 @@ Tracking all CodeRabbit review feedback for systematic resolution.
 
 | Priority    | Total | Open | Fixed | Won't Fix | False Positive |
 | ----------- | ----- | ---- | ----- | --------- | -------------- |
-| P0 Critical | 12    | 9    | 1     | 0         | 2              |
+| P0 Critical | 12    | 8    | 2     | 0         | 2              |
 | P1 Major    | 19    | 19   | 0     | 0         | 0              |
 | P2 Minor    | 35    | 30   | 4     | 0         | 1              |
 | P3 Trivial  | 24    | 17   | 0     | 0         | 7              |
-| Total       | 90    | 75   | 5     | 0         | 10             |
+| Total       | 90    | 74   | 6     | 0         | 10             |
 
 ---
 

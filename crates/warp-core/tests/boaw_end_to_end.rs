@@ -7,7 +7,7 @@
 //! - Worker counts
 //! - WSC roundtrip
 //!
-//! This test will fail until the BOAW infrastructure is wired.
+//! BOAW infrastructure is now wired - these tests verify determinism.
 
 mod common;
 

@@ -107,12 +107,12 @@ pub use attachment::{
 };
 #[cfg(any(test, feature = "parallel-stride-fallback"))]
 pub use boaw::execute_parallel_stride;
-#[cfg(any(test, feature = "delta_validate"))]
-pub use boaw::merge_deltas;
 pub use boaw::{
     execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
     NUM_SHARDS,
 };
+#[cfg(any(test, feature = "delta_validate"))]
+pub use boaw::{merge_deltas, MergeError};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,

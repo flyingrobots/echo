@@ -3,9 +3,10 @@
 #![allow(dead_code)]
 
 use warp_core::{
-    make_edge_id, make_node_id, make_type_id, AtomPayload, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, EdgeId, EdgeRecord, Engine, EngineBuilder, Footprint,
-    GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, WarpId, WarpOp,
+    make_edge_id, make_node_id, make_type_id, ApplyResult, AtomPayload, AttachmentKey,
+    AttachmentSet, AttachmentValue, ConflictPolicy, EdgeId, EdgeRecord, Engine, EngineBuilder,
+    Footprint, GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, WarpId,
+    WarpOp,
 };
 
 // =============================================================================
@@ -592,7 +593,10 @@ impl BoawTestHarness for EngineHarness {
         // Apply each ingress item (NoMatch is expected for non-matching rules)
         for (rule_name, scope) in ingress {
             match engine.apply(tx, rule_name, scope) {
-                Ok(_) => {}
+                Ok(ApplyResult::Applied) => {}
+                Ok(ApplyResult::NoMatch) => {
+                    // NoMatch is expected for non-matching rules, continue
+                }
                 Err(e) => panic!("unexpected error applying rule '{rule_name}': {e:?}"),
             }
         }
@@ -638,7 +642,10 @@ impl BoawTestHarness for EngineHarness {
         // Apply each ingress item (NoMatch is expected for non-matching rules)
         for (rule_name, scope) in ingress {
             match engine.apply(tx, rule_name, scope) {
-                Ok(_) => {}
+                Ok(ApplyResult::Applied) => {}
+                Ok(ApplyResult::NoMatch) => {
+                    // NoMatch is expected for non-matching rules, continue
+                }
                 Err(e) => panic!("unexpected error applying rule '{rule_name}': {e:?}"),
             }
         }

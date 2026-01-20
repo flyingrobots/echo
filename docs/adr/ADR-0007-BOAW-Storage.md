@@ -170,7 +170,7 @@ Instead:
 - “Never delete anything” = pin commits (or disable GC)
 - “Free disk” = GC unreachable segments from unpinned commits
 
-Pinned roots define retention; not refcounts.
+Pinned roots define retention; not ref-counts.
 
 ---
 

@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo Architecture Specification (Draft)
 
 If you’re new here, start with:
@@ -49,20 +50,20 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Entities**: Numerical IDs with sparse/high-watermark managers; creation returns pooled slots to avoid GC pressure.
 - **Components**: Type-safe registrations with metadata (layout, default state, pooling policy). Storage uses archetype tables or chunked struct-of-arrays chosen at registration time.
 - **Storage Model**:
-  - Archetype chunks sized to fit CPU cache lines (default 16 KB) with columnar component arrays.
-  - Copy-on-write handles for branch persistence; mutate operations clone only touched chunks.
-  - Optional fixed-point pools for deterministic math-heavy components (physics transforms, timers).
+    - Archetype chunks sized to fit CPU cache lines (default 16 KB) with columnar component arrays.
+    - Copy-on-write handles for branch persistence; mutate operations clone only touched chunks.
+    - Optional fixed-point pools for deterministic math-heavy components (physics transforms, timers).
 - **ID Services**: Global registries issue deterministic type IDs; component schemas embed serialization hooks and diff strategies.
 - **Systems**: Pure domain functions declaring the signature of components/events they consume. Systems declare schedule phase, dependencies, and whether they run when paused.
 - **Scheduler**: Builds a directed acyclic graph of systems, resolves priorities, batches compatible systems for parallel execution (future feature), and mediates fixed-step ticks.
 - **Scheduler Phases**:
-  1. `initialize` (one-shot setup)
-  2. `pre_update` (input assimilation, Codex’s Baby pre-flush)
-  3. `update` (core systems in DAG order)
-  4. `post_update` (cleanup, late bindings)
-  5. `render_prep` (prepare frame packets for adapters)
-  6. `present` (adapter flush; optional interpolation)
-  7. `timeline_flush` (persist diffs, branch bookkeeping)
+    1. `initialize` (one-shot setup)
+    2. `pre_update` (input assimilation, Codex’s Baby pre-flush)
+    3. `update` (core systems in DAG order)
+    4. `post_update` (cleanup, late bindings)
+    5. `render_prep` (prepare frame packets for adapters)
+    6. `present` (adapter flush; optional interpolation)
+    7. `timeline_flush` (persist diffs, branch bookkeeping)
 - **Parallelism Hooks**: Systems may declare `parallelizable: true`; scheduler groups disjoint signature systems into jobs respecting dependencies.
 - **Queries**: Precompiled views over component sets; incremental membership tracking uses bitset signatures and dirty queues instead of per-frame scans.
 
@@ -80,9 +81,9 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Deterministic Replay**: Input/event capture via Codex’s Baby, serialized frame seeds, and re-execution hooks for debugging or multiplayer rollback.
 - **Job Graph Extensions**: Future-ready hooks for job scheduling or thread pools without breaking the single-threaded baseline.
 - **Temporal Axes**:
-  - **Chronos (Sequence)**: Monotonic tick counter; governs simulation ordering and replay.
-  - **Kairos (Possibility)**: Branch identifier; indexes alternate realities at the same Chronos tick.
-  - **Aion (Significance)**: Scalar weight describing narrative gravity/entropy; influences merge priority, NPC memory retention, and paradox severity.
+    - **Chronos (Sequence)**: Monotonic tick counter; governs simulation ordering and replay.
+    - **Kairos (Possibility)**: Branch identifier; indexes alternate realities at the same Chronos tick.
+    - **Aion (Significance)**: Scalar weight describing narrative gravity/entropy; influences merge priority, NPC memory retention, and paradox severity.
 
 ### Temporal Sandbox (Echo Edge) 🗺️ Planned
 
@@ -105,7 +106,7 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 >
 > See `docs/rfc/mat-bus-finish.md` for the completion RFC.
 >
-> *The content below is preserved for historical context only.*
+> _The content below is preserved for historical context only._
 
 - **Command Buffers**: Events are POD structs appended to per-type ring buffers during a frame; no immediate callbacks inside hot systems.
 - **Flush Phases**: Scheduler defines flush points (pre-update, post-update, custom phases). Systems subscribe to phases matching their needs.
@@ -114,6 +115,18 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Telemetry & Debugging**: Built-in tooling to inspect event queues, handler timings, dropped events, and memory usage.
 - **Integration**: Bridges input devices, networking, scripting, and editor tooling without leaking adapter concerns into the domain.
 - **Inter-Branch Bridge**: Temporal mail service routes events between branches; deliveries create retro branches when targeting past Chronos ticks; paradox guard evaluates conflicts before enqueue.
+
+## Playback & Worldlines ✅ Implemented
+
+> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](/spec/SPEC-0004-worldlines-playback-truthbus.md)
+
+SPEC-0004 introduces infrastructure for deterministic materialization, cursor-based replay, and append-only provenance tracking:
+
+- **`playback.rs`** — `PlaybackCursor` for timeline position, `ViewSession` for materialized viewpoints, `TruthSink` trait for consuming view updates into stable snapshots.
+- **`worldline.rs`** — `WorldlineId` identifiers, `HashTriplet` for cryptographic tick labeling, `WorldlineTickPatchV1` for append-only tick records; supports multi-branch lineage.
+- **`provenance_store.rs`** — `ProvenanceStore` trait (hexagonal port), `LocalProvenanceStore` implementation for recording hash signatures and output deltas per tick; enables auditing and determinism validation.
+- **`retention.rs`** — `RetentionPolicy` enum (variants: `KeepAll`, `KeepRecent`, `Archival`) for garbage collection and storage budgeting; integrates with worldline compaction.
+- **`materialization/frame_v2.rs`** — V2 packet format with cursor stamps, enabling renderers to correlate frames with logical replay positions and support frame-accurate scrubbing.
 
 ## Ports & Adapters 🗺️ Planned
 
@@ -158,9 +171,9 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Serialization**: Schema-driven serialization for components and events. Allows save/load, network replication, and state diffing.
 - **Deterministic Math**: Echo Math module standardizes vector/matrix/transform operations using reproducible algorithms (configurable precision: fixed-point or IEEE-compliant float32). All systems pull from deterministic PRNG services seeded per branch.
 - **Branch Persistence**:
-  - Persistent archetype arena with structural sharing.
-  - Diff records (component type → entity → before/after) stored per node.
-  - Interval index for quick Chronos/Kairos lookup.
+    - Persistent archetype arena with structural sharing.
+    - Diff records (component type → entity → before/after) stored per node.
+    - Interval index for quick Chronos/Kairos lookup.
 - **Entropy & Stability**: Global entropy meter tracks paradox risk; exposed to gameplay and tooling with thresholds triggering mitigation quests or stabilizer systems.
 - **Diagnostics**: Unified logging facade, structured trace events, crash-safe dumps, and opt-in assertions for development builds.
 - **Security & Sandbox**: Optional restrictions for user-generated content or multiplayer host/client boundaries; capability-based access to ports.
@@ -179,7 +192,7 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 
 - **Phase 0 – Spec Deep Dive** ⚠️ Partial: WARP core specs finalized; ECS storage spec exists but not implemented; MaterializationBus implemented (ADR-0003).
 - **Phase 1 – Echo Core MVP** 🗺️ Planned: Entity/component storage, system scheduler, MaterializationBus integration (bus complete, integration pending).
-- **Phase 2 – Adapter Foundations** 🗺️ Planned *(Milestone: "Double-Jump")*: Renderer adapter, input, physics stub.
+- **Phase 2 – Adapter Foundations** 🗺️ Planned _(Milestone: "Double-Jump")_: Renderer adapter, input, physics stub.
 - **Phase 3 – Advanced Adapters** 🗺️ Planned: Physics engines, WebGPU, audio, telemetry.
 - **Phase 4 – Tooling & Polishing** 🗺️ Planned: Inspector, hot-reload, documentation site.
 - **Ongoing**: Benchmark suite, community feedback loop, incremental releases.
@@ -204,9 +217,9 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 - **Data Structure Sketches**: (pending) diagrams for archetype arena, branch tree, Codex’s Baby queues.
 - **Temporal Mechanic Catalogue**: (pending) curated list of déjà vu, Mandela artifacts, paradox mitigation, multiverse puzzles.
 - **Repository Layout (Draft)**:
-  - `/packages/echo-core` — deterministic ECS, scheduler, Codex’s Baby, timeline tree.
-  - `/packages/echo-cli` — tooling launcher (future), wraps dev server and inspector.
-  - `/packages/echo-adapters` — reference adapters (Pixi/WebGPU, browser input, etc).
-  - `/apps/playground` — Vite-driven sandbox for samples and inspector.
-  - `/docs` — specs, diagrams, memorials (human-facing knowledge base).
-  - `/tooling` — shared build scripts, benchmarking harness (future).
+    - `/packages/echo-core` — deterministic ECS, scheduler, Codex’s Baby, timeline tree.
+    - `/packages/echo-cli` — tooling launcher (future), wraps dev server and inspector.
+    - `/packages/echo-adapters` — reference adapters (Pixi/WebGPU, browser input, etc).
+    - `/apps/playground` — Vite-driven sandbox for samples and inspector.
+    - `/docs` — specs, diagrams, memorials (human-facing knowledge base).
+    - `/tooling` — shared build scripts, benchmarking harness (future).

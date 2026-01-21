@@ -89,6 +89,7 @@ mod playback;
 mod provenance_store;
 mod receipt;
 mod record;
+mod retention;
 mod rule;
 mod sandbox;
 mod scheduler;
@@ -141,6 +142,7 @@ pub use playback::{
 pub use provenance_store::{CheckpointRef, HistoryError, LocalProvenanceStore, ProvenanceStore};
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
+pub use retention::RetentionPolicy;
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
 pub use scheduler::SchedulerKind;

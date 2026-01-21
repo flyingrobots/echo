@@ -24,7 +24,9 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
+use crate::graph::GraphStore;
 use crate::ident::{Hash, WarpId};
+use crate::snapshot::compute_state_root_for_warp_store;
 
 use super::worldline::{HashTriplet, OutputFrameSet, WorldlineId, WorldlineTickPatchV1};
 
@@ -234,6 +236,82 @@ impl LocalProvenanceStore {
                 .unwrap_or_else(|e| e);
             history.checkpoints.insert(pos, checkpoint);
         }
+    }
+
+    /// Creates a checkpoint at the given tick by computing the state hash.
+    ///
+    /// This computes the canonical state hash for the given `GraphStore` and
+    /// records a checkpoint at the specified tick. The checkpoint enables fast
+    /// seeking during cursor replay.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    pub fn checkpoint(
+        &mut self,
+        w: WorldlineId,
+        tick: u64,
+        state: &GraphStore,
+    ) -> Result<CheckpointRef, HistoryError> {
+        let history = self
+            .worldlines
+            .get(&w)
+            .ok_or(HistoryError::WorldlineNotFound(w))?;
+
+        let warp_id = history.u0_ref;
+        let state_hash = compute_state_root_for_warp_store(state, warp_id);
+        let checkpoint_ref = CheckpointRef { tick, state_hash };
+
+        self.add_checkpoint(w, checkpoint_ref);
+        Ok(checkpoint_ref)
+    }
+
+    /// Creates a new worldline that is a prefix-copy of the source up to `fork_tick`.
+    ///
+    /// The new worldline shares the same U0 reference as the source and contains
+    /// copies of all history data (patches, expected hashes, outputs, checkpoints)
+    /// from tick 0 through `fork_tick` inclusive.
+    ///
+    /// # Errors
+    ///
+    /// - Returns [`HistoryError::WorldlineNotFound`] if the source worldline doesn't exist.
+    /// - Returns [`HistoryError::HistoryUnavailable`] if `fork_tick` is beyond the
+    ///   available history in the source worldline.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn fork(
+        &mut self,
+        source: WorldlineId,
+        fork_tick: u64,
+        new_id: WorldlineId,
+    ) -> Result<(), HistoryError> {
+        let source_history = self
+            .worldlines
+            .get(&source)
+            .ok_or(HistoryError::WorldlineNotFound(source))?;
+
+        // Validate fork_tick is within available history
+        let source_len = source_history.patches.len();
+        if fork_tick >= source_len as u64 {
+            return Err(HistoryError::HistoryUnavailable { tick: fork_tick });
+        }
+
+        // Copy prefix data up to and including fork_tick
+        let end_idx = (fork_tick + 1) as usize;
+        let new_history = WorldlineHistory {
+            u0_ref: source_history.u0_ref,
+            patches: source_history.patches[..end_idx].to_vec(),
+            expected: source_history.expected[..end_idx].to_vec(),
+            outputs: source_history.outputs[..end_idx].to_vec(),
+            checkpoints: source_history
+                .checkpoints
+                .iter()
+                .filter(|c| c.tick <= fork_tick)
+                .copied()
+                .collect(),
+        };
+
+        self.worldlines.insert(new_id, new_history);
+        Ok(())
     }
 }
 

@@ -48,6 +48,7 @@ mod channel;
 mod emission_port;
 mod emit_key;
 mod frame;
+mod frame_v2;
 mod port;
 mod reduce_op;
 mod scoped_emitter;
@@ -59,6 +60,10 @@ pub use channel::{
 pub use emission_port::EmissionPort;
 pub use emit_key::EmitKey;
 pub use frame::{decode_frames, encode_frames, MaterializationFrame, FRAME_MAGIC, FRAME_VERSION};
+pub use frame_v2::{
+    compute_value_hash, decode_v2_packet, decode_v2_packets, encode_v2_packet, V2Entry, V2Packet,
+    V2PacketHeader, FRAME_VERSION_V2,
+};
 pub use port::MaterializationPort;
 pub use reduce_op::ReduceOp;
 pub use scoped_emitter::ScopedEmitter;

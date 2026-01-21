@@ -268,6 +268,39 @@ pub(crate) fn compute_commit_hash_v2(
 // (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
 // to keep PR-10 scope to README/docs/CI and avoid duplicate content.
 
+/// Computes the state root hash for a single warp's [`GraphStore`].
+///
+/// This function computes a canonical hash of the entire graph state within a
+/// single warp instance, suitable for worldline verification during cursor
+/// replay operations.
+///
+/// # Determinism
+///
+/// The hash uses the same canonical ordering scheme as the full state root:
+/// - Nodes are visited in ascending `NodeId` order
+/// - Edges are sorted by `EdgeId` before hashing
+/// - Attachments are hashed alongside their owners
+///
+/// # Note
+///
+/// This is a simpler version of [`compute_state_root`] that operates on a
+/// single `GraphStore` rather than the full `WarpState`. It's used for
+/// warp-local cursor verification where we don't have multi-warp traversal.
+///
+/// [`GraphStore`]: crate::graph::GraphStore
+pub fn compute_state_root_for_warp_store(
+    store: &crate::graph::GraphStore,
+    _warp_id: WarpId,
+) -> Hash {
+    // Use the existing canonical_state_hash implementation from GraphStore,
+    // which already provides deterministic hashing with proper ordering.
+    // This ensures consistency with the existing hash scheme.
+    //
+    // Note: warp_id is kept as a parameter for API consistency and future use
+    // when we need to incorporate warp identity into the hash computation.
+    store.canonical_state_hash()
+}
+
 fn enqueue_descend(
     state: &WarpState,
     child_warp: WarpId,

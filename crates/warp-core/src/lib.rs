@@ -85,6 +85,8 @@ pub mod inbox;
 /// Materialization subsystem for deterministic channel-based output.
 pub mod materialization;
 mod payload;
+mod playback;
+mod provenance_store;
 mod receipt;
 mod record;
 mod rule;
@@ -99,6 +101,7 @@ mod tick_delta;
 mod tick_patch;
 mod tx;
 mod warp_state;
+mod worldline;
 
 // Re-exports for stable public API
 pub use attachment::{
@@ -131,6 +134,11 @@ pub use payload::{
     encode_motion_payload_q32_32, encode_motion_payload_v0, motion_payload_type_id,
     motion_payload_type_id_v0,
 };
+pub use playback::{
+    CursorId, CursorReceipt, CursorRole, PlaybackCursor, PlaybackMode, SeekError, SeekThen,
+    SessionId, StepResult, TruthFrame, TruthSink, ViewSession,
+};
+pub use provenance_store::{CheckpointRef, HistoryError, LocalProvenanceStore, ProvenanceStore};
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
@@ -140,7 +148,7 @@ pub use scheduler::SchedulerKind;
 pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
 };
-pub use snapshot::Snapshot;
+pub use snapshot::{compute_state_root_for_warp_store, Snapshot};
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
 pub use tick_patch::{
@@ -149,6 +157,10 @@ pub use tick_patch::{
 };
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
+pub use worldline::{
+    apply_warp_op_to_store, ApplyError, HashTriplet, OutputFrameSet, WorldlineId,
+    WorldlineTickHeaderV1, WorldlineTickPatchV1,
+};
 
 /// Zero-copy typed view over an atom payload.
 pub trait AtomView<'a>: Sized {

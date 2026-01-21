@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::expect_fun_call)]
 //! Outputs playback tests for SPEC-0004 Commit 5: Record Outputs Per Tick + Seek/Playback.
 //!
 //! These tests verify:
@@ -713,5 +714,241 @@ fn publish_truth_returns_error_for_unavailable_tick() {
         matches!(result, Err(HistoryError::HistoryUnavailable { tick: 100 })),
         "should be HistoryUnavailable error for tick 100, got: {:?}",
         result
+    );
+}
+
+// ============================================================================
+// T1: writer_play_advances_and_records_outputs
+// ============================================================================
+
+/// T1: Simulate a writer advancing and recording outputs via hexagonal architecture.
+///
+/// This test demonstrates that we can simulate the engine's write behavior by manually
+/// calling `provenance.append()`. The ProvenanceStore trait (port) allows us to test
+/// the write side of the provenance contract without needing the real engine.
+#[test]
+fn writer_play_advances_and_records_outputs() {
+    let warp_id = test_warp_id();
+    let worldline_id = test_worldline_id();
+    let initial_store = create_initial_store(warp_id);
+
+    let mut provenance = LocalProvenanceStore::new();
+    provenance.register_worldline(worldline_id, warp_id);
+
+    // Simulate writer advancing 10 ticks
+    let mut current_store = initial_store.clone();
+    let output_channel = make_channel_id("writer:output");
+
+    for tick in 0..10u64 {
+        // Create a patch for this tick
+        let patch = create_add_node_patch(warp_id, tick, &format!("writer-node-{}", tick));
+
+        // Apply the patch to get the resulting state
+        patch
+            .apply_to_store(&mut current_store)
+            .expect("apply should succeed");
+
+        // Compute state_root from the store
+        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+
+        let triplet = HashTriplet {
+            state_root,
+            patch_digest: patch.patch_digest,
+            commit_hash: [(tick + 200) as u8; 32], // Deterministic commit hash
+        };
+
+        // Create outputs with deterministic values: (channel, vec![tick as u8])
+        let outputs = vec![(output_channel, vec![tick as u8])];
+
+        // Call provenance.append() - this is the hexagonal architecture pattern
+        provenance
+            .append(worldline_id, patch, triplet, outputs)
+            .expect("append should succeed");
+    }
+
+    // Assert: provenance.len(worldline) == 10
+    assert_eq!(
+        provenance.len(worldline_id).expect("len should succeed"),
+        10,
+        "provenance should have 10 entries"
+    );
+
+    // Assert: provenance.expected(worldline, t) exists for t in 0..10
+    for tick in 0..10u64 {
+        let triplet = provenance
+            .expected(worldline_id, tick)
+            .expect(&format!("expected should exist for tick {}", tick));
+
+        // Verify commit_hash matches what we recorded
+        assert_eq!(
+            triplet.commit_hash,
+            [(tick + 200) as u8; 32],
+            "commit_hash should match for tick {}",
+            tick
+        );
+    }
+
+    // Assert: provenance.outputs(worldline, t) contains expected values
+    for tick in 0..10u64 {
+        let outputs = provenance
+            .outputs(worldline_id, tick)
+            .expect(&format!("outputs should exist for tick {}", tick));
+
+        assert_eq!(outputs.len(), 1, "should have 1 output for tick {}", tick);
+        assert_eq!(
+            outputs[0].0, output_channel,
+            "output channel should match for tick {}",
+            tick
+        );
+        assert_eq!(
+            outputs[0].1,
+            vec![tick as u8],
+            "output value should be [{}] for tick {}",
+            tick,
+            tick
+        );
+    }
+}
+
+// ============================================================================
+// T7: truth_frames_are_cursor_addressed_and_authoritative
+// ============================================================================
+
+/// T7: TruthFrames contain proper cursor context and are authoritative.
+///
+/// This test verifies that TruthFrames include correct cursor addressing (tick, commit_hash)
+/// and that seeking to multiple different ticks produces consistent, authoritative frames.
+#[test]
+fn truth_frames_are_cursor_addressed_and_authoritative() {
+    // Setup worldline with 10 ticks and outputs
+    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_outputs(10);
+
+    let position_channel = make_channel_id("entity:position");
+
+    // Create reader cursor
+    let mut cursor = PlaybackCursor::new(
+        test_cursor_id(1),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_store,
+        10,
+    );
+
+    // Create session subscribed to position channel
+    let session_id = test_session_id(1);
+    let mut session = ViewSession::new(session_id, cursor.cursor_id);
+    session.subscribe(position_channel);
+
+    // Test 1: Seek to tick 3, verify receipt and frame values
+    cursor
+        .seek_to(3, &provenance, &initial_store)
+        .expect("seek to tick 3 should succeed");
+    assert_eq!(cursor.tick, 3);
+
+    let mut sink = TruthSink::new();
+    session
+        .publish_truth(&cursor, &provenance, &mut sink)
+        .expect("publish_truth at tick 3 should succeed");
+
+    let receipt_3 = sink.last_receipt(session_id).expect("receipt should exist");
+
+    // Verify receipt has tick == 3
+    assert_eq!(receipt_3.tick, 3, "receipt tick should be 3");
+
+    // Verify receipt has correct commit_hash from provenance.expected(worldline, 3)
+    let expected_triplet_3 = provenance
+        .expected(worldline_id, 3)
+        .expect("expected triplet for tick 3 should exist");
+    assert_eq!(
+        receipt_3.commit_hash, expected_triplet_3.commit_hash,
+        "receipt commit_hash should match provenance.expected(worldline, 3)"
+    );
+
+    // Verify frame values match provenance.outputs(worldline, 3)
+    let frames_3 = sink.collect_frames(session_id);
+    let recorded_outputs_3 = provenance
+        .outputs(worldline_id, 3)
+        .expect("outputs for tick 3 should exist");
+
+    let position_output_3 = recorded_outputs_3
+        .iter()
+        .find(|(ch, _)| *ch == position_channel)
+        .map(|(_, v)| v.clone())
+        .expect("position output should exist at tick 3");
+
+    let position_frame_3 = frames_3
+        .iter()
+        .find(|f| f.channel == position_channel)
+        .expect("position frame should exist at tick 3");
+
+    assert_eq!(
+        position_frame_3.value, position_output_3,
+        "frame value at tick 3 should match recorded output"
+    );
+    // Expected: position at tick 3 is [3, 3, 3]
+    assert_eq!(
+        position_frame_3.value,
+        vec![3u8, 3u8, 3u8],
+        "position value should be [3, 3, 3] at tick 3"
+    );
+
+    // Test 2: Seek to tick 7, verify same invariants
+    cursor
+        .seek_to(7, &provenance, &initial_store)
+        .expect("seek to tick 7 should succeed");
+    assert_eq!(cursor.tick, 7);
+
+    let mut sink = TruthSink::new();
+    session
+        .publish_truth(&cursor, &provenance, &mut sink)
+        .expect("publish_truth at tick 7 should succeed");
+
+    let receipt_7 = sink.last_receipt(session_id).expect("receipt should exist");
+
+    // Verify receipt has tick == 7
+    assert_eq!(receipt_7.tick, 7, "receipt tick should be 7");
+
+    // Verify receipt has correct commit_hash from provenance.expected(worldline, 7)
+    let expected_triplet_7 = provenance
+        .expected(worldline_id, 7)
+        .expect("expected triplet for tick 7 should exist");
+    assert_eq!(
+        receipt_7.commit_hash, expected_triplet_7.commit_hash,
+        "receipt commit_hash should match provenance.expected(worldline, 7)"
+    );
+
+    // Verify frame values match provenance.outputs(worldline, 7)
+    let frames_7 = sink.collect_frames(session_id);
+    let recorded_outputs_7 = provenance
+        .outputs(worldline_id, 7)
+        .expect("outputs for tick 7 should exist");
+
+    let position_output_7 = recorded_outputs_7
+        .iter()
+        .find(|(ch, _)| *ch == position_channel)
+        .map(|(_, v)| v.clone())
+        .expect("position output should exist at tick 7");
+
+    let position_frame_7 = frames_7
+        .iter()
+        .find(|f| f.channel == position_channel)
+        .expect("position frame should exist at tick 7");
+
+    assert_eq!(
+        position_frame_7.value, position_output_7,
+        "frame value at tick 7 should match recorded output"
+    );
+    // Expected: position at tick 7 is [7, 7, 7]
+    assert_eq!(
+        position_frame_7.value,
+        vec![7u8, 7u8, 7u8],
+        "position value should be [7, 7, 7] at tick 7"
+    );
+
+    // Verify different ticks have different commit_hashes (authoritative)
+    assert_ne!(
+        receipt_3.commit_hash, receipt_7.commit_hash,
+        "commit_hash at tick 3 should differ from tick 7"
     );
 }

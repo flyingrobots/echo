@@ -35,9 +35,11 @@
 
 ### Tests - SPEC-0004
 
-- **18/22 tests passing**: T1-T10, T14-T15, T17-T22
+- **22/22 tests passing**: T1-T22
+- **`crates/warp-core/tests/reducer_emission_tests.rs`**: 19 tests for T11-T13 (reducer integration)
+- **`crates/warp-core/tests/view_session_tests.rs`**: T16 added (2 tests for worker count invariance)
 - **Hexagonal testing**: T1 and T7 test playback contract using ProvenanceStore fakes
-- **Pending**: T11-T13 (reducer integration), T16 (worker count invariance)
+- **Total warp-core tests**: 538
 
 ### Added - Cross-Warp Parallelism (Phase 6B+)
 

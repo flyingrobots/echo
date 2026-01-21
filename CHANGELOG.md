@@ -5,6 +5,40 @@
 
 ## Unreleased
 
+### Added - SPEC-0004: Worldlines & Playback
+
+- **`worldline.rs`**: Worldline types for history tracking
+    - `WorldlineId(Hash)`: Content-addressed worldline identifier
+    - `HashTriplet`: state_root + patch_digest + commit_hash per tick
+    - `WorldlineTickPatchV1`: Per-warp projection of global tick operations
+    - `apply_warp_op_to_store()`: Apply WarpOp to GraphStore with explicit variant coverage
+
+- **`playback.rs`**: Playback cursor and session types
+    - `PlaybackCursor`: Materialized viewpoint into worldline history
+    - `PlaybackMode`: Paused, Play, StepForward, StepBack, Seek state machine
+    - `ViewSession`: Client subscription binding with channel filtering
+    - `TruthSink`: Minimal BTreeMap-based frame collector
+    - `CursorReceipt`, `TruthFrame`: Cursor-addressed authoritative values
+
+- **`provenance_store.rs`**: Provenance store trait (hexagonal port)
+    - `ProvenanceStore` trait: Seam for history access (patches, expected hashes, outputs)
+    - `LocalProvenanceStore`: In-memory Vec-backed implementation
+    - `checkpoint()`: Create checkpoint by computing state hash
+    - `fork()`: Prefix-copy worldline up to fork_tick
+
+- **`retention.rs`**: Retention policy for worldline history
+    - `RetentionPolicy` enum: KeepAll, CheckpointEvery, KeepRecent, ArchiveToWormhole
+
+- **`materialization/frame_v2.rs`**: MBUS v2 wire format with cursor stamps
+    - `V2Packet`: Cursor-stamped truth frame packets
+    - `encode_v2_packet()`, `decode_v2_packet()`: Roundtrip encoding
+
+### Tests - SPEC-0004
+
+- **18/22 tests passing**: T1-T10, T14-T15, T17-T22
+- **Hexagonal testing**: T1 and T7 test playback contract using ProvenanceStore fakes
+- **Pending**: T11-T13 (reducer integration), T16 (worker count invariance)
+
 ### Added - Cross-Warp Parallelism (Phase 6B+)
 
 - **`WorkUnit` struct** (`boaw/exec.rs`): Work unit carrying `warp_id` + items for one shard

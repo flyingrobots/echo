@@ -53,12 +53,12 @@ Hashes match. Determinism verified.
 
 ## Why?
 
-| Problem                                | Echo's Answer                                     |
-| -------------------------------------- | ------------------------------------------------- |
-| "Replay diverged after 10,000 ticks"   | Deterministic scheduler + fixed-point math        |
-| "Which client has the correct state?"  | Compare 32-byte tick hashes                       |
-| "We can't reproduce that bug"          | Every tick is content-addressed and replayable    |
-| "Syncing state is expensive"           | Stream diffs, verify hashes, done                 |
+| Problem                               | Echo's Answer                                  |
+| ------------------------------------- | ---------------------------------------------- |
+| "Replay diverged after 10,000 ticks"  | Deterministic scheduler + fixed-point math     |
+| "Which client has the correct state?" | Compare 32-byte tick hashes                    |
+| "We can't reproduce that bug"         | Every tick is content-addressed and replayable |
+| "Syncing state is expensive"          | Stream diffs, verify hashes, done              |
 
 If you've ever built a game, simulation, or distributed system and wished state had Git-like properties—branches, merges, provable history—that's what we're building.
 
@@ -87,12 +87,13 @@ Echo is a high-performance graph rewriting engine written in Rust, designed to r
 
 #### Time Travel Debugger + WARPSITE
 
-True, deterministic **Time Travel Debugging** (TTD) is always available by default—not something you have to record or prepare for in advance. Made possible by [WARP graph](https://doi.org/10.5281/zenodo.17908005) [rewriting](https://doi.org/10.5281/zenodo.17963669), each tick's [computational hologram](https://doi.org/10.5281/zenodo.17963669) is captured in an immutable, append-only, tamper-evident ledger. Step backwards to any previous tick, then forward again. Exactly the same every time, bit-for-bit, cryptographically verified. Want to see what *could* have happened? Fork to a different worldline, try something different, then discard it and return to your original timeline.
+True, deterministic **Time Travel Debugging** (TTD) is always available by default—not something you have to record or prepare for in advance. Made possible by [WARP graph](https://doi.org/10.5281/zenodo.17908005) [rewriting](https://doi.org/10.5281/zenodo.17963669), each tick's [computational hologram](https://doi.org/10.5281/zenodo.17963669) is captured in an immutable, append-only, tamper-evident ledger. Step backwards to any previous tick, then forward again. Exactly the same every time, bit-for-bit, cryptographically verified. Want to see what _could_ have happened? Fork to a different worldline, try something different, then discard it and return to your original timeline.
 
+- ✅ **Worldlines & Playback** (SPEC-0004)—Foundation for TTD: PlaybackCursor, ViewSession, ProvenanceStore
 - Time Travel Debugging (TTD) Part 1—Tick Inspector + Rewind/Jump to Previous Tick (In Progress)
 - WARPSITE (In Progress)
 - [Wesley](https://github.com/flyingrobots/wesley)—GraphQL-as-schema → Rust/TypeScript Compiler
-- TTD Part 2—Fork Worldlines
+- ✅ **Fork Worldlines** (SPEC-0004)—`LocalProvenanceStore::fork()` prefix-copy implemented
 
 #### Then: Splash Guy Tutorial Demo
 

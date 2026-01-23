@@ -15,13 +15,16 @@
 //! # What This Measures
 //!
 //! - `serial_vs_parallel_N`: Compare parallel sharded execution vs serial baseline
+//! - `work_queue_pipeline_N`: Full Phase 6B pipeline (build_work_units → execute_work_queue)
 //! - `worker_scaling_100`: How throughput scales with worker count (1, 2, 4, 8, 16)
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use std::collections::BTreeMap;
 use std::time::Duration;
+use warp_core::boaw::{build_work_units, execute_work_queue};
 use warp_core::{
-    execute_parallel, execute_serial, make_node_id, make_type_id, AtomPayload, AttachmentKey,
-    AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord, OpOrigin,
-    TickDelta, WarpOp,
+    execute_parallel, execute_serial, make_node_id, make_type_id, make_warp_id, AtomPayload,
+    AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord,
+    OpOrigin, TickDelta, WarpId, WarpOp,
 };
 
 /// Simple executor that sets an attachment on the scope node.
@@ -124,7 +127,83 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
     group.finish();
 }
 
-// TODO: Add benchmark for full work-queue + merge pipeline (Phase 6B path)
+// =============================================================================
+// Phase 6B work-queue + merge pipeline
+// =============================================================================
+
+/// Create a multi-warp test setup with `num_warps` warps, each having `items_per_warp` nodes.
+fn make_multi_warp_setup(
+    num_warps: usize,
+    items_per_warp: usize,
+) -> (
+    BTreeMap<WarpId, GraphStore>,
+    BTreeMap<WarpId, Vec<ExecItem>>,
+) {
+    let mut stores = BTreeMap::new();
+    let mut items_by_warp = BTreeMap::new();
+
+    for w in 0..num_warps {
+        let warp_id = make_warp_id(&format!("bench/warp-{w}"));
+        let node_ty = make_type_id("bench/node");
+        let mut store = GraphStore::default();
+        let mut items = Vec::with_capacity(items_per_warp);
+
+        for i in 0..items_per_warp {
+            let id = make_node_id(&format!("bench/w{w}/n{i}"));
+            store.insert_node(id, NodeRecord { ty: node_ty });
+            items.push(ExecItem {
+                exec: touch_executor,
+                scope: id,
+                origin: OpOrigin {
+                    intent_id: (w * items_per_warp + i) as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            });
+        }
+
+        stores.insert(warp_id, store);
+        items_by_warp.insert(warp_id, items);
+    }
+
+    (stores, items_by_warp)
+}
+
+fn bench_work_queue(c: &mut Criterion) {
+    let mut group = c.benchmark_group("work_queue_pipeline");
+    group
+        .warm_up_time(Duration::from_secs(2))
+        .measurement_time(Duration::from_secs(5))
+        .sample_size(50);
+
+    // Vary total items across multiple warps (4 warps × N items each)
+    let num_warps = 4;
+    for &items_per_warp in &[10usize, 100, 250] {
+        let total = num_warps * items_per_warp;
+        group.throughput(Throughput::Elements(total as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("build_and_execute_4w", total),
+            &items_per_warp,
+            |b, &ipw| {
+                b.iter_batched(
+                    || make_multi_warp_setup(num_warps, ipw),
+                    |(stores, items_by_warp)| {
+                        let units = build_work_units(items_by_warp.into_iter());
+                        let workers = 4.min(units.len().max(1));
+                        let deltas =
+                            execute_work_queue(&units, workers, |warp_id| stores.get(warp_id))
+                                .expect("bench: all stores exist");
+                        criterion::black_box(deltas)
+                    },
+                    BatchSize::SmallInput,
+                )
+            },
+        );
+    }
+    group.finish();
+}
 
 // =============================================================================
 // Worker scaling at fixed workload (100 items)
@@ -164,5 +243,10 @@ fn bench_worker_scaling(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_serial_vs_parallel, bench_worker_scaling);
+criterion_group!(
+    benches,
+    bench_serial_vs_parallel,
+    bench_work_queue,
+    bench_worker_scaling
+);
 criterion_main!(benches);

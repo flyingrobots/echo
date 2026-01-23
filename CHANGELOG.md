@@ -80,7 +80,7 @@
 - **P1: OOM prevention** (`materialization/frame_v2.rs`): Bound `entry_count` by remaining payload size in `decode_v2_packet` to prevent malicious allocation
 - **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
 - **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
-- **P1: Silent skip → panic** (`boaw/exec.rs`): Replaced `debug_assert!` + `continue` with `.expect()` for missing view resolution
+- **P1: Silent skip → Result** (`boaw/exec.rs`): Replaced `debug_assert!` + `continue` with `Result`-based error propagation for missing view resolution
 - **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
 - **P2: Markdownlint rationale** (`.markdownlint.json`): Added `rationale` key for MD060 rule
 - **P2: Test hardening** (`tests/`): Added u8 truncation guards (`num_ticks <= 127`), `commit_hash` assertion, updated playback tests to match corrected `publish_truth` indexing
@@ -123,11 +123,6 @@
     - Workers claim shards via `AtomicUsize` (lockless work-stealing)
     - Items in same shard processed together for cache locality
     - Worker count capped at `min(workers, NUM_SHARDS)` to prevent over-threading
-
-- **Stride fallback** (`boaw/exec.rs`): Feature-gated Phase 6A fallback
-    - Requires `parallel-stride-fallback` feature + `ECHO_PARALLEL_STRIDE=1` env var
-    - Prints loud ASCII warning banner when activated
-    - Temporary A/B benchmarking path; will be removed in a future release
 
 - **5 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
     - `sharded_equals_stride`: Key correctness proof for 6A → 6B transition

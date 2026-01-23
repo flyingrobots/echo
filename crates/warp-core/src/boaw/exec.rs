@@ -209,7 +209,12 @@ pub fn build_work_units(by_warp: impl Iterator<Item = (WarpId, Vec<ExecItem>)>) 
 ///
 /// # Returns
 ///
-/// One `TickDelta` per worker, to be merged by caller.
+/// `Ok(deltas)` with one `TickDelta` per worker, to be merged by caller.
+///
+/// # Errors
+///
+/// Returns `Err(warp_id)` if `resolve_store` returned `None` for a unit's
+/// warp, indicating the caller failed to validate store availability.
 ///
 /// # Panics
 ///
@@ -218,14 +223,14 @@ pub fn execute_work_queue<'state, F>(
     units: &[WorkUnit],
     workers: usize,
     resolve_store: F,
-) -> Vec<TickDelta>
+) -> Result<Vec<TickDelta>, WarpId>
 where
     F: Fn(&WarpId) -> Option<&'state GraphStore> + Sync,
 {
     assert!(workers > 0, "workers must be > 0");
 
     if units.is_empty() {
-        return (0..workers).map(|_| TickDelta::new()).collect();
+        return Ok((0..workers).map(|_| TickDelta::new()).collect());
     }
 
     let next_unit = AtomicUsize::new(0);
@@ -237,7 +242,7 @@ where
                 let next_unit = &next_unit;
                 let resolve_store = &resolve_store;
 
-                s.spawn(move || {
+                s.spawn(move || -> Result<TickDelta, WarpId> {
                     let mut delta = TickDelta::new();
 
                     // Work-stealing loop: claim units until none remain
@@ -250,10 +255,7 @@ where
                         let unit = &units[unit_idx];
 
                         // Resolve view for this warp (per-unit, NOT cached across units)
-                        #[allow(clippy::expect_used)]
-                        // Invariant: warp must have a store during execution
-                        let store = resolve_store(&unit.warp_id)
-                            .expect("BUG: missing store for warp during execution");
+                        let store = resolve_store(&unit.warp_id).ok_or(unit.warp_id)?;
                         let view = GraphView::new(store);
 
                         // Execute items SERIALLY (no nested threading!)
@@ -265,7 +267,7 @@ where
                         // View dropped here - no long-lived borrows across warps
                     }
 
-                    delta
+                    Ok(delta)
                 })
             })
             .collect();
@@ -273,7 +275,7 @@ where
         handles
             .into_iter()
             .map(|h| match h.join() {
-                Ok(delta) => delta,
+                Ok(result) => result,
                 Err(e) => std::panic::resume_unwind(e),
             })
             .collect()

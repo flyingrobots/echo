@@ -1241,7 +1241,12 @@ impl Engine {
         // Execute all units in parallel across warps (single spawn site)
         // Views resolved per-unit inside threads, dropped before next unit
         let all_deltas =
-            execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id));
+            execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id))
+                .map_err(|_| {
+                    EngineError::InternalCorruption(
+                        "execute_work_queue: missing store for warp during execution",
+                    )
+                })?;
 
         // 3. Merge deltas - use merge_deltas for conflict detection under delta_validate
         #[cfg(any(test, feature = "delta_validate"))]

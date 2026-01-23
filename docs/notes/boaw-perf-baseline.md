@@ -50,9 +50,14 @@
 | 8       | 184,301   | 1.8x slower |
 | 16      | 296,992   | 2.9x slower |
 
-> **Note:** The measurements above are point estimates from Criterion. Full
-> CI/variance data (including confidence intervals and outlier classification)
-> is available in the raw Criterion output directory (`target/criterion/`).
+> **Statistical Context:** The measurements above are point estimates from
+> Criterion (sample size: 50 iterations, measurement time: 5s, warm-up: 2s).
+> Criterion computes 95% confidence intervals using bootstrap resampling and
+> classifies outliers (mild/severe) per run. Full CI/variance data, including
+> `[lower bound, estimate, upper bound]` triplets and R² goodness-of-fit
+> indicators, is available in the raw Criterion output directory
+> (`target/criterion/`). To view formatted results with CIs, run the benchmark
+> and open `target/criterion/report/index.html`.
 
 ---
 

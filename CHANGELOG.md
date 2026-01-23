@@ -63,6 +63,7 @@
 
 - **`WarpOpKey` now public** (`tick_patch.rs`): Export `WarpOpKey` from `warp_core` public API
 - **`WarpOp::sort_key()` now public**: Changed from `pub(crate)` to `pub` to enable external determinism verification
+- **`compute_commit_hash_v2` now public** (`snapshot.rs`): Promoted from `pub(crate)` to `pub` and re-exported from `warp_core`; enables external Merkle chain verification
 
 ### Removed - Tier 0 Cleanup
 
@@ -76,14 +77,17 @@
 
 - **P0: Off-by-one in `publish_truth`** (`playback.rs`): Query `prov_tick = cursor.tick - 1` (0-based index of last applied patch) instead of `cursor.tick`; added early-return guard for `cursor.tick == 0`
 - **P0: Wrong package in bench docs** (`docs/notes/boaw-perf-baseline.md`): Corrected `warp-core` → `warp-benches`
-- **P1: Dead variant removal** (`playback.rs`): Removed `SeekError::CommitHashMismatch` (never constructed) and `SeekThen::RestorePrevious` (broken semantics)
+- **P1: Merkle chain verification** (`playback.rs`): `seek_to` now verifies `patch_digest`, recomputes `commit_hash` via `compute_commit_hash_v2`, and tracks parent chain per tick; added `SeekError::PatchDigestMismatch` and `SeekError::CommitHashMismatch` variants
+- **P1: Dead variant removal** (`playback.rs`): Removed `SeekThen::RestorePrevious` (broken semantics; treated identically to `Pause`)
 - **P1: OOM prevention** (`materialization/frame_v2.rs`): Bound `entry_count` by remaining payload size in `decode_v2_packet` to prevent malicious allocation
 - **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
 - **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
-- **P1: Silent skip → Result** (`boaw/exec.rs`): Replaced `debug_assert!` + `continue` with `Result`-based error propagation for missing view resolution
+- **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Result<Vec<TickDelta>, WarpId>` instead of panicking on missing store; caller maps to `EngineError::InternalCorruption`
 - **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
-- **P2: Markdownlint rationale** (`.markdownlint.json`): Added `rationale` key for MD060 rule
-- **P2: Test hardening** (`tests/`): Added u8 truncation guards (`num_ticks <= 127`), `commit_hash` assertion, updated playback tests to match corrected `publish_truth` indexing
+- **P2: Markdownlint MD060** (`.markdownlint.json`): Removed global MD060 disable (all tables are well-formed; no false positives to suppress)
+- **P2: Test hardening** (`tests/`): Real `compute_commit_hash_v2` in all test worldline setups, u8 truncation guards (`num_ticks <= 127`), updated playback tests to match corrected `publish_truth` indexing
+- **Trivial: Phase 6B benchmark** (`boaw_baseline.rs`): Added `bench_work_queue` exercising full `build_work_units → execute_work_queue` pipeline across multi-warp setups
+- **Trivial: Perf baseline stats** (`docs/notes/boaw-perf-baseline.md`): Expanded statistical context note with sample size, CI methodology, and Criterion report location
 
 ### Fixed - PR #257 Review
 

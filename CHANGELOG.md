@@ -72,6 +72,19 @@
     - Deleted `sharded_equals_stride` and `sharded_equals_stride_permuted` tests (no longer needed post-transition)
 - **Deprecated `emit_view_op_delta()`** (`rules.rs`): Deleted non-deterministic function that used `delta.len()` sequencing
 
+### Fixed - CodeRabbitAI Review (PR #260)
+
+- **P0: Off-by-one in `publish_truth`** (`playback.rs`): Query `prov_tick = cursor.tick - 1` (0-based index of last applied patch) instead of `cursor.tick`; added early-return guard for `cursor.tick == 0`
+- **P0: Wrong package in bench docs** (`docs/notes/boaw-perf-baseline.md`): Corrected `warp-core` → `warp-benches`
+- **P1: Dead variant removal** (`playback.rs`): Removed `SeekError::CommitHashMismatch` (never constructed) and `SeekThen::RestorePrevious` (broken semantics)
+- **P1: OOM prevention** (`materialization/frame_v2.rs`): Bound `entry_count` by remaining payload size in `decode_v2_packet` to prevent malicious allocation
+- **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
+- **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
+- **P1: Silent skip → panic** (`boaw/exec.rs`): Replaced `debug_assert!` + `continue` with `.expect()` for missing view resolution
+- **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
+- **P2: Markdownlint rationale** (`.markdownlint.json`): Added `rationale` key for MD060 rule
+- **P2: Test hardening** (`tests/`): Added u8 truncation guards (`num_ticks <= 127`), `commit_hash` assertion, updated playback tests to match corrected `publish_truth` indexing
+
 ### Fixed - PR #257 Review
 
 - **pre-commit hook**: Preserve stderr in prettier checks (changed `>/dev/null 2>&1` to `>/dev/null`) so errors are visible

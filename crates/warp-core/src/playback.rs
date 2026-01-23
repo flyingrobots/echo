@@ -365,20 +365,12 @@ impl PlaybackCursor {
             .len(self.worldline_id)
             .map_err(|_| SeekError::HistoryUnavailable { tick: target })?;
 
-        // Target tick must be < history_len (0-indexed)
-        // If history_len is 5, valid ticks are 0, 1, 2, 3, 4
-        // But tick 0 means "after applying patch 0", so target <= history_len - 1
-        // However, we also allow target = 0 to mean "initial state before any patches"
-        // For this implementation, tick N means "state after applying patches 0..N"
-        // So valid targets are 0 <= target < history_len OR target == 0 when history_len == 0
+        // Tick represents the number of patches applied:
+        //   tick 0 = initial state (no patches applied)
+        //   tick N = state after patches 0..N-1 are applied
         //
-        // Actually, let's clarify: tick represents the number of patches applied.
-        // tick 0 = initial state (no patches applied)
-        // tick 1 = after patch 0 is applied
-        // tick N = after patches 0..N-1 are applied
-        //
-        // So if history_len = 5 (patches 0-4 exist), valid ticks are 0-5.
-        // target = 5 means "after all 5 patches applied"
+        // With history_len patches available (indices 0..history_len-1),
+        // valid targets are 0..=history_len.
         if target > history_len {
             return Err(SeekError::HistoryUnavailable { tick: target });
         }
@@ -481,11 +473,13 @@ impl PlaybackCursor {
             PlaybackMode::StepForward => {
                 if self.role == CursorRole::Reader {
                     self.seek_to(self.tick + 1, provenance, initial_store)?;
+                    self.mode = PlaybackMode::Paused;
+                    Ok(StepResult::Advanced)
+                } else {
+                    // Writers advance via provenance.append(), not cursor stepping.
+                    self.mode = PlaybackMode::Paused;
+                    Ok(StepResult::NoOp)
                 }
-                // Writer case: stub - actual advance handled by engine
-                // Transition to Paused regardless
-                self.mode = PlaybackMode::Paused;
-                Ok(StepResult::Advanced)
             }
 
             PlaybackMode::StepBack => {

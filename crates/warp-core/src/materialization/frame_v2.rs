@@ -39,6 +39,34 @@
 
 use super::channel::ChannelId;
 use crate::ident::{Hash, TypeId, WarpId};
+use core::fmt;
+
+/// Error returned when encoding a v2 packet fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EncodeError {
+    /// The computed payload size exceeds the maximum encodable size (`u32::MAX`).
+    PayloadTooLarge {
+        /// The actual payload size in bytes.
+        actual: usize,
+        /// The maximum allowed payload size.
+        max: usize,
+    },
+}
+
+impl fmt::Display for EncodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PayloadTooLarge { actual, max } => {
+                write!(
+                    f,
+                    "payload size ({actual} bytes) exceeds maximum encodable size ({max} bytes)"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for EncodeError {}
 
 /// Frame magic bytes: "MBUS" in ASCII (shared with v1).
 pub const FRAME_MAGIC: [u8; 4] = [0x4D, 0x42, 0x55, 0x53];
@@ -108,9 +136,17 @@ impl V2Packet {
 /// # Wire-Format Limitation
 ///
 /// The `payload_len` field is encoded as a [`u32`], so total payload must fit.
-/// In debug builds, panics if payload exceeds [`u32::MAX`].
+/// Returns [`EncodeError::PayloadTooLarge`] if payload exceeds [`u32::MAX`].
+///
+/// # Errors
+///
+/// Returns [`EncodeError::PayloadTooLarge`] if the computed payload size exceeds
+/// `u32::MAX` bytes.
 #[allow(clippy::cast_possible_truncation)]
-pub fn encode_v2_packet(header: &V2PacketHeader, entries: &[V2Entry]) -> Vec<u8> {
+pub fn encode_v2_packet(
+    header: &V2PacketHeader,
+    entries: &[V2Entry],
+) -> Result<Vec<u8>, EncodeError> {
     // Calculate payload size
     let entries_size: usize = entries
         .iter()
@@ -118,10 +154,12 @@ pub fn encode_v2_packet(header: &V2PacketHeader, entries: &[V2Entry]) -> Vec<u8>
         .sum();
     let payload_len = RECEIPT_SIZE_V2 + 4 + entries_size; // receipt + entry_count + entries
 
-    debug_assert!(
-        u32::try_from(payload_len).is_ok(),
-        "payload_len ({payload_len}) exceeds u32::MAX"
-    );
+    if u32::try_from(payload_len).is_err() {
+        return Err(EncodeError::PayloadTooLarge {
+            actual: payload_len,
+            max: u32::MAX as usize,
+        });
+    }
 
     let total_len = HEADER_SIZE_V2 + payload_len;
     let mut buf = Vec::with_capacity(total_len);
@@ -151,7 +189,7 @@ pub fn encode_v2_packet(header: &V2PacketHeader, entries: &[V2Entry]) -> Vec<u8>
         buf.extend_from_slice(&entry.value);
     }
 
-    buf
+    Ok(buf)
 }
 
 /// Decodes a single v2 packet from bytes.
@@ -339,7 +377,7 @@ mod tests {
         let entries = test_entries();
 
         // Act
-        let encoded = encode_v2_packet(&header, &entries);
+        let encoded = encode_v2_packet(&header, &entries).expect("encode should succeed");
         let decoded = decode_v2_packet(&encoded).expect("decode should succeed");
 
         // Assert: decoded receipt fields equal original
@@ -371,7 +409,8 @@ mod tests {
     #[test]
     fn mbus_v1_rejects_v2() {
         // Arrange: build a valid v2 packet
-        let v2_bytes = encode_v2_packet(&test_header(), &test_entries());
+        let v2_bytes =
+            encode_v2_packet(&test_header(), &test_entries()).expect("encode should succeed");
 
         // Act: call v1 decoder on v2 bytes
         let result = MaterializationFrame::decode(&v2_bytes);
@@ -444,8 +483,11 @@ mod tests {
         ];
 
         // Act: concatenate encoded packets
-        let mut concat_bytes = encode_v2_packet(&p1_header, &p1_entries);
-        concat_bytes.extend_from_slice(&encode_v2_packet(&p2_header, &p2_entries));
+        let mut concat_bytes =
+            encode_v2_packet(&p1_header, &p1_entries).expect("encode p1 should succeed");
+        concat_bytes.extend_from_slice(
+            &encode_v2_packet(&p2_header, &p2_entries).expect("encode p2 should succeed"),
+        );
 
         let decoded = decode_v2_packets(&concat_bytes).expect("multi-packet decode should succeed");
 
@@ -469,7 +511,7 @@ mod tests {
         let header = test_header();
         let entries: Vec<V2Entry> = vec![];
 
-        let encoded = encode_v2_packet(&header, &entries);
+        let encoded = encode_v2_packet(&header, &entries).expect("encode should succeed");
         let decoded = decode_v2_packet(&encoded).expect("empty entries should decode");
 
         assert_eq!(decoded.header, header);
@@ -478,14 +520,16 @@ mod tests {
 
     #[test]
     fn decode_rejects_bad_magic() {
-        let mut bad = encode_v2_packet(&test_header(), &test_entries());
+        let mut bad =
+            encode_v2_packet(&test_header(), &test_entries()).expect("encode should succeed");
         bad[0] = 0xFF; // corrupt magic
         assert!(decode_v2_packet(&bad).is_none());
     }
 
     #[test]
     fn decode_rejects_truncated() {
-        let encoded = encode_v2_packet(&test_header(), &test_entries());
+        let encoded =
+            encode_v2_packet(&test_header(), &test_entries()).expect("encode should succeed");
         let truncated = &encoded[..encoded.len() - 1];
         assert!(decode_v2_packet(truncated).is_none());
     }
@@ -498,7 +542,7 @@ mod tests {
 
     #[test]
     fn header_size_correct() {
-        let encoded = encode_v2_packet(&test_header(), &[]);
+        let encoded = encode_v2_packet(&test_header(), &[]).expect("encode should succeed");
         // Header(12) + receipt(168) + entry_count(4) = 184
         assert_eq!(encoded.len(), HEADER_SIZE_V2 + MIN_PAYLOAD_SIZE_V2);
     }

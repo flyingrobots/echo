@@ -46,6 +46,18 @@ pub enum HistoryError {
     /// The requested worldline does not exist.
     #[error("worldline not found: {0:?}")]
     WorldlineNotFound(WorldlineId),
+
+    /// The provided tick does not match the expected next tick (append-only invariant).
+    ///
+    /// This occurs when attempting to append a tick that would create a gap or
+    /// overlap in the history sequence.
+    #[error("tick gap: expected tick {expected}, got {got}")]
+    TickGap {
+        /// The tick that was expected (current history length).
+        expected: u64,
+        /// The tick that was provided.
+        got: u64,
+    },
 }
 
 /// Reference to a checkpoint within the provenance store.
@@ -205,7 +217,9 @@ impl LocalProvenanceStore {
     ///
     /// # Errors
     ///
-    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    /// - Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    /// - Returns [`HistoryError::TickGap`] if the patch's `global_tick` doesn't equal the
+    ///   current history length (the expected next tick).
     pub fn append(
         &mut self,
         w: WorldlineId,
@@ -217,6 +231,15 @@ impl LocalProvenanceStore {
             .worldlines
             .get_mut(&w)
             .ok_or(HistoryError::WorldlineNotFound(w))?;
+
+        let expected_tick = history.patches.len() as u64;
+        let got_tick = patch.global_tick();
+        if got_tick != expected_tick {
+            return Err(HistoryError::TickGap {
+                expected: expected_tick,
+                got: got_tick,
+            });
+        }
 
         history.patches.push(patch);
         history.expected.push(expected);

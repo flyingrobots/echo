@@ -467,7 +467,7 @@ fn truth_frames_encode_to_mbus_v2() {
         .collect();
 
     // Encode to bytes
-    let encoded = encode_v2_packet(&v2_header, &v2_entries);
+    let encoded = encode_v2_packet(&v2_header, &v2_entries).expect("encode should succeed");
 
     // Decode back
     let decoded = decode_v2_packet(&encoded).expect("decode should succeed");

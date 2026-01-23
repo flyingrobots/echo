@@ -491,7 +491,7 @@ fn merged_ops_are_canonically_ordered() {
         .iter()
         .filter_map(|op| {
             if let WarpOp::SetAttachment { key, .. } = op {
-                Some(key.clone())
+                Some(*key)
             } else {
                 None
             }

@@ -11,8 +11,8 @@ use common::{
     test_warp_id, test_worldline_id,
 };
 use warp_core::{
-    compute_state_root_for_warp_store, CursorRole, HashTriplet, LocalProvenanceStore,
-    PlaybackCursor, ProvenanceStore, SeekError,
+    compute_commit_hash_v2, compute_state_root_for_warp_store, CursorRole, Hash, HashTriplet,
+    LocalProvenanceStore, PlaybackCursor, ProvenanceStore, SeekError,
 };
 
 /// T14: cursor_seek_fails_on_corrupt_patch_or_hash_mismatch
@@ -28,8 +28,9 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
     let mut provenance = LocalProvenanceStore::new();
     provenance.register_worldline(worldline_id, warp_id);
 
-    // Build up 10 ticks, but corrupt the expected hash at tick 6
+    // Build up 10 ticks, but corrupt the expected state_root at tick 6
     let mut current_store = initial_store.clone();
+    let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..10u64 {
         let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
@@ -50,15 +51,26 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
             compute_state_root_for_warp_store(&current_store, warp_id)
         };
 
+        // Compute real commit_hash for valid Merkle chain (even for corrupt tick 6,
+        // the state_root mismatch is caught before commit_hash is checked)
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
         let triplet = HashTriplet {
             state_root,
             patch_digest: patch.patch_digest,
-            commit_hash: [(tick + 100) as u8; 32],
+            commit_hash,
         };
 
         provenance
             .append(worldline_id, patch, triplet, vec![])
             .expect("append should succeed");
+
+        parents = vec![commit_hash];
     }
 
     // Create a cursor starting at tick 0
@@ -360,10 +372,16 @@ fn duplicate_worldline_registration_is_idempotent() {
         .apply_to_store(&mut current_store)
         .expect("apply should succeed");
     let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+    let commit_hash = compute_commit_hash_v2(
+        &state_root,
+        &[], // No parents for first tick
+        &patch.patch_digest,
+        patch.header.policy_id,
+    );
     let triplet = HashTriplet {
         state_root,
         patch_digest: patch.patch_digest,
-        commit_hash: [100u8; 32],
+        commit_hash,
     };
     provenance
         .append(worldline_id, patch, triplet, vec![])

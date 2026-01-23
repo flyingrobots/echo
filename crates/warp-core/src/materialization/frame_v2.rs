@@ -716,4 +716,36 @@ mod tests {
             "v1 and v2 versions must differ"
         );
     }
+
+    #[test]
+    fn decode_v2_rejects_oversized_entry_count() {
+        // Build a minimal valid header with entry_count = u32::MAX but tiny payload
+        let mut buf = Vec::new();
+        // Header: magic + version + reserved + payload_len
+        buf.extend_from_slice(&FRAME_MAGIC);
+        buf.extend_from_slice(&FRAME_VERSION_V2.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes()); // reserved
+
+        // Payload = receipt (168 bytes) + entry_count (4) = 172 bytes
+        #[allow(clippy::cast_possible_truncation)] // test constant, always fits u32
+        let payload_len = (RECEIPT_SIZE_V2 + 4) as u32;
+        buf.extend_from_slice(&payload_len.to_le_bytes());
+
+        // Receipt fields (168 bytes of zeros)
+        buf.extend_from_slice(&[0u8; 32]); // session_id
+        buf.extend_from_slice(&[0u8; 32]); // cursor_id
+        buf.extend_from_slice(&[0u8; 32]); // worldline_id
+        buf.extend_from_slice(&[0u8; 32]); // warp_id
+        buf.extend_from_slice(&0u64.to_le_bytes()); // tick
+        buf.extend_from_slice(&[0u8; 32]); // commit_hash
+
+        // Entry count: u32::MAX (malicious)
+        buf.extend_from_slice(&u32::MAX.to_le_bytes());
+
+        let result = decode_v2_packet(&buf);
+        assert!(
+            matches!(result, Err(DecodeError::InvalidEntryCount)),
+            "expected InvalidEntryCount, got: {result:?}",
+        );
+    }
 }

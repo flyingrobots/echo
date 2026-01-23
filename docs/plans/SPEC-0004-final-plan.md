@@ -127,9 +127,9 @@
 
 **Truth Sink (minimal, per correction #4):**
 
-- `TruthSink = BTreeMap<SessionId, Vec<TruthFrame>>`
-- Helper: `collect_frames(session_id) -> Vec<TruthFrame>`
-- Helper: `last_receipt(session_id) -> Option<CursorReceipt>`
+- `TruthSink { frames: BTreeMap<SessionId, Vec<TruthFrame>>, receipts: BTreeMap<SessionId, Vec<CursorReceipt>> }`
+- Helper: `collect_frames(session_id) -> &[TruthFrame]` — returns frames for a session
+- Helper: `last_receipt(session_id) -> Option<&CursorReceipt>` — reads from the receipts map
 
 **PlaybackCursor::step():**
 

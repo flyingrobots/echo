@@ -271,7 +271,7 @@ Rule **OUT-REDUCE-003**: Recorded frames per tick must be byte-identical upon pl
 ### Output Record
 
 ```rust
-type OutputFrameSet = Vec<(ChannelId, Vec<u8>)>; // finalized bytes only`
+type OutputFrameSet = Vec<(ChannelId, Vec<u8>)>; // finalized bytes only
 ```
 
 ---
@@ -529,9 +529,7 @@ Provide a deterministic harness with:
 
 **Assert:**
 
-- reject due to version mismatch
-- `MaterializationFrame::decode(&v2_bytes).is_none()`
-- `decode_v2_packet(&v1_bytes).is_none()`
+- `MaterializationFrame::decode(&v2_bytes).is_none()` — v1 decoder rejects v2 bytes
 
 ##### T21: `mbus_v2_rejects_v1`
 
@@ -546,9 +544,7 @@ Provide a deterministic harness with:
 
 **Assert:**
 
-- reject due to version mismatch
-- `MaterializationFrame::decode(&v2_bytes).is_none()`
-- `decode_v2_packet(&v1_bytes).is_none()`
+- `decode_v2_packet(&v1_bytes).is_none()` — v2 decoder rejects v1 bytes
 
 ##### T22: `mbus_v2_multi_packet_roundtrip`
 

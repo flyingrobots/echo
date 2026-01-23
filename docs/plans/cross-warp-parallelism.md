@@ -80,10 +80,10 @@ than O(1) when parallelism is available.
 
 ## Success Criteria
 
-- [ ] Multi-warp tick executes all warp-shards concurrently
-- [ ] Fixed worker pool (no nested spawning)
-- [ ] Determinism preserved (canonical unit ordering + merge)
-- [ ] No regression on single-warp benchmarks
+- [x] Multi-warp tick executes all warp-shards concurrently
+- [x] Fixed worker pool (no nested spawning)
+- [x] Determinism preserved (canonical unit ordering + merge)
+- [x] No regression on single-warp benchmarks
 
 ---
 

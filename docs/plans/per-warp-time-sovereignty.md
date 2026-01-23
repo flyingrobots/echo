@@ -762,8 +762,12 @@ impl WarpTimeline {
             patch.apply_to_store(store)?;
         }
         self.now.tick_index = tick;
-        self.now.commit_hash = self.tick_history.get(tick as usize - 1)
-            .map(|(s, _, _)| s.hash);
+        self.now.commit_hash = if tick == 0 {
+            None
+        } else {
+            self.tick_history.get(tick as usize - 1)
+                .map(|(s, _, _)| s.hash)
+        };
         Ok(())
     }
 }

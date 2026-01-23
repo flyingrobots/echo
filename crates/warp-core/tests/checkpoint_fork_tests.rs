@@ -44,7 +44,9 @@ fn setup_worldline_with_ticks_and_checkpoints(
     let initial_store = create_initial_store(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_store = initial_store.clone();
@@ -243,7 +245,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     }
 
     // Act 1: Fork at tick 7 - copy history from original (ticks 0-7) to forked worldline
-    provenance.register_worldline(forked_worldline_id, warp_id);
+    provenance
+        .register_worldline(forked_worldline_id, warp_id)
+        .unwrap();
 
     // Copy patches 0-7 from original to forked
     for tick in 0..=7 {

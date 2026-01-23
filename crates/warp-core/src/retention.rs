@@ -47,9 +47,8 @@ pub(crate) enum RetentionPolicy {
     /// Archive old history to wormhole storage (seam only, not implemented).
     /// This is a placeholder for future distributed storage integration.
     ///
-    /// # Panics
-    ///
-    /// This variant is not yet implemented. Any runtime usage will panic.
+    /// Not yet implemented — code that matches on this variant should handle it
+    /// explicitly (e.g., return an error or log a warning).
     #[deprecated(note = "not yet implemented — will panic at runtime")]
     ArchiveToWormhole {
         /// Archive history older than this many ticks.

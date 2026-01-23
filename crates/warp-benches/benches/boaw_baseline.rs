@@ -125,6 +125,28 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                 BatchSize::SmallInput,
             )
         });
+
+        // Phase 6B work-queue pipeline
+        group.bench_with_input(BenchmarkId::new("workqueue_4w", n), &n, |b, &n| {
+            b.iter_batched(
+                || {
+                    let (store, nodes) = make_test_store(n);
+                    let items = make_exec_items(&nodes);
+                    let warp_id = make_warp_id("bench/warp-0");
+                    (store, items, warp_id)
+                },
+                |(store, items, warp_id)| {
+                    let by_warp = vec![(warp_id, items)];
+                    let units = build_work_units(by_warp);
+                    let stores: BTreeMap<WarpId, GraphStore> =
+                        [(warp_id, store)].into_iter().collect();
+                    let deltas = execute_work_queue(&units, 4, |wid| stores.get(wid))
+                        .expect("work queue should succeed");
+                    criterion::black_box(deltas)
+                },
+                BatchSize::SmallInput,
+            )
+        });
     }
     group.finish();
 }

@@ -37,10 +37,10 @@
 #### Tests - SPEC-0004
 
 - **All SPEC-0004 tests passing** (see test files for complete list; SPEC-0004 test IDs, not Rust function names)
-- **`crates/warp-core/tests/reducer_emission_tests.rs`**: 19 tests for T11-T13 (reducer integration)
-- **`crates/warp-core/tests/view_session_tests.rs`**: T16 added (2 tests for worker count invariance)
-- **Hexagonal testing**: T1 and T7 test playback contract using ProvenanceStore fakes
-- **Total warp-core tests**: all passing (run `cargo test -p warp-core --lib -- --list 2>/dev/null | tail -1` for current count)
+- **`crates/warp-core/tests/reducer_emission_tests.rs`**: Reducer integration tests (T11-T13)
+- **`crates/warp-core/tests/view_session_tests.rs`**: Worker count invariance tests (T16)
+- **Hexagonal testing**: Playback contract tested using ProvenanceStore fakes (T1, T7)
+- **Total warp-core tests**: all passing (run `cargo test -p warp-core -- --list 2>/dev/null | tail -1` for current count)
 
 ### Added - Cross-Warp Parallelism (Phase 6B+)
 

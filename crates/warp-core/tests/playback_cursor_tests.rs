@@ -27,7 +27,9 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
     let initial_store = create_initial_store(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
     // Build up 10 ticks, but corrupt the expected state_root at tick 6
     let mut current_store = initial_store.clone();
@@ -316,7 +318,9 @@ fn empty_worldline_cursor_at_tick_zero() {
     let initial_store = create_initial_store(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
     // Do NOT append any patches -- worldline is empty
 
@@ -352,9 +356,9 @@ fn empty_worldline_cursor_at_tick_zero() {
     assert_eq!(cursor.tick, 0);
 }
 
-/// Edge case: Registering the same `WorldlineId` twice should be idempotent.
-/// `LocalProvenanceStore::register_worldline` uses `entry().or_insert_with()`,
-/// so a duplicate registration should not overwrite existing history.
+/// Edge case: Registering the same `WorldlineId` twice with the same `u0_ref` is
+/// idempotent, and re-registering with a different `u0_ref` returns an error
+/// without overwriting existing history.
 #[test]
 fn duplicate_worldline_registration_is_idempotent() {
     let warp_id = test_warp_id();
@@ -363,9 +367,11 @@ fn duplicate_worldline_registration_is_idempotent() {
     let mut provenance = LocalProvenanceStore::new();
 
     // First registration
-    provenance.register_worldline(worldline_id, warp_id);
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
-    // Append a tick so we can verify history survives re-registration
+    // Append a tick so we can verify history survives re-registration attempts
     let patch = create_add_node_patch(warp_id, 0, "dup-node-0");
     let initial_store = create_initial_store(warp_id);
     let mut current_store = initial_store.clone();
@@ -395,22 +401,41 @@ fn duplicate_worldline_registration_is_idempotent() {
         "worldline should have 1 tick before re-registration"
     );
 
-    // Second registration with the same ID -- should be idempotent
-    let different_warp = warp_core::WarpId([99u8; 32]);
-    provenance.register_worldline(worldline_id, different_warp);
+    // Re-registration with the same u0_ref -- should be idempotent no-op
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
     // History should NOT be reset; length should still be 1
     assert_eq!(
         provenance.len(worldline_id).unwrap(),
         1,
-        "duplicate registration must not overwrite existing history"
+        "duplicate registration with same u0_ref must not overwrite existing history"
+    );
+
+    // Re-registration with a different u0_ref -- should return an error
+    let different_warp = warp_core::WarpId([99u8; 32]);
+    let err = provenance
+        .register_worldline(worldline_id, different_warp)
+        .unwrap_err();
+    assert!(
+        matches!(err, warp_core::HistoryError::WorldlineAlreadyExists(_)),
+        "expected WorldlineAlreadyExists error, got: {:?}",
+        err
+    );
+
+    // History should still be intact after the failed re-registration
+    assert_eq!(
+        provenance.len(worldline_id).unwrap(),
+        1,
+        "failed re-registration must not overwrite existing history"
     );
 
     // U0 ref should still be the original warp_id (not the new one)
     assert_eq!(
         provenance.u0(worldline_id).unwrap(),
         warp_id,
-        "duplicate registration must not overwrite U0 ref"
+        "failed re-registration must not overwrite U0 ref"
     );
 
     // Cursor can still seek to the existing tick
@@ -425,7 +450,7 @@ fn duplicate_worldline_registration_is_idempotent() {
     let result = cursor.seek_to(1, &provenance, &initial_store);
     assert!(
         result.is_ok(),
-        "seek should succeed after duplicate registration: {:?}",
+        "seek should succeed after failed re-registration: {:?}",
         result
     );
     assert_eq!(cursor.tick, 1);

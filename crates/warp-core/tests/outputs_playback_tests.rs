@@ -40,7 +40,9 @@ fn setup_worldline_with_outputs(
     let initial_store = create_initial_store(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_store = initial_store.clone();
@@ -701,7 +703,9 @@ fn writer_play_advances_and_records_outputs() {
     let initial_store = create_initial_store(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
     // Simulate writer advancing 10 ticks
     let mut current_store = initial_store.clone();

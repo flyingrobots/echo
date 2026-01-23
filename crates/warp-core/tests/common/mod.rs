@@ -667,15 +667,11 @@ impl BoawTestHarness for EngineHarness {
     }
 
     fn wsc_roundtrip_state_root(&self, _wsc: &[u8]) -> Hash32 {
-        // TODO: Implement real WSC roundtrip verification once SnapshotBuilder produces wsc_bytes.
-        // For now, return a zeroed hash as a safe placeholder. Tests that depend on this
-        // should check wsc_bytes.is_some() before calling this method.
-        //
-        // Real implementation should:
-        // 1. Parse WSC bytes into WarpView
-        // 2. Compute state_root from the parsed view
-        // 3. Return that hash for comparison with the original state_root
-        [0u8; 32]
+        // WSC roundtrip not yet implemented (SnapshotBuilder does not produce wsc_bytes yet).
+        // Fail fast so callers discover missing implementation immediately.
+        unimplemented!(
+            "wsc_roundtrip_state_root: implement once SnapshotBuilder produces wsc_bytes"
+        )
     }
 }
 
@@ -798,7 +794,9 @@ pub fn setup_worldline_with_ticks(
     let initial_store = create_initial_store(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_store = initial_store.clone();

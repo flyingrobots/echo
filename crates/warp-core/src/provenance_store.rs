@@ -212,16 +212,38 @@ impl LocalProvenanceStore {
     /// Registers a new worldline with its U0 reference.
     ///
     /// This must be called before appending any history for a worldline.
-    pub fn register_worldline(&mut self, id: WorldlineId, u0_ref: WarpId) {
-        self.worldlines
-            .entry(id)
-            .or_insert_with(|| WorldlineHistory {
-                u0_ref,
-                patches: Vec::new(),
-                expected: Vec::new(),
-                outputs: Vec::new(),
-                checkpoints: Vec::new(),
-            });
+    /// Re-registering with the same `u0_ref` is a no-op. Re-registering with
+    /// a different `u0_ref` returns an error to prevent integrity bugs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineAlreadyExists`] if the worldline is already
+    /// registered with a different `u0_ref`.
+    pub fn register_worldline(
+        &mut self,
+        id: WorldlineId,
+        u0_ref: WarpId,
+    ) -> Result<(), HistoryError> {
+        use std::collections::btree_map::Entry;
+        match self.worldlines.entry(id) {
+            Entry::Occupied(existing) => {
+                if existing.get().u0_ref != u0_ref {
+                    return Err(HistoryError::WorldlineAlreadyExists(id));
+                }
+                // Same u0_ref: idempotent no-op
+                Ok(())
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(WorldlineHistory {
+                    u0_ref,
+                    patches: Vec::new(),
+                    expected: Vec::new(),
+                    outputs: Vec::new(),
+                    checkpoints: Vec::new(),
+                });
+                Ok(())
+            }
+        }
     }
 
     /// Appends a tick's data to a worldline's history.
@@ -505,7 +527,7 @@ mod tests {
         let w = test_worldline_id();
         let warp = test_warp_id();
 
-        store.register_worldline(w, warp);
+        store.register_worldline(w, warp).unwrap();
 
         assert_eq!(store.u0(w).unwrap(), warp);
         assert_eq!(store.len(w).unwrap(), 0);
@@ -518,7 +540,7 @@ mod tests {
         let w = test_worldline_id();
         let warp = test_warp_id();
 
-        store.register_worldline(w, warp);
+        store.register_worldline(w, warp).unwrap();
 
         let patch = test_patch(0);
         let triplet = test_triplet(0);
@@ -539,7 +561,7 @@ mod tests {
         let w = test_worldline_id();
         let warp = test_warp_id();
 
-        store.register_worldline(w, warp);
+        store.register_worldline(w, warp).unwrap();
         store
             .append(w, test_patch(0), test_triplet(0), vec![])
             .unwrap();
@@ -557,7 +579,7 @@ mod tests {
         let w = test_worldline_id();
         let warp = test_warp_id();
 
-        store.register_worldline(w, warp);
+        store.register_worldline(w, warp).unwrap();
 
         // Add checkpoints at ticks 0, 5, 10
         store
@@ -602,5 +624,25 @@ mod tests {
 
         // Checkpoint at 5 is before tick 10 (not inclusive)
         assert_eq!(store.checkpoint_before(w, 10).unwrap().tick, 5);
+    }
+
+    #[test]
+    fn register_worldline_duplicate_same_u0_ref_is_noop() {
+        let mut store = LocalProvenanceStore::new();
+        let wl = WorldlineId([1u8; 32]);
+        let warp = WarpId([2u8; 32]);
+        store.register_worldline(wl, warp).unwrap();
+        store.register_worldline(wl, warp).unwrap(); // same u0_ref: ok
+    }
+
+    #[test]
+    fn register_worldline_duplicate_different_u0_ref_errors() {
+        let mut store = LocalProvenanceStore::new();
+        let wl = WorldlineId([1u8; 32]);
+        let warp_a = WarpId([2u8; 32]);
+        let warp_b = WarpId([3u8; 32]);
+        store.register_worldline(wl, warp_a).unwrap();
+        let err = store.register_worldline(wl, warp_b).unwrap_err();
+        assert!(matches!(err, HistoryError::WorldlineAlreadyExists(_)));
     }
 }

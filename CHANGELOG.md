@@ -34,9 +34,9 @@
     - `encode_v2_packet()`, `decode_v2_packet()`: Roundtrip encoding
     - Inline unit tests T19-T22 (SPEC-0004 test IDs): `mbus_v2_roundtrip_single_packet`, `mbus_v1_rejects_v2`, `mbus_v2_rejects_v1`, `mbus_v2_multi_packet_roundtrip`
 
-### Tests - SPEC-0004
+#### Tests - SPEC-0004
 
-- **All SPEC-0004 tests passing**: T1-T22 (SPEC-0004 test IDs, not Rust function names)
+- **All SPEC-0004 tests passing** (see test files for complete list; SPEC-0004 test IDs, not Rust function names)
 - **`crates/warp-core/tests/reducer_emission_tests.rs`**: 19 tests for T11-T13 (reducer integration)
 - **`crates/warp-core/tests/view_session_tests.rs`**: T16 added (2 tests for worker count invariance)
 - **Hexagonal testing**: T1 and T7 test playback contract using ProvenanceStore fakes
@@ -73,7 +73,7 @@
     - Deleted `sharded_equals_stride` and `sharded_equals_stride_permuted` tests (no longer needed post-transition)
 - **Deprecated `emit_view_op_delta()`** (`rules.rs`): Deleted non-deterministic function that used `delta.len()` sequencing
 
-### Fixed - CodeRabbitAI Review (PR #260)
+### Fixed - Review Feedback
 
 - **P0: Off-by-one in `publish_truth`** (`playback.rs`): Query `prov_tick = cursor.tick - 1` (0-based index of last applied patch) instead of `cursor.tick`; added early-return guard for `cursor.tick == 0`
 - **P0: Wrong package in bench docs** (`docs/notes/boaw-perf-baseline.md`): Corrected `warp-core` → `warp-benches`

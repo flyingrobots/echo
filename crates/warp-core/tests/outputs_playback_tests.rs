@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Outputs playback tests for SPEC-0004 Commit 5: Record Outputs Per Tick + Seek/Playback.
 //!
 //! These tests verify:

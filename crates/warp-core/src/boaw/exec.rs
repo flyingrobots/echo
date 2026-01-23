@@ -47,8 +47,6 @@ pub fn execute_serial(view: GraphView<'_>, items: &[ExecItem]) -> TickDelta {
 /// Parallel execution entry point.
 ///
 /// Uses virtual shard partitioning by default (Phase 6B).
-/// Falls back to stride partitioning if `parallel-stride-fallback` feature
-/// is enabled AND `ECHO_PARALLEL_STRIDE=1` environment variable is set.
 ///
 /// # Worker Count Cap
 ///
@@ -166,15 +164,20 @@ pub struct WorkUnit {
 ///
 /// # Arguments
 ///
-/// * `by_warp` - Iterator of `(WarpId, Vec<ExecItem>)` pairs, typically from a `BTreeMap`.
+/// * `by_warp` - Any iterable of `(WarpId, Vec<ExecItem>)` pairs. Sorted by `WarpId` internally to guarantee deterministic output regardless of input order.
 ///
 /// # Returns
 ///
 /// Vector of work units in canonical order.
-pub fn build_work_units(by_warp: impl Iterator<Item = (WarpId, Vec<ExecItem>)>) -> Vec<WorkUnit> {
+pub fn build_work_units(
+    by_warp: impl IntoIterator<Item = (WarpId, Vec<ExecItem>)>,
+) -> Vec<WorkUnit> {
+    let mut sorted: Vec<_> = by_warp.into_iter().collect();
+    sorted.sort_by_key(|(warp_id, _)| *warp_id);
+
     let mut units = Vec::new();
 
-    for (warp_id, items) in by_warp {
+    for (warp_id, items) in sorted {
         let shards = partition_into_shards(&items);
         for shard in shards {
             if !shard.items.is_empty() {

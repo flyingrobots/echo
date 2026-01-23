@@ -29,7 +29,7 @@ use thiserror::Error;
 
 use crate::graph::GraphStore;
 use crate::ident::{Hash, WarpId};
-use crate::materialization::ChannelId;
+use crate::materialization::{compute_value_hash, ChannelId};
 use crate::provenance_store::ProvenanceStore;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_store};
 use crate::worldline::WorldlineId;
@@ -398,6 +398,15 @@ impl PlaybackCursor {
     /// This method enforces CUR-002: it never executes rules, only applies
     /// recorded patches. This ensures deterministic replay regardless of
     /// rule changes or execution order.
+    ///
+    /// # Limitations
+    ///
+    /// This method assumes **strictly linear single-parent history**. It constructs
+    /// the parent chain as `parents = vec![prev_commit_hash]` for each tick. If the
+    /// recorded history contains merge commits (multiple parents), the recomputed
+    /// `commit_hash` will not match the recorded value and verification will fail
+    /// with [`SeekError::CommitHashMismatch`]. Supporting multi-parent replay requires
+    /// extending `ProvenanceStore` to expose parent vectors per tick.
     pub fn seek_to<P: ProvenanceStore>(
         &mut self,
         target: u64,
@@ -712,7 +721,7 @@ impl ViewSession {
         // Publish frames for subscribed channels only
         for (channel, value) in outputs {
             if self.subscriptions.contains(&channel) {
-                let value_hash: [u8; 32] = *blake3::hash(&value).as_bytes();
+                let value_hash = compute_value_hash(&value);
                 sink.publish_frame(
                     self.session_id,
                     TruthFrame {

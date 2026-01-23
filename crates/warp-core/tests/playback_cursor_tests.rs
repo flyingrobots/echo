@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Playback cursor tests for SPEC-0004: Worldlines, Playback, and TruthBus.
 //!
 //! These tests verify cursor seek operations and hash verification.

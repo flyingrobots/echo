@@ -243,6 +243,12 @@ pub(crate) fn _compute_commit_hash(
 ///
 /// Commit hash v2 commits only to the replay boundary artifact: `state_root`
 /// and the tick `patch_digest` (plus explicit parents and policy id).
+///
+/// # Parent Ordering
+///
+/// `parents` MUST be supplied in a deterministic, canonical order
+/// (e.g., lexicographic by hash bytes). The slice is hashed exactly as
+/// provided—reordering parents produces a different commit hash.
 pub fn compute_commit_hash_v2(
     state_root: &Hash,
     parents: &[Hash],

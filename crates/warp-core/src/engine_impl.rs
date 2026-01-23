@@ -934,6 +934,12 @@ impl Engine {
                 scope: scope_key,
                 footprint,
                 phase: RewritePhase::Matched,
+                origin: OpOrigin {
+                    intent_id: 0,
+                    rule_id: compact_rule.0,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
             },
         );
 
@@ -1226,7 +1232,7 @@ impl Engine {
                 .map(|(rw, exec)| ExecItem {
                     exec,
                     scope: rw.scope.local_id,
-                    origin: OpOrigin::default(),
+                    origin: rw.origin,
                 })
                 .collect();
             (warp_id, items)
@@ -1242,11 +1248,7 @@ impl Engine {
         // Views resolved per-unit inside threads, dropped before next unit
         let all_deltas =
             execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id))
-                .map_err(|_| {
-                    EngineError::InternalCorruption(
-                        "execute_work_queue: missing store for warp during execution",
-                    )
-                })?;
+                .map_err(EngineError::UnknownWarp)?;
 
         // 3. Merge deltas - use merge_deltas for conflict detection under delta_validate
         #[cfg(any(test, feature = "delta_validate"))]

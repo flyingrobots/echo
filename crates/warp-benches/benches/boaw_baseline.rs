@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+// criterion_group!/criterion_main! macros expand to undocumented functions.
 #![allow(missing_docs)]
 //! BOAW Phase 6B performance baseline benchmarks.
 //!
@@ -80,6 +81,7 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
 // Serial vs Parallel comparison at different workload sizes
 // =============================================================================
 
+/// Compares serial vs parallel sharded execution across workload sizes (10, 100, 1000 items).
 fn bench_serial_vs_parallel(c: &mut Criterion) {
     let mut group = c.benchmark_group("serial_vs_parallel");
     group
@@ -170,6 +172,7 @@ fn make_multi_warp_setup(
     (stores, items_by_warp)
 }
 
+/// Benchmarks the Phase 6B work-queue pipeline (build_work_units → execute_work_queue) across multi-warp setups.
 fn bench_work_queue(c: &mut Criterion) {
     let mut group = c.benchmark_group("work_queue_pipeline");
     group
@@ -209,6 +212,7 @@ fn bench_work_queue(c: &mut Criterion) {
 // Worker scaling at fixed workload (100 items)
 // =============================================================================
 
+/// Measures throughput scaling as worker count increases (1, 2, 4, 8, 16 workers) with a fixed 100-item workload.
 fn bench_worker_scaling(c: &mut Criterion) {
     let mut group = c.benchmark_group("worker_scaling_100");
     group

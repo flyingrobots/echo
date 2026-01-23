@@ -763,6 +763,7 @@ pub fn create_initial_store(warp_id: WarpId) -> GraphStore {
 
 /// Creates a patch that adds a node at a specific tick.
 pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> WorldlineTickPatchV1 {
+    let tick_u8 = u8::try_from(tick).expect("tick must fit in u8 for test helpers");
     let node_id = make_node_id(node_name);
     let node_key = NodeKey {
         warp_id,
@@ -781,7 +782,7 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
         out_slots: vec![],
         // Intentional: wraps at tick > 255 via `as u8`, but all test worldlines
         // use fewer than 256 ticks so this produces unique per-tick digests.
-        patch_digest: [tick as u8; 32],
+        patch_digest: [tick_u8; 32],
     }
 }
 

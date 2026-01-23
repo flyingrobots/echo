@@ -11,12 +11,12 @@
 
 ## Environment
 
-| Component | Value                                                                                            |
-| --------- | ------------------------------------------------------------------------------------------------ |
-| **CPU**   | Apple M1 Pro (arm64)                                                                             |
-| **Rust**  | nightly (required for `#[bench]`-less Criterion; run `rustc +nightly --version` for exact build) |
-| **OS**    | macOS 24.3.0 (Darwin)                                                                            |
-| **Cores** | 10 (8 performance + 2 efficiency)                                                                |
+| Component | Value                                                                                 |
+| --------- | ------------------------------------------------------------------------------------- |
+| **CPU**   | Apple M1 Pro (arm64)                                                                  |
+| **Rust**  | rustc 1.95.0-nightly (d940e5684 2026-01-19) — captured via `rustc +nightly --version` |
+| **OS**    | macOS 24.3.0 (Darwin)                                                                 |
+| **Cores** | 10 (8 performance + 2 efficiency)                                                     |
 
 ---
 

@@ -122,11 +122,11 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 
 SPEC-0004 introduces infrastructure for deterministic materialization, cursor-based replay, and append-only provenance tracking:
 
-- **`playback.rs`** — `PlaybackCursor` for timeline position, `ViewSession` for materialized viewpoints, `TruthSink` struct for consuming view updates into stable snapshots.
-- **`worldline.rs`** — `WorldlineId` identifiers, `HashTriplet` for cryptographic tick labeling, `WorldlineTickPatchV1` for append-only tick records; supports multi-branch lineage.
-- **`provenance_store.rs`** — `ProvenanceStore` trait (hexagonal port), `LocalProvenanceStore` implementation for recording hash signatures and output deltas per tick; enables auditing and determinism validation.
-- **`retention.rs`** — `RetentionPolicy` enum (variants: `KeepAll`, `CheckpointEvery`, `KeepRecent`, `ArchiveToWormhole`) for garbage collection and storage budgeting; integrates with worldline compaction.
-- **`materialization/frame_v2.rs`** — V2 packet format with cursor stamps, enabling renderers to correlate frames with logical replay positions and support frame-accurate scrubbing.
+- **`crates/warp-core/src/playback.rs`** — `PlaybackCursor` for timeline position, `ViewSession` for materialized viewpoints, `TruthSink` struct for consuming view updates into stable snapshots.
+- **`crates/warp-core/src/worldline.rs`** — `WorldlineId` identifiers, `HashTriplet` for cryptographic tick labeling, `WorldlineTickPatchV1` for append-only tick records; supports multi-branch lineage.
+- **`crates/warp-core/src/provenance_store.rs`** — `ProvenanceStore` trait (hexagonal port), `LocalProvenanceStore` implementation for recording hash signatures and output deltas per tick; enables auditing and determinism validation.
+- **`crates/warp-core/src/retention.rs`** — `RetentionPolicy` enum (variants: `KeepAll`, `CheckpointEvery`, `KeepRecent`, `ArchiveToWormhole`) for garbage collection and storage budgeting; integrates with worldline compaction.
+- **`crates/warp-core/src/materialization/frame_v2.rs`** — V2 packet format with cursor stamps, enabling renderers to correlate frames with logical replay positions and support frame-accurate scrubbing.
 
 ## Ports & Adapters 🗺️ Planned
 

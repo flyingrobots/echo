@@ -778,6 +778,8 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
         }],
         in_slots: vec![],
         out_slots: vec![],
+        // Intentional: wraps at tick > 255 via `as u8`, but all test worldlines
+        // use fewer than 256 ticks so this produces unique per-tick digests.
         patch_digest: [tick as u8; 32],
     }
 }
@@ -810,7 +812,9 @@ pub fn setup_worldline_with_ticks(
         let triplet = HashTriplet {
             state_root,
             patch_digest: patch.patch_digest,
-            commit_hash: [(tick + 100) as u8; 32], // Placeholder commit hash
+            // Offset by 100 to ensure commit_hash differs from patch_digest
+            // (patch_digest uses [tick as u8; 32], so +100 avoids collisions for tick < 156).
+            commit_hash: [(tick + 100) as u8; 32],
         };
 
         provenance

@@ -61,8 +61,8 @@ pub use emission_port::EmissionPort;
 pub use emit_key::EmitKey;
 pub use frame::{decode_frames, encode_frames, MaterializationFrame, FRAME_MAGIC, FRAME_VERSION};
 pub use frame_v2::{
-    compute_value_hash, decode_v2_packet, decode_v2_packets, encode_v2_packet, EncodeError,
-    V2Entry, V2Packet, V2PacketHeader, FRAME_VERSION_V2,
+    compute_value_hash, decode_v2_packet, decode_v2_packets, encode_v2_packet, DecodeError,
+    EncodeError, V2Entry, V2Packet, V2PacketHeader, FRAME_VERSION_V2,
 };
 pub use port::MaterializationPort;
 pub use reduce_op::ReduceOp;

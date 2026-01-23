@@ -6,8 +6,6 @@
 //! - T17: checkpoint_replay_equals_full_replay
 //! - T18: fork_worldline_diverges_after_fork_tick_without_affecting_original
 
-#![allow(clippy::unwrap_used)]
-
 mod common;
 use common::{
     create_add_node_patch, create_initial_store, test_cursor_id, test_warp_id, test_worldline_id,
@@ -71,15 +69,17 @@ fn setup_worldline_with_ticks_and_checkpoints(
             .append(worldline_id, patch, triplet, vec![])
             .expect("append should succeed");
 
-        // After applying patch_index, we are at cursor tick (patch_index + 1)
-        // So if checkpoint_ticks contains (patch_index + 1), record the checkpoint
+        // After applying N patches (indices 0..N-1), the cursor tick is N.
+        // So after applying patch at `patch_index`, cursor_tick = patch_index + 1.
         let cursor_tick = patch_index + 1;
         if checkpoint_ticks.contains(&cursor_tick) {
             let checkpoint = CheckpointRef {
                 tick: cursor_tick,
                 state_hash: state_root,
             };
-            provenance.add_checkpoint(worldline_id, checkpoint);
+            provenance
+                .add_checkpoint(worldline_id, checkpoint)
+                .expect("worldline should be registered");
             checkpoint_states.push((cursor_tick, state_root));
         }
     }
@@ -251,7 +251,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
     // Verify fork has 8 ticks (0-7)
     assert_eq!(
-        provenance.len(forked_worldline_id).unwrap(),
+        provenance
+            .len(forked_worldline_id)
+            .expect("forked worldline should be registered"),
         8,
         "forked worldline should have 8 ticks after copying 0-7"
     );
@@ -295,7 +297,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
     // Assert 1: Original worldline's expected hashes unchanged (still has same 20 ticks)
     assert_eq!(
-        provenance.len(original_worldline_id).unwrap(),
+        provenance
+            .len(original_worldline_id)
+            .expect("original worldline should be registered"),
         20,
         "original worldline should still have 20 ticks"
     );
@@ -329,7 +333,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
     // Assert 3: Forked worldline ticks 8-10 are different from original
     assert_eq!(
-        provenance.len(forked_worldline_id).unwrap(),
+        provenance
+            .len(forked_worldline_id)
+            .expect("forked worldline should be registered"),
         11,
         "forked worldline should have 11 ticks (0-10)"
     );

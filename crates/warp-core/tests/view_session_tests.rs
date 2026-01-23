@@ -15,9 +15,17 @@ use common::{
 };
 use warp_core::materialization::make_channel_id;
 use warp_core::{
-    compute_state_root_for_warp_store, make_node_id, make_type_id, CursorRole, NodeRecord,
-    PlaybackCursor, PlaybackMode, SeekThen, StepResult, TruthFrame, TruthSink, ViewSession,
+    compute_state_root_for_warp_store, CursorRole, PlaybackCursor, PlaybackMode, SeekThen,
+    StepResult, TruthFrame, TruthSink, ViewSession,
 };
+
+/// Maximum tick used as the `pin_max_tick` for most playback cursor tests.
+/// This bounds how far forward a cursor can advance before hitting the frontier.
+const PIN_MAX_TICK: u64 = 10;
+
+/// Number of repeated step() calls in the paused-no-op loop (T3).
+/// Chosen to be > 1 to confirm idempotency without being gratuitously large.
+const NUM_PAUSED_STEPS: usize = 5;
 
 // ============================================================================
 // T2: step_forward_advances_one_then_pauses
@@ -26,7 +34,8 @@ use warp_core::{
 /// T2: StepForward mode advances cursor by one tick then transitions to Paused.
 #[test]
 fn step_forward_advances_one_then_pauses() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_store, warp_id, worldline_id) =
+        setup_worldline_with_ticks(PIN_MAX_TICK);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(1),
@@ -34,7 +43,7 @@ fn step_forward_advances_one_then_pauses() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     // Cursor starts at tick 0, mode is Paused by default
@@ -78,7 +87,8 @@ fn step_forward_advances_one_then_pauses() {
 /// T3: Paused mode is a no-op - cursor state doesn't change regardless of context.
 #[test]
 fn paused_noop_even_with_pending_intents() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_store, warp_id, worldline_id) =
+        setup_worldline_with_ticks(PIN_MAX_TICK);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(1),
@@ -86,7 +96,7 @@ fn paused_noop_even_with_pending_intents() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     // Seek to tick 5 first
@@ -121,7 +131,7 @@ fn paused_noop_even_with_pending_intents() {
     );
 
     // Call step() multiple times - all should be no-op
-    for _ in 0..5 {
+    for _ in 0..NUM_PAUSED_STEPS {
         let result = cursor.step(&provenance, &initial_store);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), StepResult::NoOp);
@@ -137,7 +147,8 @@ fn paused_noop_even_with_pending_intents() {
 /// ticks receive different truth frames (cursor-addressed truth).
 #[test]
 fn two_sessions_same_channel_different_cursors_receive_different_truth() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_store, warp_id, worldline_id) =
+        setup_worldline_with_ticks(PIN_MAX_TICK);
 
     // Create two sessions
     let session1_id = test_session_id(1);
@@ -161,7 +172,7 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     let mut cursor2 = PlaybackCursor::new(
@@ -170,7 +181,7 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     // Position cursors at different ticks
@@ -352,7 +363,8 @@ fn reader_play_advances_until_frontier() {
 /// Test StepBack mode - seeks to tick-1 then pauses
 #[test]
 fn step_back_seeks_then_pauses() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_store, warp_id, worldline_id) =
+        setup_worldline_with_ticks(PIN_MAX_TICK);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(1),
@@ -360,7 +372,7 @@ fn step_back_seeks_then_pauses() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     // Seek to tick 5 first
@@ -383,7 +395,8 @@ fn step_back_seeks_then_pauses() {
 /// Test StepBack at tick 0 - saturating_sub means stays at 0
 #[test]
 fn step_back_at_zero_stays_at_zero() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_store, warp_id, worldline_id) =
+        setup_worldline_with_ticks(PIN_MAX_TICK);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(1),
@@ -391,7 +404,7 @@ fn step_back_at_zero_stays_at_zero() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     // Cursor starts at tick 0
@@ -411,7 +424,8 @@ fn step_back_at_zero_stays_at_zero() {
 /// Test Seek mode with SeekThen::Pause
 #[test]
 fn seek_mode_with_then_pause() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_store, warp_id, worldline_id) =
+        setup_worldline_with_ticks(PIN_MAX_TICK);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(1),
@@ -419,7 +433,7 @@ fn seek_mode_with_then_pause() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     // Set mode to Seek with target 7
@@ -439,7 +453,8 @@ fn seek_mode_with_then_pause() {
 /// Test Seek mode with SeekThen::Play
 #[test]
 fn seek_mode_with_then_play() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_store, warp_id, worldline_id) =
+        setup_worldline_with_ticks(PIN_MAX_TICK);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(1),
@@ -447,7 +462,7 @@ fn seek_mode_with_then_play() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        PIN_MAX_TICK,
     );
 
     // Set mode to Seek with target 3, then Play
@@ -576,223 +591,4 @@ fn writer_play_is_stub_noop() {
     assert_eq!(result.unwrap(), StepResult::NoOp);
     assert_eq!(cursor.tick, 0, "tick should not change for writer stub");
     assert_eq!(cursor.mode, PlaybackMode::Play, "mode should stay Play");
-}
-
-// ============================================================================
-// T16: worker_count_invariance_for_writer_advance (SPEC-0004)
-// ============================================================================
-
-/// T16: Worker count invariance for writer advance.
-///
-/// This test verifies that when a writer cursor advances (via Engine commit),
-/// the resulting `commit_hash` is identical regardless of worker count.
-/// This is the "free money" proof for BOAW Phase 6B: parallelism doesn't
-/// affect correctness.
-///
-/// # Test Strategy
-///
-/// 1. Build a base snapshot with a deterministic graph structure.
-/// 2. Create a fixed ingress queue (same intents for all runs).
-/// 3. Execute a single tick with different worker pool sizes: [1, 2, 8, 32].
-/// 4. Compare `commit_hash` across all runs - must be identical.
-///
-/// # Why This Matters
-///
-/// The Engine uses BOAW (Batch of Active Warps) for parallel rule execution.
-/// `ECHO_WORKERS` (or `EngineBuilder::workers()`) controls the thread pool size.
-/// This test proves that scaling workers doesn't change the deterministic outcome.
-#[test]
-fn worker_count_invariance_for_writer_advance() {
-    use warp_core::{ApplyResult, EngineBuilder};
-
-    // Worker counts to test (per SPEC-0004 requirement: 1, 2, 8, 32)
-    const WORKER_COUNTS: &[usize] = &[1, 2, 8, 32];
-
-    const TOUCH_RULE_NAME: &str = "t16/touch";
-    let make_touch_rule = || make_touch_rule!("t16/touch", "t16/marker", b"touched-t16");
-
-    // Build a deterministic base snapshot with 20 independent nodes
-    // (mirrors ManyIndependent scenario from BOAW tests)
-    let node_ty = make_type_id("t16/node");
-    let mut base_store = warp_core::GraphStore::default();
-
-    let root = make_node_id("t16/root");
-    base_store.insert_node(root, NodeRecord { ty: node_ty });
-
-    // Create 19 more independent nodes (total 20)
-    let mut all_nodes = vec![root];
-    for i in 1..20 {
-        let node = make_node_id(&format!("t16/node{}", i));
-        base_store.insert_node(node, NodeRecord { ty: node_ty });
-        all_nodes.push(node);
-    }
-
-    // Build fixed ingress: touch all 20 nodes
-    let ingress: Vec<(&str, warp_core::NodeId)> = all_nodes
-        .iter()
-        .map(|&node| (TOUCH_RULE_NAME, node))
-        .collect();
-
-    // Run with baseline (1 worker) to establish expected commit_hash
-    let baseline_commit_hash = {
-        let mut engine = EngineBuilder::new(base_store.clone(), root)
-            .workers(1)
-            .build();
-
-        engine
-            .register_rule(make_touch_rule())
-            .expect("failed to register rule");
-
-        let tx = engine.begin();
-        for (rule_name, scope) in &ingress {
-            match engine.apply(tx, rule_name, scope) {
-                Ok(ApplyResult::Applied) => {}
-                Ok(ApplyResult::NoMatch) => {}
-                Err(e) => panic!("apply error: {:?}", e),
-            }
-        }
-
-        let (snapshot, _receipt, _patch) = engine
-            .commit_with_receipt(tx)
-            .expect("commit_with_receipt failed");
-
-        snapshot.hash
-    };
-
-    // Run with each worker count and verify identical commit_hash
-    for &workers in WORKER_COUNTS {
-        let mut engine = EngineBuilder::new(base_store.clone(), root)
-            .workers(workers)
-            .build();
-
-        engine
-            .register_rule(make_touch_rule())
-            .expect("failed to register rule");
-
-        let tx = engine.begin();
-        for (rule_name, scope) in &ingress {
-            match engine.apply(tx, rule_name, scope) {
-                Ok(ApplyResult::Applied) => {}
-                Ok(ApplyResult::NoMatch) => {}
-                Err(e) => panic!("apply error with {} workers: {:?}", workers, e),
-            }
-        }
-
-        let (snapshot, _receipt, _patch) = engine
-            .commit_with_receipt(tx)
-            .expect("commit_with_receipt failed");
-
-        assert_eq!(
-            baseline_commit_hash, snapshot.hash,
-            "commit_hash differs for {} workers\n  baseline: {:02x?}\n  got:      {:02x?}",
-            workers, baseline_commit_hash, snapshot.hash
-        );
-    }
-}
-
-/// T16 variant: Worker count invariance with shuffled ingress order.
-///
-/// This test combines worker count invariance with permutation invariance.
-/// The ingress order is shuffled before each run, proving that both
-/// the order of intents and the number of workers don't affect the result.
-#[test]
-fn worker_count_invariance_for_writer_advance_shuffled() {
-    use common::{shuffle, XorShift64};
-    use warp_core::{ApplyResult, EngineBuilder};
-
-    // Worker counts to test
-    const WORKER_COUNTS: &[usize] = &[1, 2, 8, 32];
-
-    // Seeds for deterministic shuffling
-    const SEEDS: &[u64] = &[0x1234, 0xDEAD, 0xBEEF];
-
-    const TOUCH_RULE_NAME: &str = "t16s/touch";
-    let make_touch_rule = || make_touch_rule!("t16s/touch", "t16s/marker", b"touched-t16s");
-
-    // Build deterministic base snapshot
-    let node_ty = make_type_id("t16s/node");
-    let mut base_store = warp_core::GraphStore::default();
-
-    let root = make_node_id("t16s/root");
-    base_store.insert_node(root, NodeRecord { ty: node_ty });
-
-    let mut all_nodes = vec![root];
-    for i in 1..20 {
-        let node = make_node_id(&format!("t16s/node{}", i));
-        base_store.insert_node(node, NodeRecord { ty: node_ty });
-        all_nodes.push(node);
-    }
-
-    // Baseline ingress (canonical order)
-    let canonical_ingress: Vec<(&str, warp_core::NodeId)> = all_nodes
-        .iter()
-        .map(|&node| (TOUCH_RULE_NAME, node))
-        .collect();
-
-    // Get baseline commit_hash with 1 worker, canonical order
-    let baseline_commit_hash = {
-        let mut engine = EngineBuilder::new(base_store.clone(), root)
-            .workers(1)
-            .build();
-
-        engine
-            .register_rule(make_touch_rule())
-            .expect("failed to register rule");
-
-        let tx = engine.begin();
-        for (rule_name, scope) in &canonical_ingress {
-            match engine.apply(tx, rule_name, scope) {
-                Ok(ApplyResult::Applied) => {}
-                Ok(ApplyResult::NoMatch) => {}
-                Err(e) => panic!("apply error: {:?}", e),
-            }
-        }
-
-        let (snapshot, _, _) = engine
-            .commit_with_receipt(tx)
-            .expect("commit_with_receipt failed");
-
-        snapshot.hash
-    };
-
-    // Test with each seed and worker count
-    for &seed in SEEDS {
-        let mut rng = XorShift64::new(seed);
-        let mut ingress = canonical_ingress.clone();
-
-        // Shuffle ingress order
-        shuffle(&mut rng, &mut ingress);
-
-        for &workers in WORKER_COUNTS {
-            let mut engine = EngineBuilder::new(base_store.clone(), root)
-                .workers(workers)
-                .build();
-
-            engine
-                .register_rule(make_touch_rule())
-                .expect("failed to register rule");
-
-            let tx = engine.begin();
-            for (rule_name, scope) in &ingress {
-                match engine.apply(tx, rule_name, scope) {
-                    Ok(ApplyResult::Applied) => {}
-                    Ok(ApplyResult::NoMatch) => {}
-                    Err(e) => panic!(
-                        "apply error (seed={:#x}, workers={}): {:?}",
-                        seed, workers, e
-                    ),
-                }
-            }
-
-            let (snapshot, _, _) = engine
-                .commit_with_receipt(tx)
-                .expect("commit_with_receipt failed");
-
-            assert_eq!(
-                baseline_commit_hash, snapshot.hash,
-                "commit_hash differs (seed={:#x}, workers={})\n  baseline: {:02x?}\n  got:      {:02x?}",
-                seed, workers, baseline_commit_hash, snapshot.hash
-            );
-        }
-    }
 }

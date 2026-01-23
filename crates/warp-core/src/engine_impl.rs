@@ -29,7 +29,12 @@ use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
 use std::sync::Arc;
 
-/// Result of calling [`Engine::apply`].
+/// Outcome of calling [`Engine::apply`].
+///
+/// This is a *match-status* indicator, not a `Result<_, ApplyError>` type alias.
+/// `ApplyResult` tells the caller whether the rewrite rule's pattern matched the
+/// given scope, independent of any storage-level errors (which are reported via
+/// [`EngineError`]).
 #[derive(Debug)]
 pub enum ApplyResult {
     /// The rewrite matched and was enqueued for execution.

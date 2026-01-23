@@ -135,14 +135,17 @@ pub use payload::{
     encode_motion_payload_q32_32, encode_motion_payload_v0, motion_payload_type_id,
     motion_payload_type_id_v0,
 };
+// --- Cursor types ---
 pub use playback::{
-    CursorId, CursorReceipt, CursorRole, PlaybackCursor, PlaybackMode, SeekError, SeekThen,
-    SessionId, StepResult, TruthFrame, TruthSink, ViewSession,
+    CursorId, CursorRole, PlaybackCursor, PlaybackMode, SeekError, SeekThen, StepResult,
 };
+// --- Session types ---
+pub use playback::{SessionId, ViewSession};
+// --- Truth delivery ---
+pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{CheckpointRef, HistoryError, LocalProvenanceStore, ProvenanceStore};
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
-pub use retention::RetentionPolicy;
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};
 pub use sandbox::{build_engine, run_pair_determinism, DeterminismError, EchoConfig};
 pub use scheduler::SchedulerKind;
@@ -160,8 +163,7 @@ pub use tick_patch::{
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
 pub use worldline::{
-    apply_warp_op_to_store, ApplyError, HashTriplet, OutputFrameSet, WorldlineId,
-    WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    HashTriplet, OutputFrameSet, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
 
 /// Zero-copy typed view over an atom payload.

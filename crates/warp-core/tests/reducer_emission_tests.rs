@@ -26,7 +26,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 mod common;
-use common::{for_each_permutation, h, key_sub as key};
+use common::{for_each_permutation, h, key_sub as key_subscription};
 
 use warp_core::materialization::{
     encode_frames, make_channel_id, ChannelPolicy, EmitKey, MaterializationBus,
@@ -41,7 +41,7 @@ use warp_core::materialization::{
 ///
 /// Assumes small `n` (tests use N <= 6). Overflows `usize` for n > 20.
 fn factorial(n: usize) -> usize {
-    debug_assert!(n <= 20, "factorial({n}) would overflow usize");
+    assert!(n <= 20, "factorial({n}) would overflow usize");
     (1..=n).product()
 }
 
@@ -120,7 +120,7 @@ fn reducer_commutative_is_permutation_invariant_and_replayable() {
             let scope = (i + 1) as u8;
             let rule = (i * 10 + 1) as u32;
             Emission {
-                key: key(scope, rule, 0),
+                key: key_subscription(scope, rule, 0),
                 data: u64_le(v),
             }
         })
@@ -173,7 +173,6 @@ fn reducer_commutative_is_permutation_invariant_and_replayable() {
 
     // Test ALL permutations (4! = 24)
     let mut perm_count = 0;
-    let mut all_bytes: Vec<Vec<u8>> = Vec::new();
 
     for_each_permutation(&mut emissions, |perm| {
         let mut bus = mk_bus();
@@ -194,7 +193,6 @@ fn reducer_commutative_is_permutation_invariant_and_replayable() {
             perm_count
         );
 
-        all_bytes.push(out_bytes);
         perm_count += 1;
     });
 
@@ -204,15 +202,6 @@ fn reducer_commutative_is_permutation_invariant_and_replayable() {
         factorial(4),
         "should test all 4! = 24 permutations"
     );
-
-    // Final assertion: ALL collected bytes are identical (playback consistency)
-    for (i, bytes) in all_bytes.iter().enumerate() {
-        assert_eq!(
-            bytes, &reference_bytes,
-            "Playback inconsistency at permutation {}: bytes differ from reference",
-            i
-        );
-    }
 }
 
 /// T11 Extended: Verify permutation invariance with 5 emissions (5! = 120 permutations).
@@ -230,7 +219,7 @@ fn reducer_sum_permutation_invariant_n5() {
         .iter()
         .enumerate()
         .map(|(i, &v)| Emission {
-            key: key((i + 1) as u8, (i + 1) as u32, 0),
+            key: key_subscription((i + 1) as u8, (i + 1) as u32, 0),
             data: u64_le(v),
         })
         .collect();
@@ -294,7 +283,7 @@ fn reducer_max_min_are_permutation_invariant() {
         .iter()
         .enumerate()
         .map(|(i, v)| Emission {
-            key: key((i + 1) as u8, 1, 0),
+            key: key_subscription((i + 1) as u8, 1, 0),
             data: v.clone(),
         })
         .collect();
@@ -392,7 +381,7 @@ fn reducer_bitor_bitand_are_permutation_invariant() {
         .iter()
         .enumerate()
         .map(|(i, v)| Emission {
-            key: key((i + 1) as u8, 1, 0),
+            key: key_subscription((i + 1) as u8, 1, 0),
             data: v.clone(),
         })
         .collect();
@@ -474,7 +463,8 @@ fn reducer_empty_input_returns_identity() {
         // Emit to a different channel so the bus has something to finalize
         // but ch_sum remains empty
         let other_ch = make_channel_id("spec0004:t11:empty:other");
-        bus.emit(other_ch, key(1, 1, 0), vec![0xFF]).expect("emit");
+        bus.emit(other_ch, key_subscription(1, 1, 0), vec![0xFF])
+            .expect("emit");
 
         let report = bus.finalize();
         assert!(report.is_ok());
@@ -487,7 +477,8 @@ fn reducer_empty_input_returns_identity() {
     {
         let mut bus = mk_bus();
         bus.register_channel(ch_sum, ChannelPolicy::Reduce(ReduceOp::Sum));
-        bus.emit(ch_sum, key(1, 1, 0), u64_le(42)).expect("emit");
+        bus.emit(ch_sum, key_subscription(1, 1, 0), u64_le(42))
+            .expect("emit");
 
         let report = bus.finalize();
         assert!(report.is_ok());
@@ -527,7 +518,7 @@ fn reducer_multiple_emissions_same_scope_different_subkeys() {
 
     let expected_sum: u64 = 10 + 20 + 30 + 40;
 
-    // Get reference
+    // Verify mathematical correctness and get reference wire bytes in one pass
     let reference = {
         let mut bus = mk_bus();
         bus.register_channel(ch, ChannelPolicy::Reduce(ReduceOp::Sum));
@@ -536,14 +527,13 @@ fn reducer_multiple_emissions_same_scope_different_subkeys() {
         }
         let report = bus.finalize();
         assert_eq!(le_to_u64(&report.channels[0].data), expected_sum);
-        finalize_bytes(&{
-            let mut bus = mk_bus();
-            bus.register_channel(ch, ChannelPolicy::Reduce(ReduceOp::Sum));
-            for e in &emissions {
-                bus.emit(ch, e.key, e.data.clone()).expect("emit");
-            }
-            bus
-        })
+
+        let frames: Vec<MaterializationFrame> = report
+            .channels
+            .into_iter()
+            .map(|fc| MaterializationFrame::new(fc.channel, fc.data))
+            .collect();
+        encode_frames(&frames)
     };
 
     // Test all permutations
@@ -601,23 +591,23 @@ fn reducer_order_dependent_is_canonically_deterministic_and_replayable() {
 
     let mut emissions = vec![
         Emission {
-            key: key(2, 1, 5), // DELTA - will be 4th in canonical order
+            key: key_subscription(2, 1, 5), // DELTA - will be 4th in canonical order
             data: b"DELTA".to_vec(),
         },
         Emission {
-            key: key(1, 1, 0), // ALPHA - will be 1st in canonical order
+            key: key_subscription(1, 1, 0), // ALPHA - will be 1st in canonical order
             data: b"ALPHA".to_vec(),
         },
         Emission {
-            key: key(3, 0, 0), // ECHO - will be 5th in canonical order
+            key: key_subscription(3, 0, 0), // ECHO - will be 5th in canonical order
             data: b"ECHO".to_vec(),
         },
         Emission {
-            key: key(2, 1, 0), // CHARLIE - will be 3rd in canonical order
+            key: key_subscription(2, 1, 0), // CHARLIE - will be 3rd in canonical order
             data: b"CHARLIE".to_vec(),
         },
         Emission {
-            key: key(1, 2, 0), // BRAVO - will be 2nd in canonical order
+            key: key_subscription(1, 2, 0), // BRAVO - will be 2nd in canonical order
             data: b"BRAVO".to_vec(),
         },
     ];
@@ -629,11 +619,31 @@ fn reducer_order_dependent_is_canonically_deterministic_and_replayable() {
     {
         let mut keys: Vec<EmitKey> = emissions.iter().map(|e| e.key).collect();
         keys.sort();
-        assert_eq!(keys[0], key(1, 1, 0), "first key should be (1, 1, 0)");
-        assert_eq!(keys[1], key(1, 2, 0), "second key should be (1, 2, 0)");
-        assert_eq!(keys[2], key(2, 1, 0), "third key should be (2, 1, 0)");
-        assert_eq!(keys[3], key(2, 1, 5), "fourth key should be (2, 1, 5)");
-        assert_eq!(keys[4], key(3, 0, 0), "fifth key should be (3, 0, 0)");
+        assert_eq!(
+            keys[0],
+            key_subscription(1, 1, 0),
+            "first key should be (1, 1, 0)"
+        );
+        assert_eq!(
+            keys[1],
+            key_subscription(1, 2, 0),
+            "second key should be (1, 2, 0)"
+        );
+        assert_eq!(
+            keys[2],
+            key_subscription(2, 1, 0),
+            "third key should be (2, 1, 0)"
+        );
+        assert_eq!(
+            keys[3],
+            key_subscription(2, 1, 5),
+            "fourth key should be (2, 1, 5)"
+        );
+        assert_eq!(
+            keys[4],
+            key_subscription(3, 0, 0),
+            "fifth key should be (3, 0, 0)"
+        );
     }
 
     // Compute reference output
@@ -728,10 +738,14 @@ fn concat_follows_emit_key_lexicographic_order() {
     bus.register_channel(ch, ChannelPolicy::Reduce(ReduceOp::Concat));
 
     // Emit in deliberately scrambled order
-    bus.emit(ch, key(2, 5, 0), b"D".to_vec()).expect("emit D"); // scope=2, rule=5
-    bus.emit(ch, key(1, 5, 2), b"C".to_vec()).expect("emit C"); // scope=1, rule=5, subkey=2
-    bus.emit(ch, key(1, 5, 1), b"B".to_vec()).expect("emit B"); // scope=1, rule=5, subkey=1
-    bus.emit(ch, key(1, 3, 0), b"A".to_vec()).expect("emit A"); // scope=1, rule=3
+    bus.emit(ch, key_subscription(2, 5, 0), b"D".to_vec())
+        .expect("emit D"); // scope=2, rule=5
+    bus.emit(ch, key_subscription(1, 5, 2), b"C".to_vec())
+        .expect("emit C"); // scope=1, rule=5, subkey=2
+    bus.emit(ch, key_subscription(1, 5, 1), b"B".to_vec())
+        .expect("emit B"); // scope=1, rule=5, subkey=1
+    bus.emit(ch, key_subscription(1, 3, 0), b"A".to_vec())
+        .expect("emit A"); // scope=1, rule=3
 
     // Expected order after EmitKey sorting:
     // key(1, 3, 0) -> A (scope=1, rule=3)
@@ -758,19 +772,19 @@ fn concat_binary_data_is_permutation_invariant() {
     // Binary data with different byte patterns
     let mut emissions = vec![
         Emission {
-            key: key(3, 1, 0),
+            key: key_subscription(3, 1, 0),
             data: vec![0xFF, 0xFE, 0xFD],
         },
         Emission {
-            key: key(1, 1, 0),
+            key: key_subscription(1, 1, 0),
             data: vec![0x00, 0x01],
         },
         Emission {
-            key: key(2, 1, 0),
+            key: key_subscription(2, 1, 0),
             data: vec![0xAB, 0xCD, 0xEF, 0x12],
         },
         Emission {
-            key: key(1, 2, 0),
+            key: key_subscription(1, 2, 0),
             data: vec![0x42],
         },
     ];
@@ -892,7 +906,8 @@ fn concat_single_emission_returns_unchanged() {
     bus.register_channel(ch, ChannelPolicy::Reduce(ReduceOp::Concat));
 
     let data = vec![0xDE, 0xAD, 0xBE, 0xEF];
-    bus.emit(ch, key(1, 1, 0), data.clone()).expect("emit");
+    bus.emit(ch, key_subscription(1, 1, 0), data.clone())
+        .expect("emit");
 
     let report = bus.finalize();
     assert!(report.is_ok());
@@ -912,7 +927,8 @@ fn concat_empty_input_produces_empty_output() {
 
     // Emit to a different channel so the bus has something to process
     let other_ch = make_channel_id("spec0004:t12:concat:other");
-    bus.emit(other_ch, key(1, 1, 0), vec![0xFF]).expect("emit");
+    bus.emit(other_ch, key_subscription(1, 1, 0), vec![0xFF])
+        .expect("emit");
 
     let report = bus.finalize();
     assert!(report.is_ok());
@@ -940,15 +956,15 @@ fn first_last_reducers_are_canonically_deterministic() {
 
     let mut emissions = vec![
         Emission {
-            key: key(3, 1, 0), // Last in canonical order
+            key: key_subscription(3, 1, 0), // Last in canonical order
             data: b"THREE".to_vec(),
         },
         Emission {
-            key: key(1, 1, 0), // First in canonical order
+            key: key_subscription(1, 1, 0), // First in canonical order
             data: b"ONE".to_vec(),
         },
         Emission {
-            key: key(2, 1, 0), // Middle
+            key: key_subscription(2, 1, 0), // Middle
             data: b"TWO".to_vec(),
         },
     ];
@@ -1052,7 +1068,7 @@ fn reduced_channel_emits_single_authoritative_value_per_tick() {
     // Emit MANY values (15 emissions) to the same channel
     // Using different keys to simulate multiple rule emissions within one tick
     for i in 0u8..15 {
-        let k = key(i, 1, 0); // Different scope for each emission
+        let k = key_subscription(i, 1, 0); // Different scope for each emission
         bus.emit(ch, k, u64_le(i as u64))
             .expect("emit should succeed");
     }
@@ -1126,7 +1142,7 @@ fn t13_multiple_reduce_channels_each_emit_single_value() {
 
     // Emit multiple values to each channel (10 emissions each)
     for i in 0u8..10 {
-        let k = key(i, 1, 0);
+        let k = key_subscription(i, 1, 0);
         let value = (i as u64) * 10; // 0, 10, 20, ..., 90
         bus.emit(ch_sum, k, u64_le(value)).expect("emit sum");
         bus.emit(ch_max, k, u64_le(value)).expect("emit max");
@@ -1198,11 +1214,16 @@ fn t13_reduce_concat_produces_single_concatenated_value() {
 
     // Emit 5 values with different keys (will be concatenated in EmitKey order)
     // EmitKey order: scope 0 < scope 1 < scope 2 < scope 3 < scope 4
-    bus.emit(ch, key(4, 1, 0), vec![0xEE]).expect("emit");
-    bus.emit(ch, key(1, 1, 0), vec![0xBB]).expect("emit");
-    bus.emit(ch, key(3, 1, 0), vec![0xDD]).expect("emit");
-    bus.emit(ch, key(0, 1, 0), vec![0xAA]).expect("emit");
-    bus.emit(ch, key(2, 1, 0), vec![0xCC]).expect("emit");
+    bus.emit(ch, key_subscription(4, 1, 0), vec![0xEE])
+        .expect("emit");
+    bus.emit(ch, key_subscription(1, 1, 0), vec![0xBB])
+        .expect("emit");
+    bus.emit(ch, key_subscription(3, 1, 0), vec![0xDD])
+        .expect("emit");
+    bus.emit(ch, key_subscription(0, 1, 0), vec![0xAA])
+        .expect("emit");
+    bus.emit(ch, key_subscription(2, 1, 0), vec![0xCC])
+        .expect("emit");
 
     let report = bus.finalize();
     assert!(report.is_ok(), "finalize should succeed");
@@ -1243,7 +1264,7 @@ fn t13_reduce_vs_log_proves_no_raw_emission_leak() {
 
     for i in 0u8..5 {
         bus_reduce
-            .emit(ch_reduce, key(i, 1, 0), u64_le(i as u64))
+            .emit(ch_reduce, key_subscription(i, 1, 0), u64_le(i as u64))
             .expect("emit");
     }
 
@@ -1251,12 +1272,13 @@ fn t13_reduce_vs_log_proves_no_raw_emission_leak() {
     let reduce_data = &report_reduce.channels[0].data;
 
     // Test with Log policy (for comparison)
+    // Uses interior mutability (RefCell/Arc<Mutex>) for emission tracking
     let bus_log = mk_bus();
     // Log is default, no registration needed
 
     for i in 0u8..5 {
         bus_log
-            .emit(ch_log, key(i, 1, 0), u64_le(i as u64))
+            .emit(ch_log, key_subscription(i, 1, 0), u64_le(i as u64))
             .expect("emit");
     }
 
@@ -1306,12 +1328,12 @@ fn t13_bitwise_reduce_produces_single_value() {
     let and_patterns = [0xFFu8, 0xFFu8, 0xFFu8, 0xFFu8];
 
     for (i, &pat) in bit_patterns.iter().enumerate() {
-        bus.emit(ch_or, key(i as u8, 1, 0), vec![pat])
+        bus.emit(ch_or, key_subscription(i as u8, 1, 0), vec![pat])
             .expect("emit bitor");
     }
 
     for (i, &pat) in and_patterns.iter().enumerate() {
-        bus.emit(ch_and, key(i as u8, 1, 0), vec![pat])
+        bus.emit(ch_and, key_subscription(i as u8, 1, 0), vec![pat])
             .expect("emit bitand");
     }
 

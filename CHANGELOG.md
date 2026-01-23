@@ -8,7 +8,7 @@
 ### Added - SPEC-0004: Worldlines & Playback
 
 - **`worldline.rs`**: Worldline types for history tracking
-    - `WorldlineId(Hash)`: Content-addressed worldline identifier
+    - `WorldlineId(Hash)`: Opaque worldline identifier (derived from initial state hash in production; tests use fixed bytes)
     - `HashTriplet`: state_root + patch_digest + commit_hash per tick
     - `WorldlineTickPatchV1`: Per-warp projection of global tick operations
     - `apply_warp_op_to_store()`: Apply WarpOp to GraphStore with explicit variant coverage
@@ -23,7 +23,7 @@
 - **`provenance_store.rs`**: Provenance store trait (hexagonal port)
     - `ProvenanceStore` trait: Seam for history access (patches, expected hashes, outputs)
     - `LocalProvenanceStore`: In-memory Vec-backed implementation
-    - `checkpoint()`: Create checkpoint by computing state hash
+    - `add_checkpoint()`: Record checkpoint for fast seek during replay
     - `fork()`: Prefix-copy worldline up to fork_tick
 
 - **`retention.rs`**: Retention policy for worldline history
@@ -32,10 +32,11 @@
 - **`materialization/frame_v2.rs`**: MBUS v2 wire format with cursor stamps
     - `V2Packet`: Cursor-stamped truth frame packets
     - `encode_v2_packet()`, `decode_v2_packet()`: Roundtrip encoding
+    - Inline unit tests T19-T22 (SPEC-0004 test IDs): `mbus_v2_roundtrip_single_packet`, `mbus_v1_rejects_v2`, `mbus_v2_rejects_v1`, `mbus_v2_multi_packet_roundtrip`
 
 ### Tests - SPEC-0004
 
-- **22/22 tests passing**: T1-T22
+- **22/22 tests passing**: T1-T22 (SPEC-0004 test IDs, not Rust function names)
 - **`crates/warp-core/tests/reducer_emission_tests.rs`**: 19 tests for T11-T13 (reducer integration)
 - **`crates/warp-core/tests/view_session_tests.rs`**: T16 added (2 tests for worker count invariance)
 - **Hexagonal testing**: T1 and T7 test playback contract using ProvenanceStore fakes

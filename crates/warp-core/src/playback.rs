@@ -21,6 +21,8 @@
 //! - CUR-002: Cursor never executes rules when seeking; it applies recorded patches only.
 //! - CUR-003: After seek/apply, cursor verifies expected hashes byte-for-byte.
 
+// Both BTreeMap and BTreeSet are used in struct field types (TruthSink and ViewSession
+// respectively), so they must be imported at module scope rather than locally.
 use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
@@ -32,6 +34,23 @@ use crate::provenance_store::ProvenanceStore;
 use crate::snapshot::compute_state_root_for_warp_store;
 use crate::worldline::WorldlineId;
 
+/// Implements `as_bytes()` for a `#[repr(transparent)]` newtype wrapping `Hash`.
+///
+/// `CursorId` and `SessionId` are semantically distinct types but share the same
+/// `as_bytes()` implementation. This macro captures that intentional structural
+/// duplication while keeping the types separate for type-safety.
+macro_rules! impl_hash_id_bytes {
+    ($T:ty) => {
+        impl $T {
+            /// Returns the canonical byte representation of this id.
+            #[must_use]
+            pub fn as_bytes(&self) -> &Hash {
+                &self.0
+            }
+        }
+    };
+}
+
 /// Unique identifier for a playback cursor.
 ///
 /// Each cursor has a distinct ID to enable tracking and multiplexing of
@@ -41,13 +60,7 @@ use crate::worldline::WorldlineId;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CursorId(pub Hash);
 
-impl CursorId {
-    /// Returns the canonical byte representation of this id.
-    #[must_use]
-    pub fn as_bytes(&self) -> &Hash {
-        &self.0
-    }
-}
+impl_hash_id_bytes!(CursorId);
 
 /// Unique identifier for a view session.
 ///
@@ -58,13 +71,7 @@ impl CursorId {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SessionId(pub Hash);
 
-impl SessionId {
-    /// Returns the canonical byte representation of this id.
-    #[must_use]
-    pub fn as_bytes(&self) -> &Hash {
-        &self.0
-    }
-}
+impl_hash_id_bytes!(SessionId);
 
 /// Role of a cursor within the worldline.
 ///
@@ -275,23 +282,55 @@ pub enum StepResult {
 #[derive(Debug)]
 pub struct PlaybackCursor {
     /// Unique identifier for this cursor.
+    ///
+    /// Immutable after construction. Used for receipt provenance and multiplexing.
     pub cursor_id: CursorId,
+
     /// The worldline this cursor is navigating.
+    ///
+    /// Immutable after construction. Determines which provenance history is available.
     pub worldline_id: WorldlineId,
+
     /// The warp instance this cursor is focused on.
+    ///
+    /// Immutable after construction. Used for state-root computation scope.
     pub warp_id: WarpId,
+
     /// Current tick position (0-indexed into worldline history).
+    ///
+    /// Invariant: `tick` always reflects the number of patches that have been applied
+    /// to `store` since its initial state. Modifying `tick` without correspondingly
+    /// updating `store` (or vice versa) will cause seek/replay hash verification to fail.
     pub tick: u64,
+
     /// Role of this cursor (Writer or Reader).
+    ///
+    /// Determines which operations are permitted. Writers can advance the worldline;
+    /// readers can only replay existing history.
     pub role: CursorRole,
+
     /// Current playback mode controlling step behavior.
+    ///
+    /// Drives the `step()` state machine. Safe to mutate directly to change playback
+    /// behavior (e.g., pausing or seeking).
     pub mode: PlaybackMode,
+
     /// The cursor's isolated graph store copy.
+    ///
+    /// # Invariant
+    ///
+    /// This store MUST represent the worldline state at exactly `self.tick` patches
+    /// applied from the initial (U0) state. Mutating `store` directly without
+    /// updating `tick` (or vice versa) will break seek/replay consistency: subsequent
+    /// `seek_to()` calls will compute incorrect state roots and fail CUR-003
+    /// hash verification. Use `seek_to()` for safe state transitions.
     pub store: GraphStore,
+
     /// Maximum tick this cursor can advance to (pinned frontier).
     ///
     /// For readers, this is typically the current writer position.
-    /// The cursor cannot seek beyond this tick.
+    /// The cursor cannot seek or step beyond this tick. Safe to update
+    /// externally to extend or restrict the cursor's visible history.
     pub pin_max_tick: u64,
 }
 
@@ -586,7 +625,7 @@ impl ViewSession {
     ///
     /// # Errors
     ///
-    /// Returns [`HistoryError`] if:
+    /// Returns [`crate::provenance_store::HistoryError`] if:
     /// - The expected hash triplet is unavailable for the cursor's tick.
     /// - The recorded outputs are unavailable for the cursor's tick.
     ///
@@ -594,8 +633,6 @@ impl ViewSession {
     ///
     /// This method enforces OUT-002: Playback at tick t reproduces the same `TruthFrames`
     /// recorded at tick t. The values come from the provenance store, not computed on the fly.
-    ///
-    /// [`HistoryError`]: crate::provenance_store::HistoryError
     pub fn publish_truth<P: ProvenanceStore>(
         &self,
         cursor: &PlaybackCursor,
@@ -624,7 +661,7 @@ impl ViewSession {
         // Publish frames for subscribed channels only
         for (channel, value) in outputs {
             if self.subscriptions.contains(&channel) {
-                let value_hash: Hash = blake3::hash(&value).into();
+                let value_hash: [u8; 32] = *blake3::hash(&value).as_bytes();
                 sink.publish_frame(
                     self.session_id,
                     TruthFrame {
@@ -687,10 +724,13 @@ impl TruthSink {
 
     /// Collect all frames published for a session.
     ///
-    /// Returns an empty vector if no frames have been published.
+    /// Returns an empty slice if no frames have been published.
     #[must_use]
-    pub fn collect_frames(&self, session_id: SessionId) -> Vec<TruthFrame> {
-        self.frames.get(&session_id).cloned().unwrap_or_default()
+    pub fn collect_frames(&self, session_id: SessionId) -> &[TruthFrame] {
+        self.frames
+            .get(&session_id)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     /// Get the last receipt published for a session, if any.

@@ -20,6 +20,10 @@
 //! simply the `WarpId`. The engine's `initial_state` for a warp serves as the U0
 //! starting point for replay.
 
+// The crate uses u64 ticks but Vec lengths are usize; on 64-bit platforms these
+// are the same size, and we don't support 32-bit targets for this crate.
+#![allow(clippy::cast_possible_truncation)]
+
 use std::collections::BTreeMap;
 
 use thiserror::Error;
@@ -65,6 +69,13 @@ pub enum HistoryError {
 /// Checkpoints enable fast seeking by providing a known-good state snapshot
 /// at a specific tick. Instead of replaying from U0, cursors can replay
 /// from the nearest checkpoint before the target tick.
+///
+/// This type is only meaningful within the provenance/checkpoint subsystem.
+/// It is created via [`LocalProvenanceStore::create_checkpoint`] and consumed
+/// by [`ProvenanceStore::checkpoint_before`] during cursor seek operations.
+///
+/// [`LocalProvenanceStore::create_checkpoint`]: LocalProvenanceStore::create_checkpoint
+/// [`ProvenanceStore::checkpoint_before`]: ProvenanceStore::checkpoint_before
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CheckpointRef {
@@ -145,7 +156,8 @@ pub trait ProvenanceStore: Send + Sync {
     /// Returns the nearest checkpoint before a given tick, if any.
     ///
     /// This enables fast seeking by starting replay from a checkpoint rather
-    /// than from U0. Returns `None` if no checkpoint exists before the tick.
+    /// than from U0. Returns `None` if no checkpoint exists before the given
+    /// tick, or if the worldline doesn't exist in the store.
     fn checkpoint_before(&self, w: WorldlineId, tick: u64) -> Option<CheckpointRef>;
 
     /// Returns whether the worldline has any recorded history.
@@ -158,18 +170,18 @@ pub trait ProvenanceStore: Send + Sync {
     }
 }
 
-/// Per-worldline history storage.
+// Per-worldline history storage.
 #[derive(Debug, Clone)]
 struct WorldlineHistory {
-    /// U0 reference (`WarpId` for MVP).
+    // U0 reference (`WarpId` for MVP).
     u0_ref: WarpId,
-    /// Patches in tick order.
+    // Patches in tick order.
     patches: Vec<WorldlineTickPatchV1>,
-    /// Expected hash triplets in tick order.
+    // Expected hash triplets in tick order.
     expected: Vec<HashTriplet>,
-    /// Recorded outputs in tick order.
+    // Recorded outputs in tick order.
     outputs: Vec<OutputFrameSet>,
-    /// Checkpoints for fast seeking.
+    // Checkpoints for fast seeking.
     checkpoints: Vec<CheckpointRef>,
 }
 
@@ -250,15 +262,27 @@ impl LocalProvenanceStore {
     /// Records a checkpoint for a worldline.
     ///
     /// Checkpoints are stored in tick order for efficient binary search.
-    pub fn add_checkpoint(&mut self, w: WorldlineId, checkpoint: CheckpointRef) {
-        if let Some(history) = self.worldlines.get_mut(&w) {
-            // Maintain sorted order by tick
-            let pos = history
-                .checkpoints
-                .binary_search_by_key(&checkpoint.tick, |c| c.tick)
-                .unwrap_or_else(|e| e);
-            history.checkpoints.insert(pos, checkpoint);
-        }
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    pub fn add_checkpoint(
+        &mut self,
+        w: WorldlineId,
+        checkpoint: CheckpointRef,
+    ) -> Result<(), HistoryError> {
+        let history = self
+            .worldlines
+            .get_mut(&w)
+            .ok_or(HistoryError::WorldlineNotFound(w))?;
+
+        // Maintain sorted order by tick
+        let pos = history
+            .checkpoints
+            .binary_search_by_key(&checkpoint.tick, |c| c.tick)
+            .unwrap_or_else(|e| e);
+        history.checkpoints.insert(pos, checkpoint);
+        Ok(())
     }
 
     /// Creates a checkpoint at the given tick by computing the state hash.
@@ -278,14 +302,19 @@ impl LocalProvenanceStore {
     ) -> Result<CheckpointRef, HistoryError> {
         let history = self
             .worldlines
-            .get(&w)
+            .get_mut(&w)
             .ok_or(HistoryError::WorldlineNotFound(w))?;
 
-        let warp_id = history.u0_ref;
-        let state_hash = compute_state_root_for_warp_store(state, warp_id);
+        let state_hash = compute_state_root_for_warp_store(state, history.u0_ref);
         let checkpoint_ref = CheckpointRef { tick, state_hash };
 
-        self.add_checkpoint(w, checkpoint_ref);
+        // Insert in sorted order by tick (same logic as add_checkpoint)
+        let pos = history
+            .checkpoints
+            .binary_search_by_key(&checkpoint_ref.tick, |c| c.tick)
+            .unwrap_or_else(|e| e);
+        history.checkpoints.insert(pos, checkpoint_ref);
+
         Ok(checkpoint_ref)
     }
 
@@ -300,7 +329,6 @@ impl LocalProvenanceStore {
     /// - Returns [`HistoryError::WorldlineNotFound`] if the source worldline doesn't exist.
     /// - Returns [`HistoryError::HistoryUnavailable`] if `fork_tick` is beyond the
     ///   available history in the source worldline.
-    #[allow(clippy::cast_possible_truncation)]
     pub fn fork(
         &mut self,
         source: WorldlineId,
@@ -314,11 +342,15 @@ impl LocalProvenanceStore {
 
         // Validate fork_tick is within available history
         let source_len = source_history.patches.len();
+        // SAFETY: cast_possible_truncation — history length fits in u64 because Vec
+        // cannot exceed isize::MAX elements, and on 64-bit platforms usize == u64.
         if fork_tick >= source_len as u64 {
             return Err(HistoryError::HistoryUnavailable { tick: fork_tick });
         }
 
         // Copy prefix data up to and including fork_tick
+        // SAFETY: cast_possible_truncation — fork_tick < source_len (checked above),
+        // so fork_tick + 1 <= source_len <= usize::MAX; the cast back to usize is lossless.
         let end_idx = (fork_tick + 1) as usize;
         let new_history = WorldlineHistory {
             u0_ref: source_history.u0_ref,
@@ -353,7 +385,6 @@ impl ProvenanceStore for LocalProvenanceStore {
             .ok_or(HistoryError::WorldlineNotFound(w))
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn patch(&self, w: WorldlineId, tick: u64) -> Result<WorldlineTickPatchV1, HistoryError> {
         let history = self
             .worldlines
@@ -367,7 +398,6 @@ impl ProvenanceStore for LocalProvenanceStore {
             .ok_or(HistoryError::HistoryUnavailable { tick })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn expected(&self, w: WorldlineId, tick: u64) -> Result<HashTriplet, HistoryError> {
         let history = self
             .worldlines
@@ -381,7 +411,6 @@ impl ProvenanceStore for LocalProvenanceStore {
             .ok_or(HistoryError::HistoryUnavailable { tick })
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn outputs(&self, w: WorldlineId, tick: u64) -> Result<OutputFrameSet, HistoryError> {
         let history = self
             .worldlines
@@ -525,27 +554,33 @@ mod tests {
         store.register_worldline(w, warp);
 
         // Add checkpoints at ticks 0, 5, 10
-        store.add_checkpoint(
-            w,
-            CheckpointRef {
-                tick: 0,
-                state_hash: [0u8; 32],
-            },
-        );
-        store.add_checkpoint(
-            w,
-            CheckpointRef {
-                tick: 5,
-                state_hash: [5u8; 32],
-            },
-        );
-        store.add_checkpoint(
-            w,
-            CheckpointRef {
-                tick: 10,
-                state_hash: [10u8; 32],
-            },
-        );
+        store
+            .add_checkpoint(
+                w,
+                CheckpointRef {
+                    tick: 0,
+                    state_hash: [0u8; 32],
+                },
+            )
+            .unwrap();
+        store
+            .add_checkpoint(
+                w,
+                CheckpointRef {
+                    tick: 5,
+                    state_hash: [5u8; 32],
+                },
+            )
+            .unwrap();
+        store
+            .add_checkpoint(
+                w,
+                CheckpointRef {
+                    tick: 10,
+                    state_hash: [10u8; 32],
+                },
+            )
+            .unwrap();
 
         // No checkpoint before tick 0
         assert!(store.checkpoint_before(w, 0).is_none());

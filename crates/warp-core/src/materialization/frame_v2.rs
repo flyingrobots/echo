@@ -68,6 +68,70 @@ impl fmt::Display for EncodeError {
 
 impl std::error::Error for EncodeError {}
 
+/// Error returned when decoding a v2 packet fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecodeError {
+    /// The input buffer is shorter than the minimum header size.
+    TruncatedHeader,
+    /// The magic bytes do not match "MBUS".
+    BadMagic,
+    /// The version field is not `0x0002`.
+    UnsupportedVersion {
+        /// The version found in the packet.
+        actual: u16,
+    },
+    /// The declared payload length is smaller than the minimum payload size.
+    PayloadTooSmall {
+        /// The declared payload length.
+        declared: usize,
+    },
+    /// The input buffer is shorter than header + declared payload length.
+    TruncatedPacket {
+        /// Bytes required (header + payload).
+        expected: usize,
+        /// Bytes actually available.
+        actual: usize,
+    },
+    /// The entry count or entry data is inconsistent with the payload size.
+    InvalidEntryCount,
+    /// An individual entry is truncated (missing channel/hash/len/value bytes).
+    TruncatedEntry {
+        /// Zero-based index of the entry that failed to decode.
+        index: usize,
+    },
+}
+
+impl fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TruncatedHeader => write!(
+                f,
+                "input shorter than v2 header size ({HEADER_SIZE_V2} bytes)"
+            ),
+            Self::BadMagic => write!(f, "magic bytes do not match \"MBUS\""),
+            Self::UnsupportedVersion { actual } => {
+                write!(
+                    f,
+                    "unsupported version 0x{actual:04X} (expected 0x{FRAME_VERSION_V2:04X})"
+                )
+            }
+            Self::PayloadTooSmall { declared } => {
+                write!(f, "declared payload length ({declared}) is less than minimum ({MIN_PAYLOAD_SIZE_V2})")
+            }
+            Self::TruncatedPacket { expected, actual } => {
+                write!(
+                    f,
+                    "input too short: need {expected} bytes but only {actual} available"
+                )
+            }
+            Self::InvalidEntryCount => write!(f, "entry count inconsistent with payload"),
+            Self::TruncatedEntry { index } => write!(f, "entry {index} is truncated"),
+        }
+    }
+}
+
+impl std::error::Error for DecodeError {}
+
 /// Frame magic bytes: "MBUS" in ASCII (shared with v1).
 pub const FRAME_MAGIC: [u8; 4] = [0x4D, 0x42, 0x55, 0x53];
 
@@ -142,6 +206,9 @@ impl V2Packet {
 ///
 /// Returns [`EncodeError::PayloadTooLarge`] if the computed payload size exceeds
 /// `u32::MAX` bytes.
+// SAFETY: All `as u32` casts below are guarded by the `u32::try_from(payload_len)` check
+// at the top of the function body, which ensures the total payload (and therefore each
+// individual component length) fits in a u32.
 #[allow(clippy::cast_possible_truncation)]
 pub fn encode_v2_packet(
     header: &V2PacketHeader,
@@ -194,25 +261,34 @@ pub fn encode_v2_packet(
 
 /// Decodes a single v2 packet from bytes.
 ///
-/// Returns `None` if:
-/// - Bytes are too short
-/// - Magic doesn't match "MBUS"
-/// - Version is not 0x0002
-/// - Payload is malformed
-pub fn decode_v2_packet(bytes: &[u8]) -> Option<V2Packet> {
+/// # Errors
+///
+/// Returns [`DecodeError`] describing the specific failure:
+/// - [`DecodeError::TruncatedHeader`] — input shorter than header
+/// - [`DecodeError::BadMagic`] — magic bytes mismatch
+/// - [`DecodeError::UnsupportedVersion`] — version is not 0x0002
+/// - [`DecodeError::PayloadTooSmall`] — declared payload smaller than minimum
+/// - [`DecodeError::TruncatedPacket`] — input shorter than header + payload
+/// - [`DecodeError::InvalidEntryCount`] — entry count field unreadable
+/// - [`DecodeError::TruncatedEntry`] — an entry is incomplete
+// NOTE: Kept monolithic — match arms parse sequential fields from a single byte slice;
+// splitting would require threading offset state through sub-functions.
+#[allow(clippy::too_many_lines)]
+#[allow(clippy::cast_possible_truncation)]
+pub fn decode_v2_packet(bytes: &[u8]) -> Result<V2Packet, DecodeError> {
     if bytes.len() < HEADER_SIZE_V2 {
-        return None;
+        return Err(DecodeError::TruncatedHeader);
     }
 
     // Check magic
     if bytes[0..4] != FRAME_MAGIC {
-        return None;
+        return Err(DecodeError::BadMagic);
     }
 
     // Check version (must be v2)
     let version = u16::from_le_bytes([bytes[4], bytes[5]]);
     if version != FRAME_VERSION_V2 {
-        return None;
+        return Err(DecodeError::UnsupportedVersion { actual: version });
     }
 
     // Skip reserved (bytes 6..8)
@@ -221,63 +297,115 @@ pub fn decode_v2_packet(bytes: &[u8]) -> Option<V2Packet> {
     let payload_len = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
 
     if payload_len < MIN_PAYLOAD_SIZE_V2 {
-        return None;
+        return Err(DecodeError::PayloadTooSmall {
+            declared: payload_len,
+        });
     }
 
     let expected_total = HEADER_SIZE_V2 + payload_len;
     if bytes.len() < expected_total {
-        return None;
+        return Err(DecodeError::TruncatedPacket {
+            expected: expected_total,
+            actual: bytes.len(),
+        });
     }
 
     let payload = &bytes[HEADER_SIZE_V2..expected_total];
-    let mut cursor = 0;
+    let mut offset = 0;
 
     // Read receipt fields
-    let session_id: Hash = payload[cursor..cursor + 32].try_into().ok()?;
-    cursor += 32;
+    let session_id: Hash =
+        payload[offset..offset + 32]
+            .try_into()
+            .map_err(|_| DecodeError::TruncatedPacket {
+                expected: expected_total,
+                actual: bytes.len(),
+            })?;
+    offset += 32;
 
-    let cursor_id: Hash = payload[cursor..cursor + 32].try_into().ok()?;
-    cursor += 32;
+    let cursor_id: Hash =
+        payload[offset..offset + 32]
+            .try_into()
+            .map_err(|_| DecodeError::TruncatedPacket {
+                expected: expected_total,
+                actual: bytes.len(),
+            })?;
+    offset += 32;
 
-    let worldline_id: Hash = payload[cursor..cursor + 32].try_into().ok()?;
-    cursor += 32;
+    let worldline_id: Hash =
+        payload[offset..offset + 32]
+            .try_into()
+            .map_err(|_| DecodeError::TruncatedPacket {
+                expected: expected_total,
+                actual: bytes.len(),
+            })?;
+    offset += 32;
 
-    let warp_id_bytes: Hash = payload[cursor..cursor + 32].try_into().ok()?;
-    cursor += 32;
+    let warp_id_bytes: Hash =
+        payload[offset..offset + 32]
+            .try_into()
+            .map_err(|_| DecodeError::TruncatedPacket {
+                expected: expected_total,
+                actual: bytes.len(),
+            })?;
+    offset += 32;
 
-    let tick = u64::from_le_bytes(payload[cursor..cursor + 8].try_into().ok()?);
-    cursor += 8;
+    let tick = u64::from_le_bytes(payload[offset..offset + 8].try_into().map_err(|_| {
+        DecodeError::TruncatedPacket {
+            expected: expected_total,
+            actual: bytes.len(),
+        }
+    })?);
+    offset += 8;
 
-    let commit_hash: Hash = payload[cursor..cursor + 32].try_into().ok()?;
-    cursor += 32;
+    let commit_hash: Hash =
+        payload[offset..offset + 32]
+            .try_into()
+            .map_err(|_| DecodeError::TruncatedPacket {
+                expected: expected_total,
+                actual: bytes.len(),
+            })?;
+    offset += 32;
 
     // Read entry count
-    let entry_count = u32::from_le_bytes(payload[cursor..cursor + 4].try_into().ok()?) as usize;
-    cursor += 4;
+    let entry_count = u32::from_le_bytes(
+        payload[offset..offset + 4]
+            .try_into()
+            .map_err(|_| DecodeError::InvalidEntryCount)?,
+    ) as usize;
+    offset += 4;
 
     // Read entries
     let mut entries = Vec::with_capacity(entry_count);
-    for _ in 0..entry_count {
-        if cursor + 68 > payload.len() {
+    for i in 0..entry_count {
+        if offset + 68 > payload.len() {
             // Need at least channel(32) + hash(32) + len(4)
-            return None;
+            return Err(DecodeError::TruncatedEntry { index: i });
         }
 
-        let channel_bytes: Hash = payload[cursor..cursor + 32].try_into().ok()?;
-        cursor += 32;
+        let channel_bytes: Hash = payload[offset..offset + 32]
+            .try_into()
+            .map_err(|_| DecodeError::TruncatedEntry { index: i })?;
+        offset += 32;
 
-        let value_hash: Hash = payload[cursor..cursor + 32].try_into().ok()?;
-        cursor += 32;
+        let value_hash: Hash = payload[offset..offset + 32]
+            .try_into()
+            .map_err(|_| DecodeError::TruncatedEntry { index: i })?;
+        offset += 32;
 
-        let value_len = u32::from_le_bytes(payload[cursor..cursor + 4].try_into().ok()?) as usize;
-        cursor += 4;
+        let value_len = u32::from_le_bytes(
+            payload[offset..offset + 4]
+                .try_into()
+                .map_err(|_| DecodeError::TruncatedEntry { index: i })?,
+        ) as usize;
+        offset += 4;
 
-        if cursor + value_len > payload.len() {
-            return None;
+        if offset + value_len > payload.len() {
+            return Err(DecodeError::TruncatedEntry { index: i });
         }
 
-        let value = payload[cursor..cursor + value_len].to_vec();
-        cursor += value_len;
+        let value = payload[offset..offset + value_len].to_vec();
+        offset += value_len;
 
         entries.push(V2Entry {
             channel: TypeId(channel_bytes),
@@ -286,7 +414,7 @@ pub fn decode_v2_packet(bytes: &[u8]) -> Option<V2Packet> {
         });
     }
 
-    Some(V2Packet {
+    Ok(V2Packet {
         header: V2PacketHeader {
             session_id,
             cursor_id,
@@ -301,13 +429,16 @@ pub fn decode_v2_packet(bytes: &[u8]) -> Option<V2Packet> {
 
 /// Decodes multiple v2 packets from a concatenated byte buffer.
 ///
-/// Returns `None` if any packet is malformed.
-pub fn decode_v2_packets(mut bytes: &[u8]) -> Option<Vec<V2Packet>> {
+/// # Errors
+///
+/// Returns the [`DecodeError`] from the first malformed packet encountered.
+#[allow(clippy::cast_possible_truncation)]
+pub fn decode_v2_packets(mut bytes: &[u8]) -> Result<Vec<V2Packet>, DecodeError> {
     let mut packets = Vec::new();
 
     while !bytes.is_empty() {
         if bytes.len() < HEADER_SIZE_V2 {
-            return None;
+            return Err(DecodeError::TruncatedHeader);
         }
 
         // Read payload length to determine packet size
@@ -315,15 +446,22 @@ pub fn decode_v2_packets(mut bytes: &[u8]) -> Option<Vec<V2Packet>> {
         let packet_size = HEADER_SIZE_V2 + payload_len;
 
         if bytes.len() < packet_size {
-            return None;
+            return Err(DecodeError::TruncatedPacket {
+                expected: packet_size,
+                actual: bytes.len(),
+            });
         }
 
+        // NOTE: decode_v2_packet re-validates magic/version/length on the subslice.
+        // This is intentional (defense in depth) — the outer loop only peeks at the
+        // payload_len field to find packet boundaries, while the inner decode performs
+        // full validation. This keeps decode_v2_packet safe to call standalone.
         let packet = decode_v2_packet(&bytes[..packet_size])?;
         packets.push(packet);
         bytes = &bytes[packet_size..];
     }
 
-    Some(packets)
+    Ok(packets)
 }
 
 /// Computes the blake3 hash of a value for use in `V2Entry`.
@@ -437,7 +575,13 @@ mod tests {
         let result = decode_v2_packet(&v1_bytes);
 
         // Assert: rejected due to version mismatch
-        assert!(result.is_none(), "v2 decoder should reject v1 packet");
+        assert_eq!(
+            result.unwrap_err(),
+            DecodeError::UnsupportedVersion {
+                actual: FRAME_VERSION
+            },
+            "v2 decoder should reject v1 packet with UnsupportedVersion"
+        );
     }
 
     // T22: mbus_v2_multi_packet_roundtrip
@@ -523,7 +667,7 @@ mod tests {
         let mut bad =
             encode_v2_packet(&test_header(), &test_entries()).expect("encode should succeed");
         bad[0] = 0xFF; // corrupt magic
-        assert!(decode_v2_packet(&bad).is_none());
+        assert_eq!(decode_v2_packet(&bad).unwrap_err(), DecodeError::BadMagic);
     }
 
     #[test]
@@ -531,13 +675,16 @@ mod tests {
         let encoded =
             encode_v2_packet(&test_header(), &test_entries()).expect("encode should succeed");
         let truncated = &encoded[..encoded.len() - 1];
-        assert!(decode_v2_packet(truncated).is_none());
+        assert!(decode_v2_packet(truncated).is_err());
     }
 
     #[test]
     fn decode_rejects_too_short() {
         let short = vec![0u8; HEADER_SIZE_V2 - 1];
-        assert!(decode_v2_packet(&short).is_none());
+        assert_eq!(
+            decode_v2_packet(&short).unwrap_err(),
+            DecodeError::TruncatedHeader
+        );
     }
 
     #[test]

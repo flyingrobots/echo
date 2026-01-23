@@ -50,7 +50,7 @@
 
 - Reducer emission: `crates/warp-core/tests/reducer_emission_tests.rs` (T11-T13 reducer tests)
 - View session & playback: `crates/warp-core/tests/view_session_tests.rs` (Playback + T16 tests)
-- Playback outputs: `crates/warp-core/tests/outputs_playback_tests.rs` (T1-T10 playback tests)
+- Playback outputs: `crates/warp-core/tests/outputs_playback_tests.rs` (SPEC-0004 test IDs T1, T4, T5, T6, T7, T8)
 - Checkpoint & fork: `crates/warp-core/tests/checkpoint_fork_tests.rs` (T17-T18 checkpoint/fork tests)
 - Playback cursor: `crates/warp-core/tests/playback_cursor_tests.rs` (Cursor seek tests)
 

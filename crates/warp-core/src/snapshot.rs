@@ -270,9 +270,16 @@ pub(crate) fn compute_commit_hash_v2(
 
 /// Computes the state root hash for a single warp's [`GraphStore`].
 ///
-/// This function computes a canonical hash of the entire graph state within a
-/// single warp instance, suitable for worldline verification during cursor
-/// replay operations.
+/// This is a **low-level** function intended for cursor replay verification and
+/// provenance checkpoint validation. Most callers should use higher-level APIs
+/// such as [`PlaybackCursor::seek_to`] which invokes this internally.
+///
+/// # When to Use
+///
+/// Use this function directly only when:
+/// - Building a custom provenance store that records per-tick state roots
+/// - Implementing checkpoint-based fast-seek outside the standard cursor flow
+/// - Validating graph state integrity in test harnesses
 ///
 /// # Determinism
 ///
@@ -281,13 +288,19 @@ pub(crate) fn compute_commit_hash_v2(
 /// - Edges are sorted by `EdgeId` before hashing
 /// - Attachments are hashed alongside their owners
 ///
-/// # Note
+/// The `warp_id` parameter is accepted for API forward-compatibility but is not
+/// currently incorporated into the hash. The returned hash is purely a function
+/// of the store's graph content.
 ///
-/// This is a simpler version of `compute_state_root` that operates on a
-/// single `GraphStore` rather than the full `WarpState`. It's used for
-/// warp-local cursor verification where we don't have multi-warp traversal.
+/// # Relationship to `compute_state_root`
+///
+/// This is a simpler, single-warp variant of the full `compute_state_root` which
+/// operates on the multi-warp [`WarpState`]. It is used for warp-local cursor
+/// verification where multi-warp traversal is not required.
 ///
 /// [`GraphStore`]: crate::graph::GraphStore
+/// [`PlaybackCursor::seek_to`]: crate::playback::PlaybackCursor::seek_to
+/// [`WarpState`]: crate::warp_state::WarpState
 pub fn compute_state_root_for_warp_store(
     store: &crate::graph::GraphStore,
     _warp_id: WarpId,

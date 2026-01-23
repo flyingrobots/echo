@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::expect_fun_call)]
 //! Outputs playback tests for SPEC-0004 Commit 5: Record Outputs Per Tick + Seek/Playback.
 //!
 //! These tests verify:
@@ -22,8 +21,8 @@ use warp_core::materialization::{
 };
 use warp_core::{
     compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet, HistoryError,
-    LocalProvenanceStore, PlaybackCursor, PlaybackMode, ProvenanceStore, StepResult, TruthSink,
-    ViewSession, WorldlineId,
+    LocalProvenanceStore, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekError, StepResult,
+    TruthSink, ViewSession, WorldlineId,
 };
 
 /// Sets up a worldline with N ticks and outputs, returns the provenance store and initial store.
@@ -317,7 +316,7 @@ fn outputs_match_recorded_bytes_for_same_tick() {
     session.subscribe(position_channel);
     session.subscribe(velocity_channel);
 
-    // Test at tick k = 12
+    // 12 ticks: enough to exercise mid-history playback without hitting boundaries (0 or 15)
     let k = 12u64;
 
     // Seek cursor to tick k
@@ -380,7 +379,7 @@ fn outputs_match_recorded_bytes_for_same_tick() {
     );
 
     // Verify value_hash is blake3 of value
-    for frame in &frames {
+    for frame in frames {
         let expected_hash: [u8; 32] = blake3::hash(&frame.value).into();
         assert_eq!(
             frame.value_hash, expected_hash,
@@ -514,7 +513,7 @@ fn publish_truth_filters_by_subscription() {
 
     let position_channel = make_channel_id("entity:position");
     let velocity_channel = make_channel_id("entity:velocity");
-    let unsubscribed_channel = make_channel_id("entity:unsubscribed");
+    let other_channel = make_channel_id("entity:unsubscribed");
 
     // Create reader cursor
     let mut cursor = PlaybackCursor::new(
@@ -556,13 +555,13 @@ fn publish_truth_filters_by_subscription() {
     );
 
     // Verify no frames for unsubscribed channels
-    for frame in &frames {
+    for frame in frames {
         assert_ne!(
             frame.channel, velocity_channel,
             "should not have velocity frame"
         );
         assert_ne!(
-            frame.channel, unsubscribed_channel,
+            frame.channel, other_channel,
             "should not have unsubscribed channel frame"
         );
     }
@@ -573,13 +572,17 @@ fn publish_truth_filters_by_subscription() {
 // ============================================================================
 
 /// Test that publish_truth returns HistoryError for unavailable tick.
+///
+/// With 5 patches (indices 0-4), seek_to(5) is valid (tick 5 = "after all patches applied")
+/// but provenance.expected(w, 5) has no entry at index 5, so publish_truth fails.
+/// We also verify that seek_to properly rejects ticks far beyond history.
 #[test]
 fn publish_truth_returns_error_for_unavailable_tick() {
     let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_outputs(5);
 
     let position_channel = make_channel_id("entity:position");
 
-    // Create cursor that claims to be at tick 100 (beyond history)
+    // First, verify seek_to properly rejects ticks beyond available history.
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(1),
         worldline_id,
@@ -588,15 +591,28 @@ fn publish_truth_returns_error_for_unavailable_tick() {
         &initial_store,
         100,
     );
-    // Manually set tick beyond history (bypassing seek validation)
-    cursor.tick = 100;
+    let seek_result = cursor.seek_to(100, &provenance, &initial_store);
+    assert!(
+        matches!(
+            seek_result,
+            Err(SeekError::HistoryUnavailable { tick: 100 })
+        ),
+        "seek_to(100) should fail with HistoryUnavailable, got: {:?}",
+        seek_result
+    );
+
+    // Now seek to tick 5 (boundary: valid for seek_to since 5 <= history_len,
+    // but provenance.expected has no entry at index 5, causing publish_truth to fail).
+    cursor
+        .seek_to(5, &provenance, &initial_store)
+        .expect("seek_to(5) should succeed at boundary tick");
 
     // Create session
     let session_id = test_session_id(1);
     let mut session = ViewSession::new(session_id, cursor.cursor_id);
     session.subscribe(position_channel);
 
-    // Publish truth should fail
+    // Publish truth should fail because provenance has no outputs at tick 5
     let mut sink = TruthSink::new();
     let result = session.publish_truth(&cursor, &provenance, &mut sink);
 
@@ -605,8 +621,8 @@ fn publish_truth_returns_error_for_unavailable_tick() {
         "publish_truth should fail for unavailable tick"
     );
     assert!(
-        matches!(result, Err(HistoryError::HistoryUnavailable { tick: 100 })),
-        "should be HistoryUnavailable error for tick 100, got: {:?}",
+        matches!(result, Err(HistoryError::HistoryUnavailable { tick: 5 })),
+        "should be HistoryUnavailable error for tick 5, got: {:?}",
         result
     );
 }
@@ -671,7 +687,7 @@ fn writer_play_advances_and_records_outputs() {
     for tick in 0..10u64 {
         let triplet = provenance
             .expected(worldline_id, tick)
-            .expect(&format!("expected should exist for tick {}", tick));
+            .expect("expected should exist for tick");
 
         // Verify commit_hash matches what we recorded
         assert_eq!(
@@ -686,7 +702,7 @@ fn writer_play_advances_and_records_outputs() {
     for tick in 0..10u64 {
         let outputs = provenance
             .outputs(worldline_id, tick)
-            .expect(&format!("outputs should exist for tick {}", tick));
+            .expect("outputs should exist for tick");
 
         assert_eq!(outputs.len(), 1, "should have 1 output for tick {}", tick);
         assert_eq!(

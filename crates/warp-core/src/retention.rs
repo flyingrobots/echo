@@ -22,9 +22,11 @@
 ///
 /// Controls how much history is kept and whether checkpoints are created
 /// to enable fast seeking.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RetentionPolicy {
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RetentionPolicy {
     /// Keep all history indefinitely. No checkpoints created automatically.
+    #[default]
     KeepAll,
 
     /// Create checkpoints every `k` ticks. Keeps all history.
@@ -44,16 +46,15 @@ pub enum RetentionPolicy {
 
     /// Archive old history to wormhole storage (seam only, not implemented).
     /// This is a placeholder for future distributed storage integration.
+    ///
+    /// # Panics
+    ///
+    /// This variant is not yet implemented. Any runtime usage will panic.
+    #[deprecated(note = "not yet implemented — will panic at runtime")]
     ArchiveToWormhole {
         /// Archive history older than this many ticks.
         after: u64,
         /// Create checkpoints every this many ticks before archiving.
         checkpoint_every: u64,
     },
-}
-
-impl Default for RetentionPolicy {
-    fn default() -> Self {
-        Self::KeepAll
-    }
 }

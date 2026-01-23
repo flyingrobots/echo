@@ -34,6 +34,7 @@ pub struct WorldlineId(pub Hash);
 
 impl WorldlineId {
     /// Returns the canonical byte representation of this id.
+    #[inline]
     #[must_use]
     pub fn as_bytes(&self) -> &Hash {
         &self.0
@@ -108,18 +109,21 @@ pub struct WorldlineTickPatchV1 {
 
 impl WorldlineTickPatchV1 {
     /// Returns the global tick number from the header.
+    #[inline]
     #[must_use]
     pub fn global_tick(&self) -> u64 {
         self.header.global_tick
     }
 
     /// Returns the policy ID from the header.
+    #[inline]
     #[must_use]
     pub fn policy_id(&self) -> u32 {
         self.header.policy_id
     }
 
     /// Returns the rule pack ID from the header.
+    #[inline]
     #[must_use]
     pub fn rule_pack_id(&self) -> Hash {
         self.header.rule_pack_id
@@ -183,8 +187,16 @@ impl WorldlineTickPatchV1 {
 /// - The operation targets a different warp than the store
 /// - The operation references a missing node or edge
 /// - The operation is not supported for warp-local replay
+// NOTE: This function is intentionally kept as a single monolithic match. The arms
+// share local context (`store_warp`) and splitting into per-variant helpers would
+// require threading the same `&mut GraphStore` + warp-ID validation through many
+// small functions with no clarity benefit. The lint is suppressed rather than
+// refactoring, since each arm is self-contained and easy to read in sequence.
 #[allow(clippy::too_many_lines)]
-pub fn apply_warp_op_to_store(store: &mut GraphStore, op: &WarpOp) -> Result<(), ApplyError> {
+pub(crate) fn apply_warp_op_to_store(
+    store: &mut GraphStore,
+    op: &WarpOp,
+) -> Result<(), ApplyError> {
     let store_warp = store.warp_id();
 
     match op {
@@ -312,6 +324,22 @@ pub fn apply_warp_op_to_store(store: &mut GraphStore, op: &WarpOp) -> Result<(),
 /// This captures all materialization bus emissions for a tick, keyed by channel ID.
 /// During playback, these outputs are replayed byte-for-byte to ensure truth
 /// frame consistency.
+///
+/// # Structure
+///
+/// Each entry is a `(ChannelId, Vec<u8>)` pair where:
+/// - [`ChannelId`] identifies the materialization channel that emitted the frame.
+/// - `Vec<u8>` is the serialized truth frame payload (codec-dependent).
+///
+/// The vector is ordered by emission sequence within the tick. An empty
+/// `OutputFrameSet` means no channels emitted during that tick.
+///
+/// # Usage
+///
+/// This is a type alias rather than a newtype to avoid friction at call sites
+/// that build, iterate, or destructure the inner `Vec` directly. If stronger
+/// type safety is needed in the future, this can be promoted to a newtype
+/// wrapper with a `Deref<Target = [(ChannelId, Vec<u8>)]>` impl.
 pub type OutputFrameSet = Vec<(ChannelId, Vec<u8>)>;
 
 /// Errors produced while applying a worldline patch to a warp-local store.
@@ -346,9 +374,15 @@ pub enum ApplyError {
     /// Some operations (like `OpenPortal`, `UpsertWarpInstance`, `DeleteWarpInstance`)
     /// require multi-warp state management and cannot be applied to a single
     /// warp-local store.
+    ///
+    /// `op_name` is a `&'static str` rather than an enum because [`WarpOp`] variants
+    /// are open-ended (new ops may be added across crate versions) and this field is
+    /// used only for diagnostic/debug messages. A dedicated enum would couple this
+    /// error type to the full set of unsupported variants and require updating in
+    /// lockstep with `WarpOp`, adding maintenance burden with no runtime benefit.
     #[error("unsupported operation for warp-local apply: {op_name}")]
     UnsupportedOperation {
-        /// Name of the unsupported operation variant.
+        /// Name of the unsupported operation variant (debug-only, not matched on).
         op_name: &'static str,
     },
 

@@ -20,9 +20,9 @@ use warp_core::materialization::{
     V2PacketHeader,
 };
 use warp_core::{
-    compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet, LocalProvenanceStore,
-    PlaybackCursor, PlaybackMode, ProvenanceStore, SeekError, StepResult, TruthSink, ViewSession,
-    WorldlineId,
+    compute_commit_hash_v2, compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet,
+    LocalProvenanceStore, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekError, StepResult,
+    TruthSink, ViewSession, WorldlineId,
 };
 
 /// Sets up a worldline with N ticks and outputs, returns the provenance store and initial store.
@@ -43,6 +43,7 @@ fn setup_worldline_with_outputs(
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_store = initial_store.clone();
+    let mut parents: Vec<warp_core::Hash> = Vec::new();
 
     let position_channel = make_channel_id("entity:position");
     let velocity_channel = make_channel_id("entity:velocity");
@@ -63,10 +64,18 @@ fn setup_worldline_with_outputs(
         // Compute the actual state root after applying
         let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
 
+        // Compute real commit_hash for Merkle chain verification
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
         let triplet = HashTriplet {
             state_root,
             patch_digest: patch.patch_digest,
-            commit_hash: [(tick + 100) as u8; 32], // Placeholder commit hash
+            commit_hash,
         };
 
         // Create deterministic outputs for this tick
@@ -80,6 +89,9 @@ fn setup_worldline_with_outputs(
         provenance
             .append(worldline_id, patch, triplet, outputs)
             .expect("append should succeed");
+
+        // Advance parent chain
+        parents = vec![commit_hash];
     }
 
     (provenance, initial_store, warp_id, worldline_id)

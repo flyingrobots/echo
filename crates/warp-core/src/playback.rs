@@ -31,7 +31,7 @@ use crate::graph::GraphStore;
 use crate::ident::{Hash, WarpId};
 use crate::materialization::ChannelId;
 use crate::provenance_store::ProvenanceStore;
-use crate::snapshot::compute_state_root_for_warp_store;
+use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_store};
 use crate::worldline::WorldlineId;
 
 /// Implements `as_bytes()` for a `#[repr(transparent)]` newtype wrapping `Hash`.
@@ -209,6 +209,26 @@ pub enum SeekError {
     /// - A hash computation mismatch
     #[error("state root mismatch at tick {tick}")]
     StateRootMismatch {
+        /// The tick where verification failed.
+        tick: u64,
+    },
+
+    /// The patch digest stored in provenance doesn't match the expected value.
+    ///
+    /// This indicates the patch contents were modified after being committed,
+    /// or the provenance store has inconsistent records.
+    #[error("patch digest mismatch at tick {tick}")]
+    PatchDigestMismatch {
+        /// The tick where verification failed.
+        tick: u64,
+    },
+
+    /// The computed commit hash doesn't match the expected value.
+    ///
+    /// This indicates a break in the Merkle chain: either the parent lineage,
+    /// state root, patch digest, or policy ID was tampered with.
+    #[error("commit hash mismatch at tick {tick}")]
+    CommitHashMismatch {
         /// The tick where verification failed.
         tick: u64,
     },
@@ -410,6 +430,18 @@ impl PlaybackCursor {
             self.tick
         };
 
+        // Establish parent commit_hash chain for Merkle verification.
+        // For forward seeks (start_tick > 0), the parent is the prior tick's commit_hash.
+        // For rebuilds from initial state, the first tick has no parents.
+        let mut parents: Vec<Hash> = if start_tick > 0 {
+            let prev = provenance
+                .expected(self.worldline_id, start_tick - 1)
+                .map_err(|_| SeekError::HistoryUnavailable { tick: start_tick })?;
+            vec![prev.commit_hash]
+        } else {
+            Vec::new()
+        };
+
         // Apply patches from start_tick to target
         // If start_tick = 2 and target = 5, we apply patches 2, 3, 4
         for patch_tick in start_tick..target {
@@ -431,12 +463,32 @@ impl PlaybackCursor {
                 })?;
 
             // Verify state root matches expected
-            // TODO(SPEC-0004): Implement commit_hash verification in seek_to
             let computed_state_root = compute_state_root_for_warp_store(&self.store, self.warp_id);
 
             if computed_state_root != expected.state_root {
                 return Err(SeekError::StateRootMismatch { tick: patch_tick });
             }
+
+            // Verify patch digest consistency between patch and provenance record
+            if patch.patch_digest != expected.patch_digest {
+                return Err(SeekError::PatchDigestMismatch { tick: patch_tick });
+            }
+
+            // Verify commit hash (Merkle chain integrity).
+            // commit_hash = BLAKE3(version | parents | state_root | patch_digest | policy_id)
+            let computed_commit_hash = compute_commit_hash_v2(
+                &computed_state_root,
+                &parents,
+                &expected.patch_digest,
+                patch.header.policy_id,
+            );
+
+            if computed_commit_hash != expected.commit_hash {
+                return Err(SeekError::CommitHashMismatch { tick: patch_tick });
+            }
+
+            // Advance parent chain for next tick
+            parents = vec![expected.commit_hash];
         }
 
         // Update cursor position

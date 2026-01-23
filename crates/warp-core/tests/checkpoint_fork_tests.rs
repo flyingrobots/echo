@@ -12,8 +12,9 @@ use common::{
 };
 
 use warp_core::{
-    compute_state_root_for_warp_store, CheckpointRef, CursorRole, GraphStore, HashTriplet,
-    LocalProvenanceStore, PlaybackCursor, ProvenanceStore, WorldlineId,
+    compute_commit_hash_v2, compute_state_root_for_warp_store, CheckpointRef, CursorRole,
+    GraphStore, Hash, HashTriplet, LocalProvenanceStore, PlaybackCursor, ProvenanceStore,
+    WorldlineId,
 };
 
 /// Creates a deterministic worldline ID for the forked worldline.
@@ -47,6 +48,7 @@ fn setup_worldline_with_ticks_and_checkpoints(
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_store = initial_store.clone();
     let mut checkpoint_states: Vec<(u64, [u8; 32])> = Vec::new();
+    let mut parents: Vec<Hash> = Vec::new();
 
     for patch_index in 0..num_ticks {
         let patch = create_add_node_patch(warp_id, patch_index, &format!("node-{}", patch_index));
@@ -59,15 +61,25 @@ fn setup_worldline_with_ticks_and_checkpoints(
         // Compute the actual state root after applying
         let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
 
+        // Compute real commit_hash for Merkle chain verification
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
         let triplet = HashTriplet {
             state_root,
             patch_digest: patch.patch_digest,
-            commit_hash: [(patch_index + 100) as u8; 32], // Placeholder commit hash
+            commit_hash,
         };
 
         provenance
             .append(worldline_id, patch, triplet, vec![])
             .expect("append should succeed");
+
+        parents = vec![commit_hash];
 
         // After applying N patches (indices 0..N-1), the cursor tick is N.
         // So after applying patch at `patch_index`, cursor_tick = patch_index + 1.
@@ -272,6 +284,14 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
             .expect("apply should succeed");
     }
 
+    // Get parent commit_hash from the last copied tick (tick 7) for Merkle chain continuity
+    let mut fork_parents: Vec<Hash> = vec![
+        provenance
+            .expected(forked_worldline_id, 7)
+            .expect("forked tick 7 should exist")
+            .commit_hash,
+    ];
+
     // Add divergent ticks 8, 9, 10 with different node names
     for tick in 8..=10 {
         // Use a different node name pattern to create divergent history
@@ -283,16 +303,25 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
         let state_root = compute_state_root_for_warp_store(&forked_store, warp_id);
 
+        // Compute real commit_hash continuing the Merkle chain from tick 7
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &fork_parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
         let triplet = HashTriplet {
             state_root,
             patch_digest: patch.patch_digest,
-            // Use different commit hash pattern to distinguish from original
-            commit_hash: [(tick + 200) as u8; 32],
+            commit_hash,
         };
 
         provenance
             .append(forked_worldline_id, patch, triplet, vec![])
             .expect("append divergent tick should succeed");
+
+        fork_parents = vec![commit_hash];
     }
 
     // Assert 1: Original worldline's expected hashes unchanged (still has same 20 ticks)

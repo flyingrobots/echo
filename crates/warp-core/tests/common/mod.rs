@@ -3,11 +3,12 @@
 #![allow(dead_code)]
 
 use warp_core::{
-    compute_state_root_for_warp_store, make_edge_id, make_node_id, make_type_id, make_warp_id,
-    ApplyResult, AtomPayload, AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy,
-    CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder, Footprint, GraphStore, Hash, HashTriplet,
-    LocalProvenanceStore, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, SessionId,
-    WarpId, WarpOp, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_node_id,
+    make_type_id, make_warp_id, ApplyResult, AtomPayload, AttachmentKey, AttachmentSet,
+    AttachmentValue, ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder,
+    Footprint, GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey, NodeRecord,
+    PatternGraph, RewriteRule, SessionId, WarpId, WarpOp, WorldlineId, WorldlineTickHeaderV1,
+    WorldlineTickPatchV1,
 };
 
 // =============================================================================
@@ -785,14 +786,12 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
 }
 
 /// Sets up a worldline with N ticks and returns the provenance store and initial store.
+///
+/// Commit hashes are computed using `compute_commit_hash_v2` to form a valid Merkle chain,
+/// matching what `seek_to` will recompute during verification.
 pub fn setup_worldline_with_ticks(
     num_ticks: u64,
 ) -> (LocalProvenanceStore, GraphStore, WarpId, WorldlineId) {
-    assert!(
-        num_ticks < 156,
-        "num_ticks must be < 156 to avoid commit_hash collision with patch_digest"
-    );
-
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
     let initial_store = create_initial_store(warp_id);
@@ -802,6 +801,7 @@ pub fn setup_worldline_with_ticks(
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_store = initial_store.clone();
+    let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..num_ticks {
         let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
@@ -814,17 +814,26 @@ pub fn setup_worldline_with_ticks(
         // Compute the actual state root after applying
         let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
 
+        // Compute real commit_hash for Merkle chain verification
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
         let triplet = HashTriplet {
             state_root,
             patch_digest: patch.patch_digest,
-            // Offset by 100 to ensure commit_hash differs from patch_digest
-            // (patch_digest uses [tick as u8; 32], so +100 avoids collisions for tick < 156).
-            commit_hash: [(tick + 100) as u8; 32],
+            commit_hash,
         };
 
         provenance
             .append(worldline_id, patch, triplet, vec![])
             .expect("append should succeed");
+
+        // Advance parent chain
+        parents = vec![commit_hash];
     }
 
     (provenance, initial_store, warp_id, worldline_id)

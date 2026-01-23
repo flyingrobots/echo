@@ -243,7 +243,7 @@ pub(crate) fn _compute_commit_hash(
 ///
 /// Commit hash v2 commits only to the replay boundary artifact: `state_root`
 /// and the tick `patch_digest` (plus explicit parents and policy id).
-pub(crate) fn compute_commit_hash_v2(
+pub fn compute_commit_hash_v2(
     state_root: &Hash,
     parents: &[Hash],
     patch_digest: &Hash,

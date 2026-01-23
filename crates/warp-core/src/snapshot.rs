@@ -283,7 +283,7 @@ pub(crate) fn compute_commit_hash_v2(
 ///
 /// # Note
 ///
-/// This is a simpler version of [`compute_state_root`] that operates on a
+/// This is a simpler version of `compute_state_root` that operates on a
 /// single `GraphStore` rather than the full `WarpState`. It's used for
 /// warp-local cursor verification where we don't have multi-warp traversal.
 ///

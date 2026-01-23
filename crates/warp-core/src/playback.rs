@@ -229,8 +229,6 @@ pub enum SeekError {
     /// Failed to apply a patch during seek.
     ///
     /// This wraps the underlying [`ApplyError`] from the worldline module.
-    ///
-    /// [`ApplyError`]: crate::worldline::ApplyError
     #[error("apply error at tick {tick}: {source}")]
     ApplyError {
         /// The tick where the apply failed.

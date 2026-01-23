@@ -71,11 +71,8 @@ pub enum HistoryError {
 /// from the nearest checkpoint before the target tick.
 ///
 /// This type is only meaningful within the provenance/checkpoint subsystem.
-/// It is created via [`LocalProvenanceStore::create_checkpoint`] and consumed
+/// It is created via [`LocalProvenanceStore::add_checkpoint`] and consumed
 /// by [`ProvenanceStore::checkpoint_before`] during cursor seek operations.
-///
-/// [`LocalProvenanceStore::create_checkpoint`]: LocalProvenanceStore::create_checkpoint
-/// [`ProvenanceStore::checkpoint_before`]: ProvenanceStore::checkpoint_before
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CheckpointRef {

@@ -70,7 +70,6 @@
 - **Stride fallback** (`boaw/exec.rs`): Deleted `execute_parallel_stride()` and `parallel-stride-fallback` feature
     - Phase 6A stride execution superseded by Phase 6B sharded execution
     - Removed feature gate, env var check, and ASCII warning banner
-    - Deleted `sharded_equals_stride` and `sharded_equals_stride_permuted` tests (no longer needed post-transition)
 - **Deprecated `emit_view_op_delta()`** (`rules.rs`): Deleted non-deterministic function that used `delta.len()` sequencing
 
 ### Fixed - Review Feedback
@@ -128,9 +127,7 @@
     - Items in same shard processed together for cache locality
     - Worker count capped at `min(workers, NUM_SHARDS)` to prevent over-threading
 
-- **5 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
-    - `sharded_equals_stride`: Key correctness proof for 6A → 6B transition
-    - `sharded_equals_stride_permuted`: Permutation invariance with sharded execution
+- **3 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
     - `worker_count_capped_at_num_shards`: Verifies cap at 256 workers
     - `sharded_distribution_is_deterministic`: Shard routing stability
     - `default_parallel_uses_sharded`: Default path verification

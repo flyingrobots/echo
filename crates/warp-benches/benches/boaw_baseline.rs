@@ -10,7 +10,7 @@
 //! # Running
 //!
 //! ```sh
-//! cargo bench --package warp-benches --bench boaw_baseline
+//! cargo +nightly bench --package warp-benches --bench boaw_baseline
 //! ```
 //!
 //! # What This Measures
@@ -216,6 +216,8 @@ fn bench_work_queue(c: &mut Criterion) {
                     || make_multi_warp_setup(num_warps, ipw),
                     |(stores, items_by_warp)| {
                         let units = build_work_units(items_by_warp.into_iter());
+                        // Cap workers at 4 but never more than the number of
+                        // work units; max(1) prevents zero-division on empty input.
                         let workers = 4.min(units.len().max(1));
                         let deltas =
                             execute_work_queue(&units, workers, |warp_id| stores.get(warp_id))

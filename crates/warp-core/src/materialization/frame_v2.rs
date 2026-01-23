@@ -383,8 +383,11 @@ pub fn decode_v2_packet(bytes: &[u8]) -> Result<V2Packet, DecodeError> {
         return Err(DecodeError::InvalidEntryCount);
     }
 
-    // Read entries
-    let mut entries = Vec::with_capacity(entry_count);
+    // Read entries (use try_reserve to avoid aborting on allocation failure)
+    let mut entries = Vec::new();
+    if entries.try_reserve(entry_count).is_err() {
+        return Err(DecodeError::InvalidEntryCount);
+    }
     for i in 0..entry_count {
         if offset + 68 > payload.len() {
             // Need at least channel(32) + hash(32) + len(4)

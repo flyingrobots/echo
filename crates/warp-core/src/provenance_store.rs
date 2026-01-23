@@ -299,12 +299,15 @@ impl LocalProvenanceStore {
             .get_mut(&w)
             .ok_or(HistoryError::WorldlineNotFound(w))?;
 
-        // Maintain sorted order by tick
-        let pos = history
+        // Maintain sorted order by tick; replace if a checkpoint at this tick
+        // already exists (prevents duplicate ticks breaking "before" semantics).
+        match history
             .checkpoints
             .binary_search_by_key(&checkpoint.tick, |c| c.tick)
-            .unwrap_or_else(|e| e);
-        history.checkpoints.insert(pos, checkpoint);
+        {
+            Ok(index) => history.checkpoints[index] = checkpoint,
+            Err(pos) => history.checkpoints.insert(pos, checkpoint),
+        }
         Ok(())
     }
 
@@ -331,12 +334,15 @@ impl LocalProvenanceStore {
         let state_hash = compute_state_root_for_warp_store(state, history.u0_ref);
         let checkpoint_ref = CheckpointRef { tick, state_hash };
 
-        // Insert in sorted order by tick (same logic as add_checkpoint)
-        let pos = history
+        // Insert in sorted order by tick; replace existing checkpoint at this
+        // tick to prevent duplicates (same semantics as add_checkpoint).
+        match history
             .checkpoints
             .binary_search_by_key(&checkpoint_ref.tick, |c| c.tick)
-            .unwrap_or_else(|e| e);
-        history.checkpoints.insert(pos, checkpoint_ref);
+        {
+            Ok(index) => history.checkpoints[index] = checkpoint_ref,
+            Err(pos) => history.checkpoints.insert(pos, checkpoint_ref),
+        }
 
         Ok(checkpoint_ref)
     }

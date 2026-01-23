@@ -244,6 +244,18 @@ pub enum SeekError {
         #[source]
         source: crate::worldline::ApplyError,
     },
+
+    /// The target tick exceeds the cursor's pinned frontier.
+    ///
+    /// The cursor cannot seek beyond `pin_max_tick`. This prevents readers from
+    /// overrunning the writer's current position.
+    #[error("target tick {target} exceeds pinned frontier {pin}")]
+    PinnedFrontierExceeded {
+        /// The requested target tick.
+        target: u64,
+        /// The current pinned frontier.
+        pin: u64,
+    },
 }
 
 /// Result of a single step operation on a cursor.
@@ -413,6 +425,14 @@ impl PlaybackCursor {
         provenance: &P,
         initial_store: &GraphStore,
     ) -> Result<(), SeekError> {
+        // Enforce pinned frontier: cursor must not seek beyond pin_max_tick
+        if target > self.pin_max_tick {
+            return Err(SeekError::PinnedFrontierExceeded {
+                target,
+                pin: self.pin_max_tick,
+            });
+        }
+
         // Check if target is within available history
         let history_len = provenance
             .len(self.worldline_id)

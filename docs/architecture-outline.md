@@ -118,7 +118,7 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 
 ## Playback & Worldlines ✅ Implemented
 
-> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](spec/SPEC-0004-worldlines-playback-truthbus.md)
+> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](docs/spec/SPEC-0004-worldlines-playback-truthbus.md)
 
 SPEC-0004 introduces infrastructure for deterministic materialization, cursor-based replay, and append-only provenance tracking:
 

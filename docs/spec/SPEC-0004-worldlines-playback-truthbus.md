@@ -735,7 +735,7 @@ Parents chain is per warp. No coupling across warps.
 You already have:
 
 - Hash = `[u8; 32]`
-- `WarpId`, `TypeId`, `NodeId`, etc all wrap Hash
+- `WarpId`, `TypeId`, `NodeId`, etc. all wrap Hash
 - `ChannelId = TypeId` (domain-separated “channel:”)
 
 Add wrappers (transparent) for plan clarity:

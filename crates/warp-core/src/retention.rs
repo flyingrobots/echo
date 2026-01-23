@@ -30,17 +30,27 @@ pub(crate) enum RetentionPolicy {
     KeepAll,
 
     /// Create checkpoints every `k` ticks. Keeps all history.
+    ///
+    /// # Valid Range
+    ///
+    /// `k` must be >= 1. A value of 0 is semantically undefined (would mean
+    /// "checkpoint at every fractional tick") and will be treated as 1.
     CheckpointEvery {
-        /// Interval between checkpoints in ticks.
+        /// Interval between checkpoints in ticks. Must be >= 1.
         k: u64,
     },
 
     /// Keep only recent history within a sliding window.
     /// Older history is pruned but checkpoints are kept for reconstruction.
+    ///
+    /// # Valid Ranges
+    ///
+    /// - `window` must be >= 1 (a window of 0 would retain no history).
+    /// - `checkpoint_every` must be >= 1 (same semantics as [`CheckpointEvery::k`]).
     KeepRecent {
-        /// Number of ticks to keep in full detail.
+        /// Number of ticks to keep in full detail. Must be >= 1.
         window: u64,
-        /// Create checkpoints every this many ticks.
+        /// Create checkpoints every this many ticks. Must be >= 1.
         checkpoint_every: u64,
     },
 

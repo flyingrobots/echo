@@ -188,6 +188,9 @@ impl WarpTimeline {
         };
 
         let current_tick = self.tick_index();
+        // target_tick is the desired post-apply tick_index (number of patches applied).
+        // tick_index 0 = initial state; tick_index N = state after patches 0..N-1.
+        // So when current_tick >= target_tick, patches 0..target_tick-1 have been applied.
         if current_tick >= target_tick {
             return Ok(ReplayStepResult::ReplayComplete);
         }

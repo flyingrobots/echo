@@ -710,6 +710,7 @@ fn writer_play_advances_and_records_outputs() {
     // Simulate writer advancing 10 ticks
     let mut current_store = initial_store.clone();
     let output_channel = make_channel_id("writer:output");
+    let mut parents: Vec<warp_core::Hash> = Vec::new();
 
     for tick in 0..10u64 {
         // Create a patch for this tick
@@ -723,10 +724,18 @@ fn writer_play_advances_and_records_outputs() {
         // Compute state_root from the store
         let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
 
+        // Compute real commit_hash for Merkle chain validity
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
         let triplet = HashTriplet {
             state_root,
             patch_digest: patch.patch_digest,
-            commit_hash: [(tick + 200) as u8; 32], // Deterministic commit hash
+            commit_hash,
         };
 
         // Create outputs with deterministic values: (channel, vec![tick as u8])
@@ -736,6 +745,9 @@ fn writer_play_advances_and_records_outputs() {
         provenance
             .append(worldline_id, patch, triplet, outputs)
             .expect("append should succeed");
+
+        // Advance parent chain for next iteration's Merkle computation
+        parents = vec![commit_hash];
     }
 
     // Assert: provenance.len(worldline) == 10
@@ -746,18 +758,35 @@ fn writer_play_advances_and_records_outputs() {
     );
 
     // Assert: provenance.expected(worldline, t) exists for t in 0..10
+    // Recompute the Merkle chain to verify stored commit_hashes match
+    let mut verify_store = initial_store.clone();
+    let mut verify_parents: Vec<warp_core::Hash> = Vec::new();
     for tick in 0..10u64 {
         let triplet = provenance
             .expected(worldline_id, tick)
             .expect("expected should exist for tick");
 
-        // Verify commit_hash matches what we recorded
+        // Recompute commit_hash from scratch to verify Merkle chain integrity
+        let patch = provenance
+            .patch(worldline_id, tick)
+            .expect("patch should exist");
+        patch
+            .apply_to_store(&mut verify_store)
+            .expect("apply should succeed");
+        let state_root = compute_state_root_for_warp_store(&verify_store, warp_id);
+        let expected_commit = compute_commit_hash_v2(
+            &state_root,
+            &verify_parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
         assert_eq!(
-            triplet.commit_hash,
-            [(tick + 200) as u8; 32],
-            "commit_hash should match for tick {}",
+            triplet.commit_hash, expected_commit,
+            "commit_hash should match recomputed value for tick {}",
             tick
         );
+        verify_parents = vec![expected_commit];
     }
 
     // Assert: provenance.outputs(worldline, t) contains expected values

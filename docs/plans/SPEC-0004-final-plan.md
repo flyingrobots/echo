@@ -96,8 +96,8 @@
     - `pin_max_tick: u64`
 - `PlaybackCursor::seek_to(target, provenance)`:
     - If `target < tick`: rebuild from U0 (initial_state for warp)
-    - Apply patches `tick+1..=target`
-    - Verify `state_root` and `commit_hash` match expected
+    - Apply patches `tick..<target` (exclusive upper bound)
+    - Verify `state_root`, `patch_digest`, and `commit_hash` match expected per tick
 - `SeekError { HistoryUnavailable, StateRootMismatch, CommitHashMismatch }`
 
 **Add to `worldline.rs`:**

@@ -8,78 +8,19 @@
 
 #![allow(clippy::unwrap_used)]
 
-use warp_core::{
-    compute_state_root_for_warp_store, make_node_id, make_type_id, make_warp_id, CheckpointRef,
-    CursorId, CursorRole, GraphStore, HashTriplet, LocalProvenanceStore, NodeKey, NodeRecord,
-    PlaybackCursor, ProvenanceStore, WarpOp, WorldlineId, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1,
+mod common;
+use common::{
+    create_add_node_patch, create_initial_store, test_cursor_id, test_warp_id, test_worldline_id,
 };
 
-/// Creates a deterministic worldline ID for testing.
-fn test_worldline_id() -> WorldlineId {
-    WorldlineId([1u8; 32])
-}
+use warp_core::{
+    compute_state_root_for_warp_store, CheckpointRef, CursorRole, GraphStore, HashTriplet,
+    LocalProvenanceStore, PlaybackCursor, ProvenanceStore, WorldlineId,
+};
 
 /// Creates a deterministic worldline ID for the forked worldline.
 fn forked_worldline_id() -> WorldlineId {
     WorldlineId([2u8; 32])
-}
-
-/// Creates a deterministic cursor ID for testing.
-fn test_cursor_id(n: u8) -> CursorId {
-    CursorId([n; 32])
-}
-
-/// Creates a test warp ID.
-fn test_warp_id() -> warp_core::WarpId {
-    make_warp_id("test-warp")
-}
-
-/// Creates a test header for a specific tick.
-fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
-    WorldlineTickHeaderV1 {
-        global_tick: tick,
-        policy_id: 0,
-        rule_pack_id: [0u8; 32],
-        plan_digest: [0u8; 32],
-        decision_digest: [0u8; 32],
-        rewrites_digest: [0u8; 32],
-    }
-}
-
-/// Creates an initial store with a root node.
-fn create_initial_store(warp_id: warp_core::WarpId) -> GraphStore {
-    let mut store = GraphStore::new(warp_id);
-    let root_id = make_node_id("root");
-    let ty = make_type_id("RootType");
-    store.insert_node(root_id, NodeRecord { ty });
-    store
-}
-
-/// Creates a patch that adds a node at a specific tick.
-fn create_add_node_patch(
-    warp_id: warp_core::WarpId,
-    tick: u64,
-    node_name: &str,
-) -> WorldlineTickPatchV1 {
-    let node_id = make_node_id(node_name);
-    let node_key = NodeKey {
-        warp_id,
-        local_id: node_id,
-    };
-    let ty = make_type_id(&format!("Type{}", tick));
-
-    WorldlineTickPatchV1 {
-        header: test_header(tick),
-        warp_id,
-        ops: vec![WarpOp::UpsertNode {
-            node: node_key,
-            record: NodeRecord { ty },
-        }],
-        in_slots: vec![],
-        out_slots: vec![],
-        patch_digest: [tick as u8; 32],
-    }
 }
 
 /// Sets up a worldline with N ticks and returns the provenance store and initial store.

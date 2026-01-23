@@ -10,127 +10,21 @@
 //! - T8: outputs_match_recorded_bytes_for_same_tick
 //! - MBUS v2 integration: truth_frames_encode_to_mbus_v2
 
+mod common;
+use common::{
+    create_add_node_patch, create_initial_store, setup_worldline_with_ticks, test_cursor_id,
+    test_session_id, test_warp_id, test_worldline_id,
+};
+
 use warp_core::materialization::{
     compute_value_hash, decode_v2_packet, encode_v2_packet, make_channel_id, V2Entry,
     V2PacketHeader,
 };
 use warp_core::{
-    compute_state_root_for_warp_store, make_node_id, make_type_id, make_warp_id, CursorId,
-    CursorRole, GraphStore, HashTriplet, HistoryError, LocalProvenanceStore, NodeKey, NodeRecord,
-    PlaybackCursor, PlaybackMode, ProvenanceStore, SessionId, StepResult, TruthSink, ViewSession,
-    WarpOp, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet, HistoryError,
+    LocalProvenanceStore, PlaybackCursor, PlaybackMode, ProvenanceStore, StepResult, TruthSink,
+    ViewSession, WorldlineId,
 };
-
-/// Creates a deterministic worldline ID for testing.
-fn test_worldline_id() -> WorldlineId {
-    WorldlineId([1u8; 32])
-}
-
-/// Creates a deterministic cursor ID for testing.
-fn test_cursor_id(n: u8) -> CursorId {
-    CursorId([n; 32])
-}
-
-/// Creates a deterministic session ID for testing.
-fn test_session_id(n: u8) -> SessionId {
-    SessionId([n; 32])
-}
-
-/// Creates a test warp ID.
-fn test_warp_id() -> warp_core::WarpId {
-    make_warp_id("test-warp")
-}
-
-/// Creates a test header for a specific tick.
-fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
-    WorldlineTickHeaderV1 {
-        global_tick: tick,
-        policy_id: 0,
-        rule_pack_id: [0u8; 32],
-        plan_digest: [0u8; 32],
-        decision_digest: [0u8; 32],
-        rewrites_digest: [0u8; 32],
-    }
-}
-
-/// Creates an initial store with a root node.
-fn create_initial_store(warp_id: warp_core::WarpId) -> GraphStore {
-    let mut store = GraphStore::new(warp_id);
-    let root_id = make_node_id("root");
-    let ty = make_type_id("RootType");
-    store.insert_node(root_id, NodeRecord { ty });
-    store
-}
-
-/// Creates a patch that adds a node at a specific tick.
-fn create_add_node_patch(
-    warp_id: warp_core::WarpId,
-    tick: u64,
-    node_name: &str,
-) -> WorldlineTickPatchV1 {
-    let node_id = make_node_id(node_name);
-    let node_key = NodeKey {
-        warp_id,
-        local_id: node_id,
-    };
-    let ty = make_type_id(&format!("Type{}", tick));
-
-    WorldlineTickPatchV1 {
-        header: test_header(tick),
-        warp_id,
-        ops: vec![WarpOp::UpsertNode {
-            node: node_key,
-            record: NodeRecord { ty },
-        }],
-        in_slots: vec![],
-        out_slots: vec![],
-        patch_digest: [tick as u8; 32],
-    }
-}
-
-/// Sets up a worldline with N ticks and returns the provenance store and initial store.
-fn setup_worldline_with_ticks(
-    num_ticks: u64,
-) -> (
-    LocalProvenanceStore,
-    GraphStore,
-    warp_core::WarpId,
-    WorldlineId,
-) {
-    let warp_id = test_warp_id();
-    let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
-
-    let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
-
-    // Build up the worldline by applying patches and recording correct hashes
-    let mut current_store = initial_store.clone();
-
-    for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
-
-        // Apply patch to get the resulting state
-        patch
-            .apply_to_store(&mut current_store)
-            .expect("apply should succeed");
-
-        // Compute the actual state root after applying
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
-
-        let triplet = HashTriplet {
-            state_root,
-            patch_digest: patch.patch_digest,
-            commit_hash: [(tick + 100) as u8; 32], // Placeholder commit hash
-        };
-
-        provenance
-            .append(worldline_id, patch, triplet, vec![])
-            .expect("append should succeed");
-    }
-
-    (provenance, initial_store, warp_id, worldline_id)
-}
 
 /// Sets up a worldline with N ticks and outputs, returns the provenance store and initial store.
 fn setup_worldline_with_outputs(

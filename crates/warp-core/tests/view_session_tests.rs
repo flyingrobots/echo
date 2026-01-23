@@ -8,124 +8,16 @@
 //! - T9: two_sessions_same_channel_different_cursors_receive_different_truth
 //! - T10: session_cursor_switch_is_opaque_to_subscribers
 
+mod common;
+
+use common::{
+    setup_worldline_with_ticks, test_cursor_id, test_session_id, test_warp_id, test_worldline_id,
+};
 use warp_core::materialization::make_channel_id;
 use warp_core::{
-    compute_state_root_for_warp_store, make_node_id, make_type_id, make_warp_id, CursorId,
-    CursorRole, GraphStore, HashTriplet, LocalProvenanceStore, NodeKey, NodeRecord, PlaybackCursor,
-    PlaybackMode, SeekThen, SessionId, StepResult, TruthFrame, TruthSink, ViewSession, WarpOp,
-    WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    compute_state_root_for_warp_store, make_node_id, make_type_id, CursorRole, NodeRecord,
+    PlaybackCursor, PlaybackMode, SeekThen, StepResult, TruthFrame, TruthSink, ViewSession,
 };
-
-/// Creates a deterministic worldline ID for testing.
-fn test_worldline_id() -> WorldlineId {
-    WorldlineId([1u8; 32])
-}
-
-/// Creates a deterministic cursor ID for testing.
-fn test_cursor_id(n: u8) -> CursorId {
-    CursorId([n; 32])
-}
-
-/// Creates a deterministic session ID for testing.
-fn test_session_id(n: u8) -> SessionId {
-    SessionId([n; 32])
-}
-
-/// Creates a test warp ID.
-fn test_warp_id() -> warp_core::WarpId {
-    make_warp_id("test-warp")
-}
-
-/// Creates a test header for a specific tick.
-fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
-    WorldlineTickHeaderV1 {
-        global_tick: tick,
-        policy_id: 0,
-        rule_pack_id: [0u8; 32],
-        plan_digest: [0u8; 32],
-        decision_digest: [0u8; 32],
-        rewrites_digest: [0u8; 32],
-    }
-}
-
-/// Creates an initial store with a root node.
-fn create_initial_store(warp_id: warp_core::WarpId) -> GraphStore {
-    let mut store = GraphStore::new(warp_id);
-    let root_id = make_node_id("root");
-    let ty = make_type_id("RootType");
-    store.insert_node(root_id, NodeRecord { ty });
-    store
-}
-
-/// Creates a patch that adds a node at a specific tick.
-fn create_add_node_patch(
-    warp_id: warp_core::WarpId,
-    tick: u64,
-    node_name: &str,
-) -> WorldlineTickPatchV1 {
-    let node_id = make_node_id(node_name);
-    let node_key = NodeKey {
-        warp_id,
-        local_id: node_id,
-    };
-    let ty = make_type_id(&format!("Type{}", tick));
-
-    WorldlineTickPatchV1 {
-        header: test_header(tick),
-        warp_id,
-        ops: vec![WarpOp::UpsertNode {
-            node: node_key,
-            record: NodeRecord { ty },
-        }],
-        in_slots: vec![],
-        out_slots: vec![],
-        patch_digest: [tick as u8; 32],
-    }
-}
-
-/// Sets up a worldline with N ticks and returns the provenance store and initial store.
-fn setup_worldline_with_ticks(
-    num_ticks: u64,
-) -> (
-    LocalProvenanceStore,
-    GraphStore,
-    warp_core::WarpId,
-    WorldlineId,
-) {
-    let warp_id = test_warp_id();
-    let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
-
-    let mut provenance = LocalProvenanceStore::new();
-    provenance.register_worldline(worldline_id, warp_id);
-
-    // Build up the worldline by applying patches and recording correct hashes
-    let mut current_store = initial_store.clone();
-
-    for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
-
-        // Apply patch to get the resulting state
-        patch
-            .apply_to_store(&mut current_store)
-            .expect("apply should succeed");
-
-        // Compute the actual state root after applying
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
-
-        let triplet = HashTriplet {
-            state_root,
-            patch_digest: patch.patch_digest,
-            commit_hash: [(tick + 100) as u8; 32], // Placeholder commit hash
-        };
-
-        provenance
-            .append(worldline_id, patch, triplet, vec![])
-            .expect("append should succeed");
-    }
-
-    (provenance, initial_store, warp_id, worldline_id)
-}
 
 // ============================================================================
 // T2: step_forward_advances_one_then_pauses
@@ -711,66 +603,13 @@ fn writer_play_is_stub_noop() {
 /// This test proves that scaling workers doesn't change the deterministic outcome.
 #[test]
 fn worker_count_invariance_for_writer_advance() {
-    use warp_core::{
-        ApplyResult, AtomPayload, AttachmentKey, AttachmentValue, ConflictPolicy, EngineBuilder,
-        Footprint, NodeKey as EngineNodeKey, PatternGraph, RewriteRule,
-    };
+    use warp_core::{ApplyResult, EngineBuilder};
 
     // Worker counts to test (per SPEC-0004 requirement: 1, 2, 8, 32)
     const WORKER_COUNTS: &[usize] = &[1, 2, 8, 32];
 
-    // Rule name used for this test
     const TOUCH_RULE_NAME: &str = "t16/touch";
-
-    // Create the "t16/touch" rule that sets a marker attachment on the scope node
-    let make_touch_rule = || -> RewriteRule {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"rule:");
-        hasher.update(TOUCH_RULE_NAME.as_bytes());
-        let id: [u8; 32] = hasher.finalize().into();
-
-        RewriteRule {
-            id,
-            name: TOUCH_RULE_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: |view, scope| view.node(scope).is_some(),
-            executor: |view, scope, delta| {
-                let marker_payload = AtomPayload::new(
-                    make_type_id("t16/marker"),
-                    bytes::Bytes::from_static(b"touched-t16"),
-                );
-                let value = Some(AttachmentValue::Atom(marker_payload));
-                let key = AttachmentKey::node_alpha(EngineNodeKey {
-                    warp_id: view.warp_id(),
-                    local_id: *scope,
-                });
-                delta.push(WarpOp::SetAttachment { key, value });
-            },
-            compute_footprint: |view, scope| {
-                let mut a_write = warp_core::AttachmentSet::default();
-                if view.node(scope).is_some() {
-                    a_write.insert(AttachmentKey::node_alpha(EngineNodeKey {
-                        warp_id: view.warp_id(),
-                        local_id: *scope,
-                    }));
-                }
-                Footprint {
-                    n_read: warp_core::NodeSet::default(),
-                    n_write: warp_core::NodeSet::default(),
-                    e_read: warp_core::EdgeSet::default(),
-                    e_write: warp_core::EdgeSet::default(),
-                    a_read: warp_core::AttachmentSet::default(),
-                    a_write,
-                    b_in: warp_core::PortSet::default(),
-                    b_out: warp_core::PortSet::default(),
-                    factor_mask: 1,
-                }
-            },
-            factor_mask: 1,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        }
-    };
+    let make_touch_rule = || make_touch_rule!("t16/touch", "t16/marker", b"touched-t16");
 
     // Build a deterministic base snapshot with 20 independent nodes
     // (mirrors ManyIndependent scenario from BOAW tests)
@@ -858,10 +697,8 @@ fn worker_count_invariance_for_writer_advance() {
 /// the order of intents and the number of workers don't affect the result.
 #[test]
 fn worker_count_invariance_for_writer_advance_shuffled() {
-    use warp_core::{
-        ApplyResult, AtomPayload, AttachmentKey, AttachmentValue, ConflictPolicy, EngineBuilder,
-        Footprint, NodeKey as EngineNodeKey, PatternGraph, RewriteRule,
-    };
+    use common::{shuffle, XorShift64};
+    use warp_core::{ApplyResult, EngineBuilder};
 
     // Worker counts to test
     const WORKER_COUNTS: &[usize] = &[1, 2, 8, 32];
@@ -869,90 +706,8 @@ fn worker_count_invariance_for_writer_advance_shuffled() {
     // Seeds for deterministic shuffling
     const SEEDS: &[u64] = &[0x1234, 0xDEAD, 0xBEEF];
 
-    // XorShift64 RNG for deterministic shuffling (same as in common/mod.rs)
-    struct XorShift64 {
-        state: u64,
-    }
-
-    impl XorShift64 {
-        fn new(seed: u64) -> Self {
-            Self { state: seed.max(1) }
-        }
-
-        fn next_u64(&mut self) -> u64 {
-            let mut x = self.state;
-            x ^= x >> 12;
-            x ^= x << 25;
-            x ^= x >> 27;
-            self.state = x;
-            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
-        }
-
-        fn gen_range_usize(&mut self, upper: usize) -> usize {
-            if upper <= 1 {
-                return 0;
-            }
-            (self.next_u64() as usize) % upper
-        }
-    }
-
-    fn shuffle<T>(rng: &mut XorShift64, items: &mut [T]) {
-        for i in (1..items.len()).rev() {
-            let j = rng.gen_range_usize(i + 1);
-            items.swap(i, j);
-        }
-    }
-
     const TOUCH_RULE_NAME: &str = "t16s/touch";
-
-    let make_touch_rule = || -> RewriteRule {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"rule:");
-        hasher.update(TOUCH_RULE_NAME.as_bytes());
-        let id: [u8; 32] = hasher.finalize().into();
-
-        RewriteRule {
-            id,
-            name: TOUCH_RULE_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: |view, scope| view.node(scope).is_some(),
-            executor: |view, scope, delta| {
-                let marker_payload = AtomPayload::new(
-                    make_type_id("t16s/marker"),
-                    bytes::Bytes::from_static(b"touched-t16s"),
-                );
-                let value = Some(AttachmentValue::Atom(marker_payload));
-                let key = AttachmentKey::node_alpha(EngineNodeKey {
-                    warp_id: view.warp_id(),
-                    local_id: *scope,
-                });
-                delta.push(WarpOp::SetAttachment { key, value });
-            },
-            compute_footprint: |view, scope| {
-                let mut a_write = warp_core::AttachmentSet::default();
-                if view.node(scope).is_some() {
-                    a_write.insert(AttachmentKey::node_alpha(EngineNodeKey {
-                        warp_id: view.warp_id(),
-                        local_id: *scope,
-                    }));
-                }
-                Footprint {
-                    n_read: warp_core::NodeSet::default(),
-                    n_write: warp_core::NodeSet::default(),
-                    e_read: warp_core::EdgeSet::default(),
-                    e_write: warp_core::EdgeSet::default(),
-                    a_read: warp_core::AttachmentSet::default(),
-                    a_write,
-                    b_in: warp_core::PortSet::default(),
-                    b_out: warp_core::PortSet::default(),
-                    factor_mask: 1,
-                }
-            },
-            factor_mask: 1,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        }
-    };
+    let make_touch_rule = || make_touch_rule!("t16s/touch", "t16s/marker", b"touched-t16s");
 
     // Build deterministic base snapshot
     let node_ty = make_type_id("t16s/node");

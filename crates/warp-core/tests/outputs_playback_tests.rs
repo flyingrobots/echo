@@ -20,9 +20,9 @@ use warp_core::materialization::{
     V2PacketHeader,
 };
 use warp_core::{
-    compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet, HistoryError,
-    LocalProvenanceStore, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekError, StepResult,
-    TruthSink, ViewSession, WorldlineId,
+    compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet, LocalProvenanceStore,
+    PlaybackCursor, PlaybackMode, ProvenanceStore, SeekError, StepResult, TruthSink, ViewSession,
+    WorldlineId,
 };
 
 /// Sets up a worldline with N ticks and outputs, returns the provenance store and initial store.
@@ -336,9 +336,11 @@ fn outputs_match_recorded_bytes_for_same_tick() {
         .publish_truth(&cursor, &provenance, &mut sink)
         .expect("publish_truth should succeed");
 
-    // Get recorded outputs from provenance store
+    // Get recorded outputs from provenance store.
+    // publish_truth queries prov_tick = cursor.tick - 1 (0-based index of last applied patch).
+    let prov_tick = k - 1;
     let recorded_outputs = provenance
-        .outputs(worldline_id, k)
+        .outputs(worldline_id, prov_tick)
         .expect("outputs should exist");
 
     // Get published frames
@@ -369,18 +371,19 @@ fn outputs_match_recorded_bytes_for_same_tick() {
         );
     }
 
-    // Also verify the expected values match our test setup
-    // Position: [k, k, k] = [12, 12, 12]
-    // Velocity: [k * 2] = [24]
+    // Also verify the expected values match our test setup.
+    // publish_truth at cursor.tick=k returns provenance outputs from index k-1.
+    // Position: [k-1, k-1, k-1] = [11, 11, 11]
+    // Velocity: [(k-1) * 2] = [22]
     assert_eq!(
         frame_map.get(&position_channel),
-        Some(&vec![12u8, 12u8, 12u8]),
-        "position value should be [12, 12, 12]"
+        Some(&vec![11u8, 11u8, 11u8]),
+        "position value should be [11, 11, 11] (prov_tick = k-1)"
     );
     assert_eq!(
         frame_map.get(&velocity_channel),
-        Some(&vec![24u8]),
-        "velocity value should be [24]"
+        Some(&vec![22u8]),
+        "velocity value should be [22] (prov_tick = k-1)"
     );
 
     // Verify value_hash is blake3 of value
@@ -494,8 +497,8 @@ fn truth_frames_encode_to_mbus_v2() {
         assert_eq!(decoded_entry.value_hash, original_entry.value_hash);
     }
 
-    // Verify the actual values match expected from test setup
-    // At tick 7, position should be [7, 7, 7]
+    // Verify the actual values match expected from test setup.
+    // At cursor.tick=7, publish_truth queries prov_tick=6, so position is [6, 6, 6].
     let position_entry = decoded
         .entries
         .iter()
@@ -506,8 +509,8 @@ fn truth_frames_encode_to_mbus_v2() {
     );
     assert_eq!(
         position_entry.expect("position entry should exist").value,
-        vec![7u8, 7u8, 7u8],
-        "position value should be [7, 7, 7] at tick 7"
+        vec![6u8, 6u8, 6u8],
+        "position value should be [6, 6, 6] at cursor.tick 7 (prov_tick=6)"
     );
 }
 
@@ -580,11 +583,13 @@ fn publish_truth_filters_by_subscription() {
 // Additional test: publish_truth returns error for unavailable tick
 // ============================================================================
 
-/// Test that publish_truth returns HistoryError for unavailable tick.
+/// Test boundary behavior of publish_truth after the off-by-one fix.
 ///
-/// With 5 patches (indices 0-4), seek_to(5) is valid (tick 5 = "after all patches applied")
-/// but provenance.expected(w, 5) has no entry at index 5, so publish_truth fails.
-/// We also verify that seek_to properly rejects ticks far beyond history.
+/// With 5 patches (indices 0-4), cursor.tick=5 means all patches applied.
+/// publish_truth queries prov_tick = 5-1 = 4, which is the last valid index.
+/// This should succeed and return outputs from provenance[4].
+/// We also verify that seek_to properly rejects ticks far beyond history,
+/// and that publish_truth at tick 0 (no patches applied) returns Ok with no frames.
 #[test]
 fn publish_truth_returns_error_for_unavailable_tick() {
     let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_outputs(5);
@@ -610,8 +615,8 @@ fn publish_truth_returns_error_for_unavailable_tick() {
         seek_result
     );
 
-    // Now seek to tick 5 (boundary: valid for seek_to since 5 <= history_len,
-    // but provenance.expected has no entry at index 5, causing publish_truth to fail).
+    // Seek to tick 5 (boundary: valid since 5 <= history_len).
+    // With the off-by-one fix, publish_truth queries prov_tick=4 which IS valid.
     cursor
         .seek_to(5, &provenance, &initial_store)
         .expect("seek_to(5) should succeed at boundary tick");
@@ -621,18 +626,49 @@ fn publish_truth_returns_error_for_unavailable_tick() {
     let mut session = ViewSession::new(session_id, cursor.cursor_id);
     session.subscribe(position_channel);
 
-    // Publish truth should fail because provenance has no outputs at tick 5
+    // publish_truth at boundary tick 5 should SUCCEED (prov_tick=4 exists).
     let mut sink = TruthSink::new();
     let result = session.publish_truth(&cursor, &provenance, &mut sink);
-
     assert!(
-        result.is_err(),
-        "publish_truth should fail for unavailable tick"
-    );
-    assert!(
-        matches!(result, Err(HistoryError::HistoryUnavailable { tick: 5 })),
-        "should be HistoryUnavailable error for tick 5, got: {:?}",
+        result.is_ok(),
+        "publish_truth should succeed at boundary tick 5 (prov_tick=4), got: {:?}",
         result
+    );
+
+    // Verify it returns correct data from provenance[4]: position=[4, 4, 4]
+    let frames = sink.collect_frames(session_id);
+    assert_eq!(frames.len(), 1, "should have 1 frame for position channel");
+    assert_eq!(
+        frames[0].value,
+        vec![4u8, 4u8, 4u8],
+        "position at prov_tick=4 should be [4, 4, 4]"
+    );
+
+    // Verify publish_truth at tick 0 returns Ok with no frames (no patches applied).
+    let cursor_zero = PlaybackCursor::new(
+        test_cursor_id(2),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_store,
+        5,
+    );
+    // cursor starts at tick 0 by default
+    assert_eq!(cursor_zero.tick, 0);
+
+    let mut session_zero = ViewSession::new(test_session_id(2), cursor_zero.cursor_id);
+    session_zero.subscribe(position_channel);
+
+    let mut sink_zero = TruthSink::new();
+    let result_zero = session_zero.publish_truth(&cursor_zero, &provenance, &mut sink_zero);
+    assert!(
+        result_zero.is_ok(),
+        "publish_truth at tick 0 should succeed with no output"
+    );
+    let frames_zero = sink_zero.collect_frames(test_session_id(2));
+    assert!(
+        frames_zero.is_empty(),
+        "publish_truth at tick 0 should produce no frames"
     );
 }
 
@@ -775,20 +811,20 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     // Verify receipt has tick == 3
     assert_eq!(receipt_3.tick, 3, "receipt tick should be 3");
 
-    // Verify receipt has correct commit_hash from provenance.expected(worldline, 3)
+    // publish_truth queries prov_tick = cursor.tick - 1 = 2
     let expected_triplet_3 = provenance
-        .expected(worldline_id, 3)
-        .expect("expected triplet for tick 3 should exist");
+        .expected(worldline_id, 2)
+        .expect("expected triplet for prov_tick 2 should exist");
     assert_eq!(
         receipt_3.commit_hash, expected_triplet_3.commit_hash,
-        "receipt commit_hash should match provenance.expected(worldline, 3)"
+        "receipt commit_hash should match provenance.expected(worldline, 2)"
     );
 
-    // Verify frame values match provenance.outputs(worldline, 3)
+    // Verify frame values match provenance.outputs(worldline, 2) (prov_tick = cursor.tick - 1)
     let frames_3 = sink.collect_frames(session_id);
     let recorded_outputs_3 = provenance
-        .outputs(worldline_id, 3)
-        .expect("outputs for tick 3 should exist");
+        .outputs(worldline_id, 2)
+        .expect("outputs for prov_tick 2 should exist");
 
     let position_output_3 = recorded_outputs_3
         .iter()
@@ -805,11 +841,11 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
         position_frame_3.value, position_output_3,
         "frame value at tick 3 should match recorded output"
     );
-    // Expected: position at tick 3 is [3, 3, 3]
+    // Expected: at cursor.tick=3, prov_tick=2, position is [2, 2, 2]
     assert_eq!(
         position_frame_3.value,
-        vec![3u8, 3u8, 3u8],
-        "position value should be [3, 3, 3] at tick 3"
+        vec![2u8, 2u8, 2u8],
+        "position value should be [2, 2, 2] at cursor.tick 3 (prov_tick=2)"
     );
 
     // Test 2: Seek to tick 7, verify same invariants
@@ -828,20 +864,20 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     // Verify receipt has tick == 7
     assert_eq!(receipt_7.tick, 7, "receipt tick should be 7");
 
-    // Verify receipt has correct commit_hash from provenance.expected(worldline, 7)
+    // publish_truth queries prov_tick = cursor.tick - 1 = 6
     let expected_triplet_7 = provenance
-        .expected(worldline_id, 7)
-        .expect("expected triplet for tick 7 should exist");
+        .expected(worldline_id, 6)
+        .expect("expected triplet for prov_tick 6 should exist");
     assert_eq!(
         receipt_7.commit_hash, expected_triplet_7.commit_hash,
-        "receipt commit_hash should match provenance.expected(worldline, 7)"
+        "receipt commit_hash should match provenance.expected(worldline, 6)"
     );
 
-    // Verify frame values match provenance.outputs(worldline, 7)
+    // Verify frame values match provenance.outputs(worldline, 6) (prov_tick = cursor.tick - 1)
     let frames_7 = sink.collect_frames(session_id);
     let recorded_outputs_7 = provenance
-        .outputs(worldline_id, 7)
-        .expect("outputs for tick 7 should exist");
+        .outputs(worldline_id, 6)
+        .expect("outputs for prov_tick 6 should exist");
 
     let position_output_7 = recorded_outputs_7
         .iter()
@@ -858,11 +894,11 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
         position_frame_7.value, position_output_7,
         "frame value at tick 7 should match recorded output"
     );
-    // Expected: position at tick 7 is [7, 7, 7]
+    // Expected: at cursor.tick=7, prov_tick=6, position is [6, 6, 6]
     assert_eq!(
         position_frame_7.value,
-        vec![7u8, 7u8, 7u8],
-        "position value should be [7, 7, 7] at tick 7"
+        vec![6u8, 6u8, 6u8],
+        "position value should be [6, 6, 6] at cursor.tick 7 (prov_tick=6)"
     );
 
     // Verify different ticks have different commit_hashes (authoritative)

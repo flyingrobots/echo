@@ -5,18 +5,18 @@
 
 **Date:** 2026-01-20
 **Phase:** 6B (Sharded Parallel Execution)
-**Benchmark:** `cargo +nightly bench --package warp-core --bench boaw_baseline`
+**Benchmark:** `cargo +nightly bench --package warp-benches --bench boaw_baseline`
 
 ---
 
 ## Environment
 
-| Component | Value                             |
-| --------- | --------------------------------- |
-| **CPU**   | Apple M1 Pro (arm64)              |
-| **Rust**  | 1.90.0 (nightly for bench)        |
-| **OS**    | macOS 24.3.0 (Darwin)             |
-| **Cores** | 10 (8 performance + 2 efficiency) |
+| Component | Value                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| **CPU**   | Apple M1 Pro (arm64)                                                                             |
+| **Rust**  | nightly (required for `#[bench]`-less Criterion; run `rustc +nightly --version` for exact build) |
+| **OS**    | macOS 24.3.0 (Darwin)                                                                            |
+| **Cores** | 10 (8 performance + 2 efficiency)                                                                |
 
 ---
 
@@ -49,6 +49,10 @@
 | 4       | 133,849   | 1.3x slower |
 | 8       | 184,301   | 1.8x slower |
 | 16      | 296,992   | 2.9x slower |
+
+> **Note:** The measurements above are point estimates from Criterion. Full
+> CI/variance data (including confidence intervals and outlier classification)
+> is available in the raw Criterion output directory (`target/criterion/`).
 
 ---
 
@@ -104,14 +108,11 @@ Use these thresholds for CI perf gates:
 ## Re-running Benchmarks
 
 ```sh
-# Requires nightly Rust for #![feature(test)]
-cargo +nightly bench --package warp-core --bench boaw_baseline
+# Requires nightly Rust for Criterion benchmarks
+cargo +nightly bench --package warp-benches --bench boaw_baseline
 ```
 
-To compare against baseline:
-
-```sh
-cargo +nightly bench --package warp-core --bench boaw_baseline 2>&1 | \
-  grep -E "^test .* bench:" | \
-  awk '{print $2, $5}'
-```
+To compare against baseline, use Criterion's built-in comparison. Run the
+benchmark twice (it stores history in `target/criterion/`) and Criterion will
+report regressions/improvements automatically. For machine-readable output,
+use `--message-format=json` or inspect the JSON files in `target/criterion/`.

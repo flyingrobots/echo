@@ -51,6 +51,10 @@ pub enum HistoryError {
     #[error("worldline not found: {0:?}")]
     WorldlineNotFound(WorldlineId),
 
+    /// The target worldline already exists (e.g., during a fork).
+    #[error("worldline already exists: {0:?}")]
+    WorldlineAlreadyExists(WorldlineId),
+
     /// The provided tick does not match the expected next tick (append-only invariant).
     ///
     /// This occurs when attempting to append a tick that would create a gap or
@@ -323,6 +327,7 @@ impl LocalProvenanceStore {
     ///
     /// # Errors
     ///
+    /// - Returns [`HistoryError::WorldlineAlreadyExists`] if `new_id` is already registered.
     /// - Returns [`HistoryError::WorldlineNotFound`] if the source worldline doesn't exist.
     /// - Returns [`HistoryError::HistoryUnavailable`] if `fork_tick` is beyond the
     ///   available history in the source worldline.
@@ -332,6 +337,10 @@ impl LocalProvenanceStore {
         fork_tick: u64,
         new_id: WorldlineId,
     ) -> Result<(), HistoryError> {
+        if self.worldlines.contains_key(&new_id) {
+            return Err(HistoryError::WorldlineAlreadyExists(new_id));
+        }
+
         let source_history = self
             .worldlines
             .get(&source)

@@ -47,6 +47,11 @@ fn setup_worldline_with_outputs(
     let position_channel = make_channel_id("entity:position");
     let velocity_channel = make_channel_id("entity:velocity");
 
+    assert!(
+        num_ticks <= 127,
+        "num_ticks must be <= 127 to avoid u8 overflow in test output data"
+    );
+
     for tick in 0..num_ticks {
         let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
 
@@ -477,6 +482,10 @@ fn truth_frames_encode_to_mbus_v2() {
     assert_eq!(decoded.header.worldline_id, worldline_id.0);
     assert_eq!(decoded.header.warp_id, warp_id);
     assert_eq!(decoded.header.tick, 7);
+    assert_eq!(
+        decoded.header.commit_hash, v2_header.commit_hash,
+        "commit_hash should round-trip through v2 encode/decode"
+    );
 
     assert_eq!(decoded.entries.len(), v2_entries.len());
     for (decoded_entry, original_entry) in decoded.entries.iter().zip(v2_entries.iter()) {

@@ -375,6 +375,14 @@ pub fn decode_v2_packet(bytes: &[u8]) -> Result<V2Packet, DecodeError> {
     ) as usize;
     offset += 4;
 
+    // Validate entry_count against remaining payload to prevent OOM from malicious packets.
+    // Each entry needs at minimum: channel(32) + hash(32) + len(4) = 68 bytes.
+    let remaining = payload.len().saturating_sub(offset);
+    let max_possible_entries = remaining / 68;
+    if entry_count > max_possible_entries {
+        return Err(DecodeError::InvalidEntryCount);
+    }
+
     // Read entries
     let mut entries = Vec::with_capacity(entry_count);
     for i in 0..entry_count {

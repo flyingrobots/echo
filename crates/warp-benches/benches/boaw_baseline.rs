@@ -124,6 +124,8 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
     group.finish();
 }
 
+// TODO: Add benchmark for full work-queue + merge pipeline (Phase 6B path)
+
 // =============================================================================
 // Worker scaling at fixed workload (100 items)
 // =============================================================================

@@ -8,5 +8,6 @@
   "MD046": {
     "style": "fenced"
   },
+  "_MD060_rationale": "Disabled: tables use mixed column widths for readability (aligned headers with compact data rows) which triggers false positives on table-column-style",
   "MD060": false
 }

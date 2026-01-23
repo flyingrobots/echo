@@ -136,9 +136,6 @@ pub enum SeekThen {
     #[default]
     Pause,
 
-    /// Restore the mode that was active before the seek.
-    RestorePrevious,
-
     /// Transition to Play after reaching target.
     Play,
 }
@@ -212,16 +209,6 @@ pub enum SeekError {
     /// - A hash computation mismatch
     #[error("state root mismatch at tick {tick}")]
     StateRootMismatch {
-        /// The tick where verification failed.
-        tick: u64,
-    },
-
-    /// The computed commit hash doesn't match the expected value.
-    ///
-    /// Similar to `StateRootMismatch`, but for the commit hash which
-    /// includes additional metadata beyond just the state root.
-    #[error("commit hash mismatch at tick {tick}")]
-    CommitHashMismatch {
         /// The tick where verification failed.
         tick: u64,
     },
@@ -415,6 +402,8 @@ impl PlaybackCursor {
         // Determine starting point
         let start_tick = if target < self.tick {
             // Going backwards: need to rebuild from scratch
+            // TODO: Optimize backward seeks by using provenance.checkpoint_before(worldline, target)
+            // to start from the nearest checkpoint instead of replaying from tick 0.
             self.store = initial_store.clone();
             0
         } else {
@@ -442,6 +431,7 @@ impl PlaybackCursor {
                 })?;
 
             // Verify state root matches expected
+            // TODO(SPEC-0004): Implement commit_hash verification in seek_to
             let computed_state_root = compute_state_root_for_warp_store(&self.store, self.warp_id);
 
             if computed_state_root != expected.state_root {
@@ -530,7 +520,7 @@ impl PlaybackCursor {
                 self.seek_to(target, provenance, initial_store)?;
                 self.mode = match then {
                     SeekThen::Play => PlaybackMode::Play,
-                    SeekThen::Pause | SeekThen::RestorePrevious => PlaybackMode::Paused,
+                    SeekThen::Pause => PlaybackMode::Paused,
                 };
                 Ok(StepResult::Seeked)
             }
@@ -637,8 +627,19 @@ impl ViewSession {
         provenance: &P,
         sink: &mut TruthSink,
     ) -> Result<(), crate::provenance_store::HistoryError> {
+        // cursor.tick represents the number of patches applied (0 = initial state).
+        // No truth to publish at tick 0 since no patches have been applied yet.
+        if cursor.tick == 0 {
+            return Ok(());
+        }
+
+        // Provenance indices are 0-based: entry at index K holds the hash triplet
+        // and outputs recorded AFTER applying patch K. Since cursor.tick = N means
+        // patches 0..N-1 have been applied, the current state corresponds to index N-1.
+        let prov_tick = cursor.tick - 1;
+
         // Get expected hashes for commit_hash
-        let expected = provenance.expected(cursor.worldline_id, cursor.tick)?;
+        let expected = provenance.expected(cursor.worldline_id, prov_tick)?;
 
         // Build receipt
         let receipt = CursorReceipt {
@@ -654,7 +655,7 @@ impl ViewSession {
         sink.publish_receipt(self.session_id, receipt);
 
         // Get recorded outputs for this tick
-        let outputs = provenance.outputs(cursor.worldline_id, cursor.tick)?;
+        let outputs = provenance.outputs(cursor.worldline_id, prov_tick)?;
 
         // Publish frames for subscribed channels only
         for (channel, value) in outputs {

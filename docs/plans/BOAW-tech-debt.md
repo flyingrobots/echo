@@ -5,7 +5,7 @@
 
 **Created:** 2026-01-20
 **Status:** AWAITING APPROVAL
-**Context:** Post-Phase 6B integration — cleanup, guardrails, and forward planning
+**Context:** Post-Phase 6B integration — cleanup, guardrails, and planning
 
 ---
 
@@ -15,7 +15,7 @@
 | ------------------------------------ | -------------------------------------- |
 | Unblocks a phase                     | **Roadmap** (Tiers 1-3)                |
 | Reduces risk or prevents regressions | **Guardrail** (Tier 0.5)               |
-| Makes things faster                  | **Perf Gate** (only after measurement) |
+| Improves performance                 | **Perf Gate** (only after measurement) |
 | Is unused code                       | **Delete immediately** (Tier 0)        |
 
 ---

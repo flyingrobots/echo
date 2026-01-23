@@ -788,6 +788,11 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
 pub fn setup_worldline_with_ticks(
     num_ticks: u64,
 ) -> (LocalProvenanceStore, GraphStore, WarpId, WorldlineId) {
+    assert!(
+        num_ticks < 156,
+        "num_ticks must be < 156 to avoid commit_hash collision with patch_digest"
+    );
+
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
     let initial_store = create_initial_store(warp_id);

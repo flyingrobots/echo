@@ -219,7 +219,7 @@ SPEC-0004 introduces infrastructure for deterministic materialization, cursor-ba
 - **Repository Layout (Draft)**:
     - `/packages/echo-core` — deterministic ECS, scheduler, Codex’s Baby, timeline tree.
     - `/packages/echo-cli` — tooling launcher (future), wraps dev server and inspector.
-    - `/packages/echo-adapters` — reference adapters (Pixi/WebGPU, browser input, etc).
+    - `/packages/echo-adapters` — reference adapters (Pixi/WebGPU, browser input, etc.).
     - `/apps/playground` — Vite-driven sandbox for samples and inspector.
     - `/docs` — specs, diagrams, memorials (human-facing knowledge base).
     - `/tooling` — shared build scripts, benchmarking harness (future).

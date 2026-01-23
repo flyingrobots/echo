@@ -253,6 +253,19 @@ pub(crate) fn apply_warp_op_to_store(
                     actual: *warp_id,
                 });
             }
+            // Verify both endpoint nodes exist before inserting the edge
+            if store.node(&record.from).is_none() {
+                return Err(ApplyError::MissingNode(NodeKey {
+                    warp_id: *warp_id,
+                    local_id: record.from,
+                }));
+            }
+            if store.node(&record.to).is_none() {
+                return Err(ApplyError::MissingNode(NodeKey {
+                    warp_id: *warp_id,
+                    local_id: record.to,
+                }));
+            }
             store.upsert_edge_record(record.from, record.clone());
             Ok(())
         }

@@ -250,11 +250,10 @@ where
                         let unit = &units[unit_idx];
 
                         // Resolve view for this warp (per-unit, NOT cached across units)
-                        let Some(store) = resolve_store(&unit.warp_id) else {
-                            // Should not happen if units are validated at build time
-                            debug_assert!(false, "missing store for warp: {:?}", unit.warp_id);
-                            continue;
-                        };
+                        #[allow(clippy::expect_used)]
+                        // Invariant: warp must have a store during execution
+                        let store = resolve_store(&unit.warp_id)
+                            .expect("BUG: missing store for warp during execution");
                         let view = GraphView::new(store);
 
                         // Execute items SERIALLY (no nested threading!)

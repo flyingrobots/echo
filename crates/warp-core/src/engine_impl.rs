@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::attachment::{AttachmentKey, AttachmentValue};
 #[cfg(any(test, feature = "delta_validate"))]
 use crate::boaw::merge_deltas;
-use crate::boaw::{execute_parallel_sharded, ExecItem, NUM_SHARDS};
+use crate::boaw::{build_work_units, execute_work_queue, ExecItem, NUM_SHARDS};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::ident::{
@@ -27,10 +27,14 @@ use crate::tick_delta::OpOrigin;
 use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
-use crate::TickDelta;
 use std::sync::Arc;
 
-/// Result of calling [`Engine::apply`].
+/// Outcome of calling [`Engine::apply`].
+///
+/// This is a *match-status* indicator, not a `Result<_, ApplyError>` type alias.
+/// `ApplyResult` tells the caller whether the rewrite rule's pattern matched the
+/// given scope, independent of any storage-level errors (which are reported via
+/// [`EngineError`]).
 #[derive(Debug)]
 pub enum ApplyResult {
     /// The rewrite matched and was enqueued for execution.
@@ -930,6 +934,12 @@ impl Engine {
                 scope: scope_key,
                 footprint,
                 phase: RewritePhase::Matched,
+                origin: OpOrigin {
+                    intent_id: 0,
+                    rule_id: compact_rule.0,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
             },
         );
 
@@ -1215,30 +1225,30 @@ impl Engine {
                 .push((rewrite, executor));
         }
 
-        // 2. Execute per-warp in deterministic order, collect deltas
-        let mut all_deltas: Vec<TickDelta> = Vec::new();
-        for (warp_id, warp_rewrites) in by_warp {
-            // Borrow the store for this warp - validated to exist above
-            let Some(store) = self.state.store(&warp_id) else {
-                return Err(EngineError::UnknownWarp(warp_id));
-            };
-            let view = GraphView::new(store);
-
-            // Convert PendingRewrites to ExecItems
+        // 2. Convert to ExecItems and build work units (cross-warp parallelism)
+        let items_by_warp = by_warp.into_iter().map(|(warp_id, warp_rewrites)| {
             let items: Vec<ExecItem> = warp_rewrites
                 .into_iter()
                 .map(|(rw, exec)| ExecItem {
                     exec,
                     scope: rw.scope.local_id,
-                    origin: OpOrigin::default(),
+                    origin: rw.origin,
                 })
                 .collect();
+            (warp_id, items)
+        });
 
-            // Execute in parallel, collect deltas
-            let deltas = execute_parallel_sharded(view, &items, workers);
-            all_deltas.extend(deltas);
-        }
-        // view borrows end here - no borrow held across warps
+        // Build (warp, shard) work units - canonical ordering preserved
+        let units = build_work_units(items_by_warp);
+
+        // Cap workers at unit count (no point spawning more threads than work)
+        let capped_workers = workers.min(units.len().max(1));
+
+        // Execute all units in parallel across warps (single spawn site)
+        // Views resolved per-unit inside threads, dropped before next unit
+        let all_deltas =
+            execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id))
+                .map_err(EngineError::UnknownWarp)?;
 
         // 3. Merge deltas - use merge_deltas for conflict detection under delta_validate
         #[cfg(any(test, feature = "delta_validate"))]
@@ -1255,7 +1265,7 @@ impl Engine {
             // Ops with the same sort_key are deduplicated (footprint ensures they're identical).
             let mut flat: Vec<_> = all_deltas
                 .into_iter()
-                .flat_map(TickDelta::into_ops_unsorted)
+                .flat_map(crate::TickDelta::into_ops_unsorted)
                 .map(|op| (op.sort_key(), op))
                 .collect();
 

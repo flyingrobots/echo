@@ -19,6 +19,7 @@ use std::sync::Arc;
 use crate::footprint::{Footprint, WarpScopedPortKey};
 use crate::ident::{CompactRuleId, EdgeKey, Hash, NodeKey};
 use crate::telemetry::TelemetrySink;
+use crate::tick_delta::OpOrigin;
 use crate::tx::TxId;
 
 /// Active footprint tracking using generation-stamped sets for O(1) conflict detection.
@@ -83,6 +84,8 @@ pub(crate) struct PendingRewrite {
     pub footprint: Footprint,
     /// State machine phase for the rewrite.
     pub phase: RewritePhase,
+    /// Origin metadata for op provenance tracking.
+    pub origin: OpOrigin,
 }
 
 /// Phase of a pending rewrite in the lock-free scheduler.
@@ -771,6 +774,7 @@ mod tests {
                     scope,
                     footprint: Footprint::default(),
                     phase: RewritePhase::Matched,
+                    origin: OpOrigin::default(),
                 },
             );
         }
@@ -802,6 +806,7 @@ mod tests {
                 scope,
                 footprint: Footprint::default(),
                 phase: RewritePhase::Matched,
+                origin: OpOrigin::default(),
             },
         );
         sched.enqueue(
@@ -813,6 +818,7 @@ mod tests {
                 scope,
                 footprint: Footprint::default(),
                 phase: RewritePhase::Matched,
+                origin: OpOrigin::default(),
             },
         );
 
@@ -859,6 +865,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_node_scoped(&mut rewrite1.footprint, warp_id, &shared_node, true);
 
@@ -873,6 +880,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_node_scoped(&mut rewrite2.footprint, warp_id, &shared_node, false);
 
@@ -912,6 +920,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_edge_scoped(&mut rewrite1.footprint, warp_id, &shared_edge, true);
 
@@ -926,6 +935,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_edge_scoped(&mut rewrite2.footprint, warp_id, &shared_edge, true);
 
@@ -965,6 +975,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_edge_scoped(&mut rewrite1.footprint, warp_id, &shared_edge, true);
 
@@ -979,6 +990,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_edge_scoped(&mut rewrite2.footprint, warp_id, &shared_edge, false);
 
@@ -1016,6 +1028,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_port_scoped(&mut rewrite1.footprint, warp_id, &node, 0, true, true);
 
@@ -1030,6 +1043,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_port_scoped(&mut rewrite2.footprint, warp_id, &node, 0, true, true);
 
@@ -1079,6 +1093,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         rewrite_root.footprint.a_write.insert(portal_key);
 
@@ -1096,6 +1111,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         rewrite_child.footprint.a_read.insert(portal_key);
 
@@ -1127,6 +1143,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         let node_a = make_node_id("node_a");
         insert_node_scoped(&mut rewrite1.footprint, warp_id, &node_a, true);
@@ -1147,6 +1164,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         let node_b = make_node_id("node_b");
         insert_node_scoped(&mut rewrite2.footprint, warp_id, &node_a, false); // Conflicts!
@@ -1168,6 +1186,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_node_scoped(&mut rewrite3.footprint, warp_id, &node_b, true);
 
@@ -1203,6 +1222,7 @@ mod tests {
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
+                origin: OpOrigin::default(),
             };
             r1.footprint
                 .n_write
@@ -1223,6 +1243,7 @@ mod tests {
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
+                origin: OpOrigin::default(),
             };
             r2.footprint
                 .n_read
@@ -1243,6 +1264,7 @@ mod tests {
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
+                origin: OpOrigin::default(),
             };
             r3.footprint
                 .n_write
@@ -1263,6 +1285,7 @@ mod tests {
                     ..Default::default()
                 },
                 phase: RewritePhase::Matched,
+                origin: OpOrigin::default(),
             };
             r4.footprint
                 .n_read
@@ -1304,6 +1327,7 @@ mod tests {
             scope: scope_key("scope1"),
             footprint: Footprint::default(),
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_node_scoped(
             &mut rewrite1.footprint,
@@ -1319,6 +1343,7 @@ mod tests {
             scope: scope_key("scope2"),
             footprint: Footprint::default(),
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_node_scoped(
             &mut rewrite2.footprint,
@@ -1362,6 +1387,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_node_scoped(&mut rewrite1.footprint, warp_a, &same_local_node, true);
 
@@ -1379,6 +1405,7 @@ mod tests {
                 ..Default::default()
             },
             phase: RewritePhase::Matched,
+            origin: OpOrigin::default(),
         };
         insert_node_scoped(&mut rewrite2.footprint, warp_b, &same_local_node, true);
 

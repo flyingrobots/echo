@@ -5,10 +5,88 @@
 
 ## Unreleased
 
+### Added - SPEC-0004: Worldlines & Playback
+
+- **`worldline.rs`**: Worldline types for history tracking
+    - `WorldlineId(Hash)`: Opaque worldline identifier (derived from initial state hash in production; tests use fixed bytes)
+    - `HashTriplet`: state_root + patch_digest + commit_hash per tick
+    - `WorldlineTickPatchV1`: Per-warp projection of global tick operations
+    - `apply_warp_op_to_store()`: Apply WarpOp to GraphStore with explicit variant coverage
+
+- **`playback.rs`**: Playback cursor and session types
+    - `PlaybackCursor`: Materialized viewpoint into worldline history
+    - `PlaybackMode`: Paused, Play, StepForward, StepBack, Seek state machine
+    - `ViewSession`: Client subscription binding with channel filtering
+    - `TruthSink`: Minimal BTreeMap-based frame collector
+    - `CursorReceipt`, `TruthFrame`: Cursor-addressed authoritative values
+
+- **`provenance_store.rs`**: Provenance store trait (hexagonal port)
+    - `ProvenanceStore` trait: Seam for history access (patches, expected hashes, outputs)
+    - `LocalProvenanceStore`: In-memory Vec-backed implementation
+    - `add_checkpoint()`: Record checkpoint for fast seek during replay
+    - `fork()`: Prefix-copy worldline up to fork_tick
+
+- **`retention.rs`**: Retention policy for worldline history
+    - `RetentionPolicy` enum: KeepAll, CheckpointEvery, KeepRecent, ArchiveToWormhole
+
+- **`materialization/frame_v2.rs`**: MBUS v2 wire format with cursor stamps
+    - `V2Packet`: Cursor-stamped truth frame packets
+    - `encode_v2_packet()`, `decode_v2_packet()`: Roundtrip encoding
+    - Inline unit tests T19-T22 (SPEC-0004 test IDs): `mbus_v2_roundtrip_single_packet`, `mbus_v1_rejects_v2`, `mbus_v2_rejects_v1`, `mbus_v2_multi_packet_roundtrip`
+
+#### Tests - SPEC-0004
+
+- **All SPEC-0004 tests passing** (see test files for complete list; SPEC-0004 test IDs, not Rust function names)
+- **`crates/warp-core/tests/reducer_emission_tests.rs`**: Reducer integration tests (T11-T13)
+- **`crates/warp-core/tests/view_session_tests.rs`**: Worker count invariance tests (T16)
+- **Hexagonal testing**: Playback contract tested using ProvenanceStore fakes (T1, T7)
+- **Total warp-core tests**: all passing (run `cargo test -p warp-core -- --list 2>/dev/null | tail -1` for current count)
+
+### Added - Cross-Warp Parallelism (Phase 6B+)
+
+- **`WorkUnit` struct** (`boaw/exec.rs`): Work unit carrying `warp_id` + items for one shard
+- **`build_work_units()`** (`boaw/exec.rs`): Partitions items by warp then by shard into work units
+- **`execute_work_queue()`** (`boaw/exec.rs`): Global work queue with atomic unit claiming
+    - Single spawn site (no nested threading)
+    - Workers claim `(warp, shard)` units via `AtomicUsize`
+    - Views resolved per-unit, dropped before claiming next unit
+    - Fixed worker pool sized to `available_parallelism()`
+
+### Changed - Cross-Warp Parallelism
+
+- **Engine execution** (`engine_impl.rs`): Replaced serial per-warp for-loop with global work queue
+    - Previous: `for (warp_id, rewrites) in by_warp { execute_parallel_sharded(...) }`
+    - Now: `execute_work_queue(&units, workers, |warp_id| state.store(warp_id))`
+    - Multi-warp ticks now parallelize across all `(warp, shard)` units simultaneously
+
 ### Changed - API
 
 - **`WarpOpKey` now public** (`tick_patch.rs`): Export `WarpOpKey` from `warp_core` public API
 - **`WarpOp::sort_key()` now public**: Changed from `pub(crate)` to `pub` to enable external determinism verification
+- **`compute_commit_hash_v2` now public** (`snapshot.rs`): Promoted from `pub(crate)` to `pub` and re-exported from `warp_core`; enables external Merkle chain verification
+
+### Removed - Tier 0 Cleanup
+
+- **Stride fallback** (`boaw/exec.rs`): Deleted `execute_parallel_stride()` and `parallel-stride-fallback` feature
+    - Phase 6A stride execution superseded by Phase 6B sharded execution
+    - Removed feature gate, env var check, and ASCII warning banner
+- **Deprecated `emit_view_op_delta()`** (`rules.rs`): Deleted non-deterministic function that used `delta.len()` sequencing
+
+### Fixed - Review Feedback
+
+- **P0: Off-by-one in `publish_truth`** (`playback.rs`): Query `prov_tick = cursor.tick - 1` (0-based index of last applied patch) instead of `cursor.tick`; added early-return guard for `cursor.tick == 0`
+- **P0: Wrong package in bench docs** (`docs/notes/boaw-perf-baseline.md`): Corrected `warp-core` → `warp-benches`
+- **P1: Merkle chain verification** (`playback.rs`): `seek_to` now verifies `patch_digest`, recomputes `commit_hash` via `compute_commit_hash_v2`, and tracks parent chain per tick; added `SeekError::PatchDigestMismatch` and `SeekError::CommitHashMismatch` variants
+- **P1: Dead variant removal** (`playback.rs`): Removed `SeekThen::RestorePrevious` (broken semantics; treated identically to `Pause`)
+- **P1: OOM prevention** (`materialization/frame_v2.rs`): Bound `entry_count` by remaining payload size in `decode_v2_packet` to prevent malicious allocation
+- **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
+- **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
+- **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Result<Vec<TickDelta>, WarpId>` instead of panicking on missing store; caller maps to `EngineError::InternalCorruption`
+- **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
+- **P2: Markdownlint MD060** (`.markdownlint.json`): Removed global MD060 disable (all tables are well-formed; no false positives to suppress)
+- **P2: Test hardening** (`tests/`): Real `compute_commit_hash_v2` in all test worldline setups, u8 truncation guards (`num_ticks <= 127`), updated playback tests to match corrected `publish_truth` indexing
+- **Trivial: Phase 6B benchmark** (`boaw_baseline.rs`): Added `bench_work_queue` exercising full `build_work_units → execute_work_queue` pipeline across multi-warp setups
+- **Trivial: Perf baseline stats** (`docs/notes/boaw-perf-baseline.md`): Expanded statistical context note with sample size, CI methodology, and Criterion report location
 
 ### Fixed - PR #257 Review
 
@@ -49,14 +127,7 @@
     - Items in same shard processed together for cache locality
     - Worker count capped at `min(workers, NUM_SHARDS)` to prevent over-threading
 
-- **Stride fallback** (`boaw/exec.rs`): Feature-gated Phase 6A fallback
-    - Requires `parallel-stride-fallback` feature + `ECHO_PARALLEL_STRIDE=1` env var
-    - Prints loud ASCII warning banner when activated
-    - Temporary A/B benchmarking path; will be removed in a future release
-
-- **5 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
-    - `sharded_equals_stride`: Key correctness proof for 6A → 6B transition
-    - `sharded_equals_stride_permuted`: Permutation invariance with sharded execution
+- **3 new Phase 6B tests** (`tests/boaw_parallel_exec.rs`):
     - `worker_count_capped_at_num_shards`: Verifies cap at 256 workers
     - `sharded_distribution_is_deterministic`: Shard routing stability
     - `default_parallel_uses_sharded`: Default path verification

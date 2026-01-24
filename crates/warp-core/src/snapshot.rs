@@ -243,7 +243,13 @@ pub(crate) fn _compute_commit_hash(
 ///
 /// Commit hash v2 commits only to the replay boundary artifact: `state_root`
 /// and the tick `patch_digest` (plus explicit parents and policy id).
-pub(crate) fn compute_commit_hash_v2(
+///
+/// # Parent Ordering
+///
+/// `parents` MUST be supplied in a deterministic, canonical order
+/// (e.g., lexicographic by hash bytes). The slice is hashed exactly as
+/// provided—reordering parents produces a different commit hash.
+pub fn compute_commit_hash_v2(
     state_root: &Hash,
     parents: &[Hash],
     patch_digest: &Hash,
@@ -267,6 +273,52 @@ pub(crate) fn compute_commit_hash_v2(
 // Tests for commit header encoding and hashing live under PR-09
 // (branch: echo/pr-09-blake3-header-tests). Intentionally omitted here
 // to keep PR-10 scope to README/docs/CI and avoid duplicate content.
+
+/// Computes the state root hash for a single warp's [`GraphStore`].
+///
+/// This is a **low-level** function intended for cursor replay verification and
+/// provenance checkpoint validation. Most callers should use higher-level APIs
+/// such as [`PlaybackCursor::seek_to`] which invokes this internally.
+///
+/// # When to Use
+///
+/// Use this function directly only when:
+/// - Building a custom provenance store that records per-tick state roots
+/// - Implementing checkpoint-based fast-seek outside the standard cursor flow
+/// - Validating graph state integrity in test harnesses
+///
+/// # Determinism
+///
+/// The hash uses the same canonical ordering scheme as the full state root:
+/// - Nodes are visited in ascending `NodeId` order
+/// - Edges are sorted by `EdgeId` before hashing
+/// - Attachments are hashed alongside their owners
+///
+/// The `warp_id` parameter is accepted for API forward-compatibility but is not
+/// currently incorporated into the hash. The returned hash is purely a function
+/// of the store's graph content.
+///
+/// # Relationship to `compute_state_root`
+///
+/// This is a simpler, single-warp variant of the full `compute_state_root` which
+/// operates on the multi-warp [`WarpState`]. It is used for warp-local cursor
+/// verification where multi-warp traversal is not required.
+///
+/// [`GraphStore`]: crate::graph::GraphStore
+/// [`PlaybackCursor::seek_to`]: crate::playback::PlaybackCursor::seek_to
+/// [`WarpState`]: crate::warp_state::WarpState
+pub fn compute_state_root_for_warp_store(
+    store: &crate::graph::GraphStore,
+    _warp_id: WarpId,
+) -> Hash {
+    // Use the existing canonical_state_hash implementation from GraphStore,
+    // which already provides deterministic hashing with proper ordering.
+    // This ensures consistency with the existing hash scheme.
+    //
+    // Note: warp_id is kept as a parameter for API consistency and future use
+    // when we need to incorporate warp identity into the hash computation.
+    store.canonical_state_hash()
+}
 
 fn enqueue_descend(
     state: &WarpState,

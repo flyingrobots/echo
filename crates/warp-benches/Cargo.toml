@@ -19,6 +19,7 @@ rayon = "~1.10"
 [dev-dependencies]
 # Tilde pins for reproducibility: allow patch updates only
 criterion = { version = "~0.5", default-features = false, features = ["html_reports"] }
+bytes = "~1.11"
 blake3 = { version = "~1.8.2", default-features = false, features = ["std"] }
 rustc-hash = "~2.1.1"
 
@@ -36,4 +37,8 @@ harness = false
 
 [[bench]]
 name = "scheduler_adversarial"
+harness = false
+
+[[bench]]
+name = "boaw_baseline"
 harness = false

@@ -51,14 +51,9 @@ det_fixed = []
 # Validation feature for delta operations
 delta_validate = []
 
-# Phase 6B: Enable stride-based parallel execution fallback for A/B benchmarking.
-# Default is sharded execution. This feature is for debugging/benchmarking only.
-# Set ECHO_PARALLEL_STRIDE=1 env var to activate when feature is enabled.
-parallel-stride-fallback = []
-
 [[test]]
 name = "boaw_parallel_exec"
-required-features = ["delta_validate", "parallel-stride-fallback"]
+required-features = ["delta_validate"]
 
 [[test]]
 name = "prng_golden_regression"

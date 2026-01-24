@@ -5030,6 +5030,7 @@ name = "warp-benches"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "bytes",
  "criterion",
  "echo-dry-tests",
  "rayon",

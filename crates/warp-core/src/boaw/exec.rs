@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Parallel and serial execution for BOAW Phase 6.
+//! Parallel and serial execution for BOAW Phase 6B.
 //!
-//! - **Phase 6A**: Stride partitioning (`execute_parallel_stride`)
-//! - **Phase 6B**: Virtual shard partitioning (`execute_parallel_sharded`)
-//!
-//! Default is sharded (Phase 6B). Stride fallback requires feature flag.
+//! Uses virtual shard partitioning (`execute_parallel_sharded`) for cache locality.
+//! Workers dynamically claim shards via atomic counter (work-stealing).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
+use crate::ident::WarpId;
 use crate::rule::ExecuteFn;
 use crate::tick_delta::{OpOrigin, TickDelta};
 use crate::NodeId;
@@ -47,8 +47,6 @@ pub fn execute_serial(view: GraphView<'_>, items: &[ExecItem]) -> TickDelta {
 /// Parallel execution entry point.
 ///
 /// Uses virtual shard partitioning by default (Phase 6B).
-/// Falls back to stride partitioning if `parallel-stride-fallback` feature
-/// is enabled AND `ECHO_PARALLEL_STRIDE=1` environment variable is set.
 ///
 /// # Worker Count Cap
 ///
@@ -63,24 +61,6 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
 
     // Cap workers at NUM_SHARDS - no point spawning 512 threads for 256 shards
     let capped_workers = workers.min(NUM_SHARDS);
-
-    #[cfg(feature = "parallel-stride-fallback")]
-    {
-        if std::env::var("ECHO_PARALLEL_STRIDE")
-            .map(|v| v == "1")
-            .unwrap_or(false)
-        {
-            // LOUD WARNING: This is a fallback mode for benchmarking only
-            eprintln!(
-                "\n\
-                ╔══════════════════════════════════════════════════════════════╗\n\
-                ║  WARNING: STRIDE FALLBACK ENABLED (ECHO_PARALLEL_STRIDE=1)   ║\n\
-                ║  This is for A/B benchmarking only. Do NOT ship in prod.     ║\n\
-                ╚══════════════════════════════════════════════════════════════╝\n"
-            );
-            return execute_parallel_stride(view, items, capped_workers);
-        }
-    }
 
     execute_parallel_sharded(view, items, capped_workers)
 }
@@ -160,46 +140,145 @@ pub fn execute_parallel_sharded(
     })
 }
 
-/// Parallel execution with stride partitioning (Phase 6A legacy).
+// =============================================================================
+// Cross-Warp Parallelism (Phase 6B+)
+// =============================================================================
+
+/// A unit of work: items from one shard within one warp.
 ///
-/// Each worker processes indices: `w, w + workers, w + 2*workers, ...`
-/// This is the original Phase 6A implementation, kept for A/B benchmarking.
+/// The global work queue processes units in parallel across all warps,
+/// eliminating the serial per-warp loop.
+#[derive(Debug)]
+pub struct WorkUnit {
+    /// Which warp this unit belongs to.
+    pub warp_id: WarpId,
+    /// Items to execute (from one shard). Processed serially within the unit.
+    pub items: Vec<ExecItem>,
+}
+
+/// Builds work units from warp-partitioned items.
 ///
-/// # Feature Gate
+/// Creates `(warp, shard)` units by partitioning each warp's items into shards.
+/// Only non-empty shards produce units. Units are ordered canonically:
+/// `warp_id` (lexicographic via `BTreeMap`) then `shard_id` (ascending).
 ///
-/// Only available when `parallel-stride-fallback` feature is enabled.
-/// Activated at runtime by setting `ECHO_PARALLEL_STRIDE=1` env var.
+/// # Arguments
+///
+/// * `by_warp` - Any iterable of `(WarpId, Vec<ExecItem>)` pairs. Sorted by `WarpId` internally to guarantee deterministic output regardless of input order.
+///
+/// # Returns
+///
+/// Vector of work units in canonical order.
+pub fn build_work_units(
+    by_warp: impl IntoIterator<Item = (WarpId, Vec<ExecItem>)>,
+) -> Vec<WorkUnit> {
+    let mut sorted: Vec<_> = by_warp.into_iter().collect();
+    sorted.sort_by_key(|(warp_id, _)| *warp_id);
+
+    let mut units = Vec::new();
+
+    for (warp_id, items) in sorted {
+        let shards = partition_into_shards(&items);
+        for shard in shards {
+            if !shard.items.is_empty() {
+                units.push(WorkUnit {
+                    warp_id,
+                    items: shard.items,
+                });
+            }
+        }
+    }
+
+    units
+}
+
+/// Execute work queue with parallel workers (cross-warp parallelism).
+///
+/// This is the **only** spawn site for cross-warp execution. Workers claim
+/// units atomically and execute items serially within each unit.
+///
+/// # Constraints (Non-Negotiable)
+///
+/// 1. **No nested threading**: Items within a unit are executed serially.
+/// 2. **No long-lived borrows**: `GraphView` is resolved per-unit and dropped
+///    before claiming the next unit.
+/// 3. **`ExecItem` unchanged**: Work units carry items, items don't know their warp.
+///
+/// # Arguments
+///
+/// * `units` - Work units to execute (from `build_work_units`).
+/// * `workers` - Number of parallel workers.
+/// * `resolve_store` - Closure to resolve `&GraphStore` for a `WarpId`.
+///
+/// # Returns
+///
+/// `Ok(deltas)` with one `TickDelta` per worker, to be merged by caller.
+///
+/// # Errors
+///
+/// Returns `Err(warp_id)` if `resolve_store` returned `None` for a unit's
+/// warp, indicating the caller failed to validate store availability.
 ///
 /// # Panics
 ///
-/// Panics if `workers` is 0.
-#[cfg(any(test, feature = "parallel-stride-fallback"))]
-pub fn execute_parallel_stride(
-    view: GraphView<'_>,
-    items: &[ExecItem],
+/// Panics if `workers == 0` or if any worker thread panics.
+pub fn execute_work_queue<'state, F>(
+    units: &[WorkUnit],
     workers: usize,
-) -> Vec<TickDelta> {
+    resolve_store: F,
+) -> Result<Vec<TickDelta>, WarpId>
+where
+    F: Fn(&WarpId) -> Option<&'state GraphStore> + Sync,
+{
     assert!(workers > 0, "workers must be > 0");
 
+    if units.is_empty() {
+        return Ok((0..workers).map(|_| TickDelta::new()).collect());
+    }
+
+    let next_unit = AtomicUsize::new(0);
+
     std::thread::scope(|s| {
-        let mut handles = Vec::with_capacity(workers);
-        for w in 0..workers {
-            handles.push(s.spawn(move || {
-                let mut delta = TickDelta::new();
-                let mut i = w;
-                while i < items.len() {
-                    let item = &items[i];
-                    let mut scoped = delta.scoped(item.origin);
-                    (item.exec)(view, &item.scope, scoped.inner_mut());
-                    i += workers;
-                }
-                delta
-            }));
-        }
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                let units = &units;
+                let next_unit = &next_unit;
+                let resolve_store = &resolve_store;
+
+                s.spawn(move || -> Result<TickDelta, WarpId> {
+                    let mut delta = TickDelta::new();
+
+                    // Work-stealing loop: claim units until none remain
+                    loop {
+                        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
+                        if unit_idx >= units.len() {
+                            break;
+                        }
+
+                        let unit = &units[unit_idx];
+
+                        // Resolve view for this warp (per-unit, NOT cached across units)
+                        let store = resolve_store(&unit.warp_id).ok_or(unit.warp_id)?;
+                        let view = GraphView::new(store);
+
+                        // Execute items SERIALLY (no nested threading!)
+                        for item in &unit.items {
+                            let mut scoped = delta.scoped(item.origin);
+                            (item.exec)(view, &item.scope, scoped.inner_mut());
+                        }
+
+                        // View dropped here - no long-lived borrows across warps
+                    }
+
+                    Ok(delta)
+                })
+            })
+            .collect();
+
         handles
             .into_iter()
             .map(|h| match h.join() {
-                Ok(delta) => delta,
+                Ok(result) => result,
                 Err(e) => std::panic::resume_unwind(e),
             })
             .collect()

@@ -269,6 +269,218 @@ fn multiwarp_repeated_execution_determinism() {
     }
 }
 
+// =============================================================================
+// T16: Single-Warp Worker Count Invariance (SPEC-0004)
+// =============================================================================
+
+/// T16: Worker count invariance for writer advance.
+///
+/// This test verifies that when a writer cursor advances (via Engine commit),
+/// the resulting `commit_hash` is identical regardless of worker count.
+/// This is the "free money" proof for BOAW Phase 6B: parallelism doesn't
+/// affect correctness.
+///
+/// # Test Strategy
+///
+/// 1. Build a base snapshot with a deterministic graph structure.
+/// 2. Create a fixed ingress queue (same intents for all runs).
+/// 3. Execute a single tick with different worker pool sizes.
+/// 4. Compare `commit_hash` across all runs - must be identical.
+///
+/// # Why This Matters
+///
+/// The Engine uses BOAW (Batch of Active Warps) for parallel rule execution.
+/// `ECHO_WORKERS` (or `EngineBuilder::workers()`) controls the thread pool size.
+/// This test proves that scaling workers doesn't change the deterministic outcome.
+#[test]
+fn worker_count_invariance_for_writer_advance() {
+    use warp_core::{ApplyResult, EngineBuilder, NodeRecord};
+
+    const TOUCH_RULE_NAME: &str = "t16/touch";
+    let make_touch_rule = || make_touch_rule!("t16/touch", "t16/marker", b"touched-t16");
+
+    // Build a deterministic base snapshot with 20 independent nodes
+    // (mirrors ManyIndependent scenario from BOAW tests)
+    let node_ty = warp_core::make_type_id("t16/node");
+    let mut base_store = warp_core::GraphStore::default();
+
+    let root = warp_core::make_node_id("t16/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+
+    // Create 19 more independent nodes (total 20)
+    let mut all_nodes = vec![root];
+    for i in 1..20 {
+        let node = warp_core::make_node_id(&format!("t16/node{}", i));
+        base_store.insert_node(node, NodeRecord { ty: node_ty });
+        all_nodes.push(node);
+    }
+
+    // Build fixed ingress: touch all 20 nodes
+    let ingress: Vec<(&str, warp_core::NodeId)> = all_nodes
+        .iter()
+        .map(|&node| (TOUCH_RULE_NAME, node))
+        .collect();
+
+    // Run with baseline (1 worker) to establish expected commit_hash
+    let baseline_commit_hash = {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(1)
+            .build();
+
+        engine
+            .register_rule(make_touch_rule())
+            .expect("failed to register rule");
+
+        let tx = engine.begin();
+        for (rule_name, scope) in &ingress {
+            match engine.apply(tx, rule_name, scope) {
+                Ok(ApplyResult::Applied) => {}
+                Ok(ApplyResult::NoMatch) => {}
+                Err(e) => panic!("apply error: {:?}", e),
+            }
+        }
+
+        let (snapshot, _receipt, _patch) = engine
+            .commit_with_receipt(tx)
+            .expect("commit_with_receipt failed");
+
+        snapshot.hash
+    };
+
+    // Run with each worker count and verify identical commit_hash
+    for &workers in WORKER_COUNTS {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(workers)
+            .build();
+
+        engine
+            .register_rule(make_touch_rule())
+            .expect("failed to register rule");
+
+        let tx = engine.begin();
+        for (rule_name, scope) in &ingress {
+            match engine.apply(tx, rule_name, scope) {
+                Ok(ApplyResult::Applied) => {}
+                Ok(ApplyResult::NoMatch) => {}
+                Err(e) => panic!("apply error with {} workers: {:?}", workers, e),
+            }
+        }
+
+        let (snapshot, _receipt, _patch) = engine
+            .commit_with_receipt(tx)
+            .expect("commit_with_receipt failed");
+
+        assert_eq!(
+            baseline_commit_hash, snapshot.hash,
+            "commit_hash differs for {} workers\n  baseline: {:02x?}\n  got:      {:02x?}",
+            workers, baseline_commit_hash, snapshot.hash
+        );
+    }
+}
+
+/// T16 variant: Worker count invariance with shuffled ingress order.
+///
+/// This test combines worker count invariance with permutation invariance.
+/// The ingress order is shuffled before each run, proving that both
+/// the order of intents and the number of workers don't affect the result.
+#[test]
+fn worker_count_invariance_for_writer_advance_shuffled() {
+    use warp_core::{ApplyResult, EngineBuilder, NodeRecord};
+
+    // Seeds for deterministic shuffling
+    const SHUFFLE_SEEDS: &[u64] = &[0x1234, 0xDEAD, 0xBEEF];
+
+    const TOUCH_RULE_NAME: &str = "t16s/touch";
+    let make_touch_rule = || make_touch_rule!("t16s/touch", "t16s/marker", b"touched-t16s");
+
+    // Build deterministic base snapshot
+    let node_ty = warp_core::make_type_id("t16s/node");
+    let mut base_store = warp_core::GraphStore::default();
+
+    let root = warp_core::make_node_id("t16s/root");
+    base_store.insert_node(root, NodeRecord { ty: node_ty });
+
+    let mut all_nodes = vec![root];
+    for i in 1..20 {
+        let node = warp_core::make_node_id(&format!("t16s/node{}", i));
+        base_store.insert_node(node, NodeRecord { ty: node_ty });
+        all_nodes.push(node);
+    }
+
+    // Baseline ingress (canonical order)
+    let canonical_ingress: Vec<(&str, warp_core::NodeId)> = all_nodes
+        .iter()
+        .map(|&node| (TOUCH_RULE_NAME, node))
+        .collect();
+
+    // Get baseline commit_hash with 1 worker, canonical order
+    let baseline_commit_hash = {
+        let mut engine = EngineBuilder::new(base_store.clone(), root)
+            .workers(1)
+            .build();
+
+        engine
+            .register_rule(make_touch_rule())
+            .expect("failed to register rule");
+
+        let tx = engine.begin();
+        for (rule_name, scope) in &canonical_ingress {
+            match engine.apply(tx, rule_name, scope) {
+                Ok(ApplyResult::Applied) => {}
+                Ok(ApplyResult::NoMatch) => {}
+                Err(e) => panic!("apply error: {:?}", e),
+            }
+        }
+
+        let (snapshot, _, _) = engine
+            .commit_with_receipt(tx)
+            .expect("commit_with_receipt failed");
+
+        snapshot.hash
+    };
+
+    // Test with each seed and worker count
+    for &seed in SHUFFLE_SEEDS {
+        let mut rng = XorShift64::new(seed);
+        let mut ingress = canonical_ingress.clone();
+
+        // Shuffle ingress order
+        shuffle(&mut rng, &mut ingress);
+
+        for &workers in WORKER_COUNTS {
+            let mut engine = EngineBuilder::new(base_store.clone(), root)
+                .workers(workers)
+                .build();
+
+            engine
+                .register_rule(make_touch_rule())
+                .expect("failed to register rule");
+
+            let tx = engine.begin();
+            for (rule_name, scope) in &ingress {
+                match engine.apply(tx, rule_name, scope) {
+                    Ok(ApplyResult::Applied) => {}
+                    Ok(ApplyResult::NoMatch) => {}
+                    Err(e) => panic!(
+                        "apply error (seed={:#x}, workers={}): {:?}",
+                        seed, workers, e
+                    ),
+                }
+            }
+
+            let (snapshot, _, _) = engine
+                .commit_with_receipt(tx)
+                .expect("commit_with_receipt failed");
+
+            assert_eq!(
+                baseline_commit_hash, snapshot.hash,
+                "commit_hash differs (seed={:#x}, workers={})\n  baseline: {:02x?}\n  got:      {:02x?}",
+                seed, workers, baseline_commit_hash, snapshot.hash
+            );
+        }
+    }
+}
+
 /// Stress test: deep permutation drill with all worker counts.
 ///
 /// Combines multiple seeds, multiple permutations per seed, and all worker

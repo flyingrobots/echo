@@ -3,10 +3,12 @@
 #![allow(dead_code)]
 
 use warp_core::{
-    make_edge_id, make_node_id, make_type_id, ApplyResult, AtomPayload, AttachmentKey,
-    AttachmentSet, AttachmentValue, ConflictPolicy, EdgeId, EdgeRecord, Engine, EngineBuilder,
-    Footprint, GraphStore, Hash, NodeId, NodeKey, NodeRecord, PatternGraph, RewriteRule, WarpId,
-    WarpOp,
+    compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_node_id,
+    make_type_id, make_warp_id, ApplyResult, AtomPayload, AttachmentKey, AttachmentSet,
+    AttachmentValue, ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder,
+    Footprint, GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey, NodeRecord,
+    PatternGraph, RewriteRule, SessionId, WarpId, WarpOp, WorldlineId, WorldlineTickHeaderV1,
+    WorldlineTickPatchV1,
 };
 
 // =============================================================================
@@ -665,15 +667,11 @@ impl BoawTestHarness for EngineHarness {
     }
 
     fn wsc_roundtrip_state_root(&self, _wsc: &[u8]) -> Hash32 {
-        // TODO: Implement real WSC roundtrip verification once SnapshotBuilder produces wsc_bytes.
-        // For now, return a zeroed hash as a safe placeholder. Tests that depend on this
-        // should check wsc_bytes.is_some() before calling this method.
-        //
-        // Real implementation should:
-        // 1. Parse WSC bytes into WarpView
-        // 2. Compute state_root from the parsed view
-        // 3. Return that hash for comparison with the original state_root
-        [0u8; 32]
+        // WSC roundtrip not yet implemented (SnapshotBuilder does not produce wsc_bytes yet).
+        // Fail fast so callers discover missing implementation immediately.
+        unimplemented!(
+            "wsc_roundtrip_state_root: implement once SnapshotBuilder produces wsc_bytes"
+        )
     }
 }
 
@@ -712,6 +710,197 @@ pub fn key(scope: u8, rule: u32) -> EmitKey {
 /// Create an EmitKey for tests with explicit subkey.
 pub fn key_sub(scope: u8, rule: u32, subkey: u32) -> EmitKey {
     EmitKey::with_subkey(h(scope), rule, subkey)
+}
+
+// =============================================================================
+// WORLDLINE / PLAYBACK TEST UTILITIES (SPEC-0004)
+// =============================================================================
+
+/// Creates a deterministic worldline ID for testing.
+pub fn test_worldline_id() -> WorldlineId {
+    WorldlineId([1u8; 32])
+}
+
+/// Creates a deterministic cursor ID for testing.
+pub fn test_cursor_id(n: u8) -> CursorId {
+    CursorId([n; 32])
+}
+
+/// Creates a deterministic session ID for testing.
+pub fn test_session_id(n: u8) -> SessionId {
+    SessionId([n; 32])
+}
+
+/// Creates a test warp ID.
+pub fn test_warp_id() -> WarpId {
+    make_warp_id("test-warp")
+}
+
+/// Creates a test header for a specific tick.
+pub fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
+    WorldlineTickHeaderV1 {
+        global_tick: tick,
+        policy_id: 0,
+        rule_pack_id: [0u8; 32],
+        plan_digest: [0u8; 32],
+        decision_digest: [0u8; 32],
+        rewrites_digest: [0u8; 32],
+    }
+}
+
+/// Creates an initial store with a root node.
+pub fn create_initial_store(warp_id: WarpId) -> GraphStore {
+    let mut store = GraphStore::new(warp_id);
+    let root_id = make_node_id("root");
+    let ty = make_type_id("RootType");
+    store.insert_node(root_id, NodeRecord { ty });
+    store
+}
+
+/// Creates a patch that adds a node at a specific tick.
+pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> WorldlineTickPatchV1 {
+    let tick_u8 = u8::try_from(tick).expect("tick must fit in u8 for test helpers");
+    let node_id = make_node_id(node_name);
+    let node_key = NodeKey {
+        warp_id,
+        local_id: node_id,
+    };
+    let ty = make_type_id(&format!("Type{}", tick));
+
+    WorldlineTickPatchV1 {
+        header: test_header(tick),
+        warp_id,
+        ops: vec![WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord { ty },
+        }],
+        in_slots: vec![],
+        out_slots: vec![],
+        // Intentional: wraps at tick > 255 via `as u8`, but all test worldlines
+        // use fewer than 256 ticks so this produces unique per-tick digests.
+        patch_digest: [tick_u8; 32],
+    }
+}
+
+/// Sets up a worldline with N ticks and returns the provenance store and initial store.
+///
+/// Commit hashes are computed using `compute_commit_hash_v2` to form a valid Merkle chain,
+/// matching what `seek_to` will recompute during verification.
+pub fn setup_worldline_with_ticks(
+    num_ticks: u64,
+) -> (LocalProvenanceStore, GraphStore, WarpId, WorldlineId) {
+    let warp_id = test_warp_id();
+    let worldline_id = test_worldline_id();
+    let initial_store = create_initial_store(warp_id);
+
+    let mut provenance = LocalProvenanceStore::new();
+    provenance
+        .register_worldline(worldline_id, warp_id)
+        .unwrap();
+
+    // Build up the worldline by applying patches and recording correct hashes
+    let mut current_store = initial_store.clone();
+    let mut parents: Vec<Hash> = Vec::new();
+
+    for tick in 0..num_ticks {
+        let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
+
+        // Apply patch to get the resulting state
+        patch
+            .apply_to_store(&mut current_store)
+            .expect("apply should succeed");
+
+        // Compute the actual state root after applying
+        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+
+        // Compute real commit_hash for Merkle chain verification
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &parents,
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+
+        let triplet = HashTriplet {
+            state_root,
+            patch_digest: patch.patch_digest,
+            commit_hash,
+        };
+
+        provenance
+            .append(worldline_id, patch, triplet, vec![])
+            .expect("append should succeed");
+
+        // Advance parent chain
+        parents = vec![commit_hash];
+    }
+
+    (provenance, initial_store, warp_id, worldline_id)
+}
+
+/// Creates a "touch" rewrite rule for worker invariance tests.
+///
+/// The rule sets a marker attachment on the scope node, exercising the
+/// BOAW parallel execution path while remaining deterministic.
+///
+/// Because `RewriteRule` fields are function pointers (not closures), parameters
+/// must be string/byte literals known at compile time. Use this macro to avoid
+/// duplicating the 47-line rule body across tests.
+///
+/// # Usage
+/// ```ignore
+/// let rule = make_touch_rule!("t16/touch", "t16/marker", b"touched-t16");
+/// ```
+#[macro_export]
+macro_rules! make_touch_rule {
+    ($rule_name:expr, $marker_type:expr, $marker_bytes:expr) => {{
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rule:");
+        hasher.update($rule_name.as_bytes());
+        let id: warp_core::Hash = hasher.finalize().into();
+
+        warp_core::RewriteRule {
+            id,
+            name: $rule_name,
+            left: warp_core::PatternGraph { nodes: vec![] },
+            matcher: |view, scope| view.node(scope).is_some(),
+            executor: |view, scope, delta| {
+                let marker_payload = warp_core::AtomPayload::new(
+                    warp_core::make_type_id($marker_type),
+                    bytes::Bytes::from_static($marker_bytes),
+                );
+                let value = Some(warp_core::AttachmentValue::Atom(marker_payload));
+                let key = warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                    warp_id: view.warp_id(),
+                    local_id: *scope,
+                });
+                delta.push(warp_core::WarpOp::SetAttachment { key, value });
+            },
+            compute_footprint: |view, scope| {
+                let mut a_write = warp_core::AttachmentSet::default();
+                if view.node(scope).is_some() {
+                    a_write.insert(warp_core::AttachmentKey::node_alpha(warp_core::NodeKey {
+                        warp_id: view.warp_id(),
+                        local_id: *scope,
+                    }));
+                }
+                warp_core::Footprint {
+                    n_read: warp_core::NodeSet::default(),
+                    n_write: warp_core::NodeSet::default(),
+                    e_read: warp_core::EdgeSet::default(),
+                    e_write: warp_core::EdgeSet::default(),
+                    a_read: warp_core::AttachmentSet::default(),
+                    a_write,
+                    b_in: warp_core::PortSet::default(),
+                    b_out: warp_core::PortSet::default(),
+                    factor_mask: 1,
+                }
+            },
+            factor_mask: 1,
+            conflict_policy: warp_core::ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }};
 }
 
 /// Calls `f` for every permutation of `items` in-place.

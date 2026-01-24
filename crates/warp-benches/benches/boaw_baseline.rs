@@ -66,15 +66,17 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
     nodes
         .iter()
         .enumerate()
-        .map(|(i, &scope)| ExecItem {
-            exec: touch_executor,
-            scope,
-            origin: OpOrigin {
-                intent_id: i as u64,
-                rule_id: 1,
-                match_ix: 0,
-                op_ix: 0,
-            },
+        .map(|(i, &scope)| {
+            ExecItem::new(
+                touch_executor,
+                scope,
+                OpOrigin {
+                    intent_id: i as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            )
         })
         .collect()
 }
@@ -177,16 +179,16 @@ fn make_multi_warp_setup(
         for i in 0..items_per_warp {
             let id = make_node_id(&format!("bench/w{w}/n{i}"));
             store.insert_node(id, NodeRecord { ty: node_ty });
-            items.push(ExecItem {
-                exec: touch_executor,
-                scope: id,
-                origin: OpOrigin {
+            items.push(ExecItem::new(
+                touch_executor,
+                id,
+                OpOrigin {
                     intent_id: (w * items_per_warp + i) as u64,
                     rule_id: 1,
                     match_ix: 0,
                     op_ix: 0,
                 },
-            });
+            ));
         }
 
         stores.insert(warp_id, store);

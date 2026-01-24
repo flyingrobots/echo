@@ -136,7 +136,45 @@ pub fn toast_rule() -> RewriteRule {
                 );
             }
         },
-        compute_footprint: |s, scope| footprint_for_state_node(s, scope, "sim/view"),
+        compute_footprint: |s, scope| {
+            let warp_id = s.warp_id();
+            let mut n_read = NodeSet::default();
+            let mut n_write = NodeSet::default();
+            let mut e_write = EdgeSet::default();
+            let mut a_read = AttachmentSet::default();
+            let mut a_write = AttachmentSet::default();
+
+            // decode_op_args reads scope node + attachment
+            n_read.insert_with_warp(warp_id, *scope);
+            a_read.insert(AttachmentKey::node_alpha(NodeKey {
+                warp_id,
+                local_id: *scope,
+            }));
+
+            // emit_view_op_delta_scoped creates:
+            let view_id = make_node_id("sim/view");
+            n_write.insert_with_warp(warp_id, view_id);
+
+            // Dynamic op node derived from scope hex
+            let scope_hex: String = scope.0.iter().map(|b| format!("{:02x}", b)).collect();
+            let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
+            let edge_id = make_edge_id(&format!("edge:view/op:{}", scope_hex));
+            n_write.insert_with_warp(warp_id, op_id);
+            e_write.insert_with_warp(warp_id, edge_id);
+            a_write.insert(AttachmentKey::node_alpha(NodeKey {
+                warp_id,
+                local_id: op_id,
+            }));
+
+            Footprint {
+                n_read,
+                n_write,
+                e_write,
+                a_read,
+                a_write,
+                ..Default::default()
+            }
+        },
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
         join_fn: None,
@@ -249,12 +287,19 @@ pub fn ball_physics_rule() -> RewriteRule {
             }
         },
         compute_footprint: |s, scope| {
-            let mut a_write = AttachmentSet::default();
-            a_write.insert(AttachmentKey::node_alpha(NodeKey {
+            let key = AttachmentKey::node_alpha(NodeKey {
                 warp_id: s.warp_id(),
                 local_id: *scope,
-            }));
+            });
+            let mut n_read = NodeSet::default();
+            n_read.insert_with_warp(s.warp_id(), *scope);
+            let mut a_read = AttachmentSet::default();
+            a_read.insert(key);
+            let mut a_write = AttachmentSet::default();
+            a_write.insert(key);
             Footprint {
+                n_read,
+                a_read,
                 a_write,
                 ..Default::default()
             }
@@ -364,6 +409,12 @@ pub fn footprint_for_state_node(
     e_write.insert_with_warp(warp_id, make_edge_id("edge:sim/state"));
     e_write.insert_with_warp(warp_id, make_edge_id(&format!("edge:{state_node_path}")));
 
+    // Target node may also be read (e.g. toggle_nav reads current value).
+    // Declaring the read is conservatively safe for rules that only write.
+    a_read.insert(AttachmentKey::node_alpha(NodeKey {
+        warp_id,
+        local_id: target_id,
+    }));
     a_write.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
         local_id: target_id,

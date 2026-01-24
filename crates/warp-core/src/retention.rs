@@ -22,6 +22,13 @@
 ///
 /// Controls how much history is kept and whether checkpoints are created
 /// to enable fast seeking.
+///
+/// # Invariants
+///
+/// All tick-interval fields (`k`, `window`, `checkpoint_every`) must be >= 1.
+/// A value of 0 is semantically undefined and will be treated as 1 at runtime.
+/// Boundary behavior: `k = 1` creates a checkpoint every tick; `window = 1`
+/// retains only the most recent tick in full detail.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum RetentionPolicy {

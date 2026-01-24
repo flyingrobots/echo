@@ -651,4 +651,81 @@ mod tests {
         let err = store.register_worldline(wl, warp_b).unwrap_err();
         assert!(matches!(err, HistoryError::WorldlineAlreadyExists(_)));
     }
+
+    #[test]
+    fn append_tick_gap_returns_error() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        // Append tick 0 successfully
+        store
+            .append(w, test_patch(0), test_triplet(0), vec![])
+            .unwrap();
+
+        // Skip tick 1 → append tick 2 should fail with TickGap
+        let result = store.append(w, test_patch(2), test_triplet(2), vec![]);
+        assert!(
+            matches!(
+                result,
+                Err(HistoryError::TickGap {
+                    expected: 1,
+                    got: 2
+                })
+            ),
+            "expected TickGap, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn fork_collision_returns_worldline_already_exists() {
+        let mut store = LocalProvenanceStore::new();
+        let source = test_worldline_id();
+        let target = WorldlineId([99u8; 32]);
+        let warp = test_warp_id();
+
+        // Register source with one patch so fork has history to copy
+        store.register_worldline(source, warp).unwrap();
+        store
+            .append(source, test_patch(0), test_triplet(0), vec![])
+            .unwrap();
+
+        // Register target worldline (collision target)
+        store.register_worldline(target, warp).unwrap();
+
+        // Fork into already-registered target should fail
+        let result = store.fork(source, 0, target);
+        assert!(
+            matches!(result, Err(HistoryError::WorldlineAlreadyExists(id)) if id == target),
+            "expected WorldlineAlreadyExists, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn checkpoint_convenience_records_and_is_visible() {
+        use crate::graph::GraphStore;
+
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        let warp = test_warp_id();
+        store.register_worldline(w, warp).unwrap();
+
+        // Create a GraphStore so checkpoint() can compute the state hash
+        let graph_store = GraphStore::new(warp);
+
+        // Record a checkpoint at tick 5
+        let cp = store.checkpoint(w, 5, &graph_store).unwrap();
+
+        // The checkpoint should be visible via checkpoint_before(tick > 5)
+        let found = store.checkpoint_before(w, 6);
+        assert_eq!(found.unwrap().tick, 5);
+        assert_eq!(found.unwrap().state_hash, cp.state_hash);
+
+        // checkpoint_before(5) should NOT return the checkpoint at tick 5 (strict <)
+        let before_5 = store.checkpoint_before(w, 5);
+        assert!(
+            before_5.is_none() || before_5.unwrap().tick < 5,
+            "checkpoint_before should be strictly less than the query tick"
+        );
+    }
 }

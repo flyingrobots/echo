@@ -610,6 +610,115 @@ mod tests {
     }
 
     #[test]
+    fn apply_to_store_upsert_edge_missing_both_nodes() {
+        let warp_id = make_warp_id("test-warp");
+        let mut store = GraphStore::new(warp_id);
+        let from_id = make_node_id("from");
+        let to_id = make_node_id("to");
+        let edge_id = make_edge_id("edge-1");
+        let ty = make_type_id("EdgeType");
+
+        // Neither node inserted — UpsertEdge should fail on the `from` node first
+        let edge_record = EdgeRecord {
+            id: edge_id,
+            from: from_id,
+            to: to_id,
+            ty,
+        };
+        let patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id,
+            ops: vec![WarpOp::UpsertEdge {
+                warp_id,
+                record: edge_record,
+            }],
+            in_slots: vec![],
+            out_slots: vec![],
+            patch_digest: [0u8; 32],
+        };
+
+        let result = patch.apply_to_store(&mut store);
+        assert!(
+            matches!(result, Err(ApplyError::MissingNode(ref k)) if k.local_id == from_id),
+            "expected MissingNode for 'from' endpoint, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn apply_to_store_upsert_edge_missing_from_node() {
+        let warp_id = make_warp_id("test-warp");
+        let mut store = GraphStore::new(warp_id);
+        let from_id = make_node_id("from");
+        let to_id = make_node_id("to");
+        let edge_id = make_edge_id("edge-1");
+        let ty = make_type_id("EdgeType");
+
+        // Only insert `to` node — `from` is missing
+        store.insert_node(to_id, NodeRecord { ty });
+
+        let edge_record = EdgeRecord {
+            id: edge_id,
+            from: from_id,
+            to: to_id,
+            ty,
+        };
+        let patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id,
+            ops: vec![WarpOp::UpsertEdge {
+                warp_id,
+                record: edge_record,
+            }],
+            in_slots: vec![],
+            out_slots: vec![],
+            patch_digest: [0u8; 32],
+        };
+
+        let result = patch.apply_to_store(&mut store);
+        assert!(
+            matches!(result, Err(ApplyError::MissingNode(ref k)) if k.local_id == from_id),
+            "expected MissingNode for 'from' endpoint, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn apply_to_store_upsert_edge_missing_to_node() {
+        let warp_id = make_warp_id("test-warp");
+        let mut store = GraphStore::new(warp_id);
+        let from_id = make_node_id("from");
+        let to_id = make_node_id("to");
+        let edge_id = make_edge_id("edge-1");
+        let ty = make_type_id("EdgeType");
+
+        // Only insert `from` node — `to` is missing
+        store.insert_node(from_id, NodeRecord { ty });
+
+        let edge_record = EdgeRecord {
+            id: edge_id,
+            from: from_id,
+            to: to_id,
+            ty,
+        };
+        let patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id,
+            ops: vec![WarpOp::UpsertEdge {
+                warp_id,
+                record: edge_record,
+            }],
+            in_slots: vec![],
+            out_slots: vec![],
+            patch_digest: [0u8; 32],
+        };
+
+        let result = patch.apply_to_store(&mut store);
+        assert!(
+            matches!(result, Err(ApplyError::MissingNode(ref k)) if k.local_id == to_id),
+            "expected MissingNode for 'to' endpoint, got {result:?}"
+        );
+    }
+
+    #[test]
     fn apply_to_store_warp_mismatch_fails() {
         let warp_a = make_warp_id("warp-a");
         let warp_b = make_warp_id("warp-b");

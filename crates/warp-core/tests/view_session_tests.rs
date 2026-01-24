@@ -220,8 +220,8 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
             commit_hash: [103u8; 32], // tick + 100
         },
         channel: position_channel,
-        value: vec![3, 3, 3], // Different value for tick 3
-        value_hash: [13u8; 32],
+        value: vec![3, 3, 3],   // Different value for tick 3
+        value_hash: [13u8; 32], // Distinct byte pattern for tick 3 (easily identifiable in assertions)
     };
 
     // Frame for session 2 at tick 7
@@ -235,8 +235,8 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
             commit_hash: [107u8; 32], // tick + 100
         },
         channel: position_channel,
-        value: vec![7, 7, 7], // Different value for tick 7
-        value_hash: [17u8; 32],
+        value: vec![7, 7, 7],   // Different value for tick 7
+        value_hash: [17u8; 32], // Distinct byte pattern for tick 7 (easily identifiable in assertions)
     };
 
     sink.publish_frame(session1_id, frame1.clone());

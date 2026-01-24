@@ -102,6 +102,19 @@ The ``free money'' property: workers $\in \{1, 2, 4, 8, 16, 32\}$, any ingress p
 
 This is the determinism drill sergeant for BOAW. If this invariant fails, a footprint bug exists.
 
+\section{FootprintGuard: Storage Access Enforcement}
+
+In debug builds (or when \texttt{footprint\_enforce\_release} is enabled),
+\texttt{GraphView::new\_guarded()} wraps every storage read with a footprint
+check. Attempts to access nodes, edges, or attachments not declared in the
+footprint's read sets trigger a \texttt{FootprintViolation} panic. This
+ensures that the declared footprint is a \emph{tight} bound on actual
+storage access, not merely a conservative over-approximation.
+
+The guard adds zero overhead in release builds---it is entirely
+\texttt{cfg}-gated and does not appear in the compiled binary unless
+explicitly opted-in.
+
 \section{Virtual Shards}
 
 We explicitly reject ``queue per CPU'' as the partition key because it is hardware-dependent. Instead:

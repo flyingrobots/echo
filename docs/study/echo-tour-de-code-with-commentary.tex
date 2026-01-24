@@ -1082,7 +1082,61 @@ The atomic counter uses \texttt{Relaxed} ordering---the weakest memory ordering.
 Using \texttt{Relaxed} instead of \texttt{SeqCst} avoids memory barriers, which can be expensive on multi-core CPUs.
 \end{deepdive}
 
-\subsection{5.3 ExecItem Structure}\label{execitem-structure}
+\subsection{5.3 Enforced Execution Path}\label{enforced-execution-path}
+
+\textbf{Entry Point:} \texttt{execute\_item\_enforced()}
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs}
+
+When footprint enforcement is active, each item is executed via
+\texttt{execute\_item\_enforced()} instead of a bare function-pointer call.
+This wraps execution with \texttt{catch\_unwind} and performs post-hoc
+\texttt{check\_op()} validation on any newly-emitted ops.
+
+\begin{verbatim}
+execute_item_enforced(view, item, delta, footprint)
+│
+├─ ops_before = delta.ops_len()
+│   Snapshot the op count BEFORE the executor runs
+│
+├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+│      (item.exec)(view, &item.scope, delta)
+│  }))
+│
+├─ FOR op IN delta.ops()[ops_before..]:
+│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+│     Validates that each newly-emitted op falls within the declared footprint.
+│     ExecItemKind::System items may emit warp-instance-level ops;
+│     ExecItemKind::User items may not.
+│
+└─ OUTCOME PRECEDENCE:
+      ├─ IF check_op fails:
+      │     return Err(FootprintViolation)
+      │     Write violations OVERRIDE executor panics — violation takes precedence.
+      │
+      ├─ IF footprint is clean BUT executor panicked:
+      │     std::panic::resume_unwind(payload)
+      │     The original panic propagates to the caller.
+      │
+      └─ IF both clean:
+            return Ok(())
+\end{verbatim}
+
+\begin{tourguide}
+The post-hoc strategy is a deliberate design choice: we let the executor run to completion (or panic), then inspect what it wrote. This avoids the overhead of intercepting every write call during hot-loop execution. The \texttt{catch\_unwind} boundary means even a panicking rule cannot leave unchecked ops in the delta.
+\end{tourguide}
+
+\begin{cleverpattern}
+\textbf{Outcome Precedence:} Why do write violations override executor panics?
+
+Consider: a rule panics, but before panicking it wrote an out-of-footprint op. If we propagated the panic, the violation evidence would be lost. By checking the delta first, we guarantee the developer sees the footprint violation message—which is more actionable than a random panic.
+\end{cleverpattern}
+
+\textbf{The Poison Invariant:} If the executor panics, the \texttt{TickDelta}
+it was writing into is considered poisoned (partially-written ops with no
+transactional rollback). After an executor panic the delta must be
+discarded---it cannot be merged or committed.
+
+\subsection{5.4 ExecItem Structure}\label{execitem-structure}
 
 \textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:19-35}
 
@@ -1093,6 +1147,11 @@ Using \texttt{Relaxed} instead of \texttt{SeqCst} avoids memory barriers, which 
     \KeywordTok{pub}\NormalTok{ exec}\OperatorTok{:}\NormalTok{ ExecuteFn}\OperatorTok{,}     \CommentTok{// fn(GraphView, \&NodeId, \&mut TickDelta)}
     \KeywordTok{pub}\NormalTok{ scope}\OperatorTok{:}\NormalTok{ NodeId}\OperatorTok{,}       \CommentTok{// 32{-}byte node identifier}
     \KeywordTok{pub}\NormalTok{ origin}\OperatorTok{:}\NormalTok{ OpOrigin}\OperatorTok{,}    \CommentTok{// \{ intent\_id, rule\_id, match\_ix, op\_ix \}}
+
+    \CommentTok{// Private field, present only in enforcement builds:}
+    \AttributeTok{\#[}\NormalTok{cfg}\AttributeTok{(}\NormalTok{any}\AttributeTok{(}\NormalTok{debug\_assertions}\OperatorTok{,}\NormalTok{ feature }\OperatorTok{=} \StringTok{"footprint\_enforce\_release"}\AttributeTok{))]}
+    \AttributeTok{\#[}\NormalTok{cfg}\AttributeTok{(}\NormalTok{not}\AttributeTok{(}\NormalTok{feature }\OperatorTok{=} \StringTok{"unsafe\_graph"}\AttributeTok{))]}
+\NormalTok{    kind}\OperatorTok{:}\NormalTok{ ExecItemKind}\OperatorTok{,}
 \OperatorTok{\}}
 \end{Highlighting}
 \end{Shaded}
@@ -1101,7 +1160,48 @@ Using \texttt{Relaxed} instead of \texttt{SeqCst} avoids memory barriers, which 
 \texttt{ExecItem} is \texttt{Clone + Copy}---it's just a function pointer plus some IDs. This means workers can own their items without any reference counting or synchronization. The \texttt{origin} field enables tracing any operation back to the intent and rule that produced it.
 \end{tourguide}
 
-\subsection{5.4 Thread Safety}\label{thread-safety}
+\textbf{\texttt{ExecItemKind} (cfg-gated):}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{ExecItemKind::User} --- Normal rule executor. May emit
+  node/edge/attachment ops scoped to the declared footprint. Cannot emit
+  warp-instance-level ops (\texttt{UpsertWarpInstance},
+  \texttt{DeleteWarpInstance}, \texttt{OpenPortal}).
+\item
+  \texttt{ExecItemKind::System} --- Internal-only executor (e.g., portal
+  opening). May emit warp-instance-level ops.
+\end{itemize}
+
+\texttt{ExecItem::new()} always creates \texttt{User} items. System items are
+constructed only by internal engine code and never exposed through the public
+API.
+
+\begin{cleverpattern}
+\textbf{The triple cfg-gate pattern:} The \texttt{kind} field (and all
+enforcement logic) is guarded by:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \texttt{\#[cfg(any(debug\_assertions, feature = "footprint\_enforce\_release"))]}
+  --- active in debug builds or when the release enforcement feature is
+  opted-in.
+\item
+  \texttt{\#[cfg(not(feature = "unsafe\_graph"))]} --- disabled when the
+  escape-hatch feature is set (for benchmarks/fuzzing that intentionally
+  bypass checks).
+\end{enumerate}
+
+This means enforcement is always-on in dev/test, opt-in for release, and
+explicitly removable for unsafe experimentation. The struct layout changes
+depending on the build profile---\texttt{ExecItem} is smaller in release builds
+where the guard is inactive.
+\end{cleverpattern}
+
+\subsection{5.5 Thread Safety}\label{thread-safety}
 
 {\def\LTcaptype{none} % do not increment counter
 \begin{longtable}[]{@{}lll@{}}

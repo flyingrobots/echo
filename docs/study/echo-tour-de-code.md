@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo: Tour de Code
 
 > **The complete function-by-function trace of Echo's execution pipeline.**
@@ -135,14 +136,14 @@ Engine::ingest_intent(intent_bytes: &[u8])
 
 ### 1.3 Data Structures Modified
 
-| Structure | Field | Change |
-| --------- | ----- | ------ |
-| `GraphStore` | `nodes` | +3 entries (sim, inbox, event) |
-| `GraphStore` | `edges_from` | +3 edges (root→sim, sim→inbox, inbox→event) |
-| `GraphStore` | `edges_to` | +3 reverse entries |
-| `GraphStore` | `edge_index` | +3 edge→from mappings |
-| `GraphStore` | `edge_to_index` | +3 edge→to mappings |
-| `GraphStore` | `node_attachments` | +1 (event → intent payload) |
+| Structure    | Field              | Change                                      |
+| ------------ | ------------------ | ------------------------------------------- |
+| `GraphStore` | `nodes`            | +3 entries (sim, inbox, event)              |
+| `GraphStore` | `edges_from`       | +3 edges (root→sim, sim→inbox, inbox→event) |
+| `GraphStore` | `edges_to`         | +3 reverse entries                          |
+| `GraphStore` | `edge_index`       | +3 edge→from mappings                       |
+| `GraphStore` | `edge_to_index`    | +3 edge→to mappings                         |
+| `GraphStore` | `node_attachments` | +1 (event → intent payload)                 |
 
 ---
 
@@ -639,7 +640,47 @@ execute_parallel(view, items, workers)
             RETURNS: Vec<TickDelta> (one per worker)
 ```
 
-### 5.3 ExecItem Structure
+### 5.3 Enforced Execution Path
+
+**Entry Point:** `execute_item_enforced()`
+**File:** `crates/warp-core/src/boaw/exec.rs`
+
+When footprint enforcement is active, each item is executed via `execute_item_enforced()` instead of a bare function-pointer call. This wraps execution with `catch_unwind` and performs post-hoc `check_op()` validation on any newly-emitted ops.
+
+```text
+execute_item_enforced(view, item, delta, footprint)
+│
+├─ ops_before = delta.ops_len()
+│   Snapshot the op count BEFORE the executor runs
+│
+├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+│      (item.exec)(view, &item.scope, delta)
+│  }))
+│
+├─ FOR op IN delta.ops()[ops_before..]:
+│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+│     Validates that each newly-emitted op falls within the declared footprint.
+│     ExecItemKind::System items may emit warp-instance-level ops;
+│     ExecItemKind::User items may not.
+│
+└─ OUTCOME PRECEDENCE:
+      ├─ IF check_op fails:
+      │     return Err(FootprintViolation)
+      │     Write violations OVERRIDE executor panics — violation takes precedence.
+      │
+      ├─ IF footprint is clean BUT executor panicked:
+      │     std::panic::resume_unwind(payload)
+      │     The original panic propagates to the caller.
+      │
+      └─ IF both clean:
+            return Ok(())
+```
+
+**The Poison Invariant:** If the executor panics, the `TickDelta` it was writing into is
+considered poisoned (partially-written ops with no transactional rollback). After an
+executor panic the delta must be discarded — it cannot be merged or committed.
+
+### 5.4 ExecItem Structure
 
 **File:** `crates/warp-core/src/boaw/exec.rs:19-35`
 
@@ -649,17 +690,36 @@ pub struct ExecItem {
     pub exec: ExecuteFn,     // fn(GraphView, &NodeId, &mut TickDelta)
     pub scope: NodeId,       // 32-byte node identifier
     pub origin: OpOrigin,    // { intent_id, rule_id, match_ix, op_ix }
+
+    // Private field, present only in enforcement builds:
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
+    kind: ExecItemKind,
 }
 ```
 
-### 5.4 Thread Safety
+**`ExecItemKind` (cfg-gated):**
 
-| Type | Safety | Reason |
-| ---- | ------ | ------ |
-| `GraphView` | `Sync + Send + Clone` | Read-only snapshot |
-| `ExecItem` | `Sync + Send + Copy` | Function pointer + primitives |
-| `TickDelta` | Per-worker exclusive | No shared mutation |
-| `AtomicUsize` | Lock-free | `fetch_add` with `Relaxed` ordering |
+- `ExecItemKind::User` — Normal rule executor. May emit node/edge/attachment ops scoped to the declared footprint. Cannot emit warp-instance-level ops (`UpsertWarpInstance`, `DeleteWarpInstance`, `OpenPortal`).
+- `ExecItemKind::System` — Internal-only executor (e.g., portal opening). May emit warp-instance-level ops.
+
+`ExecItem::new()` always creates `User` items. System items are constructed only by internal engine code and never exposed through the public API.
+
+**The triple cfg-gate pattern:** The `kind` field (and all enforcement logic) is guarded by:
+
+1. `#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]` — active in debug builds or when the release enforcement feature is opted-in.
+2. `#[cfg(not(feature = "unsafe_graph"))]` — disabled when the escape-hatch feature is set (for benchmarks/fuzzing that intentionally bypass checks).
+
+This means enforcement is always-on in dev/test, opt-in for release, and explicitly removable for unsafe experimentation.
+
+### 5.5 Thread Safety
+
+| Type          | Safety                | Reason                              |
+| ------------- | --------------------- | ----------------------------------- |
+| `GraphView`   | `Sync + Send + Clone` | Read-only snapshot                  |
+| `ExecItem`    | `Sync + Send + Copy`  | Function pointer + primitives       |
+| `TickDelta`   | Per-worker exclusive  | No shared mutation                  |
+| `AtomicUsize` | Lock-free             | `fetch_add` with `Relaxed` ordering |
 
 ---
 
@@ -1052,15 +1112,15 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 
 ### 8.2 Commit Hash Inputs
 
-| Input | Committed? | Purpose |
-| ----- | ---------- | ------- |
-| `state_root` | ✓ | What the graph looks like |
-| `patch_digest` | ✓ | How we got here (ops) |
-| `parents` | ✓ | Chain continuity |
-| `policy_id` | ✓ | Aion policy version |
-| `plan_digest` | ✗ | Diagnostic only |
-| `decision_digest` | ✗ | Diagnostic only |
-| `rewrites_digest` | ✗ | Diagnostic only |
+| Input             | Committed? | Purpose                   |
+| ----------------- | ---------- | ------------------------- |
+| `state_root`      | ✓          | What the graph looks like |
+| `patch_digest`    | ✓          | How we got here (ops)     |
+| `parents`         | ✓          | Chain continuity          |
+| `policy_id`       | ✓          | Aion policy version       |
+| `plan_digest`     | ✗          | Diagnostic only           |
+| `decision_digest` | ✗          | Diagnostic only           |
+| `rewrites_digest` | ✗          | Diagnostic only           |
 
 ---
 
@@ -1156,45 +1216,45 @@ RETURN: (Snapshot, TickReceipt, WarpTickPatchV1)
 
 ### 9.2 File Index
 
-| Component | Primary File | Key Lines |
-| --------- | ------------ | --------- |
-| Intent Ingestion | `engine_impl.rs` | 1216-1281 |
-| Identity Hashing | `ident.rs` | 85-109 |
-| Transaction Begin | `engine_impl.rs` | 711-719 |
-| Rule Apply | `engine_impl.rs` | 730-806 |
-| Footprint | `footprint.rs` | 131-152 |
-| Scheduler Enqueue | `scheduler.rs` | 102-105, 331-355 |
-| Radix Sort | `scheduler.rs` | 360-413, 481-498 |
-| Reserve/Conflict | `scheduler.rs` | 134-278 |
-| GenSet | `scheduler.rs` | 509-535 |
-| BOAW Execute | `boaw/exec.rs` | 61-152 |
-| Shard Routing | `boaw/shard.rs` | 82-120 |
-| Delta Merge | `boaw/merge.rs` | 36-75 |
-| TickDelta | `tick_delta.rs` | 38-172 |
-| WarpOp Sort Key | `tick_patch.rs` | 207-287 |
-| State Mutations | `graph.rs` | 175-412 |
-| Patch Apply | `tick_patch.rs` | 434-561 |
-| Diff State | `tick_patch.rs` | 979-1069 |
-| State Root Hash | `snapshot.rs` | 88-209 |
-| Commit Hash v2 | `snapshot.rs` | 244-263 |
-| Patch Digest | `tick_patch.rs` | 755-774 |
-| Commit Orchestrator | `engine_impl.rs` | 837-954 |
+| Component           | Primary File     | Key Lines        |
+| ------------------- | ---------------- | ---------------- |
+| Intent Ingestion    | `engine_impl.rs` | 1216-1281        |
+| Identity Hashing    | `ident.rs`       | 85-109           |
+| Transaction Begin   | `engine_impl.rs` | 711-719          |
+| Rule Apply          | `engine_impl.rs` | 730-806          |
+| Footprint           | `footprint.rs`   | 131-152          |
+| Scheduler Enqueue   | `scheduler.rs`   | 102-105, 331-355 |
+| Radix Sort          | `scheduler.rs`   | 360-413, 481-498 |
+| Reserve/Conflict    | `scheduler.rs`   | 134-278          |
+| GenSet              | `scheduler.rs`   | 509-535          |
+| BOAW Execute        | `boaw/exec.rs`   | 61-152           |
+| Shard Routing       | `boaw/shard.rs`  | 82-120           |
+| Delta Merge         | `boaw/merge.rs`  | 36-75            |
+| TickDelta           | `tick_delta.rs`  | 38-172           |
+| WarpOp Sort Key     | `tick_patch.rs`  | 207-287          |
+| State Mutations     | `graph.rs`       | 175-412          |
+| Patch Apply         | `tick_patch.rs`  | 434-561          |
+| Diff State          | `tick_patch.rs`  | 979-1069         |
+| State Root Hash     | `snapshot.rs`    | 88-209           |
+| Commit Hash v2      | `snapshot.rs`    | 244-263          |
+| Patch Digest        | `tick_patch.rs`  | 755-774          |
+| Commit Orchestrator | `engine_impl.rs` | 837-954          |
 
 ---
 
 ## Appendix A: Complexity Summary
 
-| Operation | Complexity | Notes |
-| --------- | ---------- | ----- |
-| `ingest_intent` | O(1) | Fixed structural insertions |
-| `begin` | O(1) | Counter increment + set insert |
-| `apply` | O(m) | m = footprint size |
-| `drain_for_tx` (radix) | O(n) | n = candidates, 20 passes |
-| `reserve` per rewrite | O(m) | m = footprint size, O(1) per check |
-| `execute_parallel` | O(n/w) | n = items, w = workers |
-| `merge_deltas` | O(k log k) | k = total ops (sort + dedup) |
-| `compute_state_root` | O(V + E) | V = nodes, E = edges |
-| `compute_commit_hash_v2` | O(P) | P = parents |
+| Operation                | Complexity | Notes                              |
+| ------------------------ | ---------- | ---------------------------------- |
+| `ingest_intent`          | O(1)       | Fixed structural insertions        |
+| `begin`                  | O(1)       | Counter increment + set insert     |
+| `apply`                  | O(m)       | m = footprint size                 |
+| `drain_for_tx` (radix)   | O(n)       | n = candidates, 20 passes          |
+| `reserve` per rewrite    | O(m)       | m = footprint size, O(1) per check |
+| `execute_parallel`       | O(n/w)     | n = items, w = workers             |
+| `merge_deltas`           | O(k log k) | k = total ops (sort + dedup)       |
+| `compute_state_root`     | O(V + E)   | V = nodes, E = edges               |
+| `compute_commit_hash_v2` | O(P)       | P = parents                        |
 
 ---
 
@@ -1222,4 +1282,4 @@ RETURN: (Snapshot, TickReceipt, WarpTickPatchV1)
 
 ---
 
-*Document generated 2026-01-18. File paths and line numbers accurate as of this date.*
+_Document generated 2026-01-18. File paths and line numbers accurate as of this date._

@@ -135,3 +135,36 @@ The parallel execution is safe because:
 \begin{protip}
 If you need to debug parallel execution, set \texttt{ECHO\_WORKERS=1} to force single-threaded mode. Same results, easier to trace.
 \end{protip}
+
+\section{FootprintGuard Enforcement}
+
+When footprint enforcement is active, each \texttt{ExecItem} is executed via
+\texttt{execute\_item\_enforced()} rather than a bare function-pointer call.
+This adds two layers of runtime validation:
+
+\begin{enumerate}
+    \item \textbf{Read enforcement}: \texttt{GraphView::new\_guarded()} wraps
+    the read-only view with an intercepting layer. Every accessor
+    (\texttt{node()}, \texttt{edges\_from()}, etc.) checks the footprint's
+    declared read sets. Undeclared reads trigger a
+    \texttt{FootprintViolation} panic.
+
+    \item \textbf{Write enforcement}: After the executor runs (inside a
+    \texttt{catch\_unwind} boundary), \texttt{check\_op()} validates every
+    newly-emitted op against the footprint's write sets. This catches
+    undeclared writes, cross-warp emissions, and unauthorized instance ops.
+\end{enumerate}
+
+\textbf{ExecItemKind} gates instance-level ops: only \texttt{System} items
+(internal engine code) may emit \texttt{UpsertWarpInstance},
+\texttt{DeleteWarpInstance}, or \texttt{OpenPortal}. User-authored rules
+are always \texttt{ExecItemKind::User}.
+
+The guard is \texttt{cfg}-gated: active in debug builds or with the
+\texttt{footprint\_enforce\_release} feature; disabled by the
+\texttt{unsafe\_graph} escape hatch. Zero overhead in production release
+builds.
+
+\begin{protip}
+If a footprint violation fires, the error message includes the offending op, the declared footprint, and the violation kind. Check the footprint declaration in your \texttt{RewriteRule} first---most violations are simply missing entries in \texttt{n\_write} or \texttt{e\_write}.
+\end{protip}

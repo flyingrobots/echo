@@ -5,6 +5,32 @@
 
 ## Unreleased
 
+### Added - Phase 6B: Footprint Enforcement (ADR-0007)
+
+- **FootprintGuard runtime enforcement** (`boaw/exec.rs`): `catch_unwind`-based guard validates
+  that rewrite-rule executors only read/write resources declared in their `Footprint`. Active in
+  debug builds and opt-in for release (`footprint_enforce_release` feature). Disabled by
+  `unsafe_graph` feature.
+
+- **`GraphView::new_guarded()`** (`graph_view.rs`): Read-side enforcement intercepts `node()`,
+  `edges_from()`, `has_edge()`, `node_attachment()`, `edge_attachment()` calls against declared
+  read sets.
+
+- **`ExecItem::new()` constructor** (`boaw/exec.rs`): Private `kind: ExecItemKind` field
+  (cfg-gated) distinguishes `User` vs `System` rules for instance-op authorization.
+
+- **`FootprintViolation` / `ViolationKind` public types** (`footprint.rs`): Typed panic payloads
+  for ergonomic test assertions — `NodeReadNotDeclared`, `NodeWriteNotDeclared`,
+  `EdgeReadNotDeclared`, `EdgeWriteNotDeclared`, `AttachmentReadNotDeclared`,
+  `AttachmentWriteNotDeclared`, `CrossWarpEmission`, `UnauthorizedInstanceOp`, `OpWarpUnknown`.
+
+- **`check_op()` post-hoc write validation** (`boaw/exec.rs`): Validates emitted `WarpOp`s against
+  declared write sets, including adjacency-mutation rule (edge ops require `from` node in `n_write`).
+
+- **Slice-theorem proof tests** (`tests/boaw_footprints.rs`): 12+ integration tests proving
+  enforcement catches drift, cross-warp violations, instance-op escalation, and
+  write-violation-overrides-panic invariant.
+
 ### Added - SPEC-0004: Worldlines & Playback
 
 - **`worldline.rs`**: Worldline types for history tracking

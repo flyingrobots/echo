@@ -39,6 +39,9 @@
 \draw[arrow] (execitems.east) -- ++(7mm,0) |- (w1.west);
 \draw[arrow] (execitems.east) -- ++(7mm,0) |- (wk.west);
 \node[block, below=6mm of w1] (origin) {\textbf{Origin tie-break}\\[-2pt]\scriptsize \texttt{OpOrigin = (intent\_id, rule\_id, match\_ix, op\_ix)}\\\scriptsize \texttt{op\_ix} assigned by scoped emission};
+% FootprintGuard (post-hoc check within each worker)
+\node[pill, below=5mm of origin] (guard) {\begin{tabular}{@{}c@{}}\textbf{FootprintGuard}\\[-2pt]\scriptsize \texttt{check\_op()} per emitted op\\\scriptsize cfg-gated (debug or opt-in)\end{tabular}};
+\draw[dashedarrow] (origin) -- (guard);
 % Merge
 \node[block, right=16mm of w1] (merge) {\textbf{Canonical Merge}\\[-2pt]\begin{tabular}{@{}l@{}}Flatten all \texttt{TickDelta}s\\Sort by $(WarpOpKey, OpOrigin)$\\Dedupe identical ops\\Explode on divergence\end{tabular}};
 \draw[arrow] (w0.east) -- (merge.west);
@@ -60,7 +63,7 @@
 \draw[dashedarrow] (merge.south) -- ++(0,-6mm) -| (invar.west);
 % Group frames
 \node[group, fit=(ingress)(plan)(admit)(admitkey)] (g1) {};
-\node[group, fit=(snapshot)(execitems)(w0)(w1)(wk)(origin)] (g2) {};
+\node[group, fit=(snapshot)(execitems)(w0)(w1)(wk)(origin)(guard)] (g2) {};
 \node[group, fit=(merge)(mergekey)(invar)] (g3) {};
 \node[group, fit=(patch)(build)(chash)(dag)] (g4) {};
 \node[font=\bfseries, anchor=south west] at (g1.north west) {Plan \& Admit};

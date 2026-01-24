@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # DIND Harness (Deterministic Ironclad Nightmare Drills)
 
 The DIND harness is the deterministic verification runner for Echo/WARP. It replays canonical intent transcripts and asserts that state hashes and intermediate outputs are identical across runs, platforms, and build profiles.
@@ -39,6 +40,19 @@ Echo ships guard scripts to enforce determinism in core crates:
 - `scripts/ban-globals.sh`
 - `scripts/ban-nondeterminism.sh`
 - `scripts/ban-unordered-abi.sh`
+
+### FootprintGuard Enforcement Tests
+
+The DIND harness validates footprint enforcement via the **slice theorem
+proof** test suite (`crates/warp-core/src/boaw/slice_theorem_proof.rs`).
+These tests execute the same workload under varying worker counts
+(1, 2, 4, 8, 16, 32) and verify that `patch_digest`, `state_root`, and
+`commit_hash` remain identical — proving that the footprint declarations
+are both correct and complete.
+
+The FootprintGuard is always active during DIND test runs (debug builds),
+meaning any undeclared read/write will surface as a `FootprintViolation`
+panic before the convergence check even runs.
 
 ## Convergence scope (Invariant B)
 

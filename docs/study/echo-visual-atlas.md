@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo Visual Atlas
 
 > Standalone diagrams for understanding Echo's architecture.
@@ -187,12 +188,12 @@ flowchart TD
 
 ### Test Vectors (Frozen Protocol)
 
-| Input (first 8 bytes) | LE u64 | Shard |
-| -------------------- | ------ | ----- |
-| `0xDEADBEEFCAFEBABE` | `0xBEBAFECAEFBEADDE` | 190 (0xBE) |
-| `0x0000000000000000` | `0x0000000000000000` | 0 |
-| `0x2A00000000000000` | `0x000000000000002A` | 42 |
-| `0xFFFFFFFFFFFFFFFF` | `0xFFFFFFFFFFFFFFFF` | 255 |
+| Input (first 8 bytes) | LE u64               | Shard      |
+| --------------------- | -------------------- | ---------- |
+| `0xDEADBEEFCAFEBABE`  | `0xBEBAFECAEFBEADDE` | 190 (0xBE) |
+| `0x0000000000000000`  | `0x0000000000000000` | 0          |
+| `0x2A00000000000000`  | `0x000000000000002A` | 42         |
+| `0xFFFFFFFFFFFFFFFF`  | `0xFFFFFFFFFFFFFFFF` | 255        |
 
 ---
 
@@ -470,6 +471,40 @@ flowchart TD
 
 ---
 
+## 9b. FootprintGuard Enforcement Flow
+
+```mermaid
+flowchart TD
+    EXEC["execute_item_enforced()"]
+    SNAP["ops_before = delta.ops_len()"]
+    CATCH["catch_unwind(executor)"]
+    SCAN["FOR op IN delta.ops()[ops_before..]"]
+    CHECK["check_op(op, footprint, kind)"]
+    VIOL{"Violation?"}
+    PANIC{"Executor panicked?"}
+    ERR["Err(FootprintViolation)"]
+    RESUME["resume_unwind(payload)"]
+    OK["Ok(())"]
+
+    EXEC --> SNAP --> CATCH --> SCAN --> CHECK --> VIOL
+    VIOL -->|Yes| ERR
+    VIOL -->|No| PANIC
+    PANIC -->|Yes| RESUME
+    PANIC -->|No| OK
+
+    style ERR fill:#ffcdd2
+    style RESUME fill:#fff9c4
+    style OK fill:#c8e6c9
+```
+
+**Key:** When footprint enforcement is active (`cfg(debug_assertions)` or
+`footprint_enforce_release` feature), every `ExecItem` execution is wrapped
+by `execute_item_enforced()`. The guard validates all newly-emitted ops
+against the declared footprint. Write violations take precedence over
+executor panics—ensuring the developer always sees the root cause.
+
+---
+
 ## 10. Complete Data Flow: Intent to Render
 
 ```mermaid
@@ -609,4 +644,4 @@ flowchart TD
 
 ---
 
-*Visual Atlas generated 2026-01-18. Use alongside "What Makes Echo Tick?" for complete understanding.*
+_Visual Atlas generated 2026-01-18. Use alongside "What Makes Echo Tick?" for complete understanding._

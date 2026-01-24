@@ -98,6 +98,30 @@ than these baselines, investigate:
 
 ---
 
+## FootprintGuard Overhead
+
+`FootprintGuard` is `cfg`-gated and adds **zero overhead** in standard
+release builds. The guard is only active when:
+
+- `debug_assertions` is set (all debug/test builds), or
+- The `footprint_enforce_release` Cargo feature is explicitly enabled
+
+When active, the guard adds:
+
+- **Read path**: One `HashSet::contains()` lookup per `GraphView` accessor call
+- **Write path**: One `check_op()` call per emitted op (post-hoc, after executor completes)
+- **Catch boundary**: One `catch_unwind` wrapper per `ExecItem` invocation
+
+In benchmarks, the debug-mode overhead is typically <5% for workloads with
+small footprints (1-10 declared resources). Larger footprints with many
+read accesses may see up to ~15% debug-mode overhead due to the per-access
+hash lookup.
+
+The `unsafe_graph` feature removes all guard code paths entirely, including
+the `ExecItemKind` field from the `ExecItem` struct.
+
+---
+
 ## Perf Gate Thresholds
 
 Use these thresholds for CI perf gates:

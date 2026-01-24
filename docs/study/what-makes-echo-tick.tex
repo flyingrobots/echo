@@ -564,6 +564,19 @@ This enables Echo's parallel execution model. If two rules have non-overlapping 
 The burden on the rule author is significant: you must declare your footprint accurately, or you'll get either conflicts (declared overlap when there was none) or silent bugs (undeclared overlap that corrupts state). This is a sharp edge in the API.
 \end{claudecommentary}
 
+\textbf{Runtime enforcement.} As of Phase~6B, footprint declarations are
+enforced at runtime by \texttt{FootprintGuard}. An inaccurate footprint is
+now a hard failure in debug builds. The guard catches the following
+violations:
+
+\begin{itemize}
+\item Undeclared reads (node, edge, or attachment access not listed in the footprint)
+\item Undeclared writes (ops emitted for resources not in \texttt{n\_write} / \texttt{e\_write} / \texttt{a\_write})
+\item Cross-warp emissions (ops targeting a \texttt{WarpId} other than the executing warp)
+\item Unauthorized instance ops (lifecycle operations on node instances not covered by the footprint)
+\item Adjacency violations (edge ops whose \texttt{from} node is absent from \texttt{n\_write})
+\end{itemize}
+
 \subsection{4.4 GraphView: Read-Only
 Access}\label{graphview-read-only-access}
 
@@ -1028,6 +1041,51 @@ One thing I wondered: what if your NodeIds are clustered? Like, if all recent no
 
 \textbf{Key guarantee}: Conflicts are bugs. If footprints were correct,
 no two rewrites should write different values to the same key.
+
+\subsection{6.6 Runtime Enforcement:
+FootprintGuard}\label{runtime-enforcement-footprintguard}
+
+\texttt{FootprintGuard} is the runtime mechanism that validates every
+graph access and emitted op against the declared footprint.
+
+\subsubsection{Read Enforcement}\label{read-enforcement}
+
+Read enforcement is implemented via \texttt{GraphView::new\_guarded()},
+which wraps the underlying \texttt{GraphView} with an intercepting layer.
+Every accessor call---\texttt{node()}, \texttt{edges\_from()},
+\texttt{node\_attachment()}, etc.---is checked against the footprint's
+declared read sets (\texttt{n\_read}, \texttt{e\_read}, \texttt{a\_read}).
+An access to an undeclared resource triggers a \texttt{FootprintViolation}
+panic.
+
+\subsubsection{Write Enforcement}\label{write-enforcement}
+
+Write enforcement uses a post-hoc \texttt{check\_op()} strategy. The
+executor runs inside a \texttt{catch\_unwind} boundary; after it completes,
+every op emitted into the \texttt{TickDelta} is validated against the
+footprint's write sets. This catches undeclared writes, cross-warp
+emissions, unauthorized instance ops, and adjacency violations (edge ops
+whose \texttt{from} node is absent from \texttt{n\_write}).
+
+\subsubsection{Scope and Lifecycle}\label{scope-and-lifecycle}
+
+The guard is instantiated \emph{per-\texttt{ExecItem}} within a
+\texttt{WorkUnit}. Each rule invocation receives its own guard, scoped to
+that item's computed footprint. Violations are represented as typed
+\texttt{FootprintViolation} panic payloads, which carry structured
+information about the offending access.
+
+\subsubsection{Configuration}\label{guard-configuration}
+
+The guard is \texttt{cfg}-gated:
+
+\begin{itemize}
+\item \textbf{Active} in debug builds (\texttt{debug\_assertions}) or when
+  the \texttt{footprint\_enforce\_release} feature is enabled.
+\item \textbf{Disabled} when the \texttt{unsafe\_graph} feature is set,
+  which removes all guard overhead for maximum throughput in production
+  scenarios where footprints have already been validated.
+\end{itemize}
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 

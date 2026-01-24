@@ -907,6 +907,96 @@ This is fine! The merge phase sorts the outputs canonically. The execution order
 But if you're debugging and wondering why execution traces look different between runs, this is why.
 \end{watchout}
 
+\subsection{5.4 Enforced Execution Path}\label{enforced-execution-path}
+
+\textbf{Entry Point:} \texttt{execute\_item\_enforced()} \\
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs}
+
+When footprint enforcement is active, each item is executed via
+\texttt{execute\_item\_enforced()} instead of a bare function-pointer call.
+This wraps execution with \texttt{catch\_unwind} and performs post-hoc
+\texttt{check\_op()} validation on any newly-emitted ops.
+
+\begin{verbatim}
+execute_item_enforced(view, item, delta, footprint)
+│
+├─ ops_before = delta.ops_len()
+│   Snapshot the op count BEFORE the executor runs
+│
+├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+│      (item.exec)(view, &item.scope, delta)
+│  }))
+│
+├─ FOR op IN delta.ops()[ops_before..]:
+│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+│     Validates that each newly-emitted op falls within the declared footprint.
+│     ExecItemKind::System items may emit warp-instance-level ops;
+│     ExecItemKind::User items may not.
+│
+└─ OUTCOME PRECEDENCE:
+      ├─ IF check_op fails:
+      │     return Err(FootprintViolation)
+      │     Write violations OVERRIDE executor panics — violation takes precedence.
+      │
+      ├─ IF footprint is clean BUT executor panicked:
+      │     std::panic::resume_unwind(payload)
+      │     The original panic propagates to the caller.
+      │
+      └─ IF both clean:
+            return Ok(())
+\end{verbatim}
+
+\begin{directors}
+This is perhaps the most interesting design decision in the enforcement system.
+
+\textbf{Why post-hoc instead of intercept-on-write?}
+
+The naive approach would be to wrap every \texttt{delta.push\_op()} call with a check. But that would add overhead to every write in the hot loop---and most writes are valid. Instead, we let the executor run at full speed, then scan the ops it produced. This is cheaper because:
+
+\begin{enumerate}
+\item Most rule invocations produce few ops (1-5 typically)
+\item The scan is a single pass over a small vec
+\item We avoid indirection/branching in the write path
+\end{enumerate}
+
+\textbf{Why does violation override panic?}
+
+Consider: a rule writes to node X (not in its footprint), then panics on an unrelated assertion. If we propagated the panic, the developer would see ``assertion failed'' and waste time debugging the wrong thing. By checking the delta first, we surface the \emph{root cause}---the footprint violation---which is almost always why the subsequent logic went wrong.
+
+\textbf{The Poison Invariant:} After a panic, the \texttt{TickDelta} is
+considered poisoned. The partially-written ops have no transactional rollback.
+The delta must be discarded---it cannot be merged or committed. This is safe
+because each worker has its own delta, so a poisoned delta doesn't contaminate
+other workers' output.
+\end{directors}
+
+\textbf{\texttt{ExecItemKind} (cfg-gated):}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{ExecItemKind::User} --- Normal rule executor. May emit
+  node/edge/attachment ops scoped to the declared footprint. Cannot emit
+  warp-instance-level ops (\texttt{UpsertWarpInstance},
+  \texttt{DeleteWarpInstance}, \texttt{OpenPortal}).
+\item
+  \texttt{ExecItemKind::System} --- Internal-only executor (e.g., portal
+  opening). May emit warp-instance-level ops.
+\end{itemize}
+
+\begin{directors}
+The User/System distinction prevents a critical class of bugs: user-authored rules accidentally (or maliciously) creating/destroying warp instances. In a multiverse simulation, instance ops change the \emph{topology} of the timeline graph. Only engine-internal code (like the portal system) should have that power.
+
+\textbf{The triple cfg-gate pattern:}
+
+\begin{enumerate}
+\item \texttt{debug\_assertions} OR \texttt{footprint\_enforce\_release} --- always-on in dev, opt-in for release
+\item \texttt{not(unsafe\_graph)} --- escape hatch for benchmarks and fuzzing
+\end{enumerate}
+
+This means the \texttt{ExecItem} struct is \emph{literally a different size} depending on your build profile. In release without the enforcement feature, the \texttt{kind} field doesn't exist---zero overhead, not even a byte.
+\end{directors}
+
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
 \section{6. Delta Merge \& State Finalization}\label{delta-merge-state-finalization}

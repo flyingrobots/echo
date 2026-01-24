@@ -51,6 +51,12 @@ det_fixed = []
 # Validation feature for delta operations
 delta_validate = []
 
+# Enable footprint enforcement in release builds (always on in debug).
+footprint_enforce_release = []
+
+# Disable all footprint enforcement (bypasses guard checks entirely).
+unsafe_graph = []
+
 [[test]]
 name = "boaw_parallel_exec"
 required-features = ["delta_validate"]

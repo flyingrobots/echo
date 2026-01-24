@@ -7,6 +7,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+use crate::footprint_guard::FootprintGuard;
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::ident::WarpId;
@@ -15,6 +18,19 @@ use crate::tick_delta::{OpOrigin, TickDelta};
 use crate::NodeId;
 
 use super::shard::{partition_into_shards, NUM_SHARDS};
+
+/// Classification of an executor for footprint enforcement.
+///
+/// System items (engine-internal inbox rules) may emit instance-level ops
+/// (`UpsertWarpInstance`, `DeleteWarpInstance`). User items cannot.
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExecItemKind {
+    /// Normal user-registered rule — cannot emit instance ops.
+    User,
+    /// Engine-internal rule (inbox) — can emit instance-level ops.
+    System,
+}
 
 /// A single rewrite ready for execution.
 ///
@@ -32,6 +48,25 @@ pub struct ExecItem {
     pub scope: NodeId,
     /// Origin metadata for tracking.
     pub origin: OpOrigin,
+    /// Classification for enforcement (user vs system).
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    pub(crate) kind: ExecItemKind,
+}
+
+impl ExecItem {
+    /// Creates a new user-level `ExecItem`.
+    ///
+    /// This is the default constructor for all externally-registered rules.
+    /// The cfg-gated `kind` field is set to `User` automatically.
+    pub fn new(exec: ExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
+        Self {
+            exec,
+            scope,
+            origin,
+            #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+            kind: ExecItemKind::User,
+        }
+    }
 }
 
 /// Serial execution baseline.
@@ -154,6 +189,11 @@ pub struct WorkUnit {
     pub warp_id: WarpId,
     /// Items to execute (from one shard). Processed serially within the unit.
     pub items: Vec<ExecItem>,
+    /// Precomputed footprint guards (1:1 with items).
+    /// Populated by engine after `build_work_units` when enforcement is active.
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
+    pub(crate) guards: Vec<FootprintGuard>,
 }
 
 /// Builds work units from warp-partitioned items.
@@ -184,6 +224,9 @@ pub fn build_work_units(
                 units.push(WorkUnit {
                     warp_id,
                     items: shard.items,
+                    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+                    #[cfg(not(feature = "unsafe_graph"))]
+                    guards: Vec::new(),
                 });
             }
         }
@@ -196,6 +239,14 @@ pub fn build_work_units(
 ///
 /// This is the **only** spawn site for cross-warp execution. Workers claim
 /// units atomically and execute items serially within each unit.
+///
+/// # Footprint Enforcement (cfg-gated)
+///
+/// When enforcement is active, the worker loop:
+/// 1. Creates a guarded `GraphView` per item (read enforcement)
+/// 2. Wraps execution in `catch_unwind` to ensure write validation runs
+/// 3. Validates all emitted ops against the item's guard (write enforcement)
+/// 4. Re-throws any original panic after validation
 ///
 /// # Constraints (Non-Negotiable)
 ///
@@ -259,12 +310,10 @@ where
 
                         // Resolve view for this warp (per-unit, NOT cached across units)
                         let store = resolve_store(&unit.warp_id).ok_or(unit.warp_id)?;
-                        let view = GraphView::new(store);
 
                         // Execute items SERIALLY (no nested threading!)
-                        for item in &unit.items {
-                            let mut scoped = delta.scoped(item.origin);
-                            (item.exec)(view, &item.scope, scoped.inner_mut());
+                        for (idx, item) in unit.items.iter().enumerate() {
+                            execute_item_enforced(store, item, idx, unit, &mut delta);
                         }
 
                         // View dropped here - no long-lived borrows across warps
@@ -283,4 +332,69 @@ where
             })
             .collect()
     })
+}
+
+/// Executes a single item with footprint enforcement (cfg-gated).
+///
+/// When enforcement is active and guards are present:
+/// 1. Creates a guarded `GraphView` (read enforcement)
+/// 2. Wraps execution in `catch_unwind`
+/// 3. Validates emitted ops (write enforcement) — runs even on panic
+/// 4. Re-throws any original panic
+///
+/// When enforcement is inactive or guards are empty, executes directly.
+#[inline]
+fn execute_item_enforced(
+    store: &GraphStore,
+    item: &ExecItem,
+    idx: usize,
+    unit: &WorkUnit,
+    delta: &mut TickDelta,
+) {
+    // Enforcement path: guarded view + catch_unwind + post-hoc write validation
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
+    {
+        if !unit.guards.is_empty() {
+            use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+
+            let guard = &unit.guards[idx];
+            let view = GraphView::new_guarded(store, guard);
+
+            // Track delta growth for write validation
+            let ops_before = delta.ops_len();
+
+            // Execute under catch_unwind to enforce writes even on panic
+            let exec_result = catch_unwind(AssertUnwindSafe(|| {
+                let mut scoped = delta.scoped(item.origin);
+                (item.exec)(view, &item.scope, scoped.inner_mut());
+            }));
+
+            // POISON-INVARIANT: After executor panic, this delta is poisoned.
+            // resume_unwind below prevents any code path from consuming it.
+            // If recovery is ever added to this loop, the delta must be
+            // discarded or the commit path must reject poisoned deltas.
+
+            // Post-hoc write enforcement (runs whether exec succeeded or panicked)
+            for op in &delta.ops_ref()[ops_before..] {
+                guard.check_op(op);
+            }
+
+            // Rethrow original panic if exec panicked
+            if let Err(payload) = exec_result {
+                resume_unwind(payload);
+            }
+
+            return;
+        }
+    }
+
+    // Suppress unused variable warnings in non-enforced builds
+    let _ = idx;
+    let _ = &unit.warp_id;
+
+    // Non-enforced path: direct execution
+    let view = GraphView::new(store);
+    let mut scoped = delta.scoped(item.origin);
+    (item.exec)(view, &item.scope, scoped.inner_mut());
 }

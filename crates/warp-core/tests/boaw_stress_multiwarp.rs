@@ -62,15 +62,17 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
     nodes
         .iter()
         .enumerate()
-        .map(|(i, &scope)| ExecItem {
-            exec: touch_executor,
-            scope,
-            origin: OpOrigin {
-                intent_id: i as u64,
-                rule_id: 1,
-                match_ix: 0,
-                op_ix: 0,
-            },
+        .map(|(i, &scope)| {
+            ExecItem::new(
+                touch_executor,
+                scope,
+                OpOrigin {
+                    intent_id: i as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            )
         })
         .collect()
 }
@@ -80,15 +82,17 @@ fn make_exec_items_for_warp(nodes: &[NodeId], warp_index: usize) -> Vec<ExecItem
     nodes
         .iter()
         .enumerate()
-        .map(|(i, &scope)| ExecItem {
-            exec: touch_executor,
-            scope,
-            origin: OpOrigin {
-                intent_id: (warp_index * 10000 + i) as u64,
-                rule_id: 1,
-                match_ix: 0,
-                op_ix: 0,
-            },
+        .map(|(i, &scope)| {
+            ExecItem::new(
+                touch_executor,
+                scope,
+                OpOrigin {
+                    intent_id: (warp_index * 10000 + i) as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            )
         })
         .collect()
 }
@@ -341,16 +345,16 @@ fn stress_many_small_items_multiwarp() {
     // 4 rounds of operations on the same nodes
     for round in 0..4 {
         for (i, &node) in nodes.iter().enumerate() {
-            all_items.push(ExecItem {
-                exec: touch_executor,
-                scope: node,
-                origin: OpOrigin {
+            all_items.push(ExecItem::new(
+                touch_executor,
+                node,
+                OpOrigin {
                     intent_id: (round * 1000 + i) as u64,
                     rule_id: (round + 1) as u32,
                     match_ix: 0,
                     op_ix: 0,
                 },
-            });
+            ));
         }
     }
 

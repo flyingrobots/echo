@@ -1183,6 +1183,7 @@ impl Engine {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     fn apply_reserved_rewrites(
         &mut self,
         rewrites: Vec<PendingRewrite>,
@@ -1197,18 +1198,20 @@ impl Engine {
         // BTreeMap ensures deterministic iteration order (WarpId: Ord from [u8; 32]).
 
         // 1. Pre-validate all rewrites and group by warp_id
-        let mut by_warp: BTreeMap<WarpId, Vec<(PendingRewrite, crate::rule::ExecuteFn)>> =
-            BTreeMap::new();
+        let mut by_warp: BTreeMap<
+            WarpId,
+            Vec<(PendingRewrite, crate::rule::ExecuteFn, &'static str)>,
+        > = BTreeMap::new();
         for rewrite in rewrites {
             let id = rewrite.compact_rule;
-            let executor = {
+            let (executor, rule_name) = {
                 let Some(rule) = self.rule_by_compact(id) else {
                     debug_assert!(false, "missing rule for compact id: {id:?}");
                     return Err(EngineError::InternalCorruption(
                         "missing rule for compact id during commit",
                     ));
                 };
-                rule.executor
+                (rule.executor, rule.name)
             };
             // Validate store exists for this warp
             if self.state.store(&rewrite.scope.warp_id).is_none() {
@@ -1222,24 +1225,68 @@ impl Engine {
             by_warp
                 .entry(rewrite.scope.warp_id)
                 .or_default()
-                .push((rewrite, executor));
+                .push((rewrite, executor, rule_name));
         }
+
+        // Collect per-item guard metadata (cfg-gated) for post-shard guard construction.
+        // Keyed by (OpOrigin, NodeId) since OpOrigin alone is NOT unique when the same
+        // rule matches multiple scopes (all share rule_id, intent_id=0, match_ix=0).
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
+        let guard_meta: HashMap<
+            (crate::tick_delta::OpOrigin, NodeId),
+            (crate::footprint::Footprint, &'static str),
+        > = by_warp
+            .values()
+            .flatten()
+            .map(|(rw, _exec, name)| {
+                (
+                    (rw.origin, rw.scope.local_id),
+                    (rw.footprint.clone(), *name),
+                )
+            })
+            .collect();
 
         // 2. Convert to ExecItems and build work units (cross-warp parallelism)
         let items_by_warp = by_warp.into_iter().map(|(warp_id, warp_rewrites)| {
             let items: Vec<ExecItem> = warp_rewrites
                 .into_iter()
-                .map(|(rw, exec)| ExecItem {
+                .map(|(rw, exec, _name)| ExecItem {
                     exec,
                     scope: rw.scope.local_id,
                     origin: rw.origin,
+                    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+                    kind: crate::boaw::ExecItemKind::User,
                 })
                 .collect();
             (warp_id, items)
         });
 
         // Build (warp, shard) work units - canonical ordering preserved
-        let units = build_work_units(items_by_warp);
+        let mut units = build_work_units(items_by_warp);
+
+        // Attach guards to work units (cfg-gated): look up each item's footprint by origin
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
+        for unit in &mut units {
+            unit.guards = unit
+                .items
+                .iter()
+                .map(|item| {
+                    let (footprint, rule_name) = guard_meta
+                        .get(&(item.origin, item.scope))
+                        .cloned()
+                        .unwrap_or_else(|| (crate::footprint::Footprint::default(), "unknown"));
+                    let is_system = item.kind == crate::boaw::ExecItemKind::System;
+                    crate::footprint_guard::FootprintGuard::new(
+                        &footprint,
+                        unit.warp_id,
+                        rule_name,
+                        is_system,
+                    )
+                })
+                .collect();
+        }
 
         // Cap workers at unit count (no point spawning more threads than work)
         let capped_workers = workers.min(units.len().max(1));
@@ -2043,19 +2090,22 @@ mod tests {
                 }
             },
             compute_footprint: |view: GraphView<'_>, scope| {
+                let mut a_read = crate::AttachmentSet::default();
                 let mut a_write = crate::AttachmentSet::default();
                 if view.node(scope).is_some() {
-                    a_write.insert(AttachmentKey::node_alpha(NodeKey {
+                    let key = AttachmentKey::node_alpha(NodeKey {
                         warp_id: view.warp_id(),
                         local_id: *scope,
-                    }));
+                    });
+                    a_read.insert(key);
+                    a_write.insert(key);
                 }
                 crate::Footprint {
                     n_read: crate::NodeSet::default(),
                     n_write: crate::NodeSet::default(),
                     e_read: crate::EdgeSet::default(),
                     e_write: crate::EdgeSet::default(),
-                    a_read: crate::AttachmentSet::default(),
+                    a_read,
                     a_write,
                     b_in: crate::PortSet::default(),
                     b_out: crate::PortSet::default(),

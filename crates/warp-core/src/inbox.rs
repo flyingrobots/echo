@@ -129,6 +129,7 @@ fn inbox_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
 fn inbox_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
+    let mut n_write = NodeSet::default();
     let mut e_read = EdgeSet::default();
     let mut e_write = EdgeSet::default();
     let pending_ty = make_type_id(PENDING_EDGE_TYPE);
@@ -144,9 +145,14 @@ fn inbox_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
         e_write.insert_with_warp(warp_id, e.id);
     }
 
+    // DeleteEdge mutates adjacency on `from` — must declare node write
+    if !e_write.is_empty() {
+        n_write.insert_with_warp(warp_id, *scope);
+    }
+
     Footprint {
         n_read,
-        n_write: NodeSet::default(),
+        n_write,
         e_read,
         e_write,
         a_read: AttachmentSet::default(),
@@ -179,6 +185,7 @@ fn ack_pending_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDel
 fn ack_pending_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
+    let mut n_write = NodeSet::default();
     let mut e_read = EdgeSet::default();
     let mut e_write = EdgeSet::default();
 
@@ -191,9 +198,12 @@ fn ack_pending_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     e_read.insert_with_warp(warp_id, edge_id);
     e_write.insert_with_warp(warp_id, edge_id);
 
+    // DeleteEdge mutates adjacency on `from` (inbox) — must declare node write
+    n_write.insert_with_warp(warp_id, inbox_id);
+
     Footprint {
         n_read,
-        n_write: NodeSet::default(),
+        n_write,
         e_read,
         e_write,
         a_read: AttachmentSet::default(),

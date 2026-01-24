@@ -17,6 +17,9 @@
 //!    attachment access) are delegated directly to the underlying store.
 //! 3. **Maintains borrow safety** - The lifetime `'a` ties the view to the store,
 //!    preventing use-after-free scenarios.
+//! 4. **Enforces declared footprints** (debug/opt-in) - When a [`FootprintGuard`]
+//!    is attached, each accessor validates that the accessed resource was declared
+//!    in the rule's footprint.
 //!
 //! # Example
 //!
@@ -34,9 +37,18 @@
 //! assert!(view.node(&root).is_some());
 //! ```
 
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+use crate::attachment::AttachmentKey;
 use crate::attachment::AttachmentValue;
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+use crate::footprint_guard::FootprintGuard;
 use crate::graph::GraphStore;
 use crate::ident::{EdgeId, NodeId, WarpId};
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+use crate::ident::{EdgeKey, NodeKey};
 use crate::record::{EdgeRecord, NodeRecord};
 
 /// Read-only view over a [`GraphStore`].
@@ -55,16 +67,45 @@ use crate::record::{EdgeRecord, NodeRecord};
 ///
 /// This type is the read-only capability that enforces the BOAW contract:
 /// executors observe through `GraphView`, mutate through `TickDelta`.
+///
+/// # Footprint Enforcement (cfg-gated)
+///
+/// When `debug_assertions` or `footprint_enforce_release` is enabled (and
+/// `unsafe_graph` is NOT), each accessor validates that the accessed resource
+/// was declared in the rule's footprint. Violations panic with a typed
+/// [`FootprintViolation`](crate::footprint_guard::FootprintViolation) payload.
 #[derive(Debug, Clone, Copy)]
 pub struct GraphView<'a> {
     store: &'a GraphStore,
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
+    guard: Option<&'a FootprintGuard>,
 }
 
 impl<'a> GraphView<'a> {
-    /// Creates a new read-only view over the given store.
+    /// Creates a new read-only view over the given store (unguarded).
+    ///
+    /// Used for match/footprint phases where enforcement is not needed.
     #[must_use]
     pub fn new(store: &'a GraphStore) -> Self {
-        Self { store }
+        Self {
+            store,
+            #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+            #[cfg(not(feature = "unsafe_graph"))]
+            guard: None,
+        }
+    }
+
+    /// Creates a new read-only view with a footprint guard attached.
+    ///
+    /// Every read accessor will validate against the guard's declared read set.
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
+    pub(crate) fn new_guarded(store: &'a GraphStore, guard: &'a FootprintGuard) -> Self {
+        Self {
+            store,
+            guard: Some(guard),
+        }
     }
 
     /// Returns the warp instance identifier for this store.
@@ -74,14 +115,44 @@ impl<'a> GraphView<'a> {
     }
 
     /// Returns a shared reference to a node when it exists.
+    ///
+    /// # Footprint Enforcement
+    ///
+    /// When guarded, panics if `id` is not in the declared `n_read` set.
     #[must_use]
     pub fn node(&self, id: &NodeId) -> Option<&'a NodeRecord> {
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
+        if let Some(guard) = self.guard {
+            guard.check_node_read(id);
+        }
         self.store.node(id)
     }
 
     /// Returns the node's attachment value (if any).
+    ///
+    /// # Footprint Enforcement
+    ///
+    /// When guarded, panics if the attachment key (constructed from `id` and the
+    /// store's `warp_id`) is not in the declared `a_read` set.
+    ///
+    /// # Single-Slot API Invariant
+    ///
+    /// The current `GraphStore` has exactly ONE attachment per node (alpha plane).
+    /// The `AttachmentKey` is therefore deterministically constructed as
+    /// `AttachmentKey::node_alpha(NodeKey { warp_id, local_id: *id })`.
+    /// If the API expands to multi-plane attachments, enforcement must expand with it.
     #[must_use]
     pub fn node_attachment(&self, id: &NodeId) -> Option<&'a AttachmentValue> {
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
+        if let Some(guard) = self.guard {
+            let key = AttachmentKey::node_alpha(NodeKey {
+                warp_id: self.store.warp_id(),
+                local_id: *id,
+            });
+            guard.check_attachment_read(&key);
+        }
         self.store.node_attachment(id)
     }
 
@@ -89,19 +160,59 @@ impl<'a> GraphView<'a> {
     ///
     /// Edges are yielded in insertion order. For deterministic traversal
     /// (e.g., snapshot hashing), callers must sort by `EdgeId`.
+    ///
+    /// # Footprint Enforcement
+    ///
+    /// When guarded, panics if `id` is not in the declared `n_read` set.
+    /// Adjacency queries are implied by node-read access — declaring a node
+    /// in `n_read` grants access to its outbound edge list.
     pub fn edges_from(&self, id: &NodeId) -> impl Iterator<Item = &'a EdgeRecord> {
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
+        if let Some(guard) = self.guard {
+            guard.check_node_read(id);
+        }
         self.store.edges_from(id)
     }
 
     /// Returns `true` if an edge with `edge_id` exists in the store.
+    ///
+    /// # Footprint Enforcement
+    ///
+    /// When guarded, panics if `id` is not in the declared `e_read` set.
     #[must_use]
     pub fn has_edge(&self, id: &EdgeId) -> bool {
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
+        if let Some(guard) = self.guard {
+            guard.check_edge_read(id);
+        }
         self.store.has_edge(id)
     }
 
     /// Returns the edge's attachment value (if any).
+    ///
+    /// # Footprint Enforcement
+    ///
+    /// When guarded, panics if the attachment key (constructed from `id` and the
+    /// store's `warp_id`) is not in the declared `a_read` set.
+    ///
+    /// # Single-Slot API Invariant
+    ///
+    /// The current `GraphStore` has exactly ONE attachment per edge (beta plane).
+    /// The `AttachmentKey` is therefore deterministically constructed as
+    /// `AttachmentKey::edge_beta(EdgeKey { warp_id, local_id: *id })`.
     #[must_use]
     pub fn edge_attachment(&self, id: &EdgeId) -> Option<&'a AttachmentValue> {
+        #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+        #[cfg(not(feature = "unsafe_graph"))]
+        if let Some(guard) = self.guard {
+            let key = AttachmentKey::edge_beta(EdgeKey {
+                warp_id: self.store.warp_id(),
+                local_id: *id,
+            });
+            guard.check_attachment_read(&key);
+        }
         self.store.edge_attachment(id)
     }
 }
@@ -190,10 +301,13 @@ mod tests {
         assert!(view.edge_attachment(&make_edge_id("nonexistent")).is_none());
     }
 
-    /// Invariant: `GraphView` must be exactly one pointer wide.
+    /// Invariant: `GraphView` must be exactly one pointer wide in release builds
+    /// without footprint enforcement.
     ///
-    /// This ensures it remains a cheap pass-by-value type (`Copy`).
-    /// If someone adds extra fields, this test will fail.
+    /// When enforcement is active (debug or feature-gated), the guard field
+    /// adds a second pointer. This test is gated to only run in the unguarded
+    /// configuration.
+    #[cfg(not(any(debug_assertions, feature = "footprint_enforce_release")))]
     #[test]
     fn graph_view_is_pointer_sized() {
         use core::mem::size_of;

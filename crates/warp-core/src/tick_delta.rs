@@ -178,6 +178,18 @@ impl TickDelta {
     pub fn origins(&self) -> &[OpOrigin] {
         &self.origins
     }
+
+    /// Returns a shared reference to the accumulated ops (for footprint validation).
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    pub(crate) fn ops_ref(&self) -> &[WarpOp] {
+        &self.ops
+    }
+
+    /// Returns the number of ops accumulated so far.
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    pub(crate) fn ops_len(&self) -> usize {
+        self.ops.len()
+    }
 }
 
 impl Default for TickDelta {

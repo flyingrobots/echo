@@ -128,19 +128,25 @@ fn motion_rule_id() -> Hash {
 }
 
 fn compute_motion_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let warp_id = view.warp_id();
+    let mut n_read = NodeSet::default();
+    let mut a_read = AttachmentSet::default();
     let mut a_write = AttachmentSet::default();
     if view.node(scope).is_some() {
-        a_write.insert(AttachmentKey::node_alpha(NodeKey {
-            warp_id: view.warp_id(),
+        n_read.insert_with_warp(warp_id, *scope);
+        let key = AttachmentKey::node_alpha(NodeKey {
+            warp_id,
             local_id: *scope,
-        }));
+        });
+        a_read.insert(key);
+        a_write.insert(key);
     }
     Footprint {
-        n_read: NodeSet::default(),
+        n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
         e_write: EdgeSet::default(),
-        a_read: AttachmentSet::default(),
+        a_read,
         a_write,
         b_in: PortSet::default(),
         b_out: PortSet::default(),
@@ -244,23 +250,28 @@ fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
 
 fn compute_port_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
+    let mut n_read = NodeSet::default();
     let mut n_write = NodeSet::default();
+    let mut a_read = AttachmentSet::default();
     let mut a_write = AttachmentSet::default();
     let mut b_in = PortSet::default();
     if view.node(scope).is_some() {
+        n_read.insert_with_warp(warp_id, *scope);
         n_write.insert_with_warp(warp_id, *scope);
-        a_write.insert(AttachmentKey::node_alpha(NodeKey {
+        let key = AttachmentKey::node_alpha(NodeKey {
             warp_id,
             local_id: *scope,
-        }));
+        });
+        a_read.insert(key);
+        a_write.insert(key);
         b_in.insert(warp_id, pack_port_key(scope, 0, true));
     }
     Footprint {
-        n_read: NodeSet::default(),
+        n_read,
         n_write,
         e_read: EdgeSet::default(),
         e_write: EdgeSet::default(),
-        a_read: AttachmentSet::default(),
+        a_read,
         a_write,
         b_in,
         b_out: PortSet::default(),

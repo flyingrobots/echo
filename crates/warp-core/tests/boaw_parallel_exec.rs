@@ -60,15 +60,17 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
     nodes
         .iter()
         .enumerate()
-        .map(|(i, &scope)| ExecItem {
-            exec: touch_executor,
-            scope,
-            origin: OpOrigin {
-                intent_id: i as u64,
-                rule_id: 1,
-                match_ix: 0,
-                op_ix: 0,
-            },
+        .map(|(i, &scope)| {
+            ExecItem::new(
+                touch_executor,
+                scope,
+                OpOrigin {
+                    intent_id: i as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            )
         })
         .collect()
 }

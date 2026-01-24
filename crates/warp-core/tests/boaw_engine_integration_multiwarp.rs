@@ -59,15 +59,17 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
     nodes
         .iter()
         .enumerate()
-        .map(|(i, &scope)| ExecItem {
-            exec: touch_executor,
-            scope,
-            origin: OpOrigin {
-                intent_id: i as u64,
-                rule_id: 1,
-                match_ix: 0,
-                op_ix: 0,
-            },
+        .map(|(i, &scope)| {
+            ExecItem::new(
+                touch_executor,
+                scope,
+                OpOrigin {
+                    intent_id: i as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            )
         })
         .collect()
 }
@@ -79,16 +81,16 @@ fn make_mixed_exec_items(node_groups: &[Vec<NodeId>]) -> Vec<ExecItem> {
 
     for nodes in node_groups {
         for &scope in nodes {
-            items.push(ExecItem {
-                exec: touch_executor,
+            items.push(ExecItem::new(
+                touch_executor,
                 scope,
-                origin: OpOrigin {
+                OpOrigin {
                     intent_id: intent_counter,
                     rule_id: 1,
                     match_ix: 0,
                     op_ix: 0,
                 },
-            });
+            ));
             intent_counter += 1;
         }
     }
@@ -514,51 +516,51 @@ fn interleaved_warp_ordering_invariance() {
     // Pattern 1: A,B,A,B,A,B...
     let mut pattern_ab = Vec::new();
     for i in 0..10 {
-        pattern_ab.push(ExecItem {
-            exec: touch_executor,
-            scope: nodes_a[i],
-            origin: OpOrigin {
+        pattern_ab.push(ExecItem::new(
+            touch_executor,
+            nodes_a[i],
+            OpOrigin {
                 intent_id: (i * 2) as u64,
                 rule_id: 1,
                 match_ix: 0,
                 op_ix: 0,
             },
-        });
-        pattern_ab.push(ExecItem {
-            exec: touch_executor,
-            scope: nodes_b[i],
-            origin: OpOrigin {
+        ));
+        pattern_ab.push(ExecItem::new(
+            touch_executor,
+            nodes_b[i],
+            OpOrigin {
                 intent_id: (i * 2 + 1) as u64,
                 rule_id: 1,
                 match_ix: 0,
                 op_ix: 0,
             },
-        });
+        ));
     }
 
     // Pattern 2: B,A,B,A,B,A...
     let mut pattern_ba = Vec::new();
     for i in 0..10 {
-        pattern_ba.push(ExecItem {
-            exec: touch_executor,
-            scope: nodes_b[i],
-            origin: OpOrigin {
+        pattern_ba.push(ExecItem::new(
+            touch_executor,
+            nodes_b[i],
+            OpOrigin {
                 intent_id: (i * 2) as u64,
                 rule_id: 1,
                 match_ix: 0,
                 op_ix: 0,
             },
-        });
-        pattern_ba.push(ExecItem {
-            exec: touch_executor,
-            scope: nodes_a[i],
-            origin: OpOrigin {
+        ));
+        pattern_ba.push(ExecItem::new(
+            touch_executor,
+            nodes_a[i],
+            OpOrigin {
                 intent_id: (i * 2 + 1) as u64,
                 rule_id: 1,
                 match_ix: 0,
                 op_ix: 0,
             },
-        });
+        ));
     }
 
     // Execute both patterns

@@ -77,6 +77,11 @@ mod cmd;
 mod constants;
 mod engine_impl;
 mod footprint;
+/// Footprint enforcement guard for BOAW Phase 6B.
+///
+/// Validates that execute functions stay within their declared footprints.
+/// Active in debug builds; opt-in for release via `footprint_enforce_release` feature.
+pub mod footprint_guard;
 mod graph;
 mod graph_view;
 mod ident;
@@ -123,6 +128,7 @@ pub use engine_impl::{
 pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
 };
+pub use footprint_guard::{FootprintViolation, ViolationKind};
 pub use graph::GraphStore;
 pub use graph_view::GraphView;
 pub use ident::{

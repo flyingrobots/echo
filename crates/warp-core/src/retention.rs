@@ -26,7 +26,8 @@
 /// # Invariants
 ///
 /// All tick-interval fields (`k`, `window`, `checkpoint_every`) must be >= 1.
-/// A value of 0 is semantically undefined and will be treated as 1 at runtime.
+/// A value of 0 is semantically undefined and should be rejected or normalized
+/// by retention enforcement code.
 /// Boundary behavior: `k = 1` creates a checkpoint every tick; `window = 1`
 /// retains only the most recent tick in full detail.
 #[allow(dead_code)]
@@ -41,7 +42,8 @@ pub(crate) enum RetentionPolicy {
     /// # Valid Range
     ///
     /// `k` must be >= 1. A value of 0 is semantically undefined (would mean
-    /// "checkpoint at every fractional tick") and will be treated as 1.
+    /// "checkpoint at every fractional tick") and should be rejected or normalized
+    /// by retention enforcement code.
     CheckpointEvery {
         /// Interval between checkpoints in ticks. Must be >= 1.
         k: u64,

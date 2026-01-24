@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-// criterion_group!/criterion_main! macros expand to undocumented functions.
+// criterion_group!/criterion_main! expand to undocumented functions that cannot
+// carry #[allow] (attributes on macro invocations are ignored). Crate-level
+// suppress is required for benchmark binaries using Criterion.
 #![allow(missing_docs)]
 //! BOAW Phase 6B performance baseline benchmarks.
 //!

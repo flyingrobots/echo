@@ -257,9 +257,9 @@ One Engine step is phased:
 
 Rule **OUT-REDUCE-001**: For reduced channels, per-tick outputs are the final reduced value, not raw emission events.
 
-Rule **OUT-REDUCE-002**: Order-dependent reducers must rely on canonical ordering (EmitKey/OpOrigin) so output frames are deterministic.
+**OUT-REDUCE-002**: Order-dependent reducers must rely on canonical ordering (EmitKey/OpOrigin) so output frames are deterministic.
 
-Rule **OUT-REDUCE-003**: Recorded frames per tick must be byte-identical upon playback.
+**OUT-REDUCE-003**: Recorded frames per tick must be byte-identical upon playback.
 
 ### Source of Outputs
 
@@ -688,8 +688,8 @@ Parents chain is per warp. No coupling across warps.
 
 ## 14) Seek Algorithm
 
-- **If target > tick**: apply patches (tick+1..=target) to `cursor.store`.
-- **If target < tick**: rebuild `cursor.store` from warp U0 (checkpoint seam later), then apply 0..=target.
+- **If target > tick**: apply patches `tick..<target` (exclusive upper bound) to `cursor.store`.
+- **If target < tick**: rebuild `cursor.store` from warp U0 (checkpoint seam later), then apply `0..<target`.
 
 ### Verification Required After Seek
 

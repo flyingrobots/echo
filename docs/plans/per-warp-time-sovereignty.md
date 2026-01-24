@@ -110,7 +110,7 @@ pub enum WarpRunMode {
 
     /// Replaying recorded history: no new intents, only apply recorded patches.
     Replay {
-        /// Target tick index to replay to (inclusive).
+        /// Target tick index to replay to (post-apply tick_index; patches 0..target_tick-1).
         target_tick: u64,
         /// Source of recorded patches for verification.
         source: ReplaySource,

@@ -14,7 +14,7 @@
 1. **U0Ref = WarpId** — MVP U0Ref is just a handle to `engine.initial_state` for a warp, not a checkpoint blob
 2. **One entry per global tick per warp** — Store patches even if empty to maintain index alignment: `warp_patches[warp_id].len() == global_tick_history_len`
 3. **Use existing canonical hash scheme** — `compute_state_root_for_warp_store` must use same ordering as `snapshot.rs`
-4. **Minimal truth sink** — Just `BTreeMap<SessionId, Vec<TruthFrame>>`, not a full bus layer
+4. **Minimal TruthSink** — `BTreeMap<SessionId, Vec<TruthFrame>>` plus a parallel `BTreeMap<SessionId, Vec<CursorReceipt>>` for receipts, not a full bus layer
 5. **Add demo emission for tests** — Need deterministic emission path or outputs are vacuous
 6. **Explicit WarpOp coverage** — `apply_warp_op_to_store` must handle all variants or reject with typed error
 

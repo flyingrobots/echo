@@ -1,6 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # WARP Graph Store
+
+> **Note:** This is a snapshot of `graph.rs`. For the authoritative version,
+> see `crates/warp-core/src/graph.rs`. Key change: `DeleteNode` now uses
+> `delete_node_isolated()` which rejects if edges exist—no more cascade.
 
 ```rust
 //! Minimal in-memory graph store used by the rewrite executor and tests.
@@ -574,7 +579,7 @@ There are only three changes I'd push, and they're all sane:
 
 1. Add #[repr(transparent)] to NodeId/EdgeId/TypeId/WarpId (so you can safely treat them as "just bytes" everywhere).
 2. Add as_bytes() for all IDs (you only have it on NodeId/WarpId right now).
-3. For hashing + snapshots: stop truncating lengths/counts to u32 (use u64), or create a *_V2 hash. Your current u32 length hashing is a time bomb.
+3. For hashing + snapshots: stop truncating lengths/counts to u32 (use u64), or create a \*\_V2 hash. Your current u32 length hashing is a time bomb.
 
 Everything else can remain as-is.
 

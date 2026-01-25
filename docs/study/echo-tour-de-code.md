@@ -879,14 +879,16 @@ GraphStore::upsert_edge_record(from, edge)
     - self.edges_from.entry(from).or_default().push(edge)
     - self.edges_to.entry(to).or_default().push(edge_id)
 
-GraphStore::delete_node_cascade(node)
-  LINE: 277-354
-  CASCADES:
+GraphStore::delete_node_isolated(node) -> Result<(), DeleteNodeError>
+  LINE: 393-418
+  REJECTS if node has incident edges (no cascade!)
+  ALLOWED MINI-CASCADE:
     - Remove from self.nodes
-    - Remove node attachment
-    - Remove ALL outbound edges (and their attachments)
-    - Remove ALL inbound edges (and their attachments)
-    - Maintain all 4 index maps consistently
+    - Remove node alpha attachment (key is derivable)
+
+  > NOTE: `delete_node_cascade` still exists but is INTERNAL.
+  > WarpOp::DeleteNode uses `delete_node_isolated` to ensure
+  > all mutations are explicit in the delta.
 
 GraphStore::delete_edge_exact(from, edge_id)
   LINE: 360-412

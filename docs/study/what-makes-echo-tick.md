@@ -509,12 +509,16 @@ for op in merged_ops {
     match op {
         WarpOp::UpsertNode { id, record } => state.insert_node(id, record),
         WarpOp::UpsertEdge { from, edge } => state.insert_edge(from, edge),
-        WarpOp::DeleteNode { id } => state.delete_node_cascade(id),
+        WarpOp::DeleteNode { id } => state.delete_node_isolated(id)?,  // rejects if edges exist
         WarpOp::SetAttachment { node, key, value } => state.set_attachment(node, key, value),
         // ...
     }
 }
 ```
+
+> **Note:** `DeleteNode` requires the node to be _isolated_ (no incident edges).
+> Callers must emit explicit `DeleteEdge` ops before `DeleteNode`. This ensures
+> that WarpOps explicitly describe all mutations—no hidden cascade side effects.
 
 ### 5.5 Phase 4: Hash Computation
 

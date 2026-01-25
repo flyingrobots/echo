@@ -46,35 +46,13 @@ const R6_NAME: &str = "slice/r6_cross_warp";
 const NUM_TICKS: u64 = 5;
 
 // Deterministic node IDs
-fn node_a() -> NodeId {
-    make_node_id("slice/A")
-}
-fn node_b() -> NodeId {
-    make_node_id("slice/B")
-}
-fn node_c() -> NodeId {
-    make_node_id("slice/C")
-}
-fn node_d() -> NodeId {
-    make_node_id("slice/D")
-}
-fn node_e() -> NodeId {
-    make_node_id("slice/E")
-}
-fn node_f() -> NodeId {
-    make_node_id("slice/F")
-}
-fn node_g() -> NodeId {
-    make_node_id("slice/G")
-}
-fn node_h() -> NodeId {
-    make_node_id("slice/H")
-}
-fn node_i() -> NodeId {
-    make_node_id("slice/I")
-}
-fn node_j() -> NodeId {
-    make_node_id("slice/J")
+const NODE_NAMES: [&str; 10] = [
+    "slice/A", "slice/B", "slice/C", "slice/D", "slice/E", "slice/F", "slice/G", "slice/H",
+    "slice/I", "slice/J",
+];
+
+fn node_id(idx: usize) -> NodeId {
+    make_node_id(NODE_NAMES[idx])
 }
 
 fn slice_marker_type() -> warp_core::TypeId {
@@ -94,10 +72,10 @@ fn rule_id(name: &str) -> warp_core::Hash {
 
 // R1: reads A, writes B attachment (writes known value V)
 fn r1_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
-    let _ = view.node(&node_a());
+    let _ = view.node(&node_id(0));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
-        local_id: node_b(),
+        local_id: node_id(1),
     });
     delta.push(WarpOp::SetAttachment {
         key,
@@ -112,10 +90,10 @@ fn r1_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
     let mut a_write = AttachmentSet::default();
-    n_read.insert_with_warp(warp_id, node_a());
+    n_read.insert_with_warp(warp_id, node_id(0));
     a_write.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
-        local_id: node_b(),
+        local_id: node_id(1),
     }));
     Footprint {
         n_read,
@@ -146,10 +124,10 @@ fn r1_rule() -> RewriteRule {
 
 // R2: reads C, writes D attachment (independent)
 fn r2_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
-    let _ = view.node(&node_c());
+    let _ = view.node(&node_id(2));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
-        local_id: node_d(),
+        local_id: node_id(3),
     });
     delta.push(WarpOp::SetAttachment {
         key,
@@ -164,10 +142,10 @@ fn r2_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
     let mut a_write = AttachmentSet::default();
-    n_read.insert_with_warp(warp_id, node_c());
+    n_read.insert_with_warp(warp_id, node_id(2));
     a_write.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
-        local_id: node_d(),
+        local_id: node_id(3),
     }));
     Footprint {
         n_read,
@@ -198,10 +176,10 @@ fn r2_rule() -> RewriteRule {
 
 // R3: reads E, writes F attachment (independent)
 fn r3_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
-    let _ = view.node(&node_e());
+    let _ = view.node(&node_id(4));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
-        local_id: node_f(),
+        local_id: node_id(5),
     });
     delta.push(WarpOp::SetAttachment {
         key,
@@ -216,10 +194,10 @@ fn r3_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
     let mut a_write = AttachmentSet::default();
-    n_read.insert_with_warp(warp_id, node_e());
+    n_read.insert_with_warp(warp_id, node_id(4));
     a_write.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
-        local_id: node_f(),
+        local_id: node_id(5),
     }));
     Footprint {
         n_read,
@@ -250,8 +228,8 @@ fn r3_rule() -> RewriteRule {
 
 // R4: reads B attachment, writes G attachment (DEPENDENT on R1 — R1 writes B)
 fn r4_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
-    let _ = view.node(&node_b());
-    let attachment = view.node_attachment(&node_b());
+    let _ = view.node(&node_id(1));
+    let attachment = view.node_attachment(&node_id(1));
     // Transform: if R1 has written, produce "r4-saw-r1", else "r4-no-input"
     let output = match attachment {
         Some(AttachmentValue::Atom(payload)) if payload.bytes.as_ref() == b"r1-wrote-this" => {
@@ -261,7 +239,7 @@ fn r4_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
     };
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
-        local_id: node_g(),
+        local_id: node_id(6),
     });
     delta.push(WarpOp::SetAttachment {
         key,
@@ -277,14 +255,14 @@ fn r4_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
     let mut n_read = NodeSet::default();
     let mut a_read = AttachmentSet::default();
     let mut a_write = AttachmentSet::default();
-    n_read.insert_with_warp(warp_id, node_b());
+    n_read.insert_with_warp(warp_id, node_id(1));
     a_read.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
-        local_id: node_b(),
+        local_id: node_id(1),
     }));
     a_write.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
-        local_id: node_g(),
+        local_id: node_id(6),
     }));
     Footprint {
         n_read,
@@ -315,10 +293,10 @@ fn r4_rule() -> RewriteRule {
 
 // R5: reads H, writes I attachment (independent)
 fn r5_executor(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
-    let _ = view.node(&node_h());
+    let _ = view.node(&node_id(7));
     let key = AttachmentKey::node_alpha(NodeKey {
         warp_id: view.warp_id(),
-        local_id: node_i(),
+        local_id: node_id(8),
     });
     delta.push(WarpOp::SetAttachment {
         key,
@@ -333,10 +311,10 @@ fn r5_footprint(view: GraphView<'_>, _scope: &NodeId) -> Footprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
     let mut a_write = AttachmentSet::default();
-    n_read.insert_with_warp(warp_id, node_h());
+    n_read.insert_with_warp(warp_id, node_id(7));
     a_write.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
-        local_id: node_i(),
+        local_id: node_id(8),
     }));
     Footprint {
         n_read,
@@ -373,7 +351,7 @@ fn r6_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
     delta.push(WarpOp::UpsertNode {
         node: NodeKey {
             warp_id: w2,
-            local_id: node_a(),
+            local_id: node_id(0),
         },
         record: NodeRecord {
             ty: make_type_id("attack"),
@@ -416,23 +394,23 @@ fn r6_rule() -> RewriteRule {
 // Store setup
 // =============================================================================
 
-/// Creates a store with nodes A-J for W1.
+/// Creates a store with nodes A-J for the root warp.
 fn create_slice_store() -> (GraphStore, NodeId) {
     let mut store = GraphStore::default(); // warp = make_warp_id("root")
     let node_ty = make_type_id("slice/node");
-    let root = node_a();
+    let root = node_id(0);
 
     for node in &[
-        node_a(),
-        node_b(),
-        node_c(),
-        node_d(),
-        node_e(),
-        node_f(),
-        node_g(),
-        node_h(),
-        node_i(),
-        node_j(),
+        node_id(0),
+        node_id(1),
+        node_id(2),
+        node_id(3),
+        node_id(4),
+        node_id(5),
+        node_id(6),
+        node_id(7),
+        node_id(8),
+        node_id(9),
     ] {
         store.insert_node(*node, NodeRecord { ty: node_ty });
     }
@@ -462,23 +440,23 @@ fn run_n_ticks(workers: usize) -> (Vec<[u8; 32]>, Vec<[u8; 32]>, Vec<[u8; 32]>, 
         let tx = engine.begin();
         // Apply R1-R5 to their respective scope nodes
         assert!(matches!(
-            engine.apply(tx, R1_NAME, &node_a()).unwrap(),
+            engine.apply(tx, R1_NAME, &node_id(0)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R2_NAME, &node_c()).unwrap(),
+            engine.apply(tx, R2_NAME, &node_id(2)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R3_NAME, &node_e()).unwrap(),
+            engine.apply(tx, R3_NAME, &node_id(4)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R4_NAME, &node_b()).unwrap(),
+            engine.apply(tx, R4_NAME, &node_id(1)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R5_NAME, &node_h()).unwrap(),
+            engine.apply(tx, R5_NAME, &node_id(7)).unwrap(),
             ApplyResult::Applied
         ));
 
@@ -557,23 +535,23 @@ fn phase_2_and_3_playback_replay_matches_execution() {
     for tick in 0..NUM_TICKS {
         let tx = engine.begin();
         assert!(matches!(
-            engine.apply(tx, R1_NAME, &node_a()).unwrap(),
+            engine.apply(tx, R1_NAME, &node_id(0)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R2_NAME, &node_c()).unwrap(),
+            engine.apply(tx, R2_NAME, &node_id(2)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R3_NAME, &node_e()).unwrap(),
+            engine.apply(tx, R3_NAME, &node_id(4)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R4_NAME, &node_b()).unwrap(),
+            engine.apply(tx, R4_NAME, &node_id(1)).unwrap(),
             ApplyResult::Applied
         ));
         assert!(matches!(
-            engine.apply(tx, R5_NAME, &node_h()).unwrap(),
+            engine.apply(tx, R5_NAME, &node_id(7)).unwrap(),
             ApplyResult::Applied
         ));
 
@@ -684,29 +662,29 @@ fn phase_4_permutation_independence() {
 
     let tx = ref_engine.begin();
     assert!(matches!(
-        ref_engine.apply(tx, R1_NAME, &node_a()).unwrap(),
+        ref_engine.apply(tx, R1_NAME, &node_id(0)).unwrap(),
         ApplyResult::Applied
     ));
     assert!(matches!(
-        ref_engine.apply(tx, R2_NAME, &node_c()).unwrap(),
+        ref_engine.apply(tx, R2_NAME, &node_id(2)).unwrap(),
         ApplyResult::Applied
     ));
     assert!(matches!(
-        ref_engine.apply(tx, R3_NAME, &node_e()).unwrap(),
+        ref_engine.apply(tx, R3_NAME, &node_id(4)).unwrap(),
         ApplyResult::Applied
     ));
     assert!(matches!(
-        ref_engine.apply(tx, R5_NAME, &node_h()).unwrap(),
+        ref_engine.apply(tx, R5_NAME, &node_id(7)).unwrap(),
         ApplyResult::Applied
     ));
     let (ref_snap, _, _) = ref_engine.commit_with_receipt(tx).expect("commit");
 
     // Try 10 random permutations of the apply order
     let mut items: Vec<(&str, NodeId)> = vec![
-        (R1_NAME, node_a()),
-        (R2_NAME, node_c()),
-        (R3_NAME, node_e()),
-        (R5_NAME, node_h()),
+        (R1_NAME, node_id(0)),
+        (R2_NAME, node_id(2)),
+        (R3_NAME, node_id(4)),
+        (R5_NAME, node_id(7)),
     ];
 
     for perm in 0..10 {
@@ -761,7 +739,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
     // Tick 1: R1 writes to B attachment
     let tx1 = engine.begin();
     assert!(matches!(
-        engine.apply(tx1, R1_NAME, &node_a()).unwrap(),
+        engine.apply(tx1, R1_NAME, &node_id(0)).unwrap(),
         ApplyResult::Applied
     ));
     engine.commit(tx1).expect("commit tick 1");
@@ -772,14 +750,14 @@ fn phase_6_semantic_correctness_dependent_chain() {
     // Tick 2: R4 reads B attachment (now sees R1's write), writes to G
     let tx2 = engine.begin();
     assert!(matches!(
-        engine.apply(tx2, R4_NAME, &node_b()).unwrap(),
+        engine.apply(tx2, R4_NAME, &node_id(1)).unwrap(),
         ApplyResult::Applied
     ));
     let (snapshot, _, patch) = engine.commit_with_receipt(tx2).expect("commit tick 2");
 
     // Verify R4 saw R1's output (semantic correctness)
     let final_store = engine.store_clone();
-    let g_attach = final_store.node_attachment(&node_g());
+    let g_attach = final_store.node_attachment(&node_id(6));
     match g_attach {
         Some(AttachmentValue::Atom(payload)) => {
             assert_eq!(
@@ -848,7 +826,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
         .expect("seek");
 
     // Verify same semantic result after replay
-    let replayed_g = cursor.store.node_attachment(&node_g());
+    let replayed_g = cursor.store.node_attachment(&node_id(6));
     match replayed_g {
         Some(AttachmentValue::Atom(payload)) => {
             assert_eq!(
@@ -877,7 +855,7 @@ fn phase_7_cross_warp_enforcement() {
     // Engine always uses make_warp_id("root") as its warp (W1).
     // R6 attempts to emit UpsertNode into make_warp_id("slice-w2") (W2).
     let mut store = GraphStore::default(); // warp = make_warp_id("root")
-    let j = node_j();
+    let j = node_id(9);
     store.insert_node(
         j,
         NodeRecord {
@@ -921,8 +899,8 @@ fn verify_r1_r4_dependency() {
     let store = GraphStore::default();
     let view = GraphView::new(&store);
 
-    let fp1 = r1_footprint(view, &node_a());
-    let fp4 = r4_footprint(view, &node_b());
+    let fp1 = r1_footprint(view, &node_id(0));
+    let fp4 = r4_footprint(view, &node_id(1));
 
     assert!(
         !fp1.independent(&fp4),
@@ -930,9 +908,9 @@ fn verify_r1_r4_dependency() {
     );
 
     // R1, R2, R3, R5 are all independent of each other
-    let fp2 = r2_footprint(view, &node_c());
-    let fp3 = r3_footprint(view, &node_e());
-    let fp5 = r5_footprint(view, &node_h());
+    let fp2 = r2_footprint(view, &node_id(2));
+    let fp3 = r3_footprint(view, &node_id(4));
+    let fp5 = r5_footprint(view, &node_id(7));
 
     assert!(fp1.independent(&fp2), "R1 and R2 must be independent");
     assert!(fp1.independent(&fp3), "R1 and R3 must be independent");

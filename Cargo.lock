@@ -4860,6 +4860,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttd-browser"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "console_error_panic_hook",
+ "echo-session-proto",
+ "echo-ttd",
+ "js-sys",
+ "serde",
+ "warp-core",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "ttf-parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

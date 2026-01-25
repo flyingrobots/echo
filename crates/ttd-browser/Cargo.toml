@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "ttd-browser"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+description = "TTD Browser Engine: WASM bindings for the Time-Travel Debugger"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "ttd", "wasm", "time-travel", "debugger"]
+categories = ["wasm", "development-tools::debugging"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+console-panic = ["console_error_panic_hook", "web-sys"]
+
+[dependencies]
+warp-core = { path = "../warp-core" }
+echo-ttd = { path = "../echo-ttd" }
+echo-session-proto = { path = "../echo-session-proto" }
+wasm-bindgen = "0.2.106"
+js-sys = "0.3.83"
+web-sys = { version = "0.3.83", optional = true, features = ["console"] }
+console_error_panic_hook = { version = "0.1.7", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+ciborium = "0.2"
+
+[dev-dependencies]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

@@ -402,3 +402,286 @@ fn hash_atom_payload(hasher: &mut Hasher, atom: &AtomPayload) {
     hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
     hasher.update(&atom.bytes);
 }
+
+// ─── Emission Digests ────────────────────────────────────────────────────────
+
+use crate::materialization::{ChannelId, FinalizedChannel};
+
+/// Computes a deterministic digest over all finalized channel emissions.
+///
+/// This captures the complete set of materialized outputs for a tick in a single
+/// hash that can be included in commit verification.
+///
+/// # Ordering
+///
+/// Emissions are hashed in canonical order:
+/// 1. Channels sorted by [`ChannelId`] (lexicographic over bytes)
+/// 2. For each channel: the complete finalized data blob
+///
+/// # Wire Format
+///
+/// ```text
+/// emissions_digest = BLAKE3(
+///     version: u16 (LE)
+///     num_channels: u64 (LE)
+///     for each channel (sorted by channel_id):
+///         channel_id: [u8; 32]
+///         data_len: u64 (LE)
+///         data: [u8; data_len]
+/// )
+/// ```
+///
+/// # Usage
+///
+/// ```ignore
+/// let report = bus.finalize();
+/// let digest = compute_emissions_digest(&report.channels);
+/// ```
+pub fn compute_emissions_digest(channels: &[FinalizedChannel]) -> Hash {
+    let mut h = Hasher::new();
+
+    // Version tag for future evolution
+    h.update(&1u16.to_le_bytes());
+
+    // Sort channels by ChannelId for deterministic ordering
+    let mut sorted: Vec<_> = channels.iter().collect();
+    sorted.sort_by(|a, b| a.channel.0.cmp(&b.channel.0));
+
+    // Number of channels
+    h.update(&(sorted.len() as u64).to_le_bytes());
+
+    // Hash each channel's emissions
+    for fc in sorted {
+        h.update(&fc.channel.0);
+        h.update(&(fc.data.len() as u64).to_le_bytes());
+        h.update(&fc.data);
+    }
+
+    h.finalize().into()
+}
+
+/// Entry mapping an operation to its emission indices.
+///
+/// This is used by [`compute_op_emission_index_digest`] to track which
+/// operations triggered which channel emissions within a tick.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpEmissionEntry {
+    /// The operation ID (opcode hash) that triggered emissions.
+    pub op_id: Hash,
+    /// Channel IDs that received emissions from this op.
+    pub channels: Vec<ChannelId>,
+}
+
+/// Computes a digest mapping operations to their emission channels.
+///
+/// This enables compliance verification: proving that an operation emitted
+/// exactly the channels it was supposed to (no more, no less).
+///
+/// # Ordering
+///
+/// Entries are hashed in canonical order:
+/// 1. Operations sorted by `op_id` (lexicographic over bytes)
+/// 2. For each op: channels sorted by `ChannelId`
+///
+/// # Wire Format
+///
+/// ```text
+/// op_emission_index_digest = BLAKE3(
+///     version: u16 (LE)
+///     num_ops: u64 (LE)
+///     for each op (sorted by op_id):
+///         op_id: [u8; 32]
+///         num_channels: u64 (LE)
+///         for each channel (sorted by channel_id):
+///             channel_id: [u8; 32]
+/// )
+/// ```
+///
+/// # Usage
+///
+/// ```ignore
+/// let entries = vec![
+///     OpEmissionEntry {
+///         op_id: op_hash,
+///         channels: vec![channel_a, channel_b],
+///     },
+/// ];
+/// let digest = compute_op_emission_index_digest(&entries);
+/// ```
+pub fn compute_op_emission_index_digest(entries: &[OpEmissionEntry]) -> Hash {
+    let mut h = Hasher::new();
+
+    // Version tag for future evolution
+    h.update(&1u16.to_le_bytes());
+
+    // Sort entries by op_id for deterministic ordering
+    let mut sorted: Vec<_> = entries.iter().collect();
+    sorted.sort_by(|a, b| a.op_id.cmp(&b.op_id));
+
+    // Number of ops
+    h.update(&(sorted.len() as u64).to_le_bytes());
+
+    // Hash each op's emission index
+    for entry in sorted {
+        h.update(&entry.op_id);
+
+        // Sort channels for this op
+        let mut channels: Vec<_> = entry.channels.iter().collect();
+        channels.sort_by(|a, b| a.0.cmp(&b.0));
+
+        h.update(&(channels.len() as u64).to_le_bytes());
+        for ch in channels {
+            h.update(&ch.0);
+        }
+    }
+
+    h.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::materialization::make_channel_id;
+
+    fn make_hash(n: u8) -> Hash {
+        let mut h = [0u8; 32];
+        h[0] = n;
+        h
+    }
+
+    #[test]
+    fn emissions_digest_deterministic_ordering() {
+        // Same emissions in different order should produce same digest
+        let ch_a = make_channel_id("channel:a");
+        let ch_b = make_channel_id("channel:b");
+
+        let channels_order1 = vec![
+            FinalizedChannel {
+                channel: ch_a,
+                data: vec![1, 2, 3],
+            },
+            FinalizedChannel {
+                channel: ch_b,
+                data: vec![4, 5],
+            },
+        ];
+
+        let channels_order2 = vec![
+            FinalizedChannel {
+                channel: ch_b,
+                data: vec![4, 5],
+            },
+            FinalizedChannel {
+                channel: ch_a,
+                data: vec![1, 2, 3],
+            },
+        ];
+
+        let digest1 = compute_emissions_digest(&channels_order1);
+        let digest2 = compute_emissions_digest(&channels_order2);
+
+        assert_eq!(
+            digest1, digest2,
+            "emissions_digest should be order-independent"
+        );
+    }
+
+    #[test]
+    fn emissions_digest_empty() {
+        let digest = compute_emissions_digest(&[]);
+        // Should still produce a valid (non-zero) digest
+        assert_ne!(digest, [0u8; 32]);
+    }
+
+    #[test]
+    fn emissions_digest_content_sensitive() {
+        let ch = make_channel_id("test:channel");
+
+        let channels_a = vec![FinalizedChannel {
+            channel: ch,
+            data: vec![1, 2, 3],
+        }];
+
+        let channels_b = vec![FinalizedChannel {
+            channel: ch,
+            data: vec![1, 2, 4], // Different data
+        }];
+
+        let digest_a = compute_emissions_digest(&channels_a);
+        let digest_b = compute_emissions_digest(&channels_b);
+
+        assert_ne!(
+            digest_a, digest_b,
+            "different data should produce different digest"
+        );
+    }
+
+    #[test]
+    fn op_emission_index_digest_deterministic() {
+        let op_a = make_hash(1);
+        let op_b = make_hash(2);
+        let ch_x = make_channel_id("channel:x");
+        let ch_y = make_channel_id("channel:y");
+
+        let entries_order1 = vec![
+            OpEmissionEntry {
+                op_id: op_a,
+                channels: vec![ch_x, ch_y],
+            },
+            OpEmissionEntry {
+                op_id: op_b,
+                channels: vec![ch_x],
+            },
+        ];
+
+        let entries_order2 = vec![
+            OpEmissionEntry {
+                op_id: op_b,
+                channels: vec![ch_x],
+            },
+            OpEmissionEntry {
+                op_id: op_a,
+                channels: vec![ch_y, ch_x], // Channels also reordered
+            },
+        ];
+
+        let digest1 = compute_op_emission_index_digest(&entries_order1);
+        let digest2 = compute_op_emission_index_digest(&entries_order2);
+
+        assert_eq!(
+            digest1, digest2,
+            "op_emission_index_digest should be order-independent"
+        );
+    }
+
+    #[test]
+    fn op_emission_index_digest_empty() {
+        let digest = compute_op_emission_index_digest(&[]);
+        assert_ne!(digest, [0u8; 32]);
+    }
+
+    #[test]
+    fn op_emission_index_different_channels_different_digest() {
+        let op = make_hash(1);
+        let ch_x = make_channel_id("channel:x");
+        let ch_y = make_channel_id("channel:y");
+
+        let entries_a = vec![OpEmissionEntry {
+            op_id: op,
+            channels: vec![ch_x],
+        }];
+
+        let entries_b = vec![OpEmissionEntry {
+            op_id: op,
+            channels: vec![ch_y], // Different channel
+        }];
+
+        let digest_a = compute_op_emission_index_digest(&entries_a);
+        let digest_b = compute_op_emission_index_digest(&entries_b);
+
+        assert_ne!(
+            digest_a, digest_b,
+            "different channels should produce different digest"
+        );
+    }
+}

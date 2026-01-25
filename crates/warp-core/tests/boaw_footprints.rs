@@ -662,6 +662,98 @@ mod enforcement {
             .expect("original panic payload must be &str");
         assert_eq!(*msg, "deliberate-12b");
     }
+
+    // =============================================================================
+    // t3_13: DeleteNode requires alpha attachment write in footprint
+    // =============================================================================
+
+    const T3_13_NAME: &str = "test/t3_13_delete_requires_alpha";
+
+    fn t3_13_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
+        let _ = view.node(scope);
+        // Emit DeleteNode for a node we'll create in the test setup
+        let target = make_node_id("t3-13-target");
+        delta.push(WarpOp::DeleteNode {
+            node: NodeKey {
+                warp_id: view.warp_id(),
+                local_id: target,
+            },
+        });
+    }
+
+    fn t3_13_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+        let wid = view.warp_id();
+        let target = make_node_id("t3-13-target");
+
+        let mut n_read = NodeSet::default();
+        let mut n_write = NodeSet::default();
+
+        n_read.insert_with_warp(wid, *scope);
+        n_write.insert_with_warp(wid, target);
+
+        // Intentionally OMIT a_write(node_alpha) — this should trigger enforcement
+        Footprint {
+            n_read,
+            n_write,
+            e_read: EdgeSet::default(),
+            e_write: EdgeSet::default(),
+            a_read: AttachmentSet::default(),
+            a_write: AttachmentSet::default(), // MISSING: AttachmentKey::node_alpha(target)
+            b_in: PortSet::default(),
+            b_out: PortSet::default(),
+            factor_mask: 0,
+        }
+    }
+
+    #[test]
+    fn t3_13_delete_node_requires_alpha_attachment_write() {
+        let scope = make_node_id("t3-13-scope");
+        let target = make_node_id("t3-13-target");
+
+        // Custom engine setup: need to add the target node so DeleteNode can find it
+        let mut store = GraphStore::default();
+        store.insert_node(
+            scope,
+            NodeRecord {
+                ty: make_type_id("scope"),
+            },
+        );
+        store.insert_node(
+            target,
+            NodeRecord {
+                ty: make_type_id("target"),
+            },
+        );
+
+        let mut engine = Engine::new(store.clone(), scope);
+        engine
+            .register_rule(make_rewrite_rule(
+                T3_13_NAME,
+                t3_13_executor,
+                t3_13_footprint,
+            ))
+            .expect("register");
+
+        let tx = engine.begin();
+        let applied = engine.apply(tx, T3_13_NAME, &scope).expect("apply");
+        assert!(matches!(applied, ApplyResult::Applied));
+
+        let result = catch_unwind(AssertUnwindSafe(move || {
+            engine.commit(tx).expect("commit");
+        }));
+
+        let err = result.expect_err("should panic: DeleteNode requires a_write(alpha)");
+        let violation = err
+            .downcast_ref::<FootprintViolation>()
+            .expect("panic payload must be FootprintViolation");
+        assert_eq!(violation.rule_name, T3_13_NAME);
+        assert_eq!(violation.op_kind, "DeleteNode");
+        assert!(
+            matches!(violation.kind, ViolationKind::AttachmentWriteNotDeclared(_)),
+            "expected AttachmentWriteNotDeclared, got {:?}",
+            violation.kind
+        );
+    }
 }
 
 // =============================================================================

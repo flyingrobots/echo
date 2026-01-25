@@ -28,8 +28,8 @@
 //! - Workers catch panics via `catch_unwind` in `execute_item_enforced`.
 //!
 //! On violation: the violating item's execution is aborted, its delta becomes a
-//! `PoisonedDelta`, and the worker continues with remaining items. Poisoned
-//! deltas are rejected at merge time via `MergeError::PoisonedDelta`.
+//! `PoisonedDelta`, and the worker returns immediately (fail-fast). Poisoned
+//! deltas abort the tick at merge time via `MergeError::PoisonedDelta`.
 //!
 //! This is NOT a recoverable runtime error; fix your footprint declarations.
 //!
@@ -192,10 +192,20 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
     let kind_str = op_kind_str(op);
 
     match op {
-        WarpOp::UpsertNode { node, .. } | WarpOp::DeleteNode { node } => OpTargets {
+        WarpOp::UpsertNode { node, .. } => OpTargets {
             nodes: vec![node.local_id],
             edges: Vec::new(),
             attachments: Vec::new(),
+            is_instance_op: false,
+            op_warp: Some(node.warp_id),
+            kind_str,
+        },
+        WarpOp::DeleteNode { node } => OpTargets {
+            // DeleteNode deletes node + its alpha attachment (allowed mini-cascade).
+            // Footprint must declare both n_write(node) and a_write(node_alpha).
+            nodes: vec![node.local_id],
+            edges: Vec::new(),
+            attachments: vec![AttachmentKey::node_alpha(*node)],
             is_instance_op: false,
             op_warp: Some(node.warp_id),
             kind_str,

@@ -3,9 +3,28 @@
 //! Minimal in-memory graph store used by the rewrite executor and tests.
 use std::collections::BTreeMap;
 
+use thiserror::Error;
+
 use crate::attachment::AttachmentValue;
 use crate::ident::{EdgeId, Hash, NodeId, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
+
+/// Error returned by [`GraphStore::delete_node_isolated`].
+///
+/// `DeleteNode` must not cascade. If the node has incident edges, the caller
+/// must emit explicit `DeleteEdge` ops first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum DeleteNodeError {
+    /// The node does not exist in the store.
+    #[error("node not found")]
+    NodeNotFound,
+    /// The node has outgoing edges; delete them first.
+    #[error("node has outgoing edges")]
+    HasOutgoingEdges,
+    /// The node has incoming edges; delete them first.
+    #[error("node has incoming edges")]
+    HasIncomingEdges,
+}
 
 /// In-memory graph storage for the spike.
 ///
@@ -351,6 +370,50 @@ impl GraphStore {
             }
         }
         true
+    }
+
+    /// Deletes an isolated node and its alpha attachment.
+    ///
+    /// Unlike [`delete_node_cascade`], this method **rejects** deletion if the node
+    /// has any incident edges (outgoing or incoming). This ensures that `WarpOp`s
+    /// accurately describe the mutation—no hidden side effects on edges.
+    ///
+    /// # Errors
+    ///
+    /// - [`DeleteNodeError::NodeNotFound`] if the node does not exist
+    /// - [`DeleteNodeError::HasOutgoingEdges`] if the node has outgoing edges
+    /// - [`DeleteNodeError::HasIncomingEdges`] if the node has incoming edges
+    ///
+    /// # Allowed Mini-Cascade
+    ///
+    /// The node's alpha attachment is deleted as part of this operation. This is
+    /// enforceable because the attachment key is derivable from the node key.
+    /// Footprint enforcement requires `a_write` to include the alpha attachment.
+    pub fn delete_node_isolated(&mut self, node: NodeId) -> Result<(), DeleteNodeError> {
+        // Check node exists
+        if !self.nodes.contains_key(&node) {
+            return Err(DeleteNodeError::NodeNotFound);
+        }
+
+        // Check for outgoing edges
+        if self.edges_from.get(&node).is_some_and(|e| !e.is_empty()) {
+            return Err(DeleteNodeError::HasOutgoingEdges);
+        }
+
+        // Check for incoming edges
+        if self.edges_to.get(&node).is_some_and(|e| !e.is_empty()) {
+            return Err(DeleteNodeError::HasIncomingEdges);
+        }
+
+        // Safe to delete: remove node and its attachment
+        self.nodes.remove(&node);
+        self.node_attachments.remove(&node);
+
+        // Clean up empty edge buckets (defensive; should already be empty)
+        self.edges_from.remove(&node);
+        self.edges_to.remove(&node);
+
+        Ok(())
     }
 
     /// Deletes an edge from the specified bucket if it exists and matches the reverse index.

@@ -261,14 +261,16 @@ impl SnapshotAccumulator {
 
             WarpOp::DeleteNode { node } => {
                 self.nodes.remove(&node);
-                // Remove node's attachments
+                // Remove node's alpha attachment (allowed mini-cascade: key is derivable)
                 let att_key = AttachmentKey {
                     owner: AttachmentOwner::Node(node),
                     plane: AttachmentPlane::Alpha,
                 };
                 self.node_attachments.remove(&att_key);
-                // Cascade: remove incident edges (GraphStore semantics)
-                self.remove_incident_edges(node);
+                // NOTE: NO cascade to edges. DeleteNode must only be applied to
+                // isolated nodes (no incident edges). Edge deletions must be
+                // explicit DeleteEdge ops so they appear in the delta and are
+                // enforceable by the footprint system.
             }
 
             WarpOp::UpsertEdge { warp_id, record } => {
@@ -1181,7 +1183,42 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_node_cascades_edges() {
+    fn test_delete_isolated_node_works() {
+        let (mut acc, warp_id, _root_id) = setup_single_instance();
+
+        // Create an isolated node (no edges)
+        let node_id = make_node_id("isolated-node");
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        acc.apply_ops(vec![WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("Isolated"),
+            },
+        }]);
+
+        // Verify setup
+        assert!(acc.nodes.contains_key(&node_key));
+
+        // Delete the isolated node
+        acc.apply_ops(vec![WarpOp::DeleteNode { node: node_key }]);
+
+        // Verify node is gone
+        assert!(!acc.nodes.contains_key(&node_key));
+
+        // Verify alpha attachment is also gone (allowed mini-cascade)
+        let att_key = AttachmentKey {
+            owner: AttachmentOwner::Node(node_key),
+            plane: AttachmentPlane::Alpha,
+        };
+        assert!(!acc.node_attachments.contains_key(&att_key));
+    }
+
+    #[test]
+    fn test_delete_node_does_not_cascade_edges() {
         let (mut acc, warp_id, root_id) = setup_single_instance();
 
         // Create a node with edges
@@ -1225,15 +1262,23 @@ mod tests {
         assert!(acc.edges.contains_key(&(warp_id, edge_from_root)));
         assert!(acc.edges.contains_key(&(warp_id, edge_to_root)));
 
-        // Delete the connected node
+        // Delete the node (accumulator doesn't validate isolation, just applies)
         acc.apply_ops(vec![WarpOp::DeleteNode { node: node_key }]);
 
         // Verify node is gone
         assert!(!acc.nodes.contains_key(&node_key));
 
-        // Verify incident edges are cascade-deleted
-        assert!(!acc.edges.contains_key(&(warp_id, edge_from_root)));
-        assert!(!acc.edges.contains_key(&(warp_id, edge_to_root)));
+        // CRITICAL: edges are NOT cascade-deleted (no hidden side effects)
+        // In real usage, GraphStore::delete_node_isolated would reject this.
+        // The accumulator just applies ops literally.
+        assert!(
+            acc.edges.contains_key(&(warp_id, edge_from_root)),
+            "DeleteNode must not cascade to edges"
+        );
+        assert!(
+            acc.edges.contains_key(&(warp_id, edge_to_root)),
+            "DeleteNode must not cascade to edges"
+        );
     }
 
     #[test]

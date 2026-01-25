@@ -519,6 +519,8 @@ fn validate_descend_target(
 }
 
 fn apply_op_to_state(state: &mut WarpState, op: &WarpOp) -> Result<(), TickPatchError> {
+    use crate::graph::DeleteNodeError;
+
     match op {
         WarpOp::OpenPortal {
             key,
@@ -548,10 +550,13 @@ fn apply_op_to_state(state: &mut WarpState, op: &WarpOp) -> Result<(), TickPatch
             let Some(store) = state.store_mut(&node.warp_id) else {
                 return Err(TickPatchError::MissingWarp(node.warp_id));
             };
-            if !store.delete_node_cascade(node.local_id) {
-                return Err(TickPatchError::MissingNode(*node));
+            match store.delete_node_isolated(node.local_id) {
+                Ok(()) => Ok(()),
+                Err(DeleteNodeError::NodeNotFound) => Err(TickPatchError::MissingNode(*node)),
+                Err(DeleteNodeError::HasOutgoingEdges | DeleteNodeError::HasIncomingEdges) => {
+                    Err(TickPatchError::NodeNotIsolated(*node))
+                }
             }
-            Ok(())
         }
         WarpOp::UpsertEdge { warp_id, record } => {
             let Some(store) = state.store_mut(warp_id) else {
@@ -758,6 +763,11 @@ pub enum TickPatchError {
     /// Tried to delete an edge that did not exist.
     #[error("missing edge: {0:?}")]
     MissingEdge(EdgeKey),
+    /// Tried to delete a node that has incident edges.
+    ///
+    /// `DeleteNode` must not cascade. Emit explicit `DeleteEdge` ops first.
+    #[error("node not isolated (has edges): {0:?}")]
+    NodeNotIsolated(NodeKey),
     /// Tried to set an attachment slot that is not valid in v1.
     #[error("invalid attachment key: {0:?}")]
     InvalidAttachmentKey(AttachmentKey),

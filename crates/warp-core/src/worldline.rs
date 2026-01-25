@@ -191,6 +191,8 @@ pub(crate) fn apply_warp_op_to_store(
     store: &mut GraphStore,
     op: &WarpOp,
 ) -> Result<(), ApplyError> {
+    use crate::graph::DeleteNodeError;
+
     let store_warp = store.warp_id();
 
     match op {
@@ -234,10 +236,13 @@ pub(crate) fn apply_warp_op_to_store(
                     actual: node.warp_id,
                 });
             }
-            if !store.delete_node_cascade(node.local_id) {
-                return Err(ApplyError::MissingNode(*node));
+            match store.delete_node_isolated(node.local_id) {
+                Ok(()) => Ok(()),
+                Err(DeleteNodeError::NodeNotFound) => Err(ApplyError::MissingNode(*node)),
+                Err(DeleteNodeError::HasOutgoingEdges | DeleteNodeError::HasIncomingEdges) => {
+                    Err(ApplyError::NodeNotIsolated(*node))
+                }
             }
-            Ok(())
         }
 
         WarpOp::UpsertEdge { warp_id, record } => {
@@ -425,6 +430,12 @@ pub enum ApplyError {
     /// Invalid attachment key (wrong plane for owner type).
     #[error("invalid attachment key: node owners use Alpha plane, edge owners use Beta plane")]
     InvalidAttachmentKey,
+
+    /// Tried to delete a node that has incident edges.
+    ///
+    /// `DeleteNode` must not cascade. Emit explicit `DeleteEdge` ops first.
+    #[error("node not isolated (has edges): {0:?}")]
+    NodeNotIsolated(NodeKey),
 }
 
 #[cfg(test)]

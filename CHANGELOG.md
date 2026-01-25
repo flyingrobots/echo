@@ -48,9 +48,9 @@
 - `execute_item_enforced` wraps executor calls in `catch_unwind`, performs read enforcement
   via `GraphView::new_guarded`, and post-hoc write enforcement via `check_op()`.
 - A `FootprintViolation` (triggered via `panic_any` in `footprint_guard.rs`) produces a
-  `PoisonedDelta` rather than a recoverable `Result`. The violating item's execution is aborted,
-  but the worker continues processing remaining items in its queue. Other workers also continue
-  to completion.
+  `PoisonedDelta` rather than a recoverable `Result`. The violating item's execution is aborted
+  and the worker returns `WorkerResult::Poisoned` immediately (fail-fast). Other workers may
+  continue until merge, but the tick will abort regardless.
 - At the engine layer, poisoned deltas abort the tick via `std::panic::resume_unwind()`: in the
   `delta_validate` path, non-poisoned deltas are processed until a `PoisonedDelta` is encountered,
   triggering `MergeError::PoisonedDelta` and `resume_unwind()` (via `into_panic()`); in the

@@ -180,7 +180,7 @@ pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
 };
 pub use footprint_guard::{FootprintViolation, FootprintViolationWithPanic, ViolationKind};
-pub use graph::GraphStore;
+pub use graph::{DeleteNodeError, GraphStore};
 pub use graph_view::GraphView;
 pub use ident::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeId, EdgeKey, Hash, NodeId, NodeKey,

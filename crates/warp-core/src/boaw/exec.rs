@@ -19,6 +19,19 @@ use crate::NodeId;
 
 use super::shard::{partition_into_shards, NUM_SHARDS};
 
+/// Classification of an executor for footprint enforcement.
+///
+/// System items (engine-internal inbox rules) may emit instance-level ops
+/// (`UpsertWarpInstance`, `DeleteWarpInstance`). User items cannot.
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExecItemKind {
+    /// Normal user-registered rule — cannot emit instance ops.
+    User,
+    /// Engine-internal rule (inbox) — can emit instance-level ops.
+    System,
+}
+
 /// A single rewrite ready for execution.
 ///
 /// # Thread Safety
@@ -35,6 +48,9 @@ pub struct ExecItem {
     pub scope: NodeId,
     /// Origin metadata for tracking.
     pub origin: OpOrigin,
+    /// Classification for enforcement (user vs system).
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    pub(crate) kind: ExecItemKind,
 }
 
 impl ExecItem {
@@ -47,6 +63,22 @@ impl ExecItem {
             exec,
             scope,
             origin,
+            #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+            kind: ExecItemKind::User,
+        }
+    }
+
+    /// Creates a new system-level `ExecItem`.
+    ///
+    /// System items are internal engine rules (e.g., inbox processing) that
+    /// are allowed to emit instance-level ops under enforcement.
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    pub(crate) fn new_system(exec: ExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
+        Self {
+            exec,
+            scope,
+            origin,
+            kind: ExecItemKind::System,
         }
     }
 }

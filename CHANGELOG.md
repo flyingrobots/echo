@@ -108,8 +108,10 @@
 - **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
 - **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
 - **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Result<Vec<TickDelta>, WarpId>` instead of panicking on missing store; caller maps to `EngineError::InternalCorruption`
+- **P1: Guard metadata scoping** (`engine_impl.rs`): Guard metadata now keyed by warp-scoped `NodeKey` to prevent cross-warp footprint collisions during enforcement
 - **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
 - **P2: Markdownlint MD060** (`.markdownlint.json`): Removed global MD060 disable (all tables are well-formed; no false positives to suppress)
+- **P2: Port rule footprint** (`crates/echo-dry-tests/src/demo_rules.rs`): Always declare scope node read to prevent enforcement panics when node is missing
 - **P2: Test hardening** (`tests/`): Real `compute_commit_hash_v2` in all test worldline setups, u8 truncation guards (`num_ticks <= 127`), updated playback tests to match corrected `publish_truth` indexing
 - **Trivial: Phase 6B benchmark** (`boaw_baseline.rs`): Added `bench_work_queue` exercising full `build_work_units → execute_work_queue` pipeline across multi-warp setups
 - **Trivial: Perf baseline stats** (`docs/notes/boaw-perf-baseline.md`): Expanded statistical context note with sample size, CI methodology, and Criterion report location

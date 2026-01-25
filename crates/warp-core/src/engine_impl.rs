@@ -1257,7 +1257,26 @@ impl Engine {
         let items_by_warp = by_warp.into_iter().map(|(warp_id, warp_rewrites)| {
             let items: Vec<ExecItem> = warp_rewrites
                 .into_iter()
-                .map(|(rw, exec, _name)| ExecItem::new(exec, rw.scope.local_id, rw.origin))
+                .map(|(rw, exec, name)| {
+                    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+                    {
+                        let is_system = matches!(
+                            name,
+                            crate::inbox::DISPATCH_INBOX_RULE_NAME
+                                | crate::inbox::ACK_PENDING_RULE_NAME
+                        );
+                        if is_system {
+                            ExecItem::new_system(exec, rw.scope.local_id, rw.origin)
+                        } else {
+                            ExecItem::new(exec, rw.scope.local_id, rw.origin)
+                        }
+                    }
+                    #[cfg(not(any(debug_assertions, feature = "footprint_enforce_release")))]
+                    {
+                        let _ = name;
+                        ExecItem::new(exec, rw.scope.local_id, rw.origin)
+                    }
+                })
                 .collect();
             (warp_id, items)
         });
@@ -1283,7 +1302,7 @@ impl Engine {
                         ))
                         .cloned()
                         .unwrap_or_else(|| (crate::footprint::Footprint::default(), "unknown"));
-                    let is_system = false;
+                    let is_system = item.kind == crate::boaw::ExecItemKind::System;
                     crate::footprint_guard::FootprintGuard::new(
                         &footprint,
                         unit.warp_id,

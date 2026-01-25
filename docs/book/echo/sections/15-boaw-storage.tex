@@ -108,8 +108,9 @@ In debug builds (or when \texttt{footprint\_enforce\_release} is enabled),
 \texttt{GraphView::new\_guarded()} wraps every storage read with a footprint
 check. Attempts to access nodes, edges, or attachments not declared in the
 footprint's read sets trigger a \texttt{FootprintViolation} panic. This
-ensures that the declared footprint is a \emph{tight} bound on actual
-storage access, not merely a conservative over-approximation.
+ensures that actual accesses are a subset of the declared read sets
+(actual $\subseteq$ declared), but it does \emph{not} detect or prevent
+over-declaration. The guard enforces safety, not tightness.
 
 The guard adds zero overhead in release builds---it is entirely
 \texttt{cfg}-gated and does not appear in the compiled binary unless

@@ -525,15 +525,16 @@ read and write:
 \end{Shaded}
 
 \textbf{Runtime enforcement.} As of Phase~6B, footprint declarations are
-enforced at runtime by \texttt{FootprintGuard}. An inaccurate footprint is
-now a hard failure in debug builds. The guard catches the following
-violations:
+enforced at runtime by \texttt{FootprintGuard} when
+\texttt{footprint\_enforce\_release} is enabled or in debug builds; the
+\texttt{unsafe\_graph} escape hatch disables these checks. The guard catches
+the following violations:
 
 \begin{itemize}
 \item Undeclared reads (node, edge, or attachment access not listed in the footprint)
 \item Undeclared writes (ops emitted for resources not in \texttt{n\_write} / \texttt{e\_write} / \texttt{a\_write})
 \item Cross-warp emissions (ops targeting a \texttt{WarpId} other than the executing warp)
-\item Unauthorized instance ops (lifecycle operations on node instances not covered by the footprint)
+\item Instance ops blocked by \texttt{ExecItemKind} (not footprint coverage)
 \item Adjacency violations (edge ops whose \texttt{from} node is absent from \texttt{n\_write})
 \end{itemize}
 

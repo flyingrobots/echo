@@ -372,6 +372,14 @@ mod tests {
             "missing node should not be written"
         );
         assert!(
+            footprint.e_read.is_empty(),
+            "missing node should not declare edge read"
+        );
+        assert!(
+            footprint.e_write.is_empty(),
+            "missing node should not declare edge write"
+        );
+        assert!(
             footprint.a_read.is_empty(),
             "missing node should not declare attachment read"
         );
@@ -403,6 +411,14 @@ mod tests {
         assert!(
             footprint.n_write.is_empty(),
             "missing node should not be written"
+        );
+        assert!(
+            footprint.e_read.is_empty(),
+            "missing node should not declare edge read"
+        );
+        assert!(
+            footprint.e_write.is_empty(),
+            "missing node should not declare edge write"
         );
         assert!(
             footprint.a_read.is_empty(),

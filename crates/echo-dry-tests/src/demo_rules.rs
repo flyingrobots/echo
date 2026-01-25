@@ -128,16 +128,17 @@ fn motion_rule_id() -> Hash {
     hasher.finalize().into()
 }
 
-fn base_scope_footprint(
-    view: GraphView<'_>,
-    scope: &NodeId,
-) -> (
-    WarpId,
-    NodeSet,
-    AttachmentSet,
-    AttachmentSet,
-    Option<AttachmentKey>,
-) {
+/// Return type for `base_scope_footprint` with explicit field names
+/// to avoid positional tuple mixups.
+struct BaseScopeFootprint {
+    warp_id: WarpId,
+    n_read: NodeSet,
+    a_read: AttachmentSet,
+    a_write: AttachmentSet,
+    attachment_key: Option<AttachmentKey>,
+}
+
+fn base_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> BaseScopeFootprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
     let mut a_read = AttachmentSet::default();
@@ -153,18 +154,24 @@ fn base_scope_footprint(
         a_write.insert(key);
         attachment_key = Some(key);
     }
-    (warp_id, n_read, a_read, a_write, attachment_key)
+    BaseScopeFootprint {
+        warp_id,
+        n_read,
+        a_read,
+        a_write,
+        attachment_key,
+    }
 }
 
 fn compute_motion_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
-    let (_warp_id, n_read, a_read, a_write, _key) = base_scope_footprint(view, scope);
+    let base = base_scope_footprint(view, scope);
     Footprint {
-        n_read,
+        n_read: base.n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
         e_write: EdgeSet::default(),
-        a_read,
-        a_write,
+        a_read: base.a_read,
+        a_write: base.a_write,
         b_in: PortSet::default(),
         b_out: PortSet::default(),
         factor_mask: 0,
@@ -266,20 +273,20 @@ fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
 }
 
 fn compute_port_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
-    let (warp_id, n_read, a_read, a_write, attachment_key) = base_scope_footprint(view, scope);
+    let base = base_scope_footprint(view, scope);
     let mut n_write = NodeSet::default();
     let mut b_in = PortSet::default();
-    if attachment_key.is_some() {
-        n_write.insert_with_warp(warp_id, *scope);
-        b_in.insert(warp_id, pack_port_key(scope, 0, true));
+    if base.attachment_key.is_some() {
+        n_write.insert_with_warp(base.warp_id, *scope);
+        b_in.insert(base.warp_id, pack_port_key(scope, 0, true));
     }
     Footprint {
-        n_read,
+        n_read: base.n_read,
         n_write,
         e_read: EdgeSet::default(),
         e_write: EdgeSet::default(),
-        a_read,
-        a_write,
+        a_read: base.a_read,
+        a_write: base.a_write,
         b_in,
         b_out: PortSet::default(),
         factor_mask: 0,
@@ -390,6 +397,10 @@ mod tests {
         assert!(
             footprint.b_in.is_empty(),
             "missing node should not declare boundary input"
+        );
+        assert!(
+            footprint.b_out.is_empty(),
+            "missing node should not declare boundary output"
         );
     }
 

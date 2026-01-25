@@ -85,8 +85,43 @@ mod engine_impl;
 mod footprint;
 /// Footprint enforcement guard for BOAW Phase 6B.
 ///
+/// # Intent
+///
 /// Validates that execute functions stay within their declared footprints.
-/// Active in debug builds; opt-in for release via `footprint_enforce_release` feature.
+/// Every read and write is checked against the `Footprint` declared by the rule.
+///
+/// # Gating
+///
+/// - **Debug builds**: enforcement enabled by default (`debug_assertions`)
+/// - **Release builds**: enforcement disabled unless `footprint_enforce_release` feature is enabled
+/// - **`unsafe_graph` feature**: disables enforcement unconditionally, even if
+///   `footprint_enforce_release` is set (escape hatch for benchmarks/fuzzing)
+///
+/// # Invariants
+///
+/// - Each `ExecItem` is paired with a `FootprintGuard` aligned by index in the `WorkUnit`
+/// - Reads via `GraphView::new_guarded()` are intercepted and validated inline
+/// - Writes are validated post-hoc via `check_op()` after the executor completes
+///
+/// # Violation Surfacing
+///
+/// Violations produce panic payloads:
+/// - [`FootprintViolation`]: emitted when an illegal op is detected (undeclared read/write,
+///   cross-warp emission, unauthorized instance op)
+/// - [`FootprintViolationWithPanic`]: wraps both a `FootprintViolation` and an executor panic
+///   when both occur
+///
+/// Downstream effects: a violation causes the `TickDelta` to become a `PoisonedDelta`,
+/// preventing merge. At the engine layer, poisoned deltas trigger `MergeError::PoisonedDelta`.
+///
+/// # Recommended Usage
+///
+/// - **Tests**: enforcement is always active; tests should exercise both valid and
+///   intentionally-violating footprints
+/// - **Production**: leave enforcement off (default) for maximum throughput, or enable
+///   `footprint_enforce_release` during validation/staging
+/// - **Opting out**: use `unsafe_graph` feature for benchmarks or fuzzing where safety
+///   checks are deliberately bypassed
 pub mod footprint_guard;
 mod graph;
 mod graph_view;
@@ -124,7 +159,13 @@ pub use boaw::{
     execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
     PoisonedDelta, NUM_SHARDS,
 };
+/// Delta merging functions, only available with `delta_validate` feature.
+///
+/// These functions are feature-gated because they are primarily used for testing
+/// and validation. `merge_deltas_ok` returns `Result` and rejects poisoned deltas;
+/// `merge_deltas` is the legacy variant. Enable `delta_validate` to access them.
 #[cfg(any(test, feature = "delta_validate"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "delta_validate")))]
 pub use boaw::{merge_deltas, merge_deltas_ok, MergeError};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{

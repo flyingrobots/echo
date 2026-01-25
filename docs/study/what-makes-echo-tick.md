@@ -308,7 +308,8 @@ The burden on the rule author is significant: you must declare your footprint ac
 - **Undeclared reads**: accessing nodes, edges, or attachments not in `n_read`/`e_read`/`a_read`
 - **Undeclared writes**: emitting ops that target nodes, edges, or attachments not in `n_write`/`e_write`/`a_write`
 - **Cross-warp emissions**: an op targets a different warp than the rule's execution scope
-- **Unauthorized instance ops**: `ExecItemKind::User` rules emitting `UpsertWarpInstance`, `DeleteWarpInstance`, or `OpenPortal`
+- **Unauthorized instance ops**: `ExecItemKind::User` rules emitting `UpsertWarpInstance` or `DeleteWarpInstance`
+- **Attachment write violations**: `OpenPortal` is treated as an attachment write by `FootprintGuard` and requires the target node in `n_write`
 - **Adjacency violations**: edge mutations where the `from` node is missing from `n_write`
 
 This means an inaccurate footprint is no longer a silent bug—it's a hard failure whenever enforcement is active.

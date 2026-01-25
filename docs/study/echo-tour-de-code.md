@@ -1346,4 +1346,4 @@ RETURN: (Snapshot, TickReceipt, WarpTickPatchV1)
 
 ---
 
-_Document generated 2026-01-18. File paths and line numbers accurate as of this date._
+_Document generated 2026-01-25. File paths are accurate as of this date; line numbers are intentionally omitted._

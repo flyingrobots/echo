@@ -880,9 +880,23 @@ whose \texttt{from} node is absent from \texttt{n\_write}).
 
 The guard is instantiated \emph{per-\texttt{ExecItem}} within a
 \texttt{WorkUnit}. Each rule invocation receives its own guard, scoped to
-that item's computed footprint. Violations are represented as typed
-\texttt{FootprintViolation} panic payloads, which carry structured
-information about the offending access.
+that item's computed footprint. The \texttt{check\_op()} function validates
+\texttt{TickDelta} emissions against the footprint. Enforcement yields two
+payload variants:
+\begin{itemize}
+\item \texttt{FootprintViolation}: emitted when \texttt{check\_op} detects an
+  illegal op (undeclared write, cross-warp emission, etc.)
+\item \texttt{FootprintViolationWithPanic}: emitted when the executor itself
+  panics and the guard wraps that panic together with any detected violation
+\end{itemize}
+
+\textbf{Tick Fallout Semantics:} When enforcement fails, the wrapped panic
+causes the \texttt{TickDelta} to become a \texttt{PoisonedDelta}, preventing
+merge. The current \texttt{ExecItem}/tick is aborted. At merge time, if a
+poisoned delta is encountered, a \texttt{MergeError::PoisonedDelta} is raised,
+triggering worker/tick recovery. The distinction is: abort of the current
+\texttt{ExecItem} happens immediately at detection; merge-time errors occur
+when poisoned deltas reach the commit path.
 
 \subsubsection{Configuration}\label{guard-configuration}
 

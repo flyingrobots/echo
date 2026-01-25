@@ -1089,6 +1089,10 @@ The guard is \texttt{cfg}-gated:
   scenarios where footprints have already been validated.
 \end{itemize}
 
+\textbf{Note:} The \texttt{unsafe\_graph} flag takes precedence and disables all
+guard enforcement unconditionally, regardless of \texttt{debug\_assertions} or
+\texttt{footprint\_enforce\_release}.
+
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 
 \section{7. Storage \& Hashing: Content-Addressed

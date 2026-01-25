@@ -936,7 +936,8 @@ execute_item_enforced(view, item, delta, footprint)
 └─ OUTCOME PRECEDENCE:
       ├─ IF check_op fails:
       │     panic\_any(FootprintViolation)
-      │     Write violations OVERRIDE executor panics — violation takes precedence.
+      │     Footprint violations OVERRIDE executor panics — violation takes precedence.
+      │     (FootprintViolation includes UnauthorizedInstanceOp and CrossWarpEmission.)
       │
       ├─ IF footprint is clean BUT executor panicked:
       │     std::panic::resume_unwind(payload)

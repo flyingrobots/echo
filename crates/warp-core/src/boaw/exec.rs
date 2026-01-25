@@ -417,71 +417,78 @@ fn execute_item_enforced(
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
     {
-        if !unit.guards.is_empty() {
-            use std::panic::{catch_unwind, AssertUnwindSafe};
+        use std::panic::{catch_unwind, AssertUnwindSafe};
 
-            assert_eq!(
-                unit.guards.len(),
-                unit.items.len(),
-                "guards must align with items before enforcement"
-            );
+        // Hard invariant: guards must be populated and aligned with items.
+        // This assertion replaces the previous guards.is_empty() bypass.
+        // If guards are empty when enforcement is active, it's a bug in the engine.
+        debug_assert_eq!(
+            unit.guards.len(),
+            unit.items.len(),
+            "guards must align with items before enforcement"
+        );
+        assert!(
+            !unit.guards.is_empty(),
+            "guards must be populated when enforcement is active"
+        );
 
-            let guard = &unit.guards[idx];
-            let view = GraphView::new_guarded(store, guard);
+        let guard = &unit.guards[idx];
+        let view = GraphView::new_guarded(store, guard);
 
-            // Track delta growth for write validation
-            let ops_before = delta.len();
+        // Track delta growth for write validation
+        let ops_before = delta.len();
 
-            // Execute under catch_unwind to enforce writes even on panic
-            let exec_result = catch_unwind(AssertUnwindSafe(|| {
-                let mut scoped = delta.scoped(item.origin);
-                (item.exec)(view, &item.scope, scoped.inner_mut());
-            }));
+        // Execute under catch_unwind to enforce writes even on panic
+        let exec_result = catch_unwind(AssertUnwindSafe(|| {
+            let mut scoped = delta.scoped(item.origin);
+            (item.exec)(view, &item.scope, scoped.inner_mut());
+        }));
 
-            let exec_panic = exec_result.err();
+        let exec_panic = exec_result.err();
 
-            // Post-hoc write enforcement (runs whether exec succeeded or panicked)
-            let check_result = catch_unwind(AssertUnwindSafe(|| {
-                for op in &delta.ops_ref()[ops_before..] {
-                    guard.check_op(op);
-                }
-            }));
+        // Post-hoc write enforcement (runs whether exec succeeded or panicked)
+        let check_result = catch_unwind(AssertUnwindSafe(|| {
+            for op in &delta.ops_ref()[ops_before..] {
+                guard.check_op(op);
+            }
+        }));
 
-            match (exec_panic, check_result) {
-                (None, Ok(())) => {
-                    return Ok(delta);
-                }
-                (Some(panic), Ok(())) | (None, Err(panic)) => {
-                    return Err(PoisonedDelta::new(delta, panic));
-                }
-                (Some(exec_panic), Err(guard_panic)) => {
-                    let payload = match guard_panic
-                        .downcast::<crate::footprint_guard::FootprintViolation>()
-                    {
-                        Ok(violation) => {
-                            Box::new(crate::footprint_guard::FootprintViolationWithPanic {
-                                violation: *violation,
-                                exec_panic,
-                            }) as Box<dyn Any + Send + 'static>
-                        }
-                        Err(guard_panic) => {
-                            Box::new((exec_panic, guard_panic)) as Box<dyn Any + Send + 'static>
-                        }
-                    };
-                    return Err(PoisonedDelta::new(delta, payload));
-                }
+        match (exec_panic, check_result) {
+            (None, Ok(())) => {
+                return Ok(delta);
+            }
+            (Some(panic), Ok(())) | (None, Err(panic)) => {
+                return Err(PoisonedDelta::new(delta, panic));
+            }
+            (Some(exec_panic), Err(guard_panic)) => {
+                let payload = match guard_panic
+                    .downcast::<crate::footprint_guard::FootprintViolation>()
+                {
+                    Ok(violation) => Box::new(crate::footprint_guard::FootprintViolationWithPanic {
+                        violation: *violation,
+                        exec_panic,
+                    }) as Box<dyn Any + Send + 'static>,
+                    Err(guard_panic) => {
+                        Box::new((exec_panic, guard_panic)) as Box<dyn Any + Send + 'static>
+                    }
+                };
+                return Err(PoisonedDelta::new(delta, payload));
             }
         }
     }
 
-    // Suppress unused variable warnings in non-enforced builds
-    let _ = idx;
-    let _ = unit;
+    // Non-enforced path: direct execution (unreachable when enforcement is active,
+    // since all match arms in the cfg block above return).
+    #[allow(unreachable_code)]
+    {
+        // Suppress unused variable warnings in non-enforced builds
+        let _ = idx;
+        let _ = unit;
 
-    // Non-enforced path: direct execution
-    let view = GraphView::new(store);
-    let mut scoped = delta.scoped(item.origin);
-    (item.exec)(view, &item.scope, scoped.inner_mut());
+        let view = GraphView::new(store);
+        let mut scoped = delta.scoped(item.origin);
+        (item.exec)(view, &item.scope, scoped.inner_mut());
 
-    Ok(delta)
+        Ok(delta)
+    }
 }

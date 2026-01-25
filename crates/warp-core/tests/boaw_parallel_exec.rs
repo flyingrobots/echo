@@ -12,8 +12,9 @@
 //! cargo test --package warp-core --test boaw_parallel_exec --features delta_validate
 //! ```
 
-// This test requires `--features delta_validate` to compile.
-// The merge_deltas_ok function is feature-gated.
+// This test file only compiles when the delta_validate feature is enabled.
+// The merge_deltas_ok function and related symbols are feature-gated.
+#![cfg(feature = "delta_validate")]
 
 use warp_core::{
     execute_parallel, execute_parallel_sharded, execute_serial, make_node_id, make_type_id,

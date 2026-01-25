@@ -484,7 +484,7 @@ flowchart TD
     PANIC{"Executor panicked?"}
     ERR["panic_any(FootprintViolation)"]
     RESUME["resume_unwind(payload)"]
-    OK["Ok(())"]
+    OK["Ok(TickDelta)"]
 
     EXEC --> SNAP --> CATCH --> SCAN --> CHECK --> VIOL
     VIOL -->|Yes| ERR

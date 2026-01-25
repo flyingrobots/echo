@@ -194,7 +194,7 @@ pipeline.}
 
 This document traces EVERY function call involved in processing a user
 action through the Echo engine. File paths and line numbers are accurate
-as of 2026-01-18.
+as of 2026-01-25.
 
 \emph{Annotated with tour guide commentary --- insights, patterns, and observations from a detailed code review.}
 \end{quote}
@@ -633,7 +633,7 @@ Engine::apply(tx, rule_name, scope)
 \begin{cleverpattern}
 \textbf{GraphView: The Read-Only Wrapper}
 
-Step [4] creates a \texttt{GraphView}---a lightweight, copyable handle to the underlying \texttt{GraphStore}. In enforcement builds, it optionally carries a guard reference. This is Rust's type system doing the heavy lifting: you literally \emph{cannot} mutate the graph through a \texttt{GraphView}. The compiler enforces read-only access, enabling safe concurrent reads without any runtime checks.
+Step [4] creates a \texttt{GraphView}---a lightweight, copyable handle to the underlying \texttt{GraphStore}. In enforcement builds, it optionally holds a \texttt{FootprintGuard} reference that ties the view's lifetime to runtime protection---a borrow token that prevents the underlying \texttt{GraphStore} from being mutably borrowed while the \texttt{GraphView} exists. This guard validates reads against declared footprints at runtime, augmenting the compile-time read-only guarantee with runtime protection against unauthorized access. This is Rust's type system doing the heavy lifting: you literally \emph{cannot} mutate the graph through a \texttt{GraphView}. The compiler enforces read-only access, and the guard (when present in enforcement builds) enforces read permissions at runtime.
 \end{cleverpattern}
 
 \begin{deepdive}
@@ -1104,6 +1104,9 @@ execute_item_enforced(store, item, idx, unit, delta)
 │      (item.exec)(view, &item.scope, delta)
 │  }))
 │
+├─ NOTE: During execution above, GraphView validates reads via
+│  FootprintGuard—unauthorized reads are detected inline.
+│
 ├─ FOR op IN delta.ops()[ops_before..]:
 │     guard.check_op(op) → panic_any(FootprintViolation) on failure
 │     Validates that each newly-emitted op falls within the declared footprint.
@@ -1112,15 +1115,15 @@ execute_item_enforced(store, item, idx, unit, delta)
 │
 └─ OUTCOME PRECEDENCE:
       ├─ IF check_op fails:
-      │     panic_any(FootprintViolation)
-      │     Write violations OVERRIDE executor panics — violation takes precedence.
+      │     std::panic::panic_any(FootprintViolation { ... })
+      │     Footprint violations OVERRIDE executor panics — violation takes precedence.
       │
       ├─ IF footprint is clean BUT executor panicked:
       │     std::panic::resume_unwind(payload)
       │     The original panic propagates to the caller.
       │
       └─ IF both clean:
-            return Ok(())
+            return Ok(delta)   // Result<TickDelta, PoisonedDelta>
 \end{verbatim}
 
 \begin{tourguide}
@@ -1177,12 +1180,15 @@ committed.
 \end{itemize}
 
 \texttt{ExecItem::new()} always creates \texttt{User} items. System items are
-constructed only by internal engine code and never exposed through the public
+constructed via \texttt{ExecItem::new\_system()} (cfg-gated \texttt{pub(crate)}
+constructor used by portal/inbox rules) and are never exposed through the public
 API.
 
 \begin{cleverpattern}
-\textbf{The triple cfg-gate pattern:} The \texttt{kind} field (and all
-enforcement logic) is guarded by:
+\textbf{The dual-attribute cfg-gate pattern:} The \texttt{kind} field (and all
+enforcement logic) is guarded by two cfg attributes that together express three
+conditions (\texttt{debug\_assertions}, \texttt{footprint\_enforce\_release},
+and \texttt{unsafe\_graph}):
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
@@ -1197,14 +1203,18 @@ enforcement logic) is guarded by:
   bypass checks).
 \end{enumerate}
 
-The gates are asymmetric: the \texttt{kind} field is behind the first gate,
-while the guards vector and validation code also require \texttt{not(unsafe\_graph)}.
-If \texttt{unsafe\_graph} is enabled, enforcement is disabled regardless of
-\texttt{footprint\_enforce\_release}. Practically, the \texttt{kind} field,
-\texttt{guards} vector, and validation code are compiled out under
-\texttt{unsafe\_graph}, even if release enforcement is requested. The struct
-layout changes depending on the build profile---\texttt{ExecItem} is smaller in
-release builds where the guard is inactive.
+The gates are symmetric: the \texttt{kind} field, \texttt{guards} vector, and
+validation code all have both cfg attributes applied identically.
+\textbf{Precedence:} When both features are enabled
+(\texttt{footprint\_enforce\_release} and \texttt{unsafe\_graph}), the
+\texttt{unsafe\_graph} escape hatch takes precedence and disables
+enforcement---the \texttt{kind} field and enforcement guards are not compiled
+in, so \texttt{ExecItem} retains its non-enforced layout but enforcement is
+silently inactive. Practically, the \texttt{kind} field, \texttt{guards} vector,
+and validation code are compiled out under \texttt{unsafe\_graph}, even if
+release enforcement is requested. The struct layout changes depending on the
+build profile---\texttt{ExecItem} is smaller in release builds where the guard
+is inactive.
 \end{cleverpattern}
 
 \subsection{5.5 Thread Safety}\label{thread-safety}
@@ -1999,7 +2009,7 @@ Echo is a remarkable piece of engineering---complex enough to solve hard problem
 Happy hacking!
 \end{tourguide}
 
-\emph{Document generated 2026-01-18. File paths and line numbers
+\emph{Document generated 2026-01-25. File paths and line numbers
 accurate as of this date. Commentary added by your friendly AI tour guide.}
 
 \backmatter

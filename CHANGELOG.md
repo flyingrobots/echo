@@ -48,12 +48,14 @@
 - `execute_item_enforced` wraps executor calls in `catch_unwind`, performs read enforcement
   via `GraphView::new_guarded`, and post-hoc write enforcement via `check_op()`.
 - A `FootprintViolation` uses `panic_any`, producing a poisoned delta (`PoisonedDelta`) rather than
-  a recoverable `Result`. The worker that hits a violation stops processing further items, while
+  a recoverable `Result`. The worker who hits a violation stops processing further items, while
   other workers may continue to completion.
-- At the engine layer, poisoned deltas abort the tick: they are never merged, and the panic is
-  re-thrown to the caller (no partial commits). Rationale: panic-based enforcement guarantees
-  invariant visibility even under executor panics, while `catch_unwind` ensures already-emitted
-  ops are validated for safety.
+- At the engine layer, poisoned deltas abort the tick via `std::panic::resume_unwind()`: in the
+  `delta_validate` path, non-poisoned deltas are processed until a `PoisonedDelta` is encountered,
+  triggering `MergeError::PoisonedDelta` and `resume_unwind()` (via `into_panic()`); in the
+  non-`delta_validate` path, the iterator is flattened via `.map()` until an `Err(poisoned)`
+  causes immediate `resume_unwind()`. Abort is immediate with no cleanup once `resume_unwind()`
+  is invoked. No partial commits occur.
 
 #### Performance Impact
 
@@ -66,8 +68,11 @@
 #### Known Limitations (Phase 6B)
 
 - **Cross-warp enforcement**: `check_op()` rejects cross-warp emissions except for
-  `ExecItemKind::System` instance-level ops (see ADR-0007). Portal-based cross-warp permissions
-  are planned for Phase 7.
+  `ExecItemKind::System` instance-level ops. System rules are built-in executors such as inbox
+  handling (`DISPATCH_INBOX_RULE_NAME`, `ACK_PENDING_RULE_NAME`). Instance-level ops are
+  `WarpOp` variants that modify warp instances (`UpsertWarpInstance`, `DeleteWarpInstance`).
+  System items are created via `ExecItem::new_system()` (cfg-gated `pub(crate)`). Portal-based
+  cross-warp permissions are planned for Phase 7.
 - **Footprint ergonomics**: current `Footprint` API requires verbose `NodeSet`/`EdgeSet`/`AttachmentSet`
   construction; builder/derive helpers are planned for Phase 6C+.
 - **Over-declaration**: overly broad write sets reduce parallelism; there is no automated detection
@@ -75,9 +80,12 @@
 - **Guard metadata trade-offs**: guard metadata is assembled from a `HashMap` per tick; alternatives
   (e.g., vector indexing) are unbenchmarked.
 - **Poison invariant**: poisoned deltas are dropped and abort the tick; recovery or partial salvage
-  remains undefined pending a stronger typestate API.
-  See `FootprintGuard`, `GraphView::new_guarded`, `ExecItem::new`, `FootprintViolation`,
-  `check_op`, and `tests/boaw_footprints.rs` for current behavior (ADR-0007).
+  remains undefined pending a stronger typestate API. Key symbols by category:
+    - **Types**: `FootprintGuard`, `FootprintViolation`
+    - **Constructors/Methods**: `GraphView::new_guarded`, `ExecItem::new`
+    - **Functions**: `check_op`
+    - **Tests/Examples**: `tests/boaw_footprints.rs`
+      See ADR-0007 for full context.
 
 ### Added - SPEC-0004: Worldlines & Playback
 

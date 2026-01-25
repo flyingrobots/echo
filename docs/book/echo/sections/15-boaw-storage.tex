@@ -105,6 +105,7 @@ This is the determinism drill sergeant for BOAW. If this invariant fails, a foot
 \section{FootprintGuard: Storage Access Enforcement}
 
 In debug builds (or when \texttt{footprint\_enforce\_release} is enabled),
+unless \texttt{unsafe\_graph} is set,
 \texttt{GraphView::new\_guarded()} wraps every storage read with a footprint
 check. Attempts to access nodes, edges, or attachments not declared in the
 footprint's read sets trigger a \texttt{FootprintViolation} panic. This

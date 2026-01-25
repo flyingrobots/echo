@@ -590,11 +590,11 @@ fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
 /// Used by both `compute_footprint` and `emit_view_op_delta_scoped` to ensure
 /// footprint declarations match actual writes under parallel execution.
 fn view_op_ids_for_scope(scope: &NodeId) -> (NodeId, EdgeId) {
-    const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+    use std::fmt::Write as _;
+    // Size-agnostic: derives hex length from actual byte slice
     let mut scope_hex = String::with_capacity(scope.0.len() * 2);
     for &b in scope.0.iter() {
-        scope_hex.push(HEX_CHARS[(b >> 4) as usize] as char);
-        scope_hex.push(HEX_CHARS[(b & 0xF) as usize] as char);
+        write!(&mut scope_hex, "{b:02x}").expect("write to String cannot fail");
     }
     (
         make_node_id(&format!("sim/view/op:{scope_hex}")),

@@ -484,21 +484,9 @@ fn merged_ops_are_canonically_ordered() {
     let merged = result.expect("merge should succeed");
     assert_eq!(merged.len(), 3);
 
-    // Verify ops are in canonical order (sorted by WarpOpKey)
-    // We can't directly compare keys, but we can verify the ops are sorted
-    // by extracting their attachment keys
-    let keys: Vec<AttachmentKey> = merged
-        .iter()
-        .filter_map(|op| {
-            if let WarpOp::SetAttachment { key, .. } = op {
-                Some(*key)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // The keys should be in sorted order
+    // Verify ops are in canonical order using WarpOp::sort_key() directly
+    // (less coupling to AttachmentKey ordering implementation)
+    let keys: Vec<_> = merged.iter().map(|op| op.sort_key()).collect();
     for i in 1..keys.len() {
         assert!(
             keys[i - 1] <= keys[i],

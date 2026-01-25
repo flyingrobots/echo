@@ -152,7 +152,9 @@ This adds two layers of runtime validation:
     \item \textbf{Write enforcement}: After the executor runs (inside a
     \texttt{catch\_unwind} boundary), \texttt{check\_op()} validates every
     newly-emitted op against the footprint's write sets. This catches
-    undeclared writes, cross-warp emissions, and unauthorized instance ops.
+    undeclared writes, cross-warp emissions, adjacency violations (edge ops
+    whose \texttt{from} node is not in \texttt{n\_write}), and unauthorized
+    instance ops.
 \end{enumerate}
 
 \textbf{ExecItemKind} gates instance-level ops: only \texttt{System} items
@@ -162,8 +164,8 @@ are always \texttt{ExecItemKind::User}.
 
 The guard is \texttt{cfg}-gated: active in debug builds or with the
 \texttt{footprint\_enforce\_release} feature; disabled by the
-\texttt{unsafe\_graph} escape hatch. Zero overhead in production release
-builds.
+\texttt{unsafe\_graph} escape hatch. Zero overhead applies only when these
+checks are disabled.
 
 \begin{protip}
 If a footprint violation fires, the error message includes the offending op, the declared footprint, and the violation kind. Check the footprint declaration in your \texttt{RewriteRule} first---most violations are simply missing entries in \texttt{n\_write} or \texttt{e\_write}.

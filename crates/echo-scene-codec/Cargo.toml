@@ -6,6 +6,10 @@ version = "0.1.0"
 edition = "2021"
 description = "CBOR codec and test harness for echo-scene-port"
 license = "Apache-2.0 OR MIND-UCAL-1.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "scene", "codec", "cbor"]
+categories = ["encoding", "graphics"]
 
 [dependencies]
 echo-scene-port = { path = "../echo-scene-port" }

@@ -403,6 +403,129 @@ fn hash_atom_payload(hasher: &mut Hasher, atom: &AtomPayload) {
     hasher.update(&atom.bytes);
 }
 
+// ─── TTD Tick Commit Hash (v2) ────────────────────────────────────────────────
+
+use crate::worldline::WorldlineId;
+
+/// Computes the TTD tick commit hash (v2 format).
+///
+/// This is the canonical commit hash for TTDR receipts. It commits to:
+/// - Schema identity (binds this commit to a specific protocol version)
+/// - Worldline identity (binds to a specific history branch)
+/// - Tick number (ordering within the worldline)
+/// - Parent commits (explicit history linkage)
+/// - Patch digest (what changed)
+/// - State root (resulting state, if available)
+/// - Emissions digest (what was output)
+/// - Op emission index digest (which ops emitted what, if tracked)
+///
+/// # Wire Format
+///
+/// ```text
+/// tick_commit:v2 = BLAKE3(
+///     "tick_commit:v2"           (14-byte domain separator)
+///     schema_hash: [u8; 32]
+///     worldline_id: [u8; 32]
+///     tick: u64 (LE)
+///     num_parents: u64 (LE)
+///     parent_hashes[]: [u8; 32]... (pre-sorted)
+///     patch_digest: [u8; 32]
+///     has_state_root: u8 (0 or 1)
+///     state_root?: [u8; 32]       (if present)
+///     emissions_digest: [u8; 32]
+///     has_op_emission_idx: u8 (0 or 1)
+///     op_emission_index_digest?: [u8; 32] (if present)
+/// )
+/// ```
+///
+/// # Parent Ordering
+///
+/// The `parent_hashes` slice MUST be pre-sorted in ascending lexicographic order.
+/// This function hashes parents exactly as provided—it does NOT re-sort internally.
+/// Callers are responsible for sorting to ensure determinism.
+///
+/// # Relationship to `compute_commit_hash_v2`
+///
+/// [`compute_commit_hash_v2`] is the simpler internal commit hash used by
+/// [`Snapshot`]. This function is the full TTD-aware version that includes
+/// `schema_hash`, `worldline_id`, and emission digests required by TTDR receipts.
+///
+/// # Example
+///
+/// ```ignore
+/// let commit_hash = compute_tick_commit_hash_v2(
+///     &schema_hash,
+///     &worldline_id,
+///     tick,
+///     &sorted_parents,
+///     &patch_digest,
+///     Some(&state_root),
+///     &emissions_digest,
+///     Some(&op_emission_index_digest),
+/// );
+/// ```
+// Allow many arguments: this signature matches the TTD spec (docs/plans/ttd-app.md §3.3)
+// exactly. A builder pattern would obscure the wire format correspondence.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_tick_commit_hash_v2(
+    schema_hash: &Hash,
+    worldline_id: &WorldlineId,
+    tick: u64,
+    parent_hashes: &[Hash],
+    patch_digest: &Hash,
+    state_root: Option<&Hash>,
+    emissions_digest: &Hash,
+    op_emission_index_digest: Option<&Hash>,
+) -> Hash {
+    let mut h = Hasher::new();
+
+    // Domain separator (matches spec: "tick_commit:v2")
+    h.update(b"tick_commit:v2");
+
+    // Schema and worldline identity
+    h.update(schema_hash);
+    h.update(worldline_id.as_bytes());
+
+    // Tick number (little-endian)
+    h.update(&tick.to_le_bytes());
+
+    // Parent commits (count + hashes, pre-sorted by caller)
+    h.update(&(parent_hashes.len() as u64).to_le_bytes());
+    for p in parent_hashes {
+        h.update(p);
+    }
+
+    // Patch digest
+    h.update(patch_digest);
+
+    // State root (optional)
+    match state_root {
+        Some(sr) => {
+            h.update(&[1u8]);
+            h.update(sr);
+        }
+        None => {
+            h.update(&[0u8]);
+        }
+    }
+
+    // Emissions digest (required)
+    h.update(emissions_digest);
+
+    // Op emission index digest (optional)
+    match op_emission_index_digest {
+        Some(oeid) => {
+            h.update(&[1u8]);
+            h.update(oeid);
+        }
+        None => {
+            h.update(&[0u8]);
+        }
+    }
+
+    h.finalize().into()
+}
+
 // ─── Emission Digests ────────────────────────────────────────────────────────
 
 use crate::materialization::{ChannelId, FinalizedChannel};
@@ -682,6 +805,399 @@ mod tests {
         assert_ne!(
             digest_a, digest_b,
             "different channels should produce different digest"
+        );
+    }
+
+    // ─── Tick Commit Hash v2 Tests ───────────────────────────────────────────────
+
+    use crate::worldline::WorldlineId;
+
+    fn make_worldline_id(n: u8) -> WorldlineId {
+        WorldlineId(make_hash(n))
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_basic() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 42u64;
+        let parents = vec![make_hash(10), make_hash(11)];
+        let patch_digest = make_hash(20);
+        let state_root = make_hash(30);
+        let emissions_digest = make_hash(40);
+        let op_emission_index = make_hash(50);
+
+        let hash = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            Some(&state_root),
+            &emissions_digest,
+            Some(&op_emission_index),
+        );
+
+        // Should produce a valid non-zero hash
+        assert_ne!(hash, [0u8; 32]);
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_deterministic() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 100u64;
+        let parents = vec![make_hash(10)];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        // Compute twice with identical inputs
+        let hash1 = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash2 = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_eq!(
+            hash1, hash2,
+            "identical inputs should produce identical hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_schema_sensitive() {
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &make_hash(1), // schema A
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &make_hash(2), // schema B (different)
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different schema should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_worldline_sensitive() {
+        let schema_hash = make_hash(1);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &make_worldline_id(1), // worldline A
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &make_worldline_id(2), // worldline B (different)
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different worldline should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_tick_sensitive() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            1, // tick 1
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            2, // tick 2 (different)
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different tick should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_parent_order_matters() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        // Parents in order [A, B]
+        let parents_ab = vec![make_hash(10), make_hash(11)];
+        // Parents in order [B, A] (reversed)
+        let parents_ba = vec![make_hash(11), make_hash(10)];
+
+        let hash_ab = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents_ab,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_ba = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents_ba,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        // Parents are NOT re-sorted internally, so order matters
+        // Caller is responsible for canonical ordering
+        assert_ne!(hash_ab, hash_ba, "parent order matters (caller must sort)");
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_state_root_presence_matters() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+        let state_root = make_hash(30);
+
+        let hash_with_sr = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            Some(&state_root),
+            &emissions_digest,
+            None,
+        );
+
+        let hash_without_sr = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None, // no state root
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_with_sr, hash_without_sr,
+            "state_root presence should affect hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_emissions_digest_sensitive() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &make_hash(40), // emissions A
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &make_hash(41), // emissions B (different)
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different emissions_digest should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_op_emission_index_presence_matters() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+        let op_emission_index = make_hash(50);
+
+        let hash_with_oei = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            Some(&op_emission_index),
+        );
+
+        let hash_without_oei = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None, // no op emission index
+        );
+
+        assert_ne!(
+            hash_with_oei, hash_without_oei,
+            "op_emission_index_digest presence should affect hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_empty_parents_valid() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 0u64; // genesis tick
+        let parents: Vec<Hash> = vec![]; // no parents (genesis)
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        // Should produce a valid non-zero hash
+        assert_ne!(hash, [0u8; 32]);
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_golden_vector() {
+        // Golden vector test: ensures the hash algorithm doesn't change accidentally.
+        // If this test fails after code changes, the wire format has changed and
+        // requires a version bump or migration plan.
+
+        let schema_hash = [0xABu8; 32];
+        let worldline_id = WorldlineId([0xCDu8; 32]);
+        let tick = 42u64;
+        let parent = [0x11u8; 32];
+        let patch_digest = [0x22u8; 32];
+        let state_root = [0x33u8; 32];
+        let emissions_digest = [0x44u8; 32];
+        let op_emission_index = [0x55u8; 32];
+
+        let hash = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &[parent],
+            &patch_digest,
+            Some(&state_root),
+            &emissions_digest,
+            Some(&op_emission_index),
+        );
+
+        // This is the expected hash for the above inputs.
+        // Computed once and recorded here. If this changes, the wire format changed.
+        let expected_hex = "a83bc43c4c35757493c95eaa14ba1c08403f94f02a3955b0c05b73a1af3618bf";
+        let actual_hex = hex::encode(hash);
+
+        assert_eq!(
+            actual_hex, expected_hex,
+            "golden vector mismatch - wire format may have changed!\nexpected: {expected_hex}\nactual:   {actual_hex}"
         );
     }
 }

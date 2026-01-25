@@ -581,13 +581,19 @@ fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
     });
 }
 
-/// Emit ops for a view operation with scope-derived deterministic sequencing.
+/// Derives deterministic view op IDs from an intent scope.
 ///
-/// Uses the triggering intent's scope (NodeId) to derive a unique view op ID.
-/// This ensures determinism under parallel execution since the same intent
-/// always produces the same view op ID regardless of worker assignment.
+/// Returns `(op_node_id, edge_id)` computed from the scope's hex encoding.
+/// Used by both `compute_footprint` and `emit_view_op_delta_scoped` to ensure
+/// footprint declarations match actual writes under parallel execution.
 fn view_op_ids_for_scope(scope: &NodeId) -> (NodeId, EdgeId) {
-    let scope_hex: String = scope.0.iter().map(|b| format!("{:02x}", b)).collect();
+    const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+    let mut hex = [0u8; 64];
+    for (i, &b) in scope.0.iter().enumerate() {
+        hex[i * 2] = HEX_CHARS[(b >> 4) as usize];
+        hex[i * 2 + 1] = HEX_CHARS[(b & 0xF) as usize];
+    }
+    let scope_hex = std::str::from_utf8(&hex).expect("hex encoding must be valid utf-8");
     (
         make_node_id(&format!("sim/view/op:{scope_hex}")),
         make_edge_id(&format!("edge:view/op:{scope_hex}")),

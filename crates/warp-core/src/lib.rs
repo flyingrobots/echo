@@ -44,6 +44,12 @@
     clippy::use_self
 )]
 
+#[cfg(all(feature = "footprint_enforce_release", feature = "unsafe_graph"))]
+compile_error!(
+    "features `footprint_enforce_release` and `unsafe_graph` are mutually exclusive: \
+     unsafe_graph disables enforcement"
+);
+
 /// Deterministic fixed-point helpers (Q32.32).
 pub mod fixed;
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).

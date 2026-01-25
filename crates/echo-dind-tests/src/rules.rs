@@ -407,8 +407,11 @@ pub fn footprint_for_state_node(
     e_write.insert_with_warp(warp_id, make_edge_id("edge:sim/state"));
     e_write.insert_with_warp(warp_id, make_edge_id(&format!("edge:{state_node_path}")));
 
-    // Target node may also be read (e.g. toggle_nav reads current value).
-    // Declaring the read is conservatively safe for rules that only write.
+    // Target node may also be read (toggle_nav reads current value), so we
+    // conservatively declare the alpha read for all callers. This is spurious
+    // for route_push/set_theme and can introduce extra read conflicts, but all
+    // callers use ConflictPolicy::Abort so the write footprint already forces
+    // serialization and the scheduling impact is minimal.
     a_read.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
         local_id: target_id,

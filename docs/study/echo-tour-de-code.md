@@ -645,40 +645,85 @@ execute_parallel(view, items, workers)
 **Entry Point:** `execute_item_enforced()`
 **File:** `crates/warp-core/src/boaw/exec.rs`
 
-When footprint enforcement is active, each item is executed via `execute_item_enforced()` instead of a bare function-pointer call. This wraps execution with `catch_unwind` and performs post-hoc `check_op()` validation on any newly-emitted ops.
+When footprint enforcement is active, each item is executed via `execute_item_enforced()` instead of a bare function-pointer call. Read access is enforced in-line by `GraphView`/`FootprintGuard` while the executor runs inside `catch_unwind`, and post-hoc `check_op()` validation is applied to newly-emitted ops.
+
+**Signature (anchor):**
+
+```rust
+fn execute_item_enforced(
+    store: &GraphStore,
+    item: &ExecItem,
+    idx: usize,
+    unit: &WorkUnit,
+    delta: TickDelta,
+) -> Result<TickDelta, PoisonedDelta>
+```
+
+**Guard Check (anchor):**
+**File:** `crates/warp-core/src/footprint_guard.rs`
+
+```rust
+impl FootprintGuard {
+    pub(crate) fn check_op(&self, op: &WarpOp)
+}
+```
 
 ```text
-execute_item_enforced(view, item, delta, footprint)
+execute_item_enforced(store, item, idx, unit, delta)
 │
-├─ ops_before = delta.ops_len()
+├─ guard = unit.guards[idx]
+├─ view = GraphView::new_guarded(store, guard)
+│
+├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
 │      (item.exec)(view, &item.scope, delta)
 │  }))
 │
-├─ FOR op IN delta.ops()[ops_before..]:
-│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+├─ FOR op IN delta.ops_ref()[ops_before..]:
+│     guard.check_op(op) → panic_any(FootprintViolation)
 │     Validates that each newly-emitted op falls within the declared footprint.
 │     ExecItemKind::System items may emit warp-instance-level ops;
 │     ExecItemKind::User items may not.
 │
 └─ OUTCOME PRECEDENCE:
       ├─ IF check_op fails:
-      │     return Err(FootprintViolation)
+      │     return Err(PoisonedDelta)
       │     Write violations OVERRIDE executor panics — violation takes precedence.
       │
       ├─ IF footprint is clean BUT executor panicked:
-      │     std::panic::resume_unwind(payload)
+      │     return Err(PoisonedDelta)
       │     The original panic propagates to the caller.
       │
       └─ IF both clean:
-            return Ok(())
+            return Ok(delta)
 ```
 
-**The Poison Invariant:** If the executor panics, the `TickDelta` it was writing into is
-considered poisoned (partially-written ops with no transactional rollback). After an
-executor panic the delta must be discarded — it cannot be merged or committed.
+**Poison Safety (type-level):** `execute_item_enforced` returns `Result<TickDelta, PoisonedDelta>`,
+and `merge_deltas` consumes `Vec<Result<TickDelta, PoisonedDelta>>`. Poisoned deltas are never
+merged or committed; they are dropped and their panic payload is re-thrown at the engine layer.
+
+#### 5.3.1 Cross-Warp Enforcement Policy
+
+`check_op()` rejects cross-warp writes: any op must target the executor’s `scope.warp_id`. Violations
+surface as `FootprintViolation` with `ViolationKind::CrossWarpEmission`. Exception: `ExecItemKind::System` may emit
+warp-instance-level ops (`OpenPortal`, `UpsertWarpInstance`, `DeleteWarpInstance`) for authorized
+instance lifecycle changes. **TODO (Phase 7):** allow portal-based cross-warp permissions with
+explicit footprint allowlists.
+
+**Warp-instance-level ops:** Operations that modify multiverse topology (e.g., `OpenPortal`,
+`UpsertWarpInstance`, `DeleteWarpInstance` from Section 6.2). They are enforced via `ExecItemKind`:
+`User` items attempting these ops produce a `FootprintViolation` with
+`ViolationKind::UnauthorizedInstanceOp`. There are no additional op categories beyond
+warp-instance-level vs normal graph ops.
+
+**Panic Recovery & Tick Semantics:** Worker threads run under `std::thread::scope`. A panic or
+`FootprintViolation` from `execute_item_enforced` produces a poisoned `TickDelta` that is never
+merged; `execute_parallel` propagates the panic when the worker results are joined. Any worker
+panic aborts the parallel execution. The caller observes the panic, the tick does not commit, and
+any partial delta stays on the worker stack and is dropped. Callers that catch the panic should
+invoke `Engine::abort` to roll back the transaction.
 
 ### 5.4 ExecItem Structure
 
@@ -700,17 +745,32 @@ pub struct ExecItem {
 
 **`ExecItemKind` (cfg-gated):**
 
+**Enum (anchor):**
+
+```rust
+enum ExecItemKind {
+    User,
+    System,
+}
+```
+
 - `ExecItemKind::User` — Normal rule executor. May emit node/edge/attachment ops scoped to the declared footprint. Cannot emit warp-instance-level ops (`UpsertWarpInstance`, `DeleteWarpInstance`, `OpenPortal`).
 - `ExecItemKind::System` — Internal-only executor (e.g., portal opening). May emit warp-instance-level ops.
 
-`ExecItem::new()` always creates `User` items. System items are constructed only by internal engine code and never exposed through the public API.
+`ExecItem::new()` always creates `User` items. System items are constructed only by internal engine
+code via `ExecItem::new_system(exec: ExecuteFn, scope: NodeId, origin: OpOrigin)` when a rule is
+registered as `is_system`. The constructor is only compiled when
+`debug_assertions || footprint_enforce_release` (and not `unsafe_graph`), so plain release builds
+fall back to `ExecItem::new()` even for system rules.
 
 **The triple cfg-gate pattern:** The `kind` field (and all enforcement logic) is guarded by:
 
 1. `#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]` — active in debug builds or when the release enforcement feature is opted-in.
 2. `#[cfg(not(feature = "unsafe_graph"))]` — disabled when the escape-hatch feature is set (for benchmarks/fuzzing that intentionally bypass checks).
 
-This means enforcement is always-on in dev/test, opt-in for release, and explicitly removable for unsafe experimentation.
+This means enforcement is always-on in dev/test, opt-in for release, and explicitly removable for
+unsafe experimentation. A compile-time guard in `lib.rs` rejects builds that enable both
+`footprint_enforce_release` and `unsafe_graph`.
 
 ### 5.5 Thread Safety
 
@@ -718,8 +778,11 @@ This means enforcement is always-on in dev/test, opt-in for release, and explici
 | ------------- | --------------------- | ----------------------------------- |
 | `GraphView`   | `Sync + Send + Clone` | Read-only snapshot                  |
 | `ExecItem`    | `Sync + Send + Copy`  | Function pointer + primitives       |
-| `TickDelta`   | Per-worker exclusive  | No shared mutation                  |
+| `TickDelta`   | Per-worker exclusive  | Poisoned deltas must be discarded   |
 | `AtomicUsize` | Lock-free             | `fetch_add` with `Relaxed` ordering |
+
+**Note:** `ExecItem` stays `Copy` because `ExecItemKind` is `Copy` when present; the cfg-gated
+field does not change its `Send`/`Sync` bounds.
 
 ---
 
@@ -731,11 +794,12 @@ This means enforcement is always-on in dev/test, opt-in for release, and explici
 **File:** `crates/warp-core/src/boaw/merge.rs-75`
 
 ```text
-merge_deltas(deltas: Vec<TickDelta>) → Result<Vec<WarpOp>, MergeConflict>
+merge_deltas(deltas: Vec<Result<TickDelta, PoisonedDelta>>) → Result<Vec<WarpOp>, MergeError>
 │
 ├─[1] FLATTEN ALL OPS WITH ORIGINS
 │     let mut flat: Vec<(WarpOpKey, OpOrigin, WarpOp)> = Vec::new();
 │     FOR d IN deltas:
+│       IF d is Err(PoisonedDelta): return Err(MergeError::PoisonedDelta)
 │       let (ops, origins) = d.into_parts_unsorted();
 │       FOR (op, origin) IN ops.zip(origins):
 │         flat.push((op.sort_key(), origin, op));
@@ -762,7 +826,7 @@ merge_deltas(deltas: Vec<TickDelta>) → Result<Vec<WarpOp>, MergeConflict>
              out.push(first.clone())       // Accept one copy
            ELSE:
              writers = flat[start..i].iter().map(|(_, o, _)| *o).collect()
-             return Err(MergeConflict { writers })  // CONFLICT!
+             return Err(MergeError::Conflict(Box::new(MergeConflict { key, writers })))  // CONFLICT!
 
       return Ok(out)
 ```

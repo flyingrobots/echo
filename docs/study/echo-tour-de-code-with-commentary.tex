@@ -1087,13 +1087,17 @@ Using \texttt{Relaxed} instead of \texttt{SeqCst} avoids memory barriers, which 
 
 When footprint enforcement is active, each item is executed via
 \texttt{execute\_item\_enforced()} instead of a bare function-pointer call.
-This wraps execution with \texttt{catch\_unwind} and performs post-hoc
-\texttt{check\_op()} validation on any newly-emitted ops.
+Read access is enforced in-line by \texttt{GraphView}/\texttt{FootprintGuard}
+while the executor runs inside \texttt{catch\_unwind}, and post-hoc
+\texttt{check\_op()} validation is applied to any newly-emitted ops.
 
 \begin{verbatim}
-execute_item_enforced(view, item, delta, footprint)
+execute_item_enforced(store, item, idx, unit, delta)
 │
-├─ ops_before = delta.ops_len()
+├─ guard = unit.guards[idx]
+├─ view = GraphView::new_guarded(store, guard)
+│
+├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -1101,14 +1105,14 @@ execute_item_enforced(view, item, delta, footprint)
 │  }))
 │
 ├─ FOR op IN delta.ops()[ops_before..]:
-│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+│     guard.check_op(op) → panic_any(FootprintViolation) on failure
 │     Validates that each newly-emitted op falls within the declared footprint.
 │     ExecItemKind::System items may emit warp-instance-level ops;
 │     ExecItemKind::User items may not.
 │
 └─ OUTCOME PRECEDENCE:
       ├─ IF check_op fails:
-      │     return Err(FootprintViolation)
+      │     panic_any(FootprintViolation)
       │     Write violations OVERRIDE executor panics — violation takes precedence.
       │
       ├─ IF footprint is clean BUT executor panicked:
@@ -1120,7 +1124,7 @@ execute_item_enforced(view, item, delta, footprint)
 \end{verbatim}
 
 \begin{tourguide}
-The post-hoc strategy is a deliberate design choice: we let the executor run to completion (or panic), then inspect what it wrote. This avoids the overhead of intercepting every write call during hot-loop execution. The \texttt{catch\_unwind} boundary means even a panicking rule cannot leave unchecked ops in the delta.
+The post-hoc strategy is a deliberate design choice: we let the executor run to completion (or panic), then inspect what it wrote. This avoids the overhead of intercepting every write call during hot-loop execution. Read access is still enforced in-line by \texttt{GraphView}/\texttt{FootprintGuard} while the executor runs under \texttt{catch\_unwind}, so unauthorized reads surface immediately even before \texttt{check\_op()} validates writes.
 \end{tourguide}
 
 \begin{cleverpattern}
@@ -1130,9 +1134,9 @@ Consider: a rule panics, but before panicking it wrote an out-of-footprint op. I
 \end{cleverpattern}
 
 \textbf{The Poison Invariant:} If the executor panics, the \texttt{TickDelta}
-it was writing into is considered poisoned (partially-written ops with no
-transactional rollback). After an executor panic the delta must be
-discarded---it cannot be merged or committed.
+it was writing into is considered poisoned. The execution path returns a
+\texttt{PoisonedDelta} marker, and poisoned deltas are never merged or
+committed.
 
 \subsection{5.4 ExecItem Structure}\label{execitem-structure}
 
@@ -1193,10 +1197,14 @@ enforcement logic) is guarded by:
   bypass checks).
 \end{enumerate}
 
-This means enforcement is always-on in dev/test, opt-in for release, and
-explicitly removable for unsafe experimentation. The struct layout changes
-depending on the build profile---\texttt{ExecItem} is smaller in release builds
-where the guard is inactive.
+The gates are asymmetric: the \texttt{kind} field is behind the first gate,
+while the guards vector and validation code also require \texttt{not(unsafe\_graph)}.
+If \texttt{unsafe\_graph} is enabled, enforcement is disabled regardless of
+\texttt{footprint\_enforce\_release}. Practically, the \texttt{kind} field,
+\texttt{guards} vector, and validation code are compiled out under
+\texttt{unsafe\_graph}, even if release enforcement is requested. The struct
+layout changes depending on the build profile---\texttt{ExecItem} is smaller in
+release builds where the guard is inactive.
 \end{cleverpattern}
 
 \subsection{5.5 Thread Safety}\label{thread-safety}

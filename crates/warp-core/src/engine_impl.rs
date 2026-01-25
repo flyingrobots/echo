@@ -1183,7 +1183,6 @@ impl Engine {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
     fn apply_reserved_rewrites(
         &mut self,
         rewrites: Vec<PendingRewrite>,
@@ -1228,30 +1227,10 @@ impl Engine {
                 .push((rewrite, executor, rule_name));
         }
 
-        // Collect per-item guard metadata (cfg-gated) for post-shard guard construction.
-        // Keyed by (OpOrigin, NodeKey) since OpOrigin alone is NOT unique when the same
-        // rule matches multiple scopes (all share rule_id, intent_id=0, match_ix=0).
+        // Collect per-item guard metadata (cfg-gated) for post-shard guard construction
         #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
         #[cfg(not(feature = "unsafe_graph"))]
-        let guard_meta: HashMap<
-            (crate::tick_delta::OpOrigin, NodeKey),
-            (crate::footprint::Footprint, &'static str),
-        > = by_warp
-            .values()
-            .flatten()
-            .map(|(rw, _exec, name)| {
-                (
-                    (
-                        rw.origin,
-                        NodeKey {
-                            warp_id: rw.scope.warp_id,
-                            local_id: rw.scope.local_id,
-                        },
-                    ),
-                    (rw.footprint.clone(), *name),
-                )
-            })
-            .collect();
+        let guard_meta = collect_guard_metadata(&by_warp);
 
         // 2. Convert to ExecItems and build work units (cross-warp parallelism)
         let items_by_warp = by_warp.into_iter().map(|(warp_id, warp_rewrites)| {
@@ -1290,38 +1269,10 @@ impl Engine {
         // Build (warp, shard) work units - canonical ordering preserved
         let mut units = build_work_units(items_by_warp);
 
-        // Attach guards to work units (cfg-gated): look up each item's footprint by origin
+        // Attach guards to work units (cfg-gated)
         #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
         #[cfg(not(feature = "unsafe_graph"))]
-        for unit in &mut units {
-            unit.guards = unit
-                .items
-                .iter()
-                .map(|item| {
-                    let key = (
-                        item.origin,
-                        NodeKey {
-                            warp_id: unit.warp_id,
-                            local_id: item.scope,
-                        },
-                    );
-                    let (footprint, rule_name) =
-                        guard_meta.get(&key).cloned().ok_or_else(|| {
-                            debug_assert!(false, "missing guard metadata for {key:?}");
-                            EngineError::InternalCorruption(
-                                "apply_reserved_rewrites: missing guard metadata",
-                            )
-                        })?;
-                    let is_system = item.kind == crate::boaw::ExecItemKind::System;
-                    Ok(crate::footprint_guard::FootprintGuard::new(
-                        &footprint,
-                        unit.warp_id,
-                        rule_name,
-                        is_system,
-                    ))
-                })
-                .collect::<Result<Vec<_>, EngineError>>()?;
-        }
+        attach_footprint_guards(&mut units, &guard_meta)?;
 
         // Cap workers at unit count (no point spawning more threads than work)
         let capped_workers = workers.min(units.len().max(1));
@@ -1332,52 +1283,8 @@ impl Engine {
             execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id))
                 .map_err(EngineError::UnknownWarp)?;
 
-        // 3. Merge deltas - use merge_deltas for conflict detection under delta_validate
-        #[cfg(any(test, feature = "delta_validate"))]
-        let ops = {
-            merge_deltas(all_deltas).map_err(|conflict| {
-                if let crate::MergeError::PoisonedDelta(poisoned) = conflict {
-                    std::panic::resume_unwind(poisoned.into_panic());
-                }
-                debug_assert!(false, "merge conflict: {conflict:?}");
-                EngineError::InternalCorruption("apply_reserved_rewrites: merge conflict")
-            })?
-        };
-
-        #[cfg(not(any(test, feature = "delta_validate")))]
-        let ops = {
-            // Without delta_validate, flatten and sort by sort_key for determinism.
-            // Ops with the same sort_key are deduplicated (footprint ensures they're identical).
-            let mut flat: Vec<_> = all_deltas
-                .into_iter()
-                .map(|delta| match delta {
-                    Ok(delta) => delta,
-                    Err(poisoned) => std::panic::resume_unwind(poisoned.into_panic()),
-                })
-                .flat_map(crate::TickDelta::into_ops_unsorted)
-                .map(|op| (op.sort_key(), op))
-                .collect();
-
-            // Sort by sort_key for canonical order.
-            // Use unstable sort for efficiency; equal keys become consecutive for dedup.
-            // Unstable sort doesn't preserve input order for equal elements, but since
-            // we deduplicate afterwards and the footprint invariant guarantees identical
-            // content for ops with the same key, the final output is deterministic.
-            flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-
-            // Reject conflicting ops with same sort_key in all builds.
-            for w in flat.windows(2) {
-                if w[0].0 == w[1].0 && w[0].1 != w[1].1 {
-                    return Err(EngineError::InternalCorruption(
-                        "apply_reserved_rewrites: conflicting ops share sort_key",
-                    ));
-                }
-            }
-
-            flat.dedup_by(|a, b| a.0 == b.0);
-
-            flat.into_iter().map(|(_, op)| op).collect::<Vec<_>>()
-        };
+        // 3. Merge deltas into canonical op sequence
+        let ops = merge_parallel_deltas(all_deltas)?;
 
         // 4. Apply the merged ops to the state
         let patch = WarpTickPatchV1::new(
@@ -1897,6 +1804,134 @@ impl Engine {
         store.set_node_attachment(id, attachment);
         Ok(())
     }
+}
+
+/// Merges parallel execution deltas into a canonical op sequence.
+///
+/// With `delta_validate`: uses `merge_deltas` for conflict detection.
+/// Without: flattens, sorts by `sort_key`, deduplicates, and rejects conflicts.
+///
+/// # Errors
+///
+/// Returns `EngineError::InternalCorruption` if conflicting ops share the same `sort_key`.
+///
+/// # Panics
+///
+/// Panics (via `resume_unwind`) if any delta was poisoned by an executor or enforcement panic.
+fn merge_parallel_deltas(
+    all_deltas: Vec<Result<crate::TickDelta, crate::boaw::PoisonedDelta>>,
+) -> Result<Vec<WarpOp>, EngineError> {
+    #[cfg(any(test, feature = "delta_validate"))]
+    {
+        merge_deltas(all_deltas).map_err(|conflict| {
+            if let crate::MergeError::PoisonedDelta(poisoned) = conflict {
+                std::panic::resume_unwind(poisoned.into_panic());
+            }
+            debug_assert!(false, "merge conflict: {conflict:?}");
+            EngineError::InternalCorruption("merge_parallel_deltas: merge conflict")
+        })
+    }
+
+    #[cfg(not(any(test, feature = "delta_validate")))]
+    {
+        // Without delta_validate, flatten and sort by sort_key for determinism.
+        // Ops with the same sort_key are deduplicated (footprint ensures they're identical).
+        let mut flat: Vec<_> = all_deltas
+            .into_iter()
+            .map(|delta| match delta {
+                Ok(delta) => delta,
+                Err(poisoned) => std::panic::resume_unwind(poisoned.into_panic()),
+            })
+            .flat_map(crate::TickDelta::into_ops_unsorted)
+            .map(|op| (op.sort_key(), op))
+            .collect();
+
+        // Sort by sort_key for canonical order.
+        // Use unstable sort for efficiency; equal keys become consecutive for dedup.
+        flat.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+        // Reject conflicting ops with same sort_key.
+        for w in flat.windows(2) {
+            if w[0].0 == w[1].0 && w[0].1 != w[1].1 {
+                return Err(EngineError::InternalCorruption(
+                    "merge_parallel_deltas: conflicting ops share sort_key",
+                ));
+            }
+        }
+
+        flat.dedup_by(|a, b| a.0 == b.0);
+        Ok(flat.into_iter().map(|(_, op)| op).collect())
+    }
+}
+
+/// Result of validating and grouping rewrites by warp.
+type RewritesByWarp = BTreeMap<WarpId, Vec<(PendingRewrite, crate::rule::ExecuteFn, &'static str)>>;
+
+/// Collects guard metadata from grouped rewrites for footprint enforcement.
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+fn collect_guard_metadata(
+    by_warp: &RewritesByWarp,
+) -> HashMap<(crate::tick_delta::OpOrigin, NodeKey), (crate::footprint::Footprint, &'static str)> {
+    by_warp
+        .values()
+        .flatten()
+        .map(|(rw, _exec, name)| {
+            (
+                (
+                    rw.origin,
+                    NodeKey {
+                        warp_id: rw.scope.warp_id,
+                        local_id: rw.scope.local_id,
+                    },
+                ),
+                (rw.footprint.clone(), *name),
+            )
+        })
+        .collect()
+}
+
+/// Attaches footprint guards to work units based on pre-collected metadata.
+///
+/// Each item in each unit is matched to its footprint via `(OpOrigin, NodeKey)` key.
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+fn attach_footprint_guards(
+    units: &mut [crate::boaw::WorkUnit],
+    guard_meta: &HashMap<
+        (crate::tick_delta::OpOrigin, NodeKey),
+        (crate::footprint::Footprint, &'static str),
+    >,
+) -> Result<(), EngineError> {
+    for unit in units {
+        unit.guards = unit
+            .items
+            .iter()
+            .map(|item| {
+                let key = (
+                    item.origin,
+                    NodeKey {
+                        warp_id: unit.warp_id,
+                        local_id: item.scope,
+                    },
+                );
+                let (footprint, rule_name) = guard_meta.get(&key).cloned().ok_or_else(|| {
+                    debug_assert!(false, "missing guard metadata for {key:?}");
+                    EngineError::InternalCorruption(
+                        "attach_footprint_guards: missing guard metadata",
+                    )
+                })?;
+                let is_system = item.kind == crate::boaw::ExecItemKind::System;
+                Ok(crate::footprint_guard::FootprintGuard::new(
+                    &footprint,
+                    unit.warp_id,
+                    rule_name,
+                    is_system,
+                ))
+            })
+            .collect::<Result<Vec<_>, EngineError>>()?;
+    }
+    Ok(())
 }
 
 fn footprints_conflict(a: &crate::footprint::Footprint, b: &crate::footprint::Footprint) -> bool {

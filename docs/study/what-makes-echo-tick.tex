@@ -1060,12 +1060,14 @@ panic.
 
 \subsubsection{Write Enforcement}\label{write-enforcement}
 
-Write enforcement uses a post-hoc \texttt{check\_op()} strategy. The
-executor runs inside a \texttt{catch\_unwind} boundary; after it completes,
-every op emitted into the \texttt{TickDelta} is validated against the
-footprint's write sets. This catches undeclared writes, cross-warp
-emissions, unauthorized instance ops, and adjacency violations (edge ops
-whose \texttt{from} node is absent from \texttt{n\_write}).
+Write enforcement uses a post-hoc \texttt{check\_op()} strategy: every op
+emitted into the \texttt{TickDelta} is validated against the footprint's
+write sets after the executor runs. The \texttt{catch\_unwind} boundary is
+separate---it catches immediate \texttt{GraphView} read violations so that,
+even if the executor unwinds, any ops already emitted can still be
+validated. This catches undeclared writes, cross-warp emissions,
+unauthorized instance ops, and adjacency violations (edge ops whose
+\texttt{from} node is absent from \texttt{n\_write}).
 
 \subsubsection{Scope and Lifecycle}\label{scope-and-lifecycle}
 

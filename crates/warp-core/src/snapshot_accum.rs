@@ -287,27 +287,26 @@ impl SnapshotAccumulator {
     /// Apply a `DeleteNode` operation.
     ///
     /// Removes the node and its alpha attachment (allowed mini-cascade).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the node has incident edges. `DeleteNode` must not cascade;
+    /// callers must emit explicit `DeleteEdge` ops first.
     fn apply_delete_node(&mut self, node: NodeKey) {
         // Validate: DeleteNode must only be applied to isolated nodes.
         // Check for incident edges (from or to this node).
         //
         // NOTE: This check is O(E) per delete, yielding O(D×E) cost for D deletes
-        // over E edges. This is acceptable for debug/delta_validate builds where
-        // correctness checking is prioritized. If bulk deletes become common in
-        // these builds, consider building a temporary reverse adjacency index
-        // before processing multiple WarpOp::DeleteNode operations. The check
-        // uses self.edges.iter() to scan all edges and debug_assert! to fail
-        // fast on non-isolated node.local_id/warp_id violations.
-        #[cfg(any(debug_assertions, feature = "delta_validate"))]
-        {
-            let has_incident = self.edges.iter().any(|((w, _), e)| {
-                *w == node.warp_id && (e.from == node.local_id || e.to == node.local_id)
-            });
-            debug_assert!(
-                !has_incident,
-                "DeleteNode applied to non-isolated node {node:?}; edges must be deleted first"
-            );
-        }
+        // over E edges. If bulk deletes become common, consider building a temporary
+        // reverse adjacency index before processing multiple WarpOp::DeleteNode
+        // operations. The check uses self.edges.iter() to scan all edges.
+        let has_incident = self.edges.iter().any(|((w, _), e)| {
+            *w == node.warp_id && (e.from == node.local_id || e.to == node.local_id)
+        });
+        assert!(
+            !has_incident,
+            "DeleteNode applied to non-isolated node {node:?}; edges must be deleted first"
+        );
 
         self.nodes.remove(&node);
         // Remove node's alpha attachment (allowed mini-cascade: key is derivable)

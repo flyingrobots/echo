@@ -318,6 +318,33 @@ impl FootprintGuard {
         rule_name: &'static str,
         is_system: bool,
     ) -> Self {
+        // Debug-only: detect cross-warp entries that will be silently filtered out.
+        // These indicate a rule declared the wrong warp in its footprint.
+        debug_assert!(
+            !footprint.n_read.iter().any(|k| k.warp_id != warp_id),
+            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_read (expected warp {warp_id:?})"
+        );
+        debug_assert!(
+            !footprint.n_write.iter().any(|k| k.warp_id != warp_id),
+            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_write (expected warp {warp_id:?})"
+        );
+        debug_assert!(
+            !footprint.e_read.iter().any(|k| k.warp_id != warp_id),
+            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_read (expected warp {warp_id:?})"
+        );
+        debug_assert!(
+            !footprint.e_write.iter().any(|k| k.warp_id != warp_id),
+            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_write (expected warp {warp_id:?})"
+        );
+        debug_assert!(
+            !footprint.a_read.iter().any(|k| k.owner.warp_id() != warp_id),
+            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_read (expected warp {warp_id:?})"
+        );
+        debug_assert!(
+            !footprint.a_write.iter().any(|k| k.owner.warp_id() != warp_id),
+            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_write (expected warp {warp_id:?})"
+        );
+
         let nodes_read = footprint
             .n_read
             .iter()
@@ -369,6 +396,7 @@ impl FootprintGuard {
     }
 
     /// Panics if the node is not declared in the read set.
+    #[track_caller]
     pub(crate) fn check_node_read(&self, id: &NodeId) {
         if !self.nodes_read.contains(id) {
             std::panic::panic_any(FootprintViolation {
@@ -381,6 +409,7 @@ impl FootprintGuard {
     }
 
     /// Panics if the edge is not declared in the read set.
+    #[track_caller]
     pub(crate) fn check_edge_read(&self, id: &EdgeId) {
         if !self.edges_read.contains(id) {
             std::panic::panic_any(FootprintViolation {
@@ -393,6 +422,7 @@ impl FootprintGuard {
     }
 
     /// Panics if the attachment is not declared in the read set.
+    #[track_caller]
     pub(crate) fn check_attachment_read(&self, key: &AttachmentKey) {
         if !self.attachments_read.contains(key) {
             std::panic::panic_any(FootprintViolation {
@@ -414,6 +444,7 @@ impl FootprintGuard {
     /// 2. Op warp must match guard's warp (cross-warp rejection)
     /// 3. Missing `op_warp` on non-instance ops is always an error
     /// 4. Node/edge/attachment targets must be in the write sets
+    #[track_caller]
     pub(crate) fn check_op(&self, op: &WarpOp) {
         let targets = op_write_targets(op);
 

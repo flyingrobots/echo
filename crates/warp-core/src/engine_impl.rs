@@ -1301,11 +1301,14 @@ impl Engine {
 
         #[cfg(any(test, feature = "delta_validate"))]
         {
-            use crate::tick_delta::assert_delta_matches_diff;
+            use crate::tick_delta::{assert_delta_matches_diff, effective_ops};
             use crate::tick_patch::diff_state;
 
+            // Filter delta to only ops that actually changed state (removes no-ops
+            // like SetAttachment with same value already present).
+            let eff = effective_ops(state_before, &ops);
             let diff_ops = diff_state(state_before, &self.state);
-            assert_delta_matches_diff(&ops, &diff_ops);
+            assert_delta_matches_diff(&eff, &diff_ops);
         }
 
         Ok(ops)

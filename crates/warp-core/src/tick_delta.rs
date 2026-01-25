@@ -619,6 +619,98 @@ fn canonicalize_ops(ops: &[WarpOp]) -> Vec<WarpOp> {
     sorted
 }
 
+/// Filters delta ops to only those that would actually change state.
+///
+/// This replays each op against `before` and keeps only ops where the target
+/// value differs from the current value. Used to filter out idempotent ops
+/// (e.g., `SetAttachment` with the same value already present) before comparing
+/// to [`diff_state()`](crate::tick_patch::diff_state) output.
+///
+/// # Arguments
+/// * `before` - The state before ops were applied.
+/// * `delta_ops` - Operations emitted by rule executors.
+///
+/// # Returns
+/// A filtered, canonicalized list of ops that represent actual state changes.
+#[cfg(any(test, feature = "delta_validate"))]
+pub fn effective_ops(before: &crate::warp_state::WarpState, delta_ops: &[WarpOp]) -> Vec<WarpOp> {
+    let sorted = canonicalize_ops(delta_ops);
+    let mut out = Vec::with_capacity(sorted.len());
+
+    for op in sorted {
+        let is_noop = match &op {
+            WarpOp::SetAttachment { key, value } => {
+                // No-op if current value equals new value
+                let current = attachment_value_in_state(before, key);
+                current.as_ref() == value.as_ref()
+            }
+            WarpOp::UpsertNode { node, record } => {
+                // No-op if node exists with identical record
+                before
+                    .store(&node.warp_id)
+                    .and_then(|s| s.node(&node.local_id))
+                    == Some(record)
+            }
+            WarpOp::DeleteNode { node } => {
+                // No-op if node doesn't exist
+                before
+                    .store(&node.warp_id)
+                    .and_then(|s| s.node(&node.local_id))
+                    .is_none()
+            }
+            WarpOp::UpsertEdge { warp_id, record } => {
+                // No-op if edge exists with identical record.
+                // We need to find the edge by iterating edges_from since there's
+                // no direct EdgeId -> EdgeRecord lookup.
+                before
+                    .store(warp_id)
+                    .is_some_and(|s| s.edges_from(&record.from).any(|r| r == record))
+            }
+            WarpOp::DeleteEdge {
+                warp_id, edge_id, ..
+            } => {
+                // No-op if edge doesn't exist
+                before.store(warp_id).is_none_or(|s| !s.has_edge(edge_id))
+            }
+            WarpOp::UpsertWarpInstance { instance } => {
+                // No-op if instance exists with identical data
+                before.instances.get(&instance.warp_id) == Some(instance)
+            }
+            WarpOp::DeleteWarpInstance { warp_id } => {
+                // No-op if instance doesn't exist
+                !before.instances.contains_key(warp_id)
+            }
+            WarpOp::OpenPortal { .. } => false, // always effective (creates new structure)
+        };
+
+        if !is_noop {
+            out.push(op);
+        }
+    }
+
+    out
+}
+
+/// Returns attachment value for a key from [`WarpState`](crate::warp_state::WarpState).
+#[cfg(any(test, feature = "delta_validate"))]
+fn attachment_value_in_state(
+    state: &crate::warp_state::WarpState,
+    key: &crate::attachment::AttachmentKey,
+) -> Option<crate::attachment::AttachmentValue> {
+    use crate::attachment::AttachmentOwner;
+
+    match &key.owner {
+        AttachmentOwner::Node(node_key) => state
+            .store(&node_key.warp_id)
+            .and_then(|s| s.node_attachment(&node_key.local_id))
+            .cloned(),
+        AttachmentOwner::Edge(edge_key) => state
+            .store(&edge_key.warp_id)
+            .and_then(|s| s.edge_attachment(&edge_key.local_id))
+            .cloned(),
+    }
+}
+
 /// Validates that ops emitted by executors match ops from `diff_state()`.
 ///
 /// This is the non-panicking version that returns a [`DeltaMismatch`] on failure.

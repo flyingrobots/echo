@@ -254,7 +254,7 @@ impl LocalProvenanceStore {
     /// Appends a tick's data to a worldline's history.
     ///
     /// The tick number must equal the current length (append-only, no gaps).
-    /// This method stores an empty atom write set; use [`append_with_writes`]
+    /// This method stores an empty atom write set; use [`Self::append_with_writes`]
     /// to include provenance tracking data.
     ///
     /// # Errors

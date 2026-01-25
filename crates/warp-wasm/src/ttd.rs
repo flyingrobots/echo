@@ -152,7 +152,7 @@ pub fn compute_tick_commit_hash(
 ///
 /// * `emissions_cbor` - CBOR-encoded array of `{channel: [u8;32], data: [u8]}`
 /// * `policies_cbor` - CBOR-encoded array of `{channel: [u8;32], policy: string}`
-///   where policy is "Log", "StrictSingle", or "Reduce:<op>"
+///   where policy is `Log`, `StrictSingle`, or `Reduce:<op>`
 /// * `strict_mode` - If true, unknown channels are errors; if false, warnings
 ///
 /// # Returns

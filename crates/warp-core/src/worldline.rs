@@ -18,7 +18,7 @@
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentValue};
-use crate::graph::GraphStore;
+use crate::graph::{DeleteNodeError, GraphStore};
 use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::materialization::ChannelId;
 use crate::tick_patch::{SlotId, WarpOp};
@@ -191,8 +191,6 @@ pub(crate) fn apply_warp_op_to_store(
     store: &mut GraphStore,
     op: &WarpOp,
 ) -> Result<(), ApplyError> {
-    use crate::graph::DeleteNodeError;
-
     let store_warp = store.warp_id();
 
     match op {

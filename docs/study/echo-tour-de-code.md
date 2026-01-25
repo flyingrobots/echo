@@ -677,12 +677,13 @@ execute_item_enforced(store, item, idx, unit, delta)
 ├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
-├─ scoped_delta = delta.scoped(item.origin)
-│   Wrap delta with origin tracking so emitted ops are tagged
+├─ let mut scoped = delta.scoped(item.origin)
+│   Wrap delta with origin tracking (mutable binding required)
 │
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-│      (item.exec)(view, &item.scope, scoped_delta)
+│      (item.exec)(view, &item.scope, scoped.inner_mut())
 │  }))
+│   Pass the inner mutable accessor to the executor, not the scoped wrapper
 │
 ├─ FOR op IN delta.ops_ref()[ops_before..]:
 │     guard.check_op(op) → panic_any(FootprintViolation)

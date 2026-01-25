@@ -17,7 +17,7 @@ use thiserror::Error;
 
 use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
 use crate::footprint::WarpScopedPortKey;
-use crate::graph::GraphStore;
+use crate::graph::{DeleteNodeError, GraphStore};
 use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
 use crate::record::{EdgeRecord, NodeRecord};
 use crate::warp_state::{WarpInstance, WarpState};
@@ -517,8 +517,6 @@ fn validate_descend_target(
 }
 
 fn apply_op_to_state(state: &mut WarpState, op: &WarpOp) -> Result<(), TickPatchError> {
-    use crate::graph::DeleteNodeError;
-
     match op {
         WarpOp::OpenPortal {
             key,
@@ -754,7 +752,14 @@ pub enum TickPatchError {
     MissingEdge(EdgeKey),
     /// Tried to delete a node that has incident edges.
     ///
-    /// `DeleteNode` must not cascade. Emit explicit `DeleteEdge` ops first.
+    /// [`WarpOp::DeleteNode`] must not cascade to edges. This constraint enforces
+    /// explicit footprint management: callers must emit explicit [`WarpOp::DeleteEdge`]
+    /// operations for all incident edges before emitting `DeleteNode`. This ensures
+    /// that resource accounting and footprint enforcement can track every mutation.
+    ///
+    /// To resolve this error, examine the [`NodeKey`] in the variant payload to identify
+    /// the node, then emit `DeleteEdge` ops for all edges where this node is either
+    /// the `from` or `to` endpoint before retrying the `DeleteNode`.
     #[error("node not isolated (has edges): {0:?}")]
     NodeNotIsolated(NodeKey),
     /// Tried to set an attachment slot that is not valid in v1.

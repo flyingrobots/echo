@@ -228,9 +228,13 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
             edge_id,
         } => OpTargets {
             // Adjacency write: edge deletion implies node adjacency mutation on `from`
+            // DeleteEdge also removes the edge's attachment (allowed mini-cascade).
             nodes: vec![*from],
             edges: vec![*edge_id],
-            attachments: Vec::new(),
+            attachments: vec![AttachmentKey::edge_beta(crate::ident::EdgeKey {
+                warp_id: *warp_id,
+                local_id: *edge_id,
+            })],
             is_instance_op: false,
             op_warp: Some(*warp_id),
             kind_str,

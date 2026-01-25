@@ -151,8 +151,8 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                             WorkerResult::MissingStore(wid) => {
                                 panic!("bench: missing store for warp {wid:?}");
                             }
-                            WorkerResult::Poisoned(wid) => {
-                                panic!("bench: poisoned worker {wid:?}");
+                            WorkerResult::Poisoned(pd) => {
+                                panic!("bench: poisoned worker delta {pd:?}");
                             }
                             WorkerResult::Success(_) => {}
                         }
@@ -242,8 +242,8 @@ fn bench_work_queue(c: &mut Criterion) {
                                 WorkerResult::MissingStore(wid) => {
                                     panic!("bench: missing store for warp {wid:?}");
                                 }
-                                WorkerResult::Poisoned(wid) => {
-                                    panic!("bench: poisoned worker {wid:?}");
+                                WorkerResult::Poisoned(poisoned) => {
+                                    panic!("bench: poisoned worker {poisoned:?}");
                                 }
                                 WorkerResult::Success(_) => {}
                             }

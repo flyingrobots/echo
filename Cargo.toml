@@ -23,6 +23,7 @@ members = [
     "specs/spec-000-rewrite",
     "crates/echo-wasm-bindings",
     "crates/echo-wesley-gen",
+    "crates/echo-ttd-gen",
     "crates/echo-dry-tests",
     "xtask"
 ]

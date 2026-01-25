@@ -1246,6 +1246,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-ttd-gen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn",
+]
+
+[[package]]
 name = "echo-wasm-abi"
 version = "0.1.0"
 dependencies = [

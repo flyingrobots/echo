@@ -132,20 +132,14 @@ impl FootprintBuilder {
 
     /// Declares an edge read (adds to `e_read`).
     pub fn reads_edge(mut self, id: EdgeId) -> Self {
-        self.e_read.insert(EdgeKey {
-            warp_id: self.warp_id,
-            local_id: id,
-        });
+        self.e_read.insert_with_warp(self.warp_id, id);
         self
     }
 
     /// Declares multiple edge reads.
     pub fn reads_edges(mut self, ids: impl IntoIterator<Item = EdgeId>) -> Self {
         for id in ids {
-            self.e_read.insert(EdgeKey {
-                warp_id: self.warp_id,
-                local_id: id,
-            });
+            self.e_read.insert_with_warp(self.warp_id, id);
         }
         self
     }
@@ -169,7 +163,7 @@ impl FootprintBuilder {
     }
 
     // -------------------------------------------------------------------------
-    // Attachment reads (alpha = node attachments)
+    // Attachment reads (alpha = node, beta = edge)
     // -------------------------------------------------------------------------
 
     /// Declares a node attachment read (alpha plane).
@@ -192,6 +186,26 @@ impl FootprintBuilder {
         self
     }
 
+    /// Declares an edge attachment read (beta plane).
+    pub fn reads_edge_beta(mut self, edge_id: EdgeId) -> Self {
+        self.a_read.insert(AttachmentKey::edge_beta(EdgeKey {
+            warp_id: self.warp_id,
+            local_id: edge_id,
+        }));
+        self
+    }
+
+    /// Declares multiple edge attachment reads (beta plane).
+    pub fn reads_edges_beta(mut self, ids: impl IntoIterator<Item = EdgeId>) -> Self {
+        for id in ids {
+            self.a_read.insert(AttachmentKey::edge_beta(EdgeKey {
+                warp_id: self.warp_id,
+                local_id: id,
+            }));
+        }
+        self
+    }
+
     /// Declares an attachment read using an explicit [`AttachmentKey`].
     pub fn reads_attachment_key(mut self, key: AttachmentKey) -> Self {
         self.a_read.insert(key);
@@ -199,7 +213,7 @@ impl FootprintBuilder {
     }
 
     // -------------------------------------------------------------------------
-    // Attachment writes (alpha = node attachments)
+    // Attachment writes (alpha = node, beta = edge)
     // -------------------------------------------------------------------------
 
     /// Declares a node attachment write (alpha plane).
@@ -215,6 +229,26 @@ impl FootprintBuilder {
     pub fn writes_nodes_alpha(mut self, ids: impl IntoIterator<Item = NodeId>) -> Self {
         for id in ids {
             self.a_write.insert(AttachmentKey::node_alpha(NodeKey {
+                warp_id: self.warp_id,
+                local_id: id,
+            }));
+        }
+        self
+    }
+
+    /// Declares an edge attachment write (beta plane).
+    pub fn writes_edge_beta(mut self, edge_id: EdgeId) -> Self {
+        self.a_write.insert(AttachmentKey::edge_beta(EdgeKey {
+            warp_id: self.warp_id,
+            local_id: edge_id,
+        }));
+        self
+    }
+
+    /// Declares multiple edge attachment writes (beta plane).
+    pub fn writes_edges_beta(mut self, ids: impl IntoIterator<Item = EdgeId>) -> Self {
+        for id in ids {
+            self.a_write.insert(AttachmentKey::edge_beta(EdgeKey {
                 warp_id: self.warp_id,
                 local_id: id,
             }));

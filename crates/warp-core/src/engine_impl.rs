@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::attachment::{AttachmentKey, AttachmentValue};
 #[cfg(any(test, feature = "delta_validate"))]
 use crate::boaw::merge_deltas;
-use crate::boaw::{build_work_units, execute_work_queue, ExecItem, NUM_SHARDS};
+use crate::boaw::{build_work_units, execute_work_queue, ExecItem, WorkerResult, NUM_SHARDS};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::ident::{
@@ -1279,12 +1279,11 @@ impl Engine {
 
         // Execute all units in parallel across warps (single spawn site)
         // Views resolved per-unit inside threads, dropped before next unit
-        let all_deltas =
-            execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id))
-                .map_err(EngineError::UnknownWarp)?;
+        let worker_results =
+            execute_work_queue(&units, capped_workers, |warp_id| self.state.store(warp_id));
 
         // 3. Merge deltas into canonical op sequence
-        let ops = merge_parallel_deltas(all_deltas)?;
+        let ops = merge_parallel_deltas(worker_results)?;
 
         // 4. Apply the merged ops to the state
         let patch = WarpTickPatchV1::new(
@@ -1821,9 +1820,19 @@ impl Engine {
 /// # Panics
 ///
 /// Panics (via `resume_unwind`) if any delta was poisoned by an executor or enforcement panic.
-fn merge_parallel_deltas(
-    all_deltas: Vec<Result<crate::TickDelta, crate::boaw::PoisonedDelta>>,
-) -> Result<Vec<WarpOp>, EngineError> {
+fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp>, EngineError> {
+    // Convert WorkerResult to the format expected by merge paths
+    let all_deltas: Result<Vec<Result<crate::TickDelta, crate::boaw::PoisonedDelta>>, _> =
+        worker_results
+            .into_iter()
+            .map(|result| match result {
+                WorkerResult::Success(delta) => Ok(Ok(delta)),
+                WorkerResult::Poisoned(poisoned) => Ok(Err(poisoned)),
+                WorkerResult::MissingStore(warp_id) => Err(EngineError::UnknownWarp(warp_id)),
+            })
+            .collect();
+    let all_deltas = all_deltas?;
+
     #[cfg(any(test, feature = "delta_validate"))]
     {
         merge_deltas(all_deltas).map_err(|conflict| {

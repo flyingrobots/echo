@@ -113,6 +113,26 @@ pub struct FootprintViolationWithPanic {
     pub exec_panic: Box<dyn Any + Send + 'static>,
 }
 
+impl std::fmt::Debug for FootprintViolationWithPanic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Attempt to downcast exec_panic to common string types for readability
+        let panic_desc: &dyn std::fmt::Debug =
+            if let Some(s) = self.exec_panic.downcast_ref::<&str>() {
+                s
+            } else if let Some(s) = self.exec_panic.downcast_ref::<String>() {
+                s
+            } else {
+                // Fallback: show the TypeId for non-string payloads
+                &"<non-debuggable panic payload>"
+            };
+
+        f.debug_struct("FootprintViolationWithPanic")
+            .field("violation", &self.violation)
+            .field("exec_panic", panic_desc)
+            .finish()
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // OpTargets: canonical write-target extraction from WarpOp
 // ─────────────────────────────────────────────────────────────────────────────

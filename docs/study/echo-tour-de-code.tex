@@ -856,9 +856,10 @@ discarded---it cannot be merged or committed.
 level via \texttt{PoisonedDelta}, a newtype distinct from \texttt{TickDelta}.
 When an executor panics, \texttt{execute\_item\_enforced()} returns
 \texttt{Result<TickDelta, PoisonedDelta>}. The API exposes \texttt{merge\_deltas\_ok()}
-(replacing \texttt{merge\_deltas()}) which returns \texttt{Result} and only
-accepts non-poisoned deltas. A \texttt{PoisonedDelta} cannot be passed to
-\texttt{merge\_deltas\_ok()}---the type system prevents accidental merging.
+(a higher-level wrapper around \texttt{merge\_deltas()}, which remains available
+feature-gated) that returns \texttt{Result} and only accepts non-poisoned deltas.
+A \texttt{PoisonedDelta} cannot be passed to \texttt{merge\_deltas\_ok()}---the
+type system prevents accidental merging.
 
 \subsection{5.4 ExecItem Structure}\label{execitem-structure}
 

@@ -102,7 +102,8 @@ mod footprint;
 ///
 /// - Each `ExecItem` is paired with a `FootprintGuard` aligned by index in the `WorkUnit`
 /// - Reads via `GraphView::new_guarded()` are intercepted and validated inline
-/// - Writes are validated post-hoc via `check_op()` after the executor completes
+/// - Writes are validated post-hoc via `check_op()` after the executor completes or unwinds
+///   (panics); validation runs even when the executor panics to catch violations on emitted ops
 ///
 /// # Violation Surfacing
 ///

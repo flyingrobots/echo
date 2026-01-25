@@ -13,7 +13,7 @@ pub mod shard;
 pub(crate) use exec::ExecItemKind;
 pub use exec::{
     build_work_units, execute_parallel, execute_parallel_sharded, execute_serial,
-    execute_work_queue, ExecItem, PoisonedDelta, WorkUnit,
+    execute_work_queue, ExecItem, PoisonedDelta, WorkUnit, WorkerResult,
 };
 pub use merge::MergeConflict;
 #[cfg(any(test, feature = "delta_validate"))]

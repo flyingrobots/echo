@@ -118,6 +118,29 @@ impl PoisonedDelta {
     }
 }
 
+/// Result of a single worker's execution in `execute_work_queue`.
+///
+/// Flattens the nested `Result<Result<TickDelta, PoisonedDelta>, WarpId>` into
+/// a single enum for clearer pattern matching.
+pub enum WorkerResult {
+    /// Worker completed successfully with a delta to merge.
+    Success(TickDelta),
+    /// Worker encountered a footprint violation or executor panic.
+    Poisoned(PoisonedDelta),
+    /// Worker failed to resolve a store for the given warp.
+    MissingStore(WarpId),
+}
+
+impl std::fmt::Debug for WorkerResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Success(_) => f.debug_tuple("Success").field(&"<TickDelta>").finish(),
+            Self::Poisoned(p) => f.debug_tuple("Poisoned").field(p).finish(),
+            Self::MissingStore(warp_id) => f.debug_tuple("MissingStore").field(warp_id).finish(),
+        }
+    }
+}
+
 /// Serial execution baseline.
 pub fn execute_serial(view: GraphView<'_>, items: &[ExecItem]) -> TickDelta {
     let mut delta = TickDelta::new();
@@ -240,8 +263,18 @@ pub struct WorkUnit {
     pub items: Vec<ExecItem>,
     /// Precomputed footprint guards (1:1 with items).
     ///
-    /// Populated by engine after `build_work_units` when enforcement is active.
-    /// Guaranteed to be the same length as `items` before enforcement indexing.
+    /// # Construction Contract
+    ///
+    /// This field is initialized empty by `build_work_units()`. The engine **MUST**
+    /// call `attach_footprint_guards()` (or equivalent) to populate guards before
+    /// any execution occurs. Runtime assertions in `execute_item_enforced()` verify
+    /// this invariant—an empty `guards` vec when enforcement is active is a bug.
+    ///
+    /// # Invariants
+    ///
+    /// - `guards.len() == items.len()` before any item execution
+    /// - Guards are indexed in parallel with items (guard[i] validates item[i])
+    /// - Populated by engine after `build_work_units` when enforcement is active
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
     pub(crate) guards: Vec<FootprintGuard>,
@@ -314,14 +347,10 @@ pub fn build_work_units(
 ///
 /// # Returns
 ///
-/// `Ok(deltas)` with one result per worker, to be merged by caller.
-/// `Err(PoisonedDelta)` entries indicate executor or enforcement panics
-/// and must not be merged.
-///
-/// # Errors
-///
-/// Returns `Err(warp_id)` if `resolve_store` returned `None` for a unit's
-/// warp, indicating the caller failed to validate store availability.
+/// A vector of [`WorkerResult`] entries, one per worker:
+/// - [`WorkerResult::Success`]: delta ready to merge
+/// - [`WorkerResult::Poisoned`]: executor or enforcement panic (must not be merged)
+/// - [`WorkerResult::MissingStore`]: `resolve_store` returned `None` for a warp
 ///
 /// # Panics
 ///
@@ -330,14 +359,16 @@ pub fn execute_work_queue<'state, F>(
     units: &[WorkUnit],
     workers: usize,
     resolve_store: F,
-) -> Result<Vec<Result<TickDelta, PoisonedDelta>>, WarpId>
+) -> Vec<WorkerResult>
 where
     F: Fn(&WarpId) -> Option<&'state GraphStore> + Sync,
 {
     assert!(workers > 0, "workers must be > 0");
 
     if units.is_empty() {
-        return Ok((0..workers).map(|_| Ok(TickDelta::new())).collect());
+        return (0..workers)
+            .map(|_| WorkerResult::Success(TickDelta::new()))
+            .collect();
     }
 
     let next_unit = AtomicUsize::new(0);
@@ -349,40 +380,40 @@ where
                 let next_unit = &next_unit;
                 let resolve_store = &resolve_store;
 
-                s.spawn(
-                    move || -> Result<Result<TickDelta, PoisonedDelta>, WarpId> {
-                        let mut delta = TickDelta::new();
+                s.spawn(move || -> WorkerResult {
+                    let mut delta = TickDelta::new();
 
-                        // Work-stealing loop: claim units until none remain
-                        loop {
-                            let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
-                            if unit_idx >= units.len() {
-                                break;
-                            }
-
-                            let unit = &units[unit_idx];
-
-                            // Resolve view for this warp (per-unit, NOT cached across units)
-                            let store = resolve_store(&unit.warp_id).ok_or(unit.warp_id)?;
-
-                            // Execute items SERIALLY (no nested threading!)
-                            for (idx, item) in unit.items.iter().enumerate() {
-                                match execute_item_enforced(store, item, idx, unit, delta) {
-                                    Ok(next_delta) => {
-                                        delta = next_delta;
-                                    }
-                                    Err(poisoned) => {
-                                        return Ok(Err(poisoned));
-                                    }
-                                }
-                            }
-
-                            // View dropped here - no long-lived borrows across warps
+                    // Work-stealing loop: claim units until none remain
+                    loop {
+                        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
+                        if unit_idx >= units.len() {
+                            break;
                         }
 
-                        Ok(Ok(delta))
-                    },
-                )
+                        let unit = &units[unit_idx];
+
+                        // Resolve view for this warp (per-unit, NOT cached across units)
+                        let Some(store) = resolve_store(&unit.warp_id) else {
+                            return WorkerResult::MissingStore(unit.warp_id);
+                        };
+
+                        // Execute items SERIALLY (no nested threading!)
+                        for (idx, item) in unit.items.iter().enumerate() {
+                            match execute_item_enforced(store, item, idx, unit, delta) {
+                                Ok(next_delta) => {
+                                    delta = next_delta;
+                                }
+                                Err(poisoned) => {
+                                    return WorkerResult::Poisoned(poisoned);
+                                }
+                            }
+                        }
+
+                        // View dropped here - no long-lived borrows across warps
+                    }
+
+                    WorkerResult::Success(delta)
+                })
             })
             .collect();
 

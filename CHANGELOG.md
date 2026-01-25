@@ -47,9 +47,10 @@
 
 - `execute_item_enforced` wraps executor calls in `catch_unwind`, performs read enforcement
   via `GraphView::new_guarded`, and post-hoc write enforcement via `check_op()`.
-- A `FootprintViolation` uses `panic_any`, producing a poisoned delta (`PoisonedDelta`) rather than
-  a recoverable `Result`. The worker who hits a violation stops processing further items, while
-  other workers may continue to completion.
+- A `FootprintViolation` (triggered via `panic_any` in `footprint_guard.rs`) produces a
+  `PoisonedDelta` rather than a recoverable `Result`. The violating item's execution is aborted,
+  but the worker continues processing remaining items in its queue. Other workers also continue
+  to completion.
 - At the engine layer, poisoned deltas abort the tick via `std::panic::resume_unwind()`: in the
   `delta_validate` path, non-poisoned deltas are processed until a `PoisonedDelta` is encountered,
   triggering `MergeError::PoisonedDelta` and `resume_unwind()` (via `into_panic()`); in the
@@ -164,7 +165,7 @@
 - **P1: OOM prevention** (`materialization/frame_v2.rs`): Bound `entry_count` by remaining payload size in `decode_v2_packet` to prevent malicious allocation
 - **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
 - **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
-- **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Result<Vec<TickDelta>, WarpId>` instead of panicking on missing store; caller maps to `EngineError::InternalCorruption`
+- **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Vec<WorkerResult>` with variants `Success(TickDelta)`, `Poisoned(PoisonedDelta)`, `MissingStore(WarpId)`; caller maps `MissingStore` to `EngineError::UnknownWarp`
 - **P1: Guard metadata scoping** (`engine_impl.rs`): Guard metadata (enforcement tracking of read/write footprints and violation markers) now keys by warp-scoped `NodeKey` (`WarpId + NodeId`), fixing cross-warp collisions that produced false positives/negatives when different warps reused the same local IDs; detected via multi-warp enforcement tests (e.g., slice theorem replay).
 - **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
 - **P2: Markdownlint MD060** (`.markdownlint.json`): Global MD060 disable retained to avoid table false positives (revisit once tables are normalized)

@@ -1,0 +1,260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="800" viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="panelGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1f2937;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#111827;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="800" fill="#0f0f1a"/>
+
+  <!-- STEPPER BAR -->
+  <rect x="0" y="0" width="1200" height="50" fill="url(#headerGrad)"/>
+  <text x="20" y="32" fill="#fff" font-family="system-ui" font-size="14" font-weight="bold">WARPSITE</text>
+
+  <!-- Playback controls -->
+  <g transform="translate(120, 12)">
+    <rect x="0" y="0" width="30" height="26" rx="4" fill="#374151" stroke="#4b5563" stroke-width="1"/>
+    <polygon points="10,8 10,18 18,13" fill="#9ca3af"/>
+    <rect x="35" y="0" width="30" height="26" rx="4" fill="#374151" stroke="#4b5563" stroke-width="1"/>
+    <rect x="45" y="8" width="3" height="10" fill="#9ca3af"/>
+    <rect x="52" y="8" width="3" height="10" fill="#9ca3af"/>
+    <rect x="70" y="0" width="30" height="26" rx="4" fill="#374151" stroke="#4b5563" stroke-width="1"/>
+    <polygon points="78,13 86,8 86,18" fill="#9ca3af"/>
+    <rect x="105" y="0" width="30" height="26" rx="4" fill="#374151" stroke="#4b5563" stroke-width="1"/>
+    <polygon points="113,13 121,8 121,18" fill="#9ca3af"/>
+    <line x1="123" y1="8" x2="123" y2="18" stroke="#9ca3af" stroke-width="2"/>
+  </g>
+
+  <!-- Tick display -->
+  <text x="280" y="32" fill="#9ca3af" font-family="monospace" font-size="13">Tick:</text>
+  <text x="320" y="32" fill="#10b981" font-family="monospace" font-size="13" font-weight="bold">47</text>
+  <text x="345" y="32" fill="#6b7280" font-family="monospace" font-size="13">/ 203</text>
+
+  <!-- Timeline scrubber -->
+  <rect x="400" y="18" width="500" height="14" rx="7" fill="#374151"/>
+  <rect x="400" y="18" width="115" height="14" rx="7" fill="#3b82f6"/>
+  <circle cx="515" cy="25" r="8" fill="#60a5fa" filter="url(#glow)"/>
+
+  <!-- Speed control -->
+  <text x="920" y="32" fill="#9ca3af" font-family="system-ui" font-size="12">Speed:</text>
+  <text x="965" y="32" fill="#fff" font-family="monospace" font-size="12">1x</text>
+
+  <!-- Fork button -->
+  <rect x="1020" y="10" width="80" height="30" rx="6" fill="#7c3aed" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="1035" y="30" fill="#fff" font-family="system-ui" font-size="12" font-weight="bold">Fork</text>
+
+  <!-- Hash indicator -->
+  <rect x="1110" y="10" width="80" height="30" rx="6" fill="#065f46" stroke="#10b981" stroke-width="1"/>
+  <text x="1122" y="30" fill="#10b981" font-family="system-ui" font-size="11">a3f2...</text>
+
+  <!-- TIMELINE BAR -->
+  <rect x="0" y="50" width="1200" height="40" fill="#111827"/>
+  <line x1="20" y1="70" x2="1180" y2="70" stroke="#374151" stroke-width="2"/>
+
+  <!-- Timeline markers -->
+  <circle cx="80" cy="70" r="5" fill="#f59e0b"/>
+  <text x="75" y="62" fill="#f59e0b" font-family="system-ui" font-size="9">intent</text>
+
+  <circle cx="200" cy="70" r="5" fill="#8b5cf6"/>
+  <text x="195" y="62" fill="#8b5cf6" font-family="system-ui" font-size="9">fork</text>
+
+  <g>
+    <circle cx="350" cy="70" r="4" fill="#3b82f6"/>
+    <circle cx="360" cy="70" r="4" fill="#3b82f6"/>
+    <circle cx="370" cy="70" r="4" fill="#3b82f6"/>
+  </g>
+  <text x="345" y="62" fill="#3b82f6" font-family="system-ui" font-size="9">rules</text>
+
+  <circle cx="550" cy="70" r="5" fill="#f59e0b"/>
+
+  <circle cx="750" cy="70" r="5" fill="#8b5cf6"/>
+
+  <!-- Current position -->
+  <line x1="515" y1="55" x2="515" y2="85" stroke="#10b981" stroke-width="2"/>
+  <polygon points="515,55 510,48 520,48" fill="#10b981"/>
+
+  <!-- MAIN CONTENT AREA -->
+
+  <!-- Graph View Panel -->
+  <rect x="10" y="100" width="590" height="380" rx="8" fill="url(#panelGrad)" stroke="#374151" stroke-width="1"/>
+  <text x="25" y="125" fill="#fff" font-family="system-ui" font-size="14" font-weight="bold">Graph View</text>
+
+  <!-- Graph visualization -->
+  <g transform="translate(300, 290)">
+    <!-- Edges -->
+    <line x1="-100" y1="-80" x2="0" y2="0" stroke="#4b5563" stroke-width="2"/>
+    <line x1="100" y1="-80" x2="0" y2="0" stroke="#4b5563" stroke-width="2"/>
+    <line x1="-120" y1="60" x2="0" y2="0" stroke="#4b5563" stroke-width="2"/>
+    <line x1="120" y1="60" x2="0" y2="0" stroke="#4b5563" stroke-width="2"/>
+    <line x1="-100" y1="-80" x2="-180" y2="-40" stroke="#4b5563" stroke-width="2"/>
+    <line x1="100" y1="-80" x2="180" y2="-40" stroke="#4b5563" stroke-width="2"/>
+
+    <!-- Nodes -->
+    <circle cx="0" cy="0" r="20" fill="#3b82f6" filter="url(#glow)"/>
+    <circle cx="-100" cy="-80" r="15" fill="#8b5cf6"/>
+    <circle cx="100" cy="-80" r="15" fill="#8b5cf6"/>
+    <circle cx="-120" cy="60" r="12" fill="#10b981"/>
+    <circle cx="120" cy="60" r="12" fill="#10b981"/>
+    <circle cx="-180" cy="-40" r="10" fill="#f59e0b"/>
+    <circle cx="180" cy="-40" r="10" fill="#f59e0b"/>
+  </g>
+
+  <!-- View mode buttons -->
+  <g transform="translate(25, 455)">
+    <rect x="0" y="0" width="40" height="22" rx="4" fill="#3b82f6"/>
+    <text x="10" y="15" fill="#fff" font-family="system-ui" font-size="10">2D</text>
+    <rect x="45" y="0" width="40" height="22" rx="4" fill="#374151" stroke="#4b5563"/>
+    <text x="55" y="15" fill="#9ca3af" font-family="system-ui" font-size="10">3D</text>
+    <rect x="90" y="0" width="50" height="22" rx="4" fill="#374151" stroke="#4b5563"/>
+    <text x="98" y="15" fill="#9ca3af" font-family="system-ui" font-size="10">Force</text>
+    <rect x="145" y="0" width="45" height="22" rx="4" fill="#374151" stroke="#4b5563"/>
+    <text x="155" y="15" fill="#9ca3af" font-family="system-ui" font-size="10">Tree</text>
+  </g>
+
+  <!-- Atoms View Panel -->
+  <rect x="610" y="100" width="580" height="380" rx="8" fill="url(#panelGrad)" stroke="#374151" stroke-width="1"/>
+  <text x="625" y="125" fill="#fff" font-family="system-ui" font-size="14" font-weight="bold">Atoms View</text>
+
+  <!-- Table header -->
+  <rect x="620" y="135" width="560" height="30" fill="#1f2937"/>
+  <text x="635" y="155" fill="#9ca3af" font-family="monospace" font-size="11">ID</text>
+  <text x="780" y="155" fill="#9ca3af" font-family="monospace" font-size="11">Type</text>
+  <text x="880" y="155" fill="#9ca3af" font-family="monospace" font-size="11">Value</text>
+  <text x="1020" y="155" fill="#9ca3af" font-family="monospace" font-size="11">Modified</text>
+  <text x="1110" y="155" fill="#9ca3af" font-family="monospace" font-size="11">Rule</text>
+
+  <!-- Table rows -->
+  <rect x="620" y="165" width="560" height="35" fill="#1a1a2e" stroke="#374151" stroke-width="0.5"/>
+  <circle cx="630" cy="182" r="4" fill="#3b82f6"/>
+  <text x="645" y="187" fill="#fff" font-family="monospace" font-size="11">counter_1</text>
+  <text x="780" y="187" fill="#8b5cf6" font-family="monospace" font-size="11">Int</text>
+  <text x="880" y="187" fill="#10b981" font-family="monospace" font-size="11" font-weight="bold">47</text>
+  <text x="1020" y="187" fill="#f59e0b" font-family="monospace" font-size="11">T45</text>
+  <text x="1110" y="187" fill="#6b7280" font-family="monospace" font-size="10">update_ctr</text>
+
+  <rect x="620" y="200" width="560" height="35" fill="#111827" stroke="#374151" stroke-width="0.5"/>
+  <circle cx="630" cy="217" r="4" fill="#10b981"/>
+  <text x="645" y="222" fill="#fff" font-family="monospace" font-size="11">player_pos</text>
+  <text x="780" y="222" fill="#8b5cf6" font-family="monospace" font-size="11">Vec3</text>
+  <text x="880" y="222" fill="#10b981" font-family="monospace" font-size="11">(1.0, 2.5, 0.0)</text>
+  <text x="1020" y="222" fill="#f59e0b" font-family="monospace" font-size="11">T47</text>
+  <text x="1110" y="222" fill="#6b7280" font-family="monospace" font-size="10">physics</text>
+
+  <rect x="620" y="235" width="560" height="35" fill="#1a1a2e" stroke="#374151" stroke-width="0.5"/>
+  <circle cx="630" cy="252" r="4" fill="#f59e0b"/>
+  <text x="645" y="257" fill="#fff" font-family="monospace" font-size="11">theme</text>
+  <text x="780" y="257" fill="#8b5cf6" font-family="monospace" font-size="11">Enum</text>
+  <text x="880" y="257" fill="#10b981" font-family="monospace" font-size="11">DARK</text>
+  <text x="1020" y="257" fill="#6b7280" font-family="monospace" font-size="11">T12</text>
+  <text x="1110" y="257" fill="#6b7280" font-family="monospace" font-size="10">set_theme</text>
+
+  <rect x="620" y="270" width="560" height="35" fill="#111827" stroke="#374151" stroke-width="0.5"/>
+  <circle cx="630" cy="287" r="4" fill="#8b5cf6"/>
+  <text x="645" y="292" fill="#fff" font-family="monospace" font-size="11">velocity</text>
+  <text x="780" y="292" fill="#8b5cf6" font-family="monospace" font-size="11">Vec3</text>
+  <text x="880" y="292" fill="#10b981" font-family="monospace" font-size="11">(0.1, -0.5, 0.0)</text>
+  <text x="1020" y="292" fill="#f59e0b" font-family="monospace" font-size="11">T47</text>
+  <text x="1110" y="292" fill="#6b7280" font-family="monospace" font-size="10">physics</text>
+
+  <rect x="620" y="305" width="560" height="35" fill="#1a1a2e" stroke="#374151" stroke-width="0.5"/>
+  <circle cx="630" cy="322" r="4" fill="#ef4444"/>
+  <text x="645" y="327" fill="#fff" font-family="monospace" font-size="11">health</text>
+  <text x="780" y="327" fill="#8b5cf6" font-family="monospace" font-size="11">Int</text>
+  <text x="880" y="327" fill="#ef4444" font-family="monospace" font-size="11" font-weight="bold">23</text>
+  <text x="1020" y="327" fill="#f59e0b" font-family="monospace" font-size="11">T44</text>
+  <text x="1110" y="327" fill="#6b7280" font-family="monospace" font-size="10">damage</text>
+
+  <!-- More rows indicator -->
+  <text x="890" y="365" fill="#6b7280" font-family="system-ui" font-size="11">... 127 more atoms</text>
+
+  <!-- Filter and sort -->
+  <rect x="625" y="450" width="150" height="26" rx="4" fill="#1f2937" stroke="#374151"/>
+  <text x="635" y="468" fill="#6b7280" font-family="system-ui" font-size="11">Filter atoms...</text>
+
+  <text x="800" y="468" fill="#9ca3af" font-family="system-ui" font-size="11">Sort:</text>
+  <rect x="835" y="450" width="120" height="26" rx="4" fill="#1f2937" stroke="#374151"/>
+  <text x="845" y="468" fill="#fff" font-family="system-ui" font-size="11">Last Modified</text>
+
+  <!-- TAB BAR -->
+  <rect x="10" y="490" width="1180" height="40" fill="#1f2937" rx="8"/>
+  <rect x="15" y="495" width="110" height="30" rx="6" fill="#3b82f6"/>
+  <text x="32" y="515" fill="#fff" font-family="system-ui" font-size="12" font-weight="bold">Tick Inspector</text>
+  <text x="145" y="515" fill="#9ca3af" font-family="system-ui" font-size="12">Intent Log</text>
+  <text x="235" y="515" fill="#9ca3af" font-family="system-ui" font-size="12">Rules</text>
+  <text x="295" y="515" fill="#9ca3af" font-family="system-ui" font-size="12">Channels</text>
+  <text x="375" y="515" fill="#9ca3af" font-family="system-ui" font-size="12">Forks</text>
+  <text x="430" y="515" fill="#9ca3af" font-family="system-ui" font-size="12">Hashes</text>
+
+  <!-- TICK INSPECTOR PANEL -->
+  <rect x="10" y="540" width="1180" height="250" rx="8" fill="url(#panelGrad)" stroke="#374151" stroke-width="1"/>
+
+  <!-- Three columns -->
+  <!-- Intents Processed -->
+  <rect x="20" y="550" width="380" height="230" rx="6" fill="#111827"/>
+  <text x="35" y="575" fill="#f59e0b" font-family="system-ui" font-size="13" font-weight="bold">Intents Processed</text>
+
+  <rect x="30" y="590" width="360" height="60" rx="4" fill="#1a1a2e" stroke="#f59e0b" stroke-width="1"/>
+  <text x="45" y="612" fill="#fff" font-family="monospace" font-size="12">ClickIntent</text>
+  <text x="45" y="630" fill="#9ca3af" font-family="monospace" font-size="10">target: btn_increment</text>
+  <text x="200" y="630" fill="#9ca3af" font-family="monospace" font-size="10">pos: (312, 187)</text>
+
+  <rect x="30" y="660" width="360" height="60" rx="4" fill="#1a1a2e" stroke="#374151" stroke-width="1"/>
+  <text x="45" y="682" fill="#fff" font-family="monospace" font-size="12">MoveIntent</text>
+  <text x="45" y="700" fill="#9ca3af" font-family="monospace" font-size="10">entity: player_1</text>
+  <text x="180" y="700" fill="#9ca3af" font-family="monospace" font-size="10">delta: (0.1, 0, 0)</text>
+
+  <!-- Rules Fired -->
+  <rect x="410" y="550" width="380" height="230" rx="6" fill="#111827"/>
+  <text x="425" y="575" fill="#3b82f6" font-family="system-ui" font-size="13" font-weight="bold">Rules Fired</text>
+
+  <rect x="420" y="590" width="360" height="50" rx="4" fill="#1a1a2e" stroke="#3b82f6" stroke-width="1"/>
+  <text x="435" y="612" fill="#fff" font-family="monospace" font-size="12">update_counter</text>
+  <text x="435" y="628" fill="#9ca3af" font-family="monospace" font-size="10">scope: counter_1</text>
+  <text x="280" y="612" fill="#6b7280" font-family="monospace" font-size="10">footprint: 2R / 1W</text>
+
+  <rect x="420" y="650" width="360" height="50" rx="4" fill="#1a1a2e" stroke="#374151" stroke-width="1"/>
+  <text x="435" y="672" fill="#fff" font-family="monospace" font-size="12">apply_physics</text>
+  <text x="435" y="688" fill="#9ca3af" font-family="monospace" font-size="10">scope: player_1</text>
+  <text x="280" y="672" fill="#6b7280" font-family="monospace" font-size="10">footprint: 4R / 2W</text>
+
+  <rect x="420" y="710" width="360" height="50" rx="4" fill="#1a1a2e" stroke="#374151" stroke-width="1"/>
+  <text x="435" y="732" fill="#fff" font-family="monospace" font-size="12">check_collisions</text>
+  <text x="435" y="748" fill="#9ca3af" font-family="monospace" font-size="10">scope: world</text>
+  <text x="280" y="732" fill="#6b7280" font-family="monospace" font-size="10">footprint: 8R / 0W</text>
+
+  <!-- Patches Applied -->
+  <rect x="800" y="550" width="380" height="230" rx="6" fill="#111827"/>
+  <text x="815" y="575" fill="#10b981" font-family="system-ui" font-size="13" font-weight="bold">Patches Applied</text>
+
+  <rect x="810" y="590" width="360" height="45" rx="4" fill="#1a1a2e" stroke="#10b981" stroke-width="1"/>
+  <text x="825" y="612" fill="#fff" font-family="monospace" font-size="11">UpsertNode(counter_1)</text>
+  <text x="825" y="627" fill="#ef4444" font-family="monospace" font-size="10">46</text>
+  <text x="855" y="627" fill="#6b7280" font-family="monospace" font-size="10">→</text>
+  <text x="875" y="627" fill="#10b981" font-family="monospace" font-size="10">47</text>
+
+  <rect x="810" y="645" width="360" height="45" rx="4" fill="#1a1a2e" stroke="#374151" stroke-width="1"/>
+  <text x="825" y="667" fill="#fff" font-family="monospace" font-size="11">UpsertNode(player_pos)</text>
+  <text x="825" y="682" fill="#ef4444" font-family="monospace" font-size="10">(0.9, 2.5, 0)</text>
+  <text x="920" y="682" fill="#6b7280" font-family="monospace" font-size="10">→</text>
+  <text x="940" y="682" fill="#10b981" font-family="monospace" font-size="10">(1.0, 2.5, 0)</text>
+
+  <rect x="810" y="700" width="360" height="45" rx="4" fill="#1a1a2e" stroke="#374151" stroke-width="1"/>
+  <text x="825" y="722" fill="#fff" font-family="monospace" font-size="11">UpsertNode(velocity)</text>
+  <text x="825" y="737" fill="#ef4444" font-family="monospace" font-size="10">(0.1, -0.4, 0)</text>
+  <text x="920" y="737" fill="#6b7280" font-family="monospace" font-size="10">→</text>
+  <text x="940" y="737" fill="#10b981" font-family="monospace" font-size="10">(0.1, -0.5, 0)</text>
+</svg>

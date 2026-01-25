@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="600" viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="forkAGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a5f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="forkBGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b1f5f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a0f2e;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="600" fill="#0a0a0f"/>
+
+  <!-- Header bar -->
+  <rect x="0" y="0" width="1200" height="50" fill="#111827"/>
+  <text x="20" y="32" fill="#fff" font-family="system-ui" font-size="16" font-weight="bold">Fork Comparison</text>
+
+  <!-- Verification badge -->
+  <rect x="950" y="10" width="240" height="30" rx="15" fill="#065f46" stroke="#10b981" stroke-width="2"/>
+  <text x="970" y="30" fill="#10b981" font-family="system-ui" font-size="14" font-weight="bold">VERIFIED: A = B</text>
+  <text x="1120" y="30" fill="#10b981" font-family="system-ui" font-size="12">Same tick receipt</text>
+
+  <!-- Divider -->
+  <line x1="600" y1="50" x2="600" y2="600" stroke="#374151" stroke-width="2" stroke-dasharray="5,5"/>
+  <circle cx="600" cy="300" r="20" fill="#111827" stroke="#374151" stroke-width="2"/>
+  <text x="592" y="305" fill="#6b7280" font-family="system-ui" font-size="12">VS</text>
+
+  <!-- FORK A PANEL -->
+  <rect x="10" y="60" width="580" height="530" rx="8" fill="url(#forkAGrad)" stroke="#3b82f6" stroke-width="2"/>
+
+  <!-- Fork A header -->
+  <rect x="10" y="60" width="580" height="50" rx="8" fill="#1e3a8a"/>
+  <circle cx="35" cy="85" r="10" fill="#3b82f6" filter="url(#glow)"/>
+  <text x="55" y="92" fill="#fff" font-family="system-ui" font-size="16" font-weight="bold">Fork A: Baseline</text>
+  <text x="400" y="85" fill="#9ca3af" font-family="monospace" font-size="11">workers: 1</text>
+  <text x="400" y="100" fill="#9ca3af" font-family="monospace" font-size="11">shuffle: disabled</text>
+
+  <!-- Fork A info -->
+  <text x="25" y="135" fill="#9ca3af" font-family="system-ui" font-size="11">Base Tick: 40</text>
+  <text x="150" y="135" fill="#9ca3af" font-family="system-ui" font-size="11">Current: 47</text>
+  <text x="280" y="135" fill="#9ca3af" font-family="system-ui" font-size="11">Δ Ticks: 7</text>
+
+  <!-- Fork A graph visualization -->
+  <rect x="25" y="150" width="550" height="250" rx="6" fill="#0f172a" stroke="#1e3a5f"/>
+
+  <g transform="translate(300, 275)">
+    <!-- Edges -->
+    <line x1="-80" y1="-60" x2="0" y2="0" stroke="#3b82f6" stroke-width="2" opacity="0.6"/>
+    <line x1="80" y1="-60" x2="0" y2="0" stroke="#3b82f6" stroke-width="2" opacity="0.6"/>
+    <line x1="-100" y1="50" x2="0" y2="0" stroke="#3b82f6" stroke-width="2" opacity="0.6"/>
+    <line x1="100" y1="50" x2="0" y2="0" stroke="#3b82f6" stroke-width="2" opacity="0.6"/>
+
+    <!-- Nodes -->
+    <circle cx="0" cy="0" r="18" fill="#3b82f6" filter="url(#glow)"/>
+    <circle cx="-80" cy="-60" r="12" fill="#60a5fa"/>
+    <circle cx="80" cy="-60" r="12" fill="#60a5fa"/>
+    <circle cx="-100" cy="50" r="10" fill="#93c5fd"/>
+    <circle cx="100" cy="50" r="10" fill="#93c5fd"/>
+  </g>
+
+  <!-- Fork A hash -->
+  <rect x="25" y="415" width="550" height="60" rx="6" fill="#0f172a" stroke="#3b82f6"/>
+  <text x="40" y="438" fill="#9ca3af" font-family="system-ui" font-size="11">state_root</text>
+  <text x="40" y="458" fill="#3b82f6" font-family="monospace" font-size="12" font-weight="bold">a3f2b1c8d4e5f6a7b8c9d0e1f2a3b4c5</text>
+  <text x="400" y="438" fill="#9ca3af" font-family="system-ui" font-size="11">commit_hash</text>
+  <text x="400" y="458" fill="#3b82f6" font-family="monospace" font-size="12">7e8f9a0b...</text>
+
+  <!-- Fork A atoms preview -->
+  <rect x="25" y="485" width="550" height="95" rx="6" fill="#0f172a" stroke="#1e3a5f"/>
+  <text x="40" y="505" fill="#9ca3af" font-family="system-ui" font-size="11">Key Atoms</text>
+
+  <text x="40" y="530" fill="#6b7280" font-family="monospace" font-size="11">counter_1:</text>
+  <text x="130" y="530" fill="#10b981" font-family="monospace" font-size="11" font-weight="bold">47</text>
+
+  <text x="200" y="530" fill="#6b7280" font-family="monospace" font-size="11">player_pos:</text>
+  <text x="300" y="530" fill="#10b981" font-family="monospace" font-size="11">(1.0, 2.5, 0.0)</text>
+
+  <text x="40" y="555" fill="#6b7280" font-family="monospace" font-size="11">velocity:</text>
+  <text x="115" y="555" fill="#10b981" font-family="monospace" font-size="11">(0.1, -0.5, 0.0)</text>
+
+  <text x="280" y="555" fill="#6b7280" font-family="monospace" font-size="11">health:</text>
+  <text x="340" y="555" fill="#10b981" font-family="monospace" font-size="11">23</text>
+
+  <!-- FORK B PANEL -->
+  <rect x="610" y="60" width="580" height="530" rx="8" fill="url(#forkBGrad)" stroke="#8b5cf6" stroke-width="2"/>
+
+  <!-- Fork B header -->
+  <rect x="610" y="60" width="580" height="50" rx="8" fill="#5b21b6"/>
+  <circle cx="635" cy="85" r="10" fill="#8b5cf6" filter="url(#glow)"/>
+  <text x="655" y="92" fill="#fff" font-family="system-ui" font-size="16" font-weight="bold">Fork B: Max Cores</text>
+  <text x="1000" y="85" fill="#9ca3af" font-family="monospace" font-size="11">workers: 16</text>
+  <text x="1000" y="100" fill="#9ca3af" font-family="monospace" font-size="11">shuffle: enabled</text>
+
+  <!-- Fork B info -->
+  <text x="625" y="135" fill="#9ca3af" font-family="system-ui" font-size="11">Base Tick: 40</text>
+  <text x="750" y="135" fill="#9ca3af" font-family="system-ui" font-size="11">Current: 47</text>
+  <text x="880" y="135" fill="#9ca3af" font-family="system-ui" font-size="11">Δ Ticks: 7</text>
+
+  <!-- Fork B graph visualization -->
+  <rect x="625" y="150" width="550" height="250" rx="6" fill="#1a0f2e" stroke="#3b1f5f"/>
+
+  <g transform="translate(900, 275)">
+    <!-- Edges -->
+    <line x1="-80" y1="-60" x2="0" y2="0" stroke="#8b5cf6" stroke-width="2" opacity="0.6"/>
+    <line x1="80" y1="-60" x2="0" y2="0" stroke="#8b5cf6" stroke-width="2" opacity="0.6"/>
+    <line x1="-100" y1="50" x2="0" y2="0" stroke="#8b5cf6" stroke-width="2" opacity="0.6"/>
+    <line x1="100" y1="50" x2="0" y2="0" stroke="#8b5cf6" stroke-width="2" opacity="0.6"/>
+
+    <!-- Nodes (same positions = determinism!) -->
+    <circle cx="0" cy="0" r="18" fill="#8b5cf6" filter="url(#glow)"/>
+    <circle cx="-80" cy="-60" r="12" fill="#a78bfa"/>
+    <circle cx="80" cy="-60" r="12" fill="#a78bfa"/>
+    <circle cx="-100" cy="50" r="10" fill="#c4b5fd"/>
+    <circle cx="100" cy="50" r="10" fill="#c4b5fd"/>
+  </g>
+
+  <!-- Fork B hash (SAME as A!) -->
+  <rect x="625" y="415" width="550" height="60" rx="6" fill="#1a0f2e" stroke="#8b5cf6"/>
+  <text x="640" y="438" fill="#9ca3af" font-family="system-ui" font-size="11">state_root</text>
+  <text x="640" y="458" fill="#8b5cf6" font-family="monospace" font-size="12" font-weight="bold">a3f2b1c8d4e5f6a7b8c9d0e1f2a3b4c5</text>
+  <text x="1000" y="438" fill="#9ca3af" font-family="system-ui" font-size="11">commit_hash</text>
+  <text x="1000" y="458" fill="#8b5cf6" font-family="monospace" font-size="12">7e8f9a0b...</text>
+
+  <!-- Match indicator -->
+  <circle cx="835" y="448" r="12" fill="#10b981"/>
+  <text x="828" y="453" fill="#fff" font-family="system-ui" font-size="14" font-weight="bold">✓</text>
+
+  <!-- Fork B atoms preview (SAME as A!) -->
+  <rect x="625" y="485" width="550" height="95" rx="6" fill="#1a0f2e" stroke="#3b1f5f"/>
+  <text x="640" y="505" fill="#9ca3af" font-family="system-ui" font-size="11">Key Atoms</text>
+
+  <text x="640" y="530" fill="#6b7280" font-family="monospace" font-size="11">counter_1:</text>
+  <text x="730" y="530" fill="#10b981" font-family="monospace" font-size="11" font-weight="bold">47</text>
+
+  <text x="800" y="530" fill="#6b7280" font-family="monospace" font-size="11">player_pos:</text>
+  <text x="900" y="530" fill="#10b981" font-family="monospace" font-size="11">(1.0, 2.5, 0.0)</text>
+
+  <text x="640" y="555" fill="#6b7280" font-family="monospace" font-size="11">velocity:</text>
+  <text x="715" y="555" fill="#10b981" font-family="monospace" font-size="11">(0.1, -0.5, 0.0)</text>
+
+  <text x="880" y="555" fill="#6b7280" font-family="monospace" font-size="11">health:</text>
+  <text x="940" y="555" fill="#10b981" font-family="monospace" font-size="11">23</text>
+
+  <!-- Match badges on matching values -->
+  <circle cx="760" cy="527" r="6" fill="#10b981"/>
+  <circle cx="1050" cy="527" r="6" fill="#10b981"/>
+  <circle cx="840" cy="552" r="6" fill="#10b981"/>
+  <circle cx="970" cy="552" r="6" fill="#10b981"/>
+</svg>

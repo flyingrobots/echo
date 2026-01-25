@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1409" height="1404" viewBox="0 0 1409 1404">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+    </marker>
+    <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#999"/>
+    </marker>
+    <style>
+      .node-text { font-family: Helvetica, Arial, sans-serif; font-size: 10px; text-anchor: middle; }
+      .milestone-text { font-family: Helvetica, Arial, sans-serif; font-size: 9px; text-anchor: middle; font-weight: bold; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#FAFAFA"/>
+  <g transform="translate(40, 40)">
+    <path d="M 262 62 L 262 122" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 297 62 L 297 92 L 442 92 L 442 262" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 227 62 L 227 92 L 82 92 L 82 122" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 262 172 L 262 262" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 227 172 L 227 202 L 181 202 L 181 342 L 204 342 L 204 382" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 419 312 L 419 342 L 274 342 L 274 382" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 239 312 L 239 382" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 239 432 L 239 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 239 552 L 239 582 L 304 582 L 304 638.6666666666666" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 327 688.6666666666666 L 327 722 L 461 722 L 461 797" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 281 688.6666666666666 L 281 792" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 461 847 L 461 912" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 649 172 L 649 222 L 736 222 L 736 262" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 626 172 L 626 382" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 663 312 L 663 352 L 465 352 L 465 382" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 683 312 L 683 462 L 600 462 L 600 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 580 432 L 580 462 L 565 462 L 565 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 465 432 L 465 472 L 530 472 L 530 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 297 172 L 297 232 L 690 232 L 690 262" style="stroke:#999; stroke-dasharray:5,3; fill:none; marker-end:url(#arrowhead-dashed)"/>
+    <path d="M 465 312 L 465 342 L 580 342 L 580 382" style="stroke:#999; stroke-dasharray:5,3; fill:none; marker-end:url(#arrowhead-dashed)"/>
+    <path d="M 285 312 L 285 352 L 419 352 L 419 382" style="stroke:#999; stroke-dasharray:5,3; fill:none; marker-end:url(#arrowhead-dashed)"/>
+    <path d="M 743 312 L 743 352 L 986 352 L 986 382" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 1009 432 L 1009 472 L 1067 472 L 1067 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 696 172 L 696 202 L 1073 202 L 1073 262" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 672 172 L 672 212 L 893 212 L 893 262" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 602 172 L 602 202 L 522 202 L 522 462 L 484 462 L 484 637" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 626 432 L 626 472 L 645 472 L 645 637" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 703 312 L 703 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 939 432 L 939 462 L 749 462 L 749 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 723 312 L 723 472 L 883 472 L 883 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 963 432 L 963 472 L 929 472 L 929 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 763 312 L 763 342 L 1270 342 L 1270 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 1033 432 L 1033 462 L 1224 462 L 1224 502" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 419 432 L 419 602 L 790 602 L 790 636" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 703 552 L 703 592 L 825 592 L 825 636" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 883 552 L 883 592 L 860 592 L 860 636" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 565 552 L 565 582 L 564 582 L 564 742 L 852 742 L 852 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 986 432 L 986 722 L 940 722 L 940 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 484 687 L 484 762 L 834 762 L 834 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 645 687 L 645 732 L 869 732 L 869 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 749 552 L 749 582 L 905 582 L 905 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 929 552 L 929 582 L 923 582 L 923 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 1247 552 L 1247 732 L 958 732 L 958 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 848 686 L 848 722 L 887 722 L 887 794.7272727272727" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 896 844.7272727272727 L 896 912" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 936 844.7272727272727 L 936 882 L 1076 882 L 1076 912" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 856 844.7272727272727 L 856 882 L 739 882 L 739 1025.3333333333335" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 484 962 L 484 992 L 693 992 L 693 1025.3333333333335" style="stroke:#999; stroke-dasharray:5,3; fill:none; marker-end:url(#arrowhead-dashed)"/>
+    <path d="M 896 962 L 896 1027" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 1076 962 L 1076 1112 L 931 1112 L 931 1142" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 716 1075.3333333333335 L 716 1112 L 861 1112 L 861 1142" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 896 1077 L 896 1142" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 438 962 L 438 1022" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 1067 552 L 1067 632" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 802 686 L 802 752 L 726 752 L 726 792" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <path d="M 896 1192 L 896 1252" style="stroke:#666; fill:none; marker-end:url(#arrowhead)"/>
+    <rect x="192" y="12" width="140" height="50" rx="6" ry="6" fill="#E8F5E9" stroke="#999" stroke-width="1"/>
+    <text x="262" y="29" class="node-text">SPA.1.1</text>
+    <text x="262" y="41" class="node-text">Create Cargo.toml</text>
+    <text x="262" y="53" class="node-text">&amp; lib.rs shell</text>
+    <rect x="192" y="122" width="140" height="50" rx="6" ry="6" fill="#E8F5E9" stroke="#999" stroke-width="1"/>
+    <text x="262" y="139" class="node-text">SPA.1.2</text>
+    <text x="262" y="151" class="node-text">types.rs</text>
+    <text x="262" y="163" class="node-text">(NodeDef, EdgeDef)</text>
+    <rect x="372" y="262" width="140" height="50" rx="6" ry="6" fill="#E8F5E9" stroke="#999" stroke-width="1"/>
+    <text x="442" y="279" class="node-text">SPA.1.3</text>
+    <text x="442" y="291" class="node-text">camera.rs</text>
+    <text x="442" y="303" class="node-text">(CameraState)</text>
+    <rect x="192" y="262" width="140" height="50" rx="6" ry="6" fill="#E8F5E9" stroke="#999" stroke-width="1"/>
+    <text x="262" y="279" class="node-text">SPA.1.4</text>
+    <text x="262" y="291" class="node-text">highlight.rs</text>
+    <text x="262" y="303" class="node-text">(HighlightState)</text>
+    <rect x="12" y="122" width="140" height="50" rx="6" ry="6" fill="#E8F5E9" stroke="#999" stroke-width="1"/>
+    <text x="82" y="139" class="node-text">SPA.1.5</text>
+    <text x="82" y="151" class="node-text">canon.rs</text>
+    <text x="82" y="163" class="node-text">(float canon)</text>
+    <rect x="169" y="382" width="140" height="50" rx="6" ry="6" fill="#E8F5E9" stroke="#999" stroke-width="1"/>
+    <text x="239" y="399" class="node-text">SPA.1.6</text>
+    <text x="239" y="411" class="node-text">port.rs</text>
+    <text x="239" y="423" class="node-text">(ScenePort trait)</text>
+    <rect x="169" y="502" width="140" height="50" rx="6" ry="6" fill="#C8E6C9" stroke="#999" stroke-width="1"/>
+    <text x="239" y="519" class="node-text">SPA.2.1</text>
+    <text x="239" y="531" class="node-text">codec Cargo.toml</text>
+    <text x="239" y="543" class="node-text">&amp; lib.rs</text>
+    <rect x="234" y="638.6666666666666" width="140" height="50" rx="6" ry="6" fill="#C8E6C9" stroke="#999" stroke-width="1"/>
+    <text x="304" y="655.6666666666666" class="node-text">SPA.2.2</text>
+    <text x="304" y="667.6666666666666" class="node-text">cbor.rs</text>
+    <text x="304" y="679.6666666666666" class="node-text">(CBOR codec)</text>
+    <rect x="391" y="797" width="140" height="50" rx="6" ry="6" fill="#C8E6C9" stroke="#999" stroke-width="1"/>
+    <text x="461" y="814" class="node-text">SPA.2.3</text>
+    <text x="461" y="826" class="node-text">MockAdapter</text>
+    <text x="461" y="838" class="node-text">(headless test)</text>
+    <rect x="211" y="792" width="140" height="50" rx="6" ry="6" fill="#C8E6C9" stroke="#999" stroke-width="1"/>
+    <text x="281" y="815" class="node-text">SPA.2.4</text>
+    <text x="281" y="827" class="node-text">roundtrip tests</text>
+    <rect x="391" y="912" width="140" height="50" rx="6" ry="6" fill="#C8E6C9" stroke="#999" stroke-width="1"/>
+    <text x="461" y="935" class="node-text">SPA.2.5</text>
+    <text x="461" y="947" class="node-text">MockAdapter tests</text>
+    <rect x="579" y="122" width="140" height="50" rx="6" ry="6" fill="#E3F2FD" stroke="#999" stroke-width="1"/>
+    <text x="649" y="139" class="node-text">SPA.3.1</text>
+    <text x="649" y="151" class="node-text">package.json</text>
+    <text x="649" y="163" class="node-text">tsconfig, vitest</text>
+    <rect x="643" y="262" width="140" height="50" rx="6" ry="6" fill="#E3F2FD" stroke="#999" stroke-width="1"/>
+    <text x="713" y="279" class="node-text">SPA.3.2</text>
+    <text x="713" y="291" class="node-text">SceneDelta.ts</text>
+    <text x="713" y="303" class="node-text">(+ hashToHex)</text>
+    <rect x="533" y="382" width="140" height="50" rx="6" ry="6" fill="#E3F2FD" stroke="#999" stroke-width="1"/>
+    <text x="603" y="405" class="node-text">SPA.3.3</text>
+    <text x="603" y="417" class="node-text">CameraState.ts</text>
+    <rect x="372" y="382" width="140" height="50" rx="6" ry="6" fill="#E3F2FD" stroke="#999" stroke-width="1"/>
+    <text x="442" y="405" class="node-text">SPA.3.4</text>
+    <text x="442" y="417" class="node-text">HighlightState.ts</text>
+    <rect x="495" y="502" width="140" height="50" rx="6" ry="6" fill="#E3F2FD" stroke="#999" stroke-width="1"/>
+    <text x="565" y="519" class="node-text">SPA.3.5</text>
+    <text x="565" y="531" class="node-text">types/index.ts</text>
+    <text x="565" y="543" class="node-text">(RenderContext)</text>
+    <rect x="916" y="382" width="140" height="50" rx="6" ry="6" fill="#BBDEFB" stroke="#999" stroke-width="1"/>
+    <text x="986" y="399" class="node-text">SPA.4.1</text>
+    <text x="986" y="411" class="node-text">SceneState.ts</text>
+    <text x="986" y="423" class="node-text">(state machine)</text>
+    <rect x="997" y="502" width="140" height="50" rx="6" ry="6" fill="#BBDEFB" stroke="#999" stroke-width="1"/>
+    <text x="1067" y="525" class="node-text">SPA.4.2</text>
+    <text x="1067" y="537" class="node-text">SceneState tests</text>
+    <rect x="1003" y="262" width="140" height="50" rx="6" ry="6" fill="#FFF3E0" stroke="#999" stroke-width="1"/>
+    <text x="1073" y="279" class="node-text">SPA.5.1</text>
+    <text x="1073" y="291" class="node-text">ShaderManager.ts</text>
+    <text x="1073" y="303" class="node-text">(no singletons)</text>
+    <rect x="823" y="262" width="140" height="50" rx="6" ry="6" fill="#FFF3E0" stroke="#999" stroke-width="1"/>
+    <text x="893" y="279" class="node-text">SPA.6.1</text>
+    <text x="893" y="291" class="node-text">AssetManager.ts</text>
+    <text x="893" y="303" class="node-text">(URL-keyed)</text>
+    <rect x="414" y="637" width="140" height="50" rx="6" ry="6" fill="#F8BBD9" stroke="#999" stroke-width="1"/>
+    <text x="484" y="654" class="node-text">SPA.7.1</text>
+    <text x="484" y="666" class="node-text">ThreeRenderCore.ts</text>
+    <text x="484" y="678" class="node-text">(WebGL wrapper)</text>
+    <rect x="575" y="637" width="140" height="50" rx="6" ry="6" fill="#F8BBD9" stroke="#999" stroke-width="1"/>
+    <text x="645" y="660" class="node-text">SPA.7.2</text>
+    <text x="645" y="672" class="node-text">CameraController.ts</text>
+    <rect x="656" y="502" width="140" height="50" rx="6" ry="6" fill="#F8BBD9" stroke="#999" stroke-width="1"/>
+    <text x="726" y="519" class="node-text">SPA.8.1</text>
+    <text x="726" y="531" class="node-text">NodeRenderer.ts</text>
+    <text x="726" y="543" class="node-text">(spheres/boxes)</text>
+    <rect x="836" y="502" width="140" height="50" rx="6" ry="6" fill="#F8BBD9" stroke="#999" stroke-width="1"/>
+    <text x="906" y="519" class="node-text">SPA.8.2</text>
+    <text x="906" y="531" class="node-text">EdgeRenderer.ts</text>
+    <text x="906" y="543" class="node-text">(lines)</text>
+    <rect x="1177" y="502" width="140" height="50" rx="6" ry="6" fill="#F8BBD9" stroke="#999" stroke-width="1"/>
+    <text x="1247" y="519" class="node-text">SPA.8.3</text>
+    <text x="1247" y="531" class="node-text">LabelRenderer.ts</text>
+    <text x="1247" y="543" class="node-text">(sprites)</text>
+    <rect x="755" y="636" width="140" height="50" rx="6" ry="6" fill="#F8BBD9" stroke="#999" stroke-width="1"/>
+    <text x="825" y="653" class="node-text">SPA.9.1</text>
+    <text x="825" y="665" class="node-text">HighlightRenderer.ts</text>
+    <text x="825" y="677" class="node-text">(color tint)</text>
+    <rect x="816" y="794.7272727272727" width="160" height="50" rx="6" ry="6" fill="#F3E5F5" stroke="#999" stroke-width="1"/>
+    <text x="896" y="811.7272727272727" class="node-text">SPA.10.1</text>
+    <text x="896" y="823.7272727272727" class="node-text">ThreeSceneAdapter.ts</text>
+    <text x="896" y="835.7272727272727" class="node-text">(ScenePort impl)</text>
+    <rect x="826" y="912" width="140" height="50" rx="6" ry="6" fill="#F3E5F5" stroke="#999" stroke-width="1"/>
+    <text x="896" y="935" class="node-text">SPA.10.2</text>
+    <text x="896" y="947" class="node-text">index.ts exports</text>
+    <rect x="1006" y="912" width="140" height="50" rx="6" ry="6" fill="#FFF9C4" stroke="#999" stroke-width="1"/>
+    <text x="1076" y="929" class="node-text">SPA.11.1</text>
+    <text x="1076" y="941" class="node-text">adapter.test.ts</text>
+    <text x="1076" y="953" class="node-text">(integration)</text>
+    <rect x="646" y="1025.3333333333335" width="140" height="50" rx="6" ry="6" fill="#FFF9C4" stroke="#999" stroke-width="1"/>
+    <text x="716" y="1042.3333333333335" class="node-text">SPA.11.2</text>
+    <text x="716" y="1054.3333333333335" class="node-text">determinism.test.ts</text>
+    <text x="716" y="1066.3333333333335" class="node-text">(cross-check)</text>
+    <rect x="826" y="1027" width="140" height="50" rx="6" ry="6" fill="#FFF9C4" stroke="#999" stroke-width="1"/>
+    <text x="896" y="1050" class="node-text">SPA.12.1</text>
+    <text x="896" y="1062" class="node-text">README.md</text>
+    <rect x="826" y="1142" width="140" height="50" rx="6" ry="6" fill="#FFF9C4" stroke="#999" stroke-width="1"/>
+    <text x="896" y="1165" class="node-text">SPA.12.2</text>
+    <text x="896" y="1177" class="node-text">Finalize &amp; verify</text>
+    <polygon points="438,1022 488,1052 438,1082 388,1052" fill="#E0E0E0" stroke="#999" stroke-width="1.5"/>
+    <text x="438" y="1041" class="milestone-text">M1</text>
+    <text x="438" y="1052" class="milestone-text">Rust crates</text>
+    <text x="438" y="1063" class="milestone-text">complete</text>
+    <polygon points="1067,632 1117,662 1067,692 1017,662" fill="#E0E0E0" stroke="#999" stroke-width="1.5"/>
+    <text x="1067" y="651" class="milestone-text">M2</text>
+    <text x="1067" y="662" class="milestone-text">TS types</text>
+    <text x="1067" y="673" class="milestone-text">complete</text>
+    <polygon points="726,792 776,822 726,852 676,822" fill="#E0E0E0" stroke="#999" stroke-width="1.5"/>
+    <text x="726" y="811" class="milestone-text">M3</text>
+    <text x="726" y="822" class="milestone-text">Renderers</text>
+    <text x="726" y="833" class="milestone-text">complete</text>
+    <polygon points="896,1252 946,1282 896,1312 846,1282" fill="#E0E0E0" stroke="#999" stroke-width="1.5"/>
+    <text x="896" y="1271" class="milestone-text">M4</text>
+    <text x="896" y="1282" class="milestone-text">Shippable</text>
+    <text x="896" y="1293" class="milestone-text">package</text>
+  </g>
+</svg>

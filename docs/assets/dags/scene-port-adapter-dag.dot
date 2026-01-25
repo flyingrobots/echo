@@ -1,0 +1,264 @@
+// Scene Port Adapter Implementation DAG
+// Plan ID: SPA
+// Generated: 2026-01-25
+
+digraph SPA {
+    // Graph settings
+    rankdir=TB;
+    splines=spline;
+    nodesep=0.6;
+    ranksep=0.8;
+    fontname="Helvetica";
+    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10];
+    edge [color="#666666", arrowsize=0.7];
+
+    // Color palette by phase
+    // Phase 1 (Rust Port): #E8F5E9 (light green)
+    // Phase 2 (Rust Codec): #C8E6C9 (green)
+    // Phase 3 (TS Bootstrap): #E3F2FD (light blue)
+    // Phase 4 (TS State): #BBDEFB (blue)
+    // Phase 5-6 (TS Utils): #FFF3E0 (light orange)
+    // Phase 7-9 (TS Render): #FCE4EC (light pink)
+    // Phase 10 (Adapter): #F3E5F5 (light purple)
+    // Phase 11-12 (Polish): #FFFDE7 (light yellow)
+
+    // ============================================
+    // PHASE 1: Rust Port Crate (echo-scene-port)
+    // ============================================
+    subgraph cluster_phase1 {
+        label="Phase 1: Rust Port Crate";
+        style=filled;
+        fillcolor="#F1F8E9";
+
+        "SPA.1.1" [label="SPA.1.1\nCreate Cargo.toml\n& lib.rs shell", fillcolor="#E8F5E9"];
+        "SPA.1.2" [label="SPA.1.2\nImplement types.rs\n(NodeDef, EdgeDef, etc)", fillcolor="#E8F5E9"];
+        "SPA.1.3" [label="SPA.1.3\nImplement camera.rs\n(CameraState)", fillcolor="#E8F5E9"];
+        "SPA.1.4" [label="SPA.1.4\nImplement highlight.rs\n(HighlightState)", fillcolor="#E8F5E9"];
+        "SPA.1.5" [label="SPA.1.5\nImplement canon.rs\n(float canonicalization)", fillcolor="#E8F5E9"];
+        "SPA.1.6" [label="SPA.1.6\nImplement port.rs\n(ScenePort trait)", fillcolor="#E8F5E9"];
+    }
+
+    // Phase 1 internal dependencies
+    "SPA.1.1" -> "SPA.1.2";
+    "SPA.1.1" -> "SPA.1.3";
+    "SPA.1.1" -> "SPA.1.5";
+    "SPA.1.2" -> "SPA.1.4";  // highlight needs NodeKey/EdgeKey
+    "SPA.1.2" -> "SPA.1.6";
+    "SPA.1.3" -> "SPA.1.6";
+    "SPA.1.4" -> "SPA.1.6";
+
+    // ============================================
+    // PHASE 2: Rust Codec Crate (echo-scene-codec)
+    // ============================================
+    subgraph cluster_phase2 {
+        label="Phase 2: Rust Codec Crate";
+        style=filled;
+        fillcolor="#E8F5E9";
+
+        "SPA.2.1" [label="SPA.2.1\nCreate codec Cargo.toml\n& lib.rs", fillcolor="#C8E6C9"];
+        "SPA.2.2" [label="SPA.2.2\nImplement cbor.rs\n(CBOR encode/decode)", fillcolor="#C8E6C9"];
+        "SPA.2.3" [label="SPA.2.3\nImplement MockAdapter\n(headless testing)", fillcolor="#C8E6C9"];
+        "SPA.2.4" [label="SPA.2.4\nWrite roundtrip tests", fillcolor="#C8E6C9"];
+        "SPA.2.5" [label="SPA.2.5\nWrite MockAdapter tests", fillcolor="#C8E6C9"];
+    }
+
+    // Phase 2 internal dependencies
+    "SPA.2.1" -> "SPA.2.2";
+    "SPA.2.2" -> "SPA.2.3";
+    "SPA.2.2" -> "SPA.2.4";
+    "SPA.2.3" -> "SPA.2.5";
+
+    // Phase 1 -> Phase 2
+    "SPA.1.6" -> "SPA.2.1";
+
+    // ============================================
+    // PHASE 3: TS Package Bootstrap
+    // ============================================
+    subgraph cluster_phase3 {
+        label="Phase 3: TS Package Bootstrap";
+        style=filled;
+        fillcolor="#E8EAF6";
+
+        "SPA.3.1" [label="SPA.3.1\nCreate package.json\ntsconfig, vitest", fillcolor="#E3F2FD"];
+        "SPA.3.2" [label="SPA.3.2\nImplement SceneDelta.ts\n(types + hashToHex)", fillcolor="#E3F2FD"];
+        "SPA.3.3" [label="SPA.3.3\nImplement CameraState.ts", fillcolor="#E3F2FD"];
+        "SPA.3.4" [label="SPA.3.4\nImplement HighlightState.ts", fillcolor="#E3F2FD"];
+        "SPA.3.5" [label="SPA.3.5\nImplement types/index.ts\n(RenderContext, Profiler)", fillcolor="#E3F2FD"];
+    }
+
+    // Phase 3 internal dependencies
+    "SPA.3.1" -> "SPA.3.2";
+    "SPA.3.1" -> "SPA.3.3";
+    "SPA.3.2" -> "SPA.3.4";  // needs NodeKey/EdgeKey
+    "SPA.3.2" -> "SPA.3.5";
+    "SPA.3.3" -> "SPA.3.5";
+    "SPA.3.4" -> "SPA.3.5";
+
+    // Cross-phase: Rust types inform TS types (reference, not build dep)
+    "SPA.1.2" -> "SPA.3.2" [style=dashed, color="#999999", label="mirror"];
+    "SPA.1.3" -> "SPA.3.3" [style=dashed, color="#999999", label="mirror"];
+    "SPA.1.4" -> "SPA.3.4" [style=dashed, color="#999999", label="mirror"];
+
+    // ============================================
+    // PHASE 4: TS SceneState
+    // ============================================
+    subgraph cluster_phase4 {
+        label="Phase 4: TS SceneState";
+        style=filled;
+        fillcolor="#E3F2FD";
+
+        "SPA.4.1" [label="SPA.4.1\nImplement SceneState.ts\n(pure state machine)", fillcolor="#BBDEFB"];
+        "SPA.4.2" [label="SPA.4.2\nWrite SceneState tests", fillcolor="#BBDEFB"];
+    }
+
+    // Phase 4 dependencies
+    "SPA.3.2" -> "SPA.4.1";
+    "SPA.4.1" -> "SPA.4.2";
+
+    // ============================================
+    // PHASE 5: TS ShaderManager
+    // ============================================
+    subgraph cluster_phase5 {
+        label="Phase 5: TS ShaderManager";
+        style=filled;
+        fillcolor="#FFF8E1";
+
+        "SPA.5.1" [label="SPA.5.1\nPort ShaderManager.ts\n(no singletons, no uTime)", fillcolor="#FFF3E0"];
+    }
+
+    "SPA.3.1" -> "SPA.5.1";
+
+    // ============================================
+    // PHASE 6: TS AssetManager
+    // ============================================
+    subgraph cluster_phase6 {
+        label="Phase 6: TS AssetManager";
+        style=filled;
+        fillcolor="#FFF8E1";
+
+        "SPA.6.1" [label="SPA.6.1\nPort AssetManager.ts\n(URL-keyed, instance-based)", fillcolor="#FFF3E0"];
+    }
+
+    "SPA.3.1" -> "SPA.6.1";
+
+    // ============================================
+    // PHASE 7: TS RenderCore
+    // ============================================
+    subgraph cluster_phase7 {
+        label="Phase 7: TS RenderCore";
+        style=filled;
+        fillcolor="#FCE4EC";
+
+        "SPA.7.1" [label="SPA.7.1\nImplement ThreeRenderCore.ts\n(WebGLRenderer wrapper)", fillcolor="#F8BBD9"];
+        "SPA.7.2" [label="SPA.7.2\nImplement CameraController.ts", fillcolor="#F8BBD9"];
+    }
+
+    "SPA.3.1" -> "SPA.7.1";
+    "SPA.3.3" -> "SPA.7.2";
+
+    // ============================================
+    // PHASE 8: TS Basic Renderers
+    // ============================================
+    subgraph cluster_phase8 {
+        label="Phase 8: TS Basic Renderers";
+        style=filled;
+        fillcolor="#FCE4EC";
+
+        "SPA.8.1" [label="SPA.8.1\nImplement NodeRenderer.ts\n(spheres/boxes)", fillcolor="#F8BBD9"];
+        "SPA.8.2" [label="SPA.8.2\nImplement EdgeRenderer.ts\n(lines)", fillcolor="#F8BBD9"];
+        "SPA.8.3" [label="SPA.8.3\nImplement LabelRenderer.ts\n(CanvasTexture sprites)", fillcolor="#F8BBD9"];
+    }
+
+    "SPA.3.2" -> "SPA.8.1";
+    "SPA.4.1" -> "SPA.8.1";
+    "SPA.3.2" -> "SPA.8.2";
+    "SPA.4.1" -> "SPA.8.2";
+    "SPA.3.2" -> "SPA.8.3";
+    "SPA.4.1" -> "SPA.8.3";
+
+    // ============================================
+    // PHASE 9: TS HighlightRenderer
+    // ============================================
+    subgraph cluster_phase9 {
+        label="Phase 9: TS HighlightRenderer";
+        style=filled;
+        fillcolor="#FCE4EC";
+
+        "SPA.9.1" [label="SPA.9.1\nImplement HighlightRenderer.ts\n(color tint only)", fillcolor="#F8BBD9"];
+    }
+
+    "SPA.3.4" -> "SPA.9.1";
+    "SPA.8.1" -> "SPA.9.1";
+    "SPA.8.2" -> "SPA.9.1";
+
+    // ============================================
+    // PHASE 10: TS ThreeSceneAdapter
+    // ============================================
+    subgraph cluster_phase10 {
+        label="Phase 10: TS ThreeSceneAdapter";
+        style=filled;
+        fillcolor="#EDE7F6";
+
+        "SPA.10.1" [label="SPA.10.1\nImplement ThreeSceneAdapter.ts\n(ScenePort implementation)", fillcolor="#F3E5F5"];
+        "SPA.10.2" [label="SPA.10.2\nUpdate index.ts exports", fillcolor="#F3E5F5"];
+    }
+
+    // ThreeSceneAdapter depends on everything
+    "SPA.3.5" -> "SPA.10.1";
+    "SPA.4.1" -> "SPA.10.1";
+    "SPA.7.1" -> "SPA.10.1";
+    "SPA.7.2" -> "SPA.10.1";
+    "SPA.8.1" -> "SPA.10.1";
+    "SPA.8.2" -> "SPA.10.1";
+    "SPA.8.3" -> "SPA.10.1";
+    "SPA.9.1" -> "SPA.10.1";
+    "SPA.10.1" -> "SPA.10.2";
+
+    // ============================================
+    // PHASE 11: Integration Tests
+    // ============================================
+    subgraph cluster_phase11 {
+        label="Phase 11: Integration Tests";
+        style=filled;
+        fillcolor="#FFFDE7";
+
+        "SPA.11.1" [label="SPA.11.1\nWrite adapter.test.ts\n(integration tests)", fillcolor="#FFF9C4"];
+        "SPA.11.2" [label="SPA.11.2\nWrite determinism.test.ts\n(cross-check with MockAdapter)", fillcolor="#FFF9C4"];
+    }
+
+    "SPA.10.1" -> "SPA.11.1";
+    "SPA.10.1" -> "SPA.11.2";
+    "SPA.2.5" -> "SPA.11.2" [style=dashed, color="#999999", label="compare"];
+
+    // ============================================
+    // PHASE 12: Documentation
+    // ============================================
+    subgraph cluster_phase12 {
+        label="Phase 12: Documentation";
+        style=filled;
+        fillcolor="#FFFDE7";
+
+        "SPA.12.1" [label="SPA.12.1\nWrite README.md", fillcolor="#FFF9C4"];
+        "SPA.12.2" [label="SPA.12.2\nFinalize exports\n& verify build", fillcolor="#FFF9C4"];
+    }
+
+    "SPA.10.2" -> "SPA.12.1";
+    "SPA.11.1" -> "SPA.12.2";
+    "SPA.11.2" -> "SPA.12.2";
+    "SPA.12.1" -> "SPA.12.2";
+
+    // ============================================
+    // Milestones (diamonds)
+    // ============================================
+    node [shape=diamond, fillcolor="#E0E0E0"];
+
+    "M1" [label="M1\nRust crates\ncomplete"];
+    "M2" [label="M2\nTS types\ncomplete"];
+    "M3" [label="M3\nRenderers\ncomplete"];
+    "M4" [label="M4\nShippable\npackage"];
+
+    "SPA.2.5" -> "M1";
+    "SPA.4.2" -> "M2";
+    "SPA.9.1" -> "M3";
+    "SPA.12.2" -> "M4";
+}

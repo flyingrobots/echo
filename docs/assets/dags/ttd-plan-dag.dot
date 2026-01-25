@@ -1,0 +1,297 @@
+// TTD Implementation Plan - Task Dependency DAG
+// Generated: 2026-01-25
+// Render: dot -Tsvg ttd-plan-dag.dot -o ttd-plan-dag.svg
+
+digraph TTD_Plan {
+    // Graph settings
+    rankdir=TB;
+    splines=ortho;
+    nodesep=0.6;
+    ranksep=0.8;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=11];
+    edge [fontname="Helvetica", fontsize=9];
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 1: WESLEY (External Repo)
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_wesley {
+        label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+            <TR><TD><B>WESLEY REPO</B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10">flyingrobots/wesley</FONT></TD></TR>
+            <TR><TD><FONT POINT-SIZE="11">Phase 1: Schema Compiler</FONT></TD></TR>
+        </TABLE>>;
+        style=filled;
+        fillcolor="#e8f4e8";
+        color="#1b5e20";
+        penwidth=3;
+
+        // Phase 1a: Foundation
+        subgraph cluster_1a {
+            label="Phase 1a: Foundation";
+            style=dashed;
+            color="#66bb6a";
+
+            w_directives [label="Directive Parser\n(@channel, @op, @rule, etc.)", shape=box];
+            w_ast [label="TTD AST Model\n(channels, ops, rules)", shape=box];
+            w_hasher [label="Schema Hasher\n(canonical ordering)", shape=box];
+            w_extractor [label="Model Extractor\n(SDL → structured)", shape=box];
+            w_manifest [label="JSON Manifests\nschema.json\nmanifest.json\ncontracts.json", shape=box, style="rounded,filled", fillcolor="#c8e6c9"];
+        }
+
+        // Phase 1b: Codegen
+        subgraph cluster_1b {
+            label="Phase 1b: Codegen";
+            style=dashed;
+            color="#66bb6a";
+
+            w_rust_types [label="Rust Types\n(structs/enums)", shape=box];
+            w_rust_cbor [label="Rust CBOR Codecs\n(minicbor)", shape=box];
+            w_rust_registry [label="Rust Registries\n(lookup tables)", shape=box];
+            w_ts_types [label="TypeScript Types", shape=box];
+            w_ts_zod [label="Zod Validators", shape=box];
+            w_ts_registry [label="TS Registries", shape=box];
+
+            // Codegen outputs
+            ttd_protocol_rs [label="ttd-protocol-rs\n(crate)", shape=folder, style=filled, fillcolor="#c8e6c9"];
+            ttd_protocol_ts [label="ttd-protocol-ts\n(package)", shape=folder, style=filled, fillcolor="#c8e6c9"];
+        }
+
+        // Phase 1c: Law Compiler
+        subgraph cluster_1c {
+            label="Phase 1c: Law Compiler";
+            style=dashed;
+            color="#66bb6a";
+
+            w_inv_parser [label="Invariant Parser\n(expr grammar)", shape=box];
+            w_obligation [label="Obligation Compiler\n(specs → bytecode)", shape=box];
+            w_bytecode [label="Enforcement Bytecode\n(stack VM)", shape=box];
+            w_golden [label="Golden Test Gen\n(CBOR vectors)", shape=box];
+
+            ttd_manifest [label="ttd-manifest\n(enforcement tables)", shape=folder, style=filled, fillcolor="#c8e6c9"];
+        }
+
+        // Internal Wesley dependencies
+        w_directives -> w_ast;
+        w_ast -> w_hasher;
+        w_ast -> w_extractor;
+        w_hasher -> w_manifest;
+        w_extractor -> w_manifest;
+
+        w_manifest -> w_rust_types;
+        w_manifest -> w_ts_types;
+        w_rust_types -> w_rust_cbor;
+        w_rust_types -> w_rust_registry;
+        w_rust_cbor -> ttd_protocol_rs;
+        w_rust_registry -> ttd_protocol_rs;
+        w_ts_types -> w_ts_zod;
+        w_ts_types -> w_ts_registry;
+        w_ts_zod -> ttd_protocol_ts;
+        w_ts_registry -> ttd_protocol_ts;
+
+        w_manifest -> w_inv_parser;
+        w_inv_parser -> w_obligation;
+        w_obligation -> w_bytecode;
+        w_bytecode -> ttd_manifest;
+        w_bytecode -> w_golden;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ECHO REPO CONTAINER
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_echo {
+        label=<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0">
+            <TR><TD><B>ECHO REPO</B></TD></TR>
+            <TR><TD><FONT POINT-SIZE="10">flyingrobots/echo</FONT></TD></TR>
+        </TABLE>>;
+        style=filled;
+        fillcolor="#e3f2fd";
+        color="#0d47a1";
+        penwidth=3;
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 2: RECEIPT & DIGEST SYSTEM
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_phase2 {
+        label="Phase 2: Receipt & Digest System\n(echo-session-proto, echo-ttd, warp-core)";
+        style=filled;
+        fillcolor="#bbdefb";
+        color="#1565c0";
+
+        eint_v2 [label="EINT v2\nencoder/decoder", shape=box];
+        ttdr_v2 [label="TTDR v2\nencoder/decoder", shape=box];
+        emissions_digest [label="emissions_digest\ncomputation", shape=box];
+        op_emission_idx [label="op_emission_index_digest", shape=box];
+        commit_hash_v2 [label="commit_hash:v2\ncomputation", shape=box];
+        atom_write [label="AtomWrite tracking\n(provenance)", shape=box];
+
+        // Internal Phase 2 dependencies
+        eint_v2 -> ttdr_v2;
+        emissions_digest -> commit_hash_v2;
+        op_emission_idx -> commit_hash_v2;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 3: COMPLIANCE ENGINE
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_phase3 {
+        label="Phase 3: Compliance Engine\n(echo-ttd)";
+        style=filled;
+        fillcolor="#bbdefb";
+        color="#1565c0";
+
+        compliance_idx [label="ComplianceIndex\ncomputation", shape=box];
+        channel_policy [label="Channel Policy\nchecks", shape=box];
+        emission_verify [label="Emission Contract\nverification", shape=box];
+        footprint_verify [label="Footprint\nverification", shape=box];
+
+        // Internal Phase 3 dependencies
+        compliance_idx -> emission_verify;
+        channel_policy -> emission_verify;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: EVENTUAL OBLIGATIONS
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_phase4 {
+        label="Phase 4: Eventual Obligations\n(echo-ttd)";
+        style=filled;
+        fillcolor="#bbdefb";
+        color="#1565c0";
+
+        obligation_eval [label="Obligation\nevaluation", shape=box];
+        deadline_track [label="Deadline\ntracking", shape=box];
+        obligation_status [label="ObligationStatus\ndeltas", shape=box];
+
+        // Internal Phase 4 dependencies
+        obligation_eval -> deadline_track;
+        deadline_track -> obligation_status;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 5: PLATFORM CRATES (TTD Controller + Clients)
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_phase5 {
+        label="Phase 5: Platform Crates\n(ttd-browser, ttd-native)";
+        style=filled;
+        fillcolor="#bbdefb";
+        color="#1565c0";
+
+        ttd_controller [label="TtdController\nWARP Schema\n(meta-WARP)", shape=box, style="rounded,bold"];
+        observed_world [label="ObservedWorldAPI\nabstraction", shape=box];
+
+        ttd_browser [label="ttd-browser\n(WASM + wasm-bindgen)", shape=box];
+        ttd_native [label="ttd-native\n(egui + wgpu)", shape=box];
+
+        wasm_bindings [label="warp-wasm\nbindings", shape=box];
+
+        // Internal Phase 5 dependencies
+        ttd_controller -> observed_world;
+        observed_world -> ttd_browser;
+        observed_world -> ttd_native;
+        wasm_bindings -> ttd_browser;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 6: BROWSER TTD APP
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_phase6 {
+        label="Phase 6: Browser TTD App\n(apps/ttd-app)";
+        style=filled;
+        fillcolor="#bbdefb";
+        color="#1565c0";
+
+        ui_framework [label="UI Framework\n(React/Svelte)", shape=box];
+        threejs_viz [label="Three.js\n3D Visualization", shape=box];
+        stepper_ui [label="Time Stepper\nControls", shape=box];
+        graph_view [label="Graph View\n(nodes/edges)", shape=box];
+        provenance_ui [label="Provenance\nDrawer", shape=box];
+        fork_compare [label="Fork\nComparison", shape=box];
+
+        // Internal Phase 6 dependencies
+        ui_framework -> stepper_ui;
+        ui_framework -> graph_view;
+        ui_framework -> provenance_ui;
+        threejs_viz -> graph_view;
+        graph_view -> fork_compare;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 7: DEMO POLISH
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_phase7 {
+        label="Phase 7: Demo Polish";
+        style=filled;
+        fillcolor="#bbdefb";
+        color="#1565c0";
+
+        demo_scenarios [label="Demo Scenarios\n(Counter, Game)", shape=box];
+        golden_tests [label="Golden Test\nVectors", shape=box];
+        docs_polish [label="Documentation\nPolish", shape=box];
+
+        demo_scenarios -> golden_tests;
+    }
+
+    } // END cluster_echo (ECHO REPO)
+
+    // ═══════════════════════════════════════════════════════════════
+    // CROSS-PHASE DEPENDENCIES
+    // ═══════════════════════════════════════════════════════════════
+
+    // ═══════════════════════════════════════════════════════════════
+    // CROSS-REPO: Wesley → Echo (green, bold, dashed)
+    // ═══════════════════════════════════════════════════════════════
+    ttd_protocol_rs -> eint_v2 [style="bold,dashed", color="#1b5e20", penwidth=2];
+    ttd_protocol_rs -> ttdr_v2 [style="bold,dashed", color="#1b5e20", penwidth=2];
+    ttd_manifest -> compliance_idx [style="bold,dashed", color="#1b5e20", penwidth=2];
+    ttd_manifest -> emission_verify [style="bold,dashed", color="#1b5e20", penwidth=2];
+    ttd_manifest -> footprint_verify [style="bold,dashed", color="#1b5e20", penwidth=2];
+    ttd_manifest -> obligation_eval [style="bold,dashed", color="#1b5e20", penwidth=2];
+    ttd_protocol_ts -> ui_framework [style="bold,dashed", color="#1b5e20", penwidth=2];
+
+    // ═══════════════════════════════════════════════════════════════
+    // INTERNAL ECHO: Phase 2 → Phase 3
+    // ═══════════════════════════════════════════════════════════════
+    ttdr_v2 -> compliance_idx [color="#1565c0"];
+    commit_hash_v2 -> compliance_idx [color="#1565c0"];
+    atom_write -> footprint_verify [color="#1565c0"];
+
+    // Phase 3 → Phase 4
+    emission_verify -> obligation_eval [color="#1565c0"];
+    footprint_verify -> obligation_eval [color="#1565c0"];
+
+    // Phase 2/3/4 → Phase 5 (TTD Controller)
+    emissions_digest -> ttd_controller [color="#1565c0"];
+    compliance_idx -> ttd_controller [color="#1565c0"];
+    obligation_status -> ttd_controller [color="#1565c0"];
+
+    // Phase 5 → Phase 6
+    ttd_browser -> ui_framework [color="#1565c0"];
+
+    // Phase 6 → Phase 7
+    fork_compare -> demo_scenarios [color="#1565c0"];
+    provenance_ui -> demo_scenarios [color="#1565c0"];
+
+    // ═══════════════════════════════════════════════════════════════
+    // LEGEND
+    // ═══════════════════════════════════════════════════════════════
+    subgraph cluster_legend {
+        label="Legend";
+        style=filled;
+        fillcolor="#fafafa";
+        color="#9e9e9e";
+
+        leg_wesley [label="Wesley Task", shape=box, style=filled, fillcolor="#c8e6c9"];
+        leg_echo [label="Echo Task", shape=box, style=filled, fillcolor="#bbdefb"];
+        leg_artifact [label="Artifact", shape=folder, style=filled, fillcolor="#a5d6a7"];
+        leg_key [label="Key Component", shape=box, style="rounded,bold"];
+
+        leg_cross_repo [label="Cross-Repo\nDependency", shape=plaintext];
+        leg_internal [label="Internal\nDependency", shape=plaintext];
+
+        leg_wesley -> leg_echo [style=invis];
+        leg_echo -> leg_artifact [style=invis];
+        leg_artifact -> leg_key [style=invis];
+        leg_cross_repo -> leg_internal [style=invis];
+    }
+}

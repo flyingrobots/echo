@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1000" height="700" viewBox="0 0 1000 700" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a1a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1a2e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="wormGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:0.3" />
+      <stop offset="50%" style="stop-color:#f59e0b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f59e0b;stop-opacity:0.3" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1000" height="700" fill="url(#bgGrad)"/>
+
+  <!-- Grid lines (perspective) -->
+  <g opacity="0.15">
+    <!-- Horizontal time planes -->
+    <line x1="100" y1="600" x2="900" y2="600" stroke="#fff" stroke-width="1"/>
+    <line x1="150" y1="500" x2="850" y2="500" stroke="#fff" stroke-width="1"/>
+    <line x1="200" y1="400" x2="800" y2="400" stroke="#fff" stroke-width="1"/>
+    <line x1="250" y1="300" x2="750" y2="300" stroke="#fff" stroke-width="1"/>
+    <line x1="300" y1="200" x2="700" y2="200" stroke="#fff" stroke-width="1"/>
+    <line x1="350" y1="100" x2="650" y2="100" stroke="#fff" stroke-width="1"/>
+
+    <!-- Vertical lines -->
+    <line x1="200" y1="100" x2="100" y2="600" stroke="#fff" stroke-width="1"/>
+    <line x1="350" y1="100" x2="300" y2="600" stroke="#fff" stroke-width="1"/>
+    <line x1="500" y1="100" x2="500" y2="600" stroke="#fff" stroke-width="1"/>
+    <line x1="650" y1="100" x2="700" y2="600" stroke="#fff" stroke-width="1"/>
+    <line x1="800" y1="100" x2="900" y2="600" stroke="#fff" stroke-width="1"/>
+  </g>
+
+  <!-- Time axis label -->
+  <text x="30" y="350" fill="#6b7280" font-family="system-ui" font-size="14" transform="rotate(-90, 30, 350)">TIME (ticks)</text>
+
+  <!-- Tick labels -->
+  <text x="50" y="605" fill="#6b7280" font-family="monospace" font-size="11">T40</text>
+  <text x="50" y="505" fill="#6b7280" font-family="monospace" font-size="11">T43</text>
+  <text x="50" y="405" fill="#6b7280" font-family="monospace" font-size="11">T45</text>
+  <text x="50" y="305" fill="#10b981" font-family="monospace" font-size="11" font-weight="bold">T47</text>
+  <text x="50" y="205" fill="#6b7280" font-family="monospace" font-size="11">T49</text>
+
+  <!-- Current time plane (highlighted) -->
+  <rect x="250" y="290" width="500" height="20" rx="2" fill="#10b981" opacity="0.2"/>
+  <line x1="250" y1="300" x2="750" y2="300" stroke="#10b981" stroke-width="2"/>
+  <text x="760" y="305" fill="#10b981" font-family="system-ui" font-size="12" font-weight="bold">NOW</text>
+
+  <!-- MOUSE CURSOR WORM -->
+  <path d="M 300,580
+           C 320,550 350,520 380,480
+           C 410,440 430,400 480,380
+           C 530,360 560,340 580,300
+           C 600,260 610,220 590,180"
+        fill="none"
+        stroke="#f59e0b"
+        stroke-width="12"
+        stroke-linecap="round"
+        opacity="0.3"
+        filter="url(#softGlow)"/>
+
+  <path d="M 300,580
+           C 320,550 350,520 380,480
+           C 410,440 430,400 480,380
+           C 530,360 560,340 580,300
+           C 600,260 610,220 590,180"
+        fill="none"
+        stroke="#f59e0b"
+        stroke-width="4"
+        stroke-linecap="round"
+        filter="url(#glow)"/>
+
+  <!-- Cursor worm label -->
+  <text x="290" y="620" fill="#f59e0b" font-family="system-ui" font-size="11">Mouse Cursor</text>
+  <text x="290" y="635" fill="#f59e0b" font-family="system-ui" font-size="11">Worldline</text>
+
+  <!-- CLICK EVENT (spark on worm at T45) -->
+  <circle cx="480" cy="380" r="15" fill="#f59e0b" filter="url(#glow)"/>
+  <circle cx="480" cy="380" r="8" fill="#fff"/>
+  <text x="495" y="375" fill="#f59e0b" font-family="system-ui" font-size="11" font-weight="bold">CLICK</text>
+  <text x="495" y="390" fill="#f59e0b" font-family="monospace" font-size="10">T45</text>
+
+  <!-- ATOM PILLAR (counter_1) -->
+  <g transform="translate(650, 0)">
+    <!-- Pillar segments -->
+    <rect x="0" y="580" width="60" height="80" fill="#374151" stroke="#4b5563" opacity="0.5"/>
+    <text x="10" y="625" fill="#6b7280" font-family="monospace" font-size="10">44</text>
+
+    <rect x="0" y="480" width="60" height="100" fill="#374151" stroke="#4b5563" opacity="0.6"/>
+    <text x="10" y="535" fill="#6b7280" font-family="monospace" font-size="10">45</text>
+
+    <rect x="0" y="380" width="60" height="100" fill="#3b82f6" stroke="#60a5fa" opacity="0.8"/>
+    <text x="10" y="435" fill="#fff" font-family="monospace" font-size="10" font-weight="bold">46</text>
+
+    <!-- Current value (highlighted) -->
+    <rect x="0" y="280" width="60" height="100" fill="#10b981" stroke="#34d399" filter="url(#glow)"/>
+    <text x="10" y="335" fill="#fff" font-family="monospace" font-size="14" font-weight="bold">47</text>
+
+    <rect x="0" y="180" width="60" height="100" fill="#374151" stroke="#4b5563" opacity="0.3"/>
+    <text x="10" y="235" fill="#6b7280" font-family="monospace" font-size="10">?</text>
+
+    <!-- Pillar label -->
+    <text x="-10" y="160" fill="#10b981" font-family="system-ui" font-size="12" font-weight="bold">counter_1</text>
+  </g>
+
+  <!-- CAUSAL ARROW: Click → Rule → Atom -->
+  <path d="M 495,380 C 550,380 580,380 610,380"
+        fill="none"
+        stroke="#ef4444"
+        stroke-width="3"
+        stroke-dasharray="8,4"
+        marker-end="url(#arrowhead)"/>
+
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/>
+    </marker>
+  </defs>
+
+  <!-- Rule node -->
+  <rect x="540" y="360" width="100" height="40" rx="6" fill="#1f2937" stroke="#ef4444" stroke-width="2"/>
+  <text x="550" y="385" fill="#ef4444" font-family="monospace" font-size="10">update_counter</text>
+
+  <!-- Causal chain label -->
+  <text x="545" y="420" fill="#ef4444" font-family="system-ui" font-size="10">causality</text>
+
+  <!-- VIEWPORT RIBBON (secondary worm) -->
+  <path d="M 200,600
+           C 220,560 240,500 260,450
+           C 280,400 300,350 320,300
+           C 340,250 360,200 380,150"
+        fill="none"
+        stroke="#8b5cf6"
+        stroke-width="20"
+        stroke-linecap="round"
+        opacity="0.2"/>
+
+  <path d="M 200,600
+           C 220,560 240,500 260,450
+           C 280,400 300,350 320,300
+           C 340,250 360,200 380,150"
+        fill="none"
+        stroke="#8b5cf6"
+        stroke-width="3"
+        stroke-linecap="round"
+        stroke-dasharray="10,5"/>
+
+  <text x="150" y="640" fill="#8b5cf6" font-family="system-ui" font-size="11">Viewport</text>
+  <text x="150" y="655" fill="#8b5cf6" font-family="system-ui" font-size="11">Worldline</text>
+
+  <!-- INFO PANEL (overlay) -->
+  <rect x="750" y="50" width="230" height="180" rx="8" fill="#111827" stroke="#374151" opacity="0.95"/>
+
+  <text x="770" y="80" fill="#fff" font-family="system-ui" font-size="14" font-weight="bold">Provenance View</text>
+
+  <text x="770" y="110" fill="#9ca3af" font-family="system-ui" font-size="11">Selected Atom:</text>
+  <text x="870" y="110" fill="#10b981" font-family="monospace" font-size="11">counter_1</text>
+
+  <text x="770" y="130" fill="#9ca3af" font-family="system-ui" font-size="11">Current Tick:</text>
+  <text x="870" y="130" fill="#10b981" font-family="monospace" font-size="11">47</text>
+
+  <text x="770" y="150" fill="#9ca3af" font-family="system-ui" font-size="11">Last Write:</text>
+  <text x="870" y="150" fill="#f59e0b" font-family="monospace" font-size="11">T45</text>
+
+  <text x="770" y="170" fill="#9ca3af" font-family="system-ui" font-size="11">Writer Rule:</text>
+  <text x="870" y="170" fill="#3b82f6" font-family="monospace" font-size="11">update_counter</text>
+
+  <text x="770" y="190" fill="#9ca3af" font-family="system-ui" font-size="11">Trigger:</text>
+  <text x="870" y="190" fill="#f59e0b" font-family="monospace" font-size="11">ClickIntent</text>
+
+  <rect x="770" y="205" width="90" height="20" rx="4" fill="#374151"/>
+  <text x="782" y="219" fill="#9ca3af" font-family="system-ui" font-size="10">Jump to T45</text>
+
+  <rect x="870" y="205" width="90" height="20" rx="4" fill="#7c3aed"/>
+  <text x="895" y="219" fill="#fff" font-family="system-ui" font-size="10">Exit</text>
+
+  <!-- SCRUBBER -->
+  <rect x="100" y="670" width="800" height="20" rx="10" fill="#1f2937" stroke="#374151"/>
+  <rect x="100" y="670" width="500" height="20" rx="10" fill="#374151"/>
+  <circle cx="600" cy="680" r="12" fill="#10b981" stroke="#fff" stroke-width="2" filter="url(#glow)"/>
+
+  <text x="100" y="660" fill="#6b7280" font-family="system-ui" font-size="10">T40</text>
+  <text x="580" y="660" fill="#10b981" font-family="system-ui" font-size="10" font-weight="bold">T47</text>
+  <text x="880" y="660" fill="#6b7280" font-family="system-ui" font-size="10">T55</text>
+
+  <!-- Title -->
+  <text x="20" y="30" fill="#fff" font-family="system-ui" font-size="18" font-weight="bold">4D Provenance View</text>
+  <text x="20" y="50" fill="#6b7280" font-family="system-ui" font-size="12">Spacetime visualization of atom history and causality</text>
+</svg>

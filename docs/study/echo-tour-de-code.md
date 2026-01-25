@@ -6,7 +6,7 @@
 > **The complete function-by-function trace of Echo's execution pipeline.**
 >
 > This document traces EVERY function call involved in processing a user action through the Echo engine.
-> File paths and line numbers are accurate as of 2026-01-18.
+> File paths are accurate as of 2026-01-25; line numbers are intentionally omitted to avoid drift.
 
 ---
 
@@ -27,7 +27,7 @@
 ## 1. Intent Ingestion
 
 **Entry Point:** `Engine::ingest_intent()`
-**File:** `crates/warp-core/src/engine_impl.rs:1216`
+**File:** `crates/warp-core/src/engine_impl.rs`
 
 ### 1.1 Function Signature
 
@@ -46,7 +46,7 @@ pub fn ingest_intent(&mut self, intent_bytes: &[u8]) -> Result<IngestDisposition
 Engine::ingest_intent(intent_bytes: &[u8])
 │
 ├─[1] compute_intent_id(intent_bytes) → Hash
-│     FILE: crates/warp-core/src/inbox.rs:205
+│     FILE: crates/warp-core/src/inbox.rs
 │     CODE:
 │       let mut hasher = blake3::Hasher::new();
 │       hasher.update(b"intent:");           // Domain separation
@@ -57,41 +57,41 @@ Engine::ingest_intent(intent_bytes: &[u8])
 │     Creates strongly-typed NodeId from Hash
 │
 ├─[3] self.state.store_mut(&warp_id) → Option<&mut GraphStore>
-│     FILE: crates/warp-core/src/engine_impl.rs:1221
+│     FILE: crates/warp-core/src/engine_impl.rs
 │     ERROR: EngineError::UnknownWarp if None
 │
 ├─[4] Extract root_node_id from self.current_root.local_id
 │
 ├─[5] STRUCTURAL NODE CREATION (Idempotent)
 │     ├─ make_node_id("sim") → NodeId
-│     │   FILE: crates/warp-core/src/ident.rs:93
+│     │   FILE: crates/warp-core/src/ident.rs
 │     │   CODE: blake3("node:" || "sim")
 │     │
 │     ├─ make_node_id("sim/inbox") → NodeId
 │     │   CODE: blake3("node:" || "sim/inbox")
 │     │
 │     ├─ make_type_id("sim") → TypeId
-│     │   FILE: crates/warp-core/src/ident.rs:85
+│     │   FILE: crates/warp-core/src/ident.rs
 │     │   CODE: blake3("type:" || "sim")
 │     │
 │     ├─ make_type_id("sim/inbox") → TypeId
 │     ├─ make_type_id("sim/inbox/event") → TypeId
 │     │
 │     ├─ store.insert_node(sim_id, NodeRecord { ty: sim_ty })
-│     │   FILE: crates/warp-core/src/graph.rs:175
+│     │   FILE: crates/warp-core/src/graph.rs
 │     │   CODE: self.nodes.insert(id, record)
 │     │
 │     └─ store.insert_node(inbox_id, NodeRecord { ty: inbox_ty })
 │
 ├─[6] STRUCTURAL EDGE CREATION
 │     ├─ make_edge_id("edge:root/sim") → EdgeId
-│     │   FILE: crates/warp-core/src/ident.rs:109
+│     │   FILE: crates/warp-core/src/ident.rs
 │     │   CODE: blake3("edge:" || "edge:root/sim")
 │     │
 │     ├─ store.insert_edge(root_id, EdgeRecord { ... })
-│     │   FILE: crates/warp-core/src/graph.rs:188
+│     │   FILE: crates/warp-core/src/graph.rs
 │     │   └─ GraphStore::upsert_edge_record(from, edge)
-│     │       FILE: crates/warp-core/src/graph.rs:196
+│     │       FILE: crates/warp-core/src/graph.rs
 │     │       UPDATES:
 │     │         self.edge_index.insert(edge_id, from)
 │     │         self.edge_to_index.insert(edge_id, to)
@@ -102,7 +102,7 @@ Engine::ingest_intent(intent_bytes: &[u8])
 │
 ├─[7] DUPLICATE DETECTION
 │     store.node(&event_id) → Option<&NodeRecord>
-│     FILE: crates/warp-core/src/graph.rs:87
+│     FILE: crates/warp-core/src/graph.rs
 │     CODE: self.nodes.get(id)
 │     IF Some(_): return Ok(IngestDisposition::Duplicate { intent_id })
 │
@@ -112,16 +112,16 @@ Engine::ingest_intent(intent_bytes: &[u8])
 │
 ├─[9] INTENT ATTACHMENT
 │     ├─ AtomPayload::new(type_id, bytes)
-│     │   FILE: crates/warp-core/src/attachment.rs:149
+│     │   FILE: crates/warp-core/src/attachment.rs
 │     │   CODE: Self { type_id, bytes: Bytes::copy_from_slice(intent_bytes) }
 │     │
 │     └─ store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)))
-│         FILE: crates/warp-core/src/graph.rs:125
+│         FILE: crates/warp-core/src/graph.rs
 │         CODE: self.node_attachments.insert(id, v)
 │
 ├─[10] PENDING EDGE CREATION (Queue Membership)
 │      ├─ pending_edge_id(&inbox_id, &intent_id) → EdgeId
-│      │   FILE: crates/warp-core/src/inbox.rs:212
+│      │   FILE: crates/warp-core/src/inbox.rs
 │      │   CODE: blake3("edge:" || "sim/inbox/pending:" || inbox_id || intent_id)
 │      │
 │      └─ store.insert_edge(inbox_id, EdgeRecord {
@@ -152,7 +152,7 @@ Engine::ingest_intent(intent_bytes: &[u8])
 ### 2.1 Begin Transaction
 
 **Entry Point:** `Engine::begin()`
-**File:** `crates/warp-core/src/engine_impl.rs:711-719`
+**File:** `crates/warp-core/src/engine_impl.rs-719`
 
 ```rust
 pub fn begin(&mut self) -> TxId {
@@ -182,7 +182,7 @@ Engine::begin()
 │   Registers transaction as active
 │
 └─ TxId::from_raw(self.tx_counter)
-    FILE: crates/warp-core/src/tx.rs:34
+    FILE: crates/warp-core/src/tx.rs
     CODE: pub const fn from_raw(value: u64) -> Self { Self(value) }
     TYPE: #[repr(transparent)] struct TxId(u64)
 ```
@@ -195,7 +195,7 @@ Engine::begin()
 ### 2.2 Abort Transaction
 
 **Entry Point:** `Engine::abort()`
-**File:** `crates/warp-core/src/engine_impl.rs:962-968`
+**File:** `crates/warp-core/src/engine_impl.rs-968`
 
 ```rust
 pub fn abort(&mut self, tx: TxId) {
@@ -212,7 +212,7 @@ pub fn abort(&mut self, tx: TxId) {
 ## 3. Rule Matching
 
 **Entry Point:** `Engine::apply()`
-**File:** `crates/warp-core/src/engine_impl.rs:730-737`
+**File:** `crates/warp-core/src/engine_impl.rs-737`
 
 ### 3.1 Function Signature
 
@@ -231,7 +231,7 @@ pub fn apply(
 Engine::apply(tx, rule_name, scope)
 │
 └─ Engine::apply_in_warp(tx, self.current_root.warp_id, rule_name, scope, &[])
-    FILE: crates/warp-core/src/engine_impl.rs:754-806
+    FILE: crates/warp-core/src/engine_impl.rs
     │
     ├─[1] TRANSACTION VALIDATION
     │     CODE: if tx.value() == 0 || !self.live_txs.contains(&tx.value())
@@ -254,7 +254,7 @@ Engine::apply(tx, rule_name, scope)
     ├─[5] CALL MATCHER
     │     (rule.matcher)(view, scope) → bool
     │     TYPE: MatchFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool
-    │     FILE: crates/warp-core/src/rule.rs:16-24
+    │     FILE: crates/warp-core/src/rule.rs
     │     IF false: return Ok(ApplyResult::NoMatch)
     │
     ├─[6] CREATE SCOPE KEY
@@ -262,7 +262,7 @@ Engine::apply(tx, rule_name, scope)
     │
     ├─[7] COMPUTE SCOPE HASH
     │     scope_hash(&rule.id, &scope_key) → Hash
-    │     FILE: crates/warp-core/src/engine_impl.rs:1712-1718
+    │     FILE: crates/warp-core/src/engine_impl.rs
     │     CODE:
     │       let mut hasher = Hasher::new();
     │       hasher.update(rule_id);              // 32 bytes
@@ -273,7 +273,7 @@ Engine::apply(tx, rule_name, scope)
     ├─[8] COMPUTE FOOTPRINT
     │     (rule.compute_footprint)(view, scope) → Footprint
     │     TYPE: FootprintFn = for<'a> fn(GraphView<'a>, &NodeId) -> Footprint
-    │     FILE: crates/warp-core/src/rule.rs:38-46
+    │     FILE: crates/warp-core/src/rule.rs
     │     RETURNS:
     │       Footprint {
     │         n_read: IdSet,           // Nodes read
@@ -290,7 +290,7 @@ Engine::apply(tx, rule_name, scope)
     ├─[9] AUGMENT FOOTPRINT WITH DESCENT STACK
     │     for key in descent_stack:
     │       footprint.a_read.insert(*key)
-    │     FILE: crates/warp-core/src/footprint.rs:104-107
+    │     FILE: crates/warp-core/src/footprint.rs
     │     PURPOSE: Stage B1 law - READs of all descent chain slots
     │
     ├─[10] COMPACT RULE ID LOOKUP
@@ -302,16 +302,16 @@ Engine::apply(tx, rule_name, scope)
           self.scheduler.enqueue(tx, PendingRewrite { ... })
           │
           └─ DeterministicScheduler::enqueue(tx, rewrite)
-              FILE: crates/warp-core/src/scheduler.rs:654-659
+              FILE: crates/warp-core/src/scheduler.rs
               │
               └─ RadixScheduler::enqueue(tx, rewrite)
-                  FILE: crates/warp-core/src/scheduler.rs:102-105
+                  FILE: crates/warp-core/src/scheduler.rs
                   CODE:
                     let txq = self.pending.entry(tx).or_default();
                     txq.enqueue(rewrite.scope_hash, rewrite.compact_rule.0, rewrite);
                   │
                   └─ PendingTx::enqueue(scope_be32, rule_id, payload)
-                      FILE: crates/warp-core/src/scheduler.rs:331-355
+                      FILE: crates/warp-core/src/scheduler.rs
 
                       CASE 1: Duplicate (scope_hash, rule_id) — LAST WINS
                         index.get(&key) → Some(&i)
@@ -326,7 +326,7 @@ Engine::apply(tx, rule_name, scope)
 
 ### 3.3 PendingRewrite Structure
 
-**File:** `crates/warp-core/src/scheduler.rs:68-82`
+**File:** `crates/warp-core/src/scheduler.rs-82`
 
 ```rust
 pub(crate) struct PendingRewrite {
@@ -346,7 +346,7 @@ pub(crate) struct PendingRewrite {
 ### 4.1 Drain Phase (Radix Sort)
 
 **Entry Point:** `RadixScheduler::drain_for_tx()`
-**File:** `crates/warp-core/src/scheduler.rs:109-113`
+**File:** `crates/warp-core/src/scheduler.rs-113`
 
 ```rust
 pub(crate) fn drain_for_tx(&mut self, tx: TxId) -> Vec<PendingRewrite> {
@@ -364,14 +364,14 @@ RadixScheduler::drain_for_tx(tx)
 ├─ self.pending.remove(&tx) → Option<PendingTx<PendingRewrite>>
 │
 └─ PendingTx::drain_in_order()
-    FILE: crates/warp-core/src/scheduler.rs:416-446
+    FILE: crates/warp-core/src/scheduler.rs
     │
     ├─ DECISION: n <= 1024 (SMALL_SORT_THRESHOLD)?
     │   ├─ YES: sort_unstable_by(cmp_thin)
     │   │       Rust std comparison sort
     │   │
     │   └─ NO: radix_sort()
-    │          FILE: crates/warp-core/src/scheduler.rs:360-413
+    │          FILE: crates/warp-core/src/scheduler.rs
     │
     └─ radix_sort()
         │
@@ -406,7 +406,7 @@ RadixScheduler::drain_for_tx(tx)
             └─ flip = !flip
 
 BUCKET EXTRACTION (bucket16):
-FILE: crates/warp-core/src/scheduler.rs:481-498
+FILE: crates/warp-core/src/scheduler.rs
 
 Pass 0:  u16_from_u32_le(r.nonce, 0)      // Nonce bytes [0:2]
 Pass 1:  u16_from_u32_le(r.nonce, 1)      // Nonce bytes [2:4]
@@ -423,7 +423,7 @@ SORT ORDER: (scope_hash, rule_id, nonce) ascending lexicographic
 ### 4.2 Reserve Phase (Independence Check)
 
 **Entry Point:** `RadixScheduler::reserve()`
-**File:** `crates/warp-core/src/scheduler.rs:134-143`
+**File:** `crates/warp-core/src/scheduler.rs-143`
 
 ```rust
 pub(crate) fn reserve(&mut self, tx: TxId, pr: &mut PendingRewrite) -> bool {
@@ -453,7 +453,7 @@ RadixScheduler::reserve(tx, pr)
 │     - ports: GenSet<PortKey>
 │
 ├─ has_conflict(active, pr) → bool
-│   FILE: crates/warp-core/src/scheduler.rs:157-236
+│   FILE: crates/warp-core/src/scheduler.rs
 │   │
 │   ├─ FOR node IN pr.footprint.n_write:
 │   │     IF active.nodes_written.contains(node): return true  // W-W conflict
@@ -482,12 +482,12 @@ RadixScheduler::reserve(tx, pr)
 │
 ├─ IF conflict:
 │   └─ on_conflict(pr)
-│       FILE: crates/warp-core/src/scheduler.rs:145-149
+│       FILE: crates/warp-core/src/scheduler.rs
 │       pr.phase = RewritePhase::Aborted
 │       return false
 │
 ├─ mark_all(active, pr)
-│   FILE: crates/warp-core/src/scheduler.rs:238-278
+│   FILE: crates/warp-core/src/scheduler.rs
 │   │
 │   ├─ FOR node IN pr.footprint.n_write:
 │   │     active.nodes_written.mark(NodeKey { warp_id, local_id: node })
@@ -511,14 +511,14 @@ RadixScheduler::reserve(tx, pr)
 │         active.ports.mark(port)
 │
 └─ on_reserved(pr)
-    FILE: crates/warp-core/src/scheduler.rs:151-155
+    FILE: crates/warp-core/src/scheduler.rs
     pr.phase = RewritePhase::Reserved
     return true
 ```
 
 ### 4.3 GenSet: O(1) Conflict Detection
 
-**File:** `crates/warp-core/src/scheduler.rs:509-535`
+**File:** `crates/warp-core/src/scheduler.rs-535`
 
 ```rust
 pub(crate) struct GenSet<K> {
@@ -546,7 +546,7 @@ impl<K: Hash + Eq + Copy> GenSet<K> {
 ## 5. BOAW Parallel Execution
 
 **Entry Point:** `execute_parallel()`
-**File:** `crates/warp-core/src/boaw/exec.rs:61-83`
+**File:** `crates/warp-core/src/boaw/exec.rs-83`
 
 ### 5.1 Entry Point
 
@@ -570,20 +570,20 @@ pub fn execute_parallel(view: GraphView<'_>, items: &[ExecItem], workers: usize)
 execute_parallel(view, items, workers)
 │
 └─ execute_parallel_sharded(view, items, capped_workers)
-    FILE: crates/warp-core/src/boaw/exec.rs:101-152
+    FILE: crates/warp-core/src/boaw/exec.rs
     │
     ├─ IF items.is_empty():
     │     return (0..workers).map(|_| TickDelta::new()).collect()
     │
     ├─ partition_into_shards(items.to_vec()) → Vec<VirtualShard>
-    │   FILE: crates/warp-core/src/boaw/shard.rs:109-120
+    │   FILE: crates/warp-core/src/boaw/shard.rs
     │   │
     │   ├─ Create 256 empty VirtualShard structures
     │   │
     │   └─ FOR item IN items:
     │       │
     │       ├─ shard_of(&item.scope) → usize
-    │       │   FILE: crates/warp-core/src/boaw/shard.rs:82-92
+    │       │   FILE: crates/warp-core/src/boaw/shard.rs
     │       │   CODE:
     │       │     let bytes = scope.as_bytes();
     │       │     let first_8: [u8; 8] = [bytes[0..8]];
@@ -602,7 +602,7 @@ execute_parallel(view, items, workers)
         │   └─ s.spawn(move || { ... })  // ═══ WORKER THREAD ═══
         │       │
         │       ├─ let mut delta = TickDelta::new()
-        │       │   FILE: crates/warp-core/src/tick_delta.rs:44-52
+        │       │   FILE: crates/warp-core/src/tick_delta.rs
         │       │   CREATES: { ops: Vec::new(), origins: Vec::new() }
         │       │
         │       └─ LOOP:  // Work-stealing loop
@@ -616,21 +616,21 @@ execute_parallel(view, items, workers)
         │           └─ FOR item IN &shards[shard_id].items:
         │               │
         │               ├─ let mut scoped = delta.scoped(item.origin)
-        │               │   FILE: crates/warp-core/src/tick_delta.rs:140-142
+        │               │   FILE: crates/warp-core/src/tick_delta.rs
         │               │   CREATES: ScopedDelta { inner: &mut delta, origin, next_op_ix: 0 }
         │               │
         │               └─ (item.exec)(view, &item.scope, scoped.inner_mut())
         │                   │
         │                   └─ INSIDE EXECUTOR:
         │                       scoped.emit(op)
-        │                       FILE: crates/warp-core/src/tick_delta.rs:234-239
+        │                       FILE: crates/warp-core/src/tick_delta.rs
         │                       CODE:
         │                         origin.op_ix = self.next_op_ix;
         │                         self.next_op_ix += 1;
         │                         self.inner.emit_with_origin(op, origin);
         │                       │
         │                       └─ TickDelta::emit_with_origin(op, origin)
-        │                           FILE: crates/warp-core/src/tick_delta.rs:69-75
+        │                           FILE: crates/warp-core/src/tick_delta.rs
         │                           CODE:
         │                             self.ops.push(op);
         │                             self.origins.push(origin);  // if delta_validate
@@ -682,7 +682,7 @@ executor panic the delta must be discarded — it cannot be merged or committed.
 
 ### 5.4 ExecItem Structure
 
-**File:** `crates/warp-core/src/boaw/exec.rs:19-35`
+**File:** `crates/warp-core/src/boaw/exec.rs-35`
 
 ```rust
 #[derive(Clone, Copy)]
@@ -728,7 +728,7 @@ This means enforcement is always-on in dev/test, opt-in for release, and explici
 ### 6.1 Canonical Merge
 
 **Entry Point:** `merge_deltas()`
-**File:** `crates/warp-core/src/boaw/merge.rs:36-75`
+**File:** `crates/warp-core/src/boaw/merge.rs-75`
 
 ```text
 merge_deltas(deltas: Vec<TickDelta>) → Result<Vec<WarpOp>, MergeConflict>
@@ -769,7 +769,7 @@ merge_deltas(deltas: Vec<TickDelta>) → Result<Vec<WarpOp>, MergeConflict>
 
 ### 6.2 WarpOp Sort Key
 
-**File:** `crates/warp-core/src/tick_patch.rs:207-287`
+**File:** `crates/warp-core/src/tick_patch.rs-287`
 
 ```rust
 pub(crate) fn sort_key(&self) -> WarpOpKey {
@@ -852,7 +852,7 @@ GraphStore::set_edge_attachment(id, value)
 ### 7.1 State Root
 
 **Entry Point:** `compute_state_root()`
-**File:** `crates/warp-core/src/snapshot.rs:88-209`
+**File:** `crates/warp-core/src/snapshot.rs-209`
 
 ```text
 compute_state_root(state: &WarpState, root: &NodeKey) → Hash
@@ -917,7 +917,7 @@ compute_state_root(state: &WarpState, root: &NodeKey) → Hash
 ### 7.2 Commit Hash v2
 
 **Entry Point:** `compute_commit_hash_v2()`
-**File:** `crates/warp-core/src/snapshot.rs:244-263`
+**File:** `crates/warp-core/src/snapshot.rs-263`
 
 ```rust
 pub(crate) fn compute_commit_hash_v2(
@@ -956,7 +956,7 @@ TOTAL: 78 + 32*N bytes → BLAKE3 → 32-byte hash
 ### 7.3 Patch Digest
 
 **Entry Point:** `compute_patch_digest_v2()`
-**File:** `crates/warp-core/src/tick_patch.rs:755-774`
+**File:** `crates/warp-core/src/tick_patch.rs-774`
 
 ```rust
 fn compute_patch_digest_v2(
@@ -984,7 +984,7 @@ fn compute_patch_digest_v2(
 ## 8. Commit Orchestration
 
 **Entry Point:** `Engine::commit_with_receipt()`
-**File:** `crates/warp-core/src/engine_impl.rs:837-954`
+**File:** `crates/warp-core/src/engine_impl.rs-954`
 
 ### 8.1 Complete Call Trace
 
@@ -1000,7 +1000,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │     rule_pack_id = self.compute_rule_pack_id()         // Line 845
 │     │
 │     ├─ compute_rule_pack_id()
-│     │   FILE: engine_impl.rs:1675-1688
+│     │   FILE: engine_impl.rs
 │     │   CODE:
 │     │     ids = self.rules.values().map(|r| r.id).collect()
 │     │     ids.sort_unstable(); ids.dedup()
@@ -1017,7 +1017,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │       = self.reserve_for_receipt(tx, drained)?         // Line 850-855
 │     │
 │     └─ reserve_for_receipt(tx, drained)
-│         FILE: engine_impl.rs:970-1042
+│         FILE: engine_impl.rs
 │         │
 │         FOR rewrite IN drained (canonical order):
 │           │
@@ -1041,7 +1041,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │     delta_ops = self.apply_reserved_rewrites(reserved, &state_before)?
 │     │
 │     └─ apply_reserved_rewrites(rewrites, state_before)
-│         FILE: engine_impl.rs:1044-1105
+│         FILE: engine_impl.rs
 │         │
 │         ├─ let mut delta = TickDelta::new()
 │         │
@@ -1066,7 +1066,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │     ops = diff_state(&state_before, &self.state)       // Line 889
 │     │
 │     └─ diff_state(before, after)
-│         FILE: tick_patch.rs:979-1069
+│         FILE: tick_patch.rs
 │         - Canonicalize portal authoring (OpenPortal)
 │         - Diff instances (delete/upsert)
 │         - Diff nodes, edges, attachments

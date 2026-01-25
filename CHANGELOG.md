@@ -27,7 +27,7 @@
 - **`check_op()` post-hoc write validation** (`boaw/exec.rs`): Validates emitted `WarpOp`s against
   declared write sets, including adjacency-mutation rule (edge ops require `from` node in `n_write`).
 
-- **Slice-theorem proof tests** (`tests/boaw_footprints.rs`): 12+ integration tests proving
+- **Slice-theorem proof tests** (`tests/boaw_footprints.rs`): 15 initial integration tests proving
   enforcement catches drift, cross-warp violations, instance-op escalation, and
   write-violation-overrides-panic invariant.
 
@@ -110,7 +110,7 @@
 - **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Result<Vec<TickDelta>, WarpId>` instead of panicking on missing store; caller maps to `EngineError::InternalCorruption`
 - **P1: Guard metadata scoping** (`engine_impl.rs`): Guard metadata now keyed by warp-scoped `NodeKey` to prevent cross-warp footprint collisions during enforcement
 - **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
-- **P2: Markdownlint MD060** (`.markdownlint.json`): Removed global MD060 disable (all tables are well-formed; no false positives to suppress)
+- **P2: Markdownlint MD060** (`.markdownlint.json`): Global MD060 disable retained to avoid table false positives (revisit once tables are normalized)
 - **P2: Port rule footprint** (`crates/echo-dry-tests/src/demo_rules.rs`): Always declare scope node read to prevent enforcement panics when node is missing
 - **P2: Motion rule footprint** (`crates/echo-dry-tests/src/demo_rules.rs`): Always declare scope node read to prevent enforcement panics when node is missing
 - **P2: Test hardening** (`tests/`): Real `compute_commit_hash_v2` in all test worldline setups, u8 truncation guards (`num_ticks <= 127`), updated playback tests to match corrected `publish_truth` indexing

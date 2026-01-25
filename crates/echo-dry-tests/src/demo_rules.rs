@@ -215,7 +215,6 @@ pub fn build_motion_demo_engine() -> Engine {
 // =============================================================================
 
 /// Rule name constant for the demo port reservation rule.
-/// Rule name constant for the demo port reservation rule.
 pub const PORT_RULE_NAME: &str = "demo/port_nop";
 
 fn port_matcher(_: GraphView<'_>, _: &NodeId) -> bool {

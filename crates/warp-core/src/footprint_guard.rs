@@ -202,11 +202,19 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
             op_warp: Some(*warp_id),
             kind_str,
         },
-        WarpOp::SetAttachment { key, .. } | WarpOp::OpenPortal { key, .. } => OpTargets {
+        WarpOp::SetAttachment { key, .. } => OpTargets {
             nodes: Vec::new(),
             edges: Vec::new(),
             attachments: vec![*key],
             is_instance_op: false,
+            op_warp: Some(key.owner.warp_id()),
+            kind_str,
+        },
+        WarpOp::OpenPortal { key, .. } => OpTargets {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            attachments: vec![*key],
+            is_instance_op: true,
             op_warp: Some(key.owner.warp_id()),
             kind_str,
         },

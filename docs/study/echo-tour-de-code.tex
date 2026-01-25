@@ -834,14 +834,14 @@ execute_item_enforced(store, item, idx, unit, delta)
 │     ExecItemKind::System items may emit warp-instance-level ops;
 │     ExecItemKind::User items may not.
 │
-└─ OUTCOME PRECEDENCE:
-      ├─ IF check_op fails:
-      │     panic_any(FootprintViolation)
-      │     Write violations OVERRIDE executor panics — violation takes precedence.
+└─ OUTCOME PRECEDENCE (returns Result<TickDelta, PoisonedDelta>):
+      ├─ IF exec panicked AND check_op panicked:
+      │     return Err(PoisonedDelta(FootprintViolationWithPanic))
+      │     The violation wraps both the FootprintViolation and the exec panic.
       │
-      ├─ IF footprint is clean BUT executor panicked:
-      │     std::panic::resume_unwind(payload)
-      │     The original panic propagates to the caller.
+      ├─ IF exec panicked OR check_op panicked (but not both):
+      │     return Err(PoisonedDelta(panic_payload))
+      │     Single panic payload (either executor or violation).
       │
       └─ IF both clean:
             return Ok(delta)

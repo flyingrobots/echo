@@ -398,13 +398,14 @@ where
 
 /// Executes a single item with footprint enforcement (cfg-gated).
 ///
-/// When enforcement is active and guards are present:
-/// 1. Creates a guarded `GraphView` (read enforcement)
-/// 2. Wraps execution in `catch_unwind`
-/// 3. Validates emitted ops (write enforcement) — runs even on panic
-/// 4. Re-throws any original panic
+/// When enforcement is active:
+/// 1. Creates a guarded `GraphView` (read enforcement via `new_guarded`)
+/// 2. Wraps execution in `catch_unwind` to ensure write validation runs
+/// 3. Validates all emitted ops via `check_op()` (write enforcement)
+/// 4. Returns `Err(PoisonedDelta)` on executor panic or footprint violation
 ///
-/// When enforcement is inactive or guards are empty, executes directly.
+/// When enforcement is inactive (`unsafe_graph` feature or release without
+/// `footprint_enforce_release`), executes directly without validation.
 #[inline]
 fn execute_item_enforced(
     store: &GraphStore,
@@ -420,9 +421,9 @@ fn execute_item_enforced(
         use std::panic::{catch_unwind, AssertUnwindSafe};
 
         // Hard invariant: guards must be populated and aligned with items.
-        // This assertion replaces the previous guards.is_empty() bypass.
-        // If guards are empty when enforcement is active, it's a bug in the engine.
-        debug_assert_eq!(
+        // This check runs in all builds (debug and release) when enforcement is active.
+        // If guards are misaligned, it's a bug in the engine's guard construction.
+        assert_eq!(
             unit.guards.len(),
             unit.items.len(),
             "guards must align with items before enforcement"

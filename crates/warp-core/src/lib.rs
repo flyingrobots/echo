@@ -94,8 +94,9 @@ mod footprint;
 ///
 /// - **Debug builds**: enforcement enabled by default (`debug_assertions`)
 /// - **Release builds**: enforcement disabled unless `footprint_enforce_release` feature is enabled
-/// - **`unsafe_graph` feature**: disables enforcement unconditionally, even if
-///   `footprint_enforce_release` is set (escape hatch for benchmarks/fuzzing)
+/// - **`unsafe_graph` feature**: mutually exclusive with `footprint_enforce_release` at
+///   compile time (enabling both is a compile error). Use `unsafe_graph` as an escape
+///   hatch for benchmarks/fuzzing where safety checks are deliberately bypassed
 ///
 /// # Invariants
 ///
@@ -162,8 +163,10 @@ pub use boaw::{
 /// Delta merging functions, only available with `delta_validate` feature.
 ///
 /// These functions are feature-gated because they are primarily used for testing
-/// and validation. `merge_deltas_ok` returns `Result` and rejects poisoned deltas;
-/// `merge_deltas` is the legacy variant. Enable `delta_validate` to access them.
+/// and validation. `merge_deltas` accepts `Vec<Result<TickDelta, PoisonedDelta>>`
+/// and performs poisoned-delta rejection; `merge_deltas_ok` is a convenience wrapper
+/// that maps `Vec<TickDelta>` into `Ok` variants and delegates to `merge_deltas`.
+/// Enable `delta_validate` to access them.
 #[cfg(any(test, feature = "delta_validate"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "delta_validate")))]
 pub use boaw::{merge_deltas, merge_deltas_ok, MergeError};

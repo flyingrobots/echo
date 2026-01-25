@@ -62,7 +62,15 @@ pub fn route_push_rule() -> RewriteRule {
                 emit_route_push(s.warp_id(), delta, args.path);
             }
         },
-        compute_footprint: |s, scope| footprint_for_state_node(s, scope, "sim/state/routePath"),
+        compute_footprint: |s, scope| {
+            // Only declare full footprint if args decode succeeds (mirrors executor).
+            if decode_op_args::<ops::route_push::Args>(s, scope, ops::route_push::decode_vars)
+                .is_none()
+            {
+                return minimal_decode_footprint(s, scope);
+            }
+            footprint_for_state_node(s, scope, "sim/state/routePath")
+        },
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
         join_fn: None,
@@ -85,7 +93,15 @@ pub fn set_theme_rule() -> RewriteRule {
                 emit_set_theme(s.warp_id(), delta, args.mode);
             }
         },
-        compute_footprint: |s, scope| footprint_for_state_node(s, scope, "sim/state/theme"),
+        compute_footprint: |s, scope| {
+            // Only declare full footprint if args decode succeeds (mirrors executor).
+            if decode_op_args::<ops::set_theme::Args>(s, scope, ops::set_theme::decode_vars)
+                .is_none()
+            {
+                return minimal_decode_footprint(s, scope);
+            }
+            footprint_for_state_node(s, scope, "sim/state/theme")
+        },
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
         join_fn: None,
@@ -137,41 +153,21 @@ pub fn toast_rule() -> RewriteRule {
             }
         },
         compute_footprint: |s, scope| {
-            let warp_id = s.warp_id();
-            let mut n_read = NodeSet::default();
-            let mut n_write = NodeSet::default();
-            let mut e_write = EdgeSet::default();
-            let mut a_read = AttachmentSet::default();
-            let mut a_write = AttachmentSet::default();
-
-            // decode_op_args reads scope node + attachment
-            n_read.insert_with_warp(warp_id, *scope);
-            a_read.insert(AttachmentKey::node_alpha(NodeKey {
-                warp_id,
-                local_id: *scope,
-            }));
-
-            // emit_view_op_delta_scoped creates:
-            let view_id = make_node_id("sim/view");
-            n_write.insert_with_warp(warp_id, view_id);
-
-            // Dynamic op node derived from scope hex
-            let (op_id, edge_id) = view_op_ids_for_scope(scope);
-            n_write.insert_with_warp(warp_id, op_id);
-            e_write.insert_with_warp(warp_id, edge_id);
-            a_write.insert(AttachmentKey::node_alpha(NodeKey {
-                warp_id,
-                local_id: op_id,
-            }));
-
-            Footprint {
-                n_read,
-                n_write,
-                e_write,
-                a_read,
-                a_write,
-                ..Default::default()
+            // Only declare full footprint if args decode succeeds (mirrors executor).
+            if decode_op_args::<ops::toast::Args>(s, scope, ops::toast::decode_vars).is_none() {
+                return minimal_decode_footprint(s, scope);
             }
+
+            // emit_view_op_delta_scoped creates view node, op node, edge, and attachment
+            let view_id = make_node_id("sim/view");
+            let (op_id, edge_id) = view_op_ids_for_scope(scope);
+
+            echo_dry_tests::FootprintBuilder::from_view(s)
+                .reads_node_with_alpha(*scope)
+                .writes_nodes([view_id, op_id])
+                .writes_edge(edge_id)
+                .writes_node_alpha(op_id)
+                .build()
         },
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -217,19 +213,10 @@ pub fn drop_ball_rule() -> RewriteRule {
         compute_footprint: |s, _scope| {
             // Minimal footprint: executor only creates the ball node and its attachment.
             // No sim/state hierarchy or edges are created by this rule.
-            let ball_key = NodeKey {
-                warp_id: s.warp_id(),
-                local_id: make_node_id("ball"),
-            };
-            let mut n_write = NodeSet::default();
-            n_write.insert(ball_key);
-            let mut a_write = AttachmentSet::default();
-            a_write.insert(AttachmentKey::node_alpha(ball_key));
-            Footprint {
-                n_write,
-                a_write,
-                ..Default::default()
-            }
+            let ball_id = make_node_id("ball");
+            echo_dry_tests::FootprintBuilder::from_view(s)
+                .writes_node_with_alpha(ball_id)
+                .build()
         },
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -285,22 +272,9 @@ pub fn ball_physics_rule() -> RewriteRule {
             }
         },
         compute_footprint: |s, scope| {
-            let key = AttachmentKey::node_alpha(NodeKey {
-                warp_id: s.warp_id(),
-                local_id: *scope,
-            });
-            let mut n_read = NodeSet::default();
-            n_read.insert_with_warp(s.warp_id(), *scope);
-            let mut a_read = AttachmentSet::default();
-            a_read.insert(key);
-            let mut a_write = AttachmentSet::default();
-            a_write.insert(key);
-            Footprint {
-                n_read,
-                a_read,
-                a_write,
-                ..Default::default()
-            }
+            echo_dry_tests::FootprintBuilder::from_view(s)
+                .reads_writes_node_alpha(*scope)
+                .build()
         },
         factor_mask: 0,
         conflict_policy: ConflictPolicy::Abort,
@@ -375,6 +349,16 @@ impl<'a> MotionV2View<'a> {
         };
         Self::try_from_payload(p)
     }
+}
+
+/// Returns a minimal footprint for decode-only access.
+///
+/// Used when `decode_op_args` fails: declares only the reads attempted during
+/// decoding (scope node + its attachment) with no writes.
+fn minimal_decode_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    echo_dry_tests::FootprintBuilder::from_view(view)
+        .reads_node_with_alpha(*scope)
+        .build()
 }
 
 /// Compute the footprint for a state node operation.

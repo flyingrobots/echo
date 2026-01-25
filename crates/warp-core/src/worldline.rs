@@ -291,6 +291,28 @@ pub(crate) fn apply_warp_op_to_store(
 }
 
 /// Applies a `SetAttachment` op to a store, validating plane and existence.
+///
+/// # Arguments
+///
+/// * `store` - The `GraphStore` to mutate.
+/// * `store_warp` - Must equal `store.warp_id()`; validates that the attachment
+///   owner's warp matches the store's warp.
+/// * `key` - The `AttachmentKey` identifying the attachment to set.
+/// * `value` - The new attachment value (or `None` to clear).
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * [`ApplyError::InvalidAttachmentKey`] - The `AttachmentKey.plane` doesn't match
+///   the `AttachmentOwner` (Alpha is for nodes, Beta is for edges).
+/// * [`ApplyError::WarpMismatch`] - The owner's `warp_id` differs from `store_warp`.
+/// * [`ApplyError::MissingNode`] - For node attachments, the referenced node is absent.
+/// * [`ApplyError::MissingEdge`] - For edge attachments, the referenced edge is absent.
+///
+/// # Effects
+///
+/// On success, calls `store.set_node_attachment()` or `store.set_edge_attachment()`
+/// with the given value.
 fn apply_set_attachment(
     store: &mut GraphStore,
     store_warp: WarpId,

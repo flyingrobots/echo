@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Merge tripwire tests for BOAW Phase 6.
-#![cfg(feature = "delta_validate")]
 //!
 //! These tests verify that footprint model violations are caught at merge time,
 //! proving the safety net exists.
+#![cfg(feature = "delta_validate")]
 //!
 //! # Feature Requirements
 //! ```sh

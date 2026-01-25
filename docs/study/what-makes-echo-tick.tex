@@ -573,7 +573,9 @@ violations:
 \item Undeclared reads (node, edge, or attachment access not listed in the footprint)
 \item Undeclared writes (ops emitted for resources not in \texttt{n\_write} / \texttt{e\_write} / \texttt{a\_write})
 \item Cross-warp emissions (ops targeting a \texttt{WarpId} other than the executing warp)
-\item Unauthorized instance ops (lifecycle operations on node instances not covered by the footprint)
+\item Unauthorized instance ops (warp-instance-level operations like \texttt{UpsertWarpInstance} or
+  \texttt{DeleteWarpInstance} emitted by \texttt{ExecItemKind::User} rules; only
+  \texttt{ExecItemKind::System} rules may emit these)
 \item Adjacency violations (edge ops whose \texttt{from} node is absent from \texttt{n\_write})
 \end{itemize}
 

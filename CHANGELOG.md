@@ -85,7 +85,8 @@
     - **Constructors/Methods**: `GraphView::new_guarded`, `ExecItem::new`
     - **Functions**: `check_op`
     - **Tests/Examples**: `tests/boaw_footprints.rs`
-      See ADR-0007 for full context.
+
+    See ADR-0007 for full context.
 
 ### Added - SPEC-0004: Worldlines & Playback
 

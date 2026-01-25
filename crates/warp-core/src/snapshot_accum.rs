@@ -592,7 +592,22 @@ impl SnapshotAccumulator {
         })
     }
 
-    /// Builds node and edge attachment arrays for `OneWarpInput`.
+    /// Builds node and edge attachment arrays for [`OneWarpInput`].
+    ///
+    /// # Arguments
+    ///
+    /// * `warp_id` - The warp to filter attachments by.
+    /// * `reachable_nodes` - Pre-filtered set of reachable nodes for this warp.
+    /// * `edges` - Pre-filtered reachable edges for this warp. **Must be in the exact
+    ///   same order used to construct `OneWarpInput::edges`**, as edge attachment
+    ///   indices are parallel to this vector.
+    ///
+    /// # Contract
+    ///
+    /// The `blobs` vector inside [`AttachmentArrays`] is shared/accumulated across
+    /// both node and edge attachments. Its order is significant: blob offsets in
+    /// [`AttRow`] reference positions within this shared buffer. Consumers must
+    /// preserve this ordering when deserializing.
     fn build_attachments(
         &self,
         warp_id: WarpId,

@@ -17,6 +17,31 @@
 //! The guard is active when `debug_assertions` is set (debug builds) or when the
 //! `footprint_enforce_release` feature is enabled. The `unsafe_graph` feature
 //! disables all enforcement regardless.
+//!
+//! # Panic Semantics
+//!
+//! Footprint violations panic with `panic_any(FootprintViolation)` because:
+//!
+//! - Violations are **programmer errors** (incorrect footprint declarations), not
+//!   recoverable runtime conditions.
+//! - Detection must be immediate and unambiguous to catch bugs early.
+//! - Workers catch panics via `catch_unwind` in `execute_item_enforced`.
+//!
+//! On violation: the violating item's execution is aborted, its delta becomes a
+//! [`PoisonedDelta`](crate::boaw::PoisonedDelta), and the worker continues with
+//! remaining items. Poisoned deltas are rejected at merge time via
+//! [`MergeError::PoisonedDelta`](crate::boaw::MergeError::PoisonedDelta).
+//!
+//! This is NOT a recoverable runtime error; fix your footprint declarations.
+//!
+//! # Cross-Warp Write Policy
+//!
+//! Cross-warp writes are **forbidden**. Each rule executes within a single warp
+//! scope and may only emit ops targeting that warp. Attempting to emit an op
+//! targeting a different warp triggers [`ViolationKind::CrossWarpEmission`].
+//!
+//! This is a fundamental invariant of BOAW, not a temporary restriction. Inter-warp
+//! communication flows through portals (attachment-based descent), not direct writes.
 
 use std::any::Any;
 use std::collections::BTreeSet;
@@ -139,6 +164,11 @@ pub(crate) fn op_kind_str(op: &WarpOp) -> &'static str {
 /// `UpsertEdge`/`DeleteEdge` produce BOTH an edge write target (`edge_id`) AND a
 /// node write target (`from`). This means any rule that inserts/removes edges MUST
 /// declare `from` in `n_write` in its footprint.
+///
+/// **Why only `from`, not `to`?** Although `GraphStore` maintains reverse indexes
+/// (`edge_to_index`, `edges_to`) internally, the execution API ([`GraphView`]) only
+/// exposes `edges_from()` — rules cannot observe incoming edges. Since `to` adjacency
+/// is not observable during execution, it doesn't require footprint declaration.
 pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
     let kind_str = op_kind_str(op);
 
@@ -215,9 +245,17 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
 /// `nodes_read`/`nodes_write` store `NodeId` (bare local id).
 /// `edges_read`/`edges_write` store `EdgeId` (bare local id).
 /// These match EXACTLY what `GraphView` methods receive as parameters.
+///
+/// # Why `BTreeSet`?
+///
+/// `BTreeSet` is chosen over `HashSet` for deterministic debug output and iteration
+/// order, aiding reproducibility when violations are logged. Footprints are typically
+/// small (< 100 items), so the O(log n) vs O(1) lookup difference is negligible.
+/// If profiling shows hot spots, consider `HashSet` for large footprints.
 #[derive(Debug)]
 pub(crate) struct FootprintGuard {
     warp_id: WarpId,
+    // BTreeSet for deterministic iteration/debug output; see doc above.
     nodes_read: BTreeSet<NodeId>,
     nodes_write: BTreeSet<NodeId>,
     edges_read: BTreeSet<EdgeId>,

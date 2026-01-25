@@ -2139,6 +2139,8 @@ mod tests {
                         warp_id: view.warp_id(),
                         local_id: *scope,
                     });
+                    // Declare both read and write: executors typically read current
+                    // value before writing (read-modify-write pattern).
                     a_read.insert(key);
                     a_write.insert(key);
                 }

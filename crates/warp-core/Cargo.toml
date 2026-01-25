@@ -51,10 +51,15 @@ det_fixed = []
 # Validation feature for delta operations
 delta_validate = []
 
-# Enable footprint enforcement in release builds (always on in debug).
+# Enable footprint enforcement in release builds (normally debug-only).
+# Use in CI or staging to catch footprint violations before production.
+# Mutually exclusive with `unsafe_graph` (compile error if both enabled).
 footprint_enforce_release = []
 
-# Disable all footprint enforcement (bypasses guard checks entirely).
+# DANGER: Disables footprint enforcement entirely, even in debug builds.
+# Only use if you've proven enforcement overhead is unacceptable in a
+# specific hot path. Removes all determinism safety checks.
+# Mutually exclusive with `footprint_enforce_release`.
 unsafe_graph = []
 
 [[test]]

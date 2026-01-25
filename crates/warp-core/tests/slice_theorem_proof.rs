@@ -561,8 +561,8 @@ fn phase_2_and_3_playback_replay_matches_execution() {
         let wl_patch = WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
                 global_tick: tick,
-                policy_id: 0,
-                rule_pack_id: [0u8; 32],
+                policy_id: snapshot.policy_id,
+                rule_pack_id: patch.rule_pack_id(),
                 plan_digest: snapshot.plan_digest,
                 decision_digest: snapshot.decision_digest,
                 rewrites_digest: snapshot.rewrites_digest,
@@ -585,7 +585,17 @@ fn phase_2_and_3_playback_replay_matches_execution() {
             &state_root,
             &parents,
             &snapshot.patch_digest,
-            0, // policy_id
+            snapshot.policy_id,
+        );
+        let snapshot_commit_hash = warp_core::compute_commit_hash_v2(
+            &snapshot.state_root,
+            &snapshot.parents,
+            &snapshot.patch_digest,
+            snapshot.policy_id,
+        );
+        assert_eq!(
+            snapshot_commit_hash, snapshot.hash,
+            "commit hash must match snapshot"
         );
 
         let triplet = HashTriplet {
@@ -782,8 +792,8 @@ fn phase_6_semantic_correctness_dependent_chain() {
     let wl_patch = WorldlineTickPatchV1 {
         header: WorldlineTickHeaderV1 {
             global_tick: 0,
-            policy_id: 0,
-            rule_pack_id: [0u8; 32],
+            policy_id: snapshot.policy_id,
+            rule_pack_id: patch.rule_pack_id(),
             plan_digest: snapshot.plan_digest,
             decision_digest: snapshot.decision_digest,
             rewrites_digest: snapshot.rewrites_digest,
@@ -801,7 +811,18 @@ fn phase_6_semantic_correctness_dependent_chain() {
         .apply_to_store(&mut replay_store)
         .expect("apply to replay store");
     let state_root = compute_state_root_for_warp_store(&replay_store, warp_id);
-    let commit_hash = compute_commit_hash_v2(&state_root, &[], &snapshot.patch_digest, 0);
+    let commit_hash =
+        compute_commit_hash_v2(&state_root, &[], &snapshot.patch_digest, snapshot.policy_id);
+    let snapshot_commit_hash = compute_commit_hash_v2(
+        &snapshot.state_root,
+        &snapshot.parents,
+        &snapshot.patch_digest,
+        snapshot.policy_id,
+    );
+    assert_eq!(
+        snapshot_commit_hash, snapshot.hash,
+        "commit hash must match snapshot"
+    );
 
     let triplet = HashTriplet {
         state_root,

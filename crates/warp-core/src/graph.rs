@@ -374,7 +374,7 @@ impl GraphStore {
 
     /// Deletes an isolated node and its alpha attachment.
     ///
-    /// Unlike [`delete_node_cascade`], this method **rejects** deletion if the node
+    /// Unlike `delete_node_cascade`, this method **rejects** deletion if the node
     /// has any incident edges (outgoing or incoming). This ensures that `WarpOp`s
     /// accurately describe the mutation—no hidden side effects on edges.
     ///

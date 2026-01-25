@@ -816,9 +816,12 @@ This wraps execution with \texttt{catch\_unwind} and performs post-hoc
 \texttt{check\_op()} validation on any newly-emitted ops.
 
 \begin{verbatim}
-execute_item_enforced(view, item, delta, footprint)
+execute_item_enforced(store, item, idx, unit, delta)
 │
-├─ ops_before = delta.ops_len()
+├─ guard = unit.guards[idx]
+├─ view = GraphView::new_guarded(store, guard)
+│
+├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
@@ -826,14 +829,14 @@ execute_item_enforced(view, item, delta, footprint)
 │  }))
 │
 ├─ FOR op IN delta.ops()[ops_before..]:
-│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+│     guard.check_op(op) → panic_any(FootprintViolation) on failure
 │     Validates that each newly-emitted op falls within the declared footprint.
 │     ExecItemKind::System items may emit warp-instance-level ops;
 │     ExecItemKind::User items may not.
 │
 └─ OUTCOME PRECEDENCE:
       ├─ IF check_op fails:
-      │     return Err(FootprintViolation)
+      │     panic_any(FootprintViolation)
       │     Write violations OVERRIDE executor panics — violation takes precedence.
       │
       ├─ IF footprint is clean BUT executor panicked:

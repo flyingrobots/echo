@@ -25,11 +25,59 @@
   `AttachmentWriteNotDeclared`, `CrossWarpEmission`, `UnauthorizedInstanceOp`, `OpWarpUnknown`.
 
 - **`check_op()` post-hoc write validation** (`boaw/exec.rs`): Validates emitted `WarpOp`s against
-  declared write sets, including adjacency-mutation rule (edge ops require `from` node in `n_write`).
+  declared write sets. Edge mutations (`UpsertEdge`/`DeleteEdge`) are validated by
+  `op_write_targets()` in `footprint_guard.rs` to require only the `from` node in `n_write`
+  (the `to` node is intentionally not required). Rationale: `GraphStore` maintains both
+  `edges_from` and `edges_to`, but adjacency mutation attribution is recorded against the
+  source node (`from`) only.
 
 - **Slice-theorem proof tests** (`tests/boaw_footprints.rs`): 15 initial integration tests proving
   enforcement catches drift, cross-warp violations, instance-op escalation, and
   write-violation-overrides-panic invariant.
+
+#### Feature Flag Semantics
+
+- **Debug builds**: enforcement enabled by default (`debug_assertions` on).
+- **Release builds**: enforcement disabled unless `footprint_enforce_release` is enabled.
+- **`unsafe_graph`**: unconditionally disables enforcement (guards + validation), even in release.
+  Builds with both `footprint_enforce_release` and `unsafe_graph` are rejected at compile time.
+  Intended use: performance benchmarking or fuzzing where safety checks are deliberately bypassed.
+
+#### Panic Recovery Semantics
+
+- `execute_item_enforced` wraps executor calls in `catch_unwind`, performs read enforcement
+  via `GraphView::new_guarded`, and post-hoc write enforcement via `check_op()`.
+- A `FootprintViolation` uses `panic_any`, producing a poisoned delta (`PoisonedDelta`) rather than
+  a recoverable `Result`. The worker that hits a violation stops processing further items, while
+  other workers may continue to completion.
+- At the engine layer, poisoned deltas abort the tick: they are never merged, and the panic is
+  re-thrown to the caller (no partial commits). Rationale: panic-based enforcement guarantees
+  invariant visibility even under executor panics, while `catch_unwind` ensures already-emitted
+  ops are validated for safety.
+
+#### Performance Impact
+
+- See `docs/notes/boaw-perf-baseline.md` for measured overhead.
+- Debug-mode enforcement measured <5% overhead for small footprints and ~15% for larger
+  footprints with frequent reads. Release builds are zero-overhead when enforcement is cfg-gated.
+- Baseline focused on `FootprintGuard` write validation in `boaw/exec.rs` and read-side checks in
+  `GraphView::new_guarded()`. Enforcement remains opt-in for release.
+
+#### Known Limitations (Phase 6B)
+
+- **Cross-warp enforcement**: `check_op()` rejects cross-warp emissions except for
+  `ExecItemKind::System` instance-level ops (see ADR-0007). Portal-based cross-warp permissions
+  are planned for Phase 7.
+- **Footprint ergonomics**: current `Footprint` API requires verbose `NodeSet`/`EdgeSet`/`AttachmentSet`
+  construction; builder/derive helpers are planned for Phase 6C+.
+- **Over-declaration**: overly broad write sets reduce parallelism; there is no automated detection
+  or warning for over-declared writes yet.
+- **Guard metadata trade-offs**: guard metadata is assembled from a `HashMap` per tick; alternatives
+  (e.g., vector indexing) are unbenchmarked.
+- **Poison invariant**: poisoned deltas are dropped and abort the tick; recovery or partial salvage
+  remains undefined pending a stronger typestate API.
+  See `FootprintGuard`, `GraphView::new_guarded`, `ExecItem::new`, `FootprintViolation`,
+  `check_op`, and `tests/boaw_footprints.rs` for current behavior (ADR-0007).
 
 ### Added - SPEC-0004: Worldlines & Playback
 
@@ -108,7 +156,7 @@
 - **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
 - **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
 - **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Result<Vec<TickDelta>, WarpId>` instead of panicking on missing store; caller maps to `EngineError::InternalCorruption`
-- **P1: Guard metadata scoping** (`engine_impl.rs`): Guard metadata now keyed by warp-scoped `NodeKey` to prevent cross-warp footprint collisions during enforcement
+- **P1: Guard metadata scoping** (`engine_impl.rs`): Guard metadata (enforcement tracking of read/write footprints and violation markers) now keys by warp-scoped `NodeKey` (`WarpId + NodeId`), fixing cross-warp collisions that produced false positives/negatives when different warps reused the same local IDs; detected via multi-warp enforcement tests (e.g., slice theorem replay).
 - **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
 - **P2: Markdownlint MD060** (`.markdownlint.json`): Global MD060 disable retained to avoid table false positives (revisit once tables are normalized)
 - **P2: Port rule footprint** (`crates/echo-dry-tests/src/demo_rules.rs`): Always declare scope node read to prevent enforcement panics when node is missing

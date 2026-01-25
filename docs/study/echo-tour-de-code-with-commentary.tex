@@ -555,7 +555,7 @@ Engine::apply(tx, rule_name, scope)
     ├─[4] CREATE GRAPHVIEW
     │     GraphView::new(store) → GraphView<'_>
     │     FILE: crates/warp-core/src/graph_view.rs
-    │     TYPE: Read-only wrapper (Copy, 8 bytes)
+    │     TYPE: Read-only wrapper (Copy, lightweight)
     │
     ├─[5] CALL MATCHER
     │     (rule.matcher)(view, scope) → bool
@@ -631,11 +631,9 @@ Engine::apply(tx, rule_name, scope)
 \end{verbatim}
 
 \begin{cleverpattern}
-\textbf{GraphView: The 8-Byte Read-Only Wrapper}
+\textbf{GraphView: The Read-Only Wrapper}
 
-Step [4] creates a \texttt{GraphView}---and note it's only \textbf{8 bytes} and \texttt{Copy}! This is just a pointer to the underlying \texttt{GraphStore}, but wrapped in a type that only exposes read methods.
-
-This is Rust's type system doing the heavy lifting: you literally \emph{cannot} mutate the graph through a \texttt{GraphView}. The compiler enforces read-only access, enabling safe concurrent reads without any runtime checks.
+Step [4] creates a \texttt{GraphView}---a lightweight, copyable handle to the underlying \texttt{GraphStore}. In enforcement builds, it optionally carries a guard reference. This is Rust's type system doing the heavy lifting: you literally \emph{cannot} mutate the graph through a \texttt{GraphView}. The compiler enforces read-only access, enabling safe concurrent reads without any runtime checks.
 \end{cleverpattern}
 
 \begin{deepdive}

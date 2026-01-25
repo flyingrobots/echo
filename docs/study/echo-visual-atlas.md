@@ -190,7 +190,7 @@ flowchart TD
 
 | Input (first 8 bytes) | LE u64               | Shard      |
 | --------------------- | -------------------- | ---------- |
-| `0xDEADBEEFCAFEBABE`  | `0xBEBAFECAEFBEADDE` | 190 (0xBE) |
+| `0xDEADBEEFCAFEBABE`  | `0xBEBAFECAEFBEADDE` | 222 (0xDE) |
 | `0x0000000000000000`  | `0x0000000000000000` | 0          |
 | `0x2A00000000000000`  | `0x000000000000002A` | 42         |
 | `0xFFFFFFFFFFFFFFFF`  | `0xFFFFFFFFFFFFFFFF` | 255        |
@@ -476,13 +476,13 @@ flowchart TD
 ```mermaid
 flowchart TD
     EXEC["execute_item_enforced()"]
-    SNAP["ops_before = delta.ops_len()"]
+    SNAP["ops_before = delta.len()"]
     CATCH["catch_unwind(executor)"]
     SCAN["FOR op IN delta.ops()[ops_before..]"]
-    CHECK["check_op(op, footprint, kind)"]
+    CHECK["guard.check_op(op)"]
     VIOL{"Violation?"}
     PANIC{"Executor panicked?"}
-    ERR["Err(FootprintViolation)"]
+    ERR["panic_any(FootprintViolation)"]
     RESUME["resume_unwind(payload)"]
     OK["Ok(())"]
 
@@ -500,8 +500,8 @@ flowchart TD
 **Key:** When footprint enforcement is active (`cfg(debug_assertions)` or
 `footprint_enforce_release` feature), every `ExecItem` execution is wrapped
 by `execute_item_enforced()`. The guard validates all newly-emitted ops
-against the declared footprint. Write violations take precedence over
-executor panics—ensuring the developer always sees the root cause.
+against the declared footprint. Violations trigger `panic_any(FootprintViolation)`
+rather than returning a `Result`, and take precedence over executor panics.
 
 ---
 
@@ -644,4 +644,4 @@ flowchart TD
 
 ---
 
-_Visual Atlas generated 2026-01-18. Use alongside "What Makes Echo Tick?" for complete understanding._
+_Visual Atlas generated 2026-01-25. Use alongside "What Makes Echo Tick?" for complete understanding._

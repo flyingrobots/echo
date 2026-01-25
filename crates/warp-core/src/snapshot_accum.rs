@@ -31,6 +31,9 @@ use crate::warp_state::{WarpInstance, WarpState};
 use crate::wsc::types::{AttRow, EdgeRow, NodeRow, OutEdgeRef, Range};
 use crate::wsc::write::{write_wsc_one_warp, OneWarpInput};
 
+/// Attachment arrays output from [`SnapshotAccumulator::build_attachments`].
+type AttachmentArrays = (Vec<Range>, Vec<AttRow>, Vec<Range>, Vec<AttRow>, Vec<u8>);
+
 /// Minimal node data needed for WSC rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeRowParts {
@@ -479,7 +482,6 @@ impl SnapshotAccumulator {
     }
 
     /// Build `OneWarpInput` for a single instance.
-    #[allow(clippy::too_many_lines)]
     fn build_one_warp_input(
         &self,
         warp_id: WarpId,
@@ -571,61 +573,9 @@ impl SnapshotAccumulator {
             });
         }
 
-        // Build node attachments (parallel to nodes)
-        let mut node_atts_index: Vec<Range> = Vec::with_capacity(nodes.len());
-        let mut node_atts: Vec<AttRow> = Vec::new();
-        let mut blobs: Vec<u8> = Vec::new();
-
-        for key in self.nodes.keys() {
-            if key.warp_id != warp_id || !reachable_nodes.contains(key) {
-                continue;
-            }
-
-            let att_key = AttachmentKey {
-                owner: AttachmentOwner::Node(*key),
-                plane: AttachmentPlane::Alpha,
-            };
-
-            let start = node_atts.len() as u64;
-            if let Some(value) = self.node_attachments.get(&att_key) {
-                let row = att_value_to_row(value, &mut blobs);
-                node_atts.push(row);
-            }
-            let len = node_atts.len() as u64 - start;
-            node_atts_index.push(Range {
-                start_le: start.to_le(),
-                len_le: len.to_le(),
-            });
-        }
-
-        // Build edge attachments (parallel to edges vector, not self.edges)
-        // We iterate over `edges` to ensure:
-        // 1. Only reachable edges are considered (both endpoints in reachable_nodes)
-        // 2. The index order matches the edges vector order
-        let mut edge_atts_index: Vec<Range> = Vec::with_capacity(edges.len());
-        let mut edge_atts: Vec<AttRow> = Vec::new();
-
-        for edge_row in &edges {
-            let edge_id = EdgeId(edge_row.edge_id);
-            let att_key = AttachmentKey {
-                owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
-                    warp_id,
-                    local_id: edge_id,
-                }),
-                plane: AttachmentPlane::Beta,
-            };
-
-            let start = edge_atts.len() as u64;
-            if let Some(value) = self.edge_attachments.get(&att_key) {
-                let row = att_value_to_row(value, &mut blobs);
-                edge_atts.push(row);
-            }
-            let len = edge_atts.len() as u64 - start;
-            edge_atts_index.push(Range {
-                start_le: start.to_le(),
-                len_le: len.to_le(),
-            });
-        }
+        // Build node and edge attachments
+        let (node_atts_index, node_atts, edge_atts_index, edge_atts, blobs) =
+            self.build_attachments(warp_id, reachable_nodes, &edges);
 
         Some(OneWarpInput {
             warp_id: warp_id.0,
@@ -640,6 +590,70 @@ impl SnapshotAccumulator {
             edge_atts,
             blobs,
         })
+    }
+
+    /// Builds node and edge attachment arrays for `OneWarpInput`.
+    fn build_attachments(
+        &self,
+        warp_id: WarpId,
+        reachable_nodes: &BTreeSet<NodeKey>,
+        edges: &[EdgeRow],
+    ) -> AttachmentArrays {
+        let mut node_atts_index: Vec<Range> = Vec::new();
+        let mut node_atts: Vec<AttRow> = Vec::new();
+        let mut blobs: Vec<u8> = Vec::new();
+
+        // Node attachments (parallel to nodes)
+        for key in self.nodes.keys() {
+            if key.warp_id != warp_id || !reachable_nodes.contains(key) {
+                continue;
+            }
+            let att_key = AttachmentKey {
+                owner: AttachmentOwner::Node(*key),
+                plane: AttachmentPlane::Alpha,
+            };
+            let start = node_atts.len() as u64;
+            if let Some(value) = self.node_attachments.get(&att_key) {
+                node_atts.push(att_value_to_row(value, &mut blobs));
+            }
+            let len = node_atts.len() as u64 - start;
+            node_atts_index.push(Range {
+                start_le: start.to_le(),
+                len_le: len.to_le(),
+            });
+        }
+
+        // Edge attachments (parallel to edges vector)
+        let mut edge_atts_index: Vec<Range> = Vec::with_capacity(edges.len());
+        let mut edge_atts: Vec<AttRow> = Vec::new();
+
+        for edge_row in edges {
+            let edge_id = EdgeId(edge_row.edge_id);
+            let att_key = AttachmentKey {
+                owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
+                    warp_id,
+                    local_id: edge_id,
+                }),
+                plane: AttachmentPlane::Beta,
+            };
+            let start = edge_atts.len() as u64;
+            if let Some(value) = self.edge_attachments.get(&att_key) {
+                edge_atts.push(att_value_to_row(value, &mut blobs));
+            }
+            let len = edge_atts.len() as u64 - start;
+            edge_atts_index.push(Range {
+                start_le: start.to_le(),
+                len_le: len.to_le(),
+            });
+        }
+
+        (
+            node_atts_index,
+            node_atts,
+            edge_atts_index,
+            edge_atts,
+            blobs,
+        )
     }
 
     /// Compute `state_root` directly from accumulator tables.

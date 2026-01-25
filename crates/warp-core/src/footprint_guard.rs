@@ -28,9 +28,8 @@
 //! - Workers catch panics via `catch_unwind` in `execute_item_enforced`.
 //!
 //! On violation: the violating item's execution is aborted, its delta becomes a
-//! [`PoisonedDelta`](crate::boaw::PoisonedDelta), and the worker continues with
-//! remaining items. Poisoned deltas are rejected at merge time via
-//! [`MergeError::PoisonedDelta`](crate::boaw::MergeError::PoisonedDelta).
+//! `PoisonedDelta`, and the worker continues with remaining items. Poisoned
+//! deltas are rejected at merge time via `MergeError::PoisonedDelta`.
 //!
 //! This is NOT a recoverable runtime error; fix your footprint declarations.
 //!

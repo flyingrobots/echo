@@ -17,7 +17,7 @@
 
 use thiserror::Error;
 
-use crate::attachment::{AttachmentOwner, AttachmentPlane};
+use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue};
 use crate::graph::GraphStore;
 use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::materialization::ChannelId;
@@ -187,12 +187,6 @@ impl WorldlineTickPatchV1 {
 /// - The operation targets a different warp than the store
 /// - The operation references a missing node or edge
 /// - The operation is not supported for warp-local replay
-// NOTE: This function is intentionally kept as a single monolithic match. The arms
-// share local context (`store_warp`) and splitting into per-variant helpers would
-// require threading the same `&mut GraphStore` + warp-ID validation through many
-// small functions with no clarity benefit. The lint is suppressed rather than
-// refactoring, since each arm is self-contained and easy to read in sequence.
-#[allow(clippy::too_many_lines)]
 pub(crate) fn apply_warp_op_to_store(
     store: &mut GraphStore,
     op: &WarpOp,
@@ -291,43 +285,50 @@ pub(crate) fn apply_warp_op_to_store(
         }
 
         WarpOp::SetAttachment { key, value } => {
-            // Validate attachment plane matches owner type
-            match key.owner {
-                AttachmentOwner::Node(node_key) => {
-                    if key.plane != AttachmentPlane::Alpha {
-                        return Err(ApplyError::InvalidAttachmentKey);
-                    }
-                    if node_key.warp_id != store_warp {
-                        return Err(ApplyError::WarpMismatch {
-                            expected: store_warp,
-                            actual: node_key.warp_id,
-                        });
-                    }
-                    // Check that the node exists before setting attachment
-                    if store.node(&node_key.local_id).is_none() {
-                        return Err(ApplyError::MissingNode(node_key));
-                    }
-                    store.set_node_attachment(node_key.local_id, value.clone());
-                    Ok(())
-                }
-                AttachmentOwner::Edge(edge_key) => {
-                    if key.plane != AttachmentPlane::Beta {
-                        return Err(ApplyError::InvalidAttachmentKey);
-                    }
-                    if edge_key.warp_id != store_warp {
-                        return Err(ApplyError::WarpMismatch {
-                            expected: store_warp,
-                            actual: edge_key.warp_id,
-                        });
-                    }
-                    // Check that the edge exists before setting attachment
-                    if !store.has_edge(&edge_key.local_id) {
-                        return Err(ApplyError::MissingEdge(edge_key));
-                    }
-                    store.set_edge_attachment(edge_key.local_id, value.clone());
-                    Ok(())
-                }
+            apply_set_attachment(store, store_warp, key, value.clone())
+        }
+    }
+}
+
+/// Applies a `SetAttachment` op to a store, validating plane and existence.
+fn apply_set_attachment(
+    store: &mut GraphStore,
+    store_warp: WarpId,
+    key: &AttachmentKey,
+    value: Option<AttachmentValue>,
+) -> Result<(), ApplyError> {
+    match key.owner {
+        AttachmentOwner::Node(node_key) => {
+            if key.plane != AttachmentPlane::Alpha {
+                return Err(ApplyError::InvalidAttachmentKey);
             }
+            if node_key.warp_id != store_warp {
+                return Err(ApplyError::WarpMismatch {
+                    expected: store_warp,
+                    actual: node_key.warp_id,
+                });
+            }
+            if store.node(&node_key.local_id).is_none() {
+                return Err(ApplyError::MissingNode(node_key));
+            }
+            store.set_node_attachment(node_key.local_id, value);
+            Ok(())
+        }
+        AttachmentOwner::Edge(edge_key) => {
+            if key.plane != AttachmentPlane::Beta {
+                return Err(ApplyError::InvalidAttachmentKey);
+            }
+            if edge_key.warp_id != store_warp {
+                return Err(ApplyError::WarpMismatch {
+                    expected: store_warp,
+                    actual: edge_key.warp_id,
+                });
+            }
+            if !store.has_edge(&edge_key.local_id) {
+                return Err(ApplyError::MissingEdge(edge_key));
+            }
+            store.set_edge_attachment(edge_key.local_id, value);
+            Ok(())
         }
     }
 }

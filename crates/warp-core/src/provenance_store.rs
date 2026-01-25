@@ -32,7 +32,9 @@ use crate::graph::GraphStore;
 use crate::ident::{Hash, WarpId};
 use crate::snapshot::compute_state_root_for_warp_store;
 
-use super::worldline::{HashTriplet, OutputFrameSet, WorldlineId, WorldlineTickPatchV1};
+use super::worldline::{
+    AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId, WorldlineTickPatchV1,
+};
 
 /// Errors that can occur when accessing worldline history.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -182,6 +184,8 @@ struct WorldlineHistory {
     expected: Vec<HashTriplet>,
     // Recorded outputs in tick order.
     outputs: Vec<OutputFrameSet>,
+    // Atom writes in tick order (for provenance tracking).
+    atom_writes: Vec<AtomWriteSet>,
     // Checkpoints for fast seeking.
     checkpoints: Vec<CheckpointRef>,
 }
@@ -194,7 +198,7 @@ struct WorldlineHistory {
 ///
 /// # Invariant
 ///
-/// For each worldline: `patches.len() == expected.len() == outputs.len()`.
+/// For each worldline: `patches.len() == expected.len() == outputs.len() == atom_writes.len()`.
 /// This maintains index alignment so tick N's data is at index N.
 #[derive(Debug, Clone, Default)]
 pub struct LocalProvenanceStore {
@@ -239,6 +243,7 @@ impl LocalProvenanceStore {
                     patches: Vec::new(),
                     expected: Vec::new(),
                     outputs: Vec::new(),
+                    atom_writes: Vec::new(),
                     checkpoints: Vec::new(),
                 });
                 Ok(())
@@ -249,6 +254,8 @@ impl LocalProvenanceStore {
     /// Appends a tick's data to a worldline's history.
     ///
     /// The tick number must equal the current length (append-only, no gaps).
+    /// This method stores an empty atom write set; use [`append_with_writes`]
+    /// to include provenance tracking data.
     ///
     /// # Errors
     ///
@@ -261,6 +268,34 @@ impl LocalProvenanceStore {
         patch: WorldlineTickPatchV1,
         expected: HashTriplet,
         outputs: OutputFrameSet,
+    ) -> Result<(), HistoryError> {
+        self.append_with_writes(w, patch, expected, outputs, Vec::new())
+    }
+
+    /// Appends a tick's data to a worldline's history, including atom write provenance.
+    ///
+    /// The tick number must equal the current length (append-only, no gaps).
+    ///
+    /// # Arguments
+    ///
+    /// * `w` - The worldline to append to
+    /// * `patch` - The tick patch data
+    /// * `expected` - The expected hash triplet for verification
+    /// * `outputs` - Channel outputs emitted during this tick
+    /// * `atom_writes` - Atom writes for provenance tracking (rule→atom attribution)
+    ///
+    /// # Errors
+    ///
+    /// - Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    /// - Returns [`HistoryError::TickGap`] if the patch's `global_tick` doesn't equal the
+    ///   current history length (the expected next tick).
+    pub fn append_with_writes(
+        &mut self,
+        w: WorldlineId,
+        patch: WorldlineTickPatchV1,
+        expected: HashTriplet,
+        outputs: OutputFrameSet,
+        atom_writes: AtomWriteSet,
     ) -> Result<(), HistoryError> {
         let history = self
             .worldlines
@@ -279,7 +314,59 @@ impl LocalProvenanceStore {
         history.patches.push(patch);
         history.expected.push(expected);
         history.outputs.push(outputs);
+        history.atom_writes.push(atom_writes);
         Ok(())
+    }
+
+    /// Returns the atom writes for a specific tick.
+    ///
+    /// This enables the TTD "Show Me Why" provenance feature: tracing which
+    /// rules wrote which atoms during a tick.
+    ///
+    /// # Errors
+    ///
+    /// - [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
+    /// - [`HistoryError::HistoryUnavailable`] if the tick is out of range or pruned.
+    pub fn atom_writes(&self, w: WorldlineId, tick: u64) -> Result<AtomWriteSet, HistoryError> {
+        let history = self
+            .worldlines
+            .get(&w)
+            .ok_or(HistoryError::WorldlineNotFound(w))?;
+
+        history
+            .atom_writes
+            .get(tick as usize)
+            .cloned()
+            .ok_or(HistoryError::HistoryUnavailable { tick })
+    }
+
+    /// Returns all atom writes for a specific atom across all ticks.
+    ///
+    /// This enables provenance queries like "what is the history of this atom?"
+    /// The returned writes are in tick order (oldest first).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
+    pub fn atom_history(
+        &self,
+        w: WorldlineId,
+        atom: &crate::ident::NodeKey,
+    ) -> Result<Vec<AtomWrite>, HistoryError> {
+        let history = self
+            .worldlines
+            .get(&w)
+            .ok_or(HistoryError::WorldlineNotFound(w))?;
+
+        let writes: Vec<AtomWrite> = history
+            .atom_writes
+            .iter()
+            .flatten()
+            .filter(|aw| &aw.atom == atom)
+            .cloned()
+            .collect();
+
+        Ok(writes)
     }
 
     /// Records a checkpoint for a worldline.
@@ -391,6 +478,7 @@ impl LocalProvenanceStore {
             patches: source_history.patches[..end_idx].to_vec(),
             expected: source_history.expected[..end_idx].to_vec(),
             outputs: source_history.outputs[..end_idx].to_vec(),
+            atom_writes: source_history.atom_writes[..end_idx].to_vec(),
             checkpoints: source_history
                 .checkpoints
                 .iter()
@@ -727,5 +815,200 @@ mod tests {
             before_5.is_none() || before_5.unwrap().tick < 5,
             "checkpoint_before should be strictly less than the query tick"
         );
+    }
+
+    // ─── AtomWrite Tests ─────────────────────────────────────────────────────
+
+    use crate::ident::{make_node_id, NodeKey};
+    use crate::worldline::AtomWrite;
+
+    fn test_node_key() -> NodeKey {
+        NodeKey {
+            warp_id: test_warp_id(),
+            local_id: make_node_id("test-atom"),
+        }
+    }
+
+    fn test_rule_id() -> [u8; 32] {
+        [42u8; 32]
+    }
+
+    #[test]
+    fn append_with_writes_stores_atom_writes() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let atom_write = AtomWrite::new(
+            test_node_key(),
+            test_rule_id(),
+            0,
+            None, // create
+            vec![1, 2, 3],
+        );
+
+        store
+            .append_with_writes(
+                w,
+                test_patch(0),
+                test_triplet(0),
+                vec![],
+                vec![atom_write.clone()],
+            )
+            .unwrap();
+
+        let writes = store.atom_writes(w, 0).unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0], atom_write);
+    }
+
+    #[test]
+    fn atom_writes_unavailable_for_missing_tick() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let result = store.atom_writes(w, 0);
+        assert!(matches!(
+            result,
+            Err(HistoryError::HistoryUnavailable { tick: 0 })
+        ));
+    }
+
+    #[test]
+    fn atom_history_returns_all_writes_for_atom() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let atom_key = test_node_key();
+
+        // Tick 0: create atom
+        let write0 = AtomWrite::new(atom_key, test_rule_id(), 0, None, vec![1]);
+        store
+            .append_with_writes(
+                w,
+                test_patch(0),
+                test_triplet(0),
+                vec![],
+                vec![write0.clone()],
+            )
+            .unwrap();
+
+        // Tick 1: mutate atom
+        let write1 = AtomWrite::new(atom_key, test_rule_id(), 1, Some(vec![1]), vec![2]);
+        store
+            .append_with_writes(
+                w,
+                test_patch(1),
+                test_triplet(1),
+                vec![],
+                vec![write1.clone()],
+            )
+            .unwrap();
+
+        // Tick 2: mutate atom again
+        let write2 = AtomWrite::new(atom_key, test_rule_id(), 2, Some(vec![2]), vec![3]);
+        store
+            .append_with_writes(
+                w,
+                test_patch(2),
+                test_triplet(2),
+                vec![],
+                vec![write2.clone()],
+            )
+            .unwrap();
+
+        let history = store.atom_history(w, &atom_key).unwrap();
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0], write0);
+        assert_eq!(history[1], write1);
+        assert_eq!(history[2], write2);
+    }
+
+    #[test]
+    fn atom_history_filters_by_atom() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let atom_a = test_node_key();
+        let atom_b = NodeKey {
+            warp_id: test_warp_id(),
+            local_id: make_node_id("other-atom"),
+        };
+
+        // Both atoms written at tick 0
+        let write_a = AtomWrite::new(atom_a, test_rule_id(), 0, None, vec![1]);
+        let write_b = AtomWrite::new(atom_b, test_rule_id(), 0, None, vec![100]);
+        store
+            .append_with_writes(
+                w,
+                test_patch(0),
+                test_triplet(0),
+                vec![],
+                vec![write_a.clone(), write_b],
+            )
+            .unwrap();
+
+        // Query only atom_a's history
+        let history_a = store.atom_history(w, &atom_a).unwrap();
+        assert_eq!(history_a.len(), 1);
+        assert_eq!(history_a[0], write_a);
+    }
+
+    #[test]
+    fn atom_write_is_create() {
+        let create_write = AtomWrite::new(test_node_key(), test_rule_id(), 0, None, vec![1]);
+        assert!(create_write.is_create());
+
+        let mutation_write =
+            AtomWrite::new(test_node_key(), test_rule_id(), 1, Some(vec![1]), vec![2]);
+        assert!(!mutation_write.is_create());
+    }
+
+    #[test]
+    fn atom_write_is_mutation() {
+        // Create is a mutation (value changed from nothing to something)
+        let create_write = AtomWrite::new(test_node_key(), test_rule_id(), 0, None, vec![1]);
+        assert!(create_write.is_mutation());
+
+        // Actual value change
+        let change_write =
+            AtomWrite::new(test_node_key(), test_rule_id(), 1, Some(vec![1]), vec![2]);
+        assert!(change_write.is_mutation());
+
+        // No-op (same value)
+        let noop_write = AtomWrite::new(test_node_key(), test_rule_id(), 2, Some(vec![1]), vec![1]);
+        assert!(!noop_write.is_mutation());
+    }
+
+    #[test]
+    fn fork_copies_atom_writes() {
+        let mut store = LocalProvenanceStore::new();
+        let source = test_worldline_id();
+        let target = WorldlineId([99u8; 32]);
+        let warp = test_warp_id();
+
+        store.register_worldline(source, warp).unwrap();
+
+        let atom_write = AtomWrite::new(test_node_key(), test_rule_id(), 0, None, vec![1, 2, 3]);
+        store
+            .append_with_writes(
+                source,
+                test_patch(0),
+                test_triplet(0),
+                vec![],
+                vec![atom_write.clone()],
+            )
+            .unwrap();
+
+        // Fork at tick 0
+        store.fork(source, 0, target).unwrap();
+
+        // Target should have the same atom writes
+        let target_writes = store.atom_writes(target, 0).unwrap();
+        assert_eq!(target_writes.len(), 1);
+        assert_eq!(target_writes[0], atom_write);
     }
 }

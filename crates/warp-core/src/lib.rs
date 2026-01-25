@@ -169,8 +169,8 @@ pub use tick_patch::{
 pub use tx::TxId;
 pub use warp_state::{WarpInstance, WarpState};
 pub use worldline::{
-    ApplyError, HashTriplet, OutputFrameSet, WorldlineId, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1,
+    ApplyError, AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId,
+    WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
 
 /// Zero-copy typed view over an atom payload.

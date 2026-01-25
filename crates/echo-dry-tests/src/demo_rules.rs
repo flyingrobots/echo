@@ -255,8 +255,8 @@ fn compute_port_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let mut a_read = AttachmentSet::default();
     let mut a_write = AttachmentSet::default();
     let mut b_in = PortSet::default();
+    n_read.insert_with_warp(warp_id, *scope);
     if view.node(scope).is_some() {
-        n_read.insert_with_warp(warp_id, *scope);
         n_write.insert_with_warp(warp_id, *scope);
         let key = AttachmentKey::node_alpha(NodeKey {
             warp_id,
@@ -343,5 +343,38 @@ mod tests {
         port_executor(view, &node_id, &mut delta);
 
         assert!(delta.is_empty(), "no-op update should not emit a delta op");
+    }
+
+    #[test]
+    fn compute_port_footprint_always_reads_scope_node() {
+        let store = GraphStore::default();
+        let view = GraphView::new(&store);
+        let scope = make_node_id("port/missing");
+        let footprint = compute_port_footprint(view, &scope);
+        let expected = NodeKey {
+            warp_id: view.warp_id(),
+            local_id: scope,
+        };
+
+        assert!(
+            footprint.n_read.iter().any(|key| *key == expected),
+            "scope node read must be declared even when node is missing"
+        );
+        assert!(
+            footprint.n_write.is_empty(),
+            "missing node should not be written"
+        );
+        assert!(
+            footprint.a_read.is_empty(),
+            "missing node should not declare attachment read"
+        );
+        assert!(
+            footprint.a_write.is_empty(),
+            "missing node should not declare attachment write"
+        );
+        assert!(
+            footprint.b_in.is_empty(),
+            "missing node should not declare boundary input"
+        );
     }
 }

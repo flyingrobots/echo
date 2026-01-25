@@ -1229,19 +1229,25 @@ impl Engine {
         }
 
         // Collect per-item guard metadata (cfg-gated) for post-shard guard construction.
-        // Keyed by (OpOrigin, NodeId) since OpOrigin alone is NOT unique when the same
+        // Keyed by (OpOrigin, NodeKey) since OpOrigin alone is NOT unique when the same
         // rule matches multiple scopes (all share rule_id, intent_id=0, match_ix=0).
         #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
         #[cfg(not(feature = "unsafe_graph"))]
         let guard_meta: HashMap<
-            (crate::tick_delta::OpOrigin, NodeId),
+            (crate::tick_delta::OpOrigin, NodeKey),
             (crate::footprint::Footprint, &'static str),
         > = by_warp
             .values()
             .flatten()
             .map(|(rw, _exec, name)| {
                 (
-                    (rw.origin, rw.scope.local_id),
+                    (
+                        rw.origin,
+                        NodeKey {
+                            warp_id: rw.scope.warp_id,
+                            local_id: rw.scope.local_id,
+                        },
+                    ),
                     (rw.footprint.clone(), *name),
                 )
             })
@@ -1251,13 +1257,7 @@ impl Engine {
         let items_by_warp = by_warp.into_iter().map(|(warp_id, warp_rewrites)| {
             let items: Vec<ExecItem> = warp_rewrites
                 .into_iter()
-                .map(|(rw, exec, _name)| ExecItem {
-                    exec,
-                    scope: rw.scope.local_id,
-                    origin: rw.origin,
-                    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-                    kind: crate::boaw::ExecItemKind::User,
-                })
+                .map(|(rw, exec, _name)| ExecItem::new(exec, rw.scope.local_id, rw.origin))
                 .collect();
             (warp_id, items)
         });
@@ -1274,7 +1274,13 @@ impl Engine {
                 .iter()
                 .map(|item| {
                     let (footprint, rule_name) = guard_meta
-                        .get(&(item.origin, item.scope))
+                        .get(&(
+                            item.origin,
+                            NodeKey {
+                                warp_id: unit.warp_id,
+                                local_id: item.scope,
+                            },
+                        ))
                         .cloned()
                         .unwrap_or_else(|| (crate::footprint::Footprint::default(), "unknown"));
                     let is_system = item.kind == crate::boaw::ExecItemKind::System;
@@ -2118,6 +2124,101 @@ mod tests {
         }
     }
 
+    fn guard_meta_rule(rule_name: &'static str) -> RewriteRule {
+        let rule_id = {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"rule:test:");
+            hasher.update(rule_name.as_bytes());
+            hasher.finalize().into()
+        };
+
+        RewriteRule {
+            id: rule_id,
+            name: rule_name,
+            left: crate::rule::PatternGraph { nodes: vec![] },
+            matcher: |_view, _scope| true,
+            executor: |view, scope, delta| {
+                let _ = view.node(scope);
+                let key = AttachmentKey::node_alpha(NodeKey {
+                    warp_id: view.warp_id(),
+                    local_id: *scope,
+                });
+                delta.push(WarpOp::SetAttachment {
+                    key,
+                    value: Some(AttachmentValue::Atom(AtomPayload::new(
+                        make_type_id("guard-meta/atom"),
+                        bytes::Bytes::from_static(b"guard-meta"),
+                    ))),
+                });
+            },
+            compute_footprint: |view, scope| {
+                let warp_id = view.warp_id();
+                let mut n_read = crate::NodeSet::default();
+                n_read.insert_with_warp(warp_id, *scope);
+                let mut a_write = crate::AttachmentSet::default();
+                a_write.insert(AttachmentKey::node_alpha(NodeKey {
+                    warp_id,
+                    local_id: *scope,
+                }));
+                crate::Footprint {
+                    n_read,
+                    n_write: crate::NodeSet::default(),
+                    e_read: crate::EdgeSet::default(),
+                    e_write: crate::EdgeSet::default(),
+                    a_read: crate::AttachmentSet::default(),
+                    a_write,
+                    b_in: crate::PortSet::default(),
+                    b_out: crate::PortSet::default(),
+                    factor_mask: 0,
+                }
+            },
+            factor_mask: 0,
+            conflict_policy: crate::rule::ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
+    fn build_guard_meta_engine(scope: NodeId) -> Result<(Engine, WarpId, WarpId), EngineError> {
+        let warp_a = crate::ident::make_warp_id("guard-meta-warp-a");
+        let warp_b = crate::ident::make_warp_id("guard-meta-warp-b");
+        let node_ty = make_type_id("test/guard-meta");
+
+        let mut store_a = GraphStore::new(warp_a);
+        store_a.insert_node(scope, NodeRecord { ty: node_ty });
+        let mut store_b = GraphStore::new(warp_b);
+        store_b.insert_node(scope, NodeRecord { ty: node_ty });
+
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: warp_a,
+                root_node: scope,
+                parent: None,
+            },
+            store_a,
+        );
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: warp_b,
+                root_node: scope,
+                parent: None,
+            },
+            store_b,
+        );
+
+        let root = NodeKey {
+            warp_id: warp_a,
+            local_id: scope,
+        };
+        Engine::with_state(
+            state,
+            root,
+            SchedulerKind::Radix,
+            crate::POLICY_ID_NO_POLICY_V0,
+        )
+        .map(|engine| (engine, warp_a, warp_b))
+    }
+
     #[test]
     fn scope_hash_stable_for_rule_and_scope() {
         let rule = test_motion_rule();
@@ -2156,6 +2257,55 @@ mod tests {
         assert!(
             matches!(res, Err(EngineError::MissingJoinFn)),
             "expected MissingJoinFn, got {res:?}"
+        );
+    }
+
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
+    #[test]
+    fn guard_meta_scoped_per_warp() {
+        let scope = make_node_id("guard-meta-scope");
+        let rule_name = "test/guard-meta-warp-scoped";
+        let rule = guard_meta_rule(rule_name);
+        let engine_result = build_guard_meta_engine(scope);
+        let engine_err = engine_result.as_ref().err();
+        assert!(engine_err.is_none(), "engine: {engine_err:?}");
+        let Ok((mut engine, warp_a, warp_b)) = engine_result else {
+            return;
+        };
+        let register_result = engine.register_rule(rule);
+        let register_err = register_result.as_ref().err();
+        assert!(register_err.is_none(), "register rule: {register_err:?}");
+        if register_result.is_err() {
+            return;
+        }
+
+        let tx = engine.begin();
+        let apply_a = engine.apply_in_warp(tx, warp_a, rule_name, &scope, &[]);
+        assert!(
+            apply_a.as_ref().err().is_none(),
+            "apply warp a: {apply_a:?}"
+        );
+        if apply_a.is_err() {
+            return;
+        }
+        let apply_b = engine.apply_in_warp(tx, warp_b, rule_name, &scope, &[]);
+        assert!(
+            apply_b.as_ref().err().is_none(),
+            "apply warp b: {apply_b:?}"
+        );
+        if apply_b.is_err() {
+            return;
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let commit_result = engine.commit(tx);
+            let commit_err = commit_result.as_ref().err();
+            assert!(commit_err.is_none(), "commit failed: {commit_err:?}");
+        }));
+        assert!(
+            result.is_ok(),
+            "commit panicked; guard metadata should be warp-scoped"
         );
     }
 

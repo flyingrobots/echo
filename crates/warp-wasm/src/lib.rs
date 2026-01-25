@@ -5,7 +5,13 @@
 //!
 //! Provides WASM exports for browser clients to interact with the
 //! deterministic engine and registry.
+//!
+//! # Modules
+//!
+//! - [`ttd`]: Time-Travel Debugger bindings (digests, compliance, wire codecs)
 #![deny(missing_docs)]
+
+pub mod ttd;
 
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;

@@ -5164,12 +5164,16 @@ dependencies = [
 name = "warp-wasm"
 version = "0.1.0"
 dependencies = [
+ "ciborium",
  "console_error_panic_hook",
  "echo-registry-api",
+ "echo-session-proto",
+ "echo-ttd",
  "echo-wasm-abi",
  "js-sys",
  "serde",
  "serde-value",
+ "warp-core",
  "wasm-bindgen",
  "web-sys",
 ]

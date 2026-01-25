@@ -1,0 +1,16 @@
+{
+  "ir_version": "ttd-ir/v1",
+  "schema_sha256": "abc123",
+  "generated_at": "2026-01-25T00:00:00Z",
+  "channels": [],
+  "ops": [],
+  "rules": [],
+  "footprints": [],
+  "registry": [],
+  "types": [],
+  "enums": [],
+  "invariants": [],
+  "emissions": [],
+  "codecs": [],
+  "metadata": {}
+}

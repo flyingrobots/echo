@@ -1,0 +1,213 @@
+{
+  "ir_version": "ttd-ir/v1",
+  "schema_sha256": "23dc0e310ad5658b898358ca389b32dc476d811a9b9a557729c7a42ca1637b46",
+  "generated_by": {
+    "tool": "@wesley/generator-ttd",
+    "version": "0.1.0"
+  },
+  "generated_at": "2026-01-25T13:17:35.338Z",
+  "channels": [
+    {
+      "kind": "CHANNEL",
+      "name": "counter",
+      "version": 1,
+      "eventTypes": ["CounterIncremented", "CounterDecremented", "CounterReset"],
+      "ordered": true,
+      "persistent": false
+    }
+  ],
+  "ops": [
+    {
+      "kind": "OP",
+      "name": "increment",
+      "args": [
+        {"name": "counterId", "type": "ID", "required": true, "list": false},
+        {"name": "amount", "type": "Int", "required": true, "list": false}
+      ],
+      "resultType": "Counter",
+      "idempotent": false,
+      "readonly": false,
+      "op_id": 2348489527,
+      "rules": []
+    },
+    {
+      "kind": "OP",
+      "name": "decrement",
+      "args": [
+        {"name": "counterId", "type": "ID", "required": true, "list": false},
+        {"name": "amount", "type": "Int", "required": true, "list": false}
+      ],
+      "resultType": "Counter",
+      "idempotent": false,
+      "readonly": false,
+      "op_id": 3869208200,
+      "rules": []
+    },
+    {
+      "kind": "OP",
+      "name": "reset",
+      "args": [
+        {"name": "counterId", "type": "ID", "required": true, "list": false}
+      ],
+      "resultType": "Counter",
+      "idempotent": true,
+      "readonly": false,
+      "op_id": 569340777,
+      "rules": []
+    },
+    {
+      "kind": "OP",
+      "name": "getCounter",
+      "args": [
+        {"name": "id", "type": "ID", "required": true, "list": false}
+      ],
+      "resultType": "Counter",
+      "idempotent": false,
+      "readonly": true,
+      "op_id": 2805846794,
+      "rules": []
+    }
+  ],
+  "rules": [
+    {
+      "kind": "RULE",
+      "name": "stay_counting",
+      "from": ["COUNTING"],
+      "to": "COUNTING",
+      "opName": "increment"
+    },
+    {
+      "kind": "RULE",
+      "name": "decrement_rule",
+      "from": ["COUNTING"],
+      "to": "COUNTING",
+      "guard": "value >= amount",
+      "opName": "decrement"
+    },
+    {
+      "kind": "RULE",
+      "name": "reset_to_idle",
+      "from": ["COUNTING", "PAUSED"],
+      "to": "IDLE",
+      "opName": "reset"
+    }
+  ],
+  "invariants": [
+    {
+      "kind": "INVARIANT",
+      "name": "value_non_negative",
+      "expr": "forall c in Counter: c.value >= 0",
+      "severity": "error"
+    },
+    {
+      "kind": "INVARIANT",
+      "name": "value_bounded",
+      "expr": "forall c in Counter: c.value <= 1000000",
+      "severity": "error"
+    }
+  ],
+  "emissions": [
+    {
+      "kind": "EMISSION",
+      "channel": "counter",
+      "event": "CounterIncremented",
+      "opName": "increment"
+    },
+    {
+      "kind": "EMISSION",
+      "channel": "counter",
+      "event": "CounterDecremented",
+      "opName": "decrement",
+      "condition": "amount > 0"
+    },
+    {
+      "kind": "EMISSION",
+      "channel": "counter",
+      "event": "CounterReset",
+      "opName": "reset"
+    }
+  ],
+  "footprints": [
+    {
+      "kind": "FOOTPRINT",
+      "opName": "increment",
+      "reads": ["Counter"],
+      "writes": ["Counter"],
+      "creates": [],
+      "deletes": []
+    },
+    {
+      "kind": "FOOTPRINT",
+      "opName": "decrement",
+      "reads": ["Counter"],
+      "writes": ["Counter"],
+      "creates": [],
+      "deletes": []
+    },
+    {
+      "kind": "FOOTPRINT",
+      "opName": "reset",
+      "reads": ["Counter"],
+      "writes": ["Counter"],
+      "creates": [],
+      "deletes": []
+    },
+    {
+      "kind": "FOOTPRINT",
+      "opName": "getCounter",
+      "reads": ["Counter"],
+      "writes": [],
+      "creates": [],
+      "deletes": []
+    }
+  ],
+  "registry": [
+    {"kind": "REGISTRY_ENTRY", "typeName": "CounterIncremented", "id": 1, "deprecated": false},
+    {"kind": "REGISTRY_ENTRY", "typeName": "CounterDecremented", "id": 2, "deprecated": false},
+    {"kind": "REGISTRY_ENTRY", "typeName": "CounterReset", "id": 3, "deprecated": false}
+  ],
+  "types": [
+    {
+      "name": "CounterIncremented",
+      "fields": [
+        {"name": "counterId", "type": "ID", "required": true, "list": false},
+        {"name": "previousValue", "type": "Int", "required": true, "list": false},
+        {"name": "newValue", "type": "Int", "required": true, "list": false}
+      ]
+    },
+    {
+      "name": "CounterDecremented",
+      "fields": [
+        {"name": "counterId", "type": "ID", "required": true, "list": false},
+        {"name": "previousValue", "type": "Int", "required": true, "list": false},
+        {"name": "newValue", "type": "Int", "required": true, "list": false}
+      ]
+    },
+    {
+      "name": "CounterReset",
+      "fields": [
+        {"name": "counterId", "type": "ID", "required": true, "list": false},
+        {"name": "previousValue", "type": "Int", "required": true, "list": false}
+      ]
+    },
+    {
+      "name": "Counter",
+      "fields": [
+        {"name": "id", "type": "ID", "required": true, "list": false},
+        {"name": "value", "type": "Int", "required": true, "list": false},
+        {"name": "state", "type": "CounterState", "required": true, "list": false}
+      ]
+    }
+  ],
+  "enums": [
+    {
+      "name": "CounterState",
+      "values": ["IDLE", "COUNTING", "PAUSED", "COMPLETED"]
+    }
+  ],
+  "codecs": [],
+  "metadata": {
+    "extractedAt": "2026-01-25T13:17:35.311Z",
+    "ttdVersion": "1.0.0"
+  }
+}

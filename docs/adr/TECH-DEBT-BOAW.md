@@ -187,7 +187,7 @@ Defaults to `available_parallelism().min(NUM_SHARDS)`.
 
 **Completed:** 2026-01-24
 
-**Location:** `crates/warp-core/src/boaw/footprint_guard.rs`, `crates/warp-core/tests/boaw_footprints.rs`
+**Location:** `crates/warp-core/src/footprint_guard.rs`, `crates/warp-core/tests/boaw_footprints.rs`
 
 **Status:** RESOLVED
 

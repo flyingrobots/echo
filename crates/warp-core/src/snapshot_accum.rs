@@ -32,7 +32,20 @@ use crate::wsc::types::{AttRow, EdgeRow, NodeRow, OutEdgeRef, Range};
 use crate::wsc::write::{write_wsc_one_warp, OneWarpInput};
 
 /// Attachment arrays output from [`SnapshotAccumulator::build_attachments`].
-type AttachmentArrays = (Vec<Range>, Vec<AttRow>, Vec<Range>, Vec<AttRow>, Vec<u8>);
+///
+/// Named struct to prevent field transposition errors when destructuring.
+struct AttachmentArrays {
+    /// Index ranges into `node_atts`, parallel to the nodes vector.
+    node_atts_index: Vec<Range>,
+    /// Node attachment rows.
+    node_atts: Vec<AttRow>,
+    /// Index ranges into `edge_atts`, parallel to the edges vector.
+    edge_atts_index: Vec<Range>,
+    /// Edge attachment rows.
+    edge_atts: Vec<AttRow>,
+    /// Shared blob storage for all attachment payloads.
+    blobs: Vec<u8>,
+}
 
 /// Minimal node data needed for WSC rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -574,8 +587,13 @@ impl SnapshotAccumulator {
         }
 
         // Build node and edge attachments
-        let (node_atts_index, node_atts, edge_atts_index, edge_atts, blobs) =
-            self.build_attachments(warp_id, reachable_nodes, &edges);
+        let AttachmentArrays {
+            node_atts_index,
+            node_atts,
+            edge_atts_index,
+            edge_atts,
+            blobs,
+        } = self.build_attachments(warp_id, reachable_nodes, &edges);
 
         Some(OneWarpInput {
             warp_id: warp_id.0,
@@ -662,13 +680,13 @@ impl SnapshotAccumulator {
             });
         }
 
-        (
+        AttachmentArrays {
             node_atts_index,
             node_atts,
             edge_atts_index,
             edge_atts,
             blobs,
-        )
+        }
     }
 
     /// Compute `state_root` directly from accumulator tables.

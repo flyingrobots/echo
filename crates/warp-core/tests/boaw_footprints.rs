@@ -13,8 +13,9 @@ use common::{random_footprint, XorShift64};
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload,
     AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, EdgeRecord, EdgeSet, Engine,
-    Footprint, FootprintViolation, GraphStore, GraphView, NodeId, NodeKey, NodeRecord, NodeSet,
-    PatternGraph, PortSet, RewriteRule, TickDelta, ViolationKind, WarpInstance, WarpOp,
+    Footprint, FootprintViolation, FootprintViolationWithPanic, GraphStore, GraphView, NodeId,
+    NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, ViolationKind,
+    WarpInstance, WarpOp,
 };
 
 // =============================================================================
@@ -120,6 +121,24 @@ mod enforcement {
         }))
     }
 
+    fn make_rewrite_rule(
+        name: &'static str,
+        executor: fn(GraphView<'_>, &NodeId, &mut TickDelta),
+        compute_footprint: fn(GraphView<'_>, &NodeId) -> Footprint,
+    ) -> RewriteRule {
+        RewriteRule {
+            id: test_rule_id(name),
+            name,
+            left: PatternGraph { nodes: vec![] },
+            matcher: always_match,
+            executor,
+            compute_footprint,
+            factor_mask: 0,
+            conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
     // =============================================================================
     // t3_4: NodeReadNotDeclared — executor reads undeclared node
     // =============================================================================
@@ -150,17 +169,7 @@ mod enforcement {
     #[test]
     fn t3_4_footprint_guard_catches_executor_drift() {
         let scope = make_node_id("t3-4-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_4_NAME),
-            name: T3_4_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_4_executor,
-            compute_footprint: t3_4_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_4_NAME, t3_4_executor, t3_4_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("should panic on undeclared read");
@@ -216,17 +225,7 @@ mod enforcement {
     #[test]
     fn t3_5_write_violation_undeclared_node() {
         let scope = make_node_id("t3-5-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_5_NAME),
-            name: T3_5_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_5_executor,
-            compute_footprint: t3_5_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_5_NAME, t3_5_executor, t3_5_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("should panic on undeclared write");
@@ -285,17 +284,7 @@ mod enforcement {
     #[test]
     fn t3_6_cross_warp_emission_rejected() {
         let scope = make_node_id("t3-6-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_6_NAME),
-            name: T3_6_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_6_executor,
-            compute_footprint: t3_6_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_6_NAME, t3_6_executor, t3_6_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("should panic on cross-warp emission");
@@ -341,17 +330,7 @@ mod enforcement {
     #[test]
     fn t3_7_attachment_requires_full_key() {
         let scope = make_node_id("t3-7-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_7_NAME),
-            name: T3_7_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_7_executor,
-            compute_footprint: t3_7_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_7_NAME, t3_7_executor, t3_7_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("should panic on undeclared attachment read");
@@ -403,17 +382,7 @@ mod enforcement {
     #[test]
     fn t3_8_system_ops_blocked_for_user_rules() {
         let scope = make_node_id("t3-8-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_8_NAME),
-            name: T3_8_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_8_executor,
-            compute_footprint: t3_8_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_8_NAME, t3_8_executor, t3_8_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("should panic on unauthorized instance op");
@@ -479,17 +448,7 @@ mod enforcement {
     #[test]
     fn t3_9_correctly_declared_no_panic() {
         let scope = make_node_id("t3-9-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_9_NAME),
-            name: T3_9_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_9_executor,
-            compute_footprint: t3_9_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_9_NAME, t3_9_executor, t3_9_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         assert!(
@@ -530,17 +489,7 @@ mod enforcement {
     #[test]
     fn t3_10_edges_from_implied_by_node_read() {
         let scope = make_node_id("t3-10-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_10_NAME),
-            name: T3_10_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_10_executor,
-            compute_footprint: t3_10_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_10_NAME, t3_10_executor, t3_10_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         assert!(result.is_ok(), "edges_from on declared node must not panic");
@@ -588,17 +537,7 @@ mod enforcement {
     #[test]
     fn t3_11_edge_write_requires_from_in_nodes_write() {
         let scope = make_node_id("t3-11-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_11_NAME),
-            name: T3_11_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_11_executor,
-            compute_footprint: t3_11_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_11_NAME, t3_11_executor, t3_11_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("should panic: edge write requires from in n_write");
@@ -655,23 +594,21 @@ mod enforcement {
     #[test]
     fn t3_12a_write_violation_overrides_executor_panic() {
         let scope = make_node_id("t3-12a-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_12A_NAME),
-            name: T3_12A_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_12a_executor,
-            compute_footprint: t3_12a_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_12A_NAME, t3_12a_executor, t3_12a_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("should panic (write violation OR executor panic)");
-        let violation = err
-            .downcast_ref::<FootprintViolation>()
-            .expect("write violation must override executor panic");
+        let violation = if let Some(wrapped) = err.downcast_ref::<FootprintViolationWithPanic>() {
+            let msg = wrapped
+                .exec_panic
+                .downcast_ref::<&str>()
+                .expect("executor panic payload must be &str");
+            assert_eq!(*msg, "deliberate-12a");
+            &wrapped.violation
+        } else {
+            err.downcast_ref::<FootprintViolation>()
+                .expect("write violation must override executor panic")
+        };
         assert_eq!(violation.rule_name, T3_12A_NAME);
         assert_eq!(violation.op_kind, "UpsertNode");
         assert!(
@@ -712,17 +649,7 @@ mod enforcement {
     #[test]
     fn t3_12b_executor_panic_propagates_when_footprint_clean() {
         let scope = make_node_id("t3-12b-scope");
-        let rule = RewriteRule {
-            id: test_rule_id(T3_12B_NAME),
-            name: T3_12B_NAME,
-            left: PatternGraph { nodes: vec![] },
-            matcher: always_match,
-            executor: t3_12b_executor,
-            compute_footprint: t3_12b_footprint,
-            factor_mask: 0,
-            conflict_policy: ConflictPolicy::Abort,
-            join_fn: None,
-        };
+        let rule = make_rewrite_rule(T3_12B_NAME, t3_12b_executor, t3_12b_footprint);
 
         let result = run_rule_catching_panic(rule, scope);
         let err = result.expect_err("executor panic should propagate");

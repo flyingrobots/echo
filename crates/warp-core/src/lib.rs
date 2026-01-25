@@ -116,10 +116,10 @@ pub use attachment::{
 };
 pub use boaw::{
     execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
-    NUM_SHARDS,
+    PoisonedDelta, NUM_SHARDS,
 };
 #[cfg(any(test, feature = "delta_validate"))]
-pub use boaw::{merge_deltas, MergeError};
+pub use boaw::{merge_deltas, merge_deltas_ok, MergeError};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
@@ -128,7 +128,7 @@ pub use engine_impl::{
 pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
 };
-pub use footprint_guard::{FootprintViolation, ViolationKind};
+pub use footprint_guard::{FootprintViolation, FootprintViolationWithPanic, ViolationKind};
 pub use graph::GraphStore;
 pub use graph_view::GraphView;
 pub use ident::{

@@ -1258,7 +1258,10 @@ impl Engine {
             let items: Vec<ExecItem> = warp_rewrites
                 .into_iter()
                 .map(|(rw, exec, name)| {
-                    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+                    #[cfg(all(
+                        any(debug_assertions, feature = "footprint_enforce_release"),
+                        not(feature = "unsafe_graph")
+                    ))]
                     {
                         let is_system = matches!(
                             name,
@@ -1271,7 +1274,10 @@ impl Engine {
                             ExecItem::new(exec, rw.scope.local_id, rw.origin)
                         }
                     }
-                    #[cfg(not(any(debug_assertions, feature = "footprint_enforce_release")))]
+                    #[cfg(any(
+                        not(any(debug_assertions, feature = "footprint_enforce_release")),
+                        feature = "unsafe_graph"
+                    ))]
                     {
                         let _ = name;
                         ExecItem::new(exec, rw.scope.local_id, rw.origin)
@@ -1292,25 +1298,29 @@ impl Engine {
                 .items
                 .iter()
                 .map(|item| {
-                    let (footprint, rule_name) = guard_meta
-                        .get(&(
-                            item.origin,
-                            NodeKey {
-                                warp_id: unit.warp_id,
-                                local_id: item.scope,
-                            },
-                        ))
-                        .cloned()
-                        .unwrap_or_else(|| (crate::footprint::Footprint::default(), "unknown"));
+                    let key = (
+                        item.origin,
+                        NodeKey {
+                            warp_id: unit.warp_id,
+                            local_id: item.scope,
+                        },
+                    );
+                    let (footprint, rule_name) =
+                        guard_meta.get(&key).cloned().ok_or_else(|| {
+                            debug_assert!(false, "missing guard metadata for {key:?}");
+                            EngineError::InternalCorruption(
+                                "apply_reserved_rewrites: missing guard metadata",
+                            )
+                        })?;
                     let is_system = item.kind == crate::boaw::ExecItemKind::System;
-                    crate::footprint_guard::FootprintGuard::new(
+                    Ok(crate::footprint_guard::FootprintGuard::new(
                         &footprint,
                         unit.warp_id,
                         rule_name,
                         is_system,
-                    )
+                    ))
                 })
-                .collect();
+                .collect::<Result<Vec<_>, EngineError>>()?;
         }
 
         // Cap workers at unit count (no point spawning more threads than work)
@@ -1326,6 +1336,9 @@ impl Engine {
         #[cfg(any(test, feature = "delta_validate"))]
         let ops = {
             merge_deltas(all_deltas).map_err(|conflict| {
+                if let crate::MergeError::PoisonedDelta(poisoned) = conflict {
+                    std::panic::resume_unwind(poisoned.into_panic());
+                }
                 debug_assert!(false, "merge conflict: {conflict:?}");
                 EngineError::InternalCorruption("apply_reserved_rewrites: merge conflict")
             })?
@@ -1337,6 +1350,10 @@ impl Engine {
             // Ops with the same sort_key are deduplicated (footprint ensures they're identical).
             let mut flat: Vec<_> = all_deltas
                 .into_iter()
+                .map(|delta| match delta {
+                    Ok(delta) => delta,
+                    Err(poisoned) => std::panic::resume_unwind(poisoned.into_panic()),
+                })
                 .flat_map(crate::TickDelta::into_ops_unsorted)
                 .map(|op| (op.sort_key(), op))
                 .collect();

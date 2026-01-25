@@ -5,6 +5,8 @@
 #[cfg(any(test, feature = "delta_validate"))]
 use std::collections::BTreeSet;
 
+#[cfg(any(test, feature = "delta_validate"))]
+use super::exec::PoisonedDelta;
 use crate::tick_delta::OpOrigin;
 #[cfg(any(test, feature = "delta_validate"))]
 use crate::tick_delta::TickDelta;
@@ -21,6 +23,8 @@ use crate::tick_patch::WarpOpKey;
 pub enum MergeError {
     /// Conflict detected (indicates missing footprint target).
     Conflict(Box<MergeConflict>),
+    /// Executor produced a poisoned delta (panic or enforcement violation).
+    PoisonedDelta(PoisonedDelta),
     /// Attempted to write to a newly created warp in the same tick.
     WriteToNewWarp {
         /// The newly created warp that was written to.
@@ -64,14 +68,23 @@ pub struct MergeConflict {
 /// Returns [`MergeError::WriteToNewWarp`] if any operation targets a warp that
 /// is being created in the same tick (via `OpenPortal` with `PortalInit::Empty`).
 ///
+/// Returns [`MergeError::PoisonedDelta`] if any worker produced a poisoned delta
+/// (executor panic or enforcement violation).
+///
 /// # Panics
 ///
 /// Panics if any `TickDelta` has mismatched ops/origins lengths (internal invariant).
 #[cfg(any(test, feature = "delta_validate"))]
-pub fn merge_deltas(deltas: Vec<TickDelta>) -> Result<Vec<WarpOp>, MergeError> {
+pub fn merge_deltas(
+    deltas: Vec<Result<TickDelta, PoisonedDelta>>,
+) -> Result<Vec<WarpOp>, MergeError> {
     let mut flat: Vec<(crate::tick_patch::WarpOpKey, OpOrigin, WarpOp)> = Vec::new();
 
     for d in deltas {
+        let d = match d {
+            Ok(delta) => delta,
+            Err(poisoned) => return Err(MergeError::PoisonedDelta(poisoned)),
+        };
         let (ops, origins) = d.into_parts_unsorted();
         assert_eq!(ops.len(), origins.len(), "ops/origins length mismatch");
         for (op, origin) in ops.into_iter().zip(origins) {
@@ -137,6 +150,17 @@ pub fn merge_deltas(deltas: Vec<TickDelta>) -> Result<Vec<WarpOp>, MergeError> {
     }
 
     Ok(out)
+}
+
+/// Merge deltas when poison is impossible (e.g., deterministic tests).
+///
+/// # Errors
+///
+/// Forwards any error reported by [`merge_deltas`], such as merge conflicts or
+/// illegal same-tick writes to newly created warps.
+#[cfg(any(test, feature = "delta_validate"))]
+pub fn merge_deltas_ok(deltas: Vec<TickDelta>) -> Result<Vec<WarpOp>, MergeError> {
+    merge_deltas(deltas.into_iter().map(Ok).collect())
 }
 
 /// Extracts the target warp from an operation, if applicable.

@@ -18,6 +18,7 @@
 //! `footprint_enforce_release` feature is enabled. The `unsafe_graph` feature
 //! disables all enforcement regardless.
 
+use std::any::Any;
 use std::collections::BTreeSet;
 
 use crate::attachment::{AttachmentKey, AttachmentOwner};
@@ -75,6 +76,17 @@ pub struct FootprintViolation {
     /// The op variant or access type that triggered the violation.
     /// e.g. `"UpsertNode"`, `"node_read"`, `"edge_attachment_read"`.
     pub op_kind: &'static str,
+}
+
+/// Composite payload when an executor panic coincides with a write violation.
+///
+/// The violation remains primary, but the original executor panic is preserved
+/// for inspection or rethrow by higher-level callers.
+pub struct FootprintViolationWithPanic {
+    /// The footprint violation that occurred during post-hoc validation.
+    pub violation: FootprintViolation,
+    /// The original executor panic payload.
+    pub exec_panic: Box<dyn Any + Send + 'static>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

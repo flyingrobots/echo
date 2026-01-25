@@ -5,6 +5,7 @@
 //! Uses virtual shard partitioning (`execute_parallel_sharded`) for cache locality.
 //! Workers dynamically claim shards via atomic counter (work-stealing).
 
+use std::any::Any;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
@@ -24,6 +25,7 @@ use super::shard::{partition_into_shards, NUM_SHARDS};
 /// System items (engine-internal inbox rules) may emit instance-level ops
 /// (`UpsertWarpInstance`, `DeleteWarpInstance`). User items cannot.
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExecItemKind {
     /// Normal user-registered rule — cannot emit instance ops.
@@ -50,6 +52,7 @@ pub struct ExecItem {
     pub origin: OpOrigin,
     /// Classification for enforcement (user vs system).
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
     pub(crate) kind: ExecItemKind,
 }
 
@@ -64,6 +67,7 @@ impl ExecItem {
             scope,
             origin,
             #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+            #[cfg(not(feature = "unsafe_graph"))]
             kind: ExecItemKind::User,
         }
     }
@@ -73,6 +77,7 @@ impl ExecItem {
     /// System items are internal engine rules (e.g., inbox processing) that
     /// are allowed to emit instance-level ops under enforcement.
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
     pub(crate) fn new_system(exec: ExecuteFn, scope: NodeId, origin: OpOrigin) -> Self {
         Self {
             exec,
@@ -80,6 +85,36 @@ impl ExecItem {
             origin,
             kind: ExecItemKind::System,
         }
+    }
+}
+
+/// Marker type for deltas that must never be merged or committed.
+///
+/// Carries the delta for drop-only semantics and the panic payload that
+/// triggered poisoning.
+pub struct PoisonedDelta {
+    _delta: TickDelta,
+    panic: Box<dyn Any + Send + 'static>,
+}
+
+impl std::fmt::Debug for PoisonedDelta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PoisonedDelta")
+            .field("panic", &"Box<dyn Any + Send>")
+            .finish()
+    }
+}
+
+impl PoisonedDelta {
+    pub(crate) fn new(delta: TickDelta, panic: Box<dyn Any + Send + 'static>) -> Self {
+        Self {
+            _delta: delta,
+            panic,
+        }
+    }
+
+    pub(crate) fn into_panic(self) -> Box<dyn Any + Send + 'static> {
+        self.panic
     }
 }
 
@@ -262,7 +297,7 @@ pub fn build_work_units(
 /// 1. Creates a guarded `GraphView` per item (read enforcement)
 /// 2. Wraps execution in `catch_unwind` to ensure write validation runs
 /// 3. Validates all emitted ops against the item's guard (write enforcement)
-/// 4. Re-throws any original panic after validation
+/// 4. Returns a poisoned delta carrying the panic payload
 ///
 /// # Constraints (Non-Negotiable)
 ///
@@ -279,7 +314,9 @@ pub fn build_work_units(
 ///
 /// # Returns
 ///
-/// `Ok(deltas)` with one `TickDelta` per worker, to be merged by caller.
+/// `Ok(deltas)` with one result per worker, to be merged by caller.
+/// `Err(PoisonedDelta)` entries indicate executor or enforcement panics
+/// and must not be merged.
 ///
 /// # Errors
 ///
@@ -293,14 +330,14 @@ pub fn execute_work_queue<'state, F>(
     units: &[WorkUnit],
     workers: usize,
     resolve_store: F,
-) -> Result<Vec<TickDelta>, WarpId>
+) -> Result<Vec<Result<TickDelta, PoisonedDelta>>, WarpId>
 where
     F: Fn(&WarpId) -> Option<&'state GraphStore> + Sync,
 {
     assert!(workers > 0, "workers must be > 0");
 
     if units.is_empty() {
-        return Ok((0..workers).map(|_| TickDelta::new()).collect());
+        return Ok((0..workers).map(|_| Ok(TickDelta::new())).collect());
     }
 
     let next_unit = AtomicUsize::new(0);
@@ -312,31 +349,40 @@ where
                 let next_unit = &next_unit;
                 let resolve_store = &resolve_store;
 
-                s.spawn(move || -> Result<TickDelta, WarpId> {
-                    let mut delta = TickDelta::new();
+                s.spawn(
+                    move || -> Result<Result<TickDelta, PoisonedDelta>, WarpId> {
+                        let mut delta = TickDelta::new();
 
-                    // Work-stealing loop: claim units until none remain
-                    loop {
-                        let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
-                        if unit_idx >= units.len() {
-                            break;
+                        // Work-stealing loop: claim units until none remain
+                        loop {
+                            let unit_idx = next_unit.fetch_add(1, Ordering::Relaxed);
+                            if unit_idx >= units.len() {
+                                break;
+                            }
+
+                            let unit = &units[unit_idx];
+
+                            // Resolve view for this warp (per-unit, NOT cached across units)
+                            let store = resolve_store(&unit.warp_id).ok_or(unit.warp_id)?;
+
+                            // Execute items SERIALLY (no nested threading!)
+                            for (idx, item) in unit.items.iter().enumerate() {
+                                match execute_item_enforced(store, item, idx, unit, delta) {
+                                    Ok(next_delta) => {
+                                        delta = next_delta;
+                                    }
+                                    Err(poisoned) => {
+                                        return Ok(Err(poisoned));
+                                    }
+                                }
+                            }
+
+                            // View dropped here - no long-lived borrows across warps
                         }
 
-                        let unit = &units[unit_idx];
-
-                        // Resolve view for this warp (per-unit, NOT cached across units)
-                        let store = resolve_store(&unit.warp_id).ok_or(unit.warp_id)?;
-
-                        // Execute items SERIALLY (no nested threading!)
-                        for (idx, item) in unit.items.iter().enumerate() {
-                            execute_item_enforced(store, item, idx, unit, &mut delta);
-                        }
-
-                        // View dropped here - no long-lived borrows across warps
-                    }
-
-                    Ok(delta)
-                })
+                        Ok(Ok(delta))
+                    },
+                )
             })
             .collect();
 
@@ -365,14 +411,14 @@ fn execute_item_enforced(
     item: &ExecItem,
     idx: usize,
     unit: &WorkUnit,
-    delta: &mut TickDelta,
-) {
+    mut delta: TickDelta,
+) -> Result<TickDelta, PoisonedDelta> {
     // Enforcement path: guarded view + catch_unwind + post-hoc write validation
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
     {
         if !unit.guards.is_empty() {
-            use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
+            use std::panic::{catch_unwind, AssertUnwindSafe};
 
             assert_eq!(
                 unit.guards.len(),
@@ -392,22 +438,39 @@ fn execute_item_enforced(
                 (item.exec)(view, &item.scope, scoped.inner_mut());
             }));
 
-            // POISON-INVARIANT: After executor panic, this delta is poisoned.
-            // resume_unwind below prevents any code path from consuming it.
-            // If recovery is ever added to this loop, the delta must be
-            // discarded or the commit path must reject poisoned deltas.
+            let exec_panic = exec_result.err();
 
             // Post-hoc write enforcement (runs whether exec succeeded or panicked)
-            for op in &delta.ops_ref()[ops_before..] {
-                guard.check_op(op);
-            }
+            let check_result = catch_unwind(AssertUnwindSafe(|| {
+                for op in &delta.ops_ref()[ops_before..] {
+                    guard.check_op(op);
+                }
+            }));
 
-            // Rethrow original panic if exec panicked
-            if let Err(payload) = exec_result {
-                resume_unwind(payload);
+            match (exec_panic, check_result) {
+                (None, Ok(())) => {
+                    return Ok(delta);
+                }
+                (Some(panic), Ok(())) | (None, Err(panic)) => {
+                    return Err(PoisonedDelta::new(delta, panic));
+                }
+                (Some(exec_panic), Err(guard_panic)) => {
+                    let payload = match guard_panic
+                        .downcast::<crate::footprint_guard::FootprintViolation>()
+                    {
+                        Ok(violation) => {
+                            Box::new(crate::footprint_guard::FootprintViolationWithPanic {
+                                violation: *violation,
+                                exec_panic,
+                            }) as Box<dyn Any + Send + 'static>
+                        }
+                        Err(guard_panic) => {
+                            Box::new((exec_panic, guard_panic)) as Box<dyn Any + Send + 'static>
+                        }
+                    };
+                    return Err(PoisonedDelta::new(delta, payload));
+                }
             }
-
-            return;
         }
     }
 
@@ -419,4 +482,6 @@ fn execute_item_enforced(
     let view = GraphView::new(store);
     let mut scoped = delta.scoped(item.origin);
     (item.exec)(view, &item.scope, scoped.inner_mut());
+
+    Ok(delta)
 }

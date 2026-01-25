@@ -12,7 +12,7 @@
 //! ```
 
 use warp_core::{
-    make_node_id, make_type_id, make_warp_id, merge_deltas, AtomPayload, AttachmentKey,
+    make_node_id, make_type_id, make_warp_id, merge_deltas_ok, AtomPayload, AttachmentKey,
     AttachmentValue, MergeError, NodeKey, OpOrigin, TickDelta, WarpOp, WarpOpKey,
 };
 
@@ -74,7 +74,7 @@ fn deliberately_incorrect_footprint_explodes_at_merge() {
     delta2.push_with_origin(op2, origin2);
 
     // Merge should detect the conflict and return an error
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(
         result.is_err(),
@@ -104,7 +104,7 @@ fn merge_conflict_contains_both_writers() {
     delta1.push_with_origin(make_set_attachment(key, b"alpha"), origin1);
     delta2.push_with_origin(make_set_attachment(key, b"beta"), origin2);
 
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     let err = result.expect_err("Merge should fail with conflict");
 
@@ -158,7 +158,7 @@ fn merge_conflict_reports_correct_key() {
     delta1.push_with_origin(op1, origin1);
     delta2.push_with_origin(op2, origin2);
 
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     let err = result.expect_err("Merge should fail with conflict");
 
@@ -203,7 +203,7 @@ fn no_false_merge_conflicts_for_identical_ops() {
     delta2.push_with_origin(op2, origin);
 
     // Merge should succeed and dedupe the identical ops
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(
         result.is_ok(),
@@ -246,7 +246,7 @@ fn identical_values_different_origins_dedupe() {
     delta1.push_with_origin(make_set_attachment(key, value), origin1);
     delta2.push_with_origin(make_set_attachment(key, value), origin2);
 
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(
         result.is_ok(),
@@ -285,7 +285,7 @@ fn three_way_conflict_reports_all_writers() {
     delta2.push_with_origin(make_set_attachment(key, b"value-2"), origin2);
     delta3.push_with_origin(make_set_attachment(key, b"value-3"), origin3);
 
-    let result = merge_deltas(vec![delta1, delta2, delta3]);
+    let result = merge_deltas_ok(vec![delta1, delta2, delta3]);
 
     let err = result.expect_err("Three-way conflict must fail");
 
@@ -346,7 +346,7 @@ fn conflict_on_one_key_while_others_would_merge() {
     delta2.push_with_origin(make_set_attachment(key_a, b"conflict-val-2"), origin2);
     delta2.push_with_origin(make_set_attachment(key_c, b"clean-val-c"), origin2);
 
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     // Should fail due to key_a conflict
     assert!(result.is_err(), "Should fail due to key_a conflict");
@@ -374,7 +374,7 @@ fn empty_deltas_merge_successfully() {
     let delta1 = TickDelta::new();
     let delta2 = TickDelta::new();
 
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(result.is_ok(), "Empty deltas should merge successfully");
     let merged = result.expect("merge should succeed");
@@ -395,7 +395,7 @@ fn single_delta_passes_through() {
     let mut delta = TickDelta::new();
     delta.push_with_origin(make_set_attachment(key, b"solo-value"), origin);
 
-    let result = merge_deltas(vec![delta]);
+    let result = merge_deltas_ok(vec![delta]);
 
     assert!(result.is_ok(), "Single delta should merge successfully");
     let merged = result.expect("merge should succeed");
@@ -437,7 +437,7 @@ fn disjoint_keys_merge_cleanly() {
     delta2.push_with_origin(make_set_attachment(key_b, b"value-b"), origin2);
     delta3.push_with_origin(make_set_attachment(key_c, b"value-c"), origin3);
 
-    let result = merge_deltas(vec![delta1, delta2, delta3]);
+    let result = merge_deltas_ok(vec![delta1, delta2, delta3]);
 
     assert!(
         result.is_ok(),
@@ -478,7 +478,7 @@ fn merged_ops_are_canonically_ordered() {
     delta.push_with_origin(make_set_attachment(key_a, b"a"), origin);
     delta.push_with_origin(make_set_attachment(key_b, b"b"), origin);
 
-    let result = merge_deltas(vec![delta]);
+    let result = merge_deltas_ok(vec![delta]);
 
     assert!(result.is_ok());
     let merged = result.expect("merge should succeed");

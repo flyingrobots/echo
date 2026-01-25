@@ -11,7 +11,7 @@
 //! ```
 
 use warp_core::{
-    execute_parallel, execute_serial, make_node_id, make_type_id, make_warp_id, merge_deltas,
+    execute_parallel, execute_serial, make_node_id, make_type_id, make_warp_id, merge_deltas_ok,
     AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey,
     NodeRecord, OpOrigin, TickDelta, WarpId, WarpOp,
 };
@@ -139,11 +139,11 @@ fn warp_iteration_order_does_not_affect_result() {
 
     // Execute with A-then-B order
     let deltas_a_then_b = execute_parallel(view, &items_a_then_b, 4);
-    let ops_a_then_b = merge_deltas(deltas_a_then_b).expect("merge failed for A-then-B");
+    let ops_a_then_b = merge_deltas_ok(deltas_a_then_b).expect("merge failed for A-then-B");
 
     // Execute with B-then-A order
     let deltas_b_then_a = execute_parallel(view, &items_b_then_a, 4);
-    let ops_b_then_a = merge_deltas(deltas_b_then_a).expect("merge failed for B-then-A");
+    let ops_b_then_a = merge_deltas_ok(deltas_b_then_a).expect("merge failed for B-then-A");
 
     // Verify same result regardless of order
     assert_eq!(
@@ -180,7 +180,7 @@ fn warp_iteration_order_invariance_across_seeds_and_workers() {
     baseline_items.extend(items_b.iter().cloned());
 
     let baseline_delta = execute_serial(view, &baseline_items);
-    let baseline_ops = merge_deltas(vec![baseline_delta]).expect("baseline merge failed");
+    let baseline_ops = merge_deltas_ok(vec![baseline_delta]).expect("baseline merge failed");
 
     for &seed in SEEDS {
         let mut rng = XorShift64::new(seed);
@@ -199,11 +199,11 @@ fn warp_iteration_order_invariance_across_seeds_and_workers() {
         for &workers in WORKER_COUNTS {
             // Test A-then-B shuffled
             let deltas_ab = execute_parallel(view, &shuffled_a_then_b, workers);
-            let ops_ab = merge_deltas(deltas_ab).expect("merge failed");
+            let ops_ab = merge_deltas_ok(deltas_ab).expect("merge failed");
 
             // Test B-then-A shuffled
             let deltas_ba = execute_parallel(view, &shuffled_b_then_a, workers);
-            let ops_ba = merge_deltas(deltas_ba).expect("merge failed");
+            let ops_ba = merge_deltas_ok(deltas_ba).expect("merge failed");
 
             assert_eq!(
                 baseline_ops.len(),
@@ -292,7 +292,7 @@ fn apply_routes_by_op_warp_id_not_ambient_context() {
     });
 
     // Merge and verify routing
-    let ops = merge_deltas(vec![delta]).expect("merge failed");
+    let ops = merge_deltas_ok(vec![delta]).expect("merge failed");
 
     assert_eq!(ops.len(), 2, "expected 2 ops after merge");
 
@@ -367,12 +367,12 @@ fn apply_routing_preserved_under_parallel_execution() {
 
     // Serial baseline
     let serial_delta = execute_serial(view, &items);
-    let serial_ops = merge_deltas(vec![serial_delta]).expect("serial merge failed");
+    let serial_ops = merge_deltas_ok(vec![serial_delta]).expect("serial merge failed");
 
     // Parallel execution with various worker counts
     for &workers in WORKER_COUNTS {
         let parallel_deltas = execute_parallel(view, &items, workers);
-        let parallel_ops = merge_deltas(parallel_deltas).expect("parallel merge failed");
+        let parallel_ops = merge_deltas_ok(parallel_deltas).expect("parallel merge failed");
 
         assert_eq!(
             serial_ops.len(),
@@ -411,7 +411,7 @@ fn multiwarp_ingress_permutation_invariance() {
 
     // Baseline with serial execution
     let baseline_delta = execute_serial(view, &baseline_items);
-    let baseline_ops = merge_deltas(vec![baseline_delta]).expect("baseline merge failed");
+    let baseline_ops = merge_deltas_ok(vec![baseline_delta]).expect("baseline merge failed");
 
     for &seed in SEEDS {
         let mut rng = XorShift64::new(seed);
@@ -422,7 +422,7 @@ fn multiwarp_ingress_permutation_invariance() {
 
             for &workers in WORKER_COUNTS {
                 let deltas = execute_parallel(view, &shuffled_items, workers);
-                let ops = merge_deltas(deltas).expect("merge failed");
+                let ops = merge_deltas_ok(deltas).expect("merge failed");
 
                 assert_eq!(
                     baseline_ops.len(),
@@ -464,7 +464,7 @@ fn multiwarp_large_workload_permutation_invariance() {
 
     // Baseline
     let baseline_delta = execute_serial(view, &baseline_items);
-    let baseline_ops = merge_deltas(vec![baseline_delta]).expect("baseline merge failed");
+    let baseline_ops = merge_deltas_ok(vec![baseline_delta]).expect("baseline merge failed");
 
     assert_eq!(
         baseline_ops.len(),
@@ -485,7 +485,7 @@ fn multiwarp_large_workload_permutation_invariance() {
 
             for &workers in &[4, 16, 32] {
                 let deltas = execute_parallel(view, &shuffled, workers);
-                let ops = merge_deltas(deltas).expect("merge failed");
+                let ops = merge_deltas_ok(deltas).expect("merge failed");
 
                 assert_eq!(
                     baseline_ops.len(),
@@ -565,10 +565,10 @@ fn interleaved_warp_ordering_invariance() {
 
     // Execute both patterns
     let deltas_ab = execute_parallel(view, &pattern_ab, 8);
-    let ops_ab = merge_deltas(deltas_ab).expect("merge failed for A,B pattern");
+    let ops_ab = merge_deltas_ok(deltas_ab).expect("merge failed for A,B pattern");
 
     let deltas_ba = execute_parallel(view, &pattern_ba, 8);
-    let ops_ba = merge_deltas(deltas_ba).expect("merge failed for B,A pattern");
+    let ops_ba = merge_deltas_ok(deltas_ba).expect("merge failed for B,A pattern");
 
     assert_eq!(
         ops_ab.len(),

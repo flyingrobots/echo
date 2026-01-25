@@ -39,9 +39,9 @@ Traditional game engines and simulations treat state as **mutable objects**. Thi
 
 <!-- CLAUDE_COMMENTARY_START -->
 
-**Claude's Take**: This list of problems isn't theoretical. I've seen countless debugging sessions where the root cause was "HashMap iteration order changed between runs." Echo's designers clearly got burned by non-determinism at some point and decided: _never again_.
+**Claude's Take**: These problems aren't theoretical. I've seen debugging sessions where the root cause was "HashMap iteration order changed between runs." Echo's designers got burned by non-determinism and decided: _never again_.
 
-What strikes me most is the last point—"branching is impossible." Most engines don't even _try_ to support branching because it seems like a feature for version control, not runtime systems. Echo treats it as a first-class concern. That's unusual and, I think, genuinely forward-thinking.
+The last point—"branching is impossible"—stands out. Most engines don't even try to support branching because it feels like a version-control feature, not runtime. Echo treats it as first-class. That's unusual and forward-looking.
 
 <!-- CLAUDE_COMMENTARY_END -->
 
@@ -82,9 +82,9 @@ This means:
 
 <!-- CLAUDE_COMMENTARY_START -->
 
-**Claude's Take**: "Tooling as first-class" is the sleeper here. Most engines treat debugging tools, replay systems, and visualization as afterthoughts—bolted on after the core is done. Echo inverts this: the wire protocol, the hash scheme, and the diff format were designed _so that tools could exist_.
+**Claude's Take**: "Tooling as first-class" is the quiet win here. Most engines treat debugging, replay, and visualization as afterthoughts—bolted on after the core. Echo inverts this: the wire protocol, hash scheme, and diff format are designed so tools can exist.
 
-I've read a lot of engine architectures. This level of intentionality about tooling is rare. It's also why Echo can have a separate `warp-viewer` crate that just... works, instead of requiring heroic reverse-engineering.
+I've read a lot of engine architectures. This level of tooling intent is rare. It also explains why Echo can have a separate `warp-viewer` crate that works without heroic reverse-engineering.
 
 <!-- CLAUDE_COMMENTARY_END -->
 
@@ -100,7 +100,7 @@ Echo is organized into distinct layers, each with a specific responsibility:
 
 <!-- CLAUDE_COMMENTARY_START -->
 
-**Claude's Take**: This is a _clean_ layer cake. Each layer only talks to its neighbors. No "Layer 5 reaching down to Layer 1 for performance reasons." That discipline is hard to maintain, and I respect it.
+**Claude's Take**: A _clean_ layer cake. Each layer talks only to its neighbors—no "Layer 5 reaching down to Layer 1 for performance reasons." That discipline is hard to maintain, and I respect it.
 
 The `WSC Format` at Layer 2 caught my eye. It's Echo's custom columnar storage format—and before you ask "why not just use Arrow or Parquet?"—I'll spoil it: WSC is designed for mmap-friendly, zero-copy reads where every row is 8-byte aligned and you can binary-search directly into the file. It's specialized for _exactly this use case_. Sometimes NIH syndrome is justified.
 
@@ -123,7 +123,7 @@ The `WSC Format` at Layer 2 caught my eye. It's Echo's custom columnar storage f
 
 <!-- CLAUDE_COMMENTARY_START -->
 
-**Claude's Take**: Notice how the Engine talks to itself multiple times before touching the Store? That's the commit protocol at work. The Engine is _paranoid_ about mutations—it queues up intentions, validates them, and only then touches state. If you're used to "just mutate it directly" game engines, this will feel ceremonial. The ceremony is the point.
+**Claude's Take**: Notice how the Engine talks to itself before touching the Store? That's the commit protocol. The Engine is _paranoid_ about mutations—it queues intentions, validates them, and only then touches state. If you're used to "just mutate it directly" game engines, this will feel ceremonial. The ceremony is the point.
 
 <!-- CLAUDE_COMMENTARY_END -->
 
@@ -303,15 +303,15 @@ The burden on the rule author is significant: you must declare your footprint ac
 
 <!-- CLAUDE_COMMENTARY_END -->
 
-**Runtime enforcement**: Footprint declarations are no longer just documentation or planning artifacts. They are actively enforced at runtime by `FootprintGuard` (see [Section 6.6](#66-runtime-enforcement-footprintguard)). The guard catches:
+**Runtime enforcement**: Footprint declarations are no longer just documentation or planning artifacts. They are actively enforced at runtime by `FootprintGuard` (see [Section 6.6](#66-runtime-enforcement-footprintguard)) when `footprint_enforce_release` is enabled or in debug builds, and can be disabled via the `unsafe_graph` escape hatch. The guard catches:
 
 - **Undeclared reads**: accessing nodes, edges, or attachments not in `n_read`/`e_read`/`a_read`
 - **Undeclared writes**: emitting ops that target nodes, edges, or attachments not in `n_write`/`e_write`/`a_write`
 - **Cross-warp emissions**: an op targets a different warp than the rule's execution scope
-- **Unauthorized instance ops**: non-system rules emitting `UpsertWarpInstance` or `DeleteWarpInstance`
+- **Unauthorized instance ops**: `ExecItemKind::User` rules emitting `UpsertWarpInstance`, `DeleteWarpInstance`, or `OpenPortal`
 - **Adjacency violations**: edge mutations where the `from` node is missing from `n_write`
 
-This means an inaccurate footprint is no longer a silent bug—it's a hard failure in debug builds.
+This means an inaccurate footprint is no longer a silent bug—it's a hard failure whenever enforcement is active.
 
 ### 4.4 GraphView: Read-Only Access
 

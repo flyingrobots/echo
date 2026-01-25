@@ -17,7 +17,7 @@
 
 use thiserror::Error;
 
-use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue};
+use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentValue};
 use crate::graph::GraphStore;
 use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::materialization::ChannelId;
@@ -324,11 +324,13 @@ fn apply_set_attachment(
     key: &AttachmentKey,
     value: Option<AttachmentValue>,
 ) -> Result<(), ApplyError> {
+    // Validate plane matches owner type (shared logic via AttachmentKey::is_plane_valid)
+    if !key.is_plane_valid() {
+        return Err(ApplyError::InvalidAttachmentKey);
+    }
+
     match key.owner {
         AttachmentOwner::Node(node_key) => {
-            if key.plane != AttachmentPlane::Alpha {
-                return Err(ApplyError::InvalidAttachmentKey);
-            }
             if node_key.warp_id != store_warp {
                 return Err(ApplyError::WarpMismatch {
                     expected: store_warp,
@@ -342,9 +344,6 @@ fn apply_set_attachment(
             Ok(())
         }
         AttachmentOwner::Edge(edge_key) => {
-            if key.plane != AttachmentPlane::Beta {
-                return Err(ApplyError::InvalidAttachmentKey);
-            }
             if edge_key.warp_id != store_warp {
                 return Err(ApplyError::WarpMismatch {
                     expected: store_warp,

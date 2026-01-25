@@ -2,7 +2,6 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Canonical delta merge for BOAW Phase 6A.
 
-#[cfg(any(test, feature = "delta_validate"))]
 use std::collections::BTreeSet;
 
 #[cfg(any(test, feature = "delta_validate"))]
@@ -10,12 +9,8 @@ use super::exec::PoisonedDelta;
 use crate::tick_delta::OpOrigin;
 #[cfg(any(test, feature = "delta_validate"))]
 use crate::tick_delta::TickDelta;
-#[cfg(any(test, feature = "delta_validate"))]
-use crate::tick_patch::{PortalInit, WarpOp};
-#[cfg(any(test, feature = "delta_validate"))]
+use crate::tick_patch::{PortalInit, WarpOp, WarpOpKey};
 use crate::WarpId;
-
-use crate::tick_patch::WarpOpKey;
 
 /// Errors produced during delta merge.
 #[derive(Debug)]
@@ -167,8 +162,7 @@ pub fn merge_deltas_ok(deltas: Vec<TickDelta>) -> Result<Vec<WarpOp>, MergeError
 ///
 /// Returns `None` for `OpenPortal` (which creates the warp, not writes to it).
 /// Returns `Some((warp_id, op_kind))` for all other ops that target a warp.
-#[cfg(any(test, feature = "delta_validate"))]
-fn extract_target_warp(op: &WarpOp) -> Option<(WarpId, &'static str)> {
+pub(crate) fn extract_target_warp(op: &WarpOp) -> Option<(WarpId, &'static str)> {
     use crate::attachment::AttachmentOwner;
 
     match op {
@@ -189,4 +183,37 @@ fn extract_target_warp(op: &WarpOp) -> Option<(WarpId, &'static str)> {
         WarpOp::UpsertWarpInstance { instance } => Some((instance.warp_id, "UpsertWarpInstance")),
         WarpOp::DeleteWarpInstance { warp_id } => Some((*warp_id, "DeleteWarpInstance")),
     }
+}
+
+/// Validates that no operation writes to a warp created in the same tick.
+///
+/// Collects warps created via `OpenPortal { init: PortalInit::Empty { .. }, .. }`
+/// and checks that no other op targets them.
+///
+/// Returns `Some((warp_id, op_kind))` on the first violation found, `None` if valid.
+#[cfg(not(any(test, feature = "delta_validate")))]
+pub(crate) fn check_write_to_new_warp(ops: &[WarpOp]) -> Option<(WarpId, &'static str)> {
+    // Collect newly created warps from OpenPortal ops with PortalInit::Empty.
+    let new_warps: BTreeSet<WarpId> = ops
+        .iter()
+        .filter_map(|op| match op {
+            WarpOp::OpenPortal {
+                init: PortalInit::Empty { .. },
+                child_warp,
+                ..
+            } => Some(*child_warp),
+            _ => None,
+        })
+        .collect();
+
+    // Check for any write to a newly created warp.
+    for op in ops {
+        if let Some((target_warp, op_kind)) = extract_target_warp(op) {
+            if new_warps.contains(&target_warp) {
+                return Some((target_warp, op_kind));
+            }
+        }
+    }
+
+    None
 }

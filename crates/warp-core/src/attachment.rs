@@ -114,6 +114,19 @@ impl AttachmentKey {
     pub(crate) const fn tag(self) -> (u8, u8) {
         (self.owner.tag(), self.plane.tag())
     }
+
+    /// Returns `true` if the plane is valid for the owner type.
+    ///
+    /// - Node owners require `AttachmentPlane::Alpha`
+    /// - Edge owners require `AttachmentPlane::Beta`
+    #[must_use]
+    pub fn is_plane_valid(&self) -> bool {
+        matches!(
+            (&self.owner, &self.plane),
+            (AttachmentOwner::Node(_), AttachmentPlane::Alpha)
+                | (AttachmentOwner::Edge(_), AttachmentPlane::Beta)
+        )
+    }
 }
 
 /// Attachment value stored in the attachment plane.

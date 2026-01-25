@@ -301,6 +301,7 @@ impl FootprintBuilder {
     /// Common pattern: reading and updating an entity's attachment in place.
     pub fn reads_writes_node_alpha(self, node_id: NodeId) -> Self {
         self.reads_node(node_id)
+            .writes_node(node_id)
             .reads_node_alpha(node_id)
             .writes_node_alpha(node_id)
     }
@@ -392,11 +393,10 @@ mod tests {
             .reads_writes_node_alpha(scope)
             .build();
 
-        // Should have: n_read(scope), a_read(scope), a_write(scope)
+        // Should have: n_read(scope), n_write(scope), a_read(scope), a_write(scope)
         assert_eq!(footprint.n_read.iter().count(), 1);
+        assert_eq!(footprint.n_write.iter().count(), 1);
         assert_eq!(footprint.a_read.iter().count(), 1);
         assert_eq!(footprint.a_write.iter().count(), 1);
-        // No n_write from this combo
-        assert!(footprint.n_write.is_empty());
     }
 }

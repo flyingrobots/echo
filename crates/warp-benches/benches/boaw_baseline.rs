@@ -145,10 +145,16 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                     let stores: BTreeMap<WarpId, GraphStore> =
                         [(warp_id, store)].into_iter().collect();
                     let results = execute_work_queue(&units, 4, |wid| stores.get(wid));
-                    // Bench assumes all stores exist; panic on MissingStore for debugging
+                    // Bench assumes all stores exist; panic on MissingStore/Poisoned for debugging
                     for r in &results {
-                        if let WorkerResult::MissingStore(wid) = r {
-                            panic!("bench: missing store for warp {wid:?}");
+                        match r {
+                            WorkerResult::MissingStore(wid) => {
+                                panic!("bench: missing store for warp {wid:?}");
+                            }
+                            WorkerResult::Poisoned(wid) => {
+                                panic!("bench: poisoned worker {wid:?}");
+                            }
+                            WorkerResult::Success(_) => {}
                         }
                     }
                     criterion::black_box(results)
@@ -230,10 +236,16 @@ fn bench_work_queue(c: &mut Criterion) {
                         let workers = 4.min(units.len().max(1));
                         let results =
                             execute_work_queue(&units, workers, |warp_id| stores.get(warp_id));
-                        // Bench assumes all stores exist; panic on MissingStore for debugging
+                        // Bench assumes all stores exist; panic on MissingStore/Poisoned for debugging
                         for r in &results {
-                            if let WorkerResult::MissingStore(wid) = r {
-                                panic!("bench: missing store for warp {wid:?}");
+                            match r {
+                                WorkerResult::MissingStore(wid) => {
+                                    panic!("bench: missing store for warp {wid:?}");
+                                }
+                                WorkerResult::Poisoned(wid) => {
+                                    panic!("bench: poisoned worker {wid:?}");
+                                }
+                                WorkerResult::Success(_) => {}
                             }
                         }
                         criterion::black_box(results)

@@ -1872,7 +1872,16 @@ fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp
         }
 
         flat.dedup_by(|a, b| a.0 == b.0);
-        Ok(flat.into_iter().map(|(_, op)| op).collect())
+        let ops: Vec<_> = flat.into_iter().map(|(_, op)| op).collect();
+
+        // Validate no writes to warps created in the same tick.
+        if crate::boaw::check_write_to_new_warp(&ops).is_some() {
+            return Err(EngineError::InternalCorruption(
+                "merge_parallel_deltas: write to new warp",
+            ));
+        }
+
+        Ok(ops)
     }
 }
 

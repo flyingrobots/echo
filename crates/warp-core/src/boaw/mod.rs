@@ -15,6 +15,8 @@ pub use exec::{
     build_work_units, execute_parallel, execute_parallel_sharded, execute_serial,
     execute_work_queue, ExecItem, PoisonedDelta, WorkUnit, WorkerResult,
 };
+#[cfg(not(any(test, feature = "delta_validate")))]
+pub(crate) use merge::check_write_to_new_warp;
 pub use merge::MergeConflict;
 #[cfg(any(test, feature = "delta_validate"))]
 pub use merge::{merge_deltas, merge_deltas_ok, MergeError};

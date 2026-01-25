@@ -118,12 +118,14 @@ mod footprint;
 ///
 /// # Recommended Usage
 ///
-/// - **Tests**: enforcement is always active; tests should exercise both valid and
-///   intentionally-violating footprints
+/// - **Tests (debug)**: enforcement is active by default (`debug_assertions`); tests
+///   should exercise both valid and intentionally-violating footprints
+/// - **Tests (release)**: enforcement is disabled unless `footprint_enforce_release`
+///   feature is enabled (e.g., `cargo test --release --features footprint_enforce_release`)
 /// - **Production**: leave enforcement off (default) for maximum throughput, or enable
 ///   `footprint_enforce_release` during validation/staging
-/// - **Opting out**: use `unsafe_graph` feature for benchmarks or fuzzing where safety
-///   checks are deliberately bypassed
+/// - **Opting out**: `unsafe_graph` feature disables enforcement unconditionally, even
+///   in debug builds; use for benchmarks or fuzzing where safety checks are bypassed
 pub mod footprint_guard;
 mod graph;
 mod graph_view;

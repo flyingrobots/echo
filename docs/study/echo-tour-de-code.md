@@ -677,8 +677,11 @@ execute_item_enforced(store, item, idx, unit, delta)
 ├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
+├─ scoped_delta = delta.scoped(item.origin)
+│   Wrap delta with origin tracking so emitted ops are tagged
+│
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-│      (item.exec)(view, &item.scope, delta)
+│      (item.exec)(view, &item.scope, scoped_delta)
 │  }))
 │
 ├─ FOR op IN delta.ops_ref()[ops_before..]:

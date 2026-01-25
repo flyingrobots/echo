@@ -305,7 +305,7 @@ The burden on the rule author is significant: you must declare your footprint ac
 
 **Runtime enforcement**: Footprint declarations are no longer just documentation or planning artifacts. They are actively enforced at runtime by `FootprintGuard` (see [Section 6.6](#66-runtime-enforcement-footprintguard)) when `footprint_enforce_release` is enabled or in debug builds, and can be disabled via the `unsafe_graph` escape hatch. The guard catches:
 
-- **Undeclared reads**: accessing nodes, edges, or attachments not in `n_read`/`e_read`/`a_read`
+- **Undeclared reads**: accessing nodes or attachments not declared in the footprint. Node-based edge traversal via `GraphView::edges_from()` checks `n_read` (reading adjacency from a node), while direct edge-by-ID operations like `has_edge()` and `edge_attachment()` check `e_read`. Attachment reads check `a_read`.
 - **Undeclared writes**: emitting ops that target nodes, edges, or attachments not in `n_write`/`e_write`/`a_write`
 - **Cross-warp emissions**: an op targets a different warp than the rule's execution scope
 - **Unauthorized instance ops**: `ExecItemKind::User` rules emitting `UpsertWarpInstance` or `DeleteWarpInstance`

@@ -828,7 +828,7 @@ execute_item_enforced(store, item, idx, unit, delta)
 │      (item.exec)(view, &item.scope, delta)
 │  }))
 │
-├─ FOR op IN delta.ops()[ops_before..]:
+├─ FOR op IN delta.ops_ref()[ops_before..]:
 │     guard.check_op(op) → panic_any(FootprintViolation) on failure
 │     Validates that each newly-emitted op falls within the declared footprint.
 │     ExecItemKind::System items may emit warp-instance-level ops;

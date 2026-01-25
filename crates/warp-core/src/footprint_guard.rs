@@ -116,14 +116,17 @@ pub struct FootprintViolationWithPanic {
 impl std::fmt::Debug for FootprintViolationWithPanic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Attempt to downcast exec_panic to common string types for readability
+        let type_id_str: String;
         let panic_desc: &dyn std::fmt::Debug =
             if let Some(s) = self.exec_panic.downcast_ref::<&str>() {
                 s
             } else if let Some(s) = self.exec_panic.downcast_ref::<String>() {
                 s
             } else {
-                // Fallback: show the TypeId for non-string payloads
-                &"<non-debuggable panic payload>"
+                // Fallback: show the actual TypeId for non-string payloads
+                let type_id = (*self.exec_panic).type_id();
+                type_id_str = format!("panic TypeId({type_id:?})");
+                &type_id_str
             };
 
         f.debug_struct("FootprintViolationWithPanic")

@@ -15,9 +15,7 @@
 use blake3::Hasher;
 use thiserror::Error;
 
-use crate::attachment::{
-    AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue,
-};
+use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
 use crate::footprint::WarpScopedPortKey;
 use crate::graph::GraphStore;
 use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
@@ -641,17 +639,8 @@ fn apply_open_portal(
 }
 
 fn validate_attachment_plane(key: &AttachmentKey) -> Result<(), TickPatchError> {
-    match key.owner {
-        AttachmentOwner::Node(_) => {
-            if key.plane != AttachmentPlane::Alpha {
-                return Err(TickPatchError::InvalidAttachmentKey(*key));
-            }
-        }
-        AttachmentOwner::Edge(_) => {
-            if key.plane != AttachmentPlane::Beta {
-                return Err(TickPatchError::InvalidAttachmentKey(*key));
-            }
-        }
+    if !key.is_plane_valid() {
+        return Err(TickPatchError::InvalidAttachmentKey(*key));
     }
     Ok(())
 }

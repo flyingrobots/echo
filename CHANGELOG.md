@@ -5,6 +5,38 @@
 
 ## Unreleased
 
+### Added - TTD Renderer Infrastructure (Task 6.2)
+
+- **`echo-scene-port` crate** (`crates/echo-scene-port/`): Pure Rust domain contract for hexagonal
+  rendering ports. Zero dependencies, `no_std` capable. Defines `ScenePort` trait, `SceneDelta`,
+  `NodeDef`, `EdgeDef`, `LabelDef`, `CameraState`, `HighlightState`. No serde — serialization
+  lives in codec layer.
+
+- **`echo-scene-codec` crate** (`crates/echo-scene-codec/`): CBOR encode/decode for scene port
+  types using minicbor. Includes `MockAdapter` implementing `ScenePort` for headless testing.
+  23 roundtrip and behavior tests.
+
+- **`echo-renderer-three` package** (`packages/echo-renderer-three/`): TypeScript Three.js
+  implementation of `ScenePort`. Key components:
+    - `ThreeSceneAdapter`: Main adapter wiring state, renderers, camera
+    - `SceneState`: Pure TypeScript state machine (testable without GPU)
+    - `NodeRenderer`, `EdgeRenderer`, `LabelRenderer`: MVP object renderers
+    - `HighlightRenderer`: Color tint selection/hover (Phase 2: outlines)
+    - `ThreeRenderCore`, `CameraController`: Minimal WebGL wrappers
+    - `ShaderManager`, `AssetManager`: Utilities ported from james-website
+
+- **Determinism guarantees**: No `performance.now()`, `Date.now()`, or `Math.random()` in adapter
+  code. All timing injected via `RenderContext`. CI grep enforcement.
+
+- **Epoch semantics**: Deltas idempotent per `(cursorId, epoch)`. `resetCursor()` enables
+  timeline rewind without breaking idempotency. Different cursors have independent epochs.
+
+#### Tests - TTD Renderer
+
+- **Rust tests**: 27 tests (4 in echo-scene-port, 23 in echo-scene-codec)
+- **TypeScript tests**: 17 tests (SceneState ops, hash utilities, adapter integration)
+- **50-delta stress test**: Validates state convergence under load
+
 ### Added - Phase 6B: Footprint Enforcement (ADR-0007)
 
 - **FootprintGuard runtime enforcement** (`boaw/exec.rs`): `catch_unwind`-based guard validates

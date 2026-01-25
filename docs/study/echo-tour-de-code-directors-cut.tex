@@ -928,14 +928,14 @@ execute_item_enforced(view, item, delta, footprint)
 │  }))
 │
 ├─ FOR op IN delta.ops()[ops_before..]:
-│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+│     guard.check_op(op) → panic\_any(FootprintViolation) on failure
 │     Validates that each newly-emitted op falls within the declared footprint.
 │     ExecItemKind::System items may emit warp-instance-level ops;
 │     ExecItemKind::User items may not.
 │
 └─ OUTCOME PRECEDENCE:
       ├─ IF check_op fails:
-      │     return Err(FootprintViolation)
+      │     panic\_any(FootprintViolation)
       │     Write violations OVERRIDE executor panics — violation takes precedence.
       │
       ├─ IF footprint is clean BUT executor panicked:

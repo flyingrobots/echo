@@ -34,7 +34,7 @@ The course tries to introduce concepts in this same order.
 - **FootprintGuard**: runtime enforcement module that validates every graph access and emitted op against the declared footprint. Active in debug builds; cfg-gated for zero release overhead.
 - **FootprintViolation**: a typed panic payload emitted when a rule breaches its declared footprint. Carries structured info: the offending op, the declared sets, and a `ViolationKind`.
 - **ViolationKind**: enum classifying footprint breaches — `NodeRead`, `NodeWrite`, `EdgeRead`, `EdgeWrite`, `AttachmentRead`, `AttachmentWrite`, `CrossWarpEmission`, `UnauthorizedInstanceOp`, `AdjacencyViolation`.
-- **ExecItemKind**: `System` or `User` — gates whether an executor may emit warp-instance-level ops (create/delete instances, open portals). User rules are always `User`; only internal engine code creates `System` items.
+- **ExecItemKind**: `System` or `User` — gates whether an executor may emit warp-instance-level ops (create/delete instances, open portals). User rules are always `User`; only internal engine code creates `System` items. Unauthorized attempts raise `UnauthorizedInstanceOp`.
 
 ## Demo-Specific Terms
 

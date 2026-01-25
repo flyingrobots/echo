@@ -2,6 +2,8 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [workspace]
 members = [
+    "crates/echo-scene-codec",
+    "crates/echo-scene-port",
     "crates/warp-core",
     "crates/warp-ffi",
     "crates/warp-wasm",

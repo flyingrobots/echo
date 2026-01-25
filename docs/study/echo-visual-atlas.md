@@ -503,9 +503,14 @@ flowchart TD
     style ERR_BOTH fill:#ffcdd2
 ```
 
-**Key:** When footprint enforcement is active (`cfg(debug_assertions)` or
-`footprint_enforce_release` feature), every `ExecItem` execution is wrapped
-by `execute_item_enforced()`. Two independent `catch_unwind` boundaries run:
+**Key:** Footprint enforcement is active when `cfg(debug_assertions)` or the
+`footprint_enforce_release` feature is enabled, **unless** the `unsafe_graph`
+feature is set. The `unsafe_graph` feature is mutually exclusive with enforcement
+and disables all footprint validation—no `FootprintViolation` can occur while
+`unsafe_graph` is active.
+
+When enforcement is active, every `ExecItem` execution is wrapped by
+`execute_item_enforced()`. Two independent `catch_unwind` boundaries run:
 one for the executor, one for the `check_op` validation loop. Both run
 regardless of whether the other panics. Results are combined in a 3-way match:
 

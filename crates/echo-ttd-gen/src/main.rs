@@ -103,6 +103,12 @@ fn generate_rust(ir: &TtdIR) -> Result<String> {
     // Generate registry
     tokens.extend(generate_registry(ir));
 
+    // Generate invariants
+    tokens.extend(generate_invariants(ir));
+
+    // Generate emissions
+    tokens.extend(generate_emissions(ir));
+
     let syntax_tree = syn::parse2(tokens)?;
     Ok(prettyplease::unparse(&syntax_tree))
 }
@@ -262,11 +268,23 @@ fn generate_ops(ir: &TtdIR) -> TokenStream {
             pub result_type: &'static str,
             pub idempotent: bool,
             pub readonly: bool,
+            pub arg_count: usize,
+        }
+
+        /// Argument metadata for ops.
+        #[derive(Debug, Clone)]
+        pub struct ArgInfo {
+            pub name: &'static str,
+            pub type_name: &'static str,
+            pub required: bool,
+            pub list: bool,
         }
     };
 
     let mut op_consts = Vec::new();
     let mut op_entries = Vec::new();
+    let mut arg_structs = Vec::new();
+    let mut arg_info_arrays = Vec::new();
 
     for op in &ir.ops {
         let name = &op.name;
@@ -275,6 +293,7 @@ fn generate_ops(ir: &TtdIR) -> TokenStream {
         let result_type = &op.result_type;
         let idempotent = op.idempotent;
         let readonly = op.readonly;
+        let arg_count = op.args.len();
 
         op_consts.push(quote! {
             pub const #const_name: u32 = #op_id;
@@ -287,12 +306,81 @@ fn generate_ops(ir: &TtdIR) -> TokenStream {
                 result_type: #result_type,
                 idempotent: #idempotent,
                 readonly: #readonly,
+                arg_count: #arg_count,
             }
         });
+
+        // Generate Args struct if op has arguments
+        if !op.args.is_empty() {
+            let args_struct_name = format_ident!("{}Args", pascal_case(name));
+            let args_info_name = format_ident!("{}_ARGS", name.to_uppercase());
+
+            let fields: Vec<_> = op
+                .args
+                .iter()
+                .map(|arg| {
+                    let field_name = safe_ident(&arg.name);
+                    let base_ty = map_type(&arg.type_name);
+
+                    let full_ty: TokenStream = if arg.list {
+                        quote! { Vec<#base_ty> }
+                    } else {
+                        quote! { #base_ty }
+                    };
+
+                    if arg.required {
+                        quote! { pub #field_name: #full_ty }
+                    } else {
+                        quote! { pub #field_name: Option<#full_ty> }
+                    }
+                })
+                .collect();
+
+            let doc_comment = format!("Arguments for the `{}` operation.", name);
+            arg_structs.push(quote! {
+                #[doc = #doc_comment]
+                #[derive(Debug, Clone, Serialize, Deserialize)]
+                pub struct #args_struct_name {
+                    #(#fields),*
+                }
+            });
+
+            // Generate ArgInfo array for this op
+            let arg_infos: Vec<_> = op
+                .args
+                .iter()
+                .map(|arg| {
+                    let arg_name = &arg.name;
+                    let type_name = &arg.type_name;
+                    let required = arg.required;
+                    let list = arg.list;
+                    quote! {
+                        ArgInfo {
+                            name: #arg_name,
+                            type_name: #type_name,
+                            required: #required,
+                            list: #list,
+                        }
+                    }
+                })
+                .collect();
+
+            arg_info_arrays.push(quote! {
+                pub const #args_info_name: &[ArgInfo] = &[
+                    #(#arg_infos),*
+                ];
+            });
+        }
     }
 
     tokens.extend(quote! {
         #(#op_consts)*
+
+        // Op argument structs
+        #(#arg_structs)*
+
+        // Op argument metadata
+        #(#arg_info_arrays)*
 
         pub const OPS: &[OpInfo] = &[
             #(#op_entries),*
@@ -308,6 +396,23 @@ fn generate_ops(ir: &TtdIR) -> TokenStream {
     });
 
     tokens
+}
+
+/// Convert a string to PascalCase.
+fn pascal_case(s: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize_next = true;
+    for c in s.chars() {
+        if c == '_' || c == '-' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            result.push(c.to_ascii_uppercase());
+            capitalize_next = false;
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }
 
 fn generate_rules(ir: &TtdIR) -> TokenStream {
@@ -467,6 +572,121 @@ fn generate_registry(ir: &TtdIR) -> TokenStream {
 
         pub fn registry_type_for_id(id: u32) -> Option<&'static str> {
             REGISTRY.iter().find(|e| e.id == id).map(|e| e.type_name)
+        }
+    });
+
+    tokens
+}
+
+fn generate_invariants(ir: &TtdIR) -> TokenStream {
+    if ir.invariants.is_empty() {
+        return quote! {};
+    }
+
+    let mut tokens = quote! {
+        // ─── Invariants ──────────────────────────────────────────────────────────
+
+        /// Invariant metadata (law compiler stubs for v2).
+        #[derive(Debug, Clone)]
+        pub struct InvariantInfo {
+            pub name: &'static str,
+            pub expr: &'static str,
+            pub severity: &'static str,
+        }
+    };
+
+    let mut invariant_entries = Vec::new();
+
+    for inv in &ir.invariants {
+        let name = &inv.name;
+        let expr = &inv.expr;
+        let severity = inv.severity.as_deref().unwrap_or("error");
+
+        invariant_entries.push(quote! {
+            InvariantInfo {
+                name: #name,
+                expr: #expr,
+                severity: #severity,
+            }
+        });
+    }
+
+    tokens.extend(quote! {
+        pub const INVARIANTS: &[InvariantInfo] = &[
+            #(#invariant_entries),*
+        ];
+
+        pub fn invariant_by_name(name: &str) -> Option<&'static InvariantInfo> {
+            INVARIANTS.iter().find(|i| i.name == name)
+        }
+    });
+
+    tokens
+}
+
+fn generate_emissions(ir: &TtdIR) -> TokenStream {
+    if ir.emissions.is_empty() {
+        return quote! {};
+    }
+
+    let mut tokens = quote! {
+        // ─── Emissions ───────────────────────────────────────────────────────────
+
+        /// Emission declaration metadata.
+        #[derive(Debug, Clone)]
+        pub struct EmissionInfo {
+            pub channel: &'static str,
+            pub event: Option<&'static str>,
+            pub op_name: &'static str,
+            pub condition: Option<&'static str>,
+            pub within_ms: Option<u64>,
+        }
+    };
+
+    let mut emission_entries = Vec::new();
+
+    for em in &ir.emissions {
+        let channel = &em.channel;
+        let event = em.event.as_deref();
+        let op_name = &em.op_name;
+        let condition = em.condition.as_deref();
+        let within_ms = em.within_ms;
+
+        let event_token = match event {
+            Some(e) => quote! { Some(#e) },
+            None => quote! { None },
+        };
+        let condition_token = match condition {
+            Some(c) => quote! { Some(#c) },
+            None => quote! { None },
+        };
+        let within_token = match within_ms {
+            Some(w) => quote! { Some(#w) },
+            None => quote! { None },
+        };
+
+        emission_entries.push(quote! {
+            EmissionInfo {
+                channel: #channel,
+                event: #event_token,
+                op_name: #op_name,
+                condition: #condition_token,
+                within_ms: #within_token,
+            }
+        });
+    }
+
+    tokens.extend(quote! {
+        pub const EMISSIONS: &[EmissionInfo] = &[
+            #(#emission_entries),*
+        ];
+
+        pub fn emissions_for_op(op_name: &str) -> impl Iterator<Item = &'static EmissionInfo> {
+            EMISSIONS.iter().filter(move |e| e.op_name == op_name)
+        }
+
+        pub fn emissions_for_channel(channel: &str) -> impl Iterator<Item = &'static EmissionInfo> {
+            EMISSIONS.iter().filter(move |e| e.channel == channel)
         }
     });
 

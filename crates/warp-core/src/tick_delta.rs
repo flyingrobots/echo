@@ -184,12 +184,6 @@ impl TickDelta {
     pub(crate) fn ops_ref(&self) -> &[WarpOp] {
         &self.ops
     }
-
-    /// Returns the number of ops accumulated so far.
-    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-    pub(crate) fn ops_len(&self) -> usize {
-        self.ops.len()
-    }
 }
 
 impl Default for TickDelta {

@@ -352,7 +352,7 @@ fn execute_item_enforced(
             let view = GraphView::new_guarded(store, guard);
 
             // Track delta growth for write validation
-            let ops_before = delta.ops_len();
+            let ops_before = delta.len();
 
             // Execute under catch_unwind to enforce writes even on panic
             let exec_result = catch_unwind(AssertUnwindSafe(|| {

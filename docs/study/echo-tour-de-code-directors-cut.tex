@@ -920,7 +920,7 @@ This wraps execution with \texttt{catch\_unwind} and performs post-hoc
 \begin{verbatim}
 execute_item_enforced(view, item, delta, footprint)
 │
-├─ ops_before = delta.ops_len()
+├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {

@@ -44,15 +44,16 @@ Echo ships guard scripts to enforce determinism in core crates:
 ### FootprintGuard Enforcement Tests
 
 The DIND harness validates footprint enforcement via the **slice theorem
-proof** test suite (`crates/warp-core/src/boaw/slice_theorem_proof.rs`).
+proof** test suite (`crates/warp-core/tests/slice_theorem_proof.rs`).
 These tests execute the same workload under varying worker counts
 (1, 2, 4, 8, 16, 32) and verify that `patch_digest`, `state_root`, and
 `commit_hash` remain identical — proving that the footprint declarations
 are both correct and complete.
 
-The FootprintGuard is always active during DIND test runs (debug builds),
-meaning any undeclared read/write will surface as a `FootprintViolation`
-panic before the convergence check even runs.
+The FootprintGuard is active during DIND test runs in debug builds unless
+the \`unsafe_graph\` feature is enabled, meaning any undeclared read/write
+will surface as a \`FootprintViolation\` panic before the convergence check
+even runs.
 
 ## Convergence scope (Invariant B)
 

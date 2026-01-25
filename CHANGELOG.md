@@ -89,6 +89,16 @@
 
     See ADR-0007 for full context.
 
+### Changed - DeleteNode No Longer Cascades Edges
+
+- **BREAKING**: `GraphStore::delete_node()` now returns `Err(DeleteNodeError::NodeNotIsolated)`
+  if the node has any attached edges. Previously, edges were silently deleted.
+- **New API**: `delete_node_isolated()` explicitly requires the node to have no edges.
+- **Footprint enforcement**: `op_write_targets(DeleteNode)` now includes the alpha attachment
+  in the write set, ensuring attachment cleanup is properly declared.
+- **Rationale**: Implicit cascade deletion violated the principle of least surprise and made
+  footprint declarations ambiguous. Callers must now explicitly delete edges before nodes.
+
 ### Added - SPEC-0004: Worldlines & Playback
 
 - **`worldline.rs`**: Worldline types for history tracking

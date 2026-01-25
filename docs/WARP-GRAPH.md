@@ -30,8 +30,8 @@ pub struct GraphStore {
     pub(crate) edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>,
     /// Reverse adjacency: mapping from destination node to inbound edge ids.
     ///
-    /// This allows `delete_node_cascade` to remove inbound edges without scanning
-    /// every `edges_from` bucket (removal becomes `O(inbound_edges)`).
+    /// This enables efficient edge queries and validation without scanning
+    /// every `edges_from` bucket (lookup becomes `O(inbound_edges)`).
     pub(crate) edges_to: BTreeMap<NodeId, Vec<EdgeId>>,
     /// Attachment plane payloads for nodes (Paper I `α` plane).
     ///

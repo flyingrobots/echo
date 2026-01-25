@@ -412,5 +412,13 @@ mod tests {
             footprint.a_write.is_empty(),
             "missing node should not declare attachment write"
         );
+        assert!(
+            footprint.b_in.is_empty(),
+            "missing node should not declare boundary input"
+        );
+        assert!(
+            footprint.b_out.is_empty(),
+            "missing node should not declare boundary output"
+        );
     }
 }

@@ -7,9 +7,9 @@ use crate::type_ids::*;
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, AtomPayload, AtomView, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, EdgeRecord, EdgeSet, Footprint, GraphStore, GraphView, Hash,
-    NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, RewriteRule, TickDelta, TypeId, WarpId,
-    WarpOp,
+    AttachmentValue, ConflictPolicy, EdgeId, EdgeRecord, EdgeSet, Footprint, GraphStore, GraphView,
+    Hash, NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, RewriteRule, TickDelta, TypeId,
+    WarpId, WarpOp,
 };
 
 const TYPE_VIEW_OP: &str = "sys/view/op";
@@ -156,9 +156,7 @@ pub fn toast_rule() -> RewriteRule {
             n_write.insert_with_warp(warp_id, view_id);
 
             // Dynamic op node derived from scope hex
-            let scope_hex: String = scope.0.iter().map(|b| format!("{:02x}", b)).collect();
-            let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
-            let edge_id = make_edge_id(&format!("edge:view/op:{}", scope_hex));
+            let (op_id, edge_id) = view_op_ids_for_scope(scope);
             n_write.insert_with_warp(warp_id, op_id);
             e_write.insert_with_warp(warp_id, edge_id);
             a_write.insert(AttachmentKey::node_alpha(NodeKey {
@@ -588,6 +586,14 @@ fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
 /// Uses the triggering intent's scope (NodeId) to derive a unique view op ID.
 /// This ensures determinism under parallel execution since the same intent
 /// always produces the same view op ID regardless of worker assignment.
+fn view_op_ids_for_scope(scope: &NodeId) -> (NodeId, EdgeId) {
+    let scope_hex: String = scope.0.iter().map(|b| format!("{:02x}", b)).collect();
+    (
+        make_node_id(&format!("sim/view/op:{scope_hex}")),
+        make_edge_id(&format!("edge:view/op:{scope_hex}")),
+    )
+}
+
 fn emit_view_op_delta_scoped(
     warp_id: WarpId,
     delta: &mut TickDelta,
@@ -608,9 +614,7 @@ fn emit_view_op_delta_scoped(
     // Derive view op ID from the intent's scope (NodeId) for deterministic sequencing.
     // The scope is content-addressed and unique per intent, ensuring no collisions.
     // Use all 32 bytes of scope as hex for a collision-free identifier.
-    let scope_hex: String = scope.0.iter().map(|b| format!("{:02x}", b)).collect();
-    let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
-    let edge_id = make_edge_id(&format!("edge:view/op:{}", scope_hex));
+    let (op_id, edge_id) = view_op_ids_for_scope(scope);
     delta.push(WarpOp::UpsertNode {
         node: NodeKey {
             warp_id,

@@ -275,10 +275,9 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
 ///
 /// # Why `BTreeSet`?
 ///
-/// `BTreeSet` is chosen over `HashSet` for deterministic debug output and iteration
-/// order, aiding reproducibility when violations are logged. Footprints are typically
-/// small (< 100 items), so the O(log n) vs O(1) lookup difference is negligible.
-/// If profiling shows hot spots, consider `HashSet` for large footprints.
+/// `BTreeSet` is chosen for deterministic debug output and iteration order, aiding
+/// reproducibility when violations are logged. Footprints are typically small
+/// (< 100 items), so the O(log n) lookup cost is negligible.
 #[derive(Debug)]
 pub(crate) struct FootprintGuard {
     warp_id: WarpId,

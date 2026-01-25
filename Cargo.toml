@@ -22,6 +22,7 @@ members = [
     "crates/echo-wasm-abi",
     "crates/echo-registry-api",
     "crates/echo-session-ws-gateway",
+    "crates/echo-ttd",
     "specs/spec-000-rewrite",
     "crates/echo-wasm-bindings",
     "crates/echo-wesley-gen",

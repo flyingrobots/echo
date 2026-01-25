@@ -1283,7 +1283,7 @@ impl Engine {
                         ))
                         .cloned()
                         .unwrap_or_else(|| (crate::footprint::Footprint::default(), "unknown"));
-                    let is_system = item.kind == crate::boaw::ExecItemKind::System;
+                    let is_system = false;
                     crate::footprint_guard::FootprintGuard::new(
                         &footprint,
                         unit.warp_id,

@@ -8,8 +8,6 @@ mod exec;
 mod merge;
 pub mod shard;
 
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-pub(crate) use exec::ExecItemKind;
 pub use exec::{
     build_work_units, execute_parallel, execute_parallel_sharded, execute_serial,
     execute_work_queue, ExecItem, WorkUnit,

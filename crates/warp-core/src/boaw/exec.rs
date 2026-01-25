@@ -19,19 +19,6 @@ use crate::NodeId;
 
 use super::shard::{partition_into_shards, NUM_SHARDS};
 
-/// Classification of an executor for footprint enforcement.
-///
-/// System items (engine-internal inbox rules) may emit instance-level ops
-/// (`UpsertWarpInstance`, `DeleteWarpInstance`). User items cannot.
-#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ExecItemKind {
-    /// Normal user-registered rule — cannot emit instance ops.
-    User,
-    /// Engine-internal rule (inbox) — can emit instance-level ops.
-    System,
-}
-
 /// A single rewrite ready for execution.
 ///
 /// # Thread Safety
@@ -48,9 +35,6 @@ pub struct ExecItem {
     pub scope: NodeId,
     /// Origin metadata for tracking.
     pub origin: OpOrigin,
-    /// Classification for enforcement (user vs system).
-    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-    pub(crate) kind: ExecItemKind,
 }
 
 impl ExecItem {
@@ -63,8 +47,6 @@ impl ExecItem {
             exec,
             scope,
             origin,
-            #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
-            kind: ExecItemKind::User,
         }
     }
 }
@@ -190,7 +172,9 @@ pub struct WorkUnit {
     /// Items to execute (from one shard). Processed serially within the unit.
     pub items: Vec<ExecItem>,
     /// Precomputed footprint guards (1:1 with items).
+    ///
     /// Populated by engine after `build_work_units` when enforcement is active.
+    /// Guaranteed to be the same length as `items` before enforcement indexing.
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
     pub(crate) guards: Vec<FootprintGuard>,
@@ -358,6 +342,12 @@ fn execute_item_enforced(
         if !unit.guards.is_empty() {
             use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
+            assert_eq!(
+                unit.guards.len(),
+                unit.items.len(),
+                "guards must align with items before enforcement"
+            );
+
             let guard = &unit.guards[idx];
             let view = GraphView::new_guarded(store, guard);
 
@@ -391,7 +381,7 @@ fn execute_item_enforced(
 
     // Suppress unused variable warnings in non-enforced builds
     let _ = idx;
-    let _ = &unit.warp_id;
+    let _ = unit;
 
     // Non-enforced path: direct execution
     let view = GraphView::new(store);

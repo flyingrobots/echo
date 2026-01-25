@@ -408,10 +408,10 @@ pub fn footprint_for_state_node(
     e_write.insert_with_warp(warp_id, make_edge_id(&format!("edge:{state_node_path}")));
 
     // Target node may also be read (toggle_nav reads current value), so we
-    // conservatively declare the alpha read for all callers. This is spurious
-    // for route_push/set_theme and can introduce extra read conflicts, but all
-    // callers use ConflictPolicy::Abort so the write footprint already forces
-    // serialization and the scheduling impact is minimal.
+    // conservatively declare the alpha read for all callers. Trade-off:
+    // route_push/set_theme over-declare reads and may slightly over-serialize,
+    // but all callers use ConflictPolicy::Abort so the write footprint already
+    // forces serialization and the scheduling impact is minimal.
     a_read.insert(AttachmentKey::node_alpha(NodeKey {
         warp_id,
         local_id: target_id,
@@ -591,12 +591,11 @@ fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
 /// footprint declarations match actual writes under parallel execution.
 fn view_op_ids_for_scope(scope: &NodeId) -> (NodeId, EdgeId) {
     const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = [0u8; 64];
-    for (i, &b) in scope.0.iter().enumerate() {
-        hex[i * 2] = HEX_CHARS[(b >> 4) as usize];
-        hex[i * 2 + 1] = HEX_CHARS[(b & 0xF) as usize];
+    let mut scope_hex = String::with_capacity(scope.0.len() * 2);
+    for &b in scope.0.iter() {
+        scope_hex.push(HEX_CHARS[(b >> 4) as usize] as char);
+        scope_hex.push(HEX_CHARS[(b & 0xF) as usize] as char);
     }
-    let scope_hex = std::str::from_utf8(&hex).expect("hex encoding must be valid utf-8");
     (
         make_node_id(&format!("sim/view/op:{scope_hex}")),
         make_edge_id(&format!("edge:view/op:{scope_hex}")),
@@ -622,7 +621,7 @@ fn emit_view_op_delta_scoped(
     });
     // Derive view op ID from the intent's scope (NodeId) for deterministic sequencing.
     // The scope is content-addressed and unique per intent, ensuring no collisions.
-    // Use all 32 bytes of scope as hex for a collision-free identifier.
+    // Use all scope bytes as hex for a collision-free identifier.
     let (op_id, edge_id) = view_op_ids_for_scope(scope);
     delta.push(WarpOp::UpsertNode {
         node: NodeKey {

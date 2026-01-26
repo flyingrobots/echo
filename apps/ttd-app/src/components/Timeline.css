@@ -1,0 +1,103 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> */
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timeline-track {
+  position: relative;
+  height: 24px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.timeline-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, var(--accent-blue), rgba(74, 158, 255, 0.5));
+  border-radius: 4px 0 0 4px;
+  pointer-events: none;
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  background: var(--accent-blue);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  box-shadow: 0 0 8px var(--accent-blue);
+  pointer-events: none;
+}
+
+.timeline-marker {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.timeline-marker-intent {
+  background: var(--accent-purple);
+}
+
+.timeline-marker-fork {
+  background: var(--accent-green);
+}
+
+.timeline-marker-rule {
+  background: var(--accent-blue);
+}
+
+.timeline-marker-violation {
+  background: var(--accent-red);
+}
+
+.timeline-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: "JetBrains Mono", monospace;
+  padding: 0 4px;
+}
+
+.timeline-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-intent {
+  color: var(--accent-purple);
+}
+
+.legend-fork {
+  color: var(--accent-green);
+}
+
+.legend-rule {
+  color: var(--accent-blue);
+}
+
+.legend-violation {
+  color: var(--accent-red);
+}

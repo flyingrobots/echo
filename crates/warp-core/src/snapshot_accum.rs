@@ -218,6 +218,16 @@ impl SnapshotAccumulator {
     }
 
     /// Apply an `OpenPortal` operation.
+    ///
+    /// For `PortalInit::Empty`, creates the child instance and root node.
+    /// For `PortalInit::RequireExisting`, verifies the instance already exists
+    /// with matching properties without modifying state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `PortalInit::RequireExisting` is used but the instance doesn't
+    /// exist or has mismatched properties.
+    #[allow(clippy::panic)]
     fn apply_open_portal(
         &mut self,
         key: AttachmentKey,
@@ -225,31 +235,55 @@ impl SnapshotAccumulator {
         child_root: NodeId,
         init: crate::tick_patch::PortalInit,
     ) {
-        // Create the child instance
-        let instance = WarpInstance {
-            warp_id: child_warp,
-            root_node: child_root,
-            parent: Some(key),
-        };
-        self.instances.insert(child_warp, instance);
+        match init {
+            crate::tick_patch::PortalInit::Empty { root_record } => {
+                // Create the child instance
+                let instance = WarpInstance {
+                    warp_id: child_warp,
+                    root_node: child_root,
+                    parent: Some(key),
+                };
+                self.instances.insert(child_warp, instance);
 
-        // Create the root node if init specifies
-        if let crate::tick_patch::PortalInit::Empty { root_record } = init {
-            let node_key = NodeKey {
-                warp_id: child_warp,
-                local_id: child_root,
-            };
-            self.nodes.insert(
-                node_key,
-                NodeRowParts {
-                    node_id: child_root,
-                    node_type: root_record.ty,
-                },
-            );
+                // Create the root node
+                let node_key = NodeKey {
+                    warp_id: child_warp,
+                    local_id: child_root,
+                };
+                self.nodes.insert(
+                    node_key,
+                    NodeRowParts {
+                        node_id: child_root,
+                        node_type: root_record.ty,
+                    },
+                );
+
+                // Set the parent attachment to Descend
+                self.set_attachment_internal(key, Some(AttachmentValue::Descend(child_warp)));
+            }
+            crate::tick_patch::PortalInit::RequireExisting => {
+                // Verify the instance exists with expected properties.
+                // Do NOT create or overwrite - just validate and set attachment.
+                let Some(existing) = self.instances.get(&child_warp) else {
+                    panic!("OpenPortal RequireExisting: instance {child_warp:?} does not exist");
+                };
+                assert!(
+                    existing.parent == Some(key),
+                    "OpenPortal RequireExisting: instance {child_warp:?} has wrong parent \
+                     (expected {key:?}, got {:?})",
+                    existing.parent
+                );
+                assert!(
+                    existing.root_node == child_root,
+                    "OpenPortal RequireExisting: instance {child_warp:?} has wrong root_node \
+                     (expected {child_root:?}, got {:?})",
+                    existing.root_node
+                );
+
+                // Set the parent attachment to Descend (this is still required)
+                self.set_attachment_internal(key, Some(AttachmentValue::Descend(child_warp)));
+            }
         }
-
-        // Set the parent attachment to Descend
-        self.set_attachment_internal(key, Some(AttachmentValue::Descend(child_warp)));
     }
 
     /// Apply an `UpsertWarpInstance` operation.
@@ -258,17 +292,29 @@ impl SnapshotAccumulator {
     }
 
     /// Apply a `DeleteWarpInstance` operation with cascade.
+    ///
+    /// Removes the instance and cascades to all nodes, edges, and attachments
+    /// belonging to this warp.
+    ///
+    /// # Invariant
+    ///
+    /// `node_attachments` only contains keys with `AttachmentOwner::Node`, and
+    /// `edge_attachments` only contains keys with `AttachmentOwner::Edge`. This
+    /// is enforced by `set_attachment_internal` which routes keys to the correct
+    /// map based on their owner type.
     fn apply_delete_warp_instance(&mut self, warp_id: WarpId) {
         self.instances.remove(&warp_id);
         // Cascade: remove all nodes, edges, and attachments for this instance
         self.nodes.retain(|k, _| k.warp_id != warp_id);
         self.edges.retain(|(w, _), _| *w != warp_id);
+        // node_attachments only contains Node owners (per set_attachment_internal invariant)
         self.node_attachments.retain(|k, _| match k.owner {
             AttachmentOwner::Node(nk) => nk.warp_id != warp_id,
-            AttachmentOwner::Edge(ek) => ek.warp_id != warp_id,
+            AttachmentOwner::Edge(_) => true, // unreachable per invariant, but keep for safety
         });
+        // edge_attachments only contains Edge owners (per set_attachment_internal invariant)
         self.edge_attachments.retain(|k, _| match k.owner {
-            AttachmentOwner::Node(nk) => nk.warp_id != warp_id,
+            AttachmentOwner::Node(_) => true, // unreachable per invariant, but keep for safety
             AttachmentOwner::Edge(ek) => ek.warp_id != warp_id,
         });
     }

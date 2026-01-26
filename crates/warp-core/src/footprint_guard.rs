@@ -152,10 +152,14 @@ pub(crate) struct OpTargets {
     pub edges: Vec<EdgeId>,
     /// Attachment keys that the op writes/mutates.
     pub attachments: Vec<AttachmentKey>,
-    /// Whether this is an instance-level op (`UpsertWarpInstance`/`DeleteWarpInstance`).
+    /// Whether this is an instance-level op (e.g., `OpenPortal`, `UpsertWarpInstance`,
+    /// `DeleteWarpInstance`). Instance-level ops modify multiverse topology and require
+    /// `is_system` permission.
     pub is_instance_op: bool,
-    /// The warp the op targets (for cross-warp check). `None` for instance-level ops
-    /// without a specific target warp.
+    /// The warp the op targets (for cross-warp check). Used to verify ops don't emit
+    /// to warps outside the declared footprint. Most ops set this to `Some(warp_id)`;
+    /// may be `None` only for instance-level ops that don't target a specific warp
+    /// (though currently all instance-level ops do provide a target warp).
     pub op_warp: Option<WarpId>,
     /// Static string naming the op variant (e.g. `"UpsertNode"`).
     pub kind_str: &'static str,
@@ -255,12 +259,12 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
             op_warp: Some(key.owner.warp_id()),
             kind_str,
         },
-        WarpOp::UpsertWarpInstance { .. } => OpTargets {
+        WarpOp::UpsertWarpInstance { instance } => OpTargets {
             nodes: Vec::new(),
             edges: Vec::new(),
             attachments: Vec::new(),
             is_instance_op: true,
-            op_warp: None,
+            op_warp: Some(instance.warp_id),
             kind_str,
         },
         WarpOp::DeleteWarpInstance { warp_id } => OpTargets {
@@ -318,32 +322,35 @@ impl FootprintGuard {
         rule_name: &'static str,
         is_system: bool,
     ) -> Self {
-        // Debug-only: detect cross-warp entries that will be silently filtered out.
+        // Detect cross-warp entries that will be silently filtered out.
         // These indicate a rule declared the wrong warp in its footprint.
-        debug_assert!(
-            !footprint.n_read.iter().any(|k| k.warp_id != warp_id),
-            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_read (expected warp {warp_id:?})"
-        );
-        debug_assert!(
-            !footprint.n_write.iter().any(|k| k.warp_id != warp_id),
-            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_write (expected warp {warp_id:?})"
-        );
-        debug_assert!(
-            !footprint.e_read.iter().any(|k| k.warp_id != warp_id),
-            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_read (expected warp {warp_id:?})"
-        );
-        debug_assert!(
-            !footprint.e_write.iter().any(|k| k.warp_id != warp_id),
-            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_write (expected warp {warp_id:?})"
-        );
-        debug_assert!(
-            !footprint.a_read.iter().any(|k| k.owner.warp_id() != warp_id),
-            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_read (expected warp {warp_id:?})"
-        );
-        debug_assert!(
-            !footprint.a_write.iter().any(|k| k.owner.warp_id() != warp_id),
-            "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_write (expected warp {warp_id:?})"
-        );
+        // Runs in debug builds and when footprint_enforce_release is enabled.
+        if cfg!(any(debug_assertions, feature = "footprint_enforce_release")) {
+            assert!(
+                !footprint.n_read.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_read (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.n_write.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_write (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.e_read.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_read (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.e_write.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_write (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.a_read.iter().any(|k| k.owner.warp_id() != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_read (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.a_write.iter().any(|k| k.owner.warp_id() != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_write (expected warp {warp_id:?})"
+            );
+        }
 
         let nodes_read = footprint
             .n_read

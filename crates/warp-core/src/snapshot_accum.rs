@@ -225,8 +225,11 @@ impl SnapshotAccumulator {
     ///
     /// # Panics
     ///
-    /// Panics if `PortalInit::RequireExisting` is used but the instance doesn't
-    /// exist or has mismatched properties.
+    /// Panics if:
+    /// - The attachment owner (node or edge) does not exist
+    /// - `PortalInit::RequireExisting` is used but the instance doesn't exist
+    ///   or has mismatched properties
+    /// - `PortalInit::RequireExisting` is used but the root node doesn't exist
     #[allow(clippy::panic)]
     fn apply_open_portal(
         &mut self,
@@ -235,6 +238,16 @@ impl SnapshotAccumulator {
         child_root: NodeId,
         init: crate::tick_patch::PortalInit,
     ) {
+        // Validate parent attachment owner exists (mirror tick_patch::apply_open_portal).
+        let owner_exists = match &key.owner {
+            AttachmentOwner::Node(node) => self.nodes.contains_key(node),
+            AttachmentOwner::Edge(edge) => self.edges.contains_key(&(edge.warp_id, edge.local_id)),
+        };
+        assert!(
+            owner_exists,
+            "OpenPortal: attachment owner {key:?} does not exist"
+        );
+
         match init {
             crate::tick_patch::PortalInit::Empty { root_record } => {
                 // Create the child instance
@@ -278,6 +291,15 @@ impl SnapshotAccumulator {
                     "OpenPortal RequireExisting: instance {child_warp:?} has wrong root_node \
                      (expected {child_root:?}, got {:?})",
                     existing.root_node
+                );
+                // Verify the root node exists
+                let child_root_key = NodeKey {
+                    warp_id: child_warp,
+                    local_id: child_root,
+                };
+                assert!(
+                    self.nodes.contains_key(&child_root_key),
+                    "OpenPortal RequireExisting: root node {child_root_key:?} missing"
                 );
 
                 // Set the parent attachment to Descend (this is still required)

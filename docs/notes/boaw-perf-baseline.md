@@ -98,6 +98,31 @@ than these baselines, investigate:
 
 ---
 
+## FootprintGuard Overhead
+
+`FootprintGuard` is `cfg`-gated and adds **zero overhead** in standard
+release builds. The guard is only active when:
+
+- `debug_assertions` is set (all debug/test builds), or
+- The `footprint_enforce_release` Cargo feature is explicitly enabled
+
+When active, the guard adds:
+
+- **Read path**: One `BTreeSet::contains()` lookup per `GraphView` accessor call
+  (e.g., `BTreeSet<NodeId>`, `BTreeSet<EdgeId>`, `BTreeSet<AttachmentKey>`)
+- **Write path**: One `check_op()` call per emitted op (post-hoc, after executor completes)
+- **Catch boundary**: One `catch_unwind` wrapper per `ExecItem` invocation
+
+Debug benchmarks using a trivial executor observed modest overhead, dependent
+on footprint size and read-access frequency. Re-measure with your workload
+configuration before setting strict perf gates.
+
+The `unsafe_graph` feature disables all guard enforcement checks. The
+`ExecItem` struct and its `ExecItemKind` field remain gated by
+`debug_assertions` / `footprint_enforce_release`.
+
+---
+
 ## Perf Gate Thresholds
 
 Use these thresholds for CI perf gates:

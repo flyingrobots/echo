@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # What Makes Echo Tick?
 
 > **Your Tour Guide**: Claude (Opus 4.5)
@@ -37,9 +38,11 @@ Traditional game engines and simulations treat state as **mutable objects**. Thi
 - **Branching is impossible**: You can't easily ask "what if?" without copying everything.
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: This list of problems isn't theoretical. I've seen countless debugging sessions where the root cause was "HashMap iteration order changed between runs." Echo's designers clearly got burned by non-determinism at some point and decided: *never again*.
 
-What strikes me most is the last point—"branching is impossible." Most engines don't even *try* to support branching because it seems like a feature for version control, not runtime systems. Echo treats it as a first-class concern. That's unusual and, I think, genuinely forward-thinking.
+**Claude's Take**: These problems aren't theoretical. I've seen debugging sessions where the root cause was "HashMap iteration order changed between runs." Echo's designers got burned by non-determinism and decided: _never again_.
+
+The last point—"branching is impossible"—stands out. Most engines don't even try to support branching because it feels like a version-control feature, not runtime. Echo treats it as first-class. That's unusual and forward-looking.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 1.2 Echo's Answer
@@ -78,9 +81,11 @@ This means:
 ```
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: "Tooling as first-class" is the sleeper here. Most engines treat debugging tools, replay systems, and visualization as afterthoughts—bolted on after the core is done. Echo inverts this: the wire protocol, the hash scheme, and the diff format were designed *so that tools could exist*.
 
-I've read a lot of engine architectures. This level of intentionality about tooling is rare. It's also why Echo can have a separate `warp-viewer` crate that just... works, instead of requiring heroic reverse-engineering.
+**Claude's Take**: "Tooling as first-class" is the quiet win here. Most engines treat debugging, replay, and visualization as afterthoughts—bolted on after the core. Echo inverts this: the wire protocol, hash scheme, and diff format are designed so tools can exist.
+
+I've read a lot of engine architectures. This level of tooling intent is rare. It also explains why Echo can have a separate `warp-viewer` crate that works without heroic reverse-engineering.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ---
@@ -94,28 +99,32 @@ Echo is organized into distinct layers, each with a specific responsibility:
 ![Diagram 1](diagrams/tour-01.svg)
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: This is a *clean* layer cake. Each layer only talks to its neighbors. No "Layer 5 reaching down to Layer 1 for performance reasons." That discipline is hard to maintain, and I respect it.
 
-The `WSC Format` at Layer 2 caught my eye. It's Echo's custom columnar storage format—and before you ask "why not just use Arrow or Parquet?"—I'll spoil it: WSC is designed for mmap-friendly, zero-copy reads where every row is 8-byte aligned and you can binary-search directly into the file. It's specialized for *exactly this use case*. Sometimes NIH syndrome is justified.
+**Claude's Take**: A _clean_ layer cake. Each layer talks only to its neighbors—no "Layer 5 reaching down to Layer 1 for performance reasons." That discipline is hard to maintain, and I respect it.
+
+The `WSC Format` at Layer 2 caught my eye. It's Echo's custom columnar storage format—and before you ask "why not just use Arrow or Parquet?"—I'll spoil it: WSC is designed for mmap-friendly, zero-copy reads where every row is 8-byte aligned and you can binary-search directly into the file. It's specialized for _exactly this use case_. Sometimes NIH syndrome is justified.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 2.2 Crate Map
 
-| Crate | Purpose |
-| ----- | ------- |
-| `warp-core` | The deterministic rewrite engine (the "brain") |
-| `echo-graph` | Renderable graph types + diff operations |
-| `echo-session-proto` | Wire protocol (canonical CBOR framing) |
-| `echo-session-service` | Headless Unix-socket hub for tools |
-| `echo-session-client` | Client helpers for connecting to the hub |
-| `warp-viewer` | Native WGPU viewer for visualizing graphs |
+| Crate                  | Purpose                                        |
+| ---------------------- | ---------------------------------------------- |
+| `warp-core`            | The deterministic rewrite engine (the "brain") |
+| `echo-graph`           | Renderable graph types + diff operations       |
+| `echo-session-proto`   | Wire protocol (canonical CBOR framing)         |
+| `echo-session-service` | Headless Unix-socket hub for tools             |
+| `echo-session-client`  | Client helpers for connecting to the hub       |
+| `warp-viewer`          | Native WGPU viewer for visualizing graphs      |
 
 ### 2.3 Data Flow Overview
 
 ![Diagram 2](diagrams/tour-02.svg)
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: Notice how the Engine talks to itself multiple times before touching the Store? That's the commit protocol at work. The Engine is *paranoid* about mutations—it queues up intentions, validates them, and only then touches state. If you're used to "just mutate it directly" game engines, this will feel ceremonial. The ceremony is the point.
+
+**Claude's Take**: Notice how the Engine talks to itself before touching the Store? That's the commit protocol. The Engine is _paranoid_ about mutations—it queues intentions, validates them, and only then touches state. If you're used to "just mutate it directly" game engines, this will feel ceremonial. The ceremony is the point.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ---
@@ -129,19 +138,21 @@ A WARP (**W**orldline **A**lgebra for **R**ecursive **P**rovenance) graph is Ech
 ![Diagram 3](diagrams/tour-03.svg)
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: The name "WARP" is doing a lot of work here. "Worldline" evokes physics—specifically, the path an object traces through spacetime. In Echo, a node's "worldline" is its history of states across ticks. "Recursive Provenance" means you can always ask "where did this value come from?" and trace it back through the graph's history.
 
 Is the name a bit grandiose for what amounts to "typed graph with audit trail"? Maybe. But I've seen worse acronyms in this industry.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 3.2 Two-Plane Architecture
 
 Echo separates structure from data via the **Two-Plane Model** (ADR-0001):
 
-| Plane              | Contains                    | Purpose                                   |
-| ------------------ | --------------------------- | ----------------------------------------- |
-| **Skeleton**       | Nodes + Edges (structure)   | Fast traversal, deterministic hashing     |
-| **Attachment (α)** | Typed payloads              | Domain-specific data                      |
+| Plane              | Contains                  | Purpose                               |
+| ------------------ | ------------------------- | ------------------------------------- |
+| **Skeleton**       | Nodes + Edges (structure) | Fast traversal, deterministic hashing |
+| **Attachment (α)** | Typed payloads            | Domain-specific data                  |
 
 **Why separate them?**
 
@@ -172,11 +183,13 @@ Echo separates structure from data via the **Two-Plane Model** (ADR-0001):
 **Key insight**: Skeleton rewrites **never decode attachments**. This keeps the hot path fast and deterministic.
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: This is where Echo gets clever. The Skeleton plane only contains node IDs, edge IDs, and type tags—all fixed-size, all byte-comparable. You can compute the entire state hash without ever deserializing a single JSON blob, HTML string, or texture.
 
 The Attachment plane (they call it "α" because of course they do) holds the actual domain data. It participates in hashing but doesn't affect traversal. This separation means you can have a 10MB texture attached to a node and still iterate the graph at full speed.
 
 I've seen similar ideas in ECS architectures, but usually the separation is "components vs. systems." Echo's split is "structure vs. data," which is subtly different and, I think, more principled.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 3.3 Node and Edge Identity
@@ -203,11 +216,13 @@ Echo supports **descended attachments**—embedding entire graphs within attachm
 This enables "WARPs all the way down"—recursive composition while maintaining determinism.
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: WarpInstances are *wild*. You can have a node whose attachment slot contains... another entire graph. And that graph can have nodes whose attachment slots contain... more graphs. It's turtles, but the turtles are graphs.
+
+**Claude's Take**: WarpInstances are _wild_. You can have a node whose attachment slot contains... another entire graph. And that graph can have nodes whose attachment slots contain... more graphs. It's turtles, but the turtles are graphs.
 
 Why would you want this? Think of a game with procedurally generated dungeons. Each dungeon could be its own WarpInstance, loaded on demand, with its own tick history and state root. The player character is in the "outer" instance; stepping through a portal descends into the "inner" one.
 
 I don't know if Echo actually uses this feature yet, but the architecture supports it cleanly. That's design for the future without overengineering the present.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ---
@@ -232,14 +247,15 @@ pub struct Engine {
 ```
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: A few things jump out here:
 
-1. **`rules: HashMap<RuleId, RewriteRule>`** — Wait, HashMap? Isn't that non-deterministic? It is! But notice: this is for *looking up* rules by ID, not for *iterating*. The iteration order is determined by the `scheduler`, which is explicitly deterministic. The HashMap is fine because rule IDs are stable.
+1. **`rules: HashMap<RuleId, RewriteRule>`** — Wait, HashMap? Isn't that non-deterministic? It is! But notice: this is for _looking up_ rules by ID, not for _iterating_. The iteration order is determined by the `scheduler`, which is explicitly deterministic. The HashMap is fine because rule IDs are stable.
 
 2. **`history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>`** — The engine keeps its entire history in memory? That seems expensive. I suspect this is configurable, or there's a garbage collection pass I haven't found yet. For long-running simulations, unbounded history would be a problem.
 
-3. **`BTreeSet<TxId>` for live transactions** — BTreeSet, not HashSet. They're *really* committed to determinism. Even the set of "which transactions are in-flight" is stored in sorted order.
-<!-- CLAUDE_COMMENTARY_END -->
+3. **`BTreeSet<TxId>` for live transactions** — BTreeSet, not HashSet. They're _really_ committed to determinism. Even the set of "which transactions are in-flight" is stored in sorted order.
+ <!-- CLAUDE_COMMENTARY_END -->
 
 ### 4.2 Construction
 
@@ -278,12 +294,25 @@ type FootprintFn = fn(GraphView, &NodeId) -> Footprint;
 **Critical constraint**: Executors receive a **read-only** `GraphView` and emit changes to a `TickDelta`. They **never** mutate the graph directly.
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: The `FootprintFn` is the secret sauce. Before executing a rule, Echo calls this function to ask: "What nodes, edges, and attachments will you touch?" The footprint is a *conservative estimate*—you must declare everything you *might* read or write.
+
+**Claude's Take**: The `FootprintFn` is the secret sauce. Before executing a rule, Echo calls this function to ask: "What nodes, edges, and attachments will you touch?" The footprint is a _conservative estimate_—you must declare everything you _might_ read or write.
 
 This enables Echo's parallel execution model. If two rules have non-overlapping footprints, they can execute in parallel, in any order, and the result is guaranteed identical. If footprints overlap, they're sequenced deterministically.
 
 The burden on the rule author is significant: you must declare your footprint accurately, or you'll get either conflicts (declared overlap when there was none) or silent bugs (undeclared overlap that corrupts state). This is a sharp edge in the API.
+
 <!-- CLAUDE_COMMENTARY_END -->
+
+**Runtime enforcement**: Footprint declarations are no longer just documentation or planning artifacts. They are actively enforced at runtime by `FootprintGuard` (see [Section 6.6](#66-runtime-enforcement-footprintguard)) when `footprint_enforce_release` is enabled or in debug builds, and can be disabled via the `unsafe_graph` escape hatch. The guard catches:
+
+- **Undeclared reads**: accessing nodes or attachments not declared in the footprint. Node-based edge traversal via `GraphView::edges_from()` checks `n_read` (reading adjacency from a node), while direct edge-by-ID operations like `has_edge()` and `edge_attachment()` check `e_read`. Attachment reads check `a_read`.
+- **Undeclared writes**: emitting ops that target nodes, edges, or attachments not in `n_write`/`e_write`/`a_write`
+- **Cross-warp emissions**: an op targets a different warp than the rule's execution scope
+- **Unauthorized instance ops**: `ExecItemKind::User` rules emitting `UpsertWarpInstance` or `DeleteWarpInstance`
+- **Attachment write violations**: `OpenPortal` is treated as an attachment write by `FootprintGuard` and requires the target node in `n_write`
+- **Adjacency violations**: edge mutations where the `from` node is missing from `n_write`
+
+This means an inaccurate footprint is no longer a silent bug—it's a hard failure whenever enforcement is active.
 
 ### 4.4 GraphView: Read-Only Access
 
@@ -306,9 +335,11 @@ impl<'a> GraphView<'a> {
 **No `DerefMut`, no `AsRef<GraphStore>`, no interior mutability.** This is enforced at the type level.
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: I went looking for escape hatches here. `RefCell`? No. `UnsafeCell`? No. `Arc<Mutex<...>>`? No. The `GraphView` is genuinely immutable by construction.
 
 This is Rust at its best: the borrow checker prevents you from shooting yourself in the foot. In C++, you'd need discipline and code review to enforce "executors don't mutate the graph." In Rust, it's just... not possible. The types don't allow it.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ---
@@ -322,7 +353,8 @@ A "tick" is one complete cycle of the engine. It has five phases:
 ![Diagram 6](diagrams/tour-06.svg)
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: The "Commit" phase has five sub-steps. *Five*. This is where I started to appreciate how much thought went into this system. Let me summarize what each does:
+
+**Claude's Take**: The "Commit" phase has five sub-steps. _Five_. This is where I started to appreciate how much thought went into this system. Let me summarize what each does:
 
 1. **Drain**: Pull all pending rewrites from the scheduler in canonical order
 2. **Reserve**: Check footprints for conflicts, accept or reject each rewrite
@@ -331,6 +363,7 @@ A "tick" is one complete cycle of the engine. It has five phases:
 5. **Finalize**: Apply the merged operations to produce the new state
 
 The reservation phase is particularly clever. It's like a two-phase commit: first you "reserve" your footprint (claim your lock), then you execute. If your footprint conflicts with an already-reserved footprint, you're rejected. No execution happens until all accepted rewrites have been validated.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 5.2 Phase 1: Begin Transaction
@@ -404,11 +437,13 @@ let rewrites = scheduler.drain_for_tx(tx);  // Vec<PendingRewrite> in canonical 
 This ensures the **same rewrites always execute in the same order**, regardless of when they were applied.
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: Radix sort! They're using radix sort for the scheduler drain. Not quicksort, not merge sort—radix sort.
 
-Why? Because radix sort is *stable* and *deterministic* by construction. Quicksort's behavior depends on pivot selection, which can vary. Merge sort is deterministic, but radix sort is faster for fixed-size keys. Since the ordering key is exactly 36 bytes (32-byte scope hash + 2-byte rule ID + 2-byte nonce), radix sort is perfect.
+Why? Because radix sort is _stable_ and _deterministic_ by construction. Quicksort's behavior depends on pivot selection, which can vary. Merge sort is deterministic, but radix sort is faster for fixed-size keys. Since the ordering key is exactly 36 bytes (32-byte scope hash + 2-byte rule ID + 2-byte nonce), radix sort is perfect.
 
 This is the kind of detail that separates "deterministic by accident" from "deterministic by design."
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 #### 5.4.2 Reserve (Independence Check)
@@ -474,12 +509,16 @@ for op in merged_ops {
     match op {
         WarpOp::UpsertNode { id, record } => state.insert_node(id, record),
         WarpOp::UpsertEdge { from, edge } => state.insert_edge(from, edge),
-        WarpOp::DeleteNode { id } => state.delete_node_cascade(id),
+        WarpOp::DeleteNode { id } => state.delete_node_isolated(id)?,  // rejects if edges exist
         WarpOp::SetAttachment { node, key, value } => state.set_attachment(node, key, value),
         // ...
     }
 }
 ```
+
+> **Note:** `DeleteNode` requires the node to be _isolated_ (no incident edges).
+> Callers must emit explicit `DeleteEdge` ops before `DeleteNode`. This ensures
+> that WarpOps explicitly describe all mutations—no hidden cascade side effects.
 
 ### 5.5 Phase 4: Hash Computation
 
@@ -508,11 +547,13 @@ commit_hash = BLAKE3(
 ```
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: The commit hash includes a `policy_id`. This is subtle but important: two engines with different policies could produce the same state but different commit hashes. Why? Because the *process* matters, not just the result.
+
+**Claude's Take**: The commit hash includes a `policy_id`. This is subtle but important: two engines with different policies could produce the same state but different commit hashes. Why? Because the _process_ matters, not just the result.
 
 Imagine one policy allows rules to run in parallel; another requires sequential execution. They might produce identical graphs, but the commit hashes differ because the policies differ. This prevents accidentally mixing outputs from incompatible engine configurations.
 
 It's defensive design: "Trust, but verify—and make verification easy."
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 5.6 Phase 5: Record to History
@@ -559,11 +600,13 @@ BOAW stands for **Best Of All Worlds**. It's Echo's parallel execution architect
 ```
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: This is the insight that makes Echo work. Most parallel systems try to *control* the execution order—barriers, locks, atomic sequences. BOAW says: "Forget it. Let chaos reign during execution. We'll sort it out in the merge."
+
+**Claude's Take**: This is the insight that makes Echo work. Most parallel systems try to _control_ the execution order—barriers, locks, atomic sequences. BOAW says: "Forget it. Let chaos reign during execution. We'll sort it out in the merge."
 
 It's like MapReduce: the map phase runs in any order; the reduce phase (merge) produces the canonical result. But unlike MapReduce, Echo operates on a graph with complex dependencies. The footprint model makes this possible: by declaring what you'll touch before executing, you enable the merge to validate that no conflicts occurred.
 
-If this sounds too good to be true, it mostly is—*if* you get the footprints wrong. The system is only as deterministic as your footprint declarations. Lie to the footprint system, and you'll get non-determinism.
+If this sounds too good to be true, it mostly is—_if_ you get the footprints wrong. The system is only as deterministic as your footprint declarations. Lie to the footprint system, and you'll get non-determinism.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 6.3 Execution Strategies
@@ -600,11 +643,13 @@ fn shard_of(node_id: &NodeId) -> usize {
 - Determinism enforced by merge, not execution order
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: 256 shards is an interesting choice. It's small enough that the atomic counter for work-stealing doesn't become a bottleneck, but large enough to distribute work across many cores.
 
 The `& 255` bitmask is a micro-optimization I appreciate. It's equivalent to `% 256` but faster because 256 is a power of 2. This is the kind of low-level detail that adds up when you're processing millions of items per second.
 
 One thing I wondered: what if your NodeIds are clustered? Like, if all recent nodes have IDs starting with `0x00...`, they'd all end up in shard 0. I suspect content-addressed IDs (via BLAKE3) distribute uniformly, so this isn't a problem in practice. But for user-assigned IDs, you'd need to be careful.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 6.4 The Execution Loop
@@ -674,6 +719,23 @@ pub fn merge_deltas(deltas: Vec<TickDelta>) -> Result<Vec<WarpOp>, MergeConflict
 
 **Key guarantee**: Conflicts are bugs. If footprints were correct, no two rewrites should write different values to the same key.
 
+### 6.6 Runtime Enforcement: FootprintGuard
+
+Footprint declarations aren't just planning artifacts—they're enforced at runtime by `FootprintGuard`. The guard operates per-`ExecItem` within a `WorkUnit`, catching violations before they can corrupt state.
+
+**Read enforcement**: `GraphView::new_guarded()` wraps the standard `GraphView` and intercepts accessor calls (`node()`, `edges_from()`, `node_attachment()`, etc.). Any access to a node, edge, or attachment not listed in the item's declared footprint triggers an immediate violation.
+
+**Write enforcement**: After each executor runs (inside a `catch_unwind` boundary), the guard calls `check_op()` on every emitted `WarpOp`. This post-hoc validation catches:
+
+- Ops targeting nodes/edges/attachments not in the declared write sets
+- Cross-warp emissions (an op targets a different warp than the guard's scope)
+- Unauthorized instance ops (non-system rules emitting `UpsertWarpInstance` or `DeleteWarpInstance`)
+- Adjacency violations (edge mutations where the `from` node is not in `n_write`)
+
+**Violation payloads**: Violations produce typed `FootprintViolation` panic payloads, making them distinguishable from other panics and enabling structured error reporting.
+
+**cfg-gating**: Enforcement is active in debug builds and in release builds compiled with the `footprint_enforce_release` feature. It is disabled entirely when the `unsafe_graph` feature is enabled (for benchmarks or trusted contexts where the overhead is unacceptable).
+
 ---
 
 ## 7. Storage & Hashing: Content-Addressed Truth
@@ -702,6 +764,7 @@ pub struct GraphStore {
 - No HashMap ordering surprises
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: Seven BTreeMaps! This is the price of determinism. Each of these maps is sorted, which means:
 
 1. Insertions are O(log n) instead of O(1) amortized for HashMap
@@ -710,7 +773,8 @@ pub struct GraphStore {
 
 Is it worth it? For Echo's use case, absolutely. The alternative—using HashMap and then sorting before each hash—would be slower and more error-prone. By paying the cost upfront (O(log n) writes), you get guaranteed correctness.
 
-The multiple indices (`edges_from`, `edges_to`, `edge_index`, `edge_to_index`) look redundant, but they enable O(log n) lookups from any direction. Want all edges *from* a node? `edges_from[node_id]`. Want all edges *to* a node? `edges_to[node_id]`. This is a classic space-time tradeoff.
+The multiple indices (`edges_from`, `edges_to`, `edge_index`, `edge_to_index`) look redundant, but they enable O(log n) lookups from any direction. Want all edges _from_ a node? `edges_from[node_id]`. Want all edges _to_ a node? `edges_to[node_id]`. This is a classic space-time tradeoff.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 7.2 WSC: Write-Streaming Columnar Format
@@ -755,11 +819,13 @@ For efficient snapshots, Echo uses WSC—a zero-copy, mmap-friendly format:
 - `Range`: 16 bytes (start_le[8] + len_le[8])
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: WSC is gloriously simple. Fixed-size rows, sorted tables, binary search for lookups. No compression, no Parquet-style encoding tricks—just flat bytes on disk that you can mmap and use directly.
 
 The trade-off is size: WSC files are larger than compressed formats. But the benefit is speed: you can find node #1000 by seeking to `offset + 1000 * 64` and reading 64 bytes. No decompression, no index lookups, no memory allocation.
 
 For Echo's use case (local caching, fast restarts), this makes sense. You're not storing petabytes; you're storing the state of a single simulation that fits in RAM. Optimize for access latency, not storage cost.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 7.3 Copy-on-Write Semantics
@@ -799,11 +865,13 @@ state_root = BLAKE3(
 ```
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: The hashing is *exhaustive*. Every node, every edge, every attachment, every byte—all streamed through BLAKE3 in a defined order. There's no "we'll just hash the IDs and trust the content"—everything participates.
+
+**Claude's Take**: The hashing is _exhaustive_. Every node, every edge, every attachment, every byte—all streamed through BLAKE3 in a defined order. There's no "we'll just hash the IDs and trust the content"—everything participates.
 
 This is expensive! But it's the foundation of Echo's trust model. If two engines produce the same state root, they have the same state. Period. No exceptions, no edge cases.
 
 The `version_tag` in the commit hash is a nice touch. If Echo ever changes its hashing algorithm (say, BLAKE3 v2 to v3), old and new hashes won't collide. Protocol evolution is built in.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ---
@@ -821,9 +889,11 @@ Imagine a simple site with two pages:
 **User clicks the link**: This should navigate from Home to About.
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: This example is deceptively simple—two pages, one link—but it exercises the entire engine: intent ingestion, rule matching, footprint validation, execution, merge, hashing, and emission.
 
 I'll add my notes at the interesting points. If you're skimming, watch for where the determinism guarantees kick in.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ### 8.2 Step 1: Intent Ingestion
@@ -886,12 +956,14 @@ fn navigate_footprint(view: GraphView, scope: &NodeId) -> Footprint {
 ```
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: Notice the footprint. We declare that we'll:
 
 - **Read** two nodes: the intent (to get the target) and the viewer (to validate the current page)
 - **Write** one attachment: the viewer's `current` attachment
 
-We're *not* reading any attachments (we just need the node records), and we're *not* writing any nodes (the viewer node already exists). This precision matters—if another rule also wants to write `viewer.current`, there's a conflict.
+We're _not_ reading any attachments (we just need the node records), and we're _not_ writing any nodes (the viewer node already exists). This precision matters—if another rule also wants to write `viewer.current`, there's a conflict.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 The rule is enqueued:
@@ -1041,6 +1113,7 @@ for op in diff.ops {
 **Result**: The user sees the About page.
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 **Claude's Take**: That's a lot of machinery for one link click! But here's what we get for free:
 
 1. **Replay**: Save the intent bytes, replay them later, get the exact same state hash
@@ -1048,7 +1121,8 @@ for op in diff.ops {
 3. **Undo**: The previous snapshot is still in history; restoring is a pointer swap
 4. **Branching**: Fork the state, try a different navigation, compare outcomes
 
-This is the payoff for all the ceremony. A traditional engine would do `viewer.current = about_page` and call it done. Echo builds a *provable audit trail* around every state change.
+This is the payoff for all the ceremony. A traditional engine would do `viewer.current = about_page` and call it done. Echo builds a _provable audit trail_ around every state change.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ---
@@ -1070,36 +1144,39 @@ The `warp-viewer` crate provides real-time visualization of WARP graphs. It's bu
 5. **Display** shows updated visualization
 
 <!-- CLAUDE_COMMENTARY_START -->
-**Claude's Take**: The viewer is *reactive*, not poll-based. It subscribes to diffs from the session hub and updates only when state changes. This means zero CPU usage when the graph is idle.
+
+**Claude's Take**: The viewer is _reactive_, not poll-based. It subscribes to diffs from the session hub and updates only when state changes. This means zero CPU usage when the graph is idle.
 
 The force-directed layout is a classic choice for graph visualization. It's not perfect—large graphs can take time to settle—but it's good enough for debugging and exploration. If you need a specific layout, you can inject position attachments and the viewer will respect them.
+
 <!-- CLAUDE_COMMENTARY_END -->
 
 ---
 
 ## 10. Glossary
 
-| Term | Definition |
-| ---- | ---------- |
-| **WARP** | Worldline Algebra for Recursive Provenance—Echo's core graph model |
-| **Tick** | One complete cycle of the engine (begin → apply → commit → hash → record) |
-| **Snapshot** | Immutable point-in-time capture of graph state |
-| **Footprint** | Declaration of resources a rule will read/write |
-| **BOAW** | Bag of Autonomous Workers—parallel execution model |
-| **TickDelta** | Accumulated operations from rule execution |
-| **State Root** | BLAKE3 hash of the entire graph |
-| **Commit Hash** | BLAKE3 hash of (state root + patch + metadata) |
-| **WarpInstance** | A graph-within-a-graph, enabling recursive composition |
-| **WSC** | Write-Streaming Columnar—Echo's snapshot file format |
-| **GraphView** | Read-only handle to graph state for rule executors |
-| **PendingRewrite** | Queued rule application awaiting commit |
+| Term               | Definition                                                                |
+| ------------------ | ------------------------------------------------------------------------- |
+| **WARP**           | Worldline Algebra for Recursive Provenance—Echo's core graph model        |
+| **Tick**           | One complete cycle of the engine (begin → apply → commit → hash → record) |
+| **Snapshot**       | Immutable point-in-time capture of graph state                            |
+| **Footprint**      | Declaration of resources a rule will read/write                           |
+| **BOAW**           | Bag of Autonomous Workers—parallel execution model                        |
+| **TickDelta**      | Accumulated operations from rule execution                                |
+| **State Root**     | BLAKE3 hash of the entire graph                                           |
+| **Commit Hash**    | BLAKE3 hash of (state root + patch + metadata)                            |
+| **WarpInstance**   | A graph-within-a-graph, enabling recursive composition                    |
+| **WSC**            | Write-Streaming Columnar—Echo's snapshot file format                      |
+| **GraphView**      | Read-only handle to graph state for rule executors                        |
+| **PendingRewrite** | Queued rule application awaiting commit                                   |
 
 ---
 
 <!-- CLAUDE_COMMENTARY_START -->
+
 ### Final Thoughts from Your Tour Guide
 
-Echo is not a simple system. It's a *principled* system built on hard-won lessons about determinism, reproducibility, and trust.
+Echo is not a simple system. It's a _principled_ system built on hard-won lessons about determinism, reproducibility, and trust.
 
 What I find most impressive isn't any single feature—it's the coherence. Every piece reinforces the others:
 
@@ -1112,9 +1189,10 @@ What I find most impressive isn't any single feature—it's the coherence. Every
 
 Pull one thread and the whole tapestry unravels. This is integrated design, not a collection of independent features.
 
-Is Echo perfect? No. The footprint model requires discipline. The ceremony adds latency. The BTreeMaps trade speed for determinism. But for applications where *provability* matters—games with replays, simulations with audits, collaborative tools with conflict resolution—Echo offers something rare: a foundation you can trust.
+Is Echo perfect? No. The footprint model requires discipline. The ceremony adds latency. The BTreeMaps trade speed for determinism. But for applications where _provability_ matters—games with replays, simulations with audits, collaborative tools with conflict resolution—Echo offers something rare: a foundation you can trust.
 
 Thanks for joining me on this tour. May your state roots always match.
 
 — Claude
+
 <!-- CLAUDE_COMMENTARY_END -->

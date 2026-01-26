@@ -13,7 +13,7 @@
 #![cfg(feature = "delta_validate")]
 
 use warp_core::{
-    make_node_id, make_type_id, make_warp_id, merge_deltas, AtomPayload, AttachmentKey,
+    make_node_id, make_type_id, make_warp_id, merge_deltas_ok, AtomPayload, AttachmentKey,
     AttachmentValue, MergeError, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp,
 };
 
@@ -90,7 +90,7 @@ fn warp_op_key_distinguishes_by_warp_and_survives_merge() {
     );
 
     // Merge should succeed without conflict - ops target different logical keys
-    let merged = merge_deltas(vec![delta_a, delta_b]);
+    let merged = merge_deltas_ok(vec![delta_a, delta_b]);
     let ops = merged.expect("merge should succeed: ops target different warps");
 
     // Both ops must survive
@@ -166,7 +166,7 @@ fn warp_op_key_ordering_stability_btreemap() {
         .enumerate()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_forward = merge_deltas(deltas_forward).expect("merge should succeed");
+    let result_forward = merge_deltas_ok(deltas_forward).expect("merge should succeed");
 
     // Merge in reverse order
     let deltas_reverse: Vec<_> = ops
@@ -175,7 +175,7 @@ fn warp_op_key_ordering_stability_btreemap() {
         .rev()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_reverse = merge_deltas(deltas_reverse).expect("merge should succeed");
+    let result_reverse = merge_deltas_ok(deltas_reverse).expect("merge should succeed");
 
     // Must have all 3 ops (no collisions)
     assert_eq!(result_forward.len(), 3, "All 3 ops must survive merge");
@@ -245,7 +245,7 @@ fn warp_op_key_same_warp_same_target_merges_correctly() {
             },
         );
 
-        let merged = merge_deltas(vec![delta1, delta2]);
+        let merged = merge_deltas_ok(vec![delta1, delta2]);
         let ops = merged.expect("identical ops should dedupe without conflict");
         assert_eq!(ops.len(), 1, "Identical ops must dedupe to 1");
         assert_eq!(ops[0], op);
@@ -293,7 +293,7 @@ fn warp_op_key_same_warp_same_target_merges_correctly() {
             },
         );
 
-        let merged = merge_deltas(vec![delta1, delta2]);
+        let merged = merge_deltas_ok(vec![delta1, delta2]);
         assert!(
             merged.is_err(),
             "Different values for same key must produce MergeConflict"
@@ -369,7 +369,7 @@ fn merge_preserves_all_warp_distinct_ops() {
     }
 
     // Merge should succeed
-    let merged = merge_deltas(deltas);
+    let merged = merge_deltas_ok(deltas);
     let result_ops = merged.expect("merge should succeed: all ops target different warps");
 
     // All 3 ops must survive
@@ -437,7 +437,7 @@ fn different_op_types_do_not_conflict() {
     );
 
     // Merge should succeed: different op types have different WarpOpKeys
-    let merged = merge_deltas(vec![delta1, delta2]);
+    let merged = merge_deltas_ok(vec![delta1, delta2]);
     let result_ops = merged.expect("different op types should not conflict");
 
     assert_eq!(result_ops.len(), 2, "Both ops must survive");
@@ -508,7 +508,7 @@ fn attachment_ops_distinguish_node_vs_edge_owners() {
     );
 
     // Merge should succeed: node and edge attachments have different WarpOpKeys
-    let merged = merge_deltas(vec![delta1, delta2]);
+    let merged = merge_deltas_ok(vec![delta1, delta2]);
     let result_ops = merged.expect("node vs edge attachment ops should not conflict");
 
     assert_eq!(result_ops.len(), 2, "Both ops must survive");
@@ -581,7 +581,7 @@ fn merge_is_deterministic_regardless_of_delta_order() {
         .enumerate()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_forward = merge_deltas(deltas_forward).expect("merge should succeed");
+    let result_forward = merge_deltas_ok(deltas_forward).expect("merge should succeed");
 
     // Merge in reverse order
     let deltas_reverse: Vec<_> = ops
@@ -590,7 +590,7 @@ fn merge_is_deterministic_regardless_of_delta_order() {
         .rev()
         .map(|(i, op)| make_delta(i, op))
         .collect();
-    let result_reverse = merge_deltas(deltas_reverse).expect("merge should succeed");
+    let result_reverse = merge_deltas_ok(deltas_reverse).expect("merge should succeed");
 
     // Results must be identical
     assert_eq!(
@@ -642,7 +642,7 @@ fn many_warps_same_local_target_all_survive() {
         .collect();
 
     // Merge should succeed
-    let merged = merge_deltas(deltas);
+    let merged = merge_deltas_ok(deltas);
     let result_ops = merged.expect("all cross-warp ops should merge successfully");
 
     assert_eq!(
@@ -709,7 +709,7 @@ fn conflict_detected_for_same_nodekey_different_records() {
         },
     );
 
-    let merged = merge_deltas(vec![delta1, delta2]);
+    let merged = merge_deltas_ok(vec![delta1, delta2]);
     assert!(
         merged.is_err(),
         "UpsertNode ops with same NodeKey but different records must conflict"

@@ -68,6 +68,14 @@ impl AttachmentOwner {
             Self::Edge(_) => 2,
         }
     }
+
+    /// Returns the [`WarpId`] of the owner (node or edge).
+    pub(crate) fn warp_id(self) -> WarpId {
+        match self {
+            Self::Node(nk) => nk.warp_id,
+            Self::Edge(ek) => ek.warp_id,
+        }
+    }
 }
 
 /// First-class identity for an attachment slot.
@@ -105,6 +113,52 @@ impl AttachmentKey {
 
     pub(crate) const fn tag(self) -> (u8, u8) {
         (self.owner.tag(), self.plane.tag())
+    }
+
+    /// Returns `true` if the plane is valid for the owner type.
+    ///
+    /// # Invariant
+    ///
+    /// The attachment plane must match the owner type according to this rule:
+    /// - [`AttachmentOwner::Node`] requires [`AttachmentPlane::Alpha`]
+    /// - [`AttachmentOwner::Edge`] requires [`AttachmentPlane::Beta`]
+    ///
+    /// This pairing is fundamental to the attachment model: nodes store their
+    /// attachments in the Alpha plane, edges store theirs in the Beta plane.
+    /// Mixing these (e.g., a node owner with Beta plane) is always invalid.
+    ///
+    /// # Returns
+    ///
+    /// - `true` if the plane-owner pairing is valid (Alpha/Node or Beta/Edge)
+    /// - `false` if the pairing is invalid (Alpha/Edge or Beta/Node)
+    ///
+    /// # Edge Cases
+    ///
+    /// There are no edge cases beyond the two valid pairings. Any other combination
+    /// is structurally invalid and indicates a bug in key construction.
+    ///
+    /// # Usage
+    ///
+    /// Callers should validate attachment keys before applying operations:
+    ///
+    /// ```ignore
+    /// if !key.is_plane_valid() {
+    ///     return Err(TickPatchError::InvalidAttachmentKey(key));
+    /// }
+    /// ```
+    ///
+    /// Operations like [`WarpOp::SetAttachment`](crate::tick_patch::WarpOp::SetAttachment)
+    /// and [`WarpOp::OpenPortal`](crate::tick_patch::WarpOp::OpenPortal) call this
+    /// validation internally. Direct callers constructing `AttachmentKey` manually
+    /// should use the type-safe constructors [`node_alpha`](Self::node_alpha) and
+    /// [`edge_beta`](Self::edge_beta) which guarantee validity.
+    #[must_use]
+    pub fn is_plane_valid(&self) -> bool {
+        matches!(
+            (&self.owner, &self.plane),
+            (AttachmentOwner::Node(_), AttachmentPlane::Alpha)
+                | (AttachmentOwner::Edge(_), AttachmentPlane::Beta)
+        )
     }
 }
 

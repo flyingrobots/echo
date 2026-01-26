@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Phase 6B: Engine Integration — COMPLETE
 
 **Status:** ✅ COMPLETE
@@ -21,16 +22,20 @@ Phase 6B is **COMPLETE**. The sharded parallel execution primitives have been in
 3. **Configurable workers**: `ECHO_WORKERS` env var or `EngineBuilder::workers(n)`
 4. **Determinism fix**: `emit_view_op_delta_scoped()` derives IDs from intent scope, not `delta.len()`
 5. **All tests pass**: Including DIND golden hashes regenerated with parallel execution
+6. **Footprint enforcement guard**: `FootprintGuard` validates all mutation ops against declared footprints at runtime (44aebb0)
+7. **Complete footprint declarations**: All rules now declare accurate footprints (0d0231b)
 
 ### Success Criteria — All Met ✅
 
-| Criterion | Status |
-| --------- | ------ |
-| `apply_reserved_rewrites()` uses `execute_parallel_sharded()` | ✅ |
-| All existing tests pass (including DIND golden hashes) | ✅ |
-| Worker count defaults to `available_parallelism()` | ✅ |
-| Serial fallback for edge cases | ✅ (`ECHO_WORKERS=1`) |
-| No new `unsafe` code | ✅ |
+| Criterion                                                     | Status                |
+| ------------------------------------------------------------- | --------------------- |
+| `apply_reserved_rewrites()` uses `execute_parallel_sharded()` | ✅                    |
+| All existing tests pass (including DIND golden hashes)        | ✅                    |
+| Worker count defaults to `available_parallelism()`            | ✅                    |
+| Serial fallback for edge cases                                | ✅ (`ECHO_WORKERS=1`) |
+| No new `unsafe` code                                          | ✅                    |
+| Footprint enforcement guard active in debug builds            | ✅ (44aebb0)          |
+| All rules declare complete footprints                         | ✅ (0d0231b)          |
 
 ---
 
@@ -65,27 +70,27 @@ Phase 6B is **COMPLETE**. The sharded parallel execution primitives have been in
 
 1. **Shard routing is frozen:**
 
-   ```text
-   shard = LE_u64(node_id.as_bytes()[0..8]) & (NUM_SHARDS - 1)
-   ```
+    ```text
+    shard = LE_u64(node_id.as_bytes()[0..8]) & (NUM_SHARDS - 1)
+    ```
 
-   - NUM_SHARDS = 256 (protocol constant, cannot change)
-   - First 8 bytes of NodeId's 32-byte hash, little-endian
-   - 5 hardcoded test vectors prevent regression
+    - NUM_SHARDS = 256 (protocol constant, cannot change)
+    - First 8 bytes of NodeId's 32-byte hash, little-endian
+    - 5 hardcoded test vectors prevent regression
 
 2. **Sharded execution uses atomic shard claiming:**
-   - Workers race to claim shards via `AtomicUsize::fetch_add`
-   - Items in same shard processed together (cache locality)
-   - Workers capped at `min(workers, NUM_SHARDS)`
+    - Workers race to claim shards via `AtomicUsize::fetch_add`
+    - Items in same shard processed together (cache locality)
+    - Workers capped at `min(workers, NUM_SHARDS)`
 
 3. **Stride fallback is feature-gated:**
-   - Requires `parallel-stride-fallback` feature + `ECHO_PARALLEL_STRIDE=1`
-   - Prints loud ASCII warning banner
-   - Keep for one release, then delete
+    - Requires `parallel-stride-fallback` feature + `ECHO_PARALLEL_STRIDE=1`
+    - Prints loud ASCII warning banner
+    - Keep for one release, then delete
 
 4. **Merge is unchanged:**
-   - `merge_deltas()` still sorts by `(WarpOpKey, OpOrigin)`
-   - Determinism enforced at merge, not execution
+    - `merge_deltas()` still sorts by `(WarpOpKey, OpOrigin)`
+    - Determinism enforced at merge, not execution
 
 ---
 
@@ -144,12 +149,22 @@ let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
 
 ### Files Changed in Commit 2
 
-| File | Changes |
-| ---- | ------- |
-| `engine_impl.rs` | +231 lines: worker infrastructure, per-warp parallel execution |
-| `rules.rs` | +102 lines: `emit_view_op_delta_scoped()`, warp-scoped footprints |
-| `tick_patch.rs` | +47 lines: `WarpOpKey` warp-distinction test |
-| `*.hashes.json` | Regenerated golden files |
+| File             | Changes                                                           |
+| ---------------- | ----------------------------------------------------------------- |
+| `engine_impl.rs` | +231 lines: worker infrastructure, per-warp parallel execution    |
+| `rules.rs`       | +102 lines: `emit_view_op_delta_scoped()`, warp-scoped footprints |
+| `tick_patch.rs`  | +47 lines: `WarpOpKey` warp-distinction test                      |
+| `*.hashes.json`  | Regenerated golden files                                          |
+
+### Files Changed in Enforcement Commits
+
+| File                                            | Changes                                                             |
+| ----------------------------------------------- | ------------------------------------------------------------------- |
+| `crates/warp-core/src/footprint_guard.rs`       | `FootprintGuard`, `FootprintViolation`, `ViolationKind` definitions |
+| `crates/warp-core/src/graph_view.rs`            | `GraphView::new_guarded()` and guard field plumbing                 |
+| `crates/warp-core/src/boaw/exec.rs`             | `ExecItemKind`, enforcement path, `check_op()` validation           |
+| `crates/warp-core/tests/boaw_footprints.rs`     | Footprint enforcement integration tests                             |
+| `crates/warp-core/tests/slice_theorem_proof.rs` | Slice-theorem + enforcement regression tests                        |
 
 ---
 
@@ -175,12 +190,16 @@ cargo test -p echo-dind-harness
 3. Worker count defaults to `available_parallelism()`
 4. Serial fallback for edge cases (if needed)
 5. No new `unsafe` code
+6. Footprint enforcement guard validates mutation ops at runtime -- DONE (44aebb0)
+7. All rules declare complete and accurate footprints -- DONE (0d0231b)
 
 ---
 
 ## COMPLETION NOTES
 
-Phase 6B engine integration is **DONE**. For future optimization opportunities, see:
+Phase 6B engine integration is **DONE**. Footprint enforcement is **DONE** -- the `FootprintGuard`
+validates all mutation ops against declared footprints (commit 44aebb0), and all rules now declare
+complete footprint metadata (commit 0d0231b). For future optimization opportunities, see:
 
 - `docs/adr/TECH-DEBT-BOAW.md` — prioritized tech debt and future work
 

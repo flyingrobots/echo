@@ -31,6 +31,22 @@ use crate::warp_state::{WarpInstance, WarpState};
 use crate::wsc::types::{AttRow, EdgeRow, NodeRow, OutEdgeRef, Range};
 use crate::wsc::write::{write_wsc_one_warp, OneWarpInput};
 
+/// Attachment arrays output from [`SnapshotAccumulator::build_attachments`].
+///
+/// Named struct to prevent field transposition errors when destructuring.
+struct AttachmentArrays {
+    /// Index ranges into `node_atts`, parallel to the nodes vector.
+    node_atts_index: Vec<Range>,
+    /// Node attachment rows.
+    node_atts: Vec<AttRow>,
+    /// Index ranges into `edge_atts`, parallel to the edges vector.
+    edge_atts_index: Vec<Range>,
+    /// Edge attachment rows.
+    edge_atts: Vec<AttRow>,
+    /// Shared blob storage for all attachment payloads.
+    blobs: Vec<u8>,
+}
+
 /// Minimal node data needed for WSC rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeRowParts {
@@ -186,7 +202,54 @@ impl SnapshotAccumulator {
                 child_warp,
                 child_root,
                 init,
-            } => {
+            } => self.apply_open_portal(key, child_warp, child_root, init),
+            WarpOp::UpsertWarpInstance { instance } => self.apply_upsert_warp_instance(instance),
+            WarpOp::DeleteWarpInstance { warp_id } => self.apply_delete_warp_instance(warp_id),
+            WarpOp::UpsertNode { node, record } => self.apply_upsert_node(node, &record),
+            WarpOp::DeleteNode { node } => self.apply_delete_node(node),
+            WarpOp::UpsertEdge { warp_id, record } => self.apply_upsert_edge(warp_id, &record),
+            WarpOp::DeleteEdge {
+                warp_id,
+                from: _,
+                edge_id,
+            } => self.apply_delete_edge(warp_id, edge_id),
+            WarpOp::SetAttachment { key, value } => self.set_attachment_internal(key, value),
+        }
+    }
+
+    /// Apply an `OpenPortal` operation.
+    ///
+    /// For `PortalInit::Empty`, creates the child instance and root node.
+    /// For `PortalInit::RequireExisting`, verifies the instance already exists
+    /// with matching properties without modifying state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    /// - The attachment owner (node or edge) does not exist
+    /// - `PortalInit::RequireExisting` is used but the instance doesn't exist
+    ///   or has mismatched properties
+    /// - `PortalInit::RequireExisting` is used but the root node doesn't exist
+    #[allow(clippy::panic)]
+    fn apply_open_portal(
+        &mut self,
+        key: AttachmentKey,
+        child_warp: WarpId,
+        child_root: NodeId,
+        init: crate::tick_patch::PortalInit,
+    ) {
+        // Validate parent attachment owner exists (mirror tick_patch::apply_open_portal).
+        let owner_exists = match &key.owner {
+            AttachmentOwner::Node(node) => self.nodes.contains_key(node),
+            AttachmentOwner::Edge(edge) => self.edges.contains_key(&(edge.warp_id, edge.local_id)),
+        };
+        assert!(
+            owner_exists,
+            "OpenPortal: attachment owner {key:?} does not exist"
+        );
+
+        match init {
+            crate::tick_patch::PortalInit::Empty { root_record } => {
                 // Create the child instance
                 let instance = WarpInstance {
                     warp_id: child_warp,
@@ -195,99 +258,160 @@ impl SnapshotAccumulator {
                 };
                 self.instances.insert(child_warp, instance);
 
-                // Create the root node if init specifies
-                if let crate::tick_patch::PortalInit::Empty { root_record } = init {
-                    let node_key = NodeKey {
-                        warp_id: child_warp,
-                        local_id: child_root,
-                    };
-                    self.nodes.insert(
-                        node_key,
-                        NodeRowParts {
-                            node_id: child_root,
-                            node_type: root_record.ty,
-                        },
-                    );
-                }
+                // Create the root node
+                let node_key = NodeKey {
+                    warp_id: child_warp,
+                    local_id: child_root,
+                };
+                self.nodes.insert(
+                    node_key,
+                    NodeRowParts {
+                        node_id: child_root,
+                        node_type: root_record.ty,
+                    },
+                );
 
                 // Set the parent attachment to Descend
                 self.set_attachment_internal(key, Some(AttachmentValue::Descend(child_warp)));
             }
-
-            WarpOp::UpsertWarpInstance { instance } => {
-                self.instances.insert(instance.warp_id, instance);
-            }
-
-            WarpOp::DeleteWarpInstance { warp_id } => {
-                self.instances.remove(&warp_id);
-                // Cascade: remove all nodes, edges, and attachments for this instance
-                self.nodes.retain(|k, _| k.warp_id != warp_id);
-                self.edges.retain(|(w, _), _| *w != warp_id);
-                self.node_attachments.retain(|k, _| match k.owner {
-                    AttachmentOwner::Node(nk) => nk.warp_id != warp_id,
-                    AttachmentOwner::Edge(ek) => ek.warp_id != warp_id,
-                });
-                self.edge_attachments.retain(|k, _| match k.owner {
-                    AttachmentOwner::Node(nk) => nk.warp_id != warp_id,
-                    AttachmentOwner::Edge(ek) => ek.warp_id != warp_id,
-                });
-            }
-
-            WarpOp::UpsertNode { node, record } => {
-                self.nodes.insert(
-                    node,
-                    NodeRowParts {
-                        node_id: node.local_id,
-                        node_type: record.ty,
-                    },
-                );
-            }
-
-            WarpOp::DeleteNode { node } => {
-                self.nodes.remove(&node);
-                // Remove node's attachments
-                let att_key = AttachmentKey {
-                    owner: AttachmentOwner::Node(node),
-                    plane: AttachmentPlane::Alpha,
+            crate::tick_patch::PortalInit::RequireExisting => {
+                // Verify the instance exists with expected properties.
+                // Do NOT create or overwrite - just validate and set attachment.
+                let Some(existing) = self.instances.get(&child_warp) else {
+                    panic!("OpenPortal RequireExisting: instance {child_warp:?} does not exist");
                 };
-                self.node_attachments.remove(&att_key);
-                // Cascade: remove incident edges (GraphStore semantics)
-                self.remove_incident_edges(node);
-            }
-
-            WarpOp::UpsertEdge { warp_id, record } => {
-                self.edges.insert(
-                    (warp_id, record.id),
-                    EdgeRowParts {
-                        edge_id: record.id,
-                        from: record.from,
-                        to: record.to,
-                        edge_type: record.ty,
-                    },
+                assert!(
+                    existing.parent == Some(key),
+                    "OpenPortal RequireExisting: instance {child_warp:?} has wrong parent \
+                     (expected {key:?}, got {:?})",
+                    existing.parent
                 );
-            }
-
-            WarpOp::DeleteEdge {
-                warp_id,
-                from: _,
-                edge_id,
-            } => {
-                self.edges.remove(&(warp_id, edge_id));
-                // Remove edge's attachments
-                let att_key = AttachmentKey {
-                    owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
-                        warp_id,
-                        local_id: edge_id,
-                    }),
-                    plane: AttachmentPlane::Beta,
+                assert!(
+                    existing.root_node == child_root,
+                    "OpenPortal RequireExisting: instance {child_warp:?} has wrong root_node \
+                     (expected {child_root:?}, got {:?})",
+                    existing.root_node
+                );
+                // Verify the root node exists
+                let child_root_key = NodeKey {
+                    warp_id: child_warp,
+                    local_id: child_root,
                 };
-                self.edge_attachments.remove(&att_key);
-            }
+                assert!(
+                    self.nodes.contains_key(&child_root_key),
+                    "OpenPortal RequireExisting: root node {child_root_key:?} missing"
+                );
 
-            WarpOp::SetAttachment { key, value } => {
-                self.set_attachment_internal(key, value);
+                // Set the parent attachment to Descend (this is still required)
+                self.set_attachment_internal(key, Some(AttachmentValue::Descend(child_warp)));
             }
         }
+    }
+
+    /// Apply an `UpsertWarpInstance` operation.
+    fn apply_upsert_warp_instance(&mut self, instance: WarpInstance) {
+        self.instances.insert(instance.warp_id, instance);
+    }
+
+    /// Apply a `DeleteWarpInstance` operation with cascade.
+    ///
+    /// Removes the instance and cascades to all nodes, edges, and attachments
+    /// belonging to this warp.
+    ///
+    /// # Invariant
+    ///
+    /// `node_attachments` only contains keys with `AttachmentOwner::Node`, and
+    /// `edge_attachments` only contains keys with `AttachmentOwner::Edge`. This
+    /// is enforced by `set_attachment_internal` which routes keys to the correct
+    /// map based on their owner type.
+    fn apply_delete_warp_instance(&mut self, warp_id: WarpId) {
+        self.instances.remove(&warp_id);
+        // Cascade: remove all nodes, edges, and attachments for this instance
+        self.nodes.retain(|k, _| k.warp_id != warp_id);
+        self.edges.retain(|(w, _), _| *w != warp_id);
+        // node_attachments only contains Node owners (per set_attachment_internal invariant)
+        self.node_attachments.retain(|k, _| match k.owner {
+            AttachmentOwner::Node(nk) => nk.warp_id != warp_id,
+            AttachmentOwner::Edge(_) => true, // unreachable per invariant, but keep for safety
+        });
+        // edge_attachments only contains Edge owners (per set_attachment_internal invariant)
+        self.edge_attachments.retain(|k, _| match k.owner {
+            AttachmentOwner::Node(_) => true, // unreachable per invariant, but keep for safety
+            AttachmentOwner::Edge(ek) => ek.warp_id != warp_id,
+        });
+    }
+
+    /// Apply an `UpsertNode` operation.
+    fn apply_upsert_node(&mut self, node: NodeKey, record: &crate::record::NodeRecord) {
+        self.nodes.insert(
+            node,
+            NodeRowParts {
+                node_id: node.local_id,
+                node_type: record.ty,
+            },
+        );
+    }
+
+    /// Apply a `DeleteNode` operation.
+    ///
+    /// Removes the node and its alpha attachment (allowed mini-cascade).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the node has incident edges. `DeleteNode` must not cascade;
+    /// callers must emit explicit `DeleteEdge` ops first.
+    fn apply_delete_node(&mut self, node: NodeKey) {
+        // Validate: DeleteNode must only be applied to isolated nodes.
+        // Check for incident edges (from or to this node).
+        //
+        // NOTE: This check is O(E) per delete, yielding O(D×E) cost for D deletes
+        // over E edges. If bulk deletes become common, consider building a temporary
+        // reverse adjacency index before processing multiple WarpOp::DeleteNode
+        // operations. The check uses self.edges.iter() to scan all edges.
+        let has_incident = self.edges.iter().any(|((w, _), e)| {
+            *w == node.warp_id && (e.from == node.local_id || e.to == node.local_id)
+        });
+        assert!(
+            !has_incident,
+            "DeleteNode applied to non-isolated node {node:?}; edges must be deleted first"
+        );
+
+        self.nodes.remove(&node);
+        // Remove node's alpha attachment (allowed mini-cascade: key is derivable)
+        let att_key = AttachmentKey {
+            owner: AttachmentOwner::Node(node),
+            plane: AttachmentPlane::Alpha,
+        };
+        self.node_attachments.remove(&att_key);
+    }
+
+    /// Apply an `UpsertEdge` operation.
+    fn apply_upsert_edge(&mut self, warp_id: WarpId, record: &crate::record::EdgeRecord) {
+        self.edges.insert(
+            (warp_id, record.id),
+            EdgeRowParts {
+                edge_id: record.id,
+                from: record.from,
+                to: record.to,
+                edge_type: record.ty,
+            },
+        );
+    }
+
+    /// Apply a `DeleteEdge` operation.
+    ///
+    /// Removes the edge and its beta attachment.
+    fn apply_delete_edge(&mut self, warp_id: WarpId, edge_id: EdgeId) {
+        self.edges.remove(&(warp_id, edge_id));
+        // Remove edge's attachments
+        let att_key = AttachmentKey {
+            owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
+                warp_id,
+                local_id: edge_id,
+            }),
+            plane: AttachmentPlane::Beta,
+        };
+        self.edge_attachments.remove(&att_key);
     }
 
     /// Internal helper for setting/clearing attachments.
@@ -479,7 +603,6 @@ impl SnapshotAccumulator {
     }
 
     /// Build `OneWarpInput` for a single instance.
-    #[allow(clippy::too_many_lines)]
     fn build_one_warp_input(
         &self,
         warp_id: WarpId,
@@ -571,61 +694,14 @@ impl SnapshotAccumulator {
             });
         }
 
-        // Build node attachments (parallel to nodes)
-        let mut node_atts_index: Vec<Range> = Vec::with_capacity(nodes.len());
-        let mut node_atts: Vec<AttRow> = Vec::new();
-        let mut blobs: Vec<u8> = Vec::new();
-
-        for key in self.nodes.keys() {
-            if key.warp_id != warp_id || !reachable_nodes.contains(key) {
-                continue;
-            }
-
-            let att_key = AttachmentKey {
-                owner: AttachmentOwner::Node(*key),
-                plane: AttachmentPlane::Alpha,
-            };
-
-            let start = node_atts.len() as u64;
-            if let Some(value) = self.node_attachments.get(&att_key) {
-                let row = att_value_to_row(value, &mut blobs);
-                node_atts.push(row);
-            }
-            let len = node_atts.len() as u64 - start;
-            node_atts_index.push(Range {
-                start_le: start.to_le(),
-                len_le: len.to_le(),
-            });
-        }
-
-        // Build edge attachments (parallel to edges vector, not self.edges)
-        // We iterate over `edges` to ensure:
-        // 1. Only reachable edges are considered (both endpoints in reachable_nodes)
-        // 2. The index order matches the edges vector order
-        let mut edge_atts_index: Vec<Range> = Vec::with_capacity(edges.len());
-        let mut edge_atts: Vec<AttRow> = Vec::new();
-
-        for edge_row in &edges {
-            let edge_id = EdgeId(edge_row.edge_id);
-            let att_key = AttachmentKey {
-                owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
-                    warp_id,
-                    local_id: edge_id,
-                }),
-                plane: AttachmentPlane::Beta,
-            };
-
-            let start = edge_atts.len() as u64;
-            if let Some(value) = self.edge_attachments.get(&att_key) {
-                let row = att_value_to_row(value, &mut blobs);
-                edge_atts.push(row);
-            }
-            let len = edge_atts.len() as u64 - start;
-            edge_atts_index.push(Range {
-                start_le: start.to_le(),
-                len_le: len.to_le(),
-            });
-        }
+        // Build node and edge attachments
+        let AttachmentArrays {
+            node_atts_index,
+            node_atts,
+            edge_atts_index,
+            edge_atts,
+            blobs,
+        } = self.build_attachments(warp_id, reachable_nodes, &edges);
 
         Some(OneWarpInput {
             warp_id: warp_id.0,
@@ -640,6 +716,85 @@ impl SnapshotAccumulator {
             edge_atts,
             blobs,
         })
+    }
+
+    /// Builds node and edge attachment arrays for [`OneWarpInput`].
+    ///
+    /// # Arguments
+    ///
+    /// * `warp_id` - The warp to filter attachments by.
+    /// * `reachable_nodes` - Pre-filtered set of reachable nodes for this warp.
+    /// * `edges` - Pre-filtered reachable edges for this warp. **Must be in the exact
+    ///   same order used to construct `OneWarpInput::edges`**, as edge attachment
+    ///   indices are parallel to this vector.
+    ///
+    /// # Contract
+    ///
+    /// The `blobs` vector inside [`AttachmentArrays`] is shared/accumulated across
+    /// both node and edge attachments. Its order is significant: blob offsets in
+    /// [`AttRow`] reference positions within this shared buffer. Consumers must
+    /// preserve this ordering when deserializing.
+    fn build_attachments(
+        &self,
+        warp_id: WarpId,
+        reachable_nodes: &BTreeSet<NodeKey>,
+        edges: &[EdgeRow],
+    ) -> AttachmentArrays {
+        let mut node_atts_index: Vec<Range> = Vec::new();
+        let mut node_atts: Vec<AttRow> = Vec::new();
+        let mut blobs: Vec<u8> = Vec::new();
+
+        // Node attachments (parallel to nodes)
+        for key in self.nodes.keys() {
+            if key.warp_id != warp_id || !reachable_nodes.contains(key) {
+                continue;
+            }
+            let att_key = AttachmentKey {
+                owner: AttachmentOwner::Node(*key),
+                plane: AttachmentPlane::Alpha,
+            };
+            let start = node_atts.len() as u64;
+            if let Some(value) = self.node_attachments.get(&att_key) {
+                node_atts.push(att_value_to_row(value, &mut blobs));
+            }
+            let len = node_atts.len() as u64 - start;
+            node_atts_index.push(Range {
+                start_le: start.to_le(),
+                len_le: len.to_le(),
+            });
+        }
+
+        // Edge attachments (parallel to edges vector)
+        let mut edge_atts_index: Vec<Range> = Vec::with_capacity(edges.len());
+        let mut edge_atts: Vec<AttRow> = Vec::new();
+
+        for edge_row in edges {
+            let edge_id = EdgeId(edge_row.edge_id);
+            let att_key = AttachmentKey {
+                owner: AttachmentOwner::Edge(crate::ident::EdgeKey {
+                    warp_id,
+                    local_id: edge_id,
+                }),
+                plane: AttachmentPlane::Beta,
+            };
+            let start = edge_atts.len() as u64;
+            if let Some(value) = self.edge_attachments.get(&att_key) {
+                edge_atts.push(att_value_to_row(value, &mut blobs));
+            }
+            let len = edge_atts.len() as u64 - start;
+            edge_atts_index.push(Range {
+                start_le: start.to_le(),
+                len_le: len.to_le(),
+            });
+        }
+
+        AttachmentArrays {
+            node_atts_index,
+            node_atts,
+            edge_atts_index,
+            edge_atts,
+            blobs,
+        }
     }
 
     /// Compute `state_root` directly from accumulator tables.
@@ -1134,7 +1289,42 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_node_cascades_edges() {
+    fn test_delete_isolated_node_works() {
+        let (mut acc, warp_id, _root_id) = setup_single_instance();
+
+        // Create an isolated node (no edges)
+        let node_id = make_node_id("isolated-node");
+        let node_key = NodeKey {
+            warp_id,
+            local_id: node_id,
+        };
+
+        acc.apply_ops(vec![WarpOp::UpsertNode {
+            node: node_key,
+            record: NodeRecord {
+                ty: make_type_id("Isolated"),
+            },
+        }]);
+
+        // Verify setup
+        assert!(acc.nodes.contains_key(&node_key));
+
+        // Delete the isolated node
+        acc.apply_ops(vec![WarpOp::DeleteNode { node: node_key }]);
+
+        // Verify node is gone
+        assert!(!acc.nodes.contains_key(&node_key));
+
+        // Verify alpha attachment is also gone (allowed mini-cascade)
+        let att_key = AttachmentKey {
+            owner: AttachmentOwner::Node(node_key),
+            plane: AttachmentPlane::Alpha,
+        };
+        assert!(!acc.node_attachments.contains_key(&att_key));
+    }
+
+    #[test]
+    fn test_delete_node_does_not_cascade_edges() {
         let (mut acc, warp_id, root_id) = setup_single_instance();
 
         // Create a node with edges
@@ -1178,15 +1368,29 @@ mod tests {
         assert!(acc.edges.contains_key(&(warp_id, edge_from_root)));
         assert!(acc.edges.contains_key(&(warp_id, edge_to_root)));
 
-        // Delete the connected node
+        // Delete edges first (required before DeleteNode in enforced mode)
+        acc.apply_ops(vec![
+            WarpOp::DeleteEdge {
+                warp_id,
+                from: root_id,
+                edge_id: edge_from_root,
+            },
+            WarpOp::DeleteEdge {
+                warp_id,
+                from: node_id,
+                edge_id: edge_to_root,
+            },
+        ]);
+
+        // Verify edges are gone
+        assert!(!acc.edges.contains_key(&(warp_id, edge_from_root)));
+        assert!(!acc.edges.contains_key(&(warp_id, edge_to_root)));
+
+        // Now delete the isolated node
         acc.apply_ops(vec![WarpOp::DeleteNode { node: node_key }]);
 
         // Verify node is gone
         assert!(!acc.nodes.contains_key(&node_key));
-
-        // Verify incident edges are cascade-deleted
-        assert!(!acc.edges.contains_key(&(warp_id, edge_from_root)));
-        assert!(!acc.edges.contains_key(&(warp_id, edge_to_root)));
     }
 
     #[test]

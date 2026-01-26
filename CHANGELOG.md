@@ -5,6 +5,100 @@
 
 ## Unreleased
 
+### Added - Phase 6B: Footprint Enforcement (ADR-0007)
+
+- **FootprintGuard runtime enforcement** (`boaw/exec.rs`): `catch_unwind`-based guard validates
+  that rewrite-rule executors only read/write resources declared in their `Footprint`. Active in
+  debug builds and opt-in for release (`footprint_enforce_release` feature). Disabled by
+  `unsafe_graph` feature.
+
+- **`GraphView::new_guarded()`** (`graph_view.rs`): Read-side enforcement intercepts `node()`,
+  `edges_from()`, `has_edge()`, `node_attachment()`, `edge_attachment()` calls against declared
+  read sets.
+
+- **`ExecItem::new()` constructor** (`boaw/exec.rs`): Private `kind: ExecItemKind` field
+  (cfg-gated) distinguishes `User` vs `System` rules for instance-op authorization.
+
+- **`FootprintViolation` / `ViolationKind` public types** (`footprint.rs`): Typed panic payloads
+  for ergonomic test assertions — `NodeReadNotDeclared`, `NodeWriteNotDeclared`,
+  `EdgeReadNotDeclared`, `EdgeWriteNotDeclared`, `AttachmentReadNotDeclared`,
+  `AttachmentWriteNotDeclared`, `CrossWarpEmission`, `UnauthorizedInstanceOp`, `OpWarpUnknown`.
+
+- **`check_op()` post-hoc write validation** (`boaw/exec.rs`): Validates emitted `WarpOp`s against
+  declared write sets. Edge mutations (`UpsertEdge`/`DeleteEdge`) are validated by
+  `op_write_targets()` in `footprint_guard.rs` to require only the `from` node in `n_write`
+  (the `to` node is intentionally not required). Rationale: `GraphStore` maintains both
+  `edges_from` and `edges_to`, but adjacency mutation attribution is recorded against the
+  source node (`from`) only.
+
+- **Slice-theorem proof tests** (`tests/boaw_footprints.rs`): 15 initial integration tests proving
+  enforcement catches drift, cross-warp violations, instance-op escalation, and
+  write-violation-overrides-panic invariant.
+
+#### Feature Flag Semantics
+
+- **Debug builds**: enforcement enabled by default (`debug_assertions` on).
+- **Release builds**: enforcement disabled unless `footprint_enforce_release` is enabled.
+- **`unsafe_graph`**: unconditionally disables enforcement (guards + validation), even in release.
+  Builds with both `footprint_enforce_release` and `unsafe_graph` are rejected at compile time.
+  Intended use: performance benchmarking or fuzzing where safety checks are deliberately bypassed.
+
+#### Panic Recovery Semantics
+
+- `execute_item_enforced` wraps executor calls in `catch_unwind`, performs read enforcement
+  via `GraphView::new_guarded`, and post-hoc write enforcement via `check_op()`.
+- A `FootprintViolation` (triggered via `panic_any` in `footprint_guard.rs`) produces a
+  `PoisonedDelta` rather than a recoverable `Result`. The violating item's execution is aborted
+  and the worker returns `WorkerResult::Poisoned` immediately (fail-fast). Other workers may
+  continue until merge, but the tick will abort regardless.
+- At the engine layer, poisoned deltas abort the tick via `std::panic::resume_unwind()`: in the
+  `delta_validate` path, non-poisoned deltas are processed until a `PoisonedDelta` is encountered,
+  triggering `MergeError::PoisonedDelta` and `resume_unwind()` (via `into_panic()`); in the
+  non-`delta_validate` path, the iterator is flattened via `.map()` until an `Err(poisoned)`
+  causes immediate `resume_unwind()`. Abort is immediate with no cleanup once `resume_unwind()`
+  is invoked. No partial commits occur.
+
+#### Performance Impact
+
+- See `docs/notes/boaw-perf-baseline.md` for measured overhead.
+- Debug-mode enforcement measured <5% overhead for small footprints and ~15% for larger
+  footprints with frequent reads. Release builds are zero-overhead when enforcement is cfg-gated.
+- Baseline focused on `FootprintGuard` write validation in `boaw/exec.rs` and read-side checks in
+  `GraphView::new_guarded()`. Enforcement remains opt-in for release.
+
+#### Known Limitations (Phase 6B)
+
+- **Cross-warp enforcement**: `check_op()` rejects cross-warp emissions except for
+  `ExecItemKind::System` instance-level ops. System rules are built-in executors such as inbox
+  handling (`DISPATCH_INBOX_RULE_NAME`, `ACK_PENDING_RULE_NAME`). Instance-level ops are
+  `WarpOp` variants that modify warp instances (`UpsertWarpInstance`, `DeleteWarpInstance`).
+  System items are created via `ExecItem::new_system()` (cfg-gated `pub(crate)`). Portal-based
+  cross-warp permissions are planned for Phase 7.
+- **Footprint ergonomics**: current `Footprint` API requires verbose `NodeSet`/`EdgeSet`/`AttachmentSet`
+  construction; builder/derive helpers are planned for Phase 6C+.
+- **Over-declaration**: overly broad write sets reduce parallelism; there is no automated detection
+  or warning for over-declared writes yet.
+- **Guard metadata trade-offs**: guard metadata is assembled from a `HashMap` per tick; alternatives
+  (e.g., vector indexing) are unbenchmarked.
+- **Poison invariant**: poisoned deltas are dropped and abort the tick; recovery or partial salvage
+  remains undefined pending a stronger typestate API. Key symbols by category:
+    - **Types**: `FootprintGuard`, `FootprintViolation`
+    - **Constructors/Methods**: `GraphView::new_guarded`, `ExecItem::new`
+    - **Functions**: `check_op`
+    - **Tests/Examples**: `tests/boaw_footprints.rs`
+
+    See ADR-0007 for full context.
+
+### Changed - DeleteNode No Longer Cascades Edges
+
+- **BREAKING**: `GraphStore::delete_node()` now returns `Err(DeleteNodeError::NodeNotIsolated)`
+  if the node has any attached edges. Previously, edges were silently deleted.
+- **New API**: `delete_node_isolated()` explicitly requires the node to have no edges.
+- **Footprint enforcement**: `op_write_targets(DeleteNode)` now includes the alpha attachment
+  in the write set, ensuring attachment cleanup is properly declared.
+- **Rationale**: Implicit cascade deletion violated the principle of least surprise and made
+  footprint declarations ambiguous. Callers must now explicitly delete edges before nodes.
+
 ### Added - SPEC-0004: Worldlines & Playback
 
 - **`worldline.rs`**: Worldline types for history tracking
@@ -81,9 +175,12 @@
 - **P1: OOM prevention** (`materialization/frame_v2.rs`): Bound `entry_count` by remaining payload size in `decode_v2_packet` to prevent malicious allocation
 - **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
 - **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
-- **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Result<Vec<TickDelta>, WarpId>` instead of panicking on missing store; caller maps to `EngineError::InternalCorruption`
+- **P1: Silent skip → Result** (`boaw/exec.rs`): `execute_work_queue` returns `Vec<WorkerResult>` with variants `Success(TickDelta)`, `Poisoned(PoisonedDelta)`, `MissingStore(WarpId)`; caller maps `MissingStore` to `EngineError::UnknownWarp`
+- **P1: Guard metadata scoping** (`engine_impl.rs`): Guard metadata (enforcement tracking of read/write footprints and violation markers) now keys by warp-scoped `NodeKey` (`WarpId + NodeId`), fixing cross-warp collisions that produced false positives/negatives when different warps reused the same local IDs; detected via multi-warp enforcement tests (e.g., slice theorem replay).
 - **P2: Tilde-pin bytes dep** (`crates/warp-benches/Cargo.toml`): `bytes = "~1.11"` for minor-version stability
-- **P2: Markdownlint MD060** (`.markdownlint.json`): Removed global MD060 disable (all tables are well-formed; no false positives to suppress)
+- **P2: Markdownlint MD060** (`.markdownlint.json`): Global MD060 disable retained to avoid table false positives (revisit once tables are normalized)
+- **P2: Port rule footprint** (`crates/echo-dry-tests/src/demo_rules.rs`): Always declare scope node read to prevent enforcement panics when node is missing
+- **P2: Motion rule footprint** (`crates/echo-dry-tests/src/demo_rules.rs`): Always declare scope node read to prevent enforcement panics when node is missing
 - **P2: Test hardening** (`tests/`): Real `compute_commit_hash_v2` in all test worldline setups, u8 truncation guards (`num_ticks <= 127`), updated playback tests to match corrected `publish_truth` indexing
 - **Trivial: Phase 6B benchmark** (`boaw_baseline.rs`): Added `bench_work_queue` exercising full `build_work_units → execute_work_queue` pipeline across multi-warp setups
 - **Trivial: Perf baseline stats** (`docs/notes/boaw-perf-baseline.md`): Expanded statistical context note with sample size, CI methodology, and Criterion report location

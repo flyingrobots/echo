@@ -118,7 +118,7 @@ _Multi-parent commits and prerequisites. ~2-3 weeks._
 | -------------------------------- | --------------- | ----------------------------------------------------------------------- |
 | **OpenPortal scheduling (T7.1)** | 4               | Scheduler tracks new warps; enforces "no same-tick writes to new warps" |
 | **DeltaView**                    | 6               | Overlay + base resolution during execution                              |
-| **FootprintGuard**               | 3               | Runtime validation that ops stay within claimed footprint               |
+| ~~**FootprintGuard**~~           | 3               | ✅ Done (44aebb0, 0d0231b)                                              |
 | **SnapshotBuilder wiring**       | 1               | Connect builder to test harness                                         |
 
 ### Core Forking Work
@@ -271,7 +271,7 @@ These are **not scheduled**. Only pursue if perf gate shows regression:
 
 - [ ] Implement OpenPortal scheduling (T7.1)
 - [ ] Implement DeltaView
-- [ ] Implement FootprintGuard
+- [x] Implement FootprintGuard (44aebb0, 0d0231b)
 - [ ] Wire SnapshotBuilder to test harness
 - [ ] Core forking semantics
 - [ ] Activate 14 tests

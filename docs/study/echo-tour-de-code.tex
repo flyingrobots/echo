@@ -805,7 +805,63 @@ execute_parallel(view, items, workers)
             RETURNS: Vec<TickDelta> (one per worker)
 \end{verbatim}
 
-\subsection{5.3 ExecItem Structure}\label{execitem-structure}
+\subsection{5.3 Enforced Execution Path}\label{enforced-execution-path}
+
+\textbf{Entry Point:} \texttt{execute\_item\_enforced()}
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:409-487}
+
+When footprint enforcement is active, each item is executed via
+\texttt{execute\_item\_enforced()} instead of a bare function-pointer call.
+This wraps execution with \texttt{catch\_unwind} and performs post-hoc
+\texttt{check\_op()} validation on any newly-emitted ops.
+
+\begin{verbatim}
+execute_item_enforced(store, item, idx, unit, delta)
+│
+├─ guard = unit.guards[idx]
+├─ view = GraphView::new_guarded(store, guard)
+│
+├─ ops_before = delta.len()
+│   Snapshot the op count BEFORE the executor runs
+│
+├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+│      (item.exec)(view, &item.scope, delta)
+│  }))
+│
+├─ FOR op IN delta.ops_ref()[ops_before..]:
+│     guard.check_op(op) → panic_any(FootprintViolation) on failure
+│     Validates that each newly-emitted op falls within the declared footprint.
+│     ExecItemKind::System items may emit warp-instance-level ops;
+│     ExecItemKind::User items may not.
+│
+└─ OUTCOME PRECEDENCE (returns Result<TickDelta, PoisonedDelta>):
+      ├─ IF exec panicked AND check_op panicked:
+      │     return Err(PoisonedDelta(FootprintViolationWithPanic))
+      │     The violation wraps both the FootprintViolation and the exec panic.
+      │
+      ├─ IF exec panicked OR check_op panicked (but not both):
+      │     return Err(PoisonedDelta(panic_payload))
+      │     Single panic payload (either executor or violation).
+      │
+      └─ IF both clean:
+            return Ok(delta)
+\end{verbatim}
+
+\textbf{The Poison Invariant:} If the executor panics, the \texttt{TickDelta}
+it was writing into is considered poisoned (partially-written ops with no
+transactional rollback). After an executor panic the delta must be
+discarded---it cannot be merged or committed.
+
+\textbf{Type-Level Enforcement:} The poison invariant is enforced at the type
+level via \texttt{PoisonedDelta}, a newtype distinct from \texttt{TickDelta}.
+When an executor panics, \texttt{execute\_item\_enforced()} returns
+\texttt{Result<TickDelta, PoisonedDelta>}. The API exposes \texttt{merge\_deltas\_ok()}
+(a higher-level wrapper around \texttt{merge\_deltas()}, which remains available
+feature-gated) that returns \texttt{Result} and only accepts non-poisoned deltas.
+A \texttt{PoisonedDelta} cannot be passed to \texttt{merge\_deltas\_ok()}---the
+type system prevents accidental merging.
+
+\subsection{5.4 ExecItem Structure}\label{execitem-structure}
 
 \textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:19-35}
 
@@ -816,11 +872,56 @@ execute_parallel(view, items, workers)
     \KeywordTok{pub}\NormalTok{ exec}\OperatorTok{:}\NormalTok{ ExecuteFn}\OperatorTok{,}     \CommentTok{// fn(GraphView, \&NodeId, \&mut TickDelta)}
     \KeywordTok{pub}\NormalTok{ scope}\OperatorTok{:}\NormalTok{ NodeId}\OperatorTok{,}       \CommentTok{// 32{-}byte node identifier}
     \KeywordTok{pub}\NormalTok{ origin}\OperatorTok{:}\NormalTok{ OpOrigin}\OperatorTok{,}    \CommentTok{// \{ intent\_id, rule\_id, match\_ix, op\_ix \}}
+
+    \CommentTok{// Private field, present only in enforcement builds:}
+    \AttributeTok{\#[}\NormalTok{cfg}\AttributeTok{(}\NormalTok{any}\AttributeTok{(}\NormalTok{debug\_assertions}\OperatorTok{,}\NormalTok{ feature }\OperatorTok{=} \StringTok{"footprint\_enforce\_release"}\AttributeTok{))]}
+    \AttributeTok{\#[}\NormalTok{cfg}\AttributeTok{(}\NormalTok{not}\AttributeTok{(}\NormalTok{feature }\OperatorTok{=} \StringTok{"unsafe\_graph"}\AttributeTok{))]}
+\NormalTok{    kind}\OperatorTok{:}\NormalTok{ ExecItemKind}\OperatorTok{,}
 \OperatorTok{\}}
 \end{Highlighting}
 \end{Shaded}
 
-\subsection{5.4 Thread Safety}\label{thread-safety}
+\textbf{\texttt{ExecItemKind} (cfg-gated):}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{ExecItemKind::User} --- Normal rule executor. May emit
+  node/edge/attachment ops scoped to the declared footprint. Cannot emit
+  warp-instance-level ops (\texttt{UpsertWarpInstance},
+  \texttt{DeleteWarpInstance}, \texttt{OpenPortal}).
+\item
+  \texttt{ExecItemKind::System} --- Internal-only executor (e.g., portal
+  opening). May emit warp-instance-level ops.
+\end{itemize}
+
+\texttt{ExecItem::new()} always creates \texttt{User} items. System items are
+constructed via \texttt{ExecItem::new\_system()} (cfg-gated \texttt{pub(crate)}
+constructor used by portal/inbox rules) and are never exposed through the public
+API.
+
+\textbf{The dual-attribute cfg-gate pattern:} The \texttt{kind} field (and all
+enforcement logic) is guarded by two cfg attributes that together express three
+conditions (\texttt{debug\_assertions}, \texttt{footprint\_enforce\_release},
+and \texttt{unsafe\_graph}):
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \texttt{\#[cfg(any(debug\_assertions, feature = "footprint\_enforce\_release"))]}
+  --- active in debug builds or when the release enforcement feature is
+  opted-in.
+\item
+  \texttt{\#[cfg(not(feature = "unsafe\_graph"))]} --- disabled when the
+  escape-hatch feature is set (for benchmarks/fuzzing that intentionally
+  bypass checks).
+\end{enumerate}
+
+This means enforcement is always-on in dev/test, opt-in for release, and
+explicitly removable for unsafe experimentation.
+
+\subsection{5.5 Thread Safety}\label{thread-safety}
 
 {\def\LTcaptype{none} % do not increment counter
 \begin{longtable}[]{@{}lll@{}}

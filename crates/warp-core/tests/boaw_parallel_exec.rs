@@ -12,12 +12,13 @@
 //! cargo test --package warp-core --test boaw_parallel_exec --features delta_validate
 //! ```
 
-// This test requires `--features delta_validate` to compile.
-// The merge_deltas function is feature-gated.
+// This test file only compiles when the delta_validate feature is enabled.
+// The merge_deltas_ok function and related symbols are feature-gated.
+#![cfg(feature = "delta_validate")]
 
 use warp_core::{
     execute_parallel, execute_parallel_sharded, execute_serial, make_node_id, make_type_id,
-    merge_deltas, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
+    merge_deltas_ok, AtomPayload, AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView,
     NodeId, NodeKey, NodeRecord, OpOrigin, TickDelta, WarpOp, NUM_SHARDS,
 };
 
@@ -60,15 +61,17 @@ fn make_exec_items(nodes: &[NodeId]) -> Vec<ExecItem> {
     nodes
         .iter()
         .enumerate()
-        .map(|(i, &scope)| ExecItem {
-            exec: touch_executor,
-            scope,
-            origin: OpOrigin {
-                intent_id: i as u64,
-                rule_id: 1,
-                match_ix: 0,
-                op_ix: 0,
-            },
+        .map(|(i, &scope)| {
+            ExecItem::new(
+                touch_executor,
+                scope,
+                OpOrigin {
+                    intent_id: i as u64,
+                    rule_id: 1,
+                    match_ix: 0,
+                    op_ix: 0,
+                },
+            )
         })
         .collect()
 }
@@ -81,11 +84,11 @@ fn parallel_equals_serial_basic() {
 
     // Serial execution
     let serial_delta = execute_serial(view, &items);
-    let serial_ops = merge_deltas(vec![serial_delta]).expect("merge failed");
+    let serial_ops = merge_deltas_ok(vec![serial_delta]).expect("merge failed");
 
     // Parallel execution with 4 workers
     let parallel_deltas = execute_parallel(view, &items, 4);
-    let parallel_ops = merge_deltas(parallel_deltas).expect("merge failed");
+    let parallel_ops = merge_deltas_ok(parallel_deltas).expect("merge failed");
 
     // Must produce same number of ops
     assert_eq!(
@@ -110,12 +113,12 @@ fn worker_count_invariance() {
 
     // Baseline with 1 worker
     let baseline_deltas = execute_parallel(view, &items, 1);
-    let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
+    let baseline_ops = merge_deltas_ok(baseline_deltas).expect("merge failed");
 
     // Test all worker counts
     for &workers in WORKER_COUNTS {
         let deltas = execute_parallel(view, &items, workers);
-        let ops = merge_deltas(deltas).expect("merge failed");
+        let ops = merge_deltas_ok(deltas).expect("merge failed");
 
         assert_eq!(
             baseline_ops.len(),
@@ -137,7 +140,7 @@ fn permutation_invariance_under_parallelism() {
 
     // Baseline
     let baseline_deltas = execute_parallel(view, &items, 1);
-    let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
+    let baseline_ops = merge_deltas_ok(baseline_deltas).expect("merge failed");
 
     for &seed in SEEDS {
         let mut rng = XorShift64::new(seed);
@@ -147,7 +150,7 @@ fn permutation_invariance_under_parallelism() {
 
             for &workers in WORKER_COUNTS {
                 let deltas = execute_parallel(view, &items, workers);
-                let ops = merge_deltas(deltas).expect("merge failed");
+                let ops = merge_deltas_ok(deltas).expect("merge failed");
 
                 assert_eq!(
                     baseline_ops.len(),
@@ -165,7 +168,7 @@ fn permutation_invariance_under_parallelism() {
 
 #[test]
 fn merge_dedupes_identical_ops() {
-    // Test that merge_deltas correctly dedupes identical ops from different workers
+    // Test that merge_deltas_ok correctly dedupes identical ops from different workers
     let (store, nodes) = make_test_store(4);
     let view = GraphView::new(&store);
 
@@ -200,7 +203,7 @@ fn merge_dedupes_identical_ops() {
     }
 
     // Merge should dedupe identical ops
-    let merged = merge_deltas(vec![delta1, delta2]).expect("merge failed");
+    let merged = merge_deltas_ok(vec![delta1, delta2]).expect("merge failed");
 
     // Should have exactly 4 ops (one per node), not 8
     assert_eq!(merged.len(), 4, "merge should dedupe identical ops");
@@ -218,7 +221,7 @@ fn empty_execution_produces_empty_result() {
 
     // Parallel
     let parallel_deltas = execute_parallel(view, &items, 4);
-    let merged = merge_deltas(parallel_deltas).expect("merge failed");
+    let merged = merge_deltas_ok(parallel_deltas).expect("merge failed");
     assert!(merged.is_empty(), "parallel merged should be empty");
 }
 
@@ -230,12 +233,12 @@ fn single_item_execution() {
 
     // Serial
     let serial_delta = execute_serial(view, &items);
-    let serial_ops = merge_deltas(vec![serial_delta]).expect("merge failed");
+    let serial_ops = merge_deltas_ok(vec![serial_delta]).expect("merge failed");
 
     // Parallel with various worker counts
     for &workers in WORKER_COUNTS {
         let parallel_deltas = execute_parallel(view, &items, workers);
-        let parallel_ops = merge_deltas(parallel_deltas).expect("merge failed");
+        let parallel_ops = merge_deltas_ok(parallel_deltas).expect("merge failed");
 
         assert_eq!(
             serial_ops.len(),
@@ -258,14 +261,14 @@ fn large_workload_worker_count_invariance() {
 
     // Baseline
     let baseline_deltas = execute_parallel(view, &items, 1);
-    let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
+    let baseline_ops = merge_deltas_ok(baseline_deltas).expect("merge failed");
 
     assert_eq!(baseline_ops.len(), 100, "should have 100 ops");
 
     // Test all worker counts
     for &workers in WORKER_COUNTS {
         let deltas = execute_parallel(view, &items, workers);
-        let ops = merge_deltas(deltas).expect("merge failed");
+        let ops = merge_deltas_ok(deltas).expect("merge failed");
 
         assert_eq!(
             baseline_ops.len(),
@@ -295,7 +298,7 @@ fn worker_count_capped_at_num_shards() {
 
     // Baseline with NUM_SHARDS workers (the cap)
     let baseline_deltas = execute_parallel(view, &items, NUM_SHARDS);
-    let baseline_ops = merge_deltas(baseline_deltas).expect("merge failed");
+    let baseline_ops = merge_deltas_ok(baseline_deltas).expect("merge failed");
 
     // Request more workers than shards - should be capped
     let capped_deltas = execute_parallel(view, &items, NUM_SHARDS * 2);
@@ -309,7 +312,7 @@ fn worker_count_capped_at_num_shards() {
         capped_deltas.len()
     );
 
-    let capped_ops = merge_deltas(capped_deltas).expect("merge failed");
+    let capped_ops = merge_deltas_ok(capped_deltas).expect("merge failed");
 
     // Results should still be correct
     assert_eq!(
@@ -353,11 +356,11 @@ fn sharded_distribution_is_deterministic() {
 
     // Run sharded execution multiple times - should be deterministic
     let first_deltas = execute_parallel_sharded(view, &items, 8);
-    let first_ops = merge_deltas(first_deltas).expect("merge failed");
+    let first_ops = merge_deltas_ok(first_deltas).expect("merge failed");
 
     for run in 1..=5 {
         let deltas = execute_parallel_sharded(view, &items, 8);
-        let ops = merge_deltas(deltas).expect("merge failed");
+        let ops = merge_deltas_ok(deltas).expect("merge failed");
 
         assert_eq!(
             first_ops.len(),
@@ -383,11 +386,11 @@ fn default_parallel_uses_sharded() {
 
     // Default execute_parallel
     let default_deltas = execute_parallel(view, &items, 4);
-    let default_ops = merge_deltas(default_deltas).expect("merge failed");
+    let default_ops = merge_deltas_ok(default_deltas).expect("merge failed");
 
     // Explicit sharded
     let sharded_deltas = execute_parallel_sharded(view, &items, 4);
-    let sharded_ops = merge_deltas(sharded_deltas).expect("merge failed");
+    let sharded_ops = merge_deltas_ok(sharded_deltas).expect("merge failed");
 
     assert_eq!(
         default_ops.len(),

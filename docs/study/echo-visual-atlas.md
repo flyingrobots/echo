@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo Visual Atlas
 
 > Standalone diagrams for understanding Echo's architecture.
@@ -187,12 +188,12 @@ flowchart TD
 
 ### Test Vectors (Frozen Protocol)
 
-| Input (first 8 bytes) | LE u64 | Shard |
-| -------------------- | ------ | ----- |
-| `0xDEADBEEFCAFEBABE` | `0xBEBAFECAEFBEADDE` | 190 (0xBE) |
-| `0x0000000000000000` | `0x0000000000000000` | 0 |
-| `0x2A00000000000000` | `0x000000000000002A` | 42 |
-| `0xFFFFFFFFFFFFFFFF` | `0xFFFFFFFFFFFFFFFF` | 255 |
+| Input (first 8 bytes) | LE u64               | Shard      |
+| --------------------- | -------------------- | ---------- |
+| `0xDEADBEEFCAFEBABE`  | `0xBEBAFECAEFBEADDE` | 222 (0xDE) |
+| `0x0000000000000000`  | `0x0000000000000000` | 0          |
+| `0x2A00000000000000`  | `0x000000000000002A` | 42         |
+| `0xFFFFFFFFFFFFFFFF`  | `0xFFFFFFFFFFFFFFFF` | 255        |
 
 ---
 
@@ -470,6 +471,55 @@ flowchart TD
 
 ---
 
+## 9b. FootprintGuard Enforcement Flow
+
+```mermaid
+flowchart TD
+    EXEC["execute_item_enforced()"]
+    SNAP["ops_before = delta.len()"]
+
+    subgraph parallel["Two independent catch_unwind calls"]
+        CATCH_EXEC["catch_unwind(executor)"]
+        CATCH_CHECK["catch_unwind(check_op loop)"]
+    end
+
+    MATCH{"Match (exec_panic, check_result)"}
+
+    OK["Ok(delta)"]
+    ERR_SINGLE["Err(PoisonedDelta)"]
+    ERR_BOTH["Err(FootprintViolationWithPanic)"]
+
+    EXEC --> SNAP --> CATCH_EXEC
+    SNAP --> CATCH_CHECK
+    CATCH_EXEC --> MATCH
+    CATCH_CHECK --> MATCH
+
+    MATCH -->|"(None, Ok)" | OK
+    MATCH -->|"(Some, Ok) or (None, Err)"| ERR_SINGLE
+    MATCH -->|"(Some, Err)"| ERR_BOTH
+
+    style OK fill:#c8e6c9
+    style ERR_SINGLE fill:#fff9c4
+    style ERR_BOTH fill:#ffcdd2
+```
+
+**Key:** Footprint enforcement is active when `cfg(debug_assertions)` or the
+`footprint_enforce_release` feature is enabled, **unless** the `unsafe_graph`
+feature is set. The `unsafe_graph` feature is mutually exclusive with enforcement
+and disables all footprint validation—no `FootprintViolation` can occur while
+`unsafe_graph` is active.
+
+When enforcement is active, every `ExecItem` execution is wrapped by
+`execute_item_enforced()`. Two independent `catch_unwind` boundaries run:
+one for the executor, one for the `check_op` validation loop. Both run
+regardless of whether the other panics. Results are combined in a 3-way match:
+
+- `(None, Ok)` → success, return `Ok(delta)`
+- `(Some, Ok)` or `(None, Err)` → single panic, return `Err(PoisonedDelta)`
+- `(Some, Err)` → both panicked, return `Err(FootprintViolationWithPanic)` wrapping both payloads
+
+---
+
 ## 10. Complete Data Flow: Intent to Render
 
 ```mermaid
@@ -609,4 +659,4 @@ flowchart TD
 
 ---
 
-*Visual Atlas generated 2026-01-18. Use alongside "What Makes Echo Tick?" for complete understanding.*
+_Visual Atlas generated 2026-01-25. Use alongside "What Makes Echo Tick?" for complete understanding._

@@ -4,7 +4,7 @@
 //!
 //! This module provides runtime validation that execute functions stay within
 //! their declared footprints. Violations are reported via [`std::panic::panic_any`]
-//! with a typed [`FootprintViolation`] payload, matchable via `downcast_ref` in tests.
+//! with typed payloads, matchable via `downcast_ref` in tests.
 //!
 //! # Scope
 //!
@@ -20,12 +20,29 @@
 //!
 //! # Panic Semantics
 //!
-//! Footprint violations panic with `panic_any(FootprintViolation)` because:
+//! Footprint violations panic with `panic_any` carrying one of two payloads:
 //!
-//! - Violations are **programmer errors** (incorrect footprint declarations), not
-//!   recoverable runtime conditions.
-//! - Detection must be immediate and unambiguous to catch bugs early.
-//! - Workers catch panics via `catch_unwind` in `execute_item_enforced`.
+//! - **[`FootprintViolation`]**: Standalone violation when the executor did not panic.
+//!   The guard's check functions (`check_node_read`, `check_op`, etc.) emit this directly.
+//!
+//! - **[`FootprintViolationWithPanic`]**: Composite payload when an executor panics AND
+//!   also has a write violation. Contains both the `FootprintViolation` and the original
+//!   executor panic payload. This is produced by `execute_item_enforced` when post-hoc
+//!   `check_op` validation fails on an already-panicked executor.
+//!
+//! Tests should use `downcast_ref` to detect both:
+//!
+//! ```ignore
+//! if let Some(v) = panic_payload.downcast_ref::<FootprintViolation>() {
+//!     // Pure violation (no executor panic)
+//! } else if let Some(vp) = panic_payload.downcast_ref::<FootprintViolationWithPanic>() {
+//!     // Violation + wrapped executor panic in vp.exec_panic
+//! }
+//! ```
+//!
+//! Both cases are **programmer errors** (incorrect footprint declarations), not
+//! recoverable runtime conditions. Detection is immediate and unambiguous.
+//! Workers catch panics via `catch_unwind` in `execute_item_enforced`.
 //!
 //! On violation: the violating item's execution is aborted, its delta becomes a
 //! `PoisonedDelta`, and the worker returns immediately (fail-fast). Poisoned

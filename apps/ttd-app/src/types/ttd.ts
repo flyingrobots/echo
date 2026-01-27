@@ -2,93 +2,107 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
 /**
- * Placeholder types for TTD protocol.
+ * TTD Protocol Types & App-Specific Utilities
  *
- * These will be replaced by Wesley-generated types from ttd-protocol-ts
- * once Phase 1b is complete. For now, they mirror the Rust types in
- * ttd-browser and warp-core.
+ * Re-exports types from @echo/ttd-protocol-ts (Wesley-generated).
+ * Keeps utility functions and app-specific types that are not in the protocol.
  */
 
-// ─── Identifiers ─────────────────────────────────────────────────────────────
+// ─── Import Protocol Types ───────────────────────────────────────────────────
 
-/** 32-byte hash identifier */
-export type Hash = Uint8Array;
+import type {
+  Hash,
+  CursorRole,
+  SeekResult,
+  ComplianceStatus,
+  ViolationSeverity,
+  StepResultKind,
+  CursorMoved,
+  SeekCompleted,
+  SeekFailed,
+  ViolationDetected,
+  ComplianceUpdate,
+  SessionStarted,
+  SessionEnded,
+  CursorCreated,
+  CursorDestroyed,
+  Violation,
+  TruthFrame,
+  ObligationState,
+  StepResult,
+  Snapshot,
+  ComplianceModel,
+  Obligation,
+  ObligationReport,
+  TtdSystem,
+} from "@echo/ttd-protocol-ts";
+
+// ─── Re-export Protocol Types ────────────────────────────────────────────────
+
+export type {
+  Hash,
+  CursorRole,
+  SeekResult,
+  ComplianceStatus,
+  ViolationSeverity,
+  StepResultKind,
+  CursorMoved,
+  SeekCompleted,
+  SeekFailed,
+  ViolationDetected,
+  ComplianceUpdate,
+  SessionStarted,
+  SessionEnded,
+  CursorCreated,
+  CursorDestroyed,
+  Violation,
+  TruthFrame,
+  ObligationState,
+  StepResult,
+  Snapshot,
+  ComplianceModel,
+  Obligation,
+  ObligationReport,
+  TtdSystem,
+};
+
+// ─── App-Specific Type Aliases & Helpers ─────────────────────────────────────
 
 /** Worldline identifier (32-byte hash) */
 export type WorldlineId = Hash;
 
-/** Cursor handle (from ttd-browser) */
-export type CursorId = number;
-
-/** Session handle (from ttd-browser) */
-export type SessionId = number;
-
-/** Transaction handle */
-export type TxId = bigint;
-
 /** Channel identifier (32-byte hash) */
 export type ChannelId = Hash;
 
-// ─── Playback ────────────────────────────────────────────────────────────────
+/**
+ * App-specific PlaybackMode type
+ * Maps to the protocol's PlaybackMode enum with string literal values
+ */
+export type PlaybackMode = "PAUSED" | "PLAY" | "STEP_FORWARD" | "STEP_BACK" | "SEEK";
 
-export type PlaybackMode = "Paused" | "Play" | "StepForward" | "StepBack";
+// ─── App-Specific Cursor State (extends protocol) ─────────────────────────────
 
-export type StepResult = {
-  result: "NoOp" | "Advanced" | "Seeked" | "ReachedFrontier";
-  tick: bigint;
-};
-
+/** Extended cursor state with app-specific fields */
 export interface CursorState {
-  id: CursorId;
+  id: number;
   worldlineId: WorldlineId;
   tick: bigint;
   mode: PlaybackMode;
   maxTick: bigint;
 }
 
-// ─── Sessions ────────────────────────────────────────────────────────────────
+// ─── App-Specific Obligation State (extends protocol) ──────────────────────────
 
-export interface TruthFrame {
-  channel: ChannelId;
-  value: Uint8Array;
-  valueHash: Hash;
-  tick: bigint;
-  commitHash: Hash;
-}
-
-// ─── Compliance ──────────────────────────────────────────────────────────────
-
-export type ViolationSeverity = "Info" | "Warn" | "Error" | "Fatal";
-
-export interface Violation {
-  code: string;
-  message: string;
-  severity: ViolationSeverity;
-}
-
-export interface ComplianceModel {
-  isGreen: boolean;
-  violations: Violation[];
-}
-
-// ─── Obligations ─────────────────────────────────────────────────────────────
-
+/** Extended obligation state with typed status */
 export type ObligationStatus = "Pending" | "Satisfied" | "Violated";
 
-export interface Obligation {
-  id: string;
-  description: string;
-  deadlineTick: bigint;
-  status: ObligationStatus;
+export interface ObligationStateApp {
+  pending: Array<{ id: string; description: string; deadlineTick: bigint }>;
+  satisfied: Array<{ id: string; description: string; deadlineTick: bigint }>;
+  violated: Array<{ id: string; description: string; deadlineTick: bigint }>;
 }
 
-export interface ObligationState {
-  pending: Obligation[];
-  satisfied: Obligation[];
-  violated: Obligation[];
-}
-
-// ─── Worldlines ──────────────────────────────────────────────────────────────
+// ─── Worldlines (app-specific) ────────────────────────────────────────────────
 
 export interface WorldlineNode {
   id: WorldlineId;
@@ -96,10 +110,10 @@ export interface WorldlineNode {
   forkTick?: bigint;
   label: string;
   compliance: ComplianceModel;
-  children: WorldlineNode[];
+  children: WorldlineNode[] ;
 }
 
-// ─── Provenance ──────────────────────────────────────────────────────────────
+// ─── Provenance (app-specific) ────────────────────────────────────────────────
 
 export interface AtomWrite {
   atomId: Hash;
@@ -114,7 +128,7 @@ export interface ProvenanceChain {
   writes: AtomWrite[];
 }
 
-// ─── State Inspector ─────────────────────────────────────────────────────────
+// ─── State Inspector (app-specific) ───────────────────────────────────────────
 
 export interface AtomEntry {
   id: Hash;
@@ -125,7 +139,7 @@ export interface AtomEntry {
   lastWriteRule: string;
 }
 
-// ─── Receipts ────────────────────────────────────────────────────────────────
+// ─── Receipts (app-specific) ─────────────────────────────────────────────────
 
 export interface TtdrReceipt {
   version: number;
@@ -137,7 +151,7 @@ export interface TtdrReceipt {
   emissionsDigest: Hash;
 }
 
-// ─── Utility ─────────────────────────────────────────────────────────────────
+// ─── Utility Functions ────────────────────────────────────────────────────────
 
 /** Convert a hex string to Uint8Array */
 export function hexToBytes(hex: string): Uint8Array {

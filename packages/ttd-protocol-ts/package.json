@@ -1,0 +1,19 @@
+{
+  "name": "@echo/ttd-protocol-ts",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./index.ts"
+    }
+  },
+  "description": "Generated TTD protocol types from Wesley schema (DO NOT EDIT)",
+  "license": "Apache-2.0",
+  "private": true,
+  "dependencies": {
+    "zod": "^4.0.0"
+  }
+}

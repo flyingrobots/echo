@@ -3,13 +3,12 @@
 
 import { create } from "zustand";
 import type {
-  CursorId,
   CursorState,
   PlaybackMode,
   WorldlineId,
   WorldlineNode,
   ComplianceModel,
-  ObligationState,
+  ObligationStateApp,
   AtomEntry,
 } from "../types/ttd";
 
@@ -29,7 +28,7 @@ interface TtdState {
 
   // Compliance & Obligations
   compliance: ComplianceModel;
-  obligations: ObligationState;
+  obligations: ObligationStateApp;
 
   // State inspector
   atoms: AtomEntry[];
@@ -62,7 +61,7 @@ interface TtdActions {
 
   // Compliance
   setCompliance: (compliance: ComplianceModel) => void;
-  setObligations: (obligations: ObligationState) => void;
+  setObligations: (obligations: ObligationStateApp) => void;
 
   // State inspector
   setAtoms: (atoms: AtomEntry[]) => void;
@@ -109,20 +108,20 @@ export const useTtdStore = create<TtdState & TtdActions>((set, get) => ({
   // Playback controls
   play: () => {
     set({ isPlaying: true });
-    get().setPlaybackMode("Play");
+    get().setPlaybackMode("PLAY");
   },
 
   pause: () => {
     set({ isPlaying: false });
-    get().setPlaybackMode("Paused");
+    get().setPlaybackMode("PAUSED");
   },
 
   stepForward: () => {
-    get().setPlaybackMode("StepForward");
+    get().setPlaybackMode("STEP_FORWARD");
   },
 
   stepBack: () => {
-    get().setPlaybackMode("StepBack");
+    get().setPlaybackMode("STEP_BACK");
   },
 
   seekTo: (tick) =>

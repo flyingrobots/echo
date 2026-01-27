@@ -28,6 +28,7 @@ members = [
     "crates/echo-wasm-bindings",
     "crates/echo-wesley-gen",
     "crates/echo-ttd-gen",
+    "crates/ttd-protocol-rs",
     "crates/echo-dry-tests",
     "xtask"
 ]
@@ -49,6 +50,7 @@ echo-session-client = { version = "0.1.0", path = "crates/echo-session-client" }
 echo-session-proto = { version = "0.1.0", path = "crates/echo-session-proto" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }
 warp-core = { version = "0.1.0", path = "crates/warp-core" }
+ttd-protocol-rs = { version = "0.1.0", path = "crates/ttd-protocol-rs" }
 
 [profile.release]
 opt-level = "s"

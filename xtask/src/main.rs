@@ -12,6 +12,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Parser)]
@@ -31,6 +32,8 @@ enum Commands {
     Dags(DagsArgs),
     /// Run DIND (Deterministic Ironclad Nightmare Drills) harness.
     Dind(DindArgs),
+    /// Wesley protocol generator commands.
+    Wesley(WesleyArgs),
 }
 
 #[derive(Args)]
@@ -90,6 +93,52 @@ enum DindCommands {
 }
 
 #[derive(Args)]
+struct WesleyArgs {
+    /// Wesley subcommand to execute.
+    #[command(subcommand)]
+    command: WesleyCommands,
+}
+
+#[derive(Subcommand)]
+enum WesleyCommands {
+    /// Sync Wesley-generated artifacts into Echo.
+    ///
+    /// Runs Wesley's compile-ttd, copies outputs, generates Rust via echo-ttd-gen,
+    /// and updates the provenance lockfile.
+    Sync {
+        /// Path to Wesley repository (default: ~/git/Wesley).
+        #[arg(long, default_value = "~/git/Wesley")]
+        wesley_path: String,
+
+        /// Path to TTD schema file. If not specified, uses local schema at
+        /// `schemas/ttd-protocol.graphql` if it exists, otherwise falls back
+        /// to the schema relative to Wesley repo.
+        #[arg(long)]
+        schema: Option<String>,
+
+        /// Skip Rust generation (only sync manifests and TypeScript).
+        #[arg(long)]
+        skip_rust: bool,
+
+        /// Dry run: show what would be done without writing files.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Verify that vendored artifacts match what Wesley would generate.
+    Check {
+        /// Path to Wesley repository (default: ~/git/Wesley).
+        #[arg(long, default_value = "~/git/Wesley")]
+        wesley_path: String,
+
+        /// Path to TTD schema file. If not specified, uses local schema at
+        /// `schemas/ttd-protocol.graphql` if it exists, otherwise falls back
+        /// to the schema relative to Wesley repo.
+        #[arg(long)]
+        schema: Option<String>,
+    },
+}
+
+#[derive(Args)]
 struct DagsArgs {
     /// Fetch fresh issue/milestone snapshots via `gh` (requires network/auth).
     #[arg(long)]
@@ -120,6 +169,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Dags(args) => run_dags(args),
         Commands::Dind(args) => run_dind(args),
+        Commands::Wesley(args) => run_wesley(args),
     }
 }
 
@@ -472,4 +522,388 @@ fn load_matching_scenarios(
         .collect();
 
     Ok(filtered)
+}
+
+// ─── Wesley Commands ─────────────────────────────────────────────────────────
+
+fn run_wesley(args: WesleyArgs) -> Result<()> {
+    match args.command {
+        WesleyCommands::Sync {
+            wesley_path,
+            schema,
+            skip_rust,
+            dry_run,
+        } => {
+            let resolved_schema = resolve_schema_path(&wesley_path, schema.as_deref())?;
+            run_wesley_sync(&wesley_path, &resolved_schema, skip_rust, dry_run)
+        }
+        WesleyCommands::Check {
+            wesley_path,
+            schema,
+        } => {
+            let resolved_schema = resolve_schema_path(&wesley_path, schema.as_deref())?;
+            run_wesley_check(&wesley_path, &resolved_schema)
+        }
+    }
+}
+
+/// Resolve the schema path with the following priority:
+/// 1. If explicitly provided via --schema, use that path directly
+/// 2. If local schema exists at `schemas/ttd-protocol.graphql`, use it
+/// 3. Fall back to Wesley repo path `schemas/ttd-protocol.graphql`
+fn resolve_schema_path(wesley_path: &str, schema_override: Option<&str>) -> Result<String> {
+    // If explicitly provided, use it directly (could be absolute or relative to Wesley)
+    if let Some(schema) = schema_override {
+        return Ok(schema.to_owned());
+    }
+
+    // Check for local schema in Echo repo
+    let local_schema = Path::new("schemas/ttd-protocol.graphql");
+    if local_schema.exists() {
+        let abs_path =
+            std::fs::canonicalize(local_schema).context("failed to resolve local schema path")?;
+        println!("Using local schema: {}", abs_path.display());
+        return Ok(abs_path.to_string_lossy().into_owned());
+    }
+
+    // Fall back to Wesley repo path
+    let wesley_dir = expand_tilde(wesley_path);
+    let wesley_schema = Path::new(&wesley_dir).join("schemas/ttd-protocol.graphql");
+    if wesley_schema.exists() {
+        println!("Using Wesley schema: {}", wesley_schema.display());
+        return Ok("schemas/ttd-protocol.graphql".to_owned());
+    }
+
+    bail!(
+        "No schema found. Checked:\n  - schemas/ttd-protocol.graphql (local)\n  - {}/schemas/ttd-protocol.graphql (Wesley)",
+        wesley_dir
+    );
+}
+
+/// Expand ~ to home directory.
+fn expand_tilde(path: &str) -> String {
+    if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return format!("{}{}", home.to_string_lossy(), &path[1..]);
+        }
+    }
+    path.to_owned()
+}
+
+/// Sync Wesley outputs into Echo's vendored directories.
+fn run_wesley_sync(wesley_path: &str, schema: &str, skip_rust: bool, dry_run: bool) -> Result<()> {
+    let wesley_dir = expand_tilde(wesley_path);
+    let wesley_path = Path::new(&wesley_dir);
+
+    if !wesley_path.exists() {
+        bail!(
+            "Wesley repository not found at '{}'. Clone it or specify --wesley-path.",
+            wesley_dir
+        );
+    }
+
+    // Resolve schema path - could be absolute (local) or relative (to Wesley)
+    let schema_path = if Path::new(schema).is_absolute() {
+        Path::new(schema).to_owned()
+    } else {
+        wesley_path.join(schema)
+    };
+
+    if !schema_path.exists() {
+        bail!(
+            "TTD schema not found at '{}'. Create it or specify --schema.",
+            schema_path.display()
+        );
+    }
+
+    // Determine if using local schema
+    let is_local_schema = Path::new(schema).is_absolute() && schema.contains("/echo/schemas/");
+
+    println!("WESLEY SYNC");
+    println!("  Wesley repo: {}", wesley_dir);
+    println!(
+        "  Schema: {} {}",
+        schema_path.display(),
+        if is_local_schema { "(local)" } else { "" }
+    );
+    println!("  Skip Rust: {}", skip_rust);
+    println!("  Dry run: {}", dry_run);
+    println!();
+
+    // Get Wesley commit SHA for provenance
+    let wesley_sha = get_git_sha(wesley_path)?;
+    println!("Wesley commit: {}", wesley_sha);
+
+    // Create temp output directory for Wesley
+    let temp_dir = tempfile::tempdir().context("failed to create temp directory")?;
+    let temp_out = temp_dir.path();
+
+    // Step 1: Run Wesley compile-ttd
+    println!("\n>>> Running Wesley compile-ttd...");
+    if dry_run {
+        println!("  [dry-run] would run: wesley compile-ttd --schema {} --out-dir {} --target manifest,typescript",
+                 schema_path.display(), temp_out.display());
+    } else {
+        let status = Command::new("node")
+            .current_dir(wesley_path)
+            .args([
+                "packages/wesley-host-node/bin/wesley.mjs",
+                "compile-ttd",
+                "--schema",
+                schema_path.to_str().unwrap(),
+                "--out-dir",
+                temp_out.to_str().unwrap(),
+                "--target",
+                "manifest,typescript",
+            ])
+            .status()
+            .context("failed to run Wesley compile-ttd")?;
+
+        if !status.success() {
+            bail!("Wesley compile-ttd failed (exit status: {})", status);
+        }
+    }
+
+    // Step 2: Read schema_hash from generated manifest
+    let schema_hash = if dry_run {
+        "<dry-run>".to_owned()
+    } else {
+        let manifest_path = temp_out.join("manifest/manifest.json");
+        let manifest_content =
+            std::fs::read_to_string(&manifest_path).context("failed to read manifest.json")?;
+        let manifest: serde_json::Value =
+            serde_json::from_str(&manifest_content).context("failed to parse manifest.json")?;
+        manifest["schemaHash"].as_str().unwrap_or("").to_owned()
+    };
+    println!("Schema hash: {}", schema_hash);
+
+    // Step 3: Copy manifest files to crates/ttd-manifest/
+    println!("\n>>> Copying manifest files...");
+    let manifest_dest = Path::new("crates/ttd-manifest");
+    if dry_run {
+        println!(
+            "  [dry-run] would copy {} -> {}",
+            temp_out.join("manifest").display(),
+            manifest_dest.display()
+        );
+    } else {
+        copy_dir_contents(&temp_out.join("manifest"), manifest_dest)?;
+    }
+
+    // Step 4: Copy TypeScript files to packages/ttd-protocol-ts/
+    println!("\n>>> Copying TypeScript files...");
+    let ts_dest = Path::new("packages/ttd-protocol-ts");
+    if dry_run {
+        println!(
+            "  [dry-run] would copy {} -> {}",
+            temp_out.join("typescript").display(),
+            ts_dest.display()
+        );
+    } else {
+        copy_dir_contents(&temp_out.join("typescript"), ts_dest)?;
+    }
+
+    // Step 5: Generate Rust via echo-ttd-gen
+    let rust_dest = Path::new("crates/ttd-protocol-rs");
+    if !skip_rust {
+        println!("\n>>> Generating Rust via echo-ttd-gen...");
+        let ir_path = if dry_run {
+            temp_out.join("manifest/ttd-ir.json")
+        } else {
+            Path::new("crates/ttd-manifest/ttd-ir.json").to_owned()
+        };
+
+        if dry_run {
+            println!(
+                "  [dry-run] would run: cat {} | cargo run -p echo-ttd-gen -- -o {}/lib.rs",
+                ir_path.display(),
+                rust_dest.display()
+            );
+        } else {
+            let ir_content =
+                std::fs::read_to_string(&ir_path).context("failed to read ttd-ir.json")?;
+
+            let output = Command::new("cargo")
+                .args(["run", "-p", "echo-ttd-gen", "--quiet", "--"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .context("failed to spawn echo-ttd-gen")?;
+
+            use std::io::Write;
+            output
+                .stdin
+                .as_ref()
+                .unwrap()
+                .write_all(ir_content.as_bytes())?;
+            let output = output.wait_with_output()?;
+
+            if !output.status.success() {
+                bail!(
+                    "echo-ttd-gen failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+
+            let rust_code = String::from_utf8(output.stdout)
+                .context("echo-ttd-gen output was not valid UTF-8")?;
+
+            std::fs::write(rust_dest.join("lib.rs"), rust_code)
+                .context("failed to write lib.rs")?;
+            println!("  Wrote {}/lib.rs", rust_dest.display());
+        }
+    }
+
+    // Step 6: Update wesley.lock
+    println!("\n>>> Updating wesley.lock...");
+    let lock_path = Path::new("docs/wesley/wesley.lock");
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Determine schema source info for the lock file
+    let (schema_source, schema_path_for_lock) = if is_local_schema {
+        ("local", "schemas/ttd-protocol.graphql")
+    } else {
+        ("wesley", schema)
+    };
+
+    let lock_content = serde_json::json!({
+        "comment": "Wesley provenance file - records the state of Wesley when artifacts were generated",
+        "schema_source": schema_source,
+        "schema_path": schema_path_for_lock,
+        "wesley_repo": "https://github.com/flyingrobots/Wesley",
+        "wesley_commit": wesley_sha,
+        "schema_hash": schema_hash,
+        "generated_at": now,
+        "generator_versions": {
+            "wesley_cli": "0.1.0",
+            "echo_ttd_gen": env!("CARGO_PKG_VERSION")
+        },
+        "artifacts": {
+            "ttd_manifest": "crates/ttd-manifest/",
+            "ttd_protocol_rs": "crates/ttd-protocol-rs/",
+            "ttd_protocol_ts": "packages/ttd-protocol-ts/"
+        }
+    });
+
+    if dry_run {
+        println!("  [dry-run] would write to {}", lock_path.display());
+        println!("{}", serde_json::to_string_pretty(&lock_content)?);
+    } else {
+        std::fs::write(lock_path, serde_json::to_string_pretty(&lock_content)?)
+            .context("failed to write wesley.lock")?;
+        println!("  Wrote {}", lock_path.display());
+    }
+
+    println!("\nWESLEY SYNC complete.");
+    Ok(())
+}
+
+/// Get the current git SHA of a repository.
+fn get_git_sha(repo_path: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .current_dir(repo_path)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .context("failed to get git SHA")?;
+
+    if !output.status.success() {
+        bail!("git rev-parse HEAD failed");
+    }
+
+    Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+}
+
+/// Copy contents of a directory to another location.
+fn copy_dir_contents(src: &Path, dest: &Path) -> Result<()> {
+    if !src.exists() {
+        bail!("source directory '{}' does not exist", src.display());
+    }
+
+    // Ensure destination exists
+    std::fs::create_dir_all(dest)?;
+
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+
+        if src_path.is_file() {
+            std::fs::copy(&src_path, &dest_path)?;
+            println!("  Copied {}", dest_path.display());
+        }
+    }
+
+    Ok(())
+}
+
+/// Verify vendored artifacts match what Wesley would generate.
+fn run_wesley_check(wesley_path: &str, schema: &str) -> Result<()> {
+    let wesley_dir = expand_tilde(wesley_path);
+    let wesley_path = Path::new(&wesley_dir);
+
+    if !wesley_path.exists() {
+        bail!(
+            "Wesley repository not found at '{}'. Clone it or specify --wesley-path.",
+            wesley_dir
+        );
+    }
+
+    // Resolve schema path - could be absolute (local) or relative (to Wesley)
+    let schema_path = if Path::new(schema).is_absolute() {
+        Path::new(schema).to_owned()
+    } else {
+        wesley_path.join(schema)
+    };
+
+    if !schema_path.exists() {
+        bail!(
+            "TTD schema not found at '{}'. Specify --schema.",
+            schema_path.display()
+        );
+    }
+
+    // Determine if using local schema
+    let is_local_schema = Path::new(schema).is_absolute() && schema.contains("/echo/schemas/");
+
+    println!("WESLEY CHECK");
+    println!("  Wesley repo: {}", wesley_dir);
+    println!(
+        "  Schema: {} {}",
+        schema_path.display(),
+        if is_local_schema { "(local)" } else { "" }
+    );
+    println!();
+
+    // Read current lock file
+    let lock_path = Path::new("docs/wesley/wesley.lock");
+    let lock_content = std::fs::read_to_string(lock_path)
+        .context("failed to read wesley.lock - run 'cargo xtask wesley sync' first")?;
+    let lock: serde_json::Value = serde_json::from_str(&lock_content)?;
+
+    let expected_hash = lock["schema_hash"].as_str().unwrap_or("");
+    let expected_commit = lock["wesley_commit"].as_str().unwrap_or("");
+
+    // Get current Wesley commit
+    let current_commit = get_git_sha(wesley_path)?;
+
+    println!("Lock file:");
+    println!("  Wesley commit: {}", expected_commit);
+    println!("  Schema hash: {}", expected_hash);
+    println!();
+    println!("Current:");
+    println!("  Wesley commit: {}", current_commit);
+
+    if current_commit != expected_commit {
+        println!();
+        println!("WARNING: Wesley commit has changed since last sync.");
+        println!("  Expected: {}", expected_commit);
+        println!("  Current:  {}", current_commit);
+        println!();
+        println!("Run 'cargo xtask wesley sync' to update vendored artifacts.");
+        bail!("Wesley commit mismatch");
+    }
+
+    println!();
+    println!("WESLEY CHECK passed - artifacts are up to date.");
+    Ok(())
 }

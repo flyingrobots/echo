@@ -1,0 +1,335 @@
+# TTD Protocol Schema for Echo Time-Travel Debugger
+# Defines channels, operations, rules, and invariants for the TTD system.
+#
+# This schema is the source of truth for:
+# - Rust types in Echo (via echo-ttd-gen)
+# - TypeScript types in ttd-app (via Wesley compile-ttd)
+# - Manifest files for compliance checking
+
+scalar JSON
+scalar Hash  # 32-byte SHA-256 hash (hex string)
+scalar Timestamp  # ISO 8601 timestamp
+
+# ─── Session & Cursor State ─────────────────────────────────────────────────────
+
+enum CursorRole {
+  WRITER  # Can modify worldline (main cursor)
+  READER  # Read-only observer
+}
+
+enum PlaybackMode {
+  PAUSED     # Cursor is stationary
+  PLAY       # Playing forward in real-time
+  STEP_FORWARD   # Single step forward
+  STEP_BACK      # Single step backward
+  SEEK           # Seeking to specific tick
+}
+
+enum SeekResult {
+  OK           # Seek completed successfully
+  OUT_OF_RANGE # Target tick doesn't exist
+  DIVERGED     # Worldline diverged during seek
+}
+
+enum ComplianceStatus {
+  COMPLIANT       # All policies satisfied
+  VIOLATION       # Policy violation detected
+  PENDING         # Evaluation in progress
+}
+
+enum ViolationSeverity {
+  INFO    # Informational
+  WARN    # Warning
+  ERROR   # Error (non-blocking)
+  FATAL   # Fatal (blocks execution)
+}
+
+# ─── Channel Definitions ────────────────────────────────────────────────────────
+
+# Head channel: current cursor position (StrictSingle policy)
+type TtdHeadChannel @wes_channel(name: "ttd.head", version: 1, ordered: true) {
+  cursorMoved: CursorMoved!
+  seekCompleted: SeekCompleted!
+}
+
+# Errors channel: compliance violations and errors
+type TtdErrorsChannel @wes_channel(name: "ttd.errors", version: 1, ordered: true, persistent: true) {
+  violationDetected: ViolationDetected!
+  seekFailed: SeekFailed!
+}
+
+# Compliance channel: compliance status updates
+type TtdComplianceChannel @wes_channel(name: "ttd.compliance", version: 1, ordered: true) {
+  complianceUpdate: ComplianceUpdate!
+}
+
+# Session channel: session lifecycle events
+type TtdSessionChannel @wes_channel(name: "ttd.session", version: 1, ordered: true) {
+  sessionStarted: SessionStarted!
+  sessionEnded: SessionEnded!
+  cursorCreated: CursorCreated!
+  cursorDestroyed: CursorDestroyed!
+}
+
+# ─── Event Types ────────────────────────────────────────────────────────────────
+
+type CursorMoved @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 1) {
+  sessionId: Hash!
+  cursorId: Hash!
+  worldlineId: Hash!
+  warpId: Hash!
+  tick: Int!
+  commitHash: Hash!
+  timestamp: Timestamp!
+}
+
+type SeekCompleted @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 2) {
+  sessionId: Hash!
+  cursorId: Hash!
+  fromTick: Int!
+  toTick: Int!
+  result: SeekResult!
+  timestamp: Timestamp!
+}
+
+type SeekFailed @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 3) {
+  sessionId: Hash!
+  cursorId: Hash!
+  targetTick: Int!
+  reason: String!
+  timestamp: Timestamp!
+}
+
+type ViolationDetected @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 4) {
+  sessionId: Hash!
+  cursorId: Hash!
+  tick: Int!
+  violation: Violation!
+  timestamp: Timestamp!
+}
+
+type ComplianceUpdate @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 5) {
+  sessionId: Hash!
+  cursorId: Hash!
+  tick: Int!
+  status: ComplianceStatus!
+  violationCount: Int!
+  timestamp: Timestamp!
+}
+
+type SessionStarted @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 6) {
+  sessionId: Hash!
+  worldlineId: Hash!
+  timestamp: Timestamp!
+}
+
+type SessionEnded @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 7) {
+  sessionId: Hash!
+  reason: String
+  timestamp: Timestamp!
+}
+
+type CursorCreated @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 8) {
+  sessionId: Hash!
+  cursorId: Hash!
+  role: CursorRole!
+  initialTick: Int!
+  timestamp: Timestamp!
+}
+
+type CursorDestroyed @wes_codec(format: "cbor", canonical: true) @wes_registry(id: 9) {
+  sessionId: Hash!
+  cursorId: Hash!
+  finalTick: Int!
+  timestamp: Timestamp!
+}
+
+# ─── State Types ────────────────────────────────────────────────────────────────
+
+type Violation @wes_version(major: 1, minor: 0) {
+  code: String! @wes_stateField(key: true)
+  severity: ViolationSeverity! @wes_stateField
+  message: String! @wes_stateField
+  channelId: String @wes_stateField
+  tick: Int @wes_stateField
+  emissionCount: Int @wes_stateField
+}
+
+type TruthFrame @wes_version(major: 1, minor: 0) {
+  sessionId: Hash! @wes_stateField
+  cursorId: Hash! @wes_stateField
+  worldlineId: Hash! @wes_stateField
+  warpId: Hash! @wes_stateField
+  tick: Int! @wes_stateField
+  commitHash: Hash! @wes_stateField
+  channel: String! @wes_stateField
+  valueHash: Hash! @wes_stateField
+}
+
+type ObligationState @wes_version(major: 1, minor: 0) {
+  id: ID! @wes_stateField(key: true)
+  description: String! @wes_stateField
+  deadlineTick: Int! @wes_stateField
+  status: String! @wes_stateField  # pending, satisfied, violated
+}
+
+enum StepResultKind {
+  NO_OP
+  ADVANCED
+  SEEKED
+  REACHED_FRONTIER
+}
+
+type StepResult @wes_codec(format: "cbor", canonical: true) {
+  result: StepResultKind!
+  tick: Int!
+}
+
+type Snapshot @wes_codec(format: "cbor", canonical: true) {
+  worldlineId: Hash!
+  tick: Int!
+}
+
+type ComplianceModel @wes_codec(format: "cbor", canonical: true) {
+  isGreen: Boolean!
+  violations: [Violation!]!
+}
+
+type Obligation @wes_codec(format: "cbor", canonical: true) {
+  id: String!
+  description: String!
+  deadlineTick: Int!
+}
+
+type ObligationReport @wes_codec(format: "cbor", canonical: true) {
+  pending: [Obligation!]!
+  satisfied: [Obligation!]!
+  violated: [Obligation!]!
+}
+
+type CursorState @wes_version(major: 1, minor: 0) {
+  sessionId: Hash! @wes_stateField
+  cursorId: Hash! @wes_stateField(key: true)
+  worldlineId: Hash! @wes_stateField
+  warpId: Hash! @wes_stateField
+  tick: Int! @wes_stateField @wes_constraint(min: 0)
+  commitHash: Hash! @wes_stateField
+  role: CursorRole! @wes_stateField
+  mode: PlaybackMode! @wes_stateField
+}
+
+# ─── Operations ─────────────────────────────────────────────────────────────────
+
+type Mutation {
+  # Seek cursor to a specific tick
+  seek(sessionId: Hash!, cursorId: Hash!, targetTick: Int!): SeekCompleted!
+    @wes_op(name: "seek", idempotent: false, timeout: 5000)
+    @wes_produces(events: ["SeekCompleted", "CursorMoved"])
+    @wes_emission(channel: "ttd.head", event: "CursorMoved")
+    @wes_emitsTo(channel: "ttd.head", within: 100)
+    @wes_footprint(reads: ["CursorState"], writes: ["CursorState"])
+
+  # Step forward one tick
+  stepForward(sessionId: Hash!, cursorId: Hash!): CursorMoved!
+    @wes_op(name: "stepForward", idempotent: false)
+    @wes_produces(events: ["CursorMoved"])
+    @wes_emission(channel: "ttd.head", event: "CursorMoved")
+    @wes_emitsTo(channel: "ttd.head", within: 50)
+    @wes_footprint(reads: ["CursorState"], writes: ["CursorState"])
+
+  # Step backward one tick
+  stepBack(sessionId: Hash!, cursorId: Hash!): CursorMoved!
+    @wes_op(name: "stepBack", idempotent: false)
+    @wes_produces(events: ["CursorMoved"])
+    @wes_emission(channel: "ttd.head", event: "CursorMoved")
+    @wes_emitsTo(channel: "ttd.head", within: 50)
+    @wes_footprint(reads: ["CursorState"], writes: ["CursorState"])
+
+  # Play forward continuously
+  play(sessionId: Hash!, cursorId: Hash!): CursorMoved!
+    @wes_op(name: "play", idempotent: true)
+    @wes_footprint(writes: ["CursorState"])
+
+  # Pause playback
+  pause(sessionId: Hash!, cursorId: Hash!): CursorMoved!
+    @wes_op(name: "pause", idempotent: true)
+    @wes_footprint(writes: ["CursorState"])
+
+  # Create a new cursor in a session
+  createCursor(sessionId: Hash!, role: CursorRole!, initialTick: Int): CursorCreated!
+    @wes_op(name: "createCursor", idempotent: false)
+    @wes_produces(events: ["CursorCreated"])
+    @wes_emission(channel: "ttd.session", event: "CursorCreated")
+    @wes_footprint(creates: ["CursorState"])
+
+  # Destroy a cursor
+  destroyCursor(sessionId: Hash!, cursorId: Hash!): CursorDestroyed!
+    @wes_op(name: "destroyCursor", idempotent: true)
+    @wes_produces(events: ["CursorDestroyed"])
+    @wes_emission(channel: "ttd.session", event: "CursorDestroyed")
+    @wes_footprint(deletes: ["CursorState"])
+
+  # Start a new TTD session
+  startSession(worldlineId: Hash!): SessionStarted!
+    @wes_op(name: "startSession", idempotent: false)
+    @wes_produces(events: ["SessionStarted"])
+    @wes_emission(channel: "ttd.session", event: "SessionStarted")
+
+  # End a TTD session
+  endSession(sessionId: Hash!, reason: String): SessionEnded!
+    @wes_op(name: "endSession", idempotent: true)
+    @wes_produces(events: ["SessionEnded"])
+    @wes_emission(channel: "ttd.session", event: "SessionEnded")
+}
+
+type Query {
+  # Get current cursor state
+  getCursor(sessionId: Hash!, cursorId: Hash!): CursorState
+    @wes_op(name: "getCursor", readonly: true)
+    @wes_footprint(reads: ["CursorState"])
+
+  # Get all cursors in a session
+  listCursors(sessionId: Hash!): [CursorState!]!
+    @wes_op(name: "listCursors", readonly: true)
+    @wes_footprint(reads: ["CursorState"])
+
+  # Get compliance status for a tick
+  getComplianceStatus(sessionId: Hash!, cursorId: Hash!, tick: Int!): ComplianceUpdate
+    @wes_op(name: "getComplianceStatus", readonly: true)
+
+  # Get violations for a tick range
+  getViolations(sessionId: Hash!, fromTick: Int!, toTick: Int!): [Violation!]!
+    @wes_op(name: "getViolations", readonly: true)
+
+  # Get pending obligations
+  getPendingObligations(sessionId: Hash!, cursorId: Hash!): [ObligationState!]!
+    @wes_op(name: "getPendingObligations", readonly: true)
+}
+
+# ─── System Invariants ──────────────────────────────────────────────────────────
+
+type TtdSystem
+  @wes_invariant(
+    name: "tick_non_negative",
+    expr: "forall c in CursorState: c.tick >= 0",
+    severity: "error"
+  )
+  @wes_invariant(
+    name: "seek_emits_head",
+    expr: "op.seek.mustEmit(CursorMoved).within(100)",
+    severity: "error"
+  )
+  @wes_invariant(
+    name: "step_emits_head",
+    expr: "op.stepForward.mustEmit(CursorMoved).within(50)",
+    severity: "error"
+  )
+  @wes_invariant(
+    name: "session_has_cursor",
+    expr: "forall s in SessionStarted: exists c in CursorState: c.sessionId == s.sessionId",
+    severity: "warning"
+  )
+{
+  # GraphQL requires types to have at least one field
+  _placeholder: Boolean
+}

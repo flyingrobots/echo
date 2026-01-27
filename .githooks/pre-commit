@@ -89,6 +89,13 @@ if [[ -f scripts/check_task_lists.sh ]]; then
   fi
 fi
 
+# 5) Verify Wesley-generated outputs are up to date
+echo "Checking Wesley artifacts..."
+cargo xtask wesley check || {
+    echo "ERROR: Wesley artifacts are stale. Run 'cargo xtask wesley sync' to update."
+    exit 1
+}
+
 # 6) Lockfile guard: ensure lockfile version matches the pinned Cargo format
 if [[ -f Cargo.lock ]]; then
   # Normalize detected lockfile version (strip quotes/CR/whitespace)

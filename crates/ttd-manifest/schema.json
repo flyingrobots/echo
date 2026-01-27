@@ -1,0 +1,1177 @@
+{
+  "channels": [
+    {
+      "eventTypes": [
+        "CursorMoved",
+        "SeekCompleted"
+      ],
+      "kind": "CHANNEL",
+      "name": "ttd.head",
+      "ordered": true,
+      "persistent": false,
+      "version": 1
+    },
+    {
+      "eventTypes": [
+        "ViolationDetected",
+        "SeekFailed"
+      ],
+      "kind": "CHANNEL",
+      "name": "ttd.errors",
+      "ordered": true,
+      "persistent": true,
+      "version": 1
+    },
+    {
+      "eventTypes": [
+        "ComplianceUpdate"
+      ],
+      "kind": "CHANNEL",
+      "name": "ttd.compliance",
+      "ordered": true,
+      "persistent": false,
+      "version": 1
+    },
+    {
+      "eventTypes": [
+        "SessionStarted",
+        "SessionEnded",
+        "CursorCreated",
+        "CursorDestroyed"
+      ],
+      "kind": "CHANNEL",
+      "name": "ttd.session",
+      "ordered": true,
+      "persistent": false,
+      "version": 1
+    }
+  ],
+  "enums": [
+    {
+      "name": "CursorRole",
+      "values": [
+        "WRITER",
+        "READER"
+      ]
+    },
+    {
+      "name": "PlaybackMode",
+      "values": [
+        "PAUSED",
+        "PLAY",
+        "STEP_FORWARD",
+        "STEP_BACK",
+        "SEEK"
+      ]
+    },
+    {
+      "name": "SeekResult",
+      "values": [
+        "OK",
+        "OUT_OF_RANGE",
+        "DIVERGED"
+      ]
+    },
+    {
+      "name": "ComplianceStatus",
+      "values": [
+        "COMPLIANT",
+        "VIOLATION",
+        "PENDING"
+      ]
+    },
+    {
+      "name": "ViolationSeverity",
+      "values": [
+        "INFO",
+        "WARN",
+        "ERROR",
+        "FATAL"
+      ]
+    },
+    {
+      "name": "StepResultKind",
+      "values": [
+        "NO_OP",
+        "ADVANCED",
+        "SEEKED",
+        "REACHED_FRONTIER"
+      ]
+    }
+  ],
+  "generatedAt": {},
+  "generatedBy": "@wesley/generator-ttd",
+  "hash": "d55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871",
+  "invariants": [
+    {
+      "expr": "forall c in CursorState: c.tick >= 0",
+      "kind": "INVARIANT",
+      "name": "tick_non_negative",
+      "severity": "error"
+    },
+    {
+      "expr": "op.seek.mustEmit(CursorMoved).within(100)",
+      "kind": "INVARIANT",
+      "name": "seek_emits_head",
+      "severity": "error"
+    },
+    {
+      "expr": "op.stepForward.mustEmit(CursorMoved).within(50)",
+      "kind": "INVARIANT",
+      "name": "step_emits_head",
+      "severity": "error"
+    },
+    {
+      "expr": "forall s in SessionStarted: exists c in CursorState: c.sessionId == s.sessionId",
+      "kind": "INVARIANT",
+      "name": "session_has_cursor",
+      "severity": "warning"
+    }
+  ],
+  "ops": [
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": false,
+      "name": "stepForward",
+      "op_id": 116350618,
+      "readonly": false,
+      "resultType": "CursorMoved",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": false,
+      "name": "getCursor",
+      "op_id": 639452774,
+      "readonly": true,
+      "resultType": "CursorState",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": true,
+      "name": "destroyCursor",
+      "op_id": 856261846,
+      "readonly": false,
+      "resultType": "CursorDestroyed",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": false,
+      "name": "getPendingObligations",
+      "op_id": 1131058299,
+      "readonly": true,
+      "resultType": "ObligationState",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": true,
+      "name": "play",
+      "op_id": 1379835894,
+      "readonly": false,
+      "resultType": "CursorMoved",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": false,
+      "name": "stepBack",
+      "op_id": 1394286172,
+      "readonly": false,
+      "resultType": "CursorMoved",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": false,
+      "name": "listCursors",
+      "op_id": 1482350986,
+      "readonly": true,
+      "resultType": "CursorState",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "targetTick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "idempotent": false,
+      "name": "seek",
+      "op_id": 1824277946,
+      "readonly": false,
+      "resultType": "SeekCompleted",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": true,
+      "name": "pause",
+      "op_id": 2364740775,
+      "readonly": false,
+      "resultType": "CursorMoved",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "reason",
+          "required": false,
+          "type": "String"
+        }
+      ],
+      "idempotent": true,
+      "name": "endSession",
+      "op_id": 2437620378,
+      "readonly": false,
+      "resultType": "SessionEnded",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "fromTick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "toTick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "idempotent": false,
+      "name": "getViolations",
+      "op_id": 3281714801,
+      "readonly": true,
+      "resultType": "Violation",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "role",
+          "required": true,
+          "type": "CursorRole"
+        },
+        {
+          "list": false,
+          "name": "initialTick",
+          "required": false,
+          "type": "Int"
+        }
+      ],
+      "idempotent": false,
+      "name": "createCursor",
+      "op_id": 3581082943,
+      "readonly": false,
+      "resultType": "CursorCreated",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "idempotent": false,
+      "name": "getComplianceStatus",
+      "op_id": 3843805192,
+      "readonly": true,
+      "resultType": "ComplianceUpdate",
+      "rules": []
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "worldlineId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "idempotent": false,
+      "name": "startSession",
+      "op_id": 4193224715,
+      "readonly": false,
+      "resultType": "SessionStarted",
+      "rules": []
+    }
+  ],
+  "rules": [],
+  "types": [
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "worldlineId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "warpId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "commitHash",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "CursorMoved"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "fromTick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "toTick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "result",
+          "required": true,
+          "type": "SeekResult"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "SeekCompleted"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "targetTick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "reason",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "SeekFailed"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "violation",
+          "required": true,
+          "type": "Violation"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "ViolationDetected"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "status",
+          "required": true,
+          "type": "ComplianceStatus"
+        },
+        {
+          "list": false,
+          "name": "violationCount",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "ComplianceUpdate"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "worldlineId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "SessionStarted"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "reason",
+          "required": false,
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "SessionEnded"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "role",
+          "required": true,
+          "type": "CursorRole"
+        },
+        {
+          "list": false,
+          "name": "initialTick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "CursorCreated"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "finalTick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "timestamp",
+          "required": true,
+          "type": "Timestamp"
+        }
+      ],
+      "name": "CursorDestroyed"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "code",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": true
+          },
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "severity",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "ViolationSeverity"
+        },
+        {
+          "list": false,
+          "name": "message",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "channelId",
+          "required": false,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": false,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "emissionCount",
+          "required": false,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Int"
+        }
+      ],
+      "name": "Violation",
+      "version": {
+        "major": 1,
+        "minor": 0,
+        "patch": 0
+      }
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "worldlineId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "warpId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "commitHash",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "channel",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "valueHash",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        }
+      ],
+      "name": "TruthFrame",
+      "version": {
+        "major": 1,
+        "minor": 0,
+        "patch": 0
+      }
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "id",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": true
+          },
+          "type": "ID"
+        },
+        {
+          "list": false,
+          "name": "description",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "deadlineTick",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "status",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "String"
+        }
+      ],
+      "name": "ObligationState",
+      "version": {
+        "major": 1,
+        "minor": 0,
+        "patch": 0
+      }
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "result",
+          "required": true,
+          "type": "StepResultKind"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "StepResult"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "worldlineId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "Snapshot"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "isGreen",
+          "required": true,
+          "type": "Boolean"
+        },
+        {
+          "list": true,
+          "name": "violations",
+          "required": true,
+          "type": "Violation"
+        }
+      ],
+      "name": "ComplianceModel"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "id",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "description",
+          "required": true,
+          "type": "String"
+        },
+        {
+          "list": false,
+          "name": "deadlineTick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "Obligation"
+    },
+    {
+      "fields": [
+        {
+          "list": true,
+          "name": "pending",
+          "required": true,
+          "type": "Obligation"
+        },
+        {
+          "list": true,
+          "name": "satisfied",
+          "required": true,
+          "type": "Obligation"
+        },
+        {
+          "list": true,
+          "name": "violated",
+          "required": true,
+          "type": "Obligation"
+        }
+      ],
+      "name": "ObligationReport"
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": true
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "worldlineId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "warpId",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "constraint": {
+            "min": 0
+          },
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "commitHash",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "role",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "CursorRole"
+        },
+        {
+          "list": false,
+          "name": "mode",
+          "required": true,
+          "stateField": {
+            "derived": false,
+            "key": false
+          },
+          "type": "PlaybackMode"
+        }
+      ],
+      "name": "CursorState",
+      "version": {
+        "major": 1,
+        "minor": 0,
+        "patch": 0
+      }
+    },
+    {
+      "fields": [
+        {
+          "list": false,
+          "name": "_placeholder",
+          "required": false,
+          "type": "Boolean"
+        }
+      ],
+      "name": "TtdSystem"
+    }
+  ],
+  "version": "1.0.0"
+}

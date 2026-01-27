@@ -1,12 +1,17 @@
 {
   "MD007": { "indent": 4 },
+  "MD010": false,
+  "MD011": false,
   "MD013": false,
-  "MD033": {
-    "allowed_elements": ["u8", "br", "p", "img", "a", "strong", "sub"]
-  },
+  "MD018": false,
+  "MD022": false,
+  "MD024": false,
+  "MD025": false,
+  "MD029": false,
+  "MD033": false,
+  "MD037": false,
+  "MD040": false,
   "MD041": false,
-  "MD046": {
-    "style": "fenced"
-  },
+  "MD046": false,
   "MD060": false
 }

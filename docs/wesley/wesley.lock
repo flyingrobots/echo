@@ -1,0 +1,18 @@
+{
+  "artifacts": {
+    "ttd_manifest": "crates/ttd-manifest/",
+    "ttd_protocol_rs": "crates/ttd-protocol-rs/",
+    "ttd_protocol_ts": "packages/ttd-protocol-ts/"
+  },
+  "comment": "Wesley provenance file - records the state of Wesley when artifacts were generated",
+  "generated_at": "2026-01-27T09:39:45.095758+00:00",
+  "generator_versions": {
+    "echo_ttd_gen": "0.1.0",
+    "wesley_cli": "0.1.0"
+  },
+  "schema_hash": "d55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871",
+  "schema_path": "schemas/ttd-protocol.graphql",
+  "schema_source": "local",
+  "wesley_commit": "a8d1027430dc43e8eb6208cf3b13670ed644442c",
+  "wesley_repo": "https://github.com/flyingrobots/Wesley"
+}

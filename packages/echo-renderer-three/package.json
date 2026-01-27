@@ -1,5 +1,5 @@
 {
-    "name": "echo-renderer-three",
+    "name": "@echo/renderer-three",
     "version": "0.1.0",
     "description": "Three.js ScenePort adapter for Echo TTD",
     "type": "module",

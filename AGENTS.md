@@ -159,6 +159,59 @@ The 2-tier system means handoffs are seamless—no context is lost between agent
     - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
       Use the repository scripts/hooks; do not add dual-license headers to code.
 
+## Wesley Schema-First Development
+
+Echo uses **Wesley** as a schema-first protocol compiler. The schema is the single source of truth for all protocol types.
+
+### Golden Rule
+
+> **Never modify generated code. Modify the schema, then regenerate.**
+
+### Key Files
+
+| Path                            | Purpose                                                    |
+| ------------------------------- | ---------------------------------------------------------- |
+| `schemas/ttd-protocol.graphql`  | Source of truth for TTD protocol types (**lives in Echo**) |
+| `crates/ttd-protocol-rs/lib.rs` | Generated Rust types (**DO NOT EDIT**)                     |
+| `packages/ttd-protocol-ts/`     | Generated TypeScript types (**DO NOT EDIT**)               |
+| `crates/ttd-manifest/`          | Generated manifests (**DO NOT EDIT**)                      |
+| `docs/wesley/wesley.lock`       | Provenance tracking (commit SHA + schema_hash)             |
+
+### Workflow
+
+1. **Edit the schema** in Echo: `schemas/ttd-protocol.graphql`
+2. **Regenerate** in Echo: `cargo xtask wesley sync`
+3. **Verify** the schema_hash matches across all consumers
+4. **Commit** both the schema changes and generated outputs together
+
+### Versioning
+
+Every generated artifact embeds `SCHEMA_SHA256` (Rust) / `SCHEMA_HASH` (TypeScript). This hash **must match** across:
+
+- `ttd-protocol-rs` (Rust types)
+- `ttd-protocol-ts` (TypeScript types)
+- `ttd-browser` WASM module (via dependency on `ttd-protocol-rs`)
+- `ttd-manifest` JSON files
+- `docs/wesley/wesley.lock` provenance file
+
+If hashes diverge, the system is in an inconsistent state. Run `cargo xtask wesley sync` to realign.
+
+### CI Enforcement
+
+CI runs `cargo xtask wesley check` to verify generated outputs match the Wesley commit in `wesley.lock`. Pre-commit hooks also run this check. If it fails:
+
+1. Someone edited generated code directly (bad - revert and edit the schema instead), or
+2. The schema changed but outputs weren't regenerated (run `cargo xtask wesley sync`)
+
+### Why This Matters
+
+- **Determinism**: Same schema → same types → same wire format
+- **Consistency**: Rust, TypeScript, and manifests always agree
+- **Auditability**: `wesley.lock` records exactly which Wesley commit produced current outputs
+- **Safety**: `schema_hash` in TTDR headers enables version compatibility checks at runtime
+
+---
+
 ## Git Real
 
 1. **NEVER** use `--force` with any git command. If you think you need it, stop and ask the human for help.

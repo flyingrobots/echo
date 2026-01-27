@@ -27,6 +27,7 @@ jobs:
 
   clippy:
     name: Clippy
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +45,7 @@ jobs:
 
   clippy-det-fixed:
     name: Clippy (det_fixed)
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +63,7 @@ jobs:
 
   test:
     name: Tests
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +81,7 @@ jobs:
 
   test-musl:
     name: Tests (musl)
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -99,6 +103,7 @@ jobs:
 
   test-det-fixed:
     name: Tests (det_fixed)
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -114,6 +119,7 @@ jobs:
 
   test-musl-det-fixed:
     name: Tests (musl, det_fixed)
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -195,6 +201,19 @@ jobs:
           fi
           "$script"
 
+  wesley:
+    name: Wesley Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: Verify Wesley artifacts
+        run: cargo xtask wesley check
+
   determinism-guards:
     name: Determinism Guards
     runs-on: ubuntu-latest
@@ -252,6 +271,7 @@ jobs:
 
   playwright:
     name: E2E (Playwright)
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -318,6 +338,7 @@ jobs:
 
   rustdoc:
     name: Rustdoc (warnings gate)
+    needs: wesley
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

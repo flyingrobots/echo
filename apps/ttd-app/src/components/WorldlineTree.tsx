@@ -5,6 +5,7 @@ import type { TtdEngine } from "../hooks/useTtdEngine";
 import { useTtdStore } from "../store/ttdStore";
 import type { WorldlineNode } from "../types/ttd";
 import { truncateHash } from "../types/ttd";
+import { ViolationSeverity } from "@echo/ttd-protocol-ts";
 import "./WorldlineTree.css";
 
 interface WorldlineTreeProps {
@@ -39,7 +40,7 @@ const mockTree: WorldlineNode = {
           label: "Fork B.1 (nudged)",
           compliance: {
             isGreen: false,
-            violations: [{ code: "V001", message: "Deadline missed", severity: "Error" }],
+            violations: [{ code: "V001", message: "Deadline missed", severity: ViolationSeverity.ERROR, channelId: undefined, tick: undefined, emissionCount: undefined }],
           },
           children: [],
         },

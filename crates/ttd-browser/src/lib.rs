@@ -48,6 +48,9 @@ use std::collections::BTreeMap;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 
+use ttd_protocol_rs::{
+    ComplianceModel, ObligationReport, Snapshot, StepResult, StepResultKind, SCHEMA_SHA256,
+};
 use warp_core::materialization::ChannelId;
 use warp_core::GraphStore;
 use warp_core::{
@@ -281,18 +284,17 @@ impl TtdEngine {
             .step(&self.provenance, initial_store)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        let js_result = StepResultJs {
+        let step_result = StepResult {
             result: match result {
-                CoreStepResult::NoOp => "NoOp",
-                CoreStepResult::Advanced => "Advanced",
-                CoreStepResult::Seeked => "Seeked",
-                CoreStepResult::ReachedFrontier => "ReachedFrontier",
-            }
-            .to_string(),
-            tick: cursor.tick,
+                CoreStepResult::NoOp => StepResultKind::NO_OP,
+                CoreStepResult::Advanced => StepResultKind::ADVANCED,
+                CoreStepResult::Seeked => StepResultKind::SEEKED,
+                CoreStepResult::ReachedFrontier => StepResultKind::REACHED_FRONTIER,
+            },
+            tick: i32::try_from(cursor.tick).unwrap_or(i32::MAX),
         };
 
-        encode_cbor(&js_result)
+        encode_cbor(&step_result)
     }
 
     /// Gets the current tick of a cursor.
@@ -727,8 +729,8 @@ impl TtdEngine {
         );
 
         // Note: warp_id available via provenance.u0() for future use
-        // For schema_hash, use a placeholder (real implementation needs Wesley)
-        let schema_hash = [0u8; 32];
+        // Parse schema_hash from the protocol's SCHEMA_SHA256 hex string
+        let schema_hash = parse_schema_hash();
 
         let header = echo_session_proto::TtdrHeader {
             version: echo_session_proto::TTDR_VERSION,
@@ -776,9 +778,9 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        let snapshot = SnapshotJs {
-            worldline_id: cursor.worldline_id.0,
-            tick: cursor.tick,
+        let snapshot = Snapshot {
+            worldlineId: bytes_to_hex(&cursor.worldline_id.0),
+            tick: i32::try_from(cursor.tick).unwrap_or(i32::MAX),
         };
 
         encode_cbor(&snapshot)
@@ -803,15 +805,20 @@ impl TtdEngine {
         snapshot: &[u8],
         new_worldline_id: &[u8],
     ) -> Result<u32, JsError> {
-        let snap: SnapshotJs =
+        let snap: Snapshot =
             ciborium::from_reader(snapshot).map_err(|e| JsError::new(&e.to_string()))?;
 
-        let source_wl = WorldlineId(snap.worldline_id);
+        let source_wl_bytes = hex_to_bytes(&snap.worldlineId)
+            .map_err(|e| JsError::new(&format!("invalid worldlineId: {e}")))?;
+        let source_wl = WorldlineId(source_wl_bytes);
         let new_wl = parse_worldline_id(new_worldline_id)?;
+
+        // Convert tick from i32 to u64 (protocol uses i32, internal uses u64)
+        let tick = u64::try_from(snap.tick).unwrap_or(0);
 
         // Fork in provenance store
         self.provenance
-            .fork(source_wl, snap.tick.saturating_sub(1), new_wl)
+            .fork(source_wl, tick.saturating_sub(1), new_wl)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         // Copy initial store
@@ -840,8 +847,8 @@ impl TtdEngine {
     ///
     /// Returns an error if CBOR encoding fails (should not happen in practice).
     pub fn get_compliance(&self) -> Result<Uint8Array, JsError> {
-        let compliance = ComplianceModelJs {
-            is_green: true,
+        let compliance = ComplianceModel {
+            isGreen: true,
             violations: vec![],
         };
         encode_cbor(&compliance)
@@ -862,7 +869,7 @@ impl TtdEngine {
     ///
     /// Returns an error if CBOR encoding fails (should not happen in practice).
     pub fn get_obligations(&self) -> Result<Uint8Array, JsError> {
-        let obligations = ObligationStateJs {
+        let obligations = ObligationReport {
             pending: vec![],
             satisfied: vec![],
             violated: vec![],
@@ -879,12 +886,9 @@ impl Default for TtdEngine {
 
 // ─── Helper Types ────────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize)]
-struct StepResultJs {
-    result: String,
-    tick: u64,
-}
-
+/// Internal `TruthFrame` for CBOR serialization to JavaScript.
+/// This differs from the protocol `TruthFrame` which is designed for event messages
+/// and doesn't include the actual value bytes.
 #[derive(serde::Serialize)]
 struct TruthFrameJs {
     channel: [u8; 32],
@@ -892,39 +896,6 @@ struct TruthFrameJs {
     value_hash: [u8; 32],
     tick: u64,
     commit_hash: [u8; 32],
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SnapshotJs {
-    worldline_id: [u8; 32],
-    tick: u64,
-}
-
-#[derive(serde::Serialize)]
-struct ComplianceModelJs {
-    is_green: bool,
-    violations: Vec<ViolationJs>,
-}
-
-#[derive(serde::Serialize)]
-struct ViolationJs {
-    code: String,
-    message: String,
-    severity: String,
-}
-
-#[derive(serde::Serialize)]
-struct ObligationStateJs {
-    pending: Vec<ObligationJs>,
-    satisfied: Vec<ObligationJs>,
-    violated: Vec<ObligationJs>,
-}
-
-#[derive(serde::Serialize)]
-struct ObligationJs {
-    id: String,
-    description: String,
-    deadline_tick: u64,
 }
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
@@ -997,6 +968,43 @@ fn encode_cbor<T: serde::Serialize>(value: &T) -> Result<Uint8Array, JsError> {
     ciborium::into_writer(value, &mut buf)
         .map_err(|e| JsError::new(&format!("CBOR encode error: {e}")))?;
     Ok(bytes_to_uint8array(&buf))
+}
+
+/// Parses the `SCHEMA_SHA256` hex string into a [u8; 32] array.
+fn parse_schema_hash() -> [u8; 32] {
+    let mut result = [0u8; 32];
+    for (i, chunk) in SCHEMA_SHA256.as_bytes().chunks(2).enumerate() {
+        if i >= 32 {
+            break;
+        }
+        let hex_str = std::str::from_utf8(chunk).unwrap_or("00");
+        result[i] = u8::from_str_radix(hex_str, 16).unwrap_or(0);
+    }
+    result
+}
+
+/// Converts a byte array to a hex string.
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+/// Converts a hex string to a [u8; 32] array.
+fn hex_to_bytes(hex: &str) -> Result<[u8; 32], &'static str> {
+    if hex.len() != 64 {
+        return Err("hex string must be 64 characters");
+    }
+    let mut result = [0u8; 32];
+    for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
+        let hex_str = std::str::from_utf8(chunk).map_err(|_| "invalid UTF-8 in hex string")?;
+        result[i] = u8::from_str_radix(hex_str, 16).map_err(|_| "invalid hex character")?;
+    }
+    Ok(result)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

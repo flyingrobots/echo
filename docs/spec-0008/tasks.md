@@ -140,7 +140,7 @@ policy   = hA
     - Distinguish `Some(0)` from `None`.
 - **Acceptance criteria**:
     - Fixture F2 bytes differ from Fixture F1 bytes.
-- **Scope**: Option<T> encoding only.
+- **Scope**: `Option<T>` encoding only.
 - **Out of scope**: Container ordering rules (unless Option inside container).
 - **Required tests**:
     - Golden path: Some(0) != None.

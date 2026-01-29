@@ -5,250 +5,848 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SPEC-0008 Task DAG + Gantt</title>
+  <title>SPEC-0008 Task Viewer</title>
   <style>
+    @import "https://unpkg.com/open-props";
+    @import "https://unpkg.com/open-props/normalize.min.css";
+
     :root {
       --wesley: #4c78a8;
       --echo: #f58518;
-      --grid: #e6e6e6;
-      --text: #1d1d1f;
-      --muted: #666;
+      --wave1: #e6f2ff;
+      --wave2: #fff2cc;
+      --wave3: #e8f7e8;
+      --wave4: #f3e8ff;
+      --wave5: #ffe6e6;
+      --panel: var(--surface-1);
+      --border: var(--gray-4);
+      --text: var(--gray-9);
+      --muted: var(--gray-6);
     }
+
     body {
-      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-family: var(--font-sans);
       color: var(--text);
-      margin: 24px;
-      line-height: 1.4;
+      background: var(--surface-2);
+      padding: var(--size-3);
     }
-    h1, h2 { margin: 0 0 12px 0; }
-    .note { color: var(--muted); font-size: 0.95em; }
-    .svg-wrap {
-      border: 1px solid var(--grid);
-      padding: 12px;
-      border-radius: 8px;
-      background: #fafafa;
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: var(--size-3);
+      height: calc(100vh - (var(--size-3) * 2));
     }
-    .gantt {
-      margin-top: 24px;
-      border: 1px solid var(--grid);
-      border-radius: 8px;
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: var(--size-3);
+      padding: var(--size-3);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-3);
+    }
+
+    .toggle {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-2);
       overflow: hidden;
     }
-    .gantt-header, .gantt-row {
-      display: grid;
-      grid-template-columns: 180px repeat(5, 1fr);
-      align-items: center;
+    .toggle button {
+      padding: 8px 14px;
+      border: 0;
+      background: transparent;
+      color: var(--text);
+      font-weight: 600;
+      cursor: pointer;
     }
-    .gantt-header {
-      background: #f4f4f4;
+    .toggle button.active {
+      background: var(--blue-2);
+      color: var(--blue-9);
+    }
+
+    .search {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: var(--size-2);
+    }
+    .search input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-2);
+      background: var(--panel);
+    }
+
+    .main {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: var(--size-3);
+      min-height: 0;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-3);
+      padding: var(--size-3);
+      overflow: auto;
+    }
+
+    .panel h2 {
+      margin: 0 0 var(--size-2) 0;
+      font-size: var(--font-size-4);
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: var(--font-size-1);
+    }
+
+    .wave-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--size-2);
+      margin: var(--size-2) 0;
+      font-size: var(--font-size-1);
+    }
+    .swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      border: 1px solid #777;
+      margin-right: 6px;
+    }
+
+    details {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-2);
+      padding: var(--size-2);
+      margin-bottom: var(--size-2);
+      background: var(--surface-1);
+    }
+    summary {
+      cursor: pointer;
       font-weight: 600;
     }
-    .gantt-header div, .gantt-row div {
-      border-right: 1px solid var(--grid);
+
+    .pill {
+      display: inline-block;
+      font-size: var(--font-size-0);
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--gray-2);
+      margin-left: 8px;
+    }
+
+    .gantt {
+      display: grid;
+      grid-template-columns: 200px repeat(5, 1fr);
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-3);
+      overflow: hidden;
+    }
+    .gantt .cell {
       padding: 6px 8px;
-      font-size: 0.9em;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      font-size: var(--font-size-1);
     }
-    .gantt-row { border-top: 1px solid var(--grid); }
+    .gantt .header {
+      background: var(--gray-2);
+      font-weight: 600;
+    }
     .bar {
-      height: 18px;
+      height: 14px;
       border-radius: 4px;
-      background: #c7c7c7;
+      background: var(--gray-4);
     }
-    .bar.wesley { background: var(--wesley); }
-    .bar.echo { background: var(--echo); }
-    .bar-cell { padding: 6px 8px; }
-    .legend { margin-top: 8px; font-size: 0.9em; }
-    .wave-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px 0; font-size: 0.9em; }
-    .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #777; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
-    .w1 { background: #e6f2ff; }
-    .w2 { background: #fff2cc; }
-    .w3 { background: #e8f7e8; }
-    .w4 { background: #f3e8ff; }
-    .w5 { background: #ffe6e6; }
-    .tasks { margin-top: 8px; font-size: 0.9em; color: var(--muted); }
+
+    @media (max-width: 980px) {
+      .main {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>SPEC-0008 Task DAG + Gantt (Wesley + Echo)</h1>
-  <p class="note">Source of truth: <code>docs/spec-0008/SPEC-0008-Wesley-Echo-CAS-BOAW-Privacy-Editors-Edition.md</code>. Task catalog: <code>docs/spec-0008/tasks.md</code>.</p>
-
-  <h2>Task DAGs (ELK)</h2>
-  <p class="note">Layout: ELK layered (orthogonal routing). Split into smaller graphs for readability. Nodes are color-coded by wave; see <code>docs/spec-0008/tasks.md</code> for titles.</p>
-  <div class="wave-legend">
-    <span><span class="swatch w1"></span>Wave 1</span>
-    <span><span class="swatch w2"></span>Wave 2</span>
-    <span><span class="swatch w3"></span>Wave 3</span>
-    <span><span class="swatch w4"></span>Wave 4</span>
-    <span><span class="swatch w5"></span>Wave 5</span>
-  </div>
-  <div class="svg-wrap">
-    <object type="image/svg+xml" data="task-dag-wesley.svg" width="100%" height="700">Wesley Task DAG SVG</object>
-  </div>
-  <div class="svg-wrap" style="margin-top:16px;">
-    <object type="image/svg+xml" data="task-dag-echo.svg" width="100%" height="900">Echo Task DAG SVG</object>
-  </div>
-  <div class="svg-wrap" style="margin-top:16px;">
-    <object type="image/svg+xml" data="task-dag-cross.svg" width="100%" height="420">Cross-Track Task DAG SVG</object>
-  </div>
-
-  <h2>Gantt (by wave, grouped by track)</h2>
-  <div class="gantt">
-    <div class="gantt-header">
-      <div>Task</div>
-      <div>W1</div><div>W2</div><div>W3</div><div>W4</div><div>W5</div>
+  <div class="app">
+    <div class="topbar">
+      <div class="toggle" id="trackToggle">
+        <button data-mode="echo">Echo</button>
+        <button data-mode="both" class="active">Echo + Wesley</button>
+        <button data-mode="wesley">Wesley</button>
+      </div>
+      <div class="search">
+        <input id="searchInput" type="search" placeholder="Search by task ID (e.g., SPEC-0008.E.W3.1)" />
+      </div>
     </div>
 
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Wesley Wave 1</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W1.1</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W1.2</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W1.3</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W1.4</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W1.5</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
+    <div class="main">
+      <div class="panel" id="graphPanel">
+        <h2>Graph View</h2>
+        <div class="wave-legend">
+          <span><span class="swatch" style="background: var(--wave1)"></span>Wave 1</span>
+          <span><span class="swatch" style="background: var(--wave2)"></span>Wave 2</span>
+          <span><span class="swatch" style="background: var(--wave3)"></span>Wave 3</span>
+          <span><span class="swatch" style="background: var(--wave4)"></span>Wave 4</span>
+          <span><span class="swatch" style="background: var(--wave5)"></span>Wave 5</span>
+        </div>
+        <object id="graphWesley" type="image/svg+xml" data="task-dag-wesley.svg" width="100%" height="650" style="display:none;">Wesley DAG</object>
+        <object id="graphEcho" type="image/svg+xml" data="task-dag-echo.svg" width="100%" height="850" style="display:none;">Echo DAG</object>
+        <object id="graphCross" type="image/svg+xml" data="task-dag-cross.svg" width="100%" height="360" style="display:block;">Cross DAG</object>
+        <p class="note">When in Echo+Wesley mode, the cross-track dependencies are shown.</p>
+      </div>
+
+      <div class="panel" id="taskPanel">
+        <h2>Task View</h2>
+        <div id="taskList"></div>
+      </div>
     </div>
 
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Echo Wave 1</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W1.1</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W1.2</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W1.3</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W1.4</div>
-      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
-    </div>
-
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Echo Wave 2</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W2.1</div>
-      <div class="bar-cell" style="grid-column: 3 / 4;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W2.2</div>
-      <div class="bar-cell" style="grid-column: 3 / 4;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W2.3</div>
-      <div class="bar-cell" style="grid-column: 3 / 4;"><div class="bar echo"></div></div>
-    </div>
-
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Wesley Wave 3</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W3.1</div>
-      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar wesley"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W3.2</div>
-      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar wesley"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W3.3</div>
-      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar wesley"></div></div>
-    </div>
-
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Echo Wave 3</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W3.1</div>
-      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W3.2</div>
-      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W3.3</div>
-      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W3.4</div>
-      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
-    </div>
-
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Echo Wave 4</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W4.1</div>
-      <div class="bar-cell" style="grid-column: 5 / 6;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W4.2</div>
-      <div class="bar-cell" style="grid-column: 5 / 6;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W4.3</div>
-      <div class="bar-cell" style="grid-column: 5 / 6;"><div class="bar echo"></div></div>
-    </div>
-
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Wesley Wave 5</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.W.W5.1</div>
-      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar wesley"></div></div>
-    </div>
-
-    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
-      <div>Echo Wave 5</div><div></div><div></div><div></div><div></div><div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W5.1</div>
-      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W5.2</div>
-      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W5.3</div>
-      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W5.4</div>
-      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
-    </div>
-    <div class="gantt-row">
-      <div>SPEC-0008.E.W5.5</div>
-      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
+    <div class="panel">
+      <h2>Gantt View</h2>
+      <div class="gantt" id="gantt"></div>
     </div>
   </div>
 
-  <div class="legend">
-    <strong>Legend:</strong> <span style="color: var(--wesley);">Wesley</span> | <span style="color: var(--echo);">Echo</span>
-  </div>
+  <script id="task-data" type="application/json">{
+  "tasks": [
+    {
+      "id": "SPEC-0008.W.W1.1",
+      "title": "Canonical schema IR + schema_hash",
+      "description": "Define canonical schema IR bytes and compute `schema_hash = BLAKE3(schema_ir_bytes)`.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Schema IR format and hash derivation."
+      ],
+      "outOfScope": [
+        "CAS storage or distribution."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 1,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.W.W1.2",
+      "title": "raw_le encoder/decoder generation",
+      "description": "Generate canonical `encode_raw_le` and `decode_raw_le` for all schema types.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Codegen for raw_le in Rust and TS."
+      ],
+      "outOfScope": [
+        "CAS storage."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 1,
+      "seq": 2
+    },
+    {
+      "id": "SPEC-0008.W.W1.3",
+      "title": "Option encoding (presence bitmap or tag)",
+      "description": "Implement collision-free Option encoding in codegen.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Option<T> encoding only."
+      ],
+      "outOfScope": [
+        "Container ordering rules (unless Option inside container)."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 1,
+      "seq": 3
+    },
+    {
+      "id": "SPEC-0008.W.W1.4",
+      "title": "type_id + layout_hash emission + registry.blob",
+      "description": "Emit stable `type_id` and `layout_hash` constants and produce `registry.blob`.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "ID emission and registry serialization."
+      ],
+      "outOfScope": [
+        "Schema distribution via CAS."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 1,
+      "seq": 4
+    },
+    {
+      "id": "SPEC-0008.W.W1.5",
+      "title": "Golden vectors harness (Rust/TS parity)",
+      "description": "Provide golden tests proving Rust and TS encoders match.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Golden vector harness and initial fixtures."
+      ],
+      "outOfScope": [
+        "Full schema coverage (Wave 3)."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 1,
+      "seq": 5
+    },
+    {
+      "id": "SPEC-0008.W.W3.1",
+      "title": "Emit schema/registry blobs as build artifacts",
+      "description": "Produce schema IR and registry blobs as build outputs for distribution.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Build pipeline outputs."
+      ],
+      "outOfScope": [
+        "CAS transport."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 3,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.W.W3.2",
+      "title": "Expand golden vectors to full schema",
+      "description": "Extend golden vectors to cover all schema types.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Golden coverage expansion."
+      ],
+      "outOfScope": [
+        "CAS features."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 3,
+      "seq": 2
+    },
+    {
+      "id": "SPEC-0008.W.W3.3",
+      "title": "GuardedView generation for build-time footprint enforcement",
+      "description": "Generate rule-specific GuardedView APIs that expose only declared reads/writes.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Build-time enforcement via generated APIs."
+      ],
+      "outOfScope": [
+        "Runtime FootprintGuard (Echo)."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 3,
+      "seq": 3
+    },
+    {
+      "id": "SPEC-0008.W.W5.1",
+      "title": "Privacy types in schema",
+      "description": "Add ClaimRecord, PrivateAtomRefV1, OpaqueRefV1 to Wesley schema.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Schema definitions + generated codecs."
+      ],
+      "outOfScope": [
+        "Policy enforcement in Echo."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "wesley",
+      "wave": 5,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.E.W1.1",
+      "title": "BlobStore trait (verify + pin/unpin)",
+      "description": "Define BlobStore trait with strict verification and pinning.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Trait only."
+      ],
+      "outOfScope": [
+        "Disk/S3 backends."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 1,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.E.W1.2",
+      "title": "Memory BlobStore implementation",
+      "description": "Implement in-memory BlobStore with metadata and access tracking.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Hot tier only."
+      ],
+      "outOfScope": [
+        "Disk/S3 tiers."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 1,
+      "seq": 2
+    },
+    {
+      "id": "SPEC-0008.E.W1.3",
+      "title": "CAS wire v1 (WANT/PROVIDE/FRAME)",
+      "description": "Implement WANT/PROVIDE/FRAME with canonical ordering.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "CAS wire v1 only."
+      ],
+      "outOfScope": [
+        "HAVE/FRAME_PLUS (optional)."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 1,
+      "seq": 3
+    },
+    {
+      "id": "SPEC-0008.E.W1.4",
+      "title": "SchemaUniverse cache above BlobStore",
+      "description": "Cache schema/registry blobs and map layout_hash -> decoder.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "SchemaUniverse only."
+      ],
+      "outOfScope": [
+        "CAS transport."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 1,
+      "seq": 4
+    },
+    {
+      "id": "SPEC-0008.E.W2.1",
+      "title": "Patch blobs stored in CAS",
+      "description": "Encode WorldlineTickPatch and store as CAS blob under patch_digest.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Patch blobs only."
+      ],
+      "outOfScope": [
+        "Snapshot manifests."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 2,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.E.W2.2",
+      "title": "PROOF/LIGHT receipts with patch_digest",
+      "description": "Add PROOF/LIGHT modes to receipts, including patch_digest only.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Receipt encoding only."
+      ],
+      "outOfScope": [
+        "Client fetch implementation."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 2,
+      "seq": 2
+    },
+    {
+      "id": "SPEC-0008.E.W2.3",
+      "title": "Patch fetch via WANT/PROVIDE in TTD tooling",
+      "description": "Client/inspector fetches patch blobs using WANT/PROVIDE.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "TTD tooling fetch path."
+      ],
+      "outOfScope": [
+        "Full CAS sync."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 2,
+      "seq": 3
+    },
+    {
+      "id": "SPEC-0008.E.W3.1",
+      "title": "TypedRef decode gating (4-hash verification)",
+      "description": "Enforce schema/layout/type/value hash checks before decode.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Decode gating only."
+      ],
+      "outOfScope": [
+        "Schema distribution."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 3,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.E.W3.2",
+      "title": "Schema/registry distribution via CAS + pinning",
+      "description": "Distribute schema/registry blobs via CAS and pin as roots.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Distribution + pinning."
+      ],
+      "outOfScope": [
+        "Schema evolution policy."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 3,
+      "seq": 2
+    },
+    {
+      "id": "SPEC-0008.E.W3.3",
+      "title": "CasObjectStore envelope layer",
+      "description": "Provide typed put/get APIs above BlobStore.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Envelope layer only."
+      ],
+      "outOfScope": [
+        "BlobStore implementation."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 3,
+      "seq": 3
+    },
+    {
+      "id": "SPEC-0008.E.W3.4",
+      "title": "Runtime FootprintGuard enforcement",
+      "description": "Enforce declared footprints at runtime as defense-in-depth.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Runtime enforcement only."
+      ],
+      "outOfScope": [
+        "Build-time GuardedView."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 3,
+      "seq": 4
+    },
+    {
+      "id": "SPEC-0008.E.W4.1",
+      "title": "SnapshotManifest canonical storage",
+      "description": "Create canonical SnapshotManifest stored as CAS blob.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Manifest only."
+      ],
+      "outOfScope": [
+        "Segment chunking."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 4,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.E.W4.2",
+      "title": "Deterministic segmentation + segment blobs",
+      "description": "Split tables into deterministic segments and store as CAS blobs.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Segmenting + storage."
+      ],
+      "outOfScope": [
+        "WSC packaging."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 4,
+      "seq": 2
+    },
+    {
+      "id": "SPEC-0008.E.W4.3",
+      "title": "WSC pack/unpack over segments",
+      "description": "Adapt WSC packaging to manifest + segment model.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Packaging only."
+      ],
+      "outOfScope": [
+        "Network distribution."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 4,
+      "seq": 3
+    },
+    {
+      "id": "SPEC-0008.E.W5.1",
+      "title": "ClaimRecord handling in ledger",
+      "description": "Store and validate ClaimRecord objects in public CAS.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Ledger integration."
+      ],
+      "outOfScope": [
+        "ZK proof verification."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 5,
+      "seq": 1
+    },
+    {
+      "id": "SPEC-0008.E.W5.2",
+      "title": "PrivateAtomRefV1 + OpaqueRefV1 validation",
+      "description": "Enforce rules for private atom refs and opaque pointer blobs.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Validation logic."
+      ],
+      "outOfScope": [
+        "Vault implementations."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 5,
+      "seq": 2
+    },
+    {
+      "id": "SPEC-0008.E.W5.3",
+      "title": "VaultResolver plugin + degrade path",
+      "description": "Define vault interface and behavior when vault data missing.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Interface + error handling."
+      ],
+      "outOfScope": [
+        "Vault auth schemes."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 5,
+      "seq": 3
+    },
+    {
+      "id": "SPEC-0008.E.W5.4",
+      "title": "Mind mode enforcement",
+      "description": "Enforce mind mode policy (no raw secret bytes in ledger).",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "Policy enforcement."
+      ],
+      "outOfScope": [
+        "Diagnostics-mode policy details."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 5,
+      "seq": 4
+    },
+    {
+      "id": "SPEC-0008.E.W5.5",
+      "title": "GC retention rules (proofs outlive claims)",
+      "description": "Enforce GC constraints: proofs must outlive referencing claims.",
+      "requirements": [],
+      "acceptance": [],
+      "scope": [
+        "GC policy checks."
+      ],
+      "outOfScope": [
+        "GC scheduling/tiering policy."
+      ],
+      "tests": [],
+      "example": [],
+      "track": "echo",
+      "wave": 5,
+      "seq": 5
+    }
+  ]
+}</script>
+  <script>
+    const data = JSON.parse(document.getElementById('task-data').textContent);
+    let mode = 'both';
 
-  <div class="tasks">
-    <p>Wave contents: see <code>docs/spec-0008/tasks.md</code> for full task definitions, requirements, tests, and examples.</p>
-  </div>
+    const toggle = document.getElementById('trackToggle');
+    const searchInput = document.getElementById('searchInput');
+    const taskList = document.getElementById('taskList');
+    const gantt = document.getElementById('gantt');
+
+    function setMode(next) {
+      mode = next;
+      for (const btn of toggle.querySelectorAll('button')) {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      }
+      updateGraph();
+      renderTasks();
+      renderGantt();
+    }
+
+    toggle.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-mode]');
+      if (!btn) return;
+      setMode(btn.dataset.mode);
+    });
+
+    searchInput.addEventListener('input', () => {
+      renderTasks();
+      renderGantt();
+    });
+
+    function filterTasks() {
+      const q = searchInput.value.trim().toLowerCase();
+      return data.tasks.filter((t) => {
+        const modeOk = mode === 'both' ? true : t.track === mode;
+        const qOk = !q || t.id.toLowerCase().includes(q) || t.title.toLowerCase().includes(q);
+        return modeOk && qOk;
+      });
+    }
+
+    function updateGraph() {
+      const wesley = document.getElementById('graphWesley');
+      const echo = document.getElementById('graphEcho');
+      const cross = document.getElementById('graphCross');
+      wesley.style.display = mode === 'wesley' ? 'block' : 'none';
+      echo.style.display = mode === 'echo' ? 'block' : 'none';
+      cross.style.display = mode === 'both' ? 'block' : 'none';
+    }
+
+    function renderTasks() {
+      const tasks = filterTasks();
+      taskList.innerHTML = '';
+      for (const t of tasks) {
+        const details = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = `${t.id} - ${t.title}`;
+        const pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.textContent = `Wave ${t.wave} ${t.track}`;
+        summary.appendChild(pill);
+        details.appendChild(summary);
+
+        const block = document.createElement('div');
+        block.innerHTML = `
+          <p><strong>Description:</strong> ${t.description || ''}</p>
+          <p><strong>Requirements:</strong></p>
+          <ul>${t.requirements.map((r) => `<li>${r}</li>`).join('')}</ul>
+          <p><strong>Acceptance criteria:</strong></p>
+          <ul>${t.acceptance.map((r) => `<li>${r}</li>`).join('')}</ul>
+          <p><strong>Scope:</strong></p>
+          <ul>${t.scope.map((r) => `<li>${r}</li>`).join('')}</ul>
+          <p><strong>Out of scope:</strong></p>
+          <ul>${t.outOfScope.map((r) => `<li>${r}</li>`).join('')}</ul>
+          <p><strong>Required tests:</strong></p>
+          <ul>${t.tests.map((r) => `<li>${r}</li>`).join('')}</ul>
+          <p><strong>Example:</strong></p>
+          <ul>${t.example.map((r) => `<li>${r}</li>`).join('')}</ul>
+        `;
+        details.appendChild(block);
+        taskList.appendChild(details);
+      }
+    }
+
+    function renderGantt() {
+      const tasks = filterTasks();
+      gantt.innerHTML = '';
+      const header = ['Task', 'W1', 'W2', 'W3', 'W4', 'W5'];
+      for (const label of header) {
+        const cell = document.createElement('div');
+        cell.className = 'cell header';
+        cell.textContent = label;
+        gantt.appendChild(cell);
+      }
+
+      for (const t of tasks) {
+        const idCell = document.createElement('div');
+        idCell.className = 'cell';
+        idCell.textContent = t.id;
+        gantt.appendChild(idCell);
+        for (let w = 1; w <= 5; w++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          if (t.wave === w) {
+            const bar = document.createElement('div');
+            bar.className = 'bar';
+            bar.style.background = getWaveColor(w);
+            cell.appendChild(bar);
+          }
+          gantt.appendChild(cell);
+        }
+      }
+    }
+
+    function getWaveColor(w) {
+      switch (w) {
+        case 1: return 'var(--wave1)';
+        case 2: return 'var(--wave2)';
+        case 3: return 'var(--wave3)';
+        case 4: return 'var(--wave4)';
+        case 5: return 'var(--wave5)';
+        default: return 'var(--gray-3)';
+      }
+    }
+
+    setMode('both');
+  </script>
 </body>
 </html>

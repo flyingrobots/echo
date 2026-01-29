@@ -1,83 +1,78 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="770.3333333333334" height="808" viewBox="0 0 770.3333333333334 808">
+<svg xmlns="http://www.w3.org/2000/svg" width="1654" height="532.6666666666666" viewBox="0 0 1654 532.6666666666666">
 <style>
-    .group { fill: #f8f8f8; stroke: #d0d0d0; stroke-width: 1; }
-    .group-title { font: 14px Helvetica, Arial, sans-serif; fill: #333; }
-    .node { fill: #ffffff; stroke: #444; stroke-width: 1.2; rx: 6; }
+    .node { stroke: #333; stroke-width: 1.1; rx: 6; }
     .node-text { font: 12px Helvetica, Arial, sans-serif; fill: #111; }
-    .edge { fill: none; stroke: #555; stroke-width: 1.1; }
+    .edge { fill: none; stroke: #666; stroke-width: 1.1; }
     .title { font: 16px Helvetica, Arial, sans-serif; fill: #111; font-weight: 600; }
+    .wave1 { fill: #e6f2ff; }
+    .wave2 { fill: #fff2cc; }
+    .wave3 { fill: #e8f7e8; }
+    .wave4 { fill: #f3e8ff; }
+    .wave5 { fill: #ffe6e6; }
   </style>
 <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L8,4 L0,8 z" fill="#555" />
+      <path d="M0,0 L8,4 L0,8 z" fill="#666" />
     </marker>
   </defs>
 <text class="title" x="20" y="36">Echo DAG</text>
-<path class="edge" d="M163.5,113 L163.5,133 L319,133 L319,143" marker-end="url(#arrow)" />
-<path class="edge" d="M206,113 L206,123 L517,123 L517,143" marker-end="url(#arrow)" />
-<path class="edge" d="M121,113 L121,143" marker-end="url(#arrow)" />
-<path class="edge" d="M121,113 L121,133" marker-end="url(#arrow)" />
-<path class="edge" d="M121,173 L121,193" marker-end="url(#arrow)" />
-<path class="edge" d="M121,173 L121,193" marker-end="url(#arrow)" />
-<path class="edge" d="M177.66666666666666,173 L177.66666666666666,183 L216,183 L216,243 L177.66666666666666,243 L177.66666666666666,253" marker-end="url(#arrow)" />
-<path class="edge" d="M121,233 L121,253" marker-end="url(#arrow)" />
-<path class="edge" d="M121,113 L121,133" marker-end="url(#arrow)" />
-<path class="edge" d="M121,173 L121,193" marker-end="url(#arrow)" />
-<path class="edge" d="M163.5,113 L163.5,133 L319,133 L319,143" marker-end="url(#arrow)" />
-<path class="edge" d="M290.66666666666663,183 L290.66666666666663,203" marker-end="url(#arrow)" />
-<path class="edge" d="M206,113 L206,123 L517,123 L517,203" marker-end="url(#arrow)" />
-<path class="edge" d="M347.3333333333333,183 L347.3333333333333,193 L460.3333333333333,193 L460.3333333333333,203" marker-end="url(#arrow)" />
-<path class="edge" d="M121,113 L121,143" marker-end="url(#arrow)" />
-<rect class="group" x="20" y="38" width="730.3333333333334" height="768" />
-<rect class="group" x="32" y="50" width="706.3333333333334" height="744" />
-<text class="group-title" x="40" y="70">Echo</text>
-<rect class="group" x="36" y="364" width="598" height="161" />
-<text class="group-title" x="44" y="384">Wave 1</text>
-<rect class="node" x="78.5" y="73" width="170" height="40" />
-<text class="node-text" x="86.5" y="98">SPEC-0008.E.W1.1</text>
-<rect class="node" x="234" y="143" width="170" height="40" />
-<text class="node-text" x="242" y="168">SPEC-0008.E.W1.2</text>
-<rect class="node" x="432" y="143" width="170" height="40" />
-<text class="node-text" x="440" y="168">SPEC-0008.E.W1.3</text>
-<rect class="node" x="36" y="143" width="170" height="40" />
-<text class="node-text" x="44" y="168">SPEC-0008.E.W1.4</text>
-<rect class="group" x="36" y="73" width="202" height="211" />
-<text class="group-title" x="44" y="93">Wave 2</text>
-<rect class="node" x="36" y="73" width="170" height="40" />
-<text class="node-text" x="44" y="98">SPEC-0008.E.W2.1</text>
-<rect class="node" x="36" y="133" width="170" height="40" />
-<text class="node-text" x="44" y="158">SPEC-0008.E.W2.2</text>
-<rect class="node" x="36" y="193" width="170" height="40" />
-<text class="node-text" x="44" y="218">SPEC-0008.E.W2.3</text>
-<rect class="group" x="480" y="73" width="230.33333333333334" height="271" />
-<text class="group-title" x="488" y="93">Wave 3</text>
-<rect class="node" x="64.33333333333334" y="133" width="170" height="40" />
-<text class="node-text" x="72.33333333333334" y="158">SPEC-0008.E.W3.1</text>
-<rect class="node" x="36" y="193" width="170" height="40" />
-<text class="node-text" x="44" y="218">SPEC-0008.E.W3.2</text>
-<rect class="node" x="64.33333333333334" y="253" width="170" height="40" />
-<text class="node-text" x="72.33333333333334" y="278">SPEC-0008.E.W3.3</text>
-<rect class="node" x="36" y="73" width="170" height="40" />
-<text class="node-text" x="44" y="98">SPEC-0008.E.W3.4</text>
-<rect class="group" x="258" y="73" width="202" height="211" />
-<text class="group-title" x="266" y="93">Wave 4</text>
-<rect class="node" x="36" y="73" width="170" height="40" />
-<text class="node-text" x="44" y="98">SPEC-0008.E.W4.1</text>
-<rect class="node" x="36" y="133" width="170" height="40" />
-<text class="node-text" x="44" y="158">SPEC-0008.E.W4.2</text>
-<rect class="node" x="36" y="193" width="170" height="40" />
-<text class="node-text" x="44" y="218">SPEC-0008.E.W4.3</text>
-<rect class="group" x="36" y="545" width="569.6666666666666" height="221" />
-<text class="group-title" x="44" y="565">Wave 5</text>
-<rect class="node" x="78.5" y="73" width="170" height="40" />
-<text class="node-text" x="86.5" y="98">SPEC-0008.E.W5.1</text>
-<rect class="node" x="234" y="143" width="170" height="40" />
-<text class="node-text" x="242" y="168">SPEC-0008.E.W5.2</text>
-<rect class="node" x="205.66666666666666" y="203" width="170" height="40" />
-<text class="node-text" x="213.66666666666666" y="228">SPEC-0008.E.W5.3</text>
-<rect class="node" x="403.66666666666663" y="203" width="170" height="40" />
-<text class="node-text" x="411.66666666666663" y="228">SPEC-0008.E.W5.4</text>
-<rect class="node" x="36" y="143" width="170" height="40" />
-<text class="node-text" x="44" y="168">SPEC-0008.E.W5.5</text>
+<path class="edge" d="M222,154 L252,154 L252,228 L312,228" marker-end="url(#arrow)" />
+<path class="edge" d="M222,162 L242,162 L242,398.66666666666663 L592,398.66666666666663" marker-end="url(#arrow)" />
+<path class="edge" d="M222,146 L312,146" marker-end="url(#arrow)" />
+<path class="edge" d="M222,170 L232,170 L232,480.66666666666663 L312,480.66666666666663" marker-end="url(#arrow)" />
+<path class="edge" d="M502,480.66666666666663 L592,480.66666666666663" marker-end="url(#arrow)" />
+<path class="edge" d="M782,480.66666666666663 L792,480.66666666666663 L792,412 L872,412" marker-end="url(#arrow)" />
+<path class="edge" d="M782,398.66666666666663 L872,398.66666666666663" marker-end="url(#arrow)" />
+<path class="edge" d="M502,146 L592,146" marker-end="url(#arrow)" />
+<path class="edge" d="M782,136 L872,136" marker-end="url(#arrow)" />
+<path class="edge" d="M782,146 L802,146 L802,166 L1072,166 L1072,149.33333333333334 L1152,149.33333333333334" marker-end="url(#arrow)" />
+<path class="edge" d="M1062,136 L1152,136" marker-end="url(#arrow)" />
+<path class="edge" d="M782,156 L792,156 L792,231.33333333333331 L872,231.33333333333331" marker-end="url(#arrow)" />
+<path class="edge" d="M1062,224.66666666666666 L1152,224.66666666666666" marker-end="url(#arrow)" />
+<path class="edge" d="M1342,224.66666666666666 L1432,224.66666666666666" marker-end="url(#arrow)" />
+<path class="edge" d="M1062,333.3333333333333 L1072,333.3333333333333 L1072,418.66666666666663 L1152,418.66666666666663" marker-end="url(#arrow)" />
+<path class="edge" d="M1342,425.3333333333333 L1432,425.3333333333333" marker-end="url(#arrow)" />
+<path class="edge" d="M1062,323.3333333333333 L1082,323.3333333333333 L1082,336.66666666666663 L1432,336.66666666666663" marker-end="url(#arrow)" />
+<path class="edge" d="M1342,411.99999999999994 L1352,411.99999999999994 L1352,350 L1432,350" marker-end="url(#arrow)" />
+<path class="edge" d="M1062,313.3333333333333 L1152,313.3333333333333" marker-end="url(#arrow)" />
+<path class="edge" d="M1062,237.99999999999997 L1072,238 L1072,300 L1152,300" marker-end="url(#arrow)" />
+<rect class="node wave1" x="32" y="138" width="190" height="40" />
+<text class="node-text" x="40" y="163">SPEC-0008.E.W1.1</text>
+<rect class="node wave1" x="312" y="208" width="190" height="40" />
+<text class="node-text" x="320" y="233">SPEC-0008.E.W1.2</text>
+<rect class="node wave1" x="592" y="378.66666666666663" width="190" height="40" />
+<text class="node-text" x="600" y="403.66666666666663">SPEC-0008.E.W1.3</text>
+<rect class="node wave1" x="312" y="126" width="190" height="40" />
+<text class="node-text" x="320" y="151">SPEC-0008.E.W1.4</text>
+<rect class="node wave2" x="312" y="460.66666666666663" width="190" height="40" />
+<text class="node-text" x="320" y="485.66666666666663">SPEC-0008.E.W2.1</text>
+<rect class="node wave2" x="592" y="460.66666666666663" width="190" height="40" />
+<text class="node-text" x="600" y="485.66666666666663">SPEC-0008.E.W2.2</text>
+<rect class="node wave2" x="872" y="385.3333333333333" width="190" height="40" />
+<text class="node-text" x="880" y="410.3333333333333">SPEC-0008.E.W2.3</text>
+<rect class="node wave3" x="592" y="126" width="190" height="40" />
+<text class="node-text" x="600" y="151">SPEC-0008.E.W3.1</text>
+<rect class="node wave3" x="872" y="116" width="190" height="40" />
+<text class="node-text" x="880" y="141">SPEC-0008.E.W3.2</text>
+<rect class="node wave3" x="1152" y="122.66666666666667" width="190" height="40" />
+<text class="node-text" x="1160" y="147.66666666666669">SPEC-0008.E.W3.3</text>
+<rect class="node wave3" x="32" y="56" width="190" height="40" />
+<text class="node-text" x="40" y="81">SPEC-0008.E.W3.4</text>
+<rect class="node wave4" x="872" y="211.33333333333331" width="190" height="40" />
+<text class="node-text" x="880" y="236.33333333333331">SPEC-0008.E.W4.1</text>
+<rect class="node wave4" x="1152" y="204.66666666666666" width="190" height="40" />
+<text class="node-text" x="1160" y="229.66666666666666">SPEC-0008.E.W4.2</text>
+<rect class="node wave4" x="1432" y="204.66666666666666" width="190" height="40" />
+<text class="node-text" x="1440" y="229.66666666666666">SPEC-0008.E.W4.3</text>
+<rect class="node wave5" x="872" y="303.3333333333333" width="190" height="40" />
+<text class="node-text" x="880" y="328.3333333333333">SPEC-0008.E.W5.1</text>
+<rect class="node wave5" x="1152" y="398.66666666666663" width="190" height="40" />
+<text class="node-text" x="1160" y="423.66666666666663">SPEC-0008.E.W5.2</text>
+<rect class="node wave5" x="1432" y="405.3333333333333" width="190" height="40" />
+<text class="node-text" x="1440" y="430.3333333333333">SPEC-0008.E.W5.3</text>
+<rect class="node wave5" x="1432" y="323.3333333333333" width="190" height="40" />
+<text class="node-text" x="1440" y="348.3333333333333">SPEC-0008.E.W5.4</text>
+<rect class="node wave5" x="1152" y="286.66666666666663" width="190" height="40" />
+<text class="node-text" x="1160" y="311.66666666666663">SPEC-0008.E.W5.5</text>
 </svg>

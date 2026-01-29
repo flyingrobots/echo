@@ -58,6 +58,13 @@
     .bar.echo { background: var(--echo); }
     .bar-cell { padding: 6px 8px; }
     .legend { margin-top: 8px; font-size: 0.9em; }
+    .wave-legend { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0 16px 0; font-size: 0.9em; }
+    .swatch { display: inline-block; width: 14px; height: 14px; border: 1px solid #777; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
+    .w1 { background: #e6f2ff; }
+    .w2 { background: #fff2cc; }
+    .w3 { background: #e8f7e8; }
+    .w4 { background: #f3e8ff; }
+    .w5 { background: #ffe6e6; }
     .tasks { margin-top: 8px; font-size: 0.9em; color: var(--muted); }
   </style>
 </head>
@@ -67,6 +74,13 @@
 
   <h2>Task DAGs (ELK)</h2>
   <p class="note">Layout: ELK layered (orthogonal routing). Split into smaller graphs for readability. Nodes are color-coded by wave; see <code>docs/spec-0008/tasks.md</code> for titles.</p>
+  <div class="wave-legend">
+    <span><span class="swatch w1"></span>Wave 1</span>
+    <span><span class="swatch w2"></span>Wave 2</span>
+    <span><span class="swatch w3"></span>Wave 3</span>
+    <span><span class="swatch w4"></span>Wave 4</span>
+    <span><span class="swatch w5"></span>Wave 5</span>
+  </div>
   <div class="svg-wrap">
     <object type="image/svg+xml" data="task-dag-wesley.svg" width="100%" height="700">Wesley Task DAG SVG</object>
   </div>

@@ -221,3 +221,18 @@ CI runs `cargo xtask wesley check` to verify generated outputs match the Wesley 
 In short: no one cares about a tidy commit graph, but everyone cares if you rewrite commits on origin.
 
 Safe travels in the multiverse.
+
+---
+
+## Policy Guardrails (Lint/CI Integrity)
+
+- Do NOT modify or relax lint/format policies without explicit human instruction.
+    - This includes `.markdownlint*`, `.prettierrc*`, `.editorconfig`, `.gitignore` / `.gitinfores`,
+      CI configs, or hook scripts.
+- Do NOT add ignore lists or disable rules to “make it pass.”
+- If pre-commit or CI fails due to unrelated files, STOP and ask how to proceed.
+    - Do not auto-fix or restage unrelated files.
+- For generated outputs: only regenerate via the blessed commands (e.g. `cargo xtask wesley sync`),
+  never edit outputs by hand, and never alter policy to accept missing docs, etc.
+- If the user asks “commit all,” still respect the above; ask for clarification if
+  “all” includes policy changes or unrelated files.

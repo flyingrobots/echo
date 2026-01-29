@@ -1,0 +1,124 @@
+digraph SPEC0008 {
+  rankdir=LR;
+  graph [fontsize=10, labelloc="t", label="SPEC-0008 Task DAG (Wesley + Echo)"];
+  node [shape=box, style="rounded", fontsize=9];
+  edge [fontsize=8];
+
+  subgraph cluster_wesley {
+    label="Wesley";
+    color="#4c78a8";
+    fontcolor="#4c78a8";
+
+    subgraph cluster_w_w1 {
+      label="Wave 1";
+      color="#9ecae9";
+      W_W1_1 [label="SPEC-0008.W.W1.1\nSchema IR + schema_hash"];
+      W_W1_2 [label="SPEC-0008.W.W1.2\nraw_le codecs"];
+      W_W1_3 [label="SPEC-0008.W.W1.3\nOption encoding"];
+      W_W1_4 [label="SPEC-0008.W.W1.4\nIDs + registry.blob"];
+      W_W1_5 [label="SPEC-0008.W.W1.5\nGolden vectors"];
+    }
+
+    subgraph cluster_w_w3 {
+      label="Wave 3";
+      color="#9ecae9";
+      W_W3_1 [label="SPEC-0008.W.W3.1\nSchema/registry artifacts"];
+      W_W3_2 [label="SPEC-0008.W.W3.2\nGolden coverage (full)"];
+      W_W3_3 [label="SPEC-0008.W.W3.3\nGuardedView gen"];
+    }
+
+    subgraph cluster_w_w5 {
+      label="Wave 5";
+      color="#9ecae9";
+      W_W5_1 [label="SPEC-0008.W.W5.1\nPrivacy types in schema"];
+    }
+  }
+
+  subgraph cluster_echo {
+    label="Echo";
+    color="#f58518";
+    fontcolor="#f58518";
+
+    subgraph cluster_e_w1 {
+      label="Wave 1";
+      color="#fdd0a2";
+      E_W1_1 [label="SPEC-0008.E.W1.1\nBlobStore trait"];
+      E_W1_2 [label="SPEC-0008.E.W1.2\nMemory BlobStore"];
+      E_W1_3 [label="SPEC-0008.E.W1.3\nCAS wire v1"];
+      E_W1_4 [label="SPEC-0008.E.W1.4\nSchemaUniverse"];
+    }
+
+    subgraph cluster_e_w2 {
+      label="Wave 2";
+      color="#fdd0a2";
+      E_W2_1 [label="SPEC-0008.E.W2.1\nPatch blobs"];
+      E_W2_2 [label="SPEC-0008.E.W2.2\nPROOF/LIGHT receipts"];
+      E_W2_3 [label="SPEC-0008.E.W2.3\nPatch fetch"];
+    }
+
+    subgraph cluster_e_w3 {
+      label="Wave 3";
+      color="#fdd0a2";
+      E_W3_1 [label="SPEC-0008.E.W3.1\nTypedRef gating"];
+      E_W3_2 [label="SPEC-0008.E.W3.2\nSchema dist + pin"];
+      E_W3_3 [label="SPEC-0008.E.W3.3\nCasObjectStore"];
+      E_W3_4 [label="SPEC-0008.E.W3.4\nRuntime FootprintGuard"];
+    }
+
+    subgraph cluster_e_w4 {
+      label="Wave 4";
+      color="#fdd0a2";
+      E_W4_1 [label="SPEC-0008.E.W4.1\nSnapshotManifest"];
+      E_W4_2 [label="SPEC-0008.E.W4.2\nDeterministic segments"];
+      E_W4_3 [label="SPEC-0008.E.W4.3\nWSC pack/unpack"];
+    }
+
+    subgraph cluster_e_w5 {
+      label="Wave 5";
+      color="#fdd0a2";
+      E_W5_1 [label="SPEC-0008.E.W5.1\nClaimRecord ledger"];
+      E_W5_2 [label="SPEC-0008.E.W5.2\nPrivateAtom/OpaqueRef"];
+      E_W5_3 [label="SPEC-0008.E.W5.3\nVaultResolver"];
+      E_W5_4 [label="SPEC-0008.E.W5.4\nMind mode"];
+      E_W5_5 [label="SPEC-0008.E.W5.5\nGC proof retention"];
+    }
+  }
+
+  // Wesley dependencies
+  W_W1_1 -> W_W1_2;
+  W_W1_1 -> W_W1_3;
+  W_W1_2 -> W_W1_5;
+  W_W1_3 -> W_W1_5;
+  W_W1_4 -> W_W3_1;
+  W_W1_5 -> W_W3_2;
+  W_W3_1 -> W_W3_2;
+
+  // Echo dependencies
+  E_W1_1 -> E_W1_2;
+  E_W1_1 -> E_W1_3;
+  E_W1_1 -> E_W1_4;
+  E_W1_1 -> E_W2_1;
+  E_W2_1 -> E_W2_2;
+  E_W2_2 -> E_W2_3;
+  E_W1_3 -> E_W2_3;
+  E_W1_4 -> E_W3_1;
+  E_W3_1 -> E_W3_2;
+  E_W3_1 -> E_W3_3;
+  E_W3_2 -> E_W3_3;
+  E_W3_1 -> E_W4_1;
+  E_W4_1 -> E_W4_2;
+  E_W4_2 -> E_W4_3;
+  E_W5_1 -> E_W5_2;
+  E_W5_2 -> E_W5_3;
+  E_W5_1 -> E_W5_4;
+  E_W5_2 -> E_W5_4;
+  E_W5_1 -> E_W5_5;
+  E_W4_1 -> E_W5_5;
+
+  // Cross-track dependencies
+  W_W1_2 -> E_W2_1;
+  W_W1_4 -> E_W3_1;
+  W_W3_1 -> E_W3_2;
+  W_W3_3 -> E_W3_4;
+  W_W5_1 -> E_W5_1;
+}

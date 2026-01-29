@@ -1,0 +1,233 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SPEC-0008 Task DAG + Gantt</title>
+  <style>
+    :root {
+      --wesley: #4c78a8;
+      --echo: #f58518;
+      --grid: #e6e6e6;
+      --text: #1d1d1f;
+      --muted: #666;
+    }
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      color: var(--text);
+      margin: 24px;
+      line-height: 1.4;
+    }
+    h1, h2 { margin: 0 0 12px 0; }
+    .note { color: var(--muted); font-size: 0.95em; }
+    .svg-wrap {
+      border: 1px solid var(--grid);
+      padding: 12px;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+    .gantt {
+      margin-top: 24px;
+      border: 1px solid var(--grid);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .gantt-header, .gantt-row {
+      display: grid;
+      grid-template-columns: 180px repeat(5, 1fr);
+      align-items: center;
+    }
+    .gantt-header {
+      background: #f4f4f4;
+      font-weight: 600;
+    }
+    .gantt-header div, .gantt-row div {
+      border-right: 1px solid var(--grid);
+      padding: 6px 8px;
+      font-size: 0.9em;
+    }
+    .gantt-row { border-top: 1px solid var(--grid); }
+    .bar {
+      height: 18px;
+      border-radius: 4px;
+      background: #c7c7c7;
+    }
+    .bar.wesley { background: var(--wesley); }
+    .bar.echo { background: var(--echo); }
+    .bar-cell { padding: 6px 8px; }
+    .legend { margin-top: 8px; font-size: 0.9em; }
+    .tasks { margin-top: 8px; font-size: 0.9em; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>SPEC-0008 Task DAG + Gantt (Wesley + Echo)</h1>
+  <p class="note">Source of truth: <code>docs/spec-0008/SPEC-0008-Wesley-Echo-CAS-BOAW-Privacy-Editors-Edition.md</code>. Task catalog: <code>docs/spec-0008/tasks.md</code>.</p>
+
+  <h2>Task DAG (Graphviz)</h2>
+  <div class="svg-wrap">
+    <object type="image/svg+xml" data="task-dag.svg" width="100%" height="900">Task DAG SVG</object>
+  </div>
+
+  <h2>Gantt (by wave, grouped by track)</h2>
+  <div class="gantt">
+    <div class="gantt-header">
+      <div>Task</div>
+      <div>W1</div><div>W2</div><div>W3</div><div>W4</div><div>W5</div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Wesley Wave 1</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W1.1</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W1.2</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W1.3</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W1.4</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W1.5</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar wesley"></div></div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Echo Wave 1</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W1.1</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W1.2</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W1.3</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W1.4</div>
+      <div class="bar-cell" style="grid-column: 2 / 3;"><div class="bar echo"></div></div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Echo Wave 2</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W2.1</div>
+      <div class="bar-cell" style="grid-column: 3 / 4;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W2.2</div>
+      <div class="bar-cell" style="grid-column: 3 / 4;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W2.3</div>
+      <div class="bar-cell" style="grid-column: 3 / 4;"><div class="bar echo"></div></div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Wesley Wave 3</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W3.1</div>
+      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar wesley"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W3.2</div>
+      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar wesley"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W3.3</div>
+      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar wesley"></div></div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Echo Wave 3</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W3.1</div>
+      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W3.2</div>
+      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W3.3</div>
+      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W3.4</div>
+      <div class="bar-cell" style="grid-column: 4 / 5;"><div class="bar echo"></div></div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Echo Wave 4</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W4.1</div>
+      <div class="bar-cell" style="grid-column: 5 / 6;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W4.2</div>
+      <div class="bar-cell" style="grid-column: 5 / 6;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W4.3</div>
+      <div class="bar-cell" style="grid-column: 5 / 6;"><div class="bar echo"></div></div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Wesley Wave 5</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.W.W5.1</div>
+      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar wesley"></div></div>
+    </div>
+
+    <div class="gantt-row" style="background:#f4f4f4;font-weight:600;">
+      <div>Echo Wave 5</div><div></div><div></div><div></div><div></div><div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W5.1</div>
+      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W5.2</div>
+      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W5.3</div>
+      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W5.4</div>
+      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
+    </div>
+    <div class="gantt-row">
+      <div>SPEC-0008.E.W5.5</div>
+      <div class="bar-cell" style="grid-column: 6 / 7;"><div class="bar echo"></div></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <strong>Legend:</strong> <span style="color: var(--wesley);">Wesley</span> | <span style="color: var(--echo);">Echo</span>
+  </div>
+
+  <div class="tasks">
+    <p>Wave contents: see <code>docs/spec-0008/tasks.md</code> for full task definitions, requirements, tests, and examples.</p>
+  </div>
+</body>
+</html>

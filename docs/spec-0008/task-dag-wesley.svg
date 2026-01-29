@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="617" viewBox="0 0 520 617">
+<style>
+    .group { fill: #f8f8f8; stroke: #d0d0d0; stroke-width: 1; }
+    .group-title { font: 14px Helvetica, Arial, sans-serif; fill: #333; }
+    .node { fill: #ffffff; stroke: #444; stroke-width: 1.2; rx: 6; }
+    .node-text { font: 12px Helvetica, Arial, sans-serif; fill: #111; }
+    .edge { fill: none; stroke: #555; stroke-width: 1.1; }
+    .title { font: 16px Helvetica, Arial, sans-serif; fill: #111; font-weight: 600; }
+  </style>
+<defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 z" fill="#555" />
+    </marker>
+  </defs>
+<text class="title" x="20" y="36">Wesley DAG</text>
+<path class="edge" d="M177.66666666666666,173 L177.66666666666666,183 L319,183 L319,193" marker-end="url(#arrow)" />
+<path class="edge" d="M121,173 L121,193" marker-end="url(#arrow)" />
+<path class="edge" d="M319,233 L319,243 L177.66666666666666,243 L177.66666666666666,253" marker-end="url(#arrow)" />
+<path class="edge" d="M121,233 L121,253" marker-end="url(#arrow)" />
+<path class="edge" d="M121,173 L121,193" marker-end="url(#arrow)" />
+<rect class="group" x="20" y="38" width="480" height="577" />
+<rect class="group" x="32" y="50" width="456" height="553" />
+<text class="group-title" x="40" y="70">Wesley</text>
+<rect class="group" x="36" y="304" width="400" height="271" />
+<text class="group-title" x="44" y="324">Wave 1</text>
+<rect class="node" x="64.33333333333334" y="133" width="170" height="40" />
+<text class="node-text" x="72.33333333333334" y="158">SPEC-0008.W.W1.1</text>
+<rect class="node" x="234" y="193" width="170" height="40" />
+<text class="node-text" x="242" y="218">SPEC-0008.W.W1.2</text>
+<rect class="node" x="36" y="193" width="170" height="40" />
+<text class="node-text" x="44" y="218">SPEC-0008.W.W1.3</text>
+<rect class="node" x="36" y="73" width="170" height="40" />
+<text class="node-text" x="44" y="98">SPEC-0008.W.W1.4</text>
+<rect class="node" x="64.33333333333334" y="253" width="170" height="40" />
+<text class="node-text" x="72.33333333333334" y="278">SPEC-0008.W.W1.5</text>
+<rect class="group" x="258" y="73" width="202" height="211" />
+<text class="group-title" x="266" y="93">Wave 3</text>
+<rect class="node" x="36" y="133" width="170" height="40" />
+<text class="node-text" x="44" y="158">SPEC-0008.W.W3.1</text>
+<rect class="node" x="36" y="193" width="170" height="40" />
+<text class="node-text" x="44" y="218">SPEC-0008.W.W3.2</text>
+<rect class="node" x="36" y="73" width="170" height="40" />
+<text class="node-text" x="44" y="98">SPEC-0008.W.W3.3</text>
+<rect class="group" x="36" y="73" width="202" height="91" />
+<text class="group-title" x="44" y="93">Wave 5</text>
+<rect class="node" x="36" y="73" width="170" height="40" />
+<text class="node-text" x="44" y="98">SPEC-0008.W.W5.1</text>
+</svg>

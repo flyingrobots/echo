@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="484" height="344" viewBox="0 0 484 344">
+<style>
+    .group { fill: #f8f8f8; stroke: #d0d0d0; stroke-width: 1; }
+    .group-title { font: 14px Helvetica, Arial, sans-serif; fill: #333; }
+    .node { fill: #ffffff; stroke: #444; stroke-width: 1.2; rx: 6; }
+    .node-text { font: 12px Helvetica, Arial, sans-serif; fill: #111; }
+    .edge { fill: none; stroke: #555; stroke-width: 1.1; }
+    .title { font: 16px Helvetica, Arial, sans-serif; fill: #111; font-weight: 600; }
+  </style>
+<defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 z" fill="#555" />
+    </marker>
+  </defs>
+<text class="title" x="20" y="36">Cross-Track Dependencies</text>
+<path class="edge" d="M202,70 L282,70" marker-end="url(#arrow)" />
+<path class="edge" d="M202,130 L282,130" marker-end="url(#arrow)" />
+<path class="edge" d="M202,190 L282,190" marker-end="url(#arrow)" />
+<path class="edge" d="M202,250 L282,250" marker-end="url(#arrow)" />
+<path class="edge" d="M202,310 L282,310" marker-end="url(#arrow)" />
+<rect class="group" x="20" y="38" width="444" height="304" />
+<rect class="node" x="32" y="50" width="170" height="40" />
+<text class="node-text" x="40" y="75">SPEC-0008.W.W1.2</text>
+<rect class="node" x="32" y="110" width="170" height="40" />
+<text class="node-text" x="40" y="135">SPEC-0008.W.W1.4</text>
+<rect class="node" x="32" y="170" width="170" height="40" />
+<text class="node-text" x="40" y="195">SPEC-0008.W.W3.1</text>
+<rect class="node" x="32" y="230" width="170" height="40" />
+<text class="node-text" x="40" y="255">SPEC-0008.W.W3.3</text>
+<rect class="node" x="32" y="290" width="170" height="40" />
+<text class="node-text" x="40" y="315">SPEC-0008.W.W5.1</text>
+<rect class="node" x="282" y="50" width="170" height="40" />
+<text class="node-text" x="290" y="75">SPEC-0008.E.W2.1</text>
+<rect class="node" x="282" y="110" width="170" height="40" />
+<text class="node-text" x="290" y="135">SPEC-0008.E.W3.1</text>
+<rect class="node" x="282" y="170" width="170" height="40" />
+<text class="node-text" x="290" y="195">SPEC-0008.E.W3.2</text>
+<rect class="node" x="282" y="230" width="170" height="40" />
+<text class="node-text" x="290" y="255">SPEC-0008.E.W3.4</text>
+<rect class="node" x="282" y="290" width="170" height="40" />
+<text class="node-text" x="290" y="315">SPEC-0008.E.W5.1</text>
+</svg>

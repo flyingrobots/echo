@@ -80,7 +80,9 @@ impl MemoryTier {
         self.byte_count
     }
 
-    /// Returns `true` if `byte_count` exceeds the configured budget.
+    /// Returns `true` if `byte_count` exceeds the configured budget (exclusive:
+    /// exactly `max_bytes` is within budget). `byte_count` is monotonically
+    /// increasing in Phase 1 — there is no blob removal pathway until Phase 3 GC.
     ///
     /// Always returns `false` if no budget was set.
     pub fn is_over_budget(&self) -> bool {
@@ -316,5 +318,35 @@ mod tests {
         let expected = blob_hash(data);
         let got = store.put(data);
         assert_eq!(got, expected);
+    }
+
+    // ── 15. put_verified happy path ─────────────────────────────────────
+
+    #[test]
+    fn put_verified_happy_path() {
+        let mut store = MemoryTier::new();
+        let data = b"verified blob";
+        let hash = blob_hash(data);
+        assert!(store.put_verified(hash, data).is_ok());
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.byte_count(), data.len());
+        assert_eq!(&*store.get(&hash).unwrap(), data);
+        // Idempotent: second call doesn't double-count.
+        assert!(store.put_verified(hash, data).is_ok());
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.byte_count(), data.len());
+    }
+
+    // ── 16. pin idempotence (set semantics) ─────────────────────────────
+
+    #[test]
+    fn pin_idempotence() {
+        let mut store = MemoryTier::new();
+        let hash = store.put(b"pin me twice");
+        store.pin(&hash);
+        store.pin(&hash);
+        assert_eq!(store.pinned_count(), 1);
+        store.unpin(&hash);
+        assert!(!store.is_pinned(&hash));
     }
 }

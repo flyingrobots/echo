@@ -1132,6 +1132,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-cas"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "echo-config-fs"
 version = "0.1.0"
 dependencies = [

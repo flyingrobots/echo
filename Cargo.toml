@@ -24,6 +24,7 @@ members = [
     "crates/echo-wasm-bindings",
     "crates/echo-wesley-gen",
     "crates/echo-dry-tests",
+    "crates/echo-cas",
     "xtask"
 ]
 resolver = "2"
@@ -35,6 +36,7 @@ rust-version = "1.90.0"
 
 [workspace.dependencies]
 echo-app-core = { version = "0.1.0", path = "crates/echo-app-core" }
+echo-cas = { version = "0.1.0", path = "crates/echo-cas" }
 echo-config-fs = { version = "0.1.0", path = "crates/echo-config-fs" }
 echo-dind-tests = { version = "0.1.0", path = "crates/echo-dind-tests" }
 echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }

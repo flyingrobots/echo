@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-cas"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Content-addressed blob store for Echo"
+readme = "README.md"
+keywords = ["echo", "cas", "content-addressed"]
+categories = ["data-structures"]
+
+[dependencies]
+blake3 = "1.5"
+thiserror = "1"
+
+[dev-dependencies]

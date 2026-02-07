@@ -28,6 +28,7 @@ use echo_session_proto::{
     HandshakePayload, Message as SessionMessage,
 };
 use futures_util::{SinkExt, StreamExt};
+use ninelives::{ExponentialBackoff, Jitter, ResilienceError, RetryPolicy};
 use serde::Serialize;
 use tokio::task::JoinError;
 use tokio::{
@@ -597,83 +598,130 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Error during hub observer connection setup.
+///
+/// Deliberately simple and [`Clone`] — [`ninelives::RetryPolicy::execute`] requires
+/// `E: Clone` to collect failures across retry attempts.
+#[derive(Debug, Clone)]
+struct HubConnectError(String);
+
+impl std::fmt::Display for HubConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for HubConnectError {}
+
+/// Attempt a single hub connection: timeout-guarded connect, handshake, subscribe.
+///
+/// Called by the retry policy on each attempt. Increments the connect-attempt
+/// metric and logs per-attempt warnings. Error recording in metrics happens once
+/// after retry exhaustion in [`run_hub_observer`].
+async fn hub_observer_try_connect(
+    state: &Arc<AppState>,
+    warps: &[u64],
+) -> Result<
+    (
+        tokio::io::ReadHalf<UnixStream>,
+        tokio::io::WriteHalf<UnixStream>,
+    ),
+    HubConnectError,
+> {
+    {
+        let mut metrics = state.metrics.lock().await;
+        metrics.observe_hub_observer_connect_attempt();
+    }
+
+    let socket_path = &state.unix_socket;
+
+    let stream = time::timeout(Duration::from_secs(2), UnixStream::connect(socket_path))
+        .await
+        .map_err(|_| {
+            warn!(path = %socket_path.display(), "hub observer: connect timeout");
+            HubConnectError("connect timeout".into())
+        })?
+        .map_err(|err| {
+            warn!(?err, path = %socket_path.display(), "hub observer: connect failed");
+            HubConnectError(format!("connect: {err}"))
+        })?;
+
+    let (reader, mut writer) = tokio::io::split(stream);
+
+    hub_observer_send_handshake(&mut writer)
+        .await
+        .map_err(|err| {
+            warn!(?err, "hub observer: handshake failed");
+            HubConnectError(format!("handshake: {err}"))
+        })?;
+
+    for warp_id in warps {
+        hub_observer_send_subscribe(&mut writer, *warp_id)
+            .await
+            .map_err(|err| {
+                warn!(?err, warp_id, "hub observer: subscribe failed");
+                HubConnectError(format!("subscribe warp {warp_id}: {err}"))
+            })?;
+    }
+
+    Ok((reader, writer))
+}
+
 async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
     let mut warps: Vec<u64> = warp_ids;
     warps.sort_unstable();
     warps.dedup();
 
-    let mut backoff = Duration::from_millis(250);
-    'reconnect: loop {
+    // 10 attempts per burst × exponential backoff (250ms → 3s) with full jitter.
+    // On exhaustion the outer loop applies a 10s cooldown before the next burst.
+    let retry_policy = RetryPolicy::<HubConnectError>::builder()
+        .max_attempts(10)
+        .backoff(
+            ExponentialBackoff::new(Duration::from_millis(250))
+                .with_max(Duration::from_secs(3))
+                .expect("valid backoff bounds"),
+        )
+        .with_jitter(Jitter::full())
+        .build()
+        .expect("valid retry config");
+
+    loop {
+        // Phase 1: Connect + handshake + subscribe, retried with backoff + jitter.
+        let connect_result = retry_policy
+            .execute(|| {
+                let state = state.clone();
+                let warps = warps.clone();
+                async move {
+                    hub_observer_try_connect(&state, &warps)
+                        .await
+                        .map_err(ResilienceError::Inner)
+                }
+            })
+            .await;
+
+        let (mut reader, _writer) = match connect_result {
+            Ok(halves) => halves,
+            Err(err) => {
+                warn!(%err, "hub observer: retries exhausted, cooling down");
+                {
+                    let mut metrics = state.metrics.lock().await;
+                    metrics.observe_hub_observer_error(err.to_string());
+                }
+                time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+        };
+
+        // Phase 2: Connected — record timestamp and enter the read loop.
         let now_ms: u64 = state
             .start_instant
             .elapsed()
             .as_millis()
             .try_into()
             .unwrap_or(u64::MAX);
-
-        {
-            let mut metrics = state.metrics.lock().await;
-            metrics.observe_hub_observer_connect_attempt();
-            metrics.hub_observer.subscribed_warps = warps.clone();
-        }
-
-        let socket_path = state.unix_socket.clone();
-        let stream =
-            match time::timeout(Duration::from_secs(2), UnixStream::connect(&socket_path)).await {
-                Ok(Ok(stream)) => {
-                    backoff = Duration::from_millis(250);
-                    stream
-                }
-                Ok(Err(err)) => {
-                    warn!(
-                        ?err,
-                        path = %socket_path.display(),
-                        "hub observer: failed to connect to unix socket"
-                    );
-                    let mut metrics = state.metrics.lock().await;
-                    metrics.observe_hub_observer_error(err.to_string());
-                    time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(Duration::from_secs(3));
-                    continue;
-                }
-                Err(_) => {
-                    warn!(
-                        path = %socket_path.display(),
-                        "hub observer: timed out connecting to unix socket"
-                    );
-                    let mut metrics = state.metrics.lock().await;
-                    metrics.observe_hub_observer_error("connect timeout".into());
-                    time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(Duration::from_secs(3));
-                    continue;
-                }
-            };
-
         {
             let mut metrics = state.metrics.lock().await;
             metrics.observe_hub_observer_connected(now_ms);
-        }
-
-        let (mut reader, mut writer) = tokio::io::split(stream);
-
-        if let Err(err) = hub_observer_send_handshake(&mut writer).await {
-            warn!(?err, "hub observer: handshake send failed");
-            let mut metrics = state.metrics.lock().await;
-            metrics.observe_hub_observer_error(err.to_string());
-            time::sleep(backoff).await;
-            backoff = (backoff * 2).min(Duration::from_secs(3));
-            continue 'reconnect;
-        }
-
-        for warp_id in &warps {
-            if let Err(err) = hub_observer_send_subscribe(&mut writer, *warp_id).await {
-                warn!(?err, warp_id, "hub observer: subscribe send failed");
-                let mut metrics = state.metrics.lock().await;
-                metrics.observe_hub_observer_error(err.to_string());
-                time::sleep(backoff).await;
-                backoff = (backoff * 2).min(Duration::from_secs(3));
-                continue 'reconnect;
-            }
         }
 
         let max_len = state.max_frame_bytes;
@@ -682,7 +730,7 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
         {
             let mut metrics = state.metrics.lock().await;
             metrics.observe_hub_observer_disconnected();
-            if let Err(err) = &read_result {
+            if let Err(ref err) = read_result {
                 metrics.hub_observer.last_error = Some(err.to_string());
             }
         }
@@ -690,9 +738,6 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
         if let Err(err) = read_result {
             warn!(?err, "hub observer: read loop exited with error");
         }
-
-        time::sleep(backoff).await;
-        backoff = (backoff * 2).min(Duration::from_secs(3));
     }
 }
 

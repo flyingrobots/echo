@@ -7,6 +7,14 @@
 
 ### Changed — Gateway Resilience (`echo-session-ws-gateway`)
 
+- **Typed `HubConnectError` enum** replaces the opaque `HubConnectError(String)`.
+  Four variants (`Timeout`, `Connect`, `Handshake`, `Subscribe`) carry structured
+  context, and a `should_retry()` predicate is wired into the ninelives retry
+  policy so future non-transient variants can short-circuit retries.
+- **Hub observer task exits are surfaced** — the fire-and-forget
+  `tokio::spawn` is wrapped in a watcher task that logs unexpected exits and
+  panics at `warn!`/`error!` level, preventing silent observer disappearance.
+
 - **Hub observer reconnect** now uses `ninelives` retry policy with exponential
   backoff (250 ms → 3 s) and full jitter, replacing hand-rolled backoff state.
   Retries are grouped into bursts of 10 attempts; on exhaustion a 10 s cooldown

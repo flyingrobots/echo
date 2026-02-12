@@ -541,8 +541,15 @@ async fn main() -> Result<()> {
     if !args.no_observer {
         let observer_state = state.clone();
         let warps = args.observe_warp.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             run_hub_observer(observer_state, warps).await;
+        });
+        tokio::spawn(async move {
+            match handle.await {
+                Ok(()) => warn!("hub observer task exited unexpectedly"),
+                Err(err) if err.is_panic() => error!(?err, "hub observer task panicked"),
+                Err(err) => warn!(?err, "hub observer task failed"),
+            }
         });
     }
 
@@ -600,14 +607,45 @@ async fn main() -> Result<()> {
 
 /// Error during hub observer connection setup.
 ///
-/// Deliberately simple and [`Clone`] — [`ninelives::RetryPolicy::execute`] requires
-/// `E: Clone` to collect failures across retry attempts.
+/// Each variant captures a distinct failure mode so the retry policy can decide
+/// whether to retry via [`HubConnectError::should_retry`].
+///
+/// Deliberately [`Clone`] — [`ninelives::RetryPolicy::execute`] stores failures
+/// across retry attempts.
 #[derive(Debug, Clone)]
-struct HubConnectError(String);
+enum HubConnectError {
+    /// The combined connect + handshake + subscribe attempt exceeded the deadline.
+    Timeout,
+    /// TCP/Unix socket connect failed.
+    Connect(String),
+    /// Handshake message exchange failed.
+    Handshake(String),
+    /// Subscription to a specific warp failed.
+    Subscribe { warp_id: u64, reason: String },
+}
+
+impl HubConnectError {
+    /// Whether this error is transient and the operation should be retried.
+    ///
+    /// Currently all variants are transient (the hub may simply be restarting).
+    /// Future protocol-level errors (e.g. version mismatch) can return `false`.
+    fn should_retry(&self) -> bool {
+        match self {
+            Self::Timeout | Self::Connect(_) | Self::Handshake(_) | Self::Subscribe { .. } => true,
+        }
+    }
+}
 
 impl std::fmt::Display for HubConnectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        match self {
+            Self::Timeout => f.write_str("connect+handshake timeout"),
+            Self::Connect(reason) => write!(f, "connect: {reason}"),
+            Self::Handshake(reason) => write!(f, "handshake: {reason}"),
+            Self::Subscribe { warp_id, reason } => {
+                write!(f, "subscribe warp {warp_id}: {reason}")
+            }
+        }
     }
 }
 
@@ -641,7 +679,7 @@ async fn hub_observer_try_connect(
     time::timeout(Duration::from_secs(5), async {
         let stream = UnixStream::connect(socket_path).await.map_err(|err| {
             warn!(?err, path = %socket_path.display(), "hub observer: connect failed");
-            HubConnectError(format!("connect: {err}"))
+            HubConnectError::Connect(err.to_string())
         })?;
 
         let (reader, mut writer) = tokio::io::split(stream);
@@ -650,7 +688,7 @@ async fn hub_observer_try_connect(
             .await
             .map_err(|err| {
                 warn!(?err, "hub observer: handshake failed");
-                HubConnectError(format!("handshake: {err}"))
+                HubConnectError::Handshake(err.to_string())
             })?;
 
         for warp_id in warps {
@@ -658,7 +696,10 @@ async fn hub_observer_try_connect(
                 .await
                 .map_err(|err| {
                     warn!(?err, warp_id, "hub observer: subscribe failed");
-                    HubConnectError(format!("subscribe warp {warp_id}: {err}"))
+                    HubConnectError::Subscribe {
+                        warp_id: *warp_id,
+                        reason: err.to_string(),
+                    }
                 })?;
         }
 
@@ -667,7 +708,7 @@ async fn hub_observer_try_connect(
     .await
     .map_err(|_| {
         warn!(path = %socket_path.display(), "hub observer: connect+handshake timeout");
-        HubConnectError("connect+handshake timeout".into())
+        HubConnectError::Timeout
     })?
 }
 
@@ -694,6 +735,7 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
         .max_attempts(10)
         .backoff(backoff)
         .with_jitter(Jitter::full())
+        .should_retry(|err| err.should_retry())
         .build()
     {
         Ok(p) => p,
@@ -1440,5 +1482,72 @@ mod tests {
         let err = try_extract_frame(&mut acc, 5).expect_err("expected payload-too-large error");
         assert!(err.to_string().contains("payload too large"));
         assert_eq!(acc.len(), JS_ABI_HEADER_BYTES + 6 + JS_ABI_HASH_BYTES);
+    }
+
+    // ── HubConnectError ──────────────────────────────────────────────
+
+    #[test]
+    fn hub_connect_error_display_timeout() {
+        let err = HubConnectError::Timeout;
+        assert_eq!(err.to_string(), "connect+handshake timeout");
+    }
+
+    #[test]
+    fn hub_connect_error_display_connect() {
+        let err = HubConnectError::Connect("connection refused".into());
+        assert_eq!(err.to_string(), "connect: connection refused");
+    }
+
+    #[test]
+    fn hub_connect_error_display_handshake() {
+        let err = HubConnectError::Handshake("broken pipe".into());
+        assert_eq!(err.to_string(), "handshake: broken pipe");
+    }
+
+    #[test]
+    fn hub_connect_error_display_subscribe() {
+        let err = HubConnectError::Subscribe {
+            warp_id: 42,
+            reason: "not found".into(),
+        };
+        assert_eq!(err.to_string(), "subscribe warp 42: not found");
+    }
+
+    #[test]
+    fn hub_connect_error_should_retry_all_variants_are_transient() {
+        let cases: Vec<HubConnectError> = vec![
+            HubConnectError::Timeout,
+            HubConnectError::Connect("err".into()),
+            HubConnectError::Handshake("err".into()),
+            HubConnectError::Subscribe {
+                warp_id: 1,
+                reason: "err".into(),
+            },
+        ];
+        for err in &cases {
+            assert!(err.should_retry(), "expected should_retry() for {err}");
+        }
+    }
+
+    #[test]
+    fn hub_connect_error_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<HubConnectError>();
+    }
+
+    #[test]
+    fn hub_connect_error_is_clone() {
+        let err = HubConnectError::Subscribe {
+            warp_id: 7,
+            reason: "uh oh".into(),
+        };
+        let cloned = err.clone();
+        assert_eq!(err.to_string(), cloned.to_string());
+    }
+
+    #[test]
+    fn hub_connect_error_is_error() {
+        fn assert_error<T: std::error::Error>() {}
+        assert_error::<HubConnectError>();
     }
 }

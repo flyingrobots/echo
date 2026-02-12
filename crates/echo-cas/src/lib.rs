@@ -55,13 +55,25 @@ use std::sync::Arc;
 /// A 32-byte BLAKE3 content hash.
 ///
 /// Thin newtype over `[u8; 32]` following the `NodeId`/`TypeId` pattern from
-/// `warp-core`. The inner bytes are public for zero-cost access; the `Display`
-/// impl renders lowercase hex for logging and error messages.
+/// `warp-core`. The inner field is private to ensure `BlobHash` in a function
+/// signature communicates "this came from BLAKE3". Use [`blob_hash`] for normal
+/// construction and [`BlobHash::from_bytes`] for deserialization / wire protocol.
+///
+/// The `Display` impl renders lowercase hex for logging and error messages.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct BlobHash(pub [u8; 32]);
+pub struct BlobHash([u8; 32]);
 
 impl BlobHash {
+    /// Construct a `BlobHash` from raw bytes.
+    ///
+    /// Caller asserts that `bytes` came from a BLAKE3 computation. This exists
+    /// for deserialization and wire protocol ingestion (Phase 3). For normal
+    /// use, prefer [`blob_hash`].
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     /// View the hash as a byte slice.
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
@@ -70,10 +82,13 @@ impl BlobHash {
 
 impl std::fmt::Display for BlobHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for byte in &self.0 {
-            write!(f, "{byte:02x}")?;
-        }
-        Ok(())
+        use std::fmt::Write;
+        let hex = self.0.iter().fold(String::with_capacity(64), |mut s, b| {
+            // write! to String is infallible.
+            let _ = write!(s, "{b:02x}");
+            s
+        });
+        f.write_str(&hex)
     }
 }
 
@@ -129,6 +144,9 @@ pub trait BlobStore {
 
     /// Retrieve blob by hash. Returns `None` if not stored — absence is not an
     /// error.
+    // FIXME(phase3): `Arc<[u8]>` bakes the in-memory representation into the
+    // trait contract. Phase 3 tiers (disk, cold) may want `bytes::Bytes`, an
+    // associated type (`type Blob: AsRef<[u8]>`), or a streaming reader.
     fn get(&self, hash: &BlobHash) -> Option<Arc<[u8]>>;
 
     /// Check existence without retrieving.

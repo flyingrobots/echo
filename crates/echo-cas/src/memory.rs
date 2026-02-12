@@ -99,23 +99,24 @@ impl Default for MemoryTier {
 impl BlobStore for MemoryTier {
     fn put(&mut self, bytes: &[u8]) -> BlobHash {
         let hash = blob_hash(bytes);
-        if self.blobs.contains_key(&hash) {
-            return hash;
+        if let std::collections::hash_map::Entry::Vacant(e) = self.blobs.entry(hash) {
+            self.byte_count += bytes.len();
+            e.insert(Arc::from(bytes));
         }
-        self.byte_count += bytes.len();
-        self.blobs.insert(hash, Arc::from(bytes));
         hash
     }
 
     fn put_verified(&mut self, expected: BlobHash, bytes: &[u8]) -> Result<(), CasError> {
+        // Fast path: blob already stored — skip hashing entirely.
+        if self.blobs.contains_key(&expected) {
+            return Ok(());
+        }
         let computed = blob_hash(bytes);
         if computed != expected {
             return Err(CasError::HashMismatch { expected, computed });
         }
-        if !self.blobs.contains_key(&computed) {
-            self.byte_count += bytes.len();
-            self.blobs.insert(computed, Arc::from(bytes));
-        }
+        self.byte_count += bytes.len();
+        self.blobs.insert(computed, Arc::from(bytes));
         Ok(())
     }
 
@@ -158,7 +159,7 @@ mod tests {
     #[test]
     fn put_verified_rejects_mismatch() {
         let mut store = MemoryTier::new();
-        let bad_hash = BlobHash([0xFF; 32]);
+        let bad_hash = BlobHash::from_bytes([0xFF; 32]);
         let result = store.put_verified(bad_hash, b"some bytes");
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -174,7 +175,7 @@ mod tests {
     #[test]
     fn put_verified_mismatch_leaves_store_unchanged() {
         let mut store = MemoryTier::new();
-        let bad_hash = BlobHash([0xFF; 32]);
+        let bad_hash = BlobHash::from_bytes([0xFF; 32]);
         let _ = store.put_verified(bad_hash, b"should not be stored");
         assert_eq!(store.len(), 0);
         assert_eq!(store.byte_count(), 0);
@@ -240,7 +241,7 @@ mod tests {
     #[test]
     fn unpin_missing_is_noop() {
         let mut store = MemoryTier::new();
-        let hash = BlobHash([0xAA; 32]);
+        let hash = BlobHash::from_bytes([0xAA; 32]);
         // Must not panic.
         store.unpin(&hash);
         assert!(!store.is_pinned(&hash));
@@ -251,7 +252,7 @@ mod tests {
     #[test]
     fn get_missing_returns_none() {
         let store = MemoryTier::new();
-        let hash = BlobHash([0xBB; 32]);
+        let hash = BlobHash::from_bytes([0xBB; 32]);
         assert!(store.get(&hash).is_none());
     }
 
@@ -293,6 +294,20 @@ mod tests {
         assert!(store.is_over_budget());
         // Put still succeeds — budget is advisory.
         assert_eq!(store.len(), 2);
+    }
+
+    // ── 12b. budget boundary — exactly at limit ────────────────────────
+
+    #[test]
+    fn budget_boundary_exactly_at_limit() {
+        let mut store = MemoryTier::with_limits(4);
+        store.put(b"abcd"); // 4 bytes == max_bytes
+        assert!(
+            !store.is_over_budget(),
+            "exactly max_bytes must be within budget (exclusive)"
+        );
+        store.put(b"e"); // 5 bytes > max_bytes
+        assert!(store.is_over_budget());
     }
 
     // ── 13. large blob smoke test ───────────────────────────────────────

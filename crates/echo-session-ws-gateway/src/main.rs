@@ -618,6 +618,9 @@ impl std::error::Error for HubConnectError {}
 /// Called by the retry policy on each attempt. Increments the connect-attempt
 /// metric and logs per-attempt warnings. Error recording in metrics happens once
 /// after retry exhaustion in [`run_hub_observer`].
+///
+/// The entire attempt (connect + handshake + subscribe) is wrapped in a single
+/// 5 s deadline so a stalled peer cannot hang the retry loop indefinitely.
 async fn hub_observer_try_connect(
     state: &Arc<AppState>,
     warps: &[u64],
@@ -635,36 +638,37 @@ async fn hub_observer_try_connect(
 
     let socket_path = &state.unix_socket;
 
-    let stream = time::timeout(Duration::from_secs(2), UnixStream::connect(socket_path))
-        .await
-        .map_err(|_| {
-            warn!(path = %socket_path.display(), "hub observer: connect timeout");
-            HubConnectError("connect timeout".into())
-        })?
-        .map_err(|err| {
+    time::timeout(Duration::from_secs(5), async {
+        let stream = UnixStream::connect(socket_path).await.map_err(|err| {
             warn!(?err, path = %socket_path.display(), "hub observer: connect failed");
             HubConnectError(format!("connect: {err}"))
         })?;
 
-    let (reader, mut writer) = tokio::io::split(stream);
+        let (reader, mut writer) = tokio::io::split(stream);
 
-    hub_observer_send_handshake(&mut writer)
-        .await
-        .map_err(|err| {
-            warn!(?err, "hub observer: handshake failed");
-            HubConnectError(format!("handshake: {err}"))
-        })?;
-
-    for warp_id in warps {
-        hub_observer_send_subscribe(&mut writer, *warp_id)
+        hub_observer_send_handshake(&mut writer)
             .await
             .map_err(|err| {
-                warn!(?err, warp_id, "hub observer: subscribe failed");
-                HubConnectError(format!("subscribe warp {warp_id}: {err}"))
+                warn!(?err, "hub observer: handshake failed");
+                HubConnectError(format!("handshake: {err}"))
             })?;
-    }
 
-    Ok((reader, writer))
+        for warp_id in warps {
+            hub_observer_send_subscribe(&mut writer, *warp_id)
+                .await
+                .map_err(|err| {
+                    warn!(?err, warp_id, "hub observer: subscribe failed");
+                    HubConnectError(format!("subscribe warp {warp_id}: {err}"))
+                })?;
+        }
+
+        Ok::<_, HubConnectError>((reader, writer))
+    })
+    .await
+    .map_err(|_| {
+        warn!(path = %socket_path.display(), "hub observer: connect+handshake timeout");
+        HubConnectError("connect+handshake timeout".into())
+    })?
 }
 
 async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
@@ -674,16 +678,33 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
 
     // 10 attempts per burst × exponential backoff (250ms → 3s) with full jitter.
     // On exhaustion the outer loop applies a 10s cooldown before the next burst.
-    let retry_policy = RetryPolicy::<HubConnectError>::builder()
+    let backoff = match ExponentialBackoff::new(Duration::from_millis(250))
+        .with_max(Duration::from_secs(3))
+    {
+        Ok(b) => b,
+        Err(err) => {
+            error!(
+                ?err,
+                "hub observer: invalid backoff config — observer disabled"
+            );
+            return;
+        }
+    };
+    let retry_policy = match RetryPolicy::<HubConnectError>::builder()
         .max_attempts(10)
-        .backoff(
-            ExponentialBackoff::new(Duration::from_millis(250))
-                .with_max(Duration::from_secs(3))
-                .expect("valid backoff bounds"),
-        )
+        .backoff(backoff)
         .with_jitter(Jitter::full())
         .build()
-        .expect("valid retry config");
+    {
+        Ok(p) => p,
+        Err(err) => {
+            error!(
+                ?err,
+                "hub observer: invalid retry config — observer disabled"
+            );
+            return;
+        }
+    };
 
     loop {
         // Phase 1: Connect + handshake + subscribe, retried with backoff + jitter.
@@ -699,6 +720,8 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
             })
             .await;
 
+        // NB: `_writer` (not `_`) keeps the WriteHalf alive for the duration of
+        // the read loop. Dropping it early could close the underlying stream.
         let (mut reader, _writer) = match connect_result {
             Ok(halves) => halves,
             Err(err) => {
@@ -738,6 +761,10 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
         if let Err(err) = read_result {
             warn!(?err, "hub observer: read loop exited with error");
         }
+
+        // Brief cooldown before reconnecting — prevents a tight loop when the
+        // hub accepts connections but immediately closes them (e.g. restarts).
+        time::sleep(Duration::from_secs(1)).await;
     }
 }
 

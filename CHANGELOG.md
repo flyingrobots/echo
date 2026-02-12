@@ -15,3 +15,15 @@
 - Connection setup (connect + handshake + subscribe) extracted into
   `hub_observer_try_connect`, separating connection logic from retry
   orchestration.
+- Entire connection attempt (connect + handshake + subscribe) is now wrapped in
+  a single 5 s timeout, preventing a stalled peer from hanging the retry loop.
+- Retry policy construction uses graceful error handling instead of `.expect()`,
+  so a misconfiguration disables the observer with a log rather than panicking
+  inside a fire-and-forget `tokio::spawn`.
+- Added 1 s cooldown after the read loop exits to prevent tight reconnect loops
+  when the hub accepts connections but immediately closes them.
+
+### Fixed
+
+- **Security:** upgraded `bytes` 1.11.0 → 1.11.1 to fix RUSTSEC-2026-0007
+  (integer overflow in `BytesMut::reserve`).

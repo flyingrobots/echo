@@ -341,8 +341,11 @@ impl GatewayMetrics {
         self.hub_observer.connected = false;
     }
 
-    fn observe_hub_observer_error(&mut self, err: String) {
+    fn observe_hub_observer_connect_failure(&mut self) {
         self.hub_observer.connect_failures = self.hub_observer.connect_failures.wrapping_add(1);
+    }
+
+    fn observe_hub_observer_error(&mut self, err: String) {
         self.hub_observer.connected = false;
         self.hub_observer.last_error = Some(err);
     }
@@ -653,9 +656,10 @@ impl std::error::Error for HubConnectError {}
 
 /// Attempt a single hub connection: timeout-guarded connect, handshake, subscribe.
 ///
-/// Called by the retry policy on each attempt. Increments the connect-attempt
-/// metric and logs per-attempt warnings. Error recording in metrics happens once
-/// after retry exhaustion in [`run_hub_observer`].
+/// Called by the retry policy on each attempt. Increments `connect_attempts`
+/// unconditionally and `connect_failures` on error, keeping them in 1:1
+/// correspondence. The `last_error` field is set once after retry exhaustion
+/// in [`run_hub_observer`].
 ///
 /// The entire attempt (connect + handshake + subscribe) is wrapped in a single
 /// 5 s deadline so a stalled peer cannot hang the retry loop indefinitely.
@@ -676,7 +680,7 @@ async fn hub_observer_try_connect(
 
     let socket_path = &state.unix_socket;
 
-    time::timeout(Duration::from_secs(5), async {
+    let result = time::timeout(Duration::from_secs(5), async {
         let stream = UnixStream::connect(socket_path).await.map_err(|err| {
             warn!(?err, path = %socket_path.display(), "hub observer: connect failed");
             HubConnectError::Connect(err.to_string())
@@ -706,10 +710,17 @@ async fn hub_observer_try_connect(
         Ok::<_, HubConnectError>((reader, writer))
     })
     .await
-    .map_err(|_| {
+    .unwrap_or_else(|_| {
         warn!(path = %socket_path.display(), "hub observer: connect+handshake timeout");
-        HubConnectError::Timeout
-    })?
+        Err(HubConnectError::Timeout)
+    });
+
+    if result.is_err() {
+        let mut metrics = state.metrics.lock().await;
+        metrics.observe_hub_observer_connect_failure();
+    }
+
+    result
 }
 
 async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
@@ -1549,5 +1560,34 @@ mod tests {
     fn hub_connect_error_is_error() {
         fn assert_error<T: std::error::Error>() {}
         assert_error::<HubConnectError>();
+    }
+
+    // ── Metrics ──────────────────────────────────────────────────────
+
+    #[test]
+    fn connect_failures_increments_per_attempt_not_per_burst() {
+        let mut m = GatewayMetrics::default();
+
+        // Simulate 3 failed attempts (as the retry loop would).
+        m.observe_hub_observer_connect_attempt();
+        m.observe_hub_observer_connect_failure();
+        m.observe_hub_observer_connect_attempt();
+        m.observe_hub_observer_connect_failure();
+        m.observe_hub_observer_connect_attempt();
+        m.observe_hub_observer_connect_failure();
+
+        // Then burst exhaustion records the last error.
+        m.observe_hub_observer_error("timeout".to_string());
+
+        assert_eq!(m.hub_observer.connect_attempts, 3);
+        assert_eq!(
+            m.hub_observer.connect_failures, 3,
+            "failures must track attempts 1:1"
+        );
+        assert_eq!(
+            m.hub_observer.last_error.as_deref(),
+            Some("timeout"),
+            "last_error should still be set by observe_hub_observer_error"
+        );
     }
 }

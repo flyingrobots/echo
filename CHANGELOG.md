@@ -14,6 +14,10 @@
 - **Hub observer task exits are surfaced** — the fire-and-forget
   `tokio::spawn` is wrapped in a watcher task that logs unexpected exits and
   panics at `warn!`/`error!` level, preventing silent observer disappearance.
+- **`connect_failures` restored to per-attempt semantics** — the metric now
+  increments on every failed connection attempt (1:1 with `connect_attempts`),
+  not once per exhausted retry burst. This preserves dashboard/alerting accuracy
+  during prolonged hub outages.
 
 - **Hub observer reconnect** now uses `ninelives` retry policy with exponential
   backoff (250 ms → 3 s) and full jitter, replacing hand-rolled backoff state.

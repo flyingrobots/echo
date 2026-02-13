@@ -31,7 +31,8 @@ All child issues (#42-#46) are closed. The umbrella issue #22 ("Benchmarks & CI 
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged (PR [#265](https://github.com/flyingrobots/echo/pull/265), pending)
+- [x] Code reviewed and merged (PR [#265](https://github.com/flyingrobots/echo/pull/265), merged 2026-02-13T05:45:06Z)
+- [ ] Milestone documentation finalized (PR [#266](https://github.com/flyingrobots/echo/pull/266), pending)
 - [x] Tests pass (CI green: [Workflow Run](https://github.com/flyingrobots/echo/actions/runs/13284974740))
 - [x] Documentation updated (CHANGELOG.md, README.md)
 - [x] Audit summary comment on Issue [#22](https://github.com/flyingrobots/echo/issues/22#issuecomment-3894974740) verified (AC4 / R5)

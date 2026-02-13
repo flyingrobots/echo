@@ -5,6 +5,41 @@
 
 ## Unreleased
 
+### Added — Determinism & Verification
+
+- **DIND Phase 5 (The Shuffle):** Added robustness against insertion order and
+  HashMap iteration leaks.
+    - Implemented `echo-dind converge` command to verify that shuffles of
+      commutative operations (e.g. disjoint `put_kv`) yield identical final state
+      hashes.
+    - Added randomized scenario generator (`scripts/bootstrap_randomized_order.mjs`)
+      producing semantically equivalent transcripts via different orderings.
+    - Added regression tests for Invariant A (Self-Consistency) and Invariant B
+      (Convergence) in CI.
+- **Domain-Separated Hash Contexts:** Added unique domain-separation prefixes
+  to all core commitment hashes to prevent cross-context structural collisions.
+    - `state_root` (graph hash), `patch_digest` (tick patch), and `commit_id` (Merkle
+      root) now use distinct BLAKE3 domain tags (e.g. `echo:state_root:v1\0`).
+    - `RenderGraph::compute_hash` (`echo-graph`) now uses its own domain tag,
+      ensuring renderable snapshots cannot collide with engine state roots.
+    - Added `warp_core::domain` module containing public prefix constants.
+    - Integrated cross-domain collision tests into CI.
+- **Benchmarks CI Integration:** The `warp-benches` package is now integrated
+  into the CI compilation gate (`cargo check --benches`).
+
+### Changed — Roadmap & Governance
+
+- **Roadmap Refactor ("Sharpened" structure):** Migrated the flat roadmap into
+  a 2-level hierarchy based on features and milestones.
+    - Established a **WIP Cap policy**: maximum 2 active milestones and 3 active
+      feature files per milestone to prevent context thrashing.
+    - Added binary **Exit Criteria** to all milestone READMEs to ensure clear,
+      objective completion signals.
+    - Renamed milestones for clarity (e.g. `lock-the-hashes`, `first-light`,
+      `proof-core`).
+    - Audited and updated license headers (SPDX) and formatting (Prettier/MD028)
+      across all 66 roadmap documents.
+
 ### Changed — Gateway Resilience (`echo-session-ws-gateway`)
 
 - **Typed `HubConnectError` enum** replaces the opaque `HubConnectError(String)`.

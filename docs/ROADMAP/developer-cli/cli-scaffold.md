@@ -1,0 +1,91 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+> **Milestone:** [Developer CLI](README.md) | **Priority:** P0
+
+# CLI Scaffold (#47)
+
+Subcommand structure using clap. Replace the placeholder `main.rs` with a real argument parser and subcommand dispatch.
+
+## T-6-1-1: clap subcommand structure and global flags
+
+**User Story:** As a developer, I want a well-structured CLI with `echo verify|bench|inspect` subcommands so that I can interact with Echo from the terminal.
+
+**Requirements:**
+
+- R1: Add `clap = { version = "4", features = ["derive"] }` dependency to warp-cli.
+- R2: Define top-level `Cli` struct with `#[command(subcommand)]` and variants: `Verify`, `Bench`, `Inspect`.
+- R3: Global flags: `--verbose` (increases log level), `--format [text|json]` (output format), `--snapshot-dir <path>` (default: `./snapshots`).
+- R4: Running `echo` with no subcommand prints help. Unknown subcommands print error + help.
+- R5: Binary name is `echo-cli` (avoid collision with `/bin/echo`).
+
+**Acceptance Criteria:**
+
+- [ ] AC1: `echo-cli --help` prints usage with all three subcommands listed.
+- [ ] AC2: `echo-cli verify --help` prints verify-specific options.
+- [ ] AC3: `echo-cli --format json verify` parses the global flag correctly before the subcommand.
+- [ ] AC4: `echo-cli unknown` exits with code 2 and prints "unrecognized subcommand".
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** clap setup, subcommand enum, global flags, help text, binary name.
+**Out of Scope:** Subcommand implementations (separate tasks). Config file parsing. Shell completions.
+
+**Test Plan:**
+
+- **Goldens:** `echo-cli --help` output checked in as a golden text file.
+- **Failures:** Missing required subcommand-specific args. Invalid format value.
+- **Edges:** `--verbose --verbose` (count-based verbosity). `--snapshot-dir` with spaces in path.
+- **Fuzz/Stress:** N/A (argument parsing only).
+
+**Blocked By:** none
+**Blocking:** T-6-2-1, T-6-3-1, T-6-4-1
+
+**Est. Hours:** 3h
+**Expected Complexity:** ~100 LoC
+
+---
+
+## T-6-1-2: Config file support and shell completions
+
+**User Story:** As a developer, I want to set default CLI options in a config file and generate shell completions so that the CLI is ergonomic for daily use.
+
+**Requirements:**
+
+- R1: Support `~/.config/echo/config.toml` with fields matching global flags (`format`, `snapshot_dir`, `verbose`).
+- R2: CLI flags override config file values. Config file is optional (missing = use defaults).
+- R3: `echo-cli completions <shell>` subcommand generates completions for bash/zsh/fish (via `clap_complete`).
+- R4: Add `clap_complete` and `toml` dependencies.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: With `config.toml` setting `format = "json"`, `echo-cli verify` outputs JSON.
+- [ ] AC2: With `config.toml` setting `format = "json"` and CLI flag `--format text`, output is text (flag wins).
+- [ ] AC3: `echo-cli completions bash` outputs valid bash completion script.
+- [ ] AC4: Missing config file does not produce an error or warning.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Config file loading, flag override logic, shell completion generation.
+**Out of Scope:** Project-level config (`.echo.toml` in repo root). Config file creation wizard.
+
+**Test Plan:**
+
+- **Goldens:** Bash completion script golden file (regenerated on clap struct changes).
+- **Failures:** Malformed TOML prints error with line number. Unknown config keys are warned but not fatal.
+- **Edges:** Config file with only some fields set. Empty config file. Config dir does not exist.
+- **Fuzz/Stress:** N/A.
+
+**Blocked By:** T-6-1-1
+**Blocking:** none
+
+**Est. Hours:** 3h
+**Expected Complexity:** ~100 LoC

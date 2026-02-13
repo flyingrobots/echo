@@ -3,24 +3,22 @@
 
 # Backlog
 
-Priority: Unscheduled  
-Status: Unscheduled  
-Blocked By: none
+> **Priority:** Unscheduled | **Est:** ~156h
 
-Objective: track important but non-critical-path work.
+Unscheduled work across all projects. Items here have no committed timeline and can be picked up opportunistically. git-mind NEXUS (formerly its own milestone) has been demoted here because it runs independently of Echo's critical path.
 
 ## Features
 
-- [F3.1 git-mind Remote Sync](./F3.1-git-mind-remote-sync.md) (Repo: git-mind)
-- [F3.2 git-mind Schema Validators](./F3.2-git-mind-schema-validators.md) (Repo: git-mind)
-- [F3.3 git-mind Export/Import Interop](./F3.3-git-mind-export-import-interop.md) (Repo: git-mind)
-- [F10.1 Plugin ABI](./F10.1-plugin-abi.md) (Repo: Echo)
-- [F10.2 Security](./F10.2-security.md) (Repo: Echo)
-- [F10.3 Signing Pipeline](./F10.3-signing-pipeline.md) (Repo: Echo)
-- [F10.4 Editor Hot-Reload](./F10.4-editor-hot-reload.md) (Repo: Echo)
-- [F10.5 Importer](./F10.5-importer.md) (Repo: Echo)
-- [F10.6 Deterministic Rhai](./F10.6-deterministic-rhai.md) (Repo: Echo)
-- [F10.7 Wesley Boundary Grammar](./F10.7-wesley-boundary-grammar.md) (Repo: Wesley)
-- [F10.8 Tooling & Misc](./F10.8-tooling-misc.md) (Repo: Echo)
-- [F10.9 Wesley Future](./F10.9-wesley-future.md) (Repo: Wesley)
-- [F10.10 Wesley Docs](./F10.10-wesley-docs.md) (Repo: Wesley)
+| Feature                 | File                                                     | Est. | Status      |
+| ----------------------- | -------------------------------------------------------- | ---- | ----------- |
+| git-mind NEXUS          | [git-mind-nexus.md](git-mind-nexus.md)                   | ~36h | Not Started |
+| Plugin ABI              | [plugin-abi.md](plugin-abi.md)                           | ~25h | Not Started |
+| Security                | [security.md](security.md)                               | ~23h | Not Started |
+| Signing Pipeline        | [signing-pipeline.md](signing-pipeline.md)               | ~14h | Not Started |
+| Editor Hot-Reload       | [editor-hot-reload.md](editor-hot-reload.md)             | ~14h | Not Started |
+| Importer                | [importer.md](importer.md)                               | ~2h  | Not Started |
+| Deterministic Rhai      | [deterministic-rhai.md](deterministic-rhai.md)           | ~11h | Not Started |
+| Wesley Boundary Grammar | [wesley-boundary-grammar.md](wesley-boundary-grammar.md) | ~20h | Not Started |
+| Tooling & Misc          | [tooling-misc.md](tooling-misc.md)                       | ~11h | Not Started |
+| Wesley Future           | [wesley-future.md](wesley-future.md)                     | ~12h | Not Started |
+| Wesley Docs             | [wesley-docs.md](wesley-docs.md)                         | ~10h | Not Started |

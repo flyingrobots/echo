@@ -1,0 +1,50 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# Importer
+
+> **Milestone:** [Backlog](README.md) | **Priority:** Unscheduled
+
+Umbrella for the TurtlGraph-to-Echo-store importer. All child tasks (#80-84) are closed. This feature needs an audit to determine if the umbrella issue can be closed.
+
+**Issue:** #25
+
+## T-10-5-1: Importer Umbrella Audit + Close (#25)
+
+**User Story:** As a project maintainer, I want to audit the importer umbrella issue so that it can be closed if all work is complete, or remaining gaps are identified.
+
+**Requirements:**
+
+- R1: Verify all child issues (#80, #81, #82, #83, #84) are merged and tested
+- R2: Run the importer end-to-end on a representative TurtlGraph dataset
+- R3: Confirm no regressions in CI
+- R4: Close #25 if audit passes, or file follow-up issues if gaps are found
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Audit checklist completed for all five child issues
+- [ ] AC2: End-to-end import test passes on a representative dataset
+- [ ] AC3: #25 is either closed with a summary comment, or follow-up issues are filed
+- [ ] AC4: No dead code or orphaned modules left from the importer work
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Audit, end-to-end verification, issue hygiene.
+**Out of Scope:** New importer features, performance optimization.
+
+**Test Plan:**
+
+- **Goldens:** End-to-end import output for a known TurtlGraph fixture
+- **Failures:** n/a (audit task)
+- **Edges:** Empty graph, graph with cycles
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 2h
+**Expected Complexity:** ~0 LoC (audit only)

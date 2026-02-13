@@ -1,0 +1,95 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+> **Milestone:** [Proof Core](README.md) | **Priority:** P1
+
+# Determinism Torture Harness
+
+Prove that single-threaded and multi-threaded execution produce identical results. Snapshot/restore fuzz to catch nondeterminism in state serialization.
+
+**Issues:** #190
+
+---
+
+## T-9-1-1: Implement 1-thread vs N-thread determinism harness
+
+**User Story:** As a release engineer, I want an automated harness that runs the same simulation single-threaded and multi-threaded and proves they produce identical state hashes so that I can gate releases on determinism.
+
+**Requirements:**
+
+- R1: Harness accepts a simulation scenario (initial state + input sequence) and runs it twice: once with 1 thread, once with N threads (configurable, default 4).
+- R2: Compare `state_root` and `commit_id` at every tick; report the first divergent tick if any.
+- R3: Run the scheduler's parallel drain path (existing Phase 5-6B parallel execution) and verify canonical ordering is maintained.
+- R4: Support both `F32Scalar` and `DFix64` scalar backends.
+- R5: Output a structured report (JSON) with per-tick comparison results.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Harness passes with 0 divergences on the existing golden test scenarios from MS-1.
+- [ ] AC2: Harness passes for 1, 2, 4, and 8 thread configurations.
+- [ ] AC3: Harness passes for both `F32Scalar` and `DFix64` backends.
+- [ ] AC4: Intentionally breaking scheduler ordering (test hook) causes the harness to detect divergence.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Thread-count comparison harness, structured report, both scalar backends.
+**Out of Scope:** GPU determinism; WASM vs native comparison (separate concern); performance benchmarking.
+
+**Test Plan:**
+
+- **Goldens:** All MS-1 golden vectors must pass through the harness with zero divergences.
+- **Failures:** Simulation with an intentionally nondeterministic rule (detect and report); simulation with zero ticks (no-op, report "trivially deterministic").
+- **Edges:** N=1 vs N=1 (should trivially pass); N=1 vs N=256 (extreme thread count).
+- **Fuzz/Stress:** Run 100 random 50-tick simulations, each with random thread counts, verify zero divergences.
+
+**Blocked By:** none
+**Blocking:** T-9-1-2
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~400 LoC
+
+---
+
+## T-9-1-2: Implement snapshot/restore fuzz
+
+**User Story:** As a release engineer, I want fuzz testing that snapshots simulation state at random ticks, restores it, and continues execution — verifying the restored run matches the original so that I can catch nondeterminism in serialization/deserialization.
+
+**Requirements:**
+
+- R1: Fuzz loop: run a simulation, snapshot state at a randomly chosen tick T, restore from snapshot, continue to tick T+K, compare `state_root` at T+K with the uninterrupted run.
+- R2: Vary the snapshot format (canonical encoding, debug encoding if applicable) to catch format-dependent bugs.
+- R3: Run at least 50 iterations per fuzz invocation with different random snapshot points.
+- R4: Report any divergence with full context: snapshot tick, restore tick, comparison tick, expected vs actual hash.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: 50 iterations with random snapshot points on a 500-tick simulation produce zero divergences.
+- [ ] AC2: Corrupting a single byte in the snapshot (test hook) causes the restore to fail or the comparison to detect divergence.
+- [ ] AC3: Fuzz runs in under 60 seconds for 50 iterations of a 500-tick simulation.
+- [ ] AC4: Report includes snapshot tick, restore tick, and hash comparison for each iteration.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Snapshot/restore fuzz loop, divergence detection, corruption detection.
+**Out of Scope:** Snapshot performance optimization; snapshot compression; distributed snapshot.
+
+**Test Plan:**
+
+- **Goldens:** Each fuzz iteration's final hash must match the uninterrupted run's hash at the same tick.
+- **Failures:** Corrupted snapshot (detected at restore or comparison); snapshot at tick 0 (genesis snapshot, valid).
+- **Edges:** Snapshot at the last tick (restore and immediately compare); snapshot and restore at the same tick (no simulation between).
+- **Fuzz/Stress:** 500 iterations on a 1000-tick simulation (extended run, CI nightly).
+
+**Blocked By:** T-9-1-1
+**Blocking:** none
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~350 LoC

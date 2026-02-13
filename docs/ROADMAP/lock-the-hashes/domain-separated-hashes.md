@@ -7,7 +7,7 @@
 
 Issues: #185, #186
 
-The core commitment hashes (`state_root`, `patch_digest`, `commit_id`) and the RenderGraph canonical bytes hash currently use bare `Hasher::new()` without domain-separation prefixes. This means a contrived byte sequence could produce collisions across hash contexts (e.g., a `state_root` colliding with a `commit_id`). These tasks add unique domain-separation tags to each hash context, following the existing pattern established in `crates/warp-core/src/ident.rs` (which already uses `"node:"`, `"type:"`, `"edge:"`, `"warp:"` prefixes).
+The core commitment hashes (`state_root`, `patch_digest`, `commit_id`) and the `RenderGraph` canonical bytes hash previously used bare `Hasher::new()` without domain-separation prefixes. This means a contrived byte sequence could produce collisions across hash contexts (e.g., a `state_root` colliding with a `commit_id`). These tasks added unique domain-separation tags to each hash context, following the existing pattern established in `crates/warp-core/src/ident.rs` (which already uses `"node:"`, `"type:"`, `"edge:"`, `"warp:"` prefixes).
 
 ## T-1-1-1: Domain-separated hash contexts for state_root, patch_digest, and commit_id
 
@@ -32,9 +32,10 @@ The core commitment hashes (`state_root`, `patch_digest`, `commit_id`) and the R
 
 **Definition of Done:**
 
-- [x] Code reviewed and merged
+- [ ] Code reviewed and merged (PR [#265](https://github.com/flyingrobots/echo/pull/265), merged 2026-02-13T05:45:06Z)
+- [ ] Milestone documentation finalized (PR [#266](https://github.com/flyingrobots/echo/pull/266), pending)
 - [x] Tests pass (CI green)
-- [x] Documentation updated (if applicable)
+- [x] Documentation updated (CHANGELOG.md, README.md)
 
 **Scope:** `crates/warp-core/src/snapshot.rs` (both `compute_state_root` and `compute_commit_hash_v2`), `crates/warp-core/src/tick_patch.rs` (patch digest), domain constant definitions, golden vector updates.
 **Out of Scope:** RenderGraph hashing (covered by T-1-1-2). CAS hashing (intentionally domain-free per `echo-cas` design). Legacy `_compute_commit_hash` v1 (retained as-is for migration reference).
@@ -74,9 +75,10 @@ The core commitment hashes (`state_root`, `patch_digest`, `commit_id`) and the R
 
 **Definition of Done:**
 
-- [x] Code reviewed and merged
+- [ ] Code reviewed and merged (PR [#265](https://github.com/flyingrobots/echo/pull/265), merged 2026-02-13T05:45:06Z)
+- [ ] Milestone documentation finalized (PR [#266](https://github.com/flyingrobots/echo/pull/266), pending)
 - [x] Tests pass (CI green)
-- [x] Documentation updated (if applicable)
+- [x] Documentation updated (CHANGELOG.md, README.md)
 
 **Scope:** `crates/echo-graph/src/lib.rs` (`compute_hash` method), domain prefix constant, golden vector updates in `echo-graph` and downstream crates (`echo-dry-tests`, `echo-dind-tests`, `echo-session-*`).
 **Out of Scope:** Changing the CBOR encoding format of `to_canonical_bytes`. Changing the sort order. CAS blob hashing.

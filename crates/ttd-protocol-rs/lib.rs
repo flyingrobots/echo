@@ -1,6 +1,6 @@
-#![allow(
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(
     dead_code,
     clippy::derivable_impls,
     non_snake_case,
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// SHA256 hash of the source TTD schema.
 pub const SCHEMA_SHA256: &str = "d55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871";
 /// Timestamp when this code was generated.
-pub const GENERATED_AT: &str = "2026-02-13T06:12:37.065Z";
+pub const GENERATED_AT: &str = "2026-02-13T06:52:28.771Z";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CursorRole {
     WRITER,

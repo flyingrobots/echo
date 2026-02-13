@@ -22,9 +22,9 @@ console-panic = ["console_error_panic_hook", "web-sys"]
 [dependencies]
 echo-registry-api = { workspace = true }
 echo-wasm-abi = { workspace = true }
-warp-core = { path = "../warp-core" }
-echo-ttd = { path = "../echo-ttd" }
-echo-session-proto = { path = "../echo-session-proto" }
+warp-core = { workspace = true }
+echo-ttd = { workspace = true }
+echo-session-proto = { workspace = true }
 wasm-bindgen = "0.2.106"
 js-sys = "0.3.83"
 web-sys = { version = "0.3.83", optional = true, features = ["console"] }

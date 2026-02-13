@@ -4,8 +4,9 @@
 name = "echo-scene-port"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "Scene rendering port contract for Echo TTD"
-license = "Apache-2.0 OR MIND-UCAL-1.0"
+license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
 keywords = ["echo", "scene", "rendering", "ttd"]

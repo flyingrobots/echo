@@ -22,6 +22,7 @@ allow = [
     "Zlib",
     "OFL-1.1",
     "MPL-2.0",
+    "BlueOak-1.0.0",
     # Required by aws-lc-sys' license expression when pulled in via rustls.
     # Dependency chain: echo-session-ws-gateway -> axum-server[tls-rustls] -> rustls -> aws-lc-sys.
     # Verify: cargo tree -p echo-session-ws-gateway -e normal | rg '(axum-server|rustls|aws-lc-sys)'

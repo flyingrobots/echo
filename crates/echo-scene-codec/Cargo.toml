@@ -4,15 +4,16 @@
 name = "echo-scene-codec"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "CBOR codec and test harness for echo-scene-port"
-license = "Apache-2.0 OR MIND-UCAL-1.0"
+license = "Apache-2.0"
 repository = "https://github.com/flyingrobots/echo"
 readme = "README.md"
 keywords = ["echo", "scene", "codec", "cbor"]
 categories = ["encoding", "graphics"]
 
 [dependencies]
-echo-scene-port = { path = "../echo-scene-port" }
+echo-scene-port = { workspace = true }
 minicbor = { version = "0.24", features = ["alloc"] }
 
 [dev-dependencies]

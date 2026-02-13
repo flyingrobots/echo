@@ -48,6 +48,11 @@
     - `ShaderManager`, `AssetManager`: Utilities ported from james-website
 
 - **Determinism guarantees**: No `performance.now()`, `Date.now()`, or `Math.random()` in adapter
+
+### Fixed - TTD Browser Engine
+
+- **Multi-session Truth Isolation:** Fixed a bug in `drain_frames` where draining one session would incorrectly clear truth frames for all other active sessions in the `TtdEngine`.
+- **TTDR Receipt Integrity:** Fixed `emissions_digest` population in TTDR v2 Light receipts. Receipts now correctly commit to the tick's actual recorded outputs instead of hard-coding a zero hash.
   code. All timing injected via `RenderContext`. CI grep enforcement.
 
 - **Epoch semantics**: Deltas idempotent per `(cursorId, epoch)`. `resetCursor()` enables

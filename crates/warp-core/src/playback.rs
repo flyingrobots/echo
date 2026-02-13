@@ -821,6 +821,12 @@ impl TruthSink {
             .and_then(|r| r.last().copied())
     }
 
+    /// Clear all receipts and frames for a specific session.
+    pub fn clear_session(&mut self, session_id: SessionId) {
+        self.receipts.remove(&session_id);
+        self.frames.remove(&session_id);
+    }
+
     /// Clear all receipts and frames from the sink.
     pub fn clear(&mut self) {
         self.receipts.clear();

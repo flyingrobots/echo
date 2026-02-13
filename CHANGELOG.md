@@ -53,6 +53,13 @@
 
 - **Multi-session Truth Isolation:** Fixed a bug in `drain_frames` where draining one session would incorrectly clear truth frames for all other active sessions in the `TtdEngine`.
 - **TTDR Receipt Integrity:** Fixed `emissions_digest` population in TTDR v2 Light receipts. Receipts now correctly commit to the tick's actual recorded outputs instead of hard-coding a zero hash.
+
+### Infrastructure & CI
+
+- **Wesley CI Stability:** Updated `xtask wesley check` to support `SKIP_WESLEY_REPO_CHECK=1`, allowing CI to verify artifacts using vendored `manifest.json` schema hashes without needing to clone the external Wesley repository.
+- **Dependency Policy Compliance:** Aligned all local crate dependencies to use `workspace.dependencies` to resolve `cargo-deny` wildcard warnings.
+- **License Compliance:** Added `BlueOak-1.0.0` to the workspace license allowlist (required by `minicbor`).
+- **Rust Version Alignment:** Enforced `rust-version = "1.90.0"` across all workspace members, including newly added TTD crates, verified by `scripts/check_rust_versions.sh`.
   code. All timing injected via `RenderContext`. CI grep enforcement.
 
 - **Epoch semantics**: Deltas idempotent per `(cursorId, epoch)`. `resetCursor()` enables

@@ -120,8 +120,6 @@ for c in $CRATES; do
   if [[ -f "crates/${c}/Cargo.toml" ]]; then
     cargo clippy -p "$c" --all-targets -- -D warnings -D missing_docs
     cargo check -p "$c" --quiet
-  else
-    echo "pre-commit: skipping ${c}: missing crates/${c}/Cargo.toml" >&2
   fi
 done
 

@@ -7,6 +7,10 @@ edition = "2021"
 rust-version = "1.90.0"
 description = "Vendored TTD protocol manifest and IR (data-only crate)"
 license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "ttd", "protocol"]
+categories = ["data-structures"]
 
 [dependencies]
 # Data-only crate, no dependencies.

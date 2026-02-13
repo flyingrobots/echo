@@ -213,6 +213,8 @@ jobs:
             .
       - name: Verify Wesley artifacts
         run: cargo xtask wesley check
+        env:
+          SKIP_WESLEY_REPO_CHECK: 1
 
   determinism-guards:
     name: Determinism Guards

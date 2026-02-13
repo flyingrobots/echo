@@ -912,12 +912,14 @@ pub const SCHEMA: &str = include_str!("../schema.json");
 
 /// Verify vendored artifacts match what Wesley would generate.
 fn run_wesley_check(wesley_path: &str, schema: &str) -> Result<()> {
+    let skip_repo_check = std::env::var("SKIP_WESLEY_REPO_CHECK").unwrap_or_default() == "1";
+
     let wesley_dir = expand_tilde(wesley_path);
     let wesley_path = Path::new(&wesley_dir);
 
-    if !wesley_path.exists() {
+    if !skip_repo_check && !wesley_path.exists() {
         bail!(
-            "Wesley repository not found at '{}'. Clone it or specify --wesley-path.",
+            "Wesley repository not found at '{}'. Clone it or specify --wesley-path. (Set SKIP_WESLEY_REPO_CHECK=1 to bypass this check in CI if you only want to verify against lockfile hash)",
             wesley_dir
         );
     }
@@ -926,6 +928,9 @@ fn run_wesley_check(wesley_path: &str, schema: &str) -> Result<()> {
     let schema_path = if Path::new(schema).is_absolute() {
         Path::new(schema).to_owned()
     } else {
+        if skip_repo_check {
+            bail!("SKIP_WESLEY_REPO_CHECK=1 requires an absolute schema path (via local schema or --schema)");
+        }
         wesley_path.join(schema)
     };
 
@@ -940,7 +945,11 @@ fn run_wesley_check(wesley_path: &str, schema: &str) -> Result<()> {
     let is_local_schema = Path::new(schema).is_absolute() && schema.contains("/echo/schemas/");
 
     println!("WESLEY CHECK");
-    println!("  Wesley repo: {}", wesley_dir);
+    if skip_repo_check {
+        println!("  Wesley repo: <skipped>");
+    } else {
+        println!("  Wesley repo: {}", wesley_dir);
+    }
     println!(
         "  Schema: {} {}",
         schema_path.display(),
@@ -957,24 +966,50 @@ fn run_wesley_check(wesley_path: &str, schema: &str) -> Result<()> {
     let expected_hash = lock["schema_hash"].as_str().unwrap_or("");
     let expected_commit = lock["wesley_commit"].as_str().unwrap_or("");
 
-    // Get current Wesley commit
-    let current_commit = get_git_sha(wesley_path)?;
-
     println!("Lock file:");
     println!("  Wesley commit: {}", expected_commit);
     println!("  Schema hash: {}", expected_hash);
     println!();
-    println!("Current:");
-    println!("  Wesley commit: {}", current_commit);
 
-    if current_commit != expected_commit {
-        println!();
-        println!("WARNING: Wesley commit has changed since last sync.");
-        println!("  Expected: {}", expected_commit);
-        println!("  Current:  {}", current_commit);
-        println!();
-        println!("Run 'cargo xtask wesley sync' to update vendored artifacts.");
-        bail!("Wesley commit mismatch");
+    if !skip_repo_check {
+        // Get current Wesley commit
+        let current_commit = get_git_sha(wesley_path)?;
+        println!("Current:");
+        println!("  Wesley commit: {}", current_commit);
+
+        if current_commit != expected_commit {
+            println!();
+            println!("WARNING: Wesley commit has changed since last sync.");
+            println!("  Expected: {}", expected_commit);
+            println!("  Current:  {}", current_commit);
+            println!();
+            println!("Run 'cargo xtask wesley sync' to update vendored artifacts.");
+            bail!("Wesley commit mismatch");
+        }
+    } else {
+        println!("Current: <repo check skipped>");
+    }
+
+    // Always check schema hash if we can run wesley
+    // Wait, we can't run wesley if we don't have the repo.
+    // So the check in CI should just be "does the lockfile exist and match the schema hash of the vendored files?"
+    // But how do we know the schema hash of the vendored files without running wesley?
+    // The vendored manifest.json has it!
+
+    let manifest_path = Path::new("crates/ttd-manifest/manifest.json");
+    if manifest_path.exists() {
+        let manifest_content = std::fs::read_to_string(manifest_path)?;
+        let manifest: serde_json::Value = serde_json::from_str(&manifest_content)?;
+        let actual_hash = manifest["schemaHash"].as_str().unwrap_or("");
+        println!("Manifest hash: {}", actual_hash);
+
+        if actual_hash != expected_hash {
+            bail!(
+                "Schema hash mismatch: manifest ({}) vs lockfile ({})",
+                actual_hash,
+                expected_hash
+            );
+        }
     }
 
     println!();

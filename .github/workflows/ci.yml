@@ -248,6 +248,21 @@ jobs:
       - name: Run DIND PR suite (full hash)
         run: node scripts/dind-run-suite.mjs --tags pr
 
+  benches:
+    name: Benchmarks (compilation gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo check (benches)
+        run: cargo check --benches -p warp-benches
+
   # MSRV job removed per policy: use @stable everywhere
 
   playwright:

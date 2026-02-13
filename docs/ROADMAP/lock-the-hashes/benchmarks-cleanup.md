@@ -15,19 +15,19 @@ All child issues (#42-#46) are closed. The umbrella issue #22 ("Benchmarks & CI 
 
 **Requirements:**
 
-- R1: Verify each child issue (#42, #43, #44, #45, #46) is closed and its corresponding PR merged to `main`.
-- R2: Verify `crates/warp-benches` contains working benchmarks: `snapshot_hash`, `scheduler_drain`, `scheduler_adversarial`, `motion_throughput`, `boaw_baseline`.
-- R3: Verify CI workflow runs benchmarks (or at minimum compiles them) on PR.
-- R4: Verify JSON artifact upload and regression threshold gates are operational (or document any deferred items).
-- R5: Add a closing comment on #22 summarizing the audit findings and linking each child PR.
-- R6: Close #22.
+- [x] R1: Verify each child issue (#42, #43, #44, #45, #46) is closed and its corresponding PR merged to `main`.
+- [x] R2: Verify `crates/warp-benches` contains working benchmarks: `snapshot_hash`, `scheduler_drain`, `scheduler_adversarial`, `motion_throughput`, `boaw_baseline`.
+- [x] R3: Verify CI workflow runs benchmarks (or at minimum compiles them) on PR.
+- [x] R4: Verify JSON artifact upload and regression threshold gates are operational (or document any deferred items).
+- [x] R5: Add a closing comment on #22 summarizing the audit findings and linking each child PR.
+- [x] R6: Close #22.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: All five child issues (#42-#46) confirmed closed with merged PRs.
-- [ ] AC2: `cargo bench --package warp-benches` compiles and runs without error on a clean checkout of `main`.
-- [ ] AC3: CI configuration includes benchmark compilation (at minimum `cargo check --benches`).
-- [ ] AC4: Issue #22 is closed with an audit summary comment.
+- [x] AC1: All five child issues (#42-#46) confirmed closed with merged PRs.
+- [x] AC2: `cargo bench --package warp-benches` compiles and runs without error on a clean checkout of `main`.
+- [x] AC3: CI configuration includes benchmark compilation (at minimum `cargo check --benches`).
+- [x] AC4: Issue #22 is closed with an audit summary comment.
 
 **Definition of Done:**
 

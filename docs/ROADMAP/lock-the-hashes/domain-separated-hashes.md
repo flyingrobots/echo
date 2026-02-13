@@ -15,26 +15,26 @@ The core commitment hashes (`state_root`, `patch_digest`, `commit_id`) and the R
 
 **Requirements:**
 
-- R1: `compute_state_root` in `crates/warp-core/src/snapshot.rs` must prepend a domain tag (e.g., `b"echo:state_root:v1\0"`) before hashing graph content.
-- R2: `compute_commit_hash_v2` must prepend a domain tag (e.g., `b"echo:commit_id:v2\0"`) before the version field. The existing `2u16` version tag is retained but now follows the domain prefix.
-- R3: The tick patch digest computation (in `crates/warp-core/src/tick_patch.rs`) must prepend a domain tag (e.g., `b"echo:patch_digest:v1\0"`).
-- R4: `compute_state_root_for_warp_store` must use the same domain prefix as `compute_state_root` (single-warp variant must produce hashes in the same domain).
-- R5: All existing golden vector tests must be updated with new expected hashes reflecting the domain prefix changes.
-- R6: Domain prefix constants must be defined in a single location (e.g., a `domain` module in `crates/warp-core/src/`) and documented.
+- [x] R1: `compute_state_root` in `crates/warp-core/src/snapshot.rs` must prepend a domain tag (e.g., `b"echo:state_root:v1\0"`) before hashing graph content.
+- [x] R2: `compute_commit_hash_v2` must prepend a domain tag (e.g., `b"echo:commit_id:v2\0"`) before the version field. The existing `2u16` version tag is retained but now follows the domain prefix.
+- [x] R3: The tick patch digest computation (in `crates/warp-core/src/tick_patch.rs`) must prepend a domain tag (e.g., `b"echo:patch_digest:v1\0"`).
+- [x] R4: `compute_state_root_for_warp_store` must use the same domain prefix as `compute_state_root` (single-warp variant must produce hashes in the same domain).
+- [x] R5: All existing golden vector tests must be updated with new expected hashes reflecting the domain prefix changes.
+- [x] R6: Domain prefix constants must be defined in a single location (e.g., a `domain` module in `crates/warp-core/src/`) and documented.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: `compute_state_root` output differs from `compute_commit_hash_v2` output even when given identical byte inputs (domain separation proven by test).
-- [ ] AC2: A cross-domain collision test exists: same raw bytes fed to all three hash contexts produce three distinct digests.
-- [ ] AC3: All existing CI tests pass with updated golden vectors.
-- [ ] AC4: Domain prefix constants are `pub(crate)` and documented with rationale.
-- [ ] AC5: `compute_state_root_for_warp_store` produces hashes in the `state_root` domain (regression test).
+- [x] AC1: `compute_state_root` output differs from `compute_commit_hash_v2` output even when given identical byte inputs (domain separation proven by test).
+- [x] AC2: A cross-domain collision test exists: same raw bytes fed to all three hash contexts produce three distinct digests.
+- [x] AC3: All existing CI tests pass with updated golden vectors.
+- [x] AC4: Domain prefix constants are `pub` and documented with rationale.
+- [x] AC5: `compute_state_root_for_warp_store` produces hashes in the `state_root` domain (regression test).
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed and merged
+- [x] Tests pass (CI green)
+- [x] Documentation updated (if applicable)
 
 **Scope:** `crates/warp-core/src/snapshot.rs` (both `compute_state_root` and `compute_commit_hash_v2`), `crates/warp-core/src/tick_patch.rs` (patch digest), domain constant definitions, golden vector updates.
 **Out of Scope:** RenderGraph hashing (covered by T-1-1-2). CAS hashing (intentionally domain-free per `echo-cas` design). Legacy `_compute_commit_hash` v1 (retained as-is for migration reference).
@@ -60,23 +60,23 @@ The core commitment hashes (`state_root`, `patch_digest`, `commit_id`) and the R
 
 **Requirements:**
 
-- R1: `RenderGraph::compute_hash` in `crates/echo-graph/src/lib.rs` must prepend a domain tag (e.g., `b"echo:render_graph:v1\0"`) before hashing the CBOR canonical bytes.
-- R2: The domain prefix must be documented alongside the warp-core prefixes (cross-crate consistency).
-- R3: Existing tests using `RenderGraph::compute_hash` must be updated with new expected values.
-- R4: A cross-domain test must prove that `RenderGraph::compute_hash` output differs from `compute_state_root` output for equivalent graph content.
+- [x] R1: `RenderGraph::compute_hash` in `crates/echo-graph/src/lib.rs` must prepend a domain tag (e.g., `b"echo:render_graph:v1\0"`) before hashing the CBOR canonical bytes.
+- [x] R2: The domain prefix must be documented alongside the warp-core prefixes (cross-crate consistency).
+- [x] R3: Existing tests using `RenderGraph::compute_hash` must be updated with new expected values.
+- [x] R4: A cross-domain test must prove that `RenderGraph::compute_hash` output differs from `compute_state_root` output for equivalent graph content.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: `RenderGraph::compute_hash` includes domain prefix in its hash computation.
-- [ ] AC2: Cross-domain collision test passes (RenderGraph hash differs from state_root hash for same logical content).
-- [ ] AC3: All `echo-graph` tests pass with updated golden values.
-- [ ] AC4: Domain prefix is documented in `echo-graph` module docs.
+- [x] AC1: `RenderGraph::compute_hash` includes domain prefix in its hash computation.
+- [x] AC2: Cross-domain collision test passes (RenderGraph hash differs from state_root hash for same logical content).
+- [x] AC3: All `echo-graph` tests pass with updated golden values.
+- [x] AC4: Domain prefix is documented in `echo-graph` module docs.
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed and merged
+- [x] Tests pass (CI green)
+- [x] Documentation updated (if applicable)
 
 **Scope:** `crates/echo-graph/src/lib.rs` (`compute_hash` method), domain prefix constant, golden vector updates in `echo-graph` and downstream crates (`echo-dry-tests`, `echo-dind-tests`, `echo-session-*`).
 **Out of Scope:** Changing the CBOR encoding format of `to_canonical_bytes`. Changing the sort order. CAS blob hashing.

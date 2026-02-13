@@ -34,6 +34,7 @@ use std::collections::{BTreeSet, VecDeque};
 use blake3::Hasher;
 
 use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
+use crate::domain;
 use crate::ident::{Hash, NodeKey, WarpId};
 use crate::record::EdgeRecord;
 use crate::tx::TxId;
@@ -88,61 +89,12 @@ impl Snapshot {
 
 /// Computes the canonical state root hash (graph only).
 pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
-    // 1) Determine reachable nodes across instances via deterministic BFS:
-    // - follow skeleton edges within an instance
-    // - follow any `Descend(WarpId)` attachments on reachable nodes/edges
-    let mut reachable_nodes: BTreeSet<NodeKey> = BTreeSet::new();
-    let mut reachable_warps: BTreeSet<WarpId> = BTreeSet::new();
-    let mut queue: VecDeque<NodeKey> = VecDeque::new();
-
-    reachable_nodes.insert(*root);
-    reachable_warps.insert(root.warp_id);
-    queue.push_back(*root);
-
-    while let Some(current) = queue.pop_front() {
-        let Some(store) = state.store(&current.warp_id) else {
-            debug_assert!(
-                false,
-                "reachable traversal referenced missing warp store: {:?}",
-                current.warp_id
-            );
-            continue;
-        };
-
-        for edge in store.edges_from(&current.local_id) {
-            let to = NodeKey {
-                warp_id: current.warp_id,
-                local_id: edge.to,
-            };
-            if reachable_nodes.insert(to) {
-                queue.push_back(to);
-            }
-
-            if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id) {
-                enqueue_descend(
-                    state,
-                    *child_warp,
-                    &mut reachable_warps,
-                    &mut reachable_nodes,
-                    &mut queue,
-                );
-            }
-        }
-
-        if let Some(AttachmentValue::Descend(child_warp)) = store.node_attachment(&current.local_id)
-        {
-            enqueue_descend(
-                state,
-                *child_warp,
-                &mut reachable_warps,
-                &mut reachable_nodes,
-                &mut queue,
-            );
-        }
-    }
+    // 1) Determine reachable nodes across instances via deterministic BFS.
+    let (reachable_warps, reachable_nodes) = collect_reachable_graph(state, root);
 
     // 2) Hash reachable instance content in canonical order.
     let mut hasher = Hasher::new();
+    hasher.update(domain::STATE_ROOT_V1);
     hasher.update(&(root.warp_id).0);
     hasher.update(&(root.local_id).0);
 
@@ -210,6 +162,63 @@ pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
     hasher.finalize().into()
 }
 
+fn collect_reachable_graph(
+    state: &WarpState,
+    root: &NodeKey,
+) -> (BTreeSet<WarpId>, BTreeSet<NodeKey>) {
+    let mut reachable_nodes: BTreeSet<NodeKey> = BTreeSet::new();
+    let mut reachable_warps: BTreeSet<WarpId> = BTreeSet::new();
+    let mut queue: VecDeque<NodeKey> = VecDeque::new();
+
+    reachable_nodes.insert(*root);
+    reachable_warps.insert(root.warp_id);
+    queue.push_back(*root);
+
+    while let Some(current) = queue.pop_front() {
+        let Some(store) = state.store(&current.warp_id) else {
+            debug_assert!(
+                false,
+                "reachable traversal referenced missing warp store: {:?}",
+                current.warp_id
+            );
+            continue;
+        };
+
+        for edge in store.edges_from(&current.local_id) {
+            let to = NodeKey {
+                warp_id: current.warp_id,
+                local_id: edge.to,
+            };
+            if reachable_nodes.insert(to) {
+                queue.push_back(to);
+            }
+
+            if let Some(AttachmentValue::Descend(child_warp)) = store.edge_attachment(&edge.id) {
+                enqueue_descend(
+                    state,
+                    *child_warp,
+                    &mut reachable_warps,
+                    &mut reachable_nodes,
+                    &mut queue,
+                );
+            }
+        }
+
+        if let Some(AttachmentValue::Descend(child_warp)) = store.node_attachment(&current.local_id)
+        {
+            enqueue_descend(
+                state,
+                *child_warp,
+                &mut reachable_warps,
+                &mut reachable_nodes,
+                &mut queue,
+            );
+        }
+    }
+
+    (reachable_warps, reachable_nodes)
+}
+
 /// Computes the final commit hash from the state root and metadata digests.
 ///
 /// This is the legacy v1 commit header hash (plan/decision/rewrites digests).
@@ -256,6 +265,7 @@ pub fn compute_commit_hash_v2(
     policy_id: u32,
 ) -> Hash {
     let mut h = Hasher::new();
+    h.update(domain::COMMIT_ID_V2);
     // Version tag for future evolution.
     h.update(&2u16.to_le_bytes());
     // Parents (length + raw bytes)

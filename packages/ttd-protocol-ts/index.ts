@@ -7,7 +7,6 @@
  * DO NOT EDIT
  */
 
-export * from './primitives';
 export * from './types';
 export * from './zod';
 export * from './registry';

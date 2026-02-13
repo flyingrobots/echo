@@ -3,7 +3,6 @@
 //! Canonical renderable graph representation shared across Echo tools.
 //! Pure data (nodes, edges, payloads) with deterministic hashing/serialization.
 
-use blake3::Hash;
 use ciborium::ser::into_writer;
 use serde::{Deserialize, Serialize};
 
@@ -179,7 +178,10 @@ impl RenderGraph {
 
     /// Compute blake3 hash of the canonical form.
     pub fn compute_hash(&self) -> Result<Hash32, ciborium::ser::Error<std::io::Error>> {
-        let h: Hash = blake3::hash(&self.to_canonical_bytes()?);
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(warp_core::domain::RENDER_GRAPH_V1);
+        hasher.update(&self.to_canonical_bytes()?);
+        let h: blake3::Hash = hasher.finalize();
         Ok(h.into())
     }
 
@@ -294,4 +296,44 @@ pub struct WarpHello {
     pub last_known_hash: Option<Hash32>,
     /// Protocol version for compatibility.
     pub protocol_version: u16,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_graph_domain_separation() {
+        let g = RenderGraph::default();
+        let bytes = g.to_canonical_bytes().unwrap();
+        let bare_hash = blake3::hash(&bytes);
+        let domain_hash = g.compute_hash().unwrap();
+
+        // Must differ from bare hash
+        assert_ne!(bare_hash.as_bytes(), &domain_hash);
+
+        // Prove it matches manual domain hashing
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(warp_core::domain::RENDER_GRAPH_V1);
+        hasher.update(&bytes);
+        let expected = hasher.finalize();
+        assert_eq!(expected.as_bytes(), &domain_hash);
+    }
+
+    #[test]
+    fn test_cross_domain_collision_resistance() {
+        let input = b"identical bytes";
+
+        let mut h_render = blake3::Hasher::new();
+        h_render.update(warp_core::domain::RENDER_GRAPH_V1);
+        h_render.update(input);
+        let d_render = h_render.finalize();
+
+        let mut h_state = blake3::Hasher::new();
+        h_state.update(warp_core::domain::STATE_ROOT_V1);
+        h_state.update(input);
+        let d_state = h_state.finalize();
+
+        assert_ne!(d_render, d_state);
+    }
 }

@@ -194,7 +194,7 @@ pipeline.}
 
 This document traces EVERY function call involved in processing a user
 action through the Echo engine. File paths and line numbers are accurate
-as of 2026-01-18.
+as of 2026-01-25.
 
 \emph{Annotated with tour guide commentary --- insights, patterns, and observations from a detailed code review.}
 \end{quote}
@@ -248,7 +248,7 @@ Let's begin our journey from intent to commit!
 \section{1. Intent Ingestion}\label{intent-ingestion}
 
 \textbf{Entry Point:} \texttt{Engine::ingest\_intent()} \textbf{File:}
-\texttt{crates/warp-core/src/engine\_impl.rs:1216}
+\texttt{crates/warp-core/src/engine\_impl.rs}
 
 \begin{tourguide}
 This is where user actions enter the system. Notice how Echo treats intents as \emph{immutable, content-addressed} data from the very first moment. The intent bytes are hashed to create a unique identifier, ensuring that duplicate intents are detected automatically---no coordination required.
@@ -274,7 +274,7 @@ Already ingested
 Engine::ingest_intent(intent_bytes: &[u8])
 │
 ├─[1] compute_intent_id(intent_bytes) → Hash
-│     FILE: crates/warp-core/src/inbox.rs:205
+│     FILE: crates/warp-core/src/inbox.rs
 │     CODE:
 │       let mut hasher = blake3::Hasher::new();
 │       hasher.update(b"intent:");           // Domain separation
@@ -285,41 +285,41 @@ Engine::ingest_intent(intent_bytes: &[u8])
 │     Creates strongly-typed NodeId from Hash
 │
 ├─[3] self.state.store_mut(&warp_id) → Option<&mut GraphStore>
-│     FILE: crates/warp-core/src/engine_impl.rs:1221
+│     FILE: crates/warp-core/src/engine_impl.rs
 │     ERROR: EngineError::UnknownWarp if None
 │
 ├─[4] Extract root_node_id from self.current_root.local_id
 │
 ├─[5] STRUCTURAL NODE CREATION (Idempotent)
 │     ├─ make_node_id("sim") → NodeId
-│     │   FILE: crates/warp-core/src/ident.rs:93
+│     │   FILE: crates/warp-core/src/ident.rs
 │     │   CODE: blake3("node:" || "sim")
 │     │
 │     ├─ make_node_id("sim/inbox") → NodeId
 │     │   CODE: blake3("node:" || "sim/inbox")
 │     │
 │     ├─ make_type_id("sim") → TypeId
-│     │   FILE: crates/warp-core/src/ident.rs:85
+│     │   FILE: crates/warp-core/src/ident.rs
 │     │   CODE: blake3("type:" || "sim")
 │     │
 │     ├─ make_type_id("sim/inbox") → TypeId
 │     ├─ make_type_id("sim/inbox/event") → TypeId
 │     │
 │     ├─ store.insert_node(sim_id, NodeRecord { ty: sim_ty })
-│     │   FILE: crates/warp-core/src/graph.rs:175
+│     │   FILE: crates/warp-core/src/graph.rs
 │     │   CODE: self.nodes.insert(id, record)
 │     │
 │     └─ store.insert_node(inbox_id, NodeRecord { ty: inbox_ty })
 │
 ├─[6] STRUCTURAL EDGE CREATION
 │     ├─ make_edge_id("edge:root/sim") → EdgeId
-│     │   FILE: crates/warp-core/src/ident.rs:109
+│     │   FILE: crates/warp-core/src/ident.rs
 │     │   CODE: blake3("edge:" || "edge:root/sim")
 │     │
 │     ├─ store.insert_edge(root_id, EdgeRecord { ... })
-│     │   FILE: crates/warp-core/src/graph.rs:188
+│     │   FILE: crates/warp-core/src/graph.rs
 │     │   └─ GraphStore::upsert_edge_record(from, edge)
-│     │       FILE: crates/warp-core/src/graph.rs:196
+│     │       FILE: crates/warp-core/src/graph.rs
 │     │       UPDATES:
 │     │         self.edge_index.insert(edge_id, from)
 │     │         self.edge_to_index.insert(edge_id, to)
@@ -330,7 +330,7 @@ Engine::ingest_intent(intent_bytes: &[u8])
 │
 ├─[7] DUPLICATE DETECTION
 │     store.node(&event_id) → Option<&NodeRecord>
-│     FILE: crates/warp-core/src/graph.rs:87
+│     FILE: crates/warp-core/src/graph.rs
 │     CODE: self.nodes.get(id)
 │     IF Some(_): return Ok(IngestDisposition::Duplicate { intent_id })
 │
@@ -340,16 +340,16 @@ Engine::ingest_intent(intent_bytes: &[u8])
 │
 ├─[9] INTENT ATTACHMENT
 │     ├─ AtomPayload::new(type_id, bytes)
-│     │   FILE: crates/warp-core/src/attachment.rs:149
+│     │   FILE: crates/warp-core/src/attachment.rs
 │     │   CODE: Self { type_id, bytes: Bytes::copy_from_slice(intent_bytes) }
 │     │
 │     └─ store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)))
-│         FILE: crates/warp-core/src/graph.rs:125
+│         FILE: crates/warp-core/src/graph.rs
 │         CODE: self.node_attachments.insert(id, v)
 │
 ├─[10] PENDING EDGE CREATION (Queue Membership)
 │      ├─ pending_edge_id(&inbox_id, &intent_id) → EdgeId
-│      │   FILE: crates/warp-core/src/inbox.rs:212
+│      │   FILE: crates/warp-core/src/inbox.rs
 │      │   CODE: blake3("edge:" || "sim/inbox/pending:" || inbox_id || intent_id)
 │      │
 │      └─ store.insert_edge(inbox_id, EdgeRecord {
@@ -434,7 +434,7 @@ Notice the \textbf{four separate edge indices}: \texttt{edges\_from}, \texttt{ed
 \subsection{2.1 Begin Transaction}\label{begin-transaction}
 
 \textbf{Entry Point:} \texttt{Engine::begin()} \textbf{File:}
-\texttt{crates/warp-core/src/engine\_impl.rs:711-719}
+\texttt{crates/warp-core/src/engine\_impl.rs-719}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -474,7 +474,7 @@ Engine::begin()
 │   Registers transaction as active
 │
 └─ TxId::from_raw(self.tx_counter)
-    FILE: crates/warp-core/src/tx.rs:34
+    FILE: crates/warp-core/src/tx.rs
     CODE: pub const fn from_raw(value: u64) -> Self { Self(value) }
     TYPE: #[repr(transparent)] struct TxId(u64)
 \end{verbatim}
@@ -489,7 +489,7 @@ wrapped) - \texttt{live\_txs}: Insert new counter value
 \subsection{2.2 Abort Transaction}\label{abort-transaction}
 
 \textbf{Entry Point:} \texttt{Engine::abort()} \textbf{File:}
-\texttt{crates/warp-core/src/engine\_impl.rs:962-968}
+\texttt{crates/warp-core/src/engine\_impl.rs-968}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -512,7 +512,7 @@ Abort is refreshingly simple---just remove the transaction from tracking and cle
 \section{3. Rule Matching}\label{rule-matching}
 
 \textbf{Entry Point:} \texttt{Engine::apply()} \textbf{File:}
-\texttt{crates/warp-core/src/engine\_impl.rs:730-737}
+\texttt{crates/warp-core/src/engine\_impl.rs-737}
 
 \begin{tourguide}
 Now we enter the heart of Echo's reactive model. Rules are matched against graph patterns, and when they match, they're enqueued for execution. The beauty is that matching is \emph{pure}---it reads the graph but doesn't modify it.
@@ -537,7 +537,7 @@ Now we enter the heart of Echo's reactive model. Rules are matched against graph
 Engine::apply(tx, rule_name, scope)
 │
 └─ Engine::apply_in_warp(tx, self.current_root.warp_id, rule_name, scope, &[])
-    FILE: crates/warp-core/src/engine_impl.rs:754-806
+    FILE: crates/warp-core/src/engine_impl.rs-806
     │
     ├─[1] TRANSACTION VALIDATION
     │     CODE: if tx.value() == 0 || !self.live_txs.contains(&tx.value())
@@ -555,12 +555,12 @@ Engine::apply(tx, rule_name, scope)
     ├─[4] CREATE GRAPHVIEW
     │     GraphView::new(store) → GraphView<'_>
     │     FILE: crates/warp-core/src/graph_view.rs
-    │     TYPE: Read-only wrapper (Copy, 8 bytes)
+    │     TYPE: Read-only wrapper (Copy, lightweight)
     │
     ├─[5] CALL MATCHER
     │     (rule.matcher)(view, scope) → bool
     │     TYPE: MatchFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool
-    │     FILE: crates/warp-core/src/rule.rs:16-24
+    │     FILE: crates/warp-core/src/rule.rs-24
     │     IF false: return Ok(ApplyResult::NoMatch)
     │
     ├─[6] CREATE SCOPE KEY
@@ -568,7 +568,7 @@ Engine::apply(tx, rule_name, scope)
     │
     ├─[7] COMPUTE SCOPE HASH
     │     scope_hash(&rule.id, &scope_key) → Hash
-    │     FILE: crates/warp-core/src/engine_impl.rs:1712-1718
+    │     FILE: crates/warp-core/src/engine_impl.rs-1718
     │     CODE:
     │       let mut hasher = Hasher::new();
     │       hasher.update(rule_id);              // 32 bytes
@@ -579,7 +579,7 @@ Engine::apply(tx, rule_name, scope)
     ├─[8] COMPUTE FOOTPRINT
     │     (rule.compute_footprint)(view, scope) → Footprint
     │     TYPE: FootprintFn = for<'a> fn(GraphView<'a>, &NodeId) -> Footprint
-    │     FILE: crates/warp-core/src/rule.rs:38-46
+    │     FILE: crates/warp-core/src/rule.rs-46
     │     RETURNS:
     │       Footprint {
     │         n_read: IdSet,           // Nodes read
@@ -596,7 +596,7 @@ Engine::apply(tx, rule_name, scope)
     ├─[9] AUGMENT FOOTPRINT WITH DESCENT STACK
     │     for key in descent_stack:
     │       footprint.a_read.insert(*key)
-    │     FILE: crates/warp-core/src/footprint.rs:104-107
+    │     FILE: crates/warp-core/src/footprint.rs-107
     │     PURPOSE: Stage B1 law - READs of all descent chain slots
     │
     ├─[10] COMPACT RULE ID LOOKUP
@@ -608,16 +608,16 @@ Engine::apply(tx, rule_name, scope)
           self.scheduler.enqueue(tx, PendingRewrite { ... })
           │
           └─ DeterministicScheduler::enqueue(tx, rewrite)
-              FILE: crates/warp-core/src/scheduler.rs:654-659
+              FILE: crates/warp-core/src/scheduler.rs-659
               │
               └─ RadixScheduler::enqueue(tx, rewrite)
-                  FILE: crates/warp-core/src/scheduler.rs:102-105
+                  FILE: crates/warp-core/src/scheduler.rs-105
                   CODE:
                     let txq = self.pending.entry(tx).or_default();
                     txq.enqueue(rewrite.scope_hash, rewrite.compact_rule.0, rewrite);
                   │
                   └─ PendingTx::enqueue(scope_be32, rule_id, payload)
-                      FILE: crates/warp-core/src/scheduler.rs:331-355
+                      FILE: crates/warp-core/src/scheduler.rs-355
 
                       CASE 1: Duplicate (scope_hash, rule_id) — LAST WINS
                         index.get(&key) → Some(&i)
@@ -631,11 +631,9 @@ Engine::apply(tx, rule_name, scope)
 \end{verbatim}
 
 \begin{cleverpattern}
-\textbf{GraphView: The 8-Byte Read-Only Wrapper}
+\textbf{GraphView: The Read-Only Wrapper}
 
-Step [4] creates a \texttt{GraphView}---and note it's only \textbf{8 bytes} and \texttt{Copy}! This is just a pointer to the underlying \texttt{GraphStore}, but wrapped in a type that only exposes read methods.
-
-This is Rust's type system doing the heavy lifting: you literally \emph{cannot} mutate the graph through a \texttt{GraphView}. The compiler enforces read-only access, enabling safe concurrent reads without any runtime checks.
+Step [4] creates a \texttt{GraphView}---a lightweight, copyable handle to the underlying \texttt{GraphStore}. In enforcement builds, it optionally holds a \texttt{FootprintGuard} reference that ties the view's lifetime to runtime protection---a borrow token that prevents the underlying \texttt{GraphStore} from being mutably borrowed while the \texttt{GraphView} exists. This guard validates reads against declared footprints at runtime, augmenting the compile-time read-only guarantee with runtime protection against unauthorized access. This is Rust's type system doing the heavy lifting: you literally \emph{cannot} mutate the graph through a \texttt{GraphView}. The compiler enforces read-only access, and the guard (when present in enforcement builds) enforces read permissions at runtime.
 \end{cleverpattern}
 
 \begin{deepdive}
@@ -664,7 +662,7 @@ Why? Because enqueuing a rule is idempotent: if you match the same rule at the s
 \subsection{3.3 PendingRewrite
 Structure}\label{pendingrewrite-structure}
 
-\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs:68-82}
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs-82}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -694,7 +692,7 @@ The scheduler is where Echo's determinism guarantees are forged. No matter what 
 \subsection{4.1 Drain Phase (Radix Sort)}\label{drain-phase-radix-sort}
 
 \textbf{Entry Point:} \texttt{RadixScheduler::drain\_for\_tx()}
-\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs:109-113}
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs-113}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -714,14 +712,14 @@ RadixScheduler::drain_for_tx(tx)
 ├─ self.pending.remove(&tx) → Option<PendingTx<PendingRewrite>>
 │
 └─ PendingTx::drain_in_order()
-    FILE: crates/warp-core/src/scheduler.rs:416-446
+    FILE: crates/warp-core/src/scheduler.rs-446
     │
     ├─ DECISION: n <= 1024 (SMALL_SORT_THRESHOLD)?
     │   ├─ YES: sort_unstable_by(cmp_thin)
     │   │       Rust std comparison sort
     │   │
     │   └─ NO: radix_sort()
-    │          FILE: crates/warp-core/src/scheduler.rs:360-413
+    │          FILE: crates/warp-core/src/scheduler.rs-413
     │
     └─ radix_sort()
         │
@@ -756,7 +754,7 @@ RadixScheduler::drain_for_tx(tx)
             └─ flip = !flip
 
 BUCKET EXTRACTION (bucket16):
-FILE: crates/warp-core/src/scheduler.rs:481-498
+FILE: crates/warp-core/src/scheduler.rs-498
 
 Pass 0:  u16_from_u32_le(r.nonce, 0)      // Nonce bytes [0:2]
 Pass 1:  u16_from_u32_le(r.nonce, 1)      // Nonce bytes [2:4]
@@ -809,7 +807,7 @@ The nonce is processed first (passes 0--1) because it's the tiebreaker---when sc
 Check)}\label{reserve-phase-independence-check}
 
 \textbf{Entry Point:} \texttt{RadixScheduler::reserve()} \textbf{File:}
-\texttt{crates/warp-core/src/scheduler.rs:134-143}
+\texttt{crates/warp-core/src/scheduler.rs-143}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -841,7 +839,7 @@ RadixScheduler::reserve(tx, pr)
 │     - ports: GenSet<PortKey>
 │
 ├─ has_conflict(active, pr) → bool
-│   FILE: crates/warp-core/src/scheduler.rs:157-236
+│   FILE: crates/warp-core/src/scheduler.rs-236
 │   │
 │   ├─ FOR node IN pr.footprint.n_write:
 │   │     IF active.nodes_written.contains(node): return true  // W-W conflict
@@ -870,12 +868,12 @@ RadixScheduler::reserve(tx, pr)
 │
 ├─ IF conflict:
 │   └─ on_conflict(pr)
-│       FILE: crates/warp-core/src/scheduler.rs:145-149
+│       FILE: crates/warp-core/src/scheduler.rs-149
 │       pr.phase = RewritePhase::Aborted
 │       return false
 │
 ├─ mark_all(active, pr)
-│   FILE: crates/warp-core/src/scheduler.rs:238-278
+│   FILE: crates/warp-core/src/scheduler.rs-278
 │   │
 │   ├─ FOR node IN pr.footprint.n_write:
 │   │     active.nodes_written.mark(NodeKey { warp_id, local_id: node })
@@ -886,7 +884,7 @@ RadixScheduler::reserve(tx, pr)
 │   ... (similar for edges, attachments, ports)
 │
 └─ on_reserved(pr)
-    FILE: crates/warp-core/src/scheduler.rs:151-155
+    FILE: crates/warp-core/src/scheduler.rs-155
     pr.phase = RewritePhase::Reserved
     return true
 \end{verbatim}
@@ -912,7 +910,7 @@ Multiple readers are allowed (R-R is OK), but any write conflicts with both read
 \subsection{4.3 GenSet: O(1) Conflict
 Detection}\label{genset-o1-conflict-detection}
 
-\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs:509-535}
+\textbf{File:} \texttt{crates/warp-core/src/scheduler.rs-535}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -953,7 +951,7 @@ The hash map only grows---it's never shrunk. But since the same keys tend to be 
 \section{5. BOAW Parallel Execution}\label{boaw-parallel-execution}
 
 \textbf{Entry Point:} \texttt{execute\_parallel()} \textbf{File:}
-\texttt{crates/warp-core/src/boaw/exec.rs:61-83}
+\texttt{crates/warp-core/src/boaw/exec.rs-83}
 
 \begin{tourguide}
 BOAW---``Best Of All Worlds''---is where Echo's determinism meets parallelism. The key insight: \emph{order of execution doesn't matter if we sort the outputs}. Rules execute in arbitrary order on worker threads, but their outputs are merged canonically.
@@ -983,20 +981,20 @@ BOAW---``Best Of All Worlds''---is where Echo's determinism meets parallelism. T
 execute_parallel(view, items, workers)
 │
 └─ execute_parallel_sharded(view, items, capped_workers)
-    FILE: crates/warp-core/src/boaw/exec.rs:101-152
+    FILE: crates/warp-core/src/boaw/exec.rs-152
     │
     ├─ IF items.is_empty():
     │     return (0..workers).map(|_| TickDelta::new()).collect()
     │
     ├─ partition_into_shards(items.to_vec()) → Vec<VirtualShard>
-    │   FILE: crates/warp-core/src/boaw/shard.rs:109-120
+    │   FILE: crates/warp-core/src/boaw/shard.rs-120
     │   │
     │   ├─ Create 256 empty VirtualShard structures
     │   │
     │   └─ FOR item IN items:
     │       │
     │       ├─ shard_of(&item.scope) → usize
-    │       │   FILE: crates/warp-core/src/boaw/shard.rs:82-92
+    │       │   FILE: crates/warp-core/src/boaw/shard.rs-92
     │       │   CODE:
     │       │     let bytes = scope.as_bytes();
     │       │     let first_8: [u8; 8] = [bytes[0..8]];
@@ -1015,7 +1013,7 @@ execute_parallel(view, items, workers)
         │   └─ s.spawn(move || { ... })  // ═══ WORKER THREAD ═══
         │       │
         │       ├─ let mut delta = TickDelta::new()
-        │       │   FILE: crates/warp-core/src/tick_delta.rs:44-52
+        │       │   FILE: crates/warp-core/src/tick_delta.rs-52
         │       │   CREATES: { ops: Vec::new(), origins: Vec::new() }
         │       │
         │       └─ LOOP:  // Work-stealing loop
@@ -1029,21 +1027,21 @@ execute_parallel(view, items, workers)
         │           └─ FOR item IN &shards[shard_id].items:
         │               │
         │               ├─ let mut scoped = delta.scoped(item.origin)
-        │               │   FILE: crates/warp-core/src/tick_delta.rs:140-142
+        │               │   FILE: crates/warp-core/src/tick_delta.rs-142
         │               │   CREATES: ScopedDelta { inner: &mut delta, origin, next_op_ix: 0 }
         │               │
         │               └─ (item.exec)(view, &item.scope, scoped.inner_mut())
         │                   │
         │                   └─ INSIDE EXECUTOR:
         │                       scoped.emit(op)
-        │                       FILE: crates/warp-core/src/tick_delta.rs:234-239
+        │                       FILE: crates/warp-core/src/tick_delta.rs-239
         │                       CODE:
         │                         origin.op_ix = self.next_op_ix;
         │                         self.next_op_ix += 1;
         │                         self.inner.emit_with_origin(op, origin);
         │                       │
         │                       └─ TickDelta::emit_with_origin(op, origin)
-        │                           FILE: crates/warp-core/src/tick_delta.rs:69-75
+        │                           FILE: crates/warp-core/src/tick_delta.rs-75
         │                           CODE:
         │                             self.ops.push(op);
         │                             self.origins.push(origin);  // if delta_validate
@@ -1089,40 +1087,47 @@ Using \texttt{Relaxed} instead of \texttt{SeqCst} avoids memory barriers, which 
 
 When footprint enforcement is active, each item is executed via
 \texttt{execute\_item\_enforced()} instead of a bare function-pointer call.
-This wraps execution with \texttt{catch\_unwind} and performs post-hoc
-\texttt{check\_op()} validation on any newly-emitted ops.
+Read access is enforced in-line by \texttt{GraphView}/\texttt{FootprintGuard}
+while the executor runs inside \texttt{catch\_unwind}, and post-hoc
+\texttt{check\_op()} validation is applied to any newly-emitted ops.
 
 \begin{verbatim}
-execute_item_enforced(view, item, delta, footprint)
+execute_item_enforced(store, item, idx, unit, delta)
 │
-├─ ops_before = delta.ops_len()
+├─ guard = unit.guards[idx]
+├─ view = GraphView::new_guarded(store, guard)
+│
+├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
 │      (item.exec)(view, &item.scope, delta)
 │  }))
 │
+├─ NOTE: During execution above, GraphView validates reads via
+│  FootprintGuard—unauthorized reads are detected inline.
+│
 ├─ FOR op IN delta.ops()[ops_before..]:
-│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+│     guard.check_op(op) → panic_any(FootprintViolation) on failure
 │     Validates that each newly-emitted op falls within the declared footprint.
 │     ExecItemKind::System items may emit warp-instance-level ops;
 │     ExecItemKind::User items may not.
 │
 └─ OUTCOME PRECEDENCE:
       ├─ IF check_op fails:
-      │     return Err(FootprintViolation)
-      │     Write violations OVERRIDE executor panics — violation takes precedence.
+      │     std::panic::panic_any(FootprintViolation { ... })
+      │     Footprint violations OVERRIDE executor panics — violation takes precedence.
       │
       ├─ IF footprint is clean BUT executor panicked:
       │     std::panic::resume_unwind(payload)
       │     The original panic propagates to the caller.
       │
       └─ IF both clean:
-            return Ok(())
+            return Ok(delta)   // Result<TickDelta, PoisonedDelta>
 \end{verbatim}
 
 \begin{tourguide}
-The post-hoc strategy is a deliberate design choice: we let the executor run to completion (or panic), then inspect what it wrote. This avoids the overhead of intercepting every write call during hot-loop execution. The \texttt{catch\_unwind} boundary means even a panicking rule cannot leave unchecked ops in the delta.
+The post-hoc strategy is a deliberate design choice: we let the executor run to completion (or panic), then inspect what it wrote. This avoids the overhead of intercepting every write call during hot-loop execution. Read access is still enforced in-line by \texttt{GraphView}/\texttt{FootprintGuard} while the executor runs under \texttt{catch\_unwind}, so unauthorized reads surface immediately even before \texttt{check\_op()} validates writes.
 \end{tourguide}
 
 \begin{cleverpattern}
@@ -1132,13 +1137,13 @@ Consider: a rule panics, but before panicking it wrote an out-of-footprint op. I
 \end{cleverpattern}
 
 \textbf{The Poison Invariant:} If the executor panics, the \texttt{TickDelta}
-it was writing into is considered poisoned (partially-written ops with no
-transactional rollback). After an executor panic the delta must be
-discarded---it cannot be merged or committed.
+it was writing into is considered poisoned. The execution path returns a
+\texttt{PoisonedDelta} marker, and poisoned deltas are never merged or
+committed.
 
 \subsection{5.4 ExecItem Structure}\label{execitem-structure}
 
-\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:19-35}
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs-35}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -1175,12 +1180,15 @@ discarded---it cannot be merged or committed.
 \end{itemize}
 
 \texttt{ExecItem::new()} always creates \texttt{User} items. System items are
-constructed only by internal engine code and never exposed through the public
+constructed via \texttt{ExecItem::new\_system()} (cfg-gated \texttt{pub(crate)}
+constructor used by portal/inbox rules) and are never exposed through the public
 API.
 
 \begin{cleverpattern}
-\textbf{The triple cfg-gate pattern:} The \texttt{kind} field (and all
-enforcement logic) is guarded by:
+\textbf{The dual-attribute cfg-gate pattern:} The \texttt{kind} field (and all
+enforcement logic) is guarded by two cfg attributes that together express three
+conditions (\texttt{debug\_assertions}, \texttt{footprint\_enforce\_release},
+and \texttt{unsafe\_graph}):
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
@@ -1195,10 +1203,18 @@ enforcement logic) is guarded by:
   bypass checks).
 \end{enumerate}
 
-This means enforcement is always-on in dev/test, opt-in for release, and
-explicitly removable for unsafe experimentation. The struct layout changes
-depending on the build profile---\texttt{ExecItem} is smaller in release builds
-where the guard is inactive.
+The gates are symmetric: the \texttt{kind} field, \texttt{guards} vector, and
+validation code all have both cfg attributes applied identically.
+\textbf{Precedence:} When both features are enabled
+(\texttt{footprint\_enforce\_release} and \texttt{unsafe\_graph}), the
+\texttt{unsafe\_graph} escape hatch takes precedence and disables
+enforcement---the \texttt{kind} field and enforcement guards are not compiled
+in, so \texttt{ExecItem} retains its non-enforced layout but enforcement is
+silently inactive. Practically, the \texttt{kind} field, \texttt{guards} vector,
+and validation code are compiled out under \texttt{unsafe\_graph}, even if
+release enforcement is requested. The struct layout changes depending on the
+build profile---\texttt{ExecItem} is smaller in release builds where the guard
+is inactive.
 \end{cleverpattern}
 
 \subsection{5.5 Thread Safety}\label{thread-safety}
@@ -1233,7 +1249,7 @@ This is where the magic happens: multiple workers produce independent deltas, an
 \subsection{6.1 Canonical Merge}\label{canonical-merge}
 
 \textbf{Entry Point:} \texttt{merge\_deltas()} \textbf{File:}
-\texttt{crates/warp-core/src/boaw/merge.rs:36-75}
+\texttt{crates/warp-core/src/boaw/merge.rs-75}
 
 \begin{verbatim}
 merge_deltas(deltas: Vec<TickDelta>) → Result<Vec<WarpOp>, MergeConflict>
@@ -1284,7 +1300,7 @@ This policy allows natural redundancy in rule specifications while catching genu
 
 \subsection{6.2 WarpOp Sort Key}\label{warpop-sort-key}
 
-\textbf{File:} \texttt{crates/warp-core/src/tick\_patch.rs:207-287}
+\textbf{File:} \texttt{crates/warp-core/src/tick\_patch.rs-287}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -1390,7 +1406,7 @@ Hashing is Echo's fingerprint technology. The state root captures \emph{what the
 \subsection{7.1 State Root}\label{state-root}
 
 \textbf{Entry Point:} \texttt{compute\_state\_root()} \textbf{File:}
-\texttt{crates/warp-core/src/snapshot.rs:88-209}
+\texttt{crates/warp-core/src/snapshot.rs-209}
 
 \begin{verbatim}
 compute_state_root(state: &WarpState, root: &NodeKey) → Hash
@@ -1477,7 +1493,7 @@ This is a subtle but important property for garbage collection---you can safely 
 \subsection{7.2 Commit Hash v2}\label{commit-hash-v2}
 
 \textbf{Entry Point:} \texttt{compute\_commit\_hash\_v2()}
-\textbf{File:} \texttt{crates/warp-core/src/snapshot.rs:244-263}
+\textbf{File:} \texttt{crates/warp-core/src/snapshot.rs-263}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -1522,7 +1538,7 @@ The version tag (\texttt{0x02 0x00}) is future-proofing: if the commit hash form
 \subsection{7.3 Patch Digest}\label{patch-digest}
 
 \textbf{Entry Point:} \texttt{compute\_patch\_digest\_v2()}
-\textbf{File:} \texttt{crates/warp-core/src/tick\_patch.rs:755-774}
+\textbf{File:} \texttt{crates/warp-core/src/tick\_patch.rs-774}
 
 \begin{Shaded}
 \begin{Highlighting}[]
@@ -1552,7 +1568,7 @@ The version tag (\texttt{0x02 0x00}) is future-proofing: if the commit hash form
 \section{8. Commit Orchestration}\label{commit-orchestration}
 
 \textbf{Entry Point:} \texttt{Engine::commit\_with\_receipt()}
-\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs:837-954}
+\textbf{File:} \texttt{crates/warp-core/src/engine\_impl.rs-954}
 
 \begin{tourguide}
 This is the grand finale---where all the pieces come together. The commit orchestrator drains the scheduler, reserves resources, executes rules, merges deltas, computes hashes, and records the transaction. Let's trace through every step.
@@ -1572,7 +1588,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │     rule_pack_id = self.compute_rule_pack_id()         // Line 845
 │     │
 │     ├─ compute_rule_pack_id()
-│     │   FILE: engine_impl.rs:1675-1688
+│     │   FILE: engine_impl.rs
 │     │   CODE:
 │     │     ids = self.rules.values().map(|r| r.id).collect()
 │     │     ids.sort_unstable(); ids.dedup()
@@ -1589,7 +1605,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │       = self.reserve_for_receipt(tx, drained)?         // Line 850-855
 │     │
 │     └─ reserve_for_receipt(tx, drained)
-│         FILE: engine_impl.rs:970-1042
+│         FILE: engine_impl.rs
 │         │
 │         FOR rewrite IN drained (canonical order):
 │           │
@@ -1613,7 +1629,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │     delta_ops = self.apply_reserved_rewrites(reserved, &state_before)?
 │     │
 │     └─ apply_reserved_rewrites(rewrites, state_before)
-│         FILE: engine_impl.rs:1044-1105
+│         FILE: engine_impl.rs
 │         │
 │         ├─ let mut delta = TickDelta::new()
 │         │
@@ -1638,7 +1654,7 @@ Engine::commit_with_receipt(tx) → Result<(Snapshot, TickReceipt, WarpTickPatch
 │     ops = diff_state(&state_before, &self.state)       // Line 889
 │     │
 │     └─ diff_state(before, after)
-│         FILE: tick_patch.rs:979-1069
+│         FILE: tick_patch.rs
 │         - Canonicalize portal authoring (OpenPortal)
 │         - Diff instances (delete/upsert)
 │         - Diff nodes, edges, attachments
@@ -1993,7 +2009,7 @@ Echo is a remarkable piece of engineering---complex enough to solve hard problem
 Happy hacking!
 \end{tourguide}
 
-\emph{Document generated 2026-01-18. File paths and line numbers
+\emph{Document generated 2026-01-25. File paths and line numbers
 accurate as of this date. Commentary added by your friendly AI tour guide.}
 
 \backmatter

@@ -1,0 +1,134 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# Wesley Type Pipeline in Browser
+
+> **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Shared
+
+Ensure Wesley-generated types are usable across the JS/WASM boundary. TypeScript types + Zod validators generated from Wesley IR, with a serialization bridge to the WASM Rust side.
+
+## T-4-4-1: TypeScript type generation from Wesley IR
+
+**User Story:** As a web developer, I want TypeScript interfaces generated from the Wesley schema so that my browser code is type-safe against the simulation's data model.
+
+**Requirements:**
+
+- R1: Wesley already emits JSON IR (`echo-ir/v1`). Write a small Node.js script (or extend Wesley) that reads IR JSON and emits `.d.ts` type definitions.
+- R2: Enum types generate TypeScript `enum` or string literal unions.
+- R3: Object types generate TypeScript `interface` declarations with proper field types.
+- R4: Output includes a `schema_sha256` constant matching the IR's `schema_sha256` field.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Given the demo schema IR, the generated `.d.ts` file type-checks with `tsc --strict`.
+- [ ] AC2: Enum values match the IR exactly (no missing/extra variants).
+- [ ] AC3: `schema_sha256` constant in the generated file matches the IR's value.
+- [ ] AC4: Re-running generation on the same IR produces byte-identical output (deterministic).
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** IR-to-TypeScript type generation script. Enum and object types only.
+**Out of Scope:** Full Wesley plugin architecture (Phase 0). Union/intersection types. Recursive types.
+
+**Test Plan:**
+
+- **Goldens:** Generated `.d.ts` checked in as a golden file; `diff` against regenerated output.
+- **Failures:** IR with unknown type kind emits a `// TODO: unsupported type kind: X` comment and skips.
+- **Edges:** Empty types array. Type with zero fields. Type name collisions (append suffix).
+- **Fuzz/Stress:** Generate types from a 200-type IR; must complete in under 1s.
+
+**Blocked By:** none
+**Blocking:** T-4-4-2
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~200 LoC (TypeScript/Node.js)
+
+---
+
+## T-4-4-2: Zod runtime validators from Wesley IR
+
+**User Story:** As a web developer, I want Zod schemas generated from the Wesley schema so that I can validate data at the browser boundary before sending it to WASM.
+
+**Requirements:**
+
+- R1: Same IR-to-code script (or companion script) emits Zod schema definitions alongside types.
+- R2: Each object type gets a `z.object(...)` definition. Each enum gets a `z.enum(...)`.
+- R3: Required vs. optional fields from the IR map to `.optional()` in Zod.
+- R4: Exported as a `schemas` namespace object for easy import.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: `schemas.SomeType.parse(validData)` succeeds for a valid input.
+- [ ] AC2: `schemas.SomeType.parse(invalidData)` throws a `ZodError` with field-level details.
+- [ ] AC3: Generated Zod schemas import from the generated TypeScript types (no type drift).
+- [ ] AC4: `npm test` in the web package passes with Zod validation tests.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Zod schema generation for objects and enums. Validation tests.
+**Out of Scope:** Custom Zod transforms (coercion, preprocessing). Nested object validation beyond one level.
+
+**Test Plan:**
+
+- **Goldens:** Golden output file for the demo schema's Zod definitions.
+- **Failures:** Missing required field. Wrong enum variant. Wrong scalar type. Extra unknown field (Zod strict mode).
+- **Edges:** Empty object type (no fields). Enum with single variant. List fields.
+- **Fuzz/Stress:** Property-based test: generate random valid objects via Zod `.generate()` (if available) and parse.
+
+**Blocked By:** T-4-4-1
+**Blocking:** T-4-4-3
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~200 LoC (TypeScript/Node.js)
+
+---
+
+## T-4-4-3: CBOR serialization bridge (TS types to WASM Rust)
+
+**User Story:** As a web developer, I want to encode validated TypeScript objects as CBOR and send them to the WASM engine so that intent payloads are correctly deserialized on the Rust side.
+
+**Requirements:**
+
+- R1: A `serializeBridge.encode(type, data)` function that takes a Zod-validated object and returns a CBOR `Uint8Array` matching the `echo-wasm-abi` canonical encoding.
+- R2: A `serializeBridge.decode(type, bytes)` function that decodes CBOR bytes into a typed TypeScript object.
+- R3: CBOR map key ordering must match the canonical sorting expected by `echo-wasm-abi` (sorted keys).
+- R4: The bridge references the `codec_id` from the generated schema to tag payloads.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Encode a motion intent in TS, send to `dispatch_intent`, step the engine -- rewrite fires correctly.
+- [ ] AC2: Decode a ViewOp CBOR payload from `drain_view_ops` into a typed TS object with correct field values.
+- [ ] AC3: CBOR bytes from the TS bridge match byte-for-byte the output of the Rust `echo-wasm-abi` encoder for the same input.
+- [ ] AC4: `codec_id` mismatch between schema and bridge causes a clear error.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** CBOR encode/decode bridge, canonical key ordering, codec_id tagging.
+**Out of Scope:** Binary streaming. Compression. Schema negotiation protocol.
+
+**Test Plan:**
+
+- **Goldens:** Bit-exact CBOR comparison: TS-encoded motion intent vs. Rust-encoded golden vector.
+- **Failures:** Non-canonical key order in CBOR is rejected by the Rust side. Missing codec_id. Decode of truncated CBOR.
+- **Edges:** Empty payload object. Payload with nested enums. Maximum-size payload (64KB).
+- **Fuzz/Stress:** Encode/decode 5000 random valid payloads; verify round-trip equality.
+
+**Blocked By:** T-4-1-3, T-4-4-2
+**Blocking:** none
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~250 LoC (TypeScript)
+
+---

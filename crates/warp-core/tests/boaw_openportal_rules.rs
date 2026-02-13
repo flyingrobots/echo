@@ -15,7 +15,7 @@
 mod common;
 
 use warp_core::{
-    make_node_id, make_type_id, make_warp_id, merge_deltas, AttachmentKey, MergeError, NodeId,
+    make_node_id, make_type_id, make_warp_id, merge_deltas_ok, AttachmentKey, MergeError, NodeId,
     NodeKey, NodeRecord, OpOrigin, PortalInit, TickDelta, WarpId, WarpOp,
 };
 
@@ -85,7 +85,7 @@ fn make_origin(intent_id: u64, rule_id: u32) -> OpOrigin {
 /// - Delta 1: R1 emits OpenPortal { child_warp=W_child, init=PortalInit::Empty }
 /// - Delta 2: R2 emits UpsertNode targeting W_child
 ///
-/// Expected: merge_deltas returns Err with WriteToNewWarp (or similar error)
+/// Expected: merge_deltas_ok returns Err with WriteToNewWarp (or similar error)
 #[test]
 fn openportal_child_warp_not_executable_same_tick() {
     let parent_warp = make_warp_id("test/parent");
@@ -116,11 +116,11 @@ fn openportal_child_warp_not_executable_same_tick() {
     delta2.emit_with_origin(r2_op, make_origin(2, 200));
 
     // Merge should fail: R2 targets a warp created by R1 in the same tick
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(
         result.is_err(),
-        "merge_deltas should reject writes to newly created warps in the same tick"
+        "merge_deltas_ok should reject writes to newly created warps in the same tick"
     );
 
     // Verify it's specifically a WriteToNewWarp error
@@ -140,6 +140,9 @@ fn openportal_child_warp_not_executable_same_tick() {
         MergeError::Conflict(_) => {
             panic!("Expected MergeError::WriteToNewWarp, got Conflict");
         }
+        MergeError::PoisonedDelta(_) => {
+            panic!("Expected MergeError::WriteToNewWarp, got PoisonedDelta");
+        }
     }
 }
 
@@ -152,7 +155,7 @@ fn openportal_child_warp_not_executable_same_tick() {
 /// - Delta 1: R1 emits OpenPortal { child_warp=W_child, init=PortalInit::RequireExisting }
 /// - Delta 2: R2 emits UpsertNode targeting W_child
 ///
-/// Expected: merge_deltas succeeds (RequireExisting means warp already exists)
+/// Expected: merge_deltas_ok succeeds (RequireExisting means warp already exists)
 #[test]
 fn openportal_require_existing_allows_same_tick_writes() {
     let parent_warp = make_warp_id("test/parent-existing");
@@ -183,11 +186,11 @@ fn openportal_require_existing_allows_same_tick_writes() {
     delta2.emit_with_origin(r2_op.clone(), make_origin(2, 200));
 
     // Merge should succeed: RequireExisting means the warp already exists
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(
         result.is_ok(),
-        "merge_deltas should allow writes when OpenPortal uses RequireExisting"
+        "merge_deltas_ok should allow writes when OpenPortal uses RequireExisting"
     );
 
     let merged_ops = result.expect("merge should succeed");
@@ -235,7 +238,7 @@ fn two_creators_same_tick_no_other_writes() {
 
     // Merge: Two OpenPortal(Empty) ops with different attachment keys should succeed
     // (no writes to the new warp, just two portals pointing to it)
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(
         result.is_ok(),
@@ -289,7 +292,7 @@ fn two_creators_same_attachment_key_conflicts() {
     delta2.emit_with_origin(r2_op, make_origin(2, 200));
 
     // Merge should fail: same attachment key with different values
-    let result = merge_deltas(vec![delta1, delta2]);
+    let result = merge_deltas_ok(vec![delta1, delta2]);
 
     assert!(
         result.is_err(),
@@ -307,6 +310,9 @@ fn two_creators_same_attachment_key_conflicts() {
         }
         MergeError::WriteToNewWarp { .. } => {
             panic!("Expected MergeError::Conflict, got WriteToNewWarp");
+        }
+        MergeError::PoisonedDelta(_) => {
+            panic!("Expected MergeError::Conflict, got PoisonedDelta");
         }
     }
 }

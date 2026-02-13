@@ -156,6 +156,16 @@ let op_id = make_node_id(&format!("sim/view/op:{}", scope_hex));
 | `tick_patch.rs`  | +47 lines: `WarpOpKey` warp-distinction test                      |
 | `*.hashes.json`  | Regenerated golden files                                          |
 
+### Files Changed in Enforcement Commits
+
+| File                                            | Changes                                                             |
+| ----------------------------------------------- | ------------------------------------------------------------------- |
+| `crates/warp-core/src/footprint_guard.rs`       | `FootprintGuard`, `FootprintViolation`, `ViolationKind` definitions |
+| `crates/warp-core/src/graph_view.rs`            | `GraphView::new_guarded()` and guard field plumbing                 |
+| `crates/warp-core/src/boaw/exec.rs`             | `ExecItemKind`, enforcement path, `check_op()` validation           |
+| `crates/warp-core/tests/boaw_footprints.rs`     | Footprint enforcement integration tests                             |
+| `crates/warp-core/tests/slice_theorem_proof.rs` | Slice-theorem + enforcement regression tests                        |
+
 ---
 
 ## TEST COMMANDS

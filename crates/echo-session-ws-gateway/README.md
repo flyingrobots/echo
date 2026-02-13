@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # echo-session-ws-gateway
 
 WebSocket ↔ Unix-socket bridge for the Echo session hub. It terminates browser WebSocket connections, enforces JS-ABI frame sizing, and forwards binary frames to the Unix-domain socket exposed by `echo-session-service`.
@@ -28,6 +29,7 @@ Then open:
 - Optional Origin allowlist
 - Optional TLS (rustls)
 - Ping/pong keepalive
+- Hub observer reconnect with retry + jitter (`ninelives`)
 
 ## Origin allowlist (strict)
 

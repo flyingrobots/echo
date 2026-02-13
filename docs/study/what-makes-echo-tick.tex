@@ -573,7 +573,9 @@ violations:
 \item Undeclared reads (node, edge, or attachment access not listed in the footprint)
 \item Undeclared writes (ops emitted for resources not in \texttt{n\_write} / \texttt{e\_write} / \texttt{a\_write})
 \item Cross-warp emissions (ops targeting a \texttt{WarpId} other than the executing warp)
-\item Unauthorized instance ops (lifecycle operations on node instances not covered by the footprint)
+\item Unauthorized instance ops (warp-instance-level operations like \texttt{UpsertWarpInstance} or
+  \texttt{DeleteWarpInstance} emitted by \texttt{ExecItemKind::User} rules; only
+  \texttt{ExecItemKind::System} rules may emit these)
 \item Adjacency violations (edge ops whose \texttt{from} node is absent from \texttt{n\_write})
 \end{itemize}
 
@@ -1060,19 +1062,23 @@ panic.
 
 \subsubsection{Write Enforcement}\label{write-enforcement}
 
-Write enforcement uses a post-hoc \texttt{check\_op()} strategy. The
-executor runs inside a \texttt{catch\_unwind} boundary; after it completes,
-every op emitted into the \texttt{TickDelta} is validated against the
-footprint's write sets. This catches undeclared writes, cross-warp
-emissions, unauthorized instance ops, and adjacency violations (edge ops
-whose \texttt{from} node is absent from \texttt{n\_write}).
+Write enforcement uses a post-hoc \texttt{check\_op()} strategy: every op
+emitted into the \texttt{TickDelta} is validated against the footprint's
+write sets after the executor runs. The \texttt{catch\_unwind} boundary is
+separate---it catches immediate \texttt{GraphView} read violations so that,
+even if the executor unwinds, any ops already emitted can still be
+validated. This catches undeclared writes, cross-warp emissions,
+unauthorized instance ops, and adjacency violations (edge ops whose
+\texttt{from} node is absent from \texttt{n\_write}).
 
 \subsubsection{Scope and Lifecycle}\label{scope-and-lifecycle}
 
 The guard is instantiated \emph{per-\texttt{ExecItem}} within a
 \texttt{WorkUnit}. Each rule invocation receives its own guard, scoped to
-that item's computed footprint. Violations are represented as typed
-\texttt{FootprintViolation} panic payloads, which carry structured
+that item's computed footprint. Violations produce panic payloads:
+\texttt{FootprintViolation} for basic violations (undeclared access, cross-warp
+emission), or \texttt{FootprintViolationWithPanic} when both a violation and
+an executor panic occur simultaneously. Both payloads carry structured
 information about the offending access.
 
 \subsubsection{Configuration}\label{guard-configuration}
@@ -1086,6 +1092,10 @@ The guard is \texttt{cfg}-gated:
   which removes all guard overhead for maximum throughput in production
   scenarios where footprints have already been validated.
 \end{itemize}
+
+\textbf{Note:} The \texttt{unsafe\_graph} flag takes precedence and disables all
+guard enforcement unconditionally, regardless of \texttt{debug\_assertions} or
+\texttt{footprint\_enforce\_release}.
 
 \begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
 

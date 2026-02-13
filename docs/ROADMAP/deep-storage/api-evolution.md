@@ -1,0 +1,136 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+> **Milestone:** [Deep Storage](README.md) | **Priority:** P2
+
+# API Evolution
+
+Modernize the `BlobStore` trait for async usage, `bytes::Bytes` payloads, and enumeration support.
+
+---
+
+## T-5-4-1: Arc<[u8]> to bytes::Bytes migration
+
+**User Story:** As a developer, I want the BlobStore API to use `bytes::Bytes` instead of `Arc<[u8]>` so that zero-copy slicing and network buffer integration are possible.
+
+**Requirements:**
+
+- R1: Change `BlobStore::get` return type from `Option<Arc<[u8]>>` to `Option<bytes::Bytes>`.
+- R2: Update `MemoryTier` internal storage from `HashMap<BlobHash, Arc<[u8]>>` to `HashMap<BlobHash, bytes::Bytes>`.
+- R3: Update `DiskTier` to return `Bytes::from(vec)` on read.
+- R4: Preserve all existing semantics (dedup, pin, budget tracking).
+- R5: Add `bytes = "1"` dependency to echo-cas.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: All existing echo-cas tests pass with the new return type.
+- [ ] AC2: `Bytes` from `get` can be sliced without copying (`bytes.slice(..)`).
+- [ ] AC3: No performance regression: microbenchmark for 10,000 put/get cycles within 5% of baseline.
+- [ ] AC4: All downstream crates (warp-wasm, warp-core if applicable) compile after the change.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Return type migration, internal storage migration, downstream compile fixes.
+**Out of Scope:** Streaming reads. Associated type generics. Async.
+
+**Test Plan:**
+
+- **Goldens:** Existing golden tests unaffected (hash values unchanged).
+- **Failures:** N/A (type change, not behavioral).
+- **Edges:** `Bytes` from `get` after the original `put` data is dropped (refcount correctness).
+- **Fuzz/Stress:** 100,000 put/get cycles, verify no memory leaks via peak RSS measurement.
+
+**Blocked By:** none
+**Blocking:** T-5-4-2
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~80 LoC (mostly type signature changes)
+
+---
+
+## T-5-4-2: AsyncBlobStore trait
+
+**User Story:** As a developer, I want an async variant of BlobStore so that disk and network tiers can perform non-blocking I/O.
+
+**Requirements:**
+
+- R1: Define `AsyncBlobStore` trait with `async fn` variants of all `BlobStore` methods.
+- R2: Provide a blanket `AsyncBlobStore` impl for any `T: BlobStore + Send + Sync` that wraps sync calls (useful for MemoryTier).
+- R3: `DiskTier` gets a native `AsyncBlobStore` impl using `tokio::fs` for file I/O.
+- R4: `TieredStore` gets an `AsyncBlobStore` impl that chains async get (memory sync -> disk async).
+
+**Acceptance Criteria:**
+
+- [ ] AC1: `MemoryTier` is usable as `AsyncBlobStore` via the blanket impl.
+- [ ] AC2: `DiskTier::get` does not block the tokio runtime (uses `tokio::fs::read`).
+- [ ] AC3: All sync BlobStore tests have async equivalents that pass.
+- [ ] AC4: `TieredStore` async get properly promotes on disk hit.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** AsyncBlobStore trait definition, blanket impl, DiskTier async impl, TieredStore async impl.
+**Out of Scope:** Async pin/unpin (remains sync for Phase 3). Async GC runner. Stream-based get.
+
+**Test Plan:**
+
+- **Goldens:** N/A (behavioral, not byte-exact).
+- **Failures:** Async get on missing blob returns None. Async put_verified mismatch returns error.
+- **Edges:** Concurrent async gets for the same hash (no deadlock). Async put during async get of same hash.
+- **Fuzz/Stress:** Tokio multi-threaded runtime: 100 tasks doing async put/get concurrently.
+
+**Blocked By:** T-5-4-1, T-5-1-2
+**Blocking:** T-5-4-3
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~200 LoC
+
+---
+
+## T-5-4-3: Enumeration and metadata API
+
+**User Story:** As a developer, I want to list stored blobs and query metadata so that tooling (CLI inspect, GC) can report storage state.
+
+**Requirements:**
+
+- R1: Add `fn list(&self) -> Vec<BlobHash>` to `BlobStore` (returns hashes sorted by `BlobHash` -- determinism invariant from lib.rs docs).
+- R2: Add `fn metadata(&self, hash: &BlobHash) -> Option<BlobMeta>` where `BlobMeta` contains `{ size: u64, pinned: bool }`.
+- R3: Add `fn stats(&self) -> StoreStats` returning `{ blob_count: u64, total_bytes: u64, pinned_count: u64 }`.
+- R4: Implement for MemoryTier, DiskTier, and TieredStore.
+- R5: Add async variants to `AsyncBlobStore`.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: `list()` returns hashes in ascending byte order.
+- [ ] AC2: `metadata` for a pinned blob returns `pinned: true`.
+- [ ] AC3: `stats().blob_count` matches `list().len()`.
+- [ ] AC4: DiskTier `list()` scans the directory tree and returns all stored hashes.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** list, metadata, stats methods on BlobStore + AsyncBlobStore. All tier implementations.
+**Out of Scope:** Pagination. Filtering by size/age. serde serialization of BlobMeta (defer to need).
+
+**Test Plan:**
+
+- **Goldens:** `list()` order for 3 known blobs matches expected sorted hex order.
+- **Failures:** `metadata` for non-existent hash returns `None`. `list()` on empty store returns empty vec.
+- **Edges:** Store with 1 blob. Store with 10,000 blobs (DiskTier directory scan perf).
+- **Fuzz/Stress:** Insert and remove (when removal exists) random blobs; verify `list()` is always sorted and complete.
+
+**Blocked By:** T-5-4-2
+**Blocking:** none
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~200 LoC

@@ -1,0 +1,52 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# Wesley Go Public
+
+> **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Wesley
+
+Wesley-repo work. Prepare the Wesley repository for open-source release: README polish, contributor documentation, CI hardening, and legal review.
+
+## T-2-3-1: README, contributor guide, and CI hardening
+
+**User Story:** As a potential Wesley contributor, I want clear onboarding documentation and a reliable CI pipeline so that I can understand the project and submit quality PRs.
+
+**Requirements:**
+
+- R1: Rewrite `README.md` with project overview, architecture diagram (text-based), quick start, and API reference links.
+- R2: Add `CONTRIBUTING.md` with development setup, coding conventions, PR process, and testing requirements.
+- R3: CI must run lint (ESLint), type-check (tsc --noEmit), unit tests, and snapshot tests on every PR.
+- R4: CI must run on Node.js LTS (latest two versions).
+- R5: Add `LICENSE` file (Apache-2.0) and verify all source files have SPDX headers.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: README renders correctly on GitHub with no broken links.
+- [ ] AC2: A new contributor can run `npm install && npm test` successfully following CONTRIBUTING.md.
+- [ ] AC3: CI passes on both Node.js 20 and Node.js 22.
+- [ ] AC4: All `.ts` files have SPDX license headers.
+- [ ] AC5: `LICENSE` file is present at repo root.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Repo: Wesley. `README.md`, `CONTRIBUTING.md`, `LICENSE`, CI workflow files, SPDX headers.
+**Out of Scope:** API reference generation (automated docs). Marketing website. npm publish automation.
+
+**Test Plan:**
+
+- **Goldens:** N/A (documentation task).
+- **Failures:** Verify CI fails on lint violations and type errors (intentional break test).
+- **Edges:** CI matrix covers both LTS Node.js versions.
+- **Fuzz/Stress:** N/A.
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 6h
+**Expected Complexity:** ~200 LoC (CI config ~80, docs ~120 lines of prose)
+
+---

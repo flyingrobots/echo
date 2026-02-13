@@ -525,15 +525,16 @@ read and write:
 \end{Shaded}
 
 \textbf{Runtime enforcement.} As of Phase~6B, footprint declarations are
-enforced at runtime by \texttt{FootprintGuard}. An inaccurate footprint is
-now a hard failure in debug builds. The guard catches the following
-violations:
+enforced at runtime by \texttt{FootprintGuard} when
+\texttt{footprint\_enforce\_release} is enabled or in debug builds; the
+\texttt{unsafe\_graph} escape hatch disables these checks. The guard catches
+the following violations:
 
 \begin{itemize}
 \item Undeclared reads (node, edge, or attachment access not listed in the footprint)
 \item Undeclared writes (ops emitted for resources not in \texttt{n\_write} / \texttt{e\_write} / \texttt{a\_write})
 \item Cross-warp emissions (ops targeting a \texttt{WarpId} other than the executing warp)
-\item Unauthorized instance ops (lifecycle operations on node instances not covered by the footprint)
+\item Instance ops blocked by \texttt{ExecItemKind} (not footprint coverage)
 \item Adjacency violations (edge ops whose \texttt{from} node is absent from \texttt{n\_write})
 \end{itemize}
 
@@ -869,19 +870,34 @@ panic.
 \subsubsection{Write Enforcement}\label{write-enforcement}
 
 Write enforcement uses a post-hoc \texttt{check\_op()} strategy. The
-executor runs inside a \texttt{catch\_unwind} boundary; after it completes,
-every op emitted into the \texttt{TickDelta} is validated against the
-footprint's write sets. This catches undeclared writes, cross-warp
-emissions, unauthorized instance ops, and adjacency violations (edge ops
-whose \texttt{from} node is absent from \texttt{n\_write}).
+executor runs inside a \texttt{catch\_unwind} boundary, and validation
+runs on every op emitted into the \texttt{TickDelta} regardless of
+whether the executor completes normally or panics. This catches undeclared
+writes, cross-warp emissions, unauthorized instance ops, and adjacency
+violations (edge ops whose \texttt{from} node is absent from
+\texttt{n\_write}).
 
 \subsubsection{Scope and Lifecycle}\label{scope-and-lifecycle}
 
 The guard is instantiated \emph{per-\texttt{ExecItem}} within a
 \texttt{WorkUnit}. Each rule invocation receives its own guard, scoped to
-that item's computed footprint. Violations are represented as typed
-\texttt{FootprintViolation} panic payloads, which carry structured
-information about the offending access.
+that item's computed footprint. The \texttt{check\_op()} function validates
+\texttt{TickDelta} emissions against the footprint. Enforcement yields two
+payload variants:
+\begin{itemize}
+\item \texttt{FootprintViolation}: emitted when \texttt{check\_op} detects an
+  illegal op (undeclared write, cross-warp emission, etc.)
+\item \texttt{FootprintViolationWithPanic}: emitted when the executor itself
+  panics and the guard wraps that panic together with any detected violation
+\end{itemize}
+
+\textbf{Tick Fallout Semantics:} When enforcement fails, the wrapped panic
+causes the \texttt{TickDelta} to become a \texttt{PoisonedDelta}, preventing
+merge. The current \texttt{ExecItem}/tick is aborted. At merge time, if a
+poisoned delta is encountered, a \texttt{MergeError::PoisonedDelta} is raised,
+triggering worker/tick recovery. The distinction is: abort of the current
+\texttt{ExecItem} happens immediately at detection; merge-time errors occur
+when poisoned deltas reach the commit path.
 
 \subsubsection{Configuration}\label{guard-configuration}
 

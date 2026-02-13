@@ -21,9 +21,10 @@
 
 use blake3::Hasher;
 
+use crate::attachment::AttachmentKey;
 use crate::footprint::{AttachmentSet, EdgeSet, Footprint, NodeSet, PortSet};
 use crate::graph_view::GraphView;
-use crate::ident::{make_node_id, make_type_id, EdgeId, Hash, NodeId};
+use crate::ident::{make_node_id, make_type_id, EdgeId, EdgeKey, Hash, NodeId};
 use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
 use crate::tick_patch::WarpOp;
 use crate::TickDelta;
@@ -132,6 +133,7 @@ fn inbox_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let mut n_write = NodeSet::default();
     let mut e_read = EdgeSet::default();
     let mut e_write = EdgeSet::default();
+    let mut a_write = AttachmentSet::default();
     let pending_ty = make_type_id(PENDING_EDGE_TYPE);
 
     n_read.insert_with_warp(warp_id, *scope);
@@ -143,6 +145,11 @@ fn inbox_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
         // Record edge read for conflict detection before writing
         e_read.insert_with_warp(warp_id, e.id);
         e_write.insert_with_warp(warp_id, e.id);
+        // DeleteEdge also removes edge attachment (mini-cascade)
+        a_write.insert(AttachmentKey::edge_beta(EdgeKey {
+            warp_id,
+            local_id: e.id,
+        }));
     }
 
     // DeleteEdge mutates adjacency on `from` — must declare node write
@@ -156,7 +163,7 @@ fn inbox_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
         e_read,
         e_write,
         a_read: AttachmentSet::default(),
-        a_write: AttachmentSet::default(),
+        a_write,
         b_in: PortSet::default(),
         b_out: PortSet::default(),
         factor_mask: 0,
@@ -188,6 +195,7 @@ fn ack_pending_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     let mut n_write = NodeSet::default();
     let mut e_read = EdgeSet::default();
     let mut e_write = EdgeSet::default();
+    let mut a_write = AttachmentSet::default();
 
     let inbox_id = make_node_id(INBOX_PATH);
     n_read.insert_with_warp(warp_id, inbox_id);
@@ -197,6 +205,11 @@ fn ack_pending_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
     // Record edge read for conflict detection before writing
     e_read.insert_with_warp(warp_id, edge_id);
     e_write.insert_with_warp(warp_id, edge_id);
+    // DeleteEdge also removes edge attachment (mini-cascade)
+    a_write.insert(AttachmentKey::edge_beta(EdgeKey {
+        warp_id,
+        local_id: edge_id,
+    }));
 
     // DeleteEdge mutates adjacency on `from` (inbox) — must declare node write
     n_write.insert_with_warp(warp_id, inbox_id);
@@ -207,7 +220,7 @@ fn ack_pending_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
         e_read,
         e_write,
         a_read: AttachmentSet::default(),
-        a_write: AttachmentSet::default(),
+        a_write,
         b_in: PortSet::default(),
         b_out: PortSet::default(),
         factor_mask: 0,

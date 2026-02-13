@@ -68,6 +68,20 @@ use crate::record::{EdgeRecord, NodeRecord};
 /// This type is the read-only capability that enforces the BOAW contract:
 /// executors observe through `GraphView`, mutate through `TickDelta`.
 ///
+/// # Adjacency Invariant (Critical)
+///
+/// **DO NOT** add `edges_to()` or any incoming-edge accessor to this type.
+///
+/// The footprint enforcement model (`FootprintGuard`) relies on the fact that
+/// rules can only observe outgoing edges via `edges_from()`. Reverse adjacency
+/// (`to`) is maintained internally by `GraphStore` but deliberately NOT exposed
+/// here. If `edges_to()` were added, the adjacency invariant in
+/// `op_write_targets()` would need to change: edge mutations would require
+/// declaring BOTH `from` AND `to` nodes in `n_write`, significantly complicating
+/// footprint declarations.
+///
+/// See `footprint_guard.rs::op_write_targets()` doc comment for details.
+///
 /// # Footprint Enforcement (cfg-gated)
 ///
 /// When `debug_assertions` or `footprint_enforce_release` is enabled (and
@@ -328,5 +342,31 @@ mod tests {
     fn graph_view_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<GraphView<'_>>();
+    }
+
+    /// Invariant: `GraphView` exposes `edges_from()` but NOT `edges_to()`.
+    ///
+    /// This is enforced by the type system (the method simply doesn't exist),
+    /// but this test documents the invariant. If you're seeing this test and
+    /// considering adding `edges_to()`, **stop and read the struct doc comment**.
+    ///
+    /// The footprint enforcement model relies on rules only observing outgoing
+    /// edges. Adding `edges_to()` would break the adjacency invariant in
+    /// `FootprintGuard::op_write_targets()`.
+    #[test]
+    fn graph_view_no_edges_to_method() {
+        // Compile-time invariant: GraphView has edges_from but not edges_to.
+        // This test exists to document the invariant; the method's absence
+        // is enforced by the type system.
+        let store = GraphStore::default();
+        let view = GraphView::new(&store);
+        let node_id = make_node_id("test");
+
+        // edges_from exists and returns an iterator
+        let _ = view.edges_from(&node_id);
+
+        // If you add edges_to() to GraphView, this comment is a reminder:
+        // you MUST update op_write_targets() to require `to` nodes in n_write
+        // for edge mutations, and update all existing footprint declarations.
     }
 }

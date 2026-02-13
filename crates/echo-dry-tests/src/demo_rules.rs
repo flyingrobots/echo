@@ -9,7 +9,8 @@ use warp_core::{
     encode_motion_payload, encode_motion_payload_q32_32, make_node_id, make_type_id,
     motion_payload_type_id, pack_port_key, AtomPayload, AttachmentKey, AttachmentSet,
     AttachmentValue, ConflictPolicy, EdgeSet, Engine, Footprint, GraphStore, GraphView, Hash,
-    NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, WarpOp,
+    NodeId, NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, WarpId,
+    WarpOp,
 };
 
 // =============================================================================
@@ -127,27 +128,50 @@ fn motion_rule_id() -> Hash {
     hasher.finalize().into()
 }
 
-fn compute_motion_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+/// Return type for `base_scope_footprint` with explicit field names
+/// to avoid positional tuple mixups.
+struct BaseScopeFootprint {
+    warp_id: WarpId,
+    n_read: NodeSet,
+    a_read: AttachmentSet,
+    a_write: AttachmentSet,
+    attachment_key: Option<AttachmentKey>,
+}
+
+fn base_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> BaseScopeFootprint {
     let warp_id = view.warp_id();
     let mut n_read = NodeSet::default();
     let mut a_read = AttachmentSet::default();
     let mut a_write = AttachmentSet::default();
+    n_read.insert_with_warp(warp_id, *scope);
+    let mut attachment_key = None;
     if view.node(scope).is_some() {
-        n_read.insert_with_warp(warp_id, *scope);
         let key = AttachmentKey::node_alpha(NodeKey {
             warp_id,
             local_id: *scope,
         });
         a_read.insert(key);
         a_write.insert(key);
+        attachment_key = Some(key);
     }
-    Footprint {
+    BaseScopeFootprint {
+        warp_id,
         n_read,
+        a_read,
+        a_write,
+        attachment_key,
+    }
+}
+
+fn compute_motion_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
+    let base = base_scope_footprint(view, scope);
+    Footprint {
+        n_read: base.n_read,
         n_write: NodeSet::default(),
         e_read: EdgeSet::default(),
         e_write: EdgeSet::default(),
-        a_read,
-        a_write,
+        a_read: base.a_read,
+        a_write: base.a_write,
         b_in: PortSet::default(),
         b_out: PortSet::default(),
         factor_mask: 0,
@@ -190,7 +214,7 @@ pub fn build_motion_demo_engine() -> Engine {
 // Port Rule
 // =============================================================================
 
-/// Public identifier for the port demo rule.
+/// Rule name constant for the demo port reservation rule.
 pub const PORT_RULE_NAME: &str = "demo/port_nop";
 
 fn port_matcher(_: GraphView<'_>, _: &NodeId) -> bool {
@@ -249,30 +273,20 @@ fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
 }
 
 fn compute_port_footprint(view: GraphView<'_>, scope: &NodeId) -> Footprint {
-    let warp_id = view.warp_id();
-    let mut n_read = NodeSet::default();
+    let base = base_scope_footprint(view, scope);
     let mut n_write = NodeSet::default();
-    let mut a_read = AttachmentSet::default();
-    let mut a_write = AttachmentSet::default();
     let mut b_in = PortSet::default();
-    if view.node(scope).is_some() {
-        n_read.insert_with_warp(warp_id, *scope);
-        n_write.insert_with_warp(warp_id, *scope);
-        let key = AttachmentKey::node_alpha(NodeKey {
-            warp_id,
-            local_id: *scope,
-        });
-        a_read.insert(key);
-        a_write.insert(key);
-        b_in.insert(warp_id, pack_port_key(scope, 0, true));
+    if base.attachment_key.is_some() {
+        n_write.insert_with_warp(base.warp_id, *scope);
+        b_in.insert(base.warp_id, pack_port_key(scope, 0, true));
     }
     Footprint {
-        n_read,
+        n_read: base.n_read,
         n_write,
         e_read: EdgeSet::default(),
         e_write: EdgeSet::default(),
-        a_read,
-        a_write,
+        a_read: base.a_read,
+        a_write: base.a_write,
         b_in,
         b_out: PortSet::default(),
         factor_mask: 0,
@@ -343,5 +357,95 @@ mod tests {
         port_executor(view, &node_id, &mut delta);
 
         assert!(delta.is_empty(), "no-op update should not emit a delta op");
+    }
+
+    #[test]
+    fn compute_port_footprint_always_reads_scope_node() {
+        let store = GraphStore::default();
+        let view = GraphView::new(&store);
+        let scope = make_node_id("port/missing");
+        let footprint = compute_port_footprint(view, &scope);
+        let expected = NodeKey {
+            warp_id: view.warp_id(),
+            local_id: scope,
+        };
+
+        assert!(
+            footprint.n_read.iter().any(|key| *key == expected),
+            "scope node read must be declared even when node is missing"
+        );
+        assert!(
+            footprint.n_write.is_empty(),
+            "missing node should not be written"
+        );
+        assert!(
+            footprint.e_read.is_empty(),
+            "missing node should not declare edge read"
+        );
+        assert!(
+            footprint.e_write.is_empty(),
+            "missing node should not declare edge write"
+        );
+        assert!(
+            footprint.a_read.is_empty(),
+            "missing node should not declare attachment read"
+        );
+        assert!(
+            footprint.a_write.is_empty(),
+            "missing node should not declare attachment write"
+        );
+        assert!(
+            footprint.b_in.is_empty(),
+            "missing node should not declare boundary input"
+        );
+        assert!(
+            footprint.b_out.is_empty(),
+            "missing node should not declare boundary output"
+        );
+    }
+
+    #[test]
+    fn compute_motion_footprint_always_reads_scope_node() {
+        let store = GraphStore::default();
+        let view = GraphView::new(&store);
+        let scope = make_node_id("motion/missing");
+        let footprint = compute_motion_footprint(view, &scope);
+        let expected = NodeKey {
+            warp_id: view.warp_id(),
+            local_id: scope,
+        };
+
+        assert!(
+            footprint.n_read.iter().any(|key| *key == expected),
+            "scope node read must be declared even when node is missing"
+        );
+        assert!(
+            footprint.n_write.is_empty(),
+            "missing node should not be written"
+        );
+        assert!(
+            footprint.e_read.is_empty(),
+            "missing node should not declare edge read"
+        );
+        assert!(
+            footprint.e_write.is_empty(),
+            "missing node should not declare edge write"
+        );
+        assert!(
+            footprint.a_read.is_empty(),
+            "missing node should not declare attachment read"
+        );
+        assert!(
+            footprint.a_write.is_empty(),
+            "missing node should not declare attachment write"
+        );
+        assert!(
+            footprint.b_in.is_empty(),
+            "missing node should not declare boundary input"
+        );
+        assert!(
+            footprint.b_out.is_empty(),
+            "missing node should not declare boundary output"
+        );
     }
 }

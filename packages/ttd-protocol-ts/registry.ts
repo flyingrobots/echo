@@ -7,21 +7,8 @@
  * DO NOT EDIT
  */
 
-import { SchemaId } from './primitives';
-
 /** SHA-256 hash of the source schema */
-export const SCHEMA_SHA256 = 'd55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871';
-
-/**
- * @deprecated Use SCHEMA_SHA256 instead. Will be removed in a future version.
- */
-export const SCHEMA_HASH = SCHEMA_SHA256;
-
-/**
- * Type-safe schema identifier for this protocol version.
- * Use this for runtime schema verification instead of raw string comparison.
- */
-export const SCHEMA_ID = SchemaId.fromHex(SCHEMA_SHA256);
+export const SCHEMA_HASH = 'd55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871';
 
 // Type ID constants
 export const CURSOR_MOVED_TYPE_ID = 1;

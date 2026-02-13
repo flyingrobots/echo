@@ -44,6 +44,12 @@
     clippy::use_self
 )]
 
+#[cfg(all(feature = "footprint_enforce_release", feature = "unsafe_graph"))]
+compile_error!(
+    "features `footprint_enforce_release` and `unsafe_graph` are mutually exclusive: \
+     unsafe_graph disables enforcement"
+);
+
 /// Deterministic fixed-point helpers (Q32.32).
 pub mod fixed;
 /// Deterministic math subsystem (Vec3, Mat4, Quat, PRNG).
@@ -75,12 +81,53 @@ mod attachment;
 pub mod boaw;
 mod cmd;
 mod constants;
+/// Domain separation prefixes for hashing.
+pub mod domain;
 mod engine_impl;
 mod footprint;
 /// Footprint enforcement guard for BOAW Phase 6B.
 ///
+/// # Intent
+///
 /// Validates that execute functions stay within their declared footprints.
-/// Active in debug builds; opt-in for release via `footprint_enforce_release` feature.
+/// Every read and write is checked against the `Footprint` declared by the rule.
+///
+/// # Gating
+///
+/// - **Debug builds**: enforcement enabled by default (`debug_assertions`)
+/// - **Release builds**: enforcement disabled unless `footprint_enforce_release` feature is enabled
+/// - **`unsafe_graph` feature**: mutually exclusive with `footprint_enforce_release` at
+///   compile time (enabling both is a compile error). Use `unsafe_graph` as an escape
+///   hatch for benchmarks/fuzzing where safety checks are deliberately bypassed
+///
+/// # Invariants
+///
+/// - Each `ExecItem` is paired with a `FootprintGuard` aligned by index in the `WorkUnit`
+/// - Reads via `GraphView::new_guarded()` are intercepted and validated inline
+/// - Writes are validated post-hoc via `check_op()` after the executor completes or unwinds
+///   (panics); validation runs even when the executor panics to catch violations on emitted ops
+///
+/// # Violation Surfacing
+///
+/// Violations produce panic payloads:
+/// - [`FootprintViolation`]: emitted when an illegal op is detected (undeclared read/write,
+///   cross-warp emission, unauthorized instance op)
+/// - [`FootprintViolationWithPanic`]: wraps both a `FootprintViolation` and an executor panic
+///   when both occur
+///
+/// Downstream effects: a violation causes the `TickDelta` to become a `PoisonedDelta`,
+/// preventing merge. At the engine layer, poisoned deltas trigger `MergeError::PoisonedDelta`.
+///
+/// # Recommended Usage
+///
+/// - **Tests (debug)**: enforcement is active by default (`debug_assertions`); tests
+///   should exercise both valid and intentionally-violating footprints
+/// - **Tests (release)**: enforcement is disabled unless `footprint_enforce_release`
+///   feature is enabled (e.g., `cargo test --release --features footprint_enforce_release`)
+/// - **Production**: leave enforcement off (default) for maximum throughput, or enable
+///   `footprint_enforce_release` during validation/staging
+/// - **Opting out**: `unsafe_graph` feature disables enforcement unconditionally, even
+///   in debug builds; use for benchmarks or fuzzing where safety checks are bypassed
 pub mod footprint_guard;
 mod graph;
 mod graph_view;
@@ -116,10 +163,18 @@ pub use attachment::{
 };
 pub use boaw::{
     execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
-    NUM_SHARDS,
+    PoisonedDelta, NUM_SHARDS,
 };
+/// Delta merging functions, only available with `delta_validate` feature.
+///
+/// These functions are feature-gated because they are primarily used for testing
+/// and validation. `merge_deltas` accepts `Vec<Result<TickDelta, PoisonedDelta>>`
+/// and performs poisoned-delta rejection; `merge_deltas_ok` is a convenience wrapper
+/// that maps `Vec<TickDelta>` into `Ok` variants and delegates to `merge_deltas`.
+/// Enable `delta_validate` to access them.
 #[cfg(any(test, feature = "delta_validate"))]
-pub use boaw::{merge_deltas, MergeError};
+#[cfg_attr(docsrs, doc(cfg(feature = "delta_validate")))]
+pub use boaw::{merge_deltas, merge_deltas_ok, MergeError};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
@@ -128,8 +183,8 @@ pub use engine_impl::{
 pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
 };
-pub use footprint_guard::{FootprintViolation, ViolationKind};
-pub use graph::GraphStore;
+pub use footprint_guard::{FootprintViolation, FootprintViolationWithPanic, ViolationKind};
+pub use graph::{DeleteNodeError, GraphStore};
 pub use graph_view::GraphView;
 pub use ident::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeId, EdgeKey, Hash, NodeId, NodeKey,

@@ -23,7 +23,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::collections::BTreeMap;
 use std::time::Duration;
-use warp_core::boaw::{build_work_units, execute_work_queue};
+use warp_core::boaw::{build_work_units, execute_work_queue, WorkerResult};
 use warp_core::{
     execute_parallel, execute_serial, make_node_id, make_type_id, make_warp_id, AtomPayload,
     AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord,
@@ -144,9 +144,20 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                     let units = build_work_units(by_warp);
                     let stores: BTreeMap<WarpId, GraphStore> =
                         [(warp_id, store)].into_iter().collect();
-                    let deltas = execute_work_queue(&units, 4, |wid| stores.get(wid))
-                        .expect("work queue should succeed");
-                    criterion::black_box(deltas)
+                    let results = execute_work_queue(&units, 4, |wid| stores.get(wid));
+                    // Bench assumes all stores exist; panic on MissingStore/Poisoned for debugging
+                    for r in &results {
+                        match r {
+                            WorkerResult::MissingStore(wid) => {
+                                panic!("bench: missing store for warp {wid:?}");
+                            }
+                            WorkerResult::Poisoned(pd) => {
+                                panic!("bench: poisoned worker delta {pd:?}");
+                            }
+                            WorkerResult::Success(_) => {}
+                        }
+                    }
+                    criterion::black_box(results)
                 },
                 BatchSize::SmallInput,
             )
@@ -223,10 +234,21 @@ fn bench_work_queue(c: &mut Criterion) {
                         // Cap workers at 4 but never more than the number of
                         // work units; max(1) prevents zero-division on empty input.
                         let workers = 4.min(units.len().max(1));
-                        let deltas =
-                            execute_work_queue(&units, workers, |warp_id| stores.get(warp_id))
-                                .expect("bench: all stores exist");
-                        criterion::black_box(deltas)
+                        let results =
+                            execute_work_queue(&units, workers, |warp_id| stores.get(warp_id));
+                        // Bench assumes all stores exist; panic on MissingStore/Poisoned for debugging
+                        for r in &results {
+                            match r {
+                                WorkerResult::MissingStore(wid) => {
+                                    panic!("bench: missing store for warp {wid:?}");
+                                }
+                                WorkerResult::Poisoned(poisoned) => {
+                                    panic!("bench: poisoned worker {poisoned:?}");
+                                }
+                                WorkerResult::Success(_) => {}
+                            }
+                        }
+                        criterion::black_box(results)
                     },
                     BatchSize::SmallInput,
                 )

@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 <!-- markdownlint-disable MD007 MD029 MD033 MD046 -->
+
 Perfect! Now I have a comprehensive understanding. Let me create a summary document for you.
 
        Summary: warp-core Module Organization & Architecture
@@ -67,7 +68,8 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
        Key API Operations:
        - insert_node(id, record) - Add/replace node
        - insert_edge(from, edge) - Add/replace directed edge with upsert semantics
-       - delete_node_cascade(node) - Remove node and all incident edges
+       - delete_node_isolated(node) - Remove isolated node (rejects if edges exist)
+       - delete_node_cascade(node) - [INTERNAL] Remove node and all incident edges
        - delete_edge_exact(from, edge_id) - Remove specific edge
        - canonical_state_hash() - Deterministic BLAKE3 digest over full graph (V2 format)
        - Iteration: iter_nodes(), iter_edges(), iter_node_attachments(), iter_edge_attachments()
@@ -478,231 +480,225 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
        scheduler), storage (GraphStore), and output (materialization). The key innovation is the order-independent
        materialization system backed by deterministic ordering of emissions.
 
-  ⎿  Done (23 tool uses · 85.5k tokens · 1m 21s)
+⎿  Done (23 tool uses · 85.5k tokens · 1m 21s)
 
 ⏺ Explore(Explore WSC implementation)
-  ⎿  Prompt:
-       Explore the WSC (WARP Snapshot Container) implementation in the codebase. Look for:
-       1. WscFile, WarpView, or similar snapshot-related code
-       2. How snapshots are read/written
-       3. Any existing zero-copy or mmap infrastructure
-       4. Segment or blob arena handling
+⎿  Prompt:
+Explore the WSC (WARP Snapshot Container) implementation in the codebase. Look for: 1. WscFile, WarpView, or similar snapshot-related code 2. How snapshots are read/written 3. Any existing zero-copy or mmap infrastructure 4. Segment or blob arena handling
 
        Search in crates/warp-core and any related locations. This is research only - do not modify any code.
-  ⎿  ❯ Explore the WSC (WARP Snapshot Container) implementation in the codebase. Look for:
-       1. WscFile, WarpView, or similar snapshot-related code
-       2. How snapshots are read/written
-       3. Any existing zero-copy or mmap infrastructure
-       4. Segment or blob arena handling
+
+⎿  ❯ Explore the WSC (WARP Snapshot Container) implementation in the codebase. Look for: 1. WscFile, WarpView, or similar snapshot-related code 2. How snapshots are read/written 3. Any existing zero-copy or mmap infrastructure 4. Segment or blob arena handling
 
        Search in crates/warp-core and any related locations. This is research only - do not modify any code.
-  ⎿  Search(pattern: "**/warp-core/**/*.rs")
 
-  ⎿  Search(pattern: "WscFile|WarpView|snapshot", type: "rs")
+⎿  Search(pattern: "**/warp-core/**/\*.rs")
 
-  ⎿  Search(pattern: "zero.copy|mmap|MemoryMap", type: "rs")
+⎿  Search(pattern: "WscFile|WarpView|snapshot", type: "rs")
 
-  ⎿  Search(pattern: "**/warp-core/Cargo.toml")
+⎿  Search(pattern: "zero.copy|mmap|MemoryMap", type: "rs")
 
-  ⎿    ⎿  Found 0 files
+⎿  Search(pattern: "\*\*/warp-core/Cargo.toml")
 
-  ⎿    ⎿  Found 0 files
+⎿    ⎿  Found 0 files
 
-  ⎿    ⎿  Found 1 file
-          /Users/james/git/echo/crates/warp-core/Cargo.toml
-  ⎿    ⎿  Found 81 files
-          /Users/james/git/echo/crates/warp-core/build.rs
-          /Users/james/git/echo/crates/warp-core/src/footprint.rs
-          /Users/james/git/echo/crates/warp-core/src/rule.rs
-          /Users/james/git/echo/crates/warp-core/src/sandbox.rs
-          /Users/james/git/echo/crates/warp-core/tests/atom_payload_digest_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/mat4_mul_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_additional_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_convenience_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/nan_exhaustive_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/snapshot_reachability_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/vec3_ops_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_rotation_tests.rs
-          /Users/james/git/echo/crates/warp-core/src/math/mat4.rs
-          /Users/james/git/echo/crates/warp-core/src/math/trig_lut.rs
-          /Users/james/git/echo/crates/warp-core/src/attachment.rs
-          /Users/james/git/echo/crates/warp-core/src/cmd.rs
-          /Users/james/git/echo/crates/warp-core/src/record.rs
-          /Users/james/git/echo/crates/warp-core/src/serializable.rs
-          /Users/james/git/echo/crates/warp-core/src/snapshot.rs
-          /Users/james/git/echo/crates/warp-core/src/tx.rs
-          /Users/james/git/echo/crates/warp-core/src/warp_state.rs
-          /Users/james/git/echo/crates/warp-core/tests/determinism_audit.rs
-          /Users/james/git/echo/crates/warp-core/tests/ledger_tests.rs
-          /Users/james/git/echo/crates/warp-core/src/bin/gen_sin_qtr_lut.rs
-          /Users/james/git/echo/crates/warp-core/src/constants.rs
-          /Users/james/git/echo/crates/warp-core/src/inbox.rs
-          /Users/james/git/echo/crates/warp-core/src/math/fixed_q32_32.rs
-          /Users/james/git/echo/crates/warp-core/src/math/mod.rs
-          /Users/james/git/echo/crates/warp-core/src/math/prng.rs
-          /Users/james/git/echo/crates/warp-core/src/math/quat.rs
-          /Users/james/git/echo/crates/warp-core/src/math/scalar.rs
-          /Users/james/git/echo/crates/warp-core/src/math/trig.rs
-          /Users/james/git/echo/crates/warp-core/src/math/vec3.rs
-          /Users/james/git/echo/crates/warp-core/src/payload.rs
-          /Users/james/git/echo/crates/warp-core/src/receipt.rs
-          /Users/james/git/echo/crates/warp-core/src/scheduler.rs
-          /Users/james/git/echo/crates/warp-core/src/telemetry.rs
-          /Users/james/git/echo/crates/warp-core/src/tick_patch.rs
-          /Users/james/git/echo/crates/warp-core/tests/determinism_policy_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/deterministic_sin_cos_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/dfix64_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/dispatch_inbox.rs
-          /Users/james/git/echo/crates/warp-core/tests/dpo_concurrency_litmus.rs
-          /Users/james/git/echo/crates/warp-core/tests/duplicate_rule_registration_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/engine_motion_negative_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/engine_motion_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/inbox.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_scalar_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_validation.rs
-          /Users/james/git/echo/crates/warp-core/tests/permutation_commute_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/property_commute_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/proptest_seed_pinning.rs
-          /Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/tick_receipt_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/tx_lifecycle_tests.rs
-          /Users/james/git/echo/crates/warp-core/src/fixed.rs
-          /Users/james/git/echo/crates/warp-core/src/graph.rs
-          /Users/james/git/echo/crates/warp-core/src/ident.rs
-          /Users/james/git/echo/crates/warp-core/src/wsc/build.rs
-          /Users/james/git/echo/crates/warp-core/src/wsc/mod.rs
-          /Users/james/git/echo/crates/warp-core/src/wsc/read.rs
-          /Users/james/git/echo/crates/warp-core/src/wsc/types.rs
-          /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs
-          /Users/james/git/echo/crates/warp-core/src/wsc/view.rs
-          /Users/james/git/echo/crates/warp-core/src/wsc/write.rs
-          /Users/james/git/echo/crates/warp-core/src/lib.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/emit_key.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/port.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/emission_port.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/channel.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/reduce_op.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/scoped_emitter.rs
-          /Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/mod.rs
-          /Users/james/git/echo/crates/warp-core/src/engine_impl.rs
-                    /Users/james/git/echo/crates/warp-core/src/materialization/bus.rs
-          /Users/james/git/echo/crates/warp-core/tests/common/mod.rs
-          /Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs
-          /Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/frame.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc)
+⎿    ⎿  Found 0 files
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/mod.rs)
+⎿    ⎿  Found 1 file
+/Users/james/git/echo/crates/warp-core/Cargo.toml
+⎿    ⎿  Found 81 files
+/Users/james/git/echo/crates/warp-core/build.rs
+/Users/james/git/echo/crates/warp-core/src/footprint.rs
+/Users/james/git/echo/crates/warp-core/src/rule.rs
+/Users/james/git/echo/crates/warp-core/src/sandbox.rs
+/Users/james/git/echo/crates/warp-core/tests/atom_payload_digest_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/mat4_mul_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_additional_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_convenience_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/nan_exhaustive_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/snapshot_reachability_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/vec3_ops_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_rotation_tests.rs
+/Users/james/git/echo/crates/warp-core/src/math/mat4.rs
+/Users/james/git/echo/crates/warp-core/src/math/trig_lut.rs
+/Users/james/git/echo/crates/warp-core/src/attachment.rs
+/Users/james/git/echo/crates/warp-core/src/cmd.rs
+/Users/james/git/echo/crates/warp-core/src/record.rs
+/Users/james/git/echo/crates/warp-core/src/serializable.rs
+/Users/james/git/echo/crates/warp-core/src/snapshot.rs
+/Users/james/git/echo/crates/warp-core/src/tx.rs
+/Users/james/git/echo/crates/warp-core/src/warp_state.rs
+/Users/james/git/echo/crates/warp-core/tests/determinism_audit.rs
+/Users/james/git/echo/crates/warp-core/tests/ledger_tests.rs
+/Users/james/git/echo/crates/warp-core/src/bin/gen_sin_qtr_lut.rs
+/Users/james/git/echo/crates/warp-core/src/constants.rs
+/Users/james/git/echo/crates/warp-core/src/inbox.rs
+/Users/james/git/echo/crates/warp-core/src/math/fixed_q32_32.rs
+/Users/james/git/echo/crates/warp-core/src/math/mod.rs
+/Users/james/git/echo/crates/warp-core/src/math/prng.rs
+/Users/james/git/echo/crates/warp-core/src/math/quat.rs
+/Users/james/git/echo/crates/warp-core/src/math/scalar.rs
+/Users/james/git/echo/crates/warp-core/src/math/trig.rs
+/Users/james/git/echo/crates/warp-core/src/math/vec3.rs
+/Users/james/git/echo/crates/warp-core/src/payload.rs
+/Users/james/git/echo/crates/warp-core/src/receipt.rs
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs
+/Users/james/git/echo/crates/warp-core/src/telemetry.rs
+/Users/james/git/echo/crates/warp-core/src/tick_patch.rs
+/Users/james/git/echo/crates/warp-core/tests/determinism_policy_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/deterministic_sin_cos_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/dfix64_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/dispatch_inbox.rs
+/Users/james/git/echo/crates/warp-core/tests/dpo_concurrency_litmus.rs
+/Users/james/git/echo/crates/warp-core/tests/duplicate_rule_registration_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/engine_motion_negative_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/engine_motion_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/inbox.rs
+/Users/james/git/echo/crates/warp-core/tests/math_scalar_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_validation.rs
+/Users/james/git/echo/crates/warp-core/tests/permutation_commute_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/property_commute_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/proptest_seed_pinning.rs
+/Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/tick_receipt_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/tx_lifecycle_tests.rs
+/Users/james/git/echo/crates/warp-core/src/fixed.rs
+/Users/james/git/echo/crates/warp-core/src/graph.rs
+/Users/james/git/echo/crates/warp-core/src/ident.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/build.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/mod.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/read.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/types.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/view.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/write.rs
+/Users/james/git/echo/crates/warp-core/src/lib.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/emit_key.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/port.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/emission_port.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/channel.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/reduce_op.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/scoped_emitter.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/mod.rs
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/bus.rs
+/Users/james/git/echo/crates/warp-core/tests/common/mod.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/frame.rs
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/types.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/mod.rs)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/view.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/types.rs)
 
-  ⎿  Error: EISDIR: illegal operation on a directory, read
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/view.rs)
 
-  ⎿  Read 63 lines
+⎿  Error: EISDIR: illegal operation on a directory, read
 
-  ⎿  Read 301 lines
+⎿  Read 63 lines
 
-  ⎿  Read 499 lines
+⎿  Read 301 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/read.rs)
+⎿  Read 499 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/write.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/read.rs)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/build.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/write.rs)
 
-  ⎿  Read 312 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/build.rs)
 
-  ⎿  Read 302 lines
+⎿  Read 312 lines
 
-  ⎿  Read 581 lines
+⎿  Read 302 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs)
+⎿  Read 581 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/snapshot_reachability_tests.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/Cargo.toml)
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/snapshot_reachability_tests.rs)
 
-  ⎿  Read 656 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/Cargo.toml)
 
-  ⎿  Read 72 lines
+⎿  Read 656 lines
 
-  ⎿  Read 53 lines
+⎿  Read 72 lines
 
-  ⎿  Search(pattern: "blob|arena|segment", path: "/Users/james/git/echo/crates/warp-core/src", type: "rs")
+⎿  Read 53 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/attachment.rs · lines 1-200)
+⎿  Search(pattern: "blob|arena|segment", path: "/Users/james/git/echo/crates/warp-core/src", type: "rs")
 
-  ⎿  Search(pattern: "mmap|MemoryMap|memory.map", path: "/Users/james/git/echo/crates", type: "rs")
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/attachment.rs · lines 1-200)
 
-  ⎿  Read 200 lines
+⎿  Search(pattern: "mmap|MemoryMap|memory.map", path: "/Users/james/git/echo/crates", type: "rs")
 
-  ⎿    ⎿  Found 0 files
+⎿  Read 200 lines
 
-  ⎿    ⎿  Found 0 files
+⎿    ⎿  Found 0 files
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/graph.rs · lines 1-250)
+⎿    ⎿  Found 0 files
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/snapshot.rs · lines 1-150)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/graph.rs · lines 1-250)
 
-  ⎿  Bash(grep -r "WscFile\|WarpView" /Users/james/git/echo/crates/warp-core --include="*.rs" | head -20)
-     Waiting…
-  ⎿  Read 250 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/snapshot.rs · lines 1-150)
 
-  ⎿  Read 150 lines
+⎿  Bash(grep -r "WscFile\|WarpView" /Users/james/git/echo/crates/warp-core --include="\*.rs" | head -20)
+Waiting…
+⎿  Read 250 lines
 
-  ⎿  /Users/james/git/echo/crates/warp-core/src/wsc/mod.rs://! use warp_core::wsc::{WscFile, validate_wsc};
-     /Users/james/git/echo/crates/warp-core/src/wsc/mod.rs://! let file = WscFile::open("state.wsc")?;
-     /Users/james/git/echo/crates/warp-core/src/wsc/mod.rs:pub use view::{AttachmentRef, WarpView, WscFile};
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:use super::view::WscFile;
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:pub fn validate_wsc(file: &WscFile) -> Result<(), ReadError>
-      {
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:fn validate_warp_view(view: &super::view::WarpView<'_>) ->
-     Result<(), ReadError> {
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:        let file = WscFile::from_bytes(bytes).unwrap();
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/frame.rs · lines 1-300)
+⎿  Read 150 lines
 
-  ⎿  Bash(head -100 /Users/james/git/echo/crates/warp-core/src/materialization/bus.rs)
-     Waiting…
-  ⎿  Read 255 lines
+⎿  /Users/james/git/echo/crates/warp-core/src/wsc/mod.rs://! use warp*core::wsc::{WscFile, validate_wsc};
+/Users/james/git/echo/crates/warp-core/src/wsc/mod.rs://! let file = WscFile::open("state.wsc")?;
+/Users/james/git/echo/crates/warp-core/src/wsc/mod.rs:pub use view::{AttachmentRef, WarpView, WscFile};
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:use super::view::WscFile;
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:pub fn validate_wsc(file: &WscFile) -> Result<(), ReadError>
+{
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs:fn validate_warp_view(view: &super::view::WarpView<'*>) ->
+Result<(), ReadError> {
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs: let file = WscFile::from_bytes(bytes).unwrap();
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/frame.rs · lines 1-300)
 
-  ⎿  // SPDX-License-Identifier: Apache-2.0
-     // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-     //! Internal materialization bus for tick-scoped channel emissions.
-     //!
-     //! The [`MaterializationBus`] collects emissions from rewrite rules during a tick.
-     //! Emissions are stored in an order-independent manner (keyed by [`EmitKey`]),
-     //! then finalized post-commit according to each channel's policy.
-     //!
-     //! # Order Independence
-     //!
-     //! The bus uses `BTreeMap<ChannelId, BTreeMap<EmitKey, Vec<u8>>>` internally.
-     //! This ensures that:
-     //! 1. Insertion order doesn't affect the final result
-     //! 2. Finalization iterates in deterministic (canonical) order
-     //! 3. Confluence is preserved regardless of rewrite execution order
-     //!
-     //! # Usage
-     //!
-     //! Rules emit via `bus.emit(channel, emit_key, data)`. After commit, the engine
-     //! calls `bus.finalize()` to resolve each channel according to its policy and
-     //! produce the final output.
+⎿  Bash(head -100 /Users/james/git/echo/crates/warp-core/src/materialization/bus.rs)
+Waiting…
+⎿  Read 255 lines
+
+⎿  // SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Internal materialization bus for tick-scoped channel emissions.
+//!
+//! The [`MaterializationBus`] collects emissions from rewrite rules during a tick.
+//! Emissions are stored in an order-independent manner (keyed by [`EmitKey`]),
+//! then finalized post-commit according to each channel's policy.
+//!
+//! # Order Independence
+//!
+//! The bus uses `BTreeMap<ChannelId, BTreeMap<EmitKey, Vec<u8>>>` internally.
+//! This ensures that:
+//! 1. Insertion order doesn't affect the final result
+//! 2. Finalization iterates in deterministic (canonical) order
+//! 3. Confluence is preserved regardless of rewrite execution order
+//!
+//! # Usage
+//!
+//! Rules emit via `bus.emit(channel, emit_key, data)`. After commit, the engine
+//! calls `bus.finalize()` to resolve each channel according to its policy and
+//! produce the final output.
 
      use std::cell::RefCell;
      use std::collections::btree_map::Entry;
@@ -782,12 +778,13 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
      /// conflicts) appear in `errors`. This design ensures:
      ///
      /// 1. **No data loss**: A failing channel doesn't erase other channels' outputs
-  ⎿  Read(/Users/james/git/echo/docs/adr/ADR-0007-BOAW-Storage.md)
 
-  ⎿  Read 1129 lines
+⎿  Read(/Users/james/git/echo/docs/adr/ADR-0007-BOAW-Storage.md)
 
-  ⎿  Response:
-       Perfect! Now I have a comprehensive understanding. Let me create the final research report:
+⎿  Read 1129 lines
+
+⎿  Response:
+Perfect! Now I have a comprehensive understanding. Let me create the final research report:
 
        WSC (WARP Snapshot Container) Implementation Research Report
 
@@ -1131,266 +1128,262 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
        validation and deterministic ordering, makes it ideal for both research (proving determinism) and production
        (high-performance state materialization). ADR-0007 charts a clear path to leveraging this foundation for
        lockless parallel execution via thread-local deltas and canonical commits.
-  ⎿  Done (23 tool uses · 109.3k tokens · 1m 11s)
+
+⎿  Done (23 tool uses · 109.3k tokens · 1m 11s)
 
 ⏺ Explore(Explore footprint infrastructure)
-  ⎿  Prompt:
-       Search for any existing footprint, independence checking, or scheduling infrastructure in the codebase. Look
-       for:
-       1. Footprint struct or similar conflict detection code
-       2. Any sharding or virtual shard logic
-       3. Admission control or dependency checking
-       4. Worker queue or parallel execution infrastructure
+⎿  Prompt:
+Search for any existing footprint, independence checking, or scheduling infrastructure in the codebase. Look
+for: 1. Footprint struct or similar conflict detection code 2. Any sharding or virtual shard logic 3. Admission control or dependency checking 4. Worker queue or parallel execution infrastructure
 
        Search across all crates. This is research only - do not modify any code.
-  ⎿  ❯ Search for any existing footprint, independence checking, or scheduling infrastructure in the codebase. Look for:
-       1. Footprint struct or similar conflict detection code
-       2. Any sharding or virtual shard logic
-       3. Admission control or dependency checking
-       4. Worker queue or parallel execution infrastructure
+
+⎿  ❯ Search for any existing footprint, independence checking, or scheduling infrastructure in the codebase. Look for: 1. Footprint struct or similar conflict detection code 2. Any sharding or virtual shard logic 3. Admission control or dependency checking 4. Worker queue or parallel execution infrastructure
 
        Search across all crates. This is research only - do not modify any code.
-  ⎿  Search(pattern: "footprint|Footprint", glob: "**/*.rs")
 
-  ⎿  Search(pattern: "shard|Shard|virtual.*shard|sharding", glob: "**/*.rs")
+⎿  Search(pattern: "footprint|Footprint", glob: "\*_/_.rs")
 
-  ⎿  Search(pattern: "admission|dependency.*check|conflict.*detect", glob: "**/*.rs")
+⎿  Search(pattern: "shard|Shard|virtual._shard|sharding", glob: "\*\*/_.rs")
 
-  ⎿  Search(pattern: "**/src/lib.rs")
+⎿  Search(pattern: "admission|dependency.*check|conflict.*detect", glob: "\*_/_.rs")
 
-  ⎿    ⎿  Found 1 file
-          crates/warp-benches/src/bin/sim_sharded_store.rs
-  ⎿    ⎿  Found 5 files
-          crates/warp-core/src/telemetry.rs
-          crates/warp-core/src/scheduler.rs
-          crates/warp-core/src/inbox.rs
-          crates/warp-core/tests/footprint_independence_tests.rs
-          crates/warp-core/src/rule.rs
-  ⎿    ⎿  Found 18 files
-          crates/warp-core/src/engine_impl.rs
-          crates/warp-core/src/materialization/channel.rs
-          crates/warp-core/src/lib.rs
-          crates/echo-dind-tests/src/rules.rs
-          crates/warp-core/tests/tick_receipt_tests.rs
-          crates/warp-core/tests/dpo_concurrency_litmus.rs
-          crates/warp-core/tests/duplicate_rule_registration_tests.rs
-          crates/warp-core/src/tick_patch.rs
-          crates/warp-core/src/receipt.rs
-          crates/warp-core/src/scheduler.rs
-          crates/warp-core/src/inbox.rs
-          crates/warp-benches/benches/scheduler_drain.rs
-          crates/echo-dry-tests/src/demo_rules.rs
-          crates/echo-dry-tests/src/rules.rs
-          crates/warp-core/src/attachment.rs
-          crates/warp-core/tests/footprint_independence_tests.rs
-          crates/warp-core/src/rule.rs
-          crates/warp-core/src/footprint.rs
-  ⎿    ⎿  Found 16 files
-          /Users/james/git/echo/crates/echo-app-core/src/lib.rs
-          /Users/james/git/echo/crates/echo-config-fs/src/lib.rs
-          /Users/james/git/echo/crates/echo-graph/src/lib.rs
-          /Users/james/git/echo/crates/echo-session-client/src/lib.rs
-          /Users/james/git/echo/crates/echo-session-proto/src/lib.rs
-          /Users/james/git/echo/crates/warp-geom/src/lib.rs
-          /Users/james/git/echo/specs/spec-000-rewrite/src/lib.rs
-          /Users/james/git/echo/crates/echo-registry-api/src/lib.rs
-          /Users/james/git/echo/crates/echo-wasm-bindings/src/lib.rs
-          /Users/james/git/echo/crates/echo-dind-harness/src/lib.rs
-          /Users/james/git/echo/crates/echo-dry-tests/src/lib.rs
-          /Users/james/git/echo/crates/warp-ffi/src/lib.rs
-          /Users/james/git/echo/crates/warp-wasm/src/lib.rs
-          /Users/james/git/echo/crates/echo-dind-tests/src/lib.rs
-          /Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs
-          /Users/james/git/echo/crates/warp-core/src/lib.rs
-  ⎿  Search(pattern: "worker|Worker|queue|Queue|executor|Executor", glob: "**/*.rs", head_limit: 30)
+⎿  Search(pattern: "\*\*/src/lib.rs")
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/footprint.rs)
+⎿    ⎿  Found 1 file
+crates/warp-benches/src/bin/sim\*sharded_store.rs
+⎿    ⎿  Found 5 files
+crates/warp-core/src/telemetry.rs
+crates/warp-core/src/scheduler.rs
+crates/warp-core/src/inbox.rs
+crates/warp-core/tests/footprint_independence_tests.rs
+crates/warp-core/src/rule.rs
+⎿    ⎿  Found 18 files
+crates/warp-core/src/engine_impl.rs
+crates/warp-core/src/materialization/channel.rs
+crates/warp-core/src/lib.rs
+crates/echo-dind-tests/src/rules.rs
+crates/warp-core/tests/tick_receipt_tests.rs
+crates/warp-core/tests/dpo_concurrency_litmus.rs
+crates/warp-core/tests/duplicate_rule_registration_tests.rs
+crates/warp-core/src/tick_patch.rs
+crates/warp-core/src/receipt.rs
+crates/warp-core/src/scheduler.rs
+crates/warp-core/src/inbox.rs
+crates/warp-benches/benches/scheduler_drain.rs
+crates/echo-dry-tests/src/demo_rules.rs
+crates/echo-dry-tests/src/rules.rs
+crates/warp-core/src/attachment.rs
+crates/warp-core/tests/footprint_independence_tests.rs
+crates/warp-core/src/rule.rs
+crates/warp-core/src/footprint.rs
+⎿    ⎿  Found 16 files
+/Users/james/git/echo/crates/echo-app-core/src/lib.rs
+/Users/james/git/echo/crates/echo-config-fs/src/lib.rs
+/Users/james/git/echo/crates/echo-graph/src/lib.rs
+/Users/james/git/echo/crates/echo-session-client/src/lib.rs
+/Users/james/git/echo/crates/echo-session-proto/src/lib.rs
+/Users/james/git/echo/crates/warp-geom/src/lib.rs
+/Users/james/git/echo/specs/spec-000-rewrite/src/lib.rs
+/Users/james/git/echo/crates/echo-registry-api/src/lib.rs
+/Users/james/git/echo/crates/echo-wasm-bindings/src/lib.rs
+/Users/james/git/echo/crates/echo-dind-harness/src/lib.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/lib.rs
+/Users/james/git/echo/crates/warp-ffi/src/lib.rs
+/Users/james/git/echo/crates/warp-wasm/src/lib.rs
+/Users/james/git/echo/crates/echo-dind-tests/src/lib.rs
+/Users/james/git/echo/crates/echo-wasm-abi/src/lib.rs
+/Users/james/git/echo/crates/warp-core/src/lib.rs
+⎿  Search(pattern: "worker|Worker|queue|Queue|executor|Executor", glob: "\*\*/\_.rs", head_limit: 30)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/footprint.rs)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/scheduler.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs)
 
-  ⎿  Read 251 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/scheduler.rs)
 
-  ⎿  Read 99 lines
+⎿  Read 251 lines
 
-  ⎿  Read 1305 lines
+⎿  Read 99 lines
 
-  ⎿    ⎿  Found 30 files
-          crates/warp-benches/src/bin/sim_sharded_store.rs
-          crates/warp-benches/src/bin/sim_parallel_executor.rs
-          crates/warp-core/tests/materialization_determinism.rs
-          crates/warp-core/tests/materialization_spec_police.rs
-          crates/warp-core/src/engine_impl.rs
-          crates/warp-core/src/materialization/emission_port.rs
-          crates/warp-core/src/materialization/port.rs
-          crates/warp-core/src/materialization/emit_key.rs
-          crates/warp-core/src/lib.rs
-          crates/warp-core/src/graph.rs
-          crates/echo-dind-tests/src/rules.rs
-          crates/echo-dind-harness/src/dind.rs
-          crates/warp-wasm/src/lib.rs
-          crates/warp-core/tests/reserve_gate_tests.rs
-          crates/warp-core/tests/tick_receipt_tests.rs
-          crates/warp-core/tests/permutation_commute_tests.rs
-          crates/warp-core/tests/property_commute_tests.rs
-          crates/warp-core/tests/dpo_concurrency_litmus.rs
-          crates/warp-core/tests/duplicate_rule_registration_tests.rs
-          crates/warp-core/tests/engine_motion_negative_tests.rs
-          crates/warp-core/tests/dispatch_inbox.rs
-          crates/warp-core/src/scheduler.rs
-          crates/warp-core/src/inbox.rs
-          crates/warp-benches/benches/scheduler_drain.rs
-          crates/echo-dry-tests/src/demo_rules.rs
-          crates/echo-dry-tests/src/lib.rs
-          crates/echo-dry-tests/src/rules.rs
-          crates/warp-core/src/snapshot.rs
-          crates/warp-core/src/attachment.rs
-          crates/warp-viewer/src/gpu.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/src/bin/sim_sharded_store.rs)
+⎿  Read 1305 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/src/bin/sim_parallel_executor.rs)
+⎿    ⎿  Found 30 files
+crates/warp-benches/src/bin/sim_sharded_store.rs
+crates/warp-benches/src/bin/sim_parallel_executor.rs
+crates/warp-core/tests/materialization_determinism.rs
+crates/warp-core/tests/materialization_spec_police.rs
+crates/warp-core/src/engine_impl.rs
+crates/warp-core/src/materialization/emission_port.rs
+crates/warp-core/src/materialization/port.rs
+crates/warp-core/src/materialization/emit_key.rs
+crates/warp-core/src/lib.rs
+crates/warp-core/src/graph.rs
+crates/echo-dind-tests/src/rules.rs
+crates/echo-dind-harness/src/dind.rs
+crates/warp-wasm/src/lib.rs
+crates/warp-core/tests/reserve_gate_tests.rs
+crates/warp-core/tests/tick_receipt_tests.rs
+crates/warp-core/tests/permutation_commute_tests.rs
+crates/warp-core/tests/property_commute_tests.rs
+crates/warp-core/tests/dpo_concurrency_litmus.rs
+crates/warp-core/tests/duplicate_rule_registration_tests.rs
+crates/warp-core/tests/engine_motion_negative_tests.rs
+crates/warp-core/tests/dispatch_inbox.rs
+crates/warp-core/src/scheduler.rs
+crates/warp-core/src/inbox.rs
+crates/warp-benches/benches/scheduler_drain.rs
+crates/echo-dry-tests/src/demo_rules.rs
+crates/echo-dry-tests/src/lib.rs
+crates/echo-dry-tests/src/rules.rs
+crates/warp-core/src/snapshot.rs
+crates/warp-core/src/attachment.rs
+crates/warp-viewer/src/gpu.rs
+⎿  Read(/Users/james/git/echo/crates/warp-benches/src/bin/sim_sharded_store.rs)
 
-  ⎿  Search(pattern: "parallel|Parallel|concurrent|Concurrent|thread|Thread", glob: "**/*.rs", head_limit: 20)
+⎿  Read(/Users/james/git/echo/crates/warp-benches/src/bin/sim_parallel_executor.rs)
 
-  ⎿  Read 103 lines
+⎿  Search(pattern: "parallel|Parallel|concurrent|Concurrent|thread|Thread", glob: "\*_/_.rs", head_limit: 20)
 
-  ⎿  Read 83 lines
+⎿  Read 103 lines
 
-  ⎿    ⎿  Found 12 files
-          crates/warp-benches/src/bin/sim_sharded_store.rs
-          crates/warp-benches/src/bin/sim_parallel_executor.rs
-          crates/warp-core/src/materialization/bus.rs
-          crates/warp-core/src/materialization/mod.rs
-          crates/warp-core/src/materialization/emit_key.rs
-          crates/warp-core/src/wsc/write.rs
-          crates/warp-core/src/receipt.rs
-          crates/echo-session-client/examples/publish_pulse.rs
-          crates/warp-viewer/src/ui_effects.rs
-          crates/warp-core/src/sandbox.rs
-          crates/warp-benches/benches/scheduler_adversarial.rs
-          crates/echo-session-client/src/lib.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/inbox.rs · lines 1-100)
+⎿  Read 83 lines
 
-  ⎿  Search(pattern: "pending.*queue|work.*queue|task.*queue|dispatch", glob: "**/*.rs", head_limit: 15)
+⎿    ⎿  Found 12 files
+crates/warp-benches/src/bin/sim_sharded_store.rs
+crates/warp-benches/src/bin/sim_parallel_executor.rs
+crates/warp-core/src/materialization/bus.rs
+crates/warp-core/src/materialization/mod.rs
+crates/warp-core/src/materialization/emit_key.rs
+crates/warp-core/src/wsc/write.rs
+crates/warp-core/src/receipt.rs
+crates/echo-session-client/examples/publish_pulse.rs
+crates/warp-viewer/src/ui_effects.rs
+crates/warp-core/src/sandbox.rs
+crates/warp-benches/benches/scheduler_adversarial.rs
+crates/echo-session-client/src/lib.rs
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/inbox.rs · lines 1-100)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/lib.rs · lines 1-150)
+⎿  Search(pattern: "pending.*queue|work.*queue|task._queue|dispatch", glob: "\*\*/_.rs", head_limit: 15)
 
-  ⎿  Read 100 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/lib.rs · lines 1-150)
 
-  ⎿  Read 141 lines
+⎿  Read 100 lines
 
-  ⎿    ⎿  Found 10 files
-          crates/warp-core/src/engine_impl.rs
-          crates/warp-core/src/materialization/port.rs
-          crates/echo-dind-tests/src/lib.rs
-          crates/echo-dind-harness/src/dind.rs
-          crates/warp-wasm/src/lib.rs
-          crates/warp-core/tests/dispatch_inbox.rs
-          crates/warp-core/src/payload.rs
-          crates/warp-core/src/scheduler.rs
-          crates/warp-core/src/inbox.rs
-          crates/echo-dry-tests/src/engine.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/engine_impl.rs · lines 1-200)
+⎿  Read 141 lines
 
-  ⎿  Search(pattern: "GenSet|ActiveFootprint|RadixScheduler|LegacyScheduler", glob: "**/*.rs")
+⎿    ⎿  Found 10 files
+crates/warp-core/src/engine_impl.rs
+crates/warp-core/src/materialization/port.rs
+crates/echo-dind-tests/src/lib.rs
+crates/echo-dind-harness/src/dind.rs
+crates/warp-wasm/src/lib.rs
+crates/warp-core/tests/dispatch_inbox.rs
+crates/warp-core/src/payload.rs
+crates/warp-core/src/scheduler.rs
+crates/warp-core/src/inbox.rs
+crates/echo-dry-tests/src/engine.rs
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/engine_impl.rs · lines 1-200)
 
-  ⎿  Read 200 lines
+⎿  Search(pattern: "GenSet|ActiveFootprint|RadixScheduler|LegacyScheduler", glob: "\*_/_.rs")
 
-  ⎿    ⎿  Found 2 files
-          crates/warp-core/src/engine_impl.rs
-          crates/warp-core/src/scheduler.rs
-  ⎿  Search(pattern: "**/materialization/*.rs")
+⎿  Read 200 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/mod.rs · lines 1-150)
+⎿    ⎿  Found 2 files
+crates/warp-core/src/engine\*impl.rs
+crates/warp-core/src/scheduler.rs
+⎿  Search(pattern: "\*\*/materialization/\_.rs")
 
-  ⎿  Read 65 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/mod.rs · lines 1-150)
 
-  ⎿    ⎿  Found 9 files
-          /Users/james/git/echo/crates/warp-core/src/materialization/emit_key.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/port.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/emission_port.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/channel.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/reduce_op.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/scoped_emitter.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/mod.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/bus.rs
-          /Users/james/git/echo/crates/warp-core/src/materialization/frame.rs
-  ⎿  Bash(find /Users/james/git/echo -name "*.rs" -type f | xargs grep -l "reserve\|conflict\|dispatch" | head -20)
+⎿  Read 65 lines
+
+⎿    ⎿  Found 9 files
+/Users/james/git/echo/crates/warp-core/src/materialization/emit_key.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/port.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/emission_port.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/channel.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/reduce_op.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/scoped_emitter.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/mod.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/bus.rs
+/Users/james/git/echo/crates/warp-core/src/materialization/frame.rs
+⎿  Bash(find /Users/james/git/echo -name "\*.rs" -type f | xargs grep -l "reserve\|conflict\|dispatch" | head -20)
+Waiting…
+⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/scheduler_drain.rs · lines 1-100)
+
+⎿  Read 100 lines
+
+⎿  /Users/james/git/echo/crates/echo-session-ws-gateway/src/main.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/rules.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/demo_rules.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/engine.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs
+/Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/tick_receipt_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/duplicate_rule_registration_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs
+/Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/dispatch_inbox.rs
+/Users/james/git/echo/crates/warp-core/tests/nan_exhaustive_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/dpo_concurrency_litmus.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs
+/Users/james/git/echo/crates/warp-core/src/telemetry.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/types.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/write.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/build.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/read.rs
+/Users/james/git/echo/crates/warp-core/src/wsc/validate.rs
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs · lines 1-150)
+
+⎿  Bash(grep -r "DeterministicScheduler\|RadixScheduler\|ActiveFootprint" /Users/james/git/echo/crates/warp-core/src
+--include="\*.rs" -n | head -30)
+
      Waiting…
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/scheduler_drain.rs · lines 1-100)
 
-  ⎿  Read 100 lines
+⎿  Read 41 lines
 
-  ⎿  /Users/james/git/echo/crates/echo-session-ws-gateway/src/main.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/rules.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/demo_rules.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/engine.rs
-     /Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs
-     /Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs
-     /Users/james/git/echo/crates/warp-core/tests/tick_receipt_tests.rs
-     /Users/james/git/echo/crates/warp-core/tests/duplicate_rule_registration_tests.rs
-     /Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs
-     /Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs
-     /Users/james/git/echo/crates/warp-core/tests/dispatch_inbox.rs
-     /Users/james/git/echo/crates/warp-core/tests/nan_exhaustive_tests.rs
-     /Users/james/git/echo/crates/warp-core/tests/dpo_concurrency_litmus.rs
-     /Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs
-     /Users/james/git/echo/crates/warp-core/src/telemetry.rs
-     /Users/james/git/echo/crates/warp-core/src/wsc/types.rs
-     /Users/james/git/echo/crates/warp-core/src/wsc/write.rs
-     /Users/james/git/echo/crates/warp-core/src/wsc/build.rs
-     /Users/james/git/echo/crates/warp-core/src/wsc/read.rs
-     /Users/james/git/echo/crates/warp-core/src/wsc/validate.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs · lines 1-150)
+⎿  /Users/james/git/echo/crates/warp-core/src/scheduler.rs:26:pub(crate) struct ActiveFootprints {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:43:impl ActiveFootprints {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:59:pub(crate) struct RadixScheduler {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:64: pub(crate) active: HashMap<TxId, ActiveFootprints>,
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:100:impl RadixScheduler {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:135: let active =
+self.active.entry(tx).or_insert_with(ActiveFootprints::new);
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:158: fn has_conflict(active: &ActiveFootprints, pr:
+&PendingRewrite) -> bool {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:239: fn mark_all(active: &mut ActiveFootprints, pr:
+&PendingRewrite) {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:610:pub(crate) struct DeterministicScheduler {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:617:impl std::fmt::Debug for DeterministicScheduler {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:619: f.debug_struct("DeterministicScheduler")
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:628: Radix(RadixScheduler),
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:632:impl Default for DeterministicScheduler {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:641:impl DeterministicScheduler {
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:644: SchedulerKind::Radix =>
+SchedulerImpl::Radix(RadixScheduler::default()),
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:754: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:785: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:842: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:894: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:946: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:996: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:1049: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:1107: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:1178: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/scheduler.rs:1265: let mut sched = RadixScheduler::default();
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs:19:use crate::scheduler::{DeterministicScheduler,
+PendingRewrite, RewritePhase, SchedulerKind};
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs:316: scheduler: DeterministicScheduler,
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs:477: scheduler: DeterministicScheduler::new(kind,
+telemetry),
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs:623: scheduler: DeterministicScheduler::new(kind,
+telemetry),
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs:1464: // predicate (`RadixScheduler::has_conflict` in
+`scheduler.rs`). If one
 
-  ⎿  Bash(grep -r "DeterministicScheduler\|RadixScheduler\|ActiveFootprint" /Users/james/git/echo/crates/warp-core/src
-         --include="*.rs" -n | head -30)
-
-     Waiting…
-  ⎿  Read 41 lines
-
-  ⎿  /Users/james/git/echo/crates/warp-core/src/scheduler.rs:26:pub(crate) struct ActiveFootprints {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:43:impl ActiveFootprints {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:59:pub(crate) struct RadixScheduler {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:64:    pub(crate) active: HashMap<TxId, ActiveFootprints>,
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:100:impl RadixScheduler {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:135:        let active =
-     self.active.entry(tx).or_insert_with(ActiveFootprints::new);
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:158:    fn has_conflict(active: &ActiveFootprints, pr:
-     &PendingRewrite) -> bool {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:239:    fn mark_all(active: &mut ActiveFootprints, pr:
-     &PendingRewrite) {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:610:pub(crate) struct DeterministicScheduler {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:617:impl std::fmt::Debug for DeterministicScheduler {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:619:        f.debug_struct("DeterministicScheduler")
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:628:    Radix(RadixScheduler),
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:632:impl Default for DeterministicScheduler {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:641:impl DeterministicScheduler {
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:644:            SchedulerKind::Radix =>
-     SchedulerImpl::Radix(RadixScheduler::default()),
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:754:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:785:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:842:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:894:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:946:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:996:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:1049:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:1107:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:1178:            let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/scheduler.rs:1265:        let mut sched = RadixScheduler::default();
-     /Users/james/git/echo/crates/warp-core/src/engine_impl.rs:19:use crate::scheduler::{DeterministicScheduler,
-     PendingRewrite, RewritePhase, SchedulerKind};
-     /Users/james/git/echo/crates/warp-core/src/engine_impl.rs:316:    scheduler: DeterministicScheduler,
-     /Users/james/git/echo/crates/warp-core/src/engine_impl.rs:477:            scheduler: DeterministicScheduler::new(kind,
-     telemetry),
-     /Users/james/git/echo/crates/warp-core/src/engine_impl.rs:623:            scheduler: DeterministicScheduler::new(kind,
-     telemetry),
-     /Users/james/git/echo/crates/warp-core/src/engine_impl.rs:1464:    // predicate (`RadixScheduler::has_conflict` in
-     `scheduler.rs`). If one
-
-  ⎿  Response:
-       Perfect! Now let me create a comprehensive summary based on my research.
+⎿  Response:
+Perfect! Now let me create a comprehensive summary based on my research.
 
        Summary of Existing Footprint, Independence Checking, and Scheduling Infrastructure
 
@@ -1551,207 +1544,201 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
 
        This is a sophisticated, production-ready infrastructure for conflict-free, deterministic concurrent rewriting
        with O(1) admission control and O(n) radix-based scheduling.
-  ⎿  Done (22 tool uses · 78.4k tokens · 53s)
+
+⎿  Done (22 tool uses · 78.4k tokens · 53s)
 
 ⏺ Explore(Explore existing test structure)
-  ⎿  Prompt:
-       Explore the current test structure in the repository, focusing on:
-       1. Where tests are located (tests/ directories, inline tests)
-       2. Any existing test harness or common utilities
-       3. Current testing patterns used in warp-core
-       4. Any benchmarking infrastructure (especially in crates/warp-benches)
+⎿  Prompt:
+Explore the current test structure in the repository, focusing on: 1. Where tests are located (tests/ directories, inline tests) 2. Any existing test harness or common utilities 3. Current testing patterns used in warp-core 4. Any benchmarking infrastructure (especially in crates/warp-benches)
 
        This is research only - do not modify any code.
-  ⎿  ❯ Explore the current test structure in the repository, focusing on:
-       1. Where tests are located (tests/ directories, inline tests)
-       2. Any existing test harness or common utilities
-       3. Current testing patterns used in warp-core
-       4. Any benchmarking infrastructure (especially in crates/warp-benches)
+
+⎿  ❯ Explore the current test structure in the repository, focusing on: 1. Where tests are located (tests/ directories, inline tests) 2. Any existing test harness or common utilities 3. Current testing patterns used in warp-core 4. Any benchmarking infrastructure (especially in crates/warp-benches)
 
        This is research only - do not modify any code.
-  ⎿  Search(pattern: "**/tests/**/*.rs")
 
-  ⎿  Search(pattern: "**/benches/**/*.rs")
+⎿  Search(pattern: "**/tests/**/\*.rs")
 
-  ⎿  Bash(find /Users/james/git/echo -type d -name "tests" -o -type d -name "benches" | head -20)
-     Waiting…
-  ⎿  Read(/Users/james/git/echo)
+⎿  Search(pattern: "**/benches/**/\*.rs")
 
-  ⎿  Error: EISDIR: illegal operation on a directory, read
+⎿  Bash(find /Users/james/git/echo -type d -name "tests" -o -type d -name "benches" | head -20)
+Waiting…
+⎿  Read(/Users/james/git/echo)
 
-  ⎿    ⎿  Found 41 files
-          /Users/james/git/echo/crates/echo-wasm-bindings/tests/api_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/atom_payload_digest_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/mat4_mul_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_additional_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_convenience_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/nan_exhaustive_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/snapshot_reachability_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/vec3_ops_tests.rs
-          /Users/james/git/echo/crates/warp-geom/tests/geom_broad_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_rotation_tests.rs
-          /Users/james/git/echo/crates/echo-wasm-abi/tests/non_canonical_floats.rs
-          /Users/james/git/echo/crates/warp-core/tests/determinism_audit.rs
-          /Users/james/git/echo/crates/warp-core/tests/ledger_tests.rs
-          /Users/james/git/echo/crates/echo-dind-harness/tests/coverage.rs
-          /Users/james/git/echo/crates/echo-dind-harness/tests/permutation_invariance.rs
-          /Users/james/git/echo/crates/echo-wasm-abi/tests/canonical_vectors.rs
-          /Users/james/git/echo/crates/echo-wasm-abi/tests/fuzz_wire.rs
-          /Users/james/git/echo/crates/echo-wesley-gen/tests/generation.rs
-          /Users/james/git/echo/crates/warp-core/tests/determinism_policy_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/deterministic_sin_cos_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/dfix64_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/dispatch_inbox.rs
-          /Users/james/git/echo/crates/warp-core/tests/dpo_concurrency_litmus.rs
-          /Users/james/git/echo/crates/warp-core/tests/duplicate_rule_registration_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/engine_motion_negative_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/engine_motion_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/inbox.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_scalar_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/math_validation.rs
-          /Users/james/git/echo/crates/warp-core/tests/permutation_commute_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/property_commute_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/proptest_seed_pinning.rs
-          /Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/tick_receipt_tests.rs
-          /Users/james/git/echo/crates/warp-core/tests/tx_lifecycle_tests.rs
-          /Users/james/git/echo/crates/echo-wasm-abi/tests/codec.rs
-          /Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs
-          /Users/james/git/echo/crates/warp-core/tests/common/mod.rs
-          /Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs
-          /Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs
-  ⎿    ⎿  Found 4 files
-          /Users/james/git/echo/crates/warp-benches/benches/scheduler_adversarial.rs
-          /Users/james/git/echo/crates/warp-benches/benches/snapshot_hash.rs
-          /Users/james/git/echo/crates/warp-benches/benches/motion_throughput.rs
-          /Users/james/git/echo/crates/warp-benches/benches/scheduler_drain.rs
-  ⎿  /Users/james/git/echo/crates/echo-wasm-bindings/tests
-     /Users/james/git/echo/crates/warp-core/tests
-     /Users/james/git/echo/crates/warp-benches/benches
-     /Users/james/git/echo/crates/echo-dind-harness/tests
-     /Users/james/git/echo/crates/warp-geom/tests
-     /Users/james/git/echo/crates/echo-wesley-gen/tests
-     /Users/james/git/echo/crates/echo-wasm-abi/tests
-     /Users/james/git/echo/node_modules/domutils/test/tests
-     /Users/james/git/echo/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/mpl_toolkits/axes_grid1/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/mpl_toolkits/mplot3d/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/mpl_toolkits/axisartist/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/linalg/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/ma/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/_core/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/_pyinstaller/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/typing/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/f2py/tests
-     /Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/testing/tests
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/common/mod.rs)
+⎿  Error: EISDIR: illegal operation on a directory, read
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/Cargo.toml)
+⎿    ⎿  Found 41 files
+/Users/james/git/echo/crates/echo-wasm-bindings/tests/api_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/atom_payload_digest_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/footprint_independence_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/mat4_mul_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_additional_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_convenience_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/nan_exhaustive_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/snapshot_reachability_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/vec3_ops_tests.rs
+/Users/james/git/echo/crates/warp-geom/tests/geom_broad_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_rotation_tests.rs
+/Users/james/git/echo/crates/echo-wasm-abi/tests/non_canonical_floats.rs
+/Users/james/git/echo/crates/warp-core/tests/determinism_audit.rs
+/Users/james/git/echo/crates/warp-core/tests/ledger_tests.rs
+/Users/james/git/echo/crates/echo-dind-harness/tests/coverage.rs
+/Users/james/git/echo/crates/echo-dind-harness/tests/permutation_invariance.rs
+/Users/james/git/echo/crates/echo-wasm-abi/tests/canonical_vectors.rs
+/Users/james/git/echo/crates/echo-wasm-abi/tests/fuzz_wire.rs
+/Users/james/git/echo/crates/echo-wesley-gen/tests/generation.rs
+/Users/james/git/echo/crates/warp-core/tests/determinism_policy_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/deterministic_sin_cos_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/dfix64_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/dispatch_inbox.rs
+/Users/james/git/echo/crates/warp-core/tests/dpo_concurrency_litmus.rs
+/Users/james/git/echo/crates/warp-core/tests/duplicate_rule_registration_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/engine_motion_negative_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/engine_motion_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/inbox.rs
+/Users/james/git/echo/crates/warp-core/tests/math_scalar_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/math_validation.rs
+/Users/james/git/echo/crates/warp-core/tests/permutation_commute_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/property_commute_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/proptest_seed_pinning.rs
+/Users/james/git/echo/crates/warp-core/tests/reserve_gate_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/tick_receipt_tests.rs
+/Users/james/git/echo/crates/warp-core/tests/tx_lifecycle_tests.rs
+/Users/james/git/echo/crates/echo-wasm-abi/tests/codec.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs
+/Users/james/git/echo/crates/warp-core/tests/common/mod.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs
+/Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs
+⎿    ⎿  Found 4 files
+/Users/james/git/echo/crates/warp-benches/benches/scheduler_adversarial.rs
+/Users/james/git/echo/crates/warp-benches/benches/snapshot_hash.rs
+/Users/james/git/echo/crates/warp-benches/benches/motion_throughput.rs
+/Users/james/git/echo/crates/warp-benches/benches/scheduler_drain.rs
+⎿  /Users/james/git/echo/crates/echo-wasm-bindings/tests
+/Users/james/git/echo/crates/warp-core/tests
+/Users/james/git/echo/crates/warp-benches/benches
+/Users/james/git/echo/crates/echo-dind-harness/tests
+/Users/james/git/echo/crates/warp-geom/tests
+/Users/james/git/echo/crates/echo-wesley-gen/tests
+/Users/james/git/echo/crates/echo-wasm-abi/tests
+/Users/james/git/echo/node_modules/domutils/test/tests
+/Users/james/git/echo/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/mpl_toolkits/axes_grid1/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/mpl_toolkits/mplot3d/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/mpl_toolkits/axisartist/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/linalg/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/ma/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/\_core/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/\_pyinstaller/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/typing/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/f2py/tests
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/numpy/testing/tests
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/common/mod.rs)
 
-  ⎿  Bash(ls -la /Users/james/git/echo/crates/warp-benches/)
-     Waiting…
-  ⎿  Bash(ls -la /Users/james/git/echo/crates/warp-core/tests/)
-     Waiting…
-  ⎿  Read 75 lines
+⎿  Read(/Users/james/git/echo/crates/warp-benches/Cargo.toml)
 
-  ⎿  Read 42 lines
+⎿  Bash(ls -la /Users/james/git/echo/crates/warp-benches/)
+Waiting…
+⎿  Bash(ls -la /Users/james/git/echo/crates/warp-core/tests/)
+Waiting…
+⎿  Read 75 lines
 
-  ⎿  drwxr-xr-x@    - james 17 Jan 05:28 benches
-     drwxr-xr-x     - james 17 Jan 20:44 src
-     .rw-r--r--@ 6.1k james 30 Dec  2025 .DS_Store
-     .rw-r--r--@ 1.1k james 17 Jan 20:53 Cargo.toml
-     .rw-r--r--@  726 james 30 Dec  2025 README.md
-  ⎿  drwxr-xr-x@    - james 17 Jan 15:49 common
-     drwxr-xr-x@    - james 17 Jan 05:28 fixtures
-     .rw-r--r--@ 3.4k james 30 Dec  2025 atom_payload_digest_tests.rs
-     .rw-r--r--@ 4.2k james 16 Jan 16:36 determinism_audit.rs
-     .rw-r--r--@ 3.5k james 17 Jan 05:28 determinism_policy_tests.rs
-     .rw-r--r--@  11k james 17 Jan 05:28 deterministic_sin_cos_tests.rs
-     .rw-r--r--@ 1.8k james 17 Jan 05:28 dfix64_tests.rs
-     .rw-r--r--@ 5.1k james 17 Jan 05:28 dispatch_inbox.rs
-     .rw-r--r--@  11k james 17 Jan 05:28 dpo_concurrency_litmus.rs
-     .rw-r--r--@ 2.3k james 17 Jan 05:28 duplicate_rule_registration_tests.rs
-     .rw-r--r--@ 5.5k james 17 Jan 05:28 engine_motion_negative_tests.rs
-     .rw-r--r--@ 5.3k james 17 Jan 05:28 engine_motion_tests.rs
-     .rw-r--r--@ 2.3k james 30 Dec  2025 footprint_independence_tests.rs
-     .rw-r--r--@ 4.9k james 17 Jan 05:28 inbox.rs
-     .rw-r--r--@ 1.1k james 16 Jan 16:36 ledger_tests.rs
-     .rw-r--r--@ 6.6k james 30 Dec  2025 mat4_mul_tests.rs
-     .rw-r--r--@  25k james 17 Jan 15:50 materialization_determinism.rs
-     .rw-r--r--@  21k james 17 Jan 14:56 materialization_engine_integration.rs
-     .rw-r--r--@  30k james 17 Jan 15:49 materialization_spec_police.rs
-     .rw-r--r--@ 1.0k james 30 Dec  2025 math_additional_tests.rs
-     .rw-r--r--@ 1.7k james 30 Dec  2025 math_convenience_tests.rs
-     .rw-r--r--@ 2.4k james  1 Jan 10:03 math_rotation_tests.rs
-     .rw-r--r--@ 2.2k james 17 Jan 05:28 math_scalar_tests.rs
-     .rw-r--r--@  14k james 17 Jan 05:28 math_validation.rs
-     .rw-r--r--@ 4.4k james 30 Dec  2025 nan_exhaustive_tests.rs
-     .rw-r--r--@ 2.6k james 17 Jan 05:28 permutation_commute_tests.rs
-     .rw-r--r--@ 2.3k james 17 Jan 05:28 property_commute_tests.rs
-     .rw-r--r--@ 4.0k james 17 Jan 05:28 proptest_seed_pinning.rs
-     .rw-r--r--@ 1.5k james 17 Jan 05:28 reserve_gate_tests.rs
-     .rw-r--r--@ 2.2k james 30 Dec  2025 snapshot_reachability_tests.rs
-     .rw-r--r--@ 9.9k james 17 Jan 05:28 tick_receipt_tests.rs
-     .rw-r--r--@ 1.3k james 17 Jan 05:28 tx_lifecycle_tests.rs
-     .rw-r--r--@  985 james 30 Dec  2025 vec3_ops_tests.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/motion_throughput.rs)
+⎿  Read 42 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/snapshot_hash.rs)
+⎿  drwxr-xr-x@ - james 17 Jan 05:28 benches
+drwxr-xr-x - james 17 Jan 20:44 src
+.rw-r--r--@ 6.1k james 30 Dec 2025 .DS_Store
+.rw-r--r--@ 1.1k james 17 Jan 20:53 Cargo.toml
+.rw-r--r--@ 726 james 30 Dec 2025 README.md
+⎿  drwxr-xr-x@ - james 17 Jan 15:49 common
+drwxr-xr-x@ - james 17 Jan 05:28 fixtures
+.rw-r--r--@ 3.4k james 30 Dec 2025 atom_payload_digest_tests.rs
+.rw-r--r--@ 4.2k james 16 Jan 16:36 determinism_audit.rs
+.rw-r--r--@ 3.5k james 17 Jan 05:28 determinism_policy_tests.rs
+.rw-r--r--@ 11k james 17 Jan 05:28 deterministic_sin_cos_tests.rs
+.rw-r--r--@ 1.8k james 17 Jan 05:28 dfix64_tests.rs
+.rw-r--r--@ 5.1k james 17 Jan 05:28 dispatch_inbox.rs
+.rw-r--r--@ 11k james 17 Jan 05:28 dpo_concurrency_litmus.rs
+.rw-r--r--@ 2.3k james 17 Jan 05:28 duplicate_rule_registration_tests.rs
+.rw-r--r--@ 5.5k james 17 Jan 05:28 engine_motion_negative_tests.rs
+.rw-r--r--@ 5.3k james 17 Jan 05:28 engine_motion_tests.rs
+.rw-r--r--@ 2.3k james 30 Dec 2025 footprint_independence_tests.rs
+.rw-r--r--@ 4.9k james 17 Jan 05:28 inbox.rs
+.rw-r--r--@ 1.1k james 16 Jan 16:36 ledger_tests.rs
+.rw-r--r--@ 6.6k james 30 Dec 2025 mat4_mul_tests.rs
+.rw-r--r--@ 25k james 17 Jan 15:50 materialization_determinism.rs
+.rw-r--r--@ 21k james 17 Jan 14:56 materialization_engine_integration.rs
+.rw-r--r--@ 30k james 17 Jan 15:49 materialization_spec_police.rs
+.rw-r--r--@ 1.0k james 30 Dec 2025 math_additional_tests.rs
+.rw-r--r--@ 1.7k james 30 Dec 2025 math_convenience_tests.rs
+.rw-r--r--@ 2.4k james 1 Jan 10:03 math_rotation_tests.rs
+.rw-r--r--@ 2.2k james 17 Jan 05:28 math_scalar_tests.rs
+.rw-r--r--@ 14k james 17 Jan 05:28 math_validation.rs
+.rw-r--r--@ 4.4k james 30 Dec 2025 nan_exhaustive_tests.rs
+.rw-r--r--@ 2.6k james 17 Jan 05:28 permutation_commute_tests.rs
+.rw-r--r--@ 2.3k james 17 Jan 05:28 property_commute_tests.rs
+.rw-r--r--@ 4.0k james 17 Jan 05:28 proptest_seed_pinning.rs
+.rw-r--r--@ 1.5k james 17 Jan 05:28 reserve_gate_tests.rs
+.rw-r--r--@ 2.2k james 30 Dec 2025 snapshot_reachability_tests.rs
+.rw-r--r--@ 9.9k james 17 Jan 05:28 tick_receipt_tests.rs
+.rw-r--r--@ 1.3k james 17 Jan 05:28 tx_lifecycle_tests.rs
+.rw-r--r--@ 985 james 30 Dec 2025 vec3_ops_tests.rs
+⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/motion_throughput.rs)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs · lines 1-100)
+⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/snapshot_hash.rs)
 
-  ⎿  Read 116 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/materialization_engine_integration.rs · lines 1-100)
 
-  ⎿  Read 89 lines
+⎿  Read 116 lines
 
-  ⎿  Read 100 lines
+⎿  Read 89 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/determinism_audit.rs)
+⎿  Read 100 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/permutation_commute_tests.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/determinism_audit.rs)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/proptest_seed_pinning.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/permutation_commute_tests.rs)
 
-  ⎿  Read 127 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/proptest_seed_pinning.rs)
 
-  ⎿  Read 73 lines
+⎿  Read 127 lines
 
-  ⎿  Read 93 lines
+⎿  Read 73 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs · lines 1-80)
+⎿  Read 93 lines
 
-  ⎿  Bash(grep -l "^\s*#\[test\]" /Users/james/git/echo/crates/warp-core/src/*.rs 2>/dev/null | head -5)
-     Waiting…
-  ⎿  Bash(grep -l "^\s*#\[cfg(test)\]" /Users/james/git/echo/crates/warp-core/src/*.rs 2>/dev/null | head -5)
-     Waiting…
-  ⎿  Read 80 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/materialization_spec_police.rs · lines 1-80)
 
-  ⎿  /Users/james/git/echo/crates/warp-core/src/attachment.rs
-     /Users/james/git/echo/crates/warp-core/src/engine_impl.rs
-     /Users/james/git/echo/crates/warp-core/src/footprint.rs
-     /Users/james/git/echo/crates/warp-core/src/graph.rs
-     /Users/james/git/echo/crates/warp-core/src/ident.rs
-  ⎿  /Users/james/git/echo/crates/warp-core/src/attachment.rs
-     /Users/james/git/echo/crates/warp-core/src/engine_impl.rs
-     /Users/james/git/echo/crates/warp-core/src/footprint.rs
-     /Users/james/git/echo/crates/warp-core/src/graph.rs
-     /Users/james/git/echo/crates/warp-core/src/ident.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/Cargo.toml)
+⎿  Bash(grep -l "^\s*#\[test\]" /Users/james/git/echo/crates/warp-core/src/*.rs 2>/dev/null | head -5)
+Waiting…
+⎿  Bash(grep -l "^\s*#\[cfg(test)\]" /Users/james/git/echo/crates/warp-core/src/*.rs 2>/dev/null | head -5)
+Waiting…
+⎿  Read 80 lines
 
-  ⎿  Bash(grep -A 10 "^\s*#\[cfg(test)\]" /Users/james/git/echo/crates/warp-core/src/attachment.rs | head -20)
-     Waiting…
-  ⎿  Bash(ls -la /Users/james/git/echo/crates/warp-benches/src/)
-     Waiting…
-  ⎿  Read 53 lines
+⎿  /Users/james/git/echo/crates/warp-core/src/attachment.rs
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs
+/Users/james/git/echo/crates/warp-core/src/footprint.rs
+/Users/james/git/echo/crates/warp-core/src/graph.rs
+/Users/james/git/echo/crates/warp-core/src/ident.rs
+⎿  /Users/james/git/echo/crates/warp-core/src/attachment.rs
+/Users/james/git/echo/crates/warp-core/src/engine_impl.rs
+/Users/james/git/echo/crates/warp-core/src/footprint.rs
+/Users/james/git/echo/crates/warp-core/src/graph.rs
+/Users/james/git/echo/crates/warp-core/src/ident.rs
+⎿  Read(/Users/james/git/echo/crates/warp-core/Cargo.toml)
 
-  ⎿  drwxr-xr-x - james 17 Jan 20:53 bin
+⎿  Bash(grep -A 10 "^\s\*#\[cfg(test)\]" /Users/james/git/echo/crates/warp-core/src/attachment.rs | head -20)
+Waiting…
+⎿  Bash(ls -la /Users/james/git/echo/crates/warp-benches/src/)
+Waiting…
+⎿  Read 53 lines
 
-  ⎿  #[cfg(test)]
-     #[allow(clippy::expect_used, clippy::unwrap_used)]
-     mod tests {
-         use super::*;
+⎿  drwxr-xr-x - james 17 Jan 20:53 bin
+
+⎿  #[cfg(test)] #[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+use super::\*;
 
          struct U8Codec;
 
@@ -1759,48 +1746,48 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
              const TYPE_ID: TypeId = TypeId([0xA5; 32]);
 
              fn encode_canon(value: &u8) -> Bytes {
-  ⎿  Bash(ls -la /Users/james/git/echo/crates/warp-benches/src/bin/)
-     Waiting…
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/scheduler_drain.rs · lines 1-80)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/engine_motion_tests.rs · lines 1-60)
+⎿  Bash(ls -la /Users/james/git/echo/crates/warp-benches/src/bin/)
+Waiting…
+⎿  Read(/Users/james/git/echo/crates/warp-benches/benches/scheduler_drain.rs · lines 1-80)
 
-  ⎿  Read 80 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/engine_motion_tests.rs · lines 1-60)
 
-  ⎿  .rw-r--r-- 3.0k james 17 Jan 20:49 sim_parallel_executor.rs
-     .rw-r--r-- 3.5k james 17 Jan 20:53 sim_sharded_store.rs
-     .rw-r--r-- 2.8k james 17 Jan 20:44 stress_throughput.rs
-  ⎿  Read 60 lines
+⎿  Read 80 lines
 
-  ⎿  Bash(find /Users/james/git/echo/crates/echo-dry-tests -type f -name "*.rs" | head -10)
-     Waiting…
-  ⎿  Read(/Users/james/git/echo/crates/echo-dry-tests/src/lib.rs · lines 1-100)
+⎿  .rw-r--r-- 3.0k james 17 Jan 20:49 sim_parallel_executor.rs
+.rw-r--r-- 3.5k james 17 Jan 20:53 sim_sharded_store.rs
+.rw-r--r-- 2.8k james 17 Jan 20:44 stress_throughput.rs
+⎿  Read 60 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/src/bin/stress_throughput.rs · lines 1-60)
+⎿  Bash(find /Users/james/git/echo/crates/echo-dry-tests -type f -name "\*.rs" | head -10)
+Waiting…
+⎿  Read(/Users/james/git/echo/crates/echo-dry-tests/src/lib.rs · lines 1-100)
 
-  ⎿  Read 37 lines
+⎿  Read(/Users/james/git/echo/crates/warp-benches/src/bin/stress_throughput.rs · lines 1-60)
 
-  ⎿  Read 60 lines
+⎿  Read 37 lines
 
-  ⎿  /Users/james/git/echo/crates/echo-dry-tests/src/rules.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/demo_rules.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/config.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/lib.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/hashes.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/frames.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/engine.rs
-     /Users/james/git/echo/crates/echo-dry-tests/src/motion.rs
-  ⎿  Read(/Users/james/git/echo/crates/warp-benches/README.md)
+⎿  Read 60 lines
 
-  ⎿  Bash(head -50 /Users/james/git/echo/crates/warp-benches/benches/scheduler_adversarial.rs)
-     Waiting…
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs · lines 1-80)
+⎿  /Users/james/git/echo/crates/echo-dry-tests/src/rules.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/demo_rules.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/config.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/lib.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/hashes.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/frames.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/engine.rs
+/Users/james/git/echo/crates/echo-dry-tests/src/motion.rs
+⎿  Read(/Users/james/git/echo/crates/warp-benches/README.md)
 
-  ⎿  Read 22 lines
+⎿  Bash(head -50 /Users/james/git/echo/crates/warp-benches/benches/scheduler_adversarial.rs)
+Waiting…
+⎿  Read(/Users/james/git/echo/crates/warp-core/tests/materialization_determinism.rs · lines 1-80)
 
-  ⎿  // SPDX-License-Identifier: Apache-2.0
-     // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-     #![allow(missing_docs)]
+⎿  Read 22 lines
+
+⎿  // SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> #![allow(missing_docs)]
 
      use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
      use rand::Rng;
@@ -1848,22 +1835,22 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
                          for _ in 0..n {
                              let k = rng.gen::<u64>();
                              map.insert(k, k);
-  ⎿  Read 80 lines
 
-  ⎿  Bash(grep -n "^\s*#\[test\]" /Users/james/git/echo/crates/warp-core/src/attachment.rs | head -5)
-     Waiting…
-  ⎿  Bash(wc -l /Users/james/git/echo/crates/warp-core/src/attachment.rs)
-     Waiting…
-  ⎿  Bash(sed -n '300,400p' /Users/james/git/echo/crates/warp-core/src/attachment.rs)
-     Waiting…
-  ⎿       403 /Users/james/git/echo/crates/warp-core/src/attachment.rs
+⎿  Read 80 lines
 
-  ⎿  #[derive(Debug, Error)]
-     pub enum RegistryError {
-         /// Attempted to register two codecs for the same `TypeId`.
-         #[error("duplicate codec registration for type id: {0:?}")]
-         DuplicateTypeId(TypeId),
-     }
+⎿  Bash(grep -n "^\s\*#\[test\]" /Users/james/git/echo/crates/warp-core/src/attachment.rs | head -5)
+Waiting…
+⎿  Bash(wc -l /Users/james/git/echo/crates/warp-core/src/attachment.rs)
+Waiting…
+⎿  Bash(sed -n '300,400p' /Users/james/git/echo/crates/warp-core/src/attachment.rs)
+Waiting…
+⎿   403 /Users/james/git/echo/crates/warp-core/src/attachment.rs
+
+⎿  #[derive(Debug, Error)]
+pub enum RegistryError {
+/// Attempted to register two codecs for the same `TypeId`. #[error("duplicate codec registration for type id: {0:?}")]
+DuplicateTypeId(TypeId),
+}
 
      impl CodecRegistry {
          /// Creates an empty registry.
@@ -1959,18 +1946,19 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
              assert_eq!(wrong_type.decode_for_match::<U8Codec, u8>(), None);
 
              let bad_bytes = AtomPayload::new(U8Codec::TYPE_ID, Bytes::from_static(&[]));
-  ⎿  376:    #[test]
-     391:    #[test]
-  ⎿  Bash(ls -la /Users/james/git/echo/crates/warp-core/tests/fixtures/ 2>/dev/null | head -20)
-     Waiting…
-  ⎿  Bash(find /Users/james/git/echo/crates/warp-core/tests -type f | grep -v "\.rs$" | head -10)
-     Waiting…
-  ⎿  .rw-r--r--@ 1.4k james 17 Jan 05:28 math-fixtures.cbor
-     .rw-r--r--@ 3.7k james 30 Dec  2025 math-fixtures.json
-  ⎿  /Users/james/git/echo/crates/warp-core/tests/fixtures/math-fixtures.json
-     /Users/james/git/echo/crates/warp-core/tests/fixtures/math-fixtures.cbor
-  ⎿  Response:
-       Excellent! Now I have comprehensive information. Let me create a detailed report of my findings.
+
+⎿  376: #[test]
+391: #[test]
+⎿  Bash(ls -la /Users/james/git/echo/crates/warp-core/tests/fixtures/ 2>/dev/null | head -20)
+Waiting…
+⎿  Bash(find /Users/james/git/echo/crates/warp-core/tests -type f | grep -v "\.rs$" | head -10)
+Waiting…
+⎿  .rw-r--r--@ 1.4k james 17 Jan 05:28 math-fixtures.cbor
+.rw-r--r--@ 3.7k james 30 Dec 2025 math-fixtures.json
+⎿  /Users/james/git/echo/crates/warp-core/tests/fixtures/math-fixtures.json
+/Users/james/git/echo/crates/warp-core/tests/fixtures/math-fixtures.cbor
+⎿  Response:
+Excellent! Now I have comprehensive information. Let me create a detailed report of my findings.
 
        Test Structure Exploration Report
 
@@ -2234,554 +2222,549 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
        └────────────────────────────────────┴────────────────────┘
        This comprehensive test infrastructure supports Echo's critical requirement for determinism across the graph
        rewriting engine, materialization bus, and physics simulation components.
-  ⎿  Done (34 tool uses · 67.9k tokens · 1m 17s)
+
+⎿  Done (34 tool uses · 67.9k tokens · 1m 17s)
 
 ⏺ Explore(Explore materialization bus)
-  ⎿  Prompt:
-       Search for "materialization" or "bus" related code in the codebase. The AGENTS.md mentions a "materialization
-       bus" in warp-core. Find:
-       1. Any MaterializationBus or similar infrastructure
-       2. How graph state is currently materialized
-       3. Any commit/hash computation logic
-       4. State root or patch digest computation if it exists
+⎿  Prompt:
+Search for "materialization" or "bus" related code in the codebase. The AGENTS.md mentions a "materialization
+bus" in warp-core. Find: 1. Any MaterializationBus or similar infrastructure 2. How graph state is currently materialized 3. Any commit/hash computation logic 4. State root or patch digest computation if it exists
 
        This is research only - do not modify any code.
-  ⎿  ❯ Search for "materialization" or "bus" related code in the codebase. The AGENTS.md mentions a "materialization bus" in
-       warp-core. Find:
-       1. Any MaterializationBus or similar infrastructure
-       2. How graph state is currently materialized
-       3. Any commit/hash computation logic
-       4. State root or patch digest computation if it exists
+
+⎿  ❯ Search for "materialization" or "bus" related code in the codebase. The AGENTS.md mentions a "materialization bus" in
+warp-core. Find: 1. Any MaterializationBus or similar infrastructure 2. How graph state is currently materialized 3. Any commit/hash computation logic 4. State root or patch digest computation if it exists
 
        This is research only - do not modify any code.
-  ⎿  Search(pattern: "materialization|MaterializationBus")
 
-  ⎿  Search(pattern: "bus|Bus", glob: "**/*.rs", head_limit: 30)
+⎿  Search(pattern: "materialization|MaterializationBus")
 
-  ⎿  Search(pattern: "state.*root|patch.*digest|commit.*hash", glob: "**/*.rs")
+⎿  Search(pattern: "bus|Bus", glob: "\*_/_.rs", head_limit: 30)
 
-  ⎿  Search(pattern: "**/materialization*")
+⎿  Search(pattern: "state.*root|patch.*digest|commit._hash", glob: "\*\*/_.rs")
 
-  ⎿  Search(pattern: "**/*bus*")
+⎿  Search(pattern: "\*_/materialization_")
 
-  ⎿    ⎿  Found 14 files
-          crates/warp-core/src/engine_impl.rs
-          crates/echo-dind-tests/src/lib.rs
-          crates/echo-dind-harness/src/dind.rs
-          crates/warp-wasm/src/lib.rs
-          crates/warp-core/tests/tick_receipt_tests.rs
-          crates/warp-core/tests/dpo_concurrency_litmus.rs
-          crates/warp-core/src/tick_patch.rs
-          crates/warp-core/src/receipt.rs
-          crates/warp-core/src/constants.rs
-          crates/warp-core/tests/determinism_audit.rs
-          crates/warp-core/src/snapshot.rs
-          crates/warp-core/src/serializable.rs
-          crates/warp-core/tests/atom_payload_digest_tests.rs
-          crates/warp-benches/benches/snapshot_hash.rs
-  ⎿    ⎿  Found 31 files
-          crates/warp-core/src/materialization/frame.rs
-          crates/warp-core/tests/materialization_determinism.rs
-          crates/warp-core/tests/materialization_spec_police.rs
-          crates/warp-core/tests/common/mod.rs
-          crates/warp-core/src/materialization/bus.rs
-          .github/workflows/determinism.yml
-          crates/warp-core/src/engine_impl.rs
-          docs/rfc/mat-bus-finish.md
-          docs/architecture-outline.md
-          AGENTS.md
-          crates/warp-core/src/materialization/mod.rs
-          docs/adr/ADR-0003-Materialization-Bus.md
-          CHANGELOG.md
-          crates/warp-core/tests/materialization_engine_integration.rs
-          crates/warp-core/src/materialization/scoped_emitter.rs
-          crates/warp-core/src/materialization/channel.rs
-          crates/warp-core/src/materialization/emission_port.rs
-          crates/warp-core/src/materialization/port.rs
-          crates/warp-core/src/lib.rs
-          docs/spec-canonical-inbox-sequencing.md
-          docs/diagrams.md
-          docs/book/echo/sections/02-high-level-architecture.tex
-          docs/book/echo/sections/05-game-loop.tex
-          docs/adr/ADR-0004-No-Global-State.md
-          docs/adr/ADR-0005-Physics.md
-          ECHO_ROADMAP.md
-          ADR-0003-Materialization-Bus.md
-          ADR-0004-No-Global-State.md
-          ADR-0005-Physics.md
-          specs/spec-000-rewrite/spec.md
-          docs/jitos/spec-0000.md
-  ⎿    ⎿  Found 14 files
-          crates/warp-core/tests/materialization_determinism.rs
-          crates/warp-core/tests/materialization_spec_police.rs
-          crates/warp-core/src/materialization/bus.rs
-          crates/warp-core/src/engine_impl.rs
-          crates/warp-core/src/materialization/mod.rs
-          crates/warp-core/tests/materialization_engine_integration.rs
-          crates/warp-core/src/materialization/reduce_op.rs
-          crates/warp-core/src/materialization/scoped_emitter.rs
-          crates/warp-core/src/materialization/channel.rs
-          crates/warp-core/src/materialization/emission_port.rs
-          crates/warp-core/src/materialization/port.rs
-          crates/echo-wasm-abi/tests/fuzz_wire.rs
-          crates/echo-session-ws-gateway/src/main.rs
-          crates/echo-session-proto/src/lib.rs
-  ⎿    ⎿  Found 91 files
-          /Users/james/git/echo/node_modules/caniuse-lite/data/features/webusb.js
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1sexrj8.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1r817m6.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1angc7c.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.0i713ur.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.11n0qwo.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.0i8sl4a.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1nszx9e.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.0c32ufk.rcg
-          u.o
-          /Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.11btdl8.
-          rcgu.o
-          /Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.0vajpoe.
-          rcgu.o
-          /Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.1ns4agz.
-          rcgu.o
-          /Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.1qe4gop.
-          rcgu.o
-          /Users/james/git/echo/target/debug/deps/xtask-bab4e62ad2822cb6.bnz4eu3milxbusdd79ekxkpk1.1bpnni2.rcgu.o
-          /Users/james/git/echo/target/debug/deps/echo_wesley_gen-723da9b778112c31.bop21ayegbusye6lkkyvev5ea.033eybh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/warp_viewer-498a336359877566.b7g3r3oo1zbmxsfixz5s0busx.13iivtv.rcgu.o
-          /Users/james/git/echo/target/debug/deps/echo_session_service-46acf066f0ffaefb.bus7far318jkmccszitcxc7bh.1bg35s7.r
-          cgu.o
-          /Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.1j7x
-          36x.rcgu.o
-          /Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.0by0
-          oub.rcgu.o
-          /Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.0uqy
-          z8y.rcgu.o
-          /Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.0sfy
-          xxh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/warp_core-d87237a412a2c68f.a87ze4busok9irsb8p959hp34.0ir2rx5.rcgu.o
-          /Users/james/git/echo/target/debug/deps/warp_core-d87237a412a2c68f.a87ze4busok9irsb8p959hp34.1a56pzh.rcgu.o
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_quarter.py
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_custom_business_month.
-          py
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_day.py
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_custom_business_day.py
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_hour.py
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_custom_business_hour.p
-          y
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_year.py
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_month.py
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_d
-          ay.cpython-314.pyc
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_h
-          our.cpython-314.pyc
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_m
-          onth.cpython-314.pyc
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_q
-          uarter.cpython-314.pyc
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_y
-          ear.cpython-314.pyc
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_custom_bus
-          iness_day.cpython-314.pyc
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_custom_bus
-          iness_hour.cpython-314.pyc
-          /Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_custom_bus
-          iness_month.cpython-314.pyc
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.11vuaxi.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0miia7n.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0mj36ps.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1qlllej.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1cr9dlk.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.09ugs3g.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0yvnnce.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1lwe92s.rcgu.o
-          /Users/james/git/echo/target-clippy/debug/deps/libusvg-56c09378487b61e1.rmeta
-          /Users/james/git/echo/target-test/debug/deps/libusvg-e365497d4e450faa.rmeta
-          /Users/james/git/echo/target-test/debug/deps/libusvg-e365497d4e450faa.rlib
-          /Users/james/git/echo/target-test/debug/incremental/echo_wasm_abi-16ox3qyzklihq/s-hey5mh83ss-19isaz6-8vcwqxf0q9as
-          t9mxtmsjcmgwg/59womft9t83sbuse9a98d7hdj.o
-          /Users/james/git/echo/target-test/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.1xjem33.rcg
-          u.o
-          /Users/james/git/echo/target-test/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0qln340.rcg
-          u.o
-          /Users/james/git/echo/target-test/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0n4b0wc.rcg
-          u.o
-          /Users/james/git/echo/target-test/debug/incremental/echo_session_proto-15c9hgpzknuyg/s-hexmd0tqpa-148oo1y-cqngx0p
-          x6pp90xw8dr60wmpuk/2c76gsb0efj79x2xiczbusbpg.o
-          /Users/james/git/echo/target-test/debug/deps/echo_session_proto-4345c03b4b2d3dd2.2c76gsb0efj79x2xiczbusbpg.08ow9f
-          l.rcgu.o
-          /Users/james/git/echo/target/debug/deps/libusvg-56c09378487b61e1.rmeta
-          /Users/james/git/echo/target/debug/deps/libusvg-e365497d4e450faa.rmeta
-          /Users/james/git/echo/target/debug/deps/libusvg-e365497d4e450faa.rlib
-          /Users/james/git/echo/target/debug/incremental/echo_wasm_abi-16ox3qyzklihq/s-hey0hmxqb3-0tmprn8-4h2squ1s0kdabdqb6
-          so6wrbph/59womft9t83sbuse9a98d7hdj.o
-          /Users/james/git/echo/target/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0jot3y7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0gr8agf.rcgu.o
-          /Users/james/git/echo/target/debug/incremental/echo_session_proto-15c9hgpzknuyg/s-hexmowcpzw-00z8cy4-4izq1prj46rq
-          qepyfem91ad67/2c76gsb0efj79x2xiczbusbpg.o
-          /Users/james/git/echo/target/debug/deps/echo_session_proto-4345c03b4b2d3dd2.2c76gsb0efj79x2xiczbusbpg.145450t.rcg
-          u.o
-          /Users/james/git/echo/target/debug/incremental/ledger_tests-3cr1zge85yfnj/s-hey58147lo-1kk7u0x-eupozq2hoa3rc89a41
-          s9qhw3x/cobxgybuskq2v1p708by3jynh.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0ic3fem.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1k2o66w.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1q8i4ju.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1jxkgiw.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0xvrtpz.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0ykmq1l.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1k9k0vl.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1oil3i5.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1vkx5co.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0xnv2vt.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1y00ozh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1x2vx71.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1n0bcq8.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1nzunit.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0ra8wep.rcgu.o
-          /Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.023ynya.rcgu.o
-          /Users/james/git/echo/target-doc/doc/src/warp_core/materialization/bus.rs.html
-          /Users/james/git/echo/docs/rfc/mat-bus-finish.md
-          /Users/james/git/echo/crates/warp-core/src/materialization/bus.rs
-          /Users/james/git/echo/.git/refs/heads/materialization-bus
-          /Users/james/git/echo/.git/logs/refs/heads/materialization-bus
-          /Users/james/git/echo/target/doc/src/warp_core/materialization/bus.rs.html
-          /Users/james/git/echo/.git/refs/remotes/origin/materialization-bus
-          /Users/james/git/echo/.git/logs/refs/remotes/origin/materialization-bus
-          /Users/james/git/echo/target/release/deps/libusvg-ee7552b6ee3198dd.rmeta
-          /Users/james/git/echo/target/release/deps/libusvg-ee7552b6ee3198dd.rlib
-  ⎿    ⎿  Found 100 files
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.06
-          x6107.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1c
-          ut5l8.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0p
-          bjco0.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1e
-          raiy7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.18
-          uyui9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0b
-          ce2b9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1g
-          d1srp.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1r
-          1fz76.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1u
-          xcmjw.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0l
-          ncwqm.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.19
-          klqm3.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1h
-          bam4u.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0n
-          em2mg.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1x
-          1wyfh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1g
-          d1srp.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0l
-          ncwqm.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1u
-          xcmjw.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1r
-          1fz76.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0n
-          em2mg.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.19
-          klqm3.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1h
-          bam4u.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1x
-          1wyfh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.06
-          x6107.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1c
-          ut5l8.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.18
-          uyui9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1e
-          raiy7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0b
-          ce2b9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.06
-          x6107.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1c
-          ut5l8.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1e
-          raiy7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0p
-          bjco0.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.18
-          uyui9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0b
-          ce2b9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1g
-          d1srp.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1u
-          xcmjw.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1r
-          1fz76.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0l
-          ncwqm.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.19
-          klqm3.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1h
-          bam4u.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0n
-          em2mg.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1x
-          1wyfh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.1x
-          1wyfh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.1r
-          1fz76.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1g
-          d1srp.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1r
-          1fz76.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1u
-          xcmjw.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0l
-          ncwqm.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1h
-          bam4u.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.19
-          klqm3.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0n
-          em2mg.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1x
-          1wyfh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1c
-          ut5l8.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.06
-          x6107.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0p
-          bjco0.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1e
-          raiy7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.18
-          uyui9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0b
-          ce2b9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.2dx9lk4m6lxh7j4to31m8hz4z.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.8a85nivbd6thl615y0udnt1iu.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0n
-          em2mg.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1h
-          bam4u.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.19
-          klqm3.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1x
-          1wyfh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1g
-          d1srp.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0l
-          ncwqm.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1r
-          1fz76.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1u
-          xcmjw.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0b
-          ce2b9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1c
-          ut5l8.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.06
-          x6107.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.18
-          uyui9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0p
-          bjco0.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1e
-          raiy7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.06mkffwp3ptvvuyqw4m5zi87w.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.06mkffwp3ptvvuyqw4m5zi87w.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.03
-          1pzv7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0b
-          ce2b9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1c
-          ut5l8.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.06
-          x6107.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0n
-          9nxey.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.18
-          uyui9.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1e
-          raiy7.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0p
-          bjco0.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0n
-          em2mg.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1h
-          bam4u.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.19
-          klqm3.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1x
-          1wyfh.rcgu.o
-          /Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1g
-          d1srp.rcgu.o
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/bus.rs)
+⎿  Search(pattern: "\**/*bus\*")
 
-  ⎿  Read(/Users/james/git/echo/docs/adr/ADR-0003-Materialization-Bus.md)
+⎿    ⎿  Found 14 files
+crates/warp-core/src/engine_impl.rs
+crates/echo-dind-tests/src/lib.rs
+crates/echo-dind-harness/src/dind.rs
+crates/warp-wasm/src/lib.rs
+crates/warp-core/tests/tick_receipt_tests.rs
+crates/warp-core/tests/dpo_concurrency_litmus.rs
+crates/warp-core/src/tick_patch.rs
+crates/warp-core/src/receipt.rs
+crates/warp-core/src/constants.rs
+crates/warp-core/tests/determinism_audit.rs
+crates/warp-core/src/snapshot.rs
+crates/warp-core/src/serializable.rs
+crates/warp-core/tests/atom_payload_digest_tests.rs
+crates/warp-benches/benches/snapshot_hash.rs
+⎿    ⎿  Found 31 files
+crates/warp-core/src/materialization/frame.rs
+crates/warp-core/tests/materialization_determinism.rs
+crates/warp-core/tests/materialization_spec_police.rs
+crates/warp-core/tests/common/mod.rs
+crates/warp-core/src/materialization/bus.rs
+.github/workflows/determinism.yml
+crates/warp-core/src/engine_impl.rs
+docs/rfc/mat-bus-finish.md
+docs/architecture-outline.md
+AGENTS.md
+crates/warp-core/src/materialization/mod.rs
+docs/adr/ADR-0003-Materialization-Bus.md
+CHANGELOG.md
+crates/warp-core/tests/materialization_engine_integration.rs
+crates/warp-core/src/materialization/scoped_emitter.rs
+crates/warp-core/src/materialization/channel.rs
+crates/warp-core/src/materialization/emission_port.rs
+crates/warp-core/src/materialization/port.rs
+crates/warp-core/src/lib.rs
+docs/spec-canonical-inbox-sequencing.md
+docs/diagrams.md
+docs/book/echo/sections/02-high-level-architecture.tex
+docs/book/echo/sections/05-game-loop.tex
+docs/adr/ADR-0004-No-Global-State.md
+docs/adr/ADR-0005-Physics.md
+ECHO_ROADMAP.md
+ADR-0003-Materialization-Bus.md
+ADR-0004-No-Global-State.md
+ADR-0005-Physics.md
+specs/spec-000-rewrite/spec.md
+docs/jitos/spec-0000.md
+⎿    ⎿  Found 14 files
+crates/warp-core/tests/materialization_determinism.rs
+crates/warp-core/tests/materialization_spec_police.rs
+crates/warp-core/src/materialization/bus.rs
+crates/warp-core/src/engine_impl.rs
+crates/warp-core/src/materialization/mod.rs
+crates/warp-core/tests/materialization_engine_integration.rs
+crates/warp-core/src/materialization/reduce_op.rs
+crates/warp-core/src/materialization/scoped_emitter.rs
+crates/warp-core/src/materialization/channel.rs
+crates/warp-core/src/materialization/emission_port.rs
+crates/warp-core/src/materialization/port.rs
+crates/echo-wasm-abi/tests/fuzz_wire.rs
+crates/echo-session-ws-gateway/src/main.rs
+crates/echo-session-proto/src/lib.rs
+⎿    ⎿  Found 91 files
+/Users/james/git/echo/node_modules/caniuse-lite/data/features/webusb.js
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1sexrj8.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1r817m6.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1angc7c.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.0i713ur.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.11n0qwo.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.0i8sl4a.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.1nszx9e.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/tick_receipt_tests-39543b211e4d4255.4busktzzcy63cefdjoi4e2qv1.0c32ufk.rcg
+u.o
+/Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.11btdl8.
+rcgu.o
+/Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.0vajpoe.
+rcgu.o
+/Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.1ns4agz.
+rcgu.o
+/Users/james/git/echo/target/debug/deps/proptest_seed_pinning-3290e9553f67db96.edopj5bobustybpfmw8fuqp5x.1qe4gop.
+rcgu.o
+/Users/james/git/echo/target/debug/deps/xtask-bab4e62ad2822cb6.bnz4eu3milxbusdd79ekxkpk1.1bpnni2.rcgu.o
+/Users/james/git/echo/target/debug/deps/echo_wesley_gen-723da9b778112c31.bop21ayegbusye6lkkyvev5ea.033eybh.rcgu.o
+/Users/james/git/echo/target/debug/deps/warp_viewer-498a336359877566.b7g3r3oo1zbmxsfixz5s0busx.13iivtv.rcgu.o
+/Users/james/git/echo/target/debug/deps/echo_session_service-46acf066f0ffaefb.bus7far318jkmccszitcxc7bh.1bg35s7.r
+cgu.o
+/Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.1j7x
+36x.rcgu.o
+/Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.0by0
+oub.rcgu.o
+/Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.0uqy
+z8y.rcgu.o
+/Users/james/git/echo/target/debug/deps/atom_payload_digest_tests-aa4965e76f0e2858.82u8n586bustdnlggsmyyemf3.0sfy
+xxh.rcgu.o
+/Users/james/git/echo/target/debug/deps/warp_core-d87237a412a2c68f.a87ze4busok9irsb8p959hp34.0ir2rx5.rcgu.o
+/Users/james/git/echo/target/debug/deps/warp_core-d87237a412a2c68f.a87ze4busok9irsb8p959hp34.1a56pzh.rcgu.o
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_quarter.py
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_custom_business_month.
+py
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_day.py
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_custom_business_day.py
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_hour.py
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_custom_business_hour.p
+y
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_year.py
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/test_business_month.py
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_d
+ay.cpython-314.pyc
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_h
+our.cpython-314.pyc
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_m
+onth.cpython-314.pyc
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_q
+uarter.cpython-314.pyc
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_business_y
+ear.cpython-314.pyc
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_custom_bus
+iness_day.cpython-314.pyc
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_custom_bus
+iness_hour.cpython-314.pyc
+/Users/james/git/echo/.venv/lib/python3.14/site-packages/pandas/tests/tseries/offsets/**pycache**/test_custom_bus
+iness_month.cpython-314.pyc
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.11vuaxi.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0miia7n.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0mj36ps.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1qlllej.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1cr9dlk.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.09ugs3g.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0yvnnce.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1lwe92s.rcgu.o
+/Users/james/git/echo/target-clippy/debug/deps/libusvg-56c09378487b61e1.rmeta
+/Users/james/git/echo/target-test/debug/deps/libusvg-e365497d4e450faa.rmeta
+/Users/james/git/echo/target-test/debug/deps/libusvg-e365497d4e450faa.rlib
+/Users/james/git/echo/target-test/debug/incremental/echo_wasm_abi-16ox3qyzklihq/s-hey5mh83ss-19isaz6-8vcwqxf0q9as
+t9mxtmsjcmgwg/59womft9t83sbuse9a98d7hdj.o
+/Users/james/git/echo/target-test/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.1xjem33.rcg
+u.o
+/Users/james/git/echo/target-test/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0qln340.rcg
+u.o
+/Users/james/git/echo/target-test/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0n4b0wc.rcg
+u.o
+/Users/james/git/echo/target-test/debug/incremental/echo_session_proto-15c9hgpzknuyg/s-hexmd0tqpa-148oo1y-cqngx0p
+x6pp90xw8dr60wmpuk/2c76gsb0efj79x2xiczbusbpg.o
+/Users/james/git/echo/target-test/debug/deps/echo_session_proto-4345c03b4b2d3dd2.2c76gsb0efj79x2xiczbusbpg.08ow9f
+l.rcgu.o
+/Users/james/git/echo/target/debug/deps/libusvg-56c09378487b61e1.rmeta
+/Users/james/git/echo/target/debug/deps/libusvg-e365497d4e450faa.rmeta
+/Users/james/git/echo/target/debug/deps/libusvg-e365497d4e450faa.rlib
+/Users/james/git/echo/target/debug/incremental/echo_wasm_abi-16ox3qyzklihq/s-hey0hmxqb3-0tmprn8-4h2squ1s0kdabdqb6
+so6wrbph/59womft9t83sbuse9a98d7hdj.o
+/Users/james/git/echo/target/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0jot3y7.rcgu.o
+/Users/james/git/echo/target/debug/deps/echo_wasm_abi-3b5a24c1218ff99b.59womft9t83sbuse9a98d7hdj.0gr8agf.rcgu.o
+/Users/james/git/echo/target/debug/incremental/echo_session_proto-15c9hgpzknuyg/s-hexmowcpzw-00z8cy4-4izq1prj46rq
+qepyfem91ad67/2c76gsb0efj79x2xiczbusbpg.o
+/Users/james/git/echo/target/debug/deps/echo_session_proto-4345c03b4b2d3dd2.2c76gsb0efj79x2xiczbusbpg.145450t.rcg
+u.o
+/Users/james/git/echo/target/debug/incremental/ledger_tests-3cr1zge85yfnj/s-hey58147lo-1kk7u0x-eupozq2hoa3rc89a41
+s9qhw3x/cobxgybuskq2v1p708by3jynh.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0ic3fem.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1k2o66w.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1q8i4ju.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1jxkgiw.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0xvrtpz.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0ykmq1l.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1k9k0vl.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1oil3i5.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1vkx5co.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0xnv2vt.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1y00ozh.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1x2vx71.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1n0bcq8.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.1nzunit.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.0ra8wep.rcgu.o
+/Users/james/git/echo/target/debug/deps/ledger_tests-6fb4459ad51559d5.cobxgybuskq2v1p708by3jynh.023ynya.rcgu.o
+/Users/james/git/echo/target-doc/doc/src/warp_core/materialization/bus.rs.html
+/Users/james/git/echo/docs/rfc/mat-bus-finish.md
+/Users/james/git/echo/crates/warp-core/src/materialization/bus.rs
+/Users/james/git/echo/.git/refs/heads/materialization-bus
+/Users/james/git/echo/.git/logs/refs/heads/materialization-bus
+/Users/james/git/echo/target/doc/src/warp_core/materialization/bus.rs.html
+/Users/james/git/echo/.git/refs/remotes/origin/materialization-bus
+/Users/james/git/echo/.git/logs/refs/remotes/origin/materialization-bus
+/Users/james/git/echo/target/release/deps/libusvg-ee7552b6ee3198dd.rmeta
+/Users/james/git/echo/target/release/deps/libusvg-ee7552b6ee3198dd.rlib
+⎿    ⎿  Found 100 files
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.06
+x6107.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1c
+ut5l8.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0p
+bjco0.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1e
+raiy7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.18
+uyui9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0b
+ce2b9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1g
+d1srp.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1r
+1fz76.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1u
+xcmjw.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0l
+ncwqm.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.19
+klqm3.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1h
+bam4u.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.0n
+em2mg.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.458o3anq7v5ei1q8z20540fup.1x
+1wyfh.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1g
+d1srp.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0l
+ncwqm.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1u
+xcmjw.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1r
+1fz76.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0n
+em2mg.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.19
+klqm3.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1h
+bam4u.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1x
+1wyfh.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.06
+x6107.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1c
+ut5l8.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.18
+uyui9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.1e
+raiy7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.9sywwjg0h73tyozwu3lguqdr7.0b
+ce2b9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.06
+x6107.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1c
+ut5l8.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1e
+raiy7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0p
+bjco0.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.18
+uyui9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0b
+ce2b9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1g
+d1srp.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1u
+xcmjw.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1r
+1fz76.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0l
+ncwqm.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.19
+klqm3.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1h
+bam4u.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.0n
+em2mg.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.0mwcd2xzxpyz143zpqb1b3ukp.1x
+1wyfh.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.1x
+1wyfh.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5ljy85n9s1fqeqxazu3at72hx.1r
+1fz76.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1g
+d1srp.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1r
+1fz76.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1u
+xcmjw.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0l
+ncwqm.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1h
+bam4u.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.19
+klqm3.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0n
+em2mg.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1x
+1wyfh.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1c
+ut5l8.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.06
+x6107.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0p
+bjco0.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.1e
+raiy7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.18
+uyui9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.5g738ui0p7faehn5splq2tldc.0b
+ce2b9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.2dx9lk4m6lxh7j4to31m8hz4z.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.8a85nivbd6thl615y0udnt1iu.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0n
+em2mg.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1h
+bam4u.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.19
+klqm3.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1x
+1wyfh.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1g
+d1srp.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0l
+ncwqm.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1r
+1fz76.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1u
+xcmjw.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0b
+ce2b9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1c
+ut5l8.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.06
+x6107.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.18
+uyui9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.0p
+bjco0.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.f1nwe9ovq4s2jqnwet5x8y051.1e
+raiy7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.06mkffwp3ptvvuyqw4m5zi87w.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.06mkffwp3ptvvuyqw4m5zi87w.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.03
+1pzv7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0b
+ce2b9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1c
+ut5l8.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.06
+x6107.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0n
+9nxey.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.18
+uyui9.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1e
+raiy7.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0p
+bjco0.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.0n
+em2mg.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1h
+bam4u.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.19
+klqm3.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1x
+1wyfh.rcgu.o
+/Users/james/git/echo/target/debug/deps/materialization_determinism-001ea16f8c1d82dc.1cxt0lzvzr446desi43238t6m.1g
+d1srp.rcgu.o
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/bus.rs)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/mod.rs)
+⎿  Read(/Users/james/git/echo/docs/adr/ADR-0003-Materialization-Bus.md)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/frame.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/mod.rs)
 
-  ⎿  Read 488 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/frame.rs)
 
-  ⎿  Read 126 lines
+⎿  Read 488 lines
 
-  ⎿  Read 65 lines
+⎿  Read 126 lines
 
-  ⎿  Read 255 lines
+⎿  Read 65 lines
 
-  ⎿  Search(pattern: "state_root|patch.*digest|hash.*state", glob: "**/*.rs", output_mode: "content", head_limit: 50)
+⎿  Read 255 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/emit_key.rs)
+⎿  Search(pattern: "state*root|patch.*digest|hash.\*state", glob: "\*\*/\_.rs", output_mode: "content", head_limit: 50)
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/channel.rs)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/emit_key.rs)
 
-  ⎿  Read 165 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/channel.rs)
 
-  ⎿  Read 177 lines
+⎿  Read 165 lines
 
-  ⎿    ⎿  Found 50 lines
-          crates/warp-core/src/graph.rs:414:    /// Computes a canonical hash of the entire graph state.
-          crates/warp-core/src/constants.rs:8:/// This value is committed into both `patch_digest` (tick patches) and
-          crates/warp-core/src/snapshot.rs:7://! definitions of `state_root` (graph-only hash) and `commit hash` (aka
-          crates/warp-core/src/snapshot.rs:8://! `commit_id`: `state_root` + metadata + parents).
-          crates/warp-core/src/snapshot.rs:11://! - The graph state hash (`state_root`) is a BLAKE3 digest over a canonical
-          crates/warp-core/src/snapshot.rs:45:/// `state_root` (graph-only hash) and commit metadata (parents, digests,
-          crates/warp-core/src/snapshot.rs:52:    /// Canonical commit hash derived from `state_root` + metadata (see
-          below).
-          crates/warp-core/src/snapshot.rs:69:    /// commit id commits to `state_root` and `patch_digest` (plus
-          parents/policy),
-          crates/warp-core/src/snapshot.rs:71:    pub patch_digest: Hash,
-          crates/warp-core/src/snapshot.rs:88:pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
-          crates/warp-core/src/snapshot.rs:211:/// Computes the final commit hash from the state root and metadata digests.
-          crates/warp-core/src/snapshot.rs:216:    state_root: &Hash,
-          crates/warp-core/src/snapshot.rs:232:    h.update(state_root);
-          crates/warp-core/src/snapshot.rs:242:/// Commit hash v2 commits only to the replay boundary artifact: `state_root`
-          crates/warp-core/src/snapshot.rs:243:/// and the tick `patch_digest` (plus explicit parents and policy id).
-          crates/warp-core/src/snapshot.rs:245:    state_root: &Hash,
-          crates/warp-core/src/snapshot.rs:247:    patch_digest: &Hash,
-          crates/warp-core/src/snapshot.rs:258:    // State root + patch digest + policy id.
-          crates/warp-core/src/snapshot.rs:259:    h.update(state_root);
-          crates/warp-core/src/snapshot.rs:260:    h.update(patch_digest);
-          crates/warp-core/src/tick_patch.rs:295:/// The patch digest commits to:
-          crates/warp-core/src/tick_patch.rs:345:        let digest = compute_patch_digest_v2(
-          crates/warp-core/src/tick_patch.rs:414:        let expected = compute_patch_digest_v2(
-          crates/warp-core/src/tick_patch.rs:750:    /// The patch digest did not match its contents.
-          crates/warp-core/src/tick_patch.rs:751:    #[error("patch digest mismatch")]
-          crates/warp-core/src/tick_patch.rs:755:fn compute_patch_digest_v2(
-          crates/warp-core/src/tick_patch.rs:802:/// Encodes ops into the patch digest stream.
-          crates/warp-core/src/tick_patch.rs:805:/// stable, versioned encoding for hashing (`patch_digest`). They are
-          crates/warp-core/src/tick_patch.rs:949:///    edits suitable for deterministic replay and hashing
-          (`patch_digest`).
-          crates/warp-core/src/tick_patch.rs:978:///   for both replay ordering and `patch_digest` hashing.
-          crates/warp-core/tests/dpo_concurrency_litmus.rs:111:        a.patch_digest, b.patch_digest,
-          crates/warp-core/tests/dpo_concurrency_litmus.rs:112:        "patch digest must be order-independent"
-          crates/warp-core/src/engine_impl.rs:20:use crate::snapshot::{compute_commit_hash_v2, compute_state_root,
-          Snapshot};
-          crates/warp-core/src/engine_impl.rs:233:    /// The policy ID is committed into `patch_digest` and `commit_id` v2.
-          crates/warp-core/src/engine_impl.rs:317:    /// Policy identifier committed into `patch_digest` (tick patches) and
-          crates/warp-core/src/engine_impl.rs:378:    /// `policy_id` is committed into both `patch_digest` (tick patches)
-          and
-          crates/warp-core/src/engine_impl.rs:395:    /// - `policy_id`: Policy identifier committed into `patch_digest` and
-           `commit_id` v2.
-          crates/warp-core/src/engine_impl.rs:415:    /// - `policy_id`: Policy identifier committed into `patch_digest` and
-           `commit_id` v2.
-          crates/warp-core/src/engine_impl.rs:444:    /// - `policy_id`: Policy identifier committed into `patch_digest` and
-           `commit_id` v2.
-          crates/warp-core/src/engine_impl.rs:511:    /// - `policy_id`: policy identifier committed into `patch_digest` and
-           `commit_id` v2.
-          crates/warp-core/src/engine_impl.rs:581:    /// - `policy_id`: Policy identifier committed into `patch_digest` and
-           `commit_id` v2.
-          crates/warp-core/src/engine_impl.rs:843:        let patch_digest = patch.digest();
-          crates/warp-core/src/engine_impl.rs:845:        let state_root = crate::snapshot::compute_state_root(&self.state,
-          &self.current_root);
-          crates/warp-core/src/engine_impl.rs:855:            &state_root,
-          crates/warp-core/src/engine_impl.rs:857:            &patch_digest,
-          crates/warp-core/src/engine_impl.rs:867:            patch_digest,
-          crates/warp-core/src/engine_impl.rs:1000:        // same v2 commit hash shape (parents + state_root +
-          patch_digest) but
-          crates/warp-core/src/engine_impl.rs:1003:        let state_root = compute_state_root(&self.state,
-          &self.current_root);
-          crates/warp-core/src/engine_impl.rs:1015:        let patch_digest = WarpTickPatchV1::new(
-          crates/warp-core/src/engine_impl.rs:1024:        let hash = compute_commit_hash_v2(&state_root, &parents,
-          &patch_digest, policy_id);
+⎿  Read 177 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/snapshot.rs · lines 1-150)
+⎿    ⎿  Found 50 lines
+crates/warp-core/src/graph.rs:414: /// Computes a canonical hash of the entire graph state.
+crates/warp-core/src/constants.rs:8:/// This value is committed into both `patch_digest` (tick patches) and
+crates/warp-core/src/snapshot.rs:7://! definitions of `state_root` (graph-only hash) and `commit hash` (aka
+crates/warp-core/src/snapshot.rs:8://! `commit_id`: `state_root` + metadata + parents).
+crates/warp-core/src/snapshot.rs:11://! - The graph state hash (`state_root`) is a BLAKE3 digest over a canonical
+crates/warp-core/src/snapshot.rs:45:/// `state_root` (graph-only hash) and commit metadata (parents, digests,
+crates/warp-core/src/snapshot.rs:52: /// Canonical commit hash derived from `state_root` + metadata (see
+below).
+crates/warp-core/src/snapshot.rs:69: /// commit id commits to `state_root` and `patch_digest` (plus
+parents/policy),
+crates/warp-core/src/snapshot.rs:71: pub patch_digest: Hash,
+crates/warp-core/src/snapshot.rs:88:pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
+crates/warp-core/src/snapshot.rs:211:/// Computes the final commit hash from the state root and metadata digests.
+crates/warp-core/src/snapshot.rs:216: state_root: &Hash,
+crates/warp-core/src/snapshot.rs:232: h.update(state_root);
+crates/warp-core/src/snapshot.rs:242:/// Commit hash v2 commits only to the replay boundary artifact: `state_root`
+crates/warp-core/src/snapshot.rs:243:/// and the tick `patch_digest` (plus explicit parents and policy id).
+crates/warp-core/src/snapshot.rs:245: state_root: &Hash,
+crates/warp-core/src/snapshot.rs:247: patch_digest: &Hash,
+crates/warp-core/src/snapshot.rs:258: // State root + patch digest + policy id.
+crates/warp-core/src/snapshot.rs:259: h.update(state_root);
+crates/warp-core/src/snapshot.rs:260: h.update(patch_digest);
+crates/warp-core/src/tick_patch.rs:295:/// The patch digest commits to:
+crates/warp-core/src/tick_patch.rs:345: let digest = compute_patch_digest_v2(
+crates/warp-core/src/tick_patch.rs:414: let expected = compute_patch_digest_v2(
+crates/warp-core/src/tick_patch.rs:750: /// The patch digest did not match its contents.
+crates/warp-core/src/tick_patch.rs:751: #[error("patch digest mismatch")]
+crates/warp-core/src/tick_patch.rs:755:fn compute_patch_digest_v2(
+crates/warp-core/src/tick_patch.rs:802:/// Encodes ops into the patch digest stream.
+crates/warp-core/src/tick_patch.rs:805:/// stable, versioned encoding for hashing (`patch_digest`). They are
+crates/warp-core/src/tick_patch.rs:949:/// edits suitable for deterministic replay and hashing
+(`patch_digest`).
+crates/warp-core/src/tick_patch.rs:978:/// for both replay ordering and `patch_digest` hashing.
+crates/warp-core/tests/dpo_concurrency_litmus.rs:111: a.patch_digest, b.patch_digest,
+crates/warp-core/tests/dpo_concurrency_litmus.rs:112: "patch digest must be order-independent"
+crates/warp-core/src/engine_impl.rs:20:use crate::snapshot::{compute_commit_hash_v2, compute_state_root,
+Snapshot};
+crates/warp-core/src/engine_impl.rs:233: /// The policy ID is committed into `patch_digest` and `commit_id` v2.
+crates/warp-core/src/engine_impl.rs:317: /// Policy identifier committed into `patch_digest` (tick patches) and
+crates/warp-core/src/engine_impl.rs:378: /// `policy_id` is committed into both `patch_digest` (tick patches)
+and
+crates/warp-core/src/engine_impl.rs:395: /// - `policy_id`: Policy identifier committed into `patch_digest` and
+`commit_id` v2.
+crates/warp-core/src/engine_impl.rs:415: /// - `policy_id`: Policy identifier committed into `patch_digest` and
+`commit_id` v2.
+crates/warp-core/src/engine_impl.rs:444: /// - `policy_id`: Policy identifier committed into `patch_digest` and
+`commit_id` v2.
+crates/warp-core/src/engine_impl.rs:511: /// - `policy_id`: policy identifier committed into `patch_digest` and
+`commit_id` v2.
+crates/warp-core/src/engine_impl.rs:581: /// - `policy_id`: Policy identifier committed into `patch_digest` and
+`commit_id` v2.
+crates/warp-core/src/engine_impl.rs:843: let patch_digest = patch.digest();
+crates/warp-core/src/engine_impl.rs:845: let state_root = crate::snapshot::compute_state_root(&self.state,
+&self.current_root);
+crates/warp-core/src/engine_impl.rs:855: &state_root,
+crates/warp-core/src/engine_impl.rs:857: &patch_digest,
+crates/warp-core/src/engine_impl.rs:867: patch_digest,
+crates/warp-core/src/engine_impl.rs:1000: // same v2 commit hash shape (parents + state_root +
+patch_digest) but
+crates/warp-core/src/engine_impl.rs:1003: let state_root = compute_state_root(&self.state,
+&self.current_root);
+crates/warp-core/src/engine_impl.rs:1015: let patch_digest = WarpTickPatchV1::new(
+crates/warp-core/src/engine_impl.rs:1024: let hash = compute_commit_hash_v2(&state_root, &parents,
+&patch_digest, policy_id);
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/tick_patch.rs · lines 1-150)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/snapshot.rs · lines 1-150)
 
-  ⎿  Read 150 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/tick_patch.rs · lines 1-150)
 
-  ⎿  Read 150 lines
+⎿  Read 150 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/tick_patch.rs · lines 290-439)
+⎿  Read 150 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/engine_impl.rs · lines 820-899)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/tick_patch.rs · lines 290-439)
 
-  ⎿  Read 150 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/engine_impl.rs · lines 820-899)
 
-  ⎿  Read 80 lines
+⎿  Read 150 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/tick_patch.rs · lines 750-849)
+⎿  Read 80 lines
 
-  ⎿  Search(pattern: "fn compute_patch_digest", glob: "**/*.rs", output_mode: "content", head_limit: 20)
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/tick_patch.rs · lines 750-849)
 
-  ⎿  Read 100 lines
+⎿  Search(pattern: "fn compute\*patch_digest", glob: "\*\*/\_.rs", output_mode: "content", head_limit: 20)
 
-  ⎿    ⎿  Found 1 line
-          crates/warp-core/src/tick_patch.rs:755:fn compute_patch_digest_v2(
-  ⎿  Read(/Users/james/git/echo/docs/rfc/mat-bus-finish.md)
+⎿  Read 100 lines
 
-  ⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/reduce_op.rs)
+⎿    ⎿  Found 1 line
+crates/warp-core/src/tick_patch.rs:755:fn compute_patch_digest_v2(
+⎿  Read(/Users/james/git/echo/docs/rfc/mat-bus-finish.md)
 
-  ⎿  Read 661 lines
+⎿  Read(/Users/james/git/echo/crates/warp-core/src/materialization/reduce_op.rs)
 
-  ⎿  Read 385 lines
+⎿  Read 661 lines
 
-  ⎿  Response:
-       Perfect! Now I have comprehensive information. Let me create a detailed research report.
+⎿  Read 385 lines
+
+⎿  Response:
+Perfect! Now I have comprehensive information. Let me create a detailed research report.
 
        Research Summary: Materialization Bus Infrastructure in WARP
 
@@ -2973,98 +2956,105 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
        4. Tick-Scoped Lifecycle - Bus is cleared after finalization, preventing cross-tick contamination
        5. Paper III Integration - Tick patches are replayable delta artifacts sufficient for deterministic state
        recovery
-  ⎿  Done (20 tool uses · 94.3k tokens · 53s)
+
+⎿  Done (20 tool uses · 94.3k tokens · 53s)
 
 ❯ please checkout a git branch called graph-boaw for this work and be sure to git -A and git commit before ending each
-  of your turns
+of your turns
 
 ∴ Thinking…
 
-  The user wants me to:
+The user wants me to:
 
-  1. Create a new git branch called graph-boaw for the BOAW work
-  2. Commit any changes before ending each turn
+1. Create a new git branch called graph-boaw for the BOAW work
+2. Commit any changes before ending each turn
 
-  Let me first create the branch and then continue with my analysis and implementation plan.
+Let me first create the branch and then continue with my analysis and implementation plan.
 
 ⏺ Let me create the branch for this work first.
 
 ⏺ Bash(git checkout -b graph-boaw)
-  ⎿  Switched to a new branch 'graph-boaw'
+⎿  Switched to a new branch 'graph-boaw'
 
 ∴ Thinking…
 
-  Good, branch created. Now let me compile my analysis into a comprehensive implementation plan. I have a lot of context from
-   the subagent explorations.
+Good, branch created. Now let me compile my analysis into a comprehensive implementation plan. I have a lot of context from
+the subagent explorations.
 
-  Let me summarize what I've learned:
+Let me summarize what I've learned:
 
-  Current State
+Current State
 
-  1. GraphStore (graph.rs, 568 lines): In-memory BTreeMap-based store with nodes, edges, attachments. Supports canonical
-  hashing via canonical_state_hash().
-  2. WSC Format (wsc/): Mature zero-copy snapshot format with:
+1. GraphStore (graph.rs, 568 lines): In-memory BTreeMap-based store with nodes, edges, attachments. Supports canonical
+   hashing via canonical_state_hash().
+2. WSC Format (wsc/): Mature zero-copy snapshot format with:
     - WscFile / WarpView for reading
     - write_wsc_one_warp for writing
     - build_one_warp_input() for GraphStore → WSC conversion
     - All Pod types, 8-byte aligned, ready for mmap
-  3. Footprint Infrastructure (footprint.rs, 250 lines): Already has:
+
+3. Footprint Infrastructure (footprint.rs, 250 lines): Already has:
     - Footprint struct with read/write sets for nodes, edges, attachments, ports
     - factor_mask for O(1) prefiltering
     - independent() method for conflict detection
-  4. Scheduler (scheduler.rs, 1304 lines): RadixScheduler with:
+
+4. Scheduler (scheduler.rs, 1304 lines): RadixScheduler with:
     - PendingRewrite with footprint and phase tracking
     - ActiveFootprints with GenSet for O(1) conflict detection
     - O(n) radix sort for deterministic ordering
     - try_reserve() for admission control
-  5. TickPatch (tick_patch.rs, 1694 lines): Has:
+
+5. TickPatch (tick_patch.rs, 1694 lines): Has:
     - WarpOp enum (UpsertNode, DeleteNode, UpsertEdge, DeleteEdge, SetAttachment, etc.)
     - WarpTickPatchV1 with ops, in_slots, out_slots, patch_digest
     - **[Phase 5 Complete]**: Now used for execution emissions via TickDelta
-  6. Engine (engine_impl.rs, 1806 lines): **[Phase 5 Complete]**: Current flow:
+
+6. Engine (engine_impl.rs, 1806 lines): **[Phase 5 Complete]**: Current flow:
     - Executors receive `&GraphView` (read-only) and emit ops to `&mut TickDelta`
     - No GraphStore mutation during execution
     - State updated post-execution via `apply_to_state()`
-  7. Materialization (materialization/): Mature bus system for output emissions with deterministic ordering.
 
-  What ADR-0007 Requires
+7. Materialization (materialization/): Mature bus system for output emissions with deterministic ordering.
 
-  The ADR outlines a migration plan (status as of 2026-01-18):
+What ADR-0007 Requires
 
-  1. Step 1: Introduce TickDelta + canonical merge alongside existing GraphStore **[COMPLETE]**
-  2. Step 2: Change executors to emit ops into TickDelta (stop writing GraphStore) **[COMPLETE - Phase 5]**
-  3. Step 3: Implement SnapshotBuilder that applies TickDelta to produce next snapshot **[COMPLETE - Phase 4]**
-  4. Step 4: Wire WSC writer as canonical snapshot output **[COMPLETE]**
-  5. Step 5: Read-only execution - GraphView instead of &mut GraphStore **[COMPLETE - Phase 5]**
-  6. Step 6: Add collapse/merge phase with typed registry **[PENDING]**
-  7. Step 7: Add mind/diagnostics enforcement gates **[PENDING]**
+The ADR outlines a migration plan (status as of 2026-01-18):
 
-  My Implementation Plan
+1. Step 1: Introduce TickDelta + canonical merge alongside existing GraphStore **[COMPLETE]**
+2. Step 2: Change executors to emit ops into TickDelta (stop writing GraphStore) **[COMPLETE - Phase 5]**
+3. Step 3: Implement SnapshotBuilder that applies TickDelta to produce next snapshot **[COMPLETE - Phase 4]**
+4. Step 4: Wire WSC writer as canonical snapshot output **[COMPLETE]**
+5. Step 5: Read-only execution - GraphView instead of &mut GraphStore **[COMPLETE - Phase 5]**
+6. Step 6: Add collapse/merge phase with typed registry **[PENDING]**
+7. Step 7: Add mind/diagnostics enforcement gates **[PENDING]**
 
-  Based on the ADR's sequencing section (lines 1062-1105), here's what I'll propose:
+My Implementation Plan
 
-  Phase 1: ADR + Test Skeletons (First Commit)
+Based on the ADR's sequencing section (lines 1062-1105), here's what I'll propose:
+
+Phase 1: ADR + Test Skeletons (First Commit)
 
 - The ADR is already written - it's the file I read
 - Add the test skeletons from the ADR (lines 604-1043)
 - These tests will fail initially - that's intentional
 
-  Phase 2: Wire TestHarness (Second Commit)
+    Phase 2: Wire TestHarness (Second Commit)
 
 - Implement TestHarness against the test structure, following the ADR's guidance on how tests should be organized and what
   they should validate.
 
-  The next phases build on this foundation: TickDelta collects operations during execution rather than mutating state
-  directly, then SnapshotBuilder applies those operations to generate the next snapshot and write WSC bytes. After that, I'll
-   add per-worker delta collection and prove the system produces consistent results regardless of worker count through
-  targeted tests.
- Now let me synthesize all the exploration results into a comprehensive implementation plan.
+    The next phases build on this foundation: TickDelta collects operations during execution rather than mutating state
+    directly, then SnapshotBuilder applies those operations to generate the next snapshot and write WSC bytes. After that, I'll
+    add per-worker delta collection and prove the system produces consistent results regardless of worker count through
+    targeted tests.
+    Now let me synthesize all the exploration results into a comprehensive implementation plan.
 
-  ---
-  BOAW Implementation Plan
+    ***
 
-  ★ Insight ─────────────────────────────────────
-  Architecture Context: The codebase already has strong foundations for BOAW:
+    BOAW Implementation Plan
+
+    ★ Insight ─────────────────────────────────────
+    Architecture Context: The codebase already has strong foundations for BOAW:
 
 - GraphStore uses BTreeMaps for deterministic iteration
 - Footprint infrastructure already tracks read/write sets with factor_mask prefiltering
@@ -3072,15 +3062,16 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
 - TickPatch has WarpOp enum for delta operations (now used for execution emissions via TickDelta)
 - WSC is production-ready with zero-copy Pod types, ready for mmap
 
-  The key pivot was: move from "mutate GraphStore → diff after" to "emit ops into TickDelta → apply to snapshot" **[COMPLETE - Phase 5]**
-  ─────────────────────────────────────────────────
+    The key pivot was: move from "mutate GraphStore → diff after" to "emit ops into TickDelta → apply to snapshot" **[COMPLETE - Phase 5]**
+    ─────────────────────────────────────────────────
 
-  ---
-  Phase 1: Test Skeletons (This Commit)
+    ***
 
-  Goal: Establish the contract + drill sergeant tests
+    Phase 1: Test Skeletons (This Commit)
 
-  Create test files from ADR-0007 Section 14:
+    Goal: Establish the contract + drill sergeant tests
+
+    Create test files from ADR-0007 Section 14:
 
 - tests/common/mod.rs - XorShift64 RNG, TestHarness trait, Scenario enum
 - tests/boaw_end_to_end.rs - The "god test" for permutation invariance
@@ -3090,117 +3081,105 @@ Perfect! Now I have a comprehensive understanding. Let me create a summary docum
 - tests/boaw_merge.rs - Collapse/merge determinism
 - tests/boaw_privacy.rs - Mind mode enforcement
 
-  These tests will intentionally panic until we wire the BOAW APIs.
+    These tests will intentionally panic until we wire the BOAW APIs.
 
-  ---
-  Phase 2: Wire TestHarness to Current Engine
+    ***
 
-  Goal: Tests compile and run against current pipeline
+    Phase 2: Wire TestHarness to Current Engine
 
-  Implement TestHarness to:
+    Goal: Tests compile and run against current pipeline
+
+    Implement TestHarness to:
 
 - Build base snapshots from current GraphStore
 - Execute via current engine (both serial and parallel call serial for now)
 - Return real hashes so test runner is alive
 
-  ---
-  Phase 3: TickDelta for Execution (The Real Pivot)
+    ***
 
-  Goal: Executors emit ops instead of mutating shared state
+    Phase 3: TickDelta for Execution (The Real Pivot)
 
-  Key Changes:
+    Goal: Executors emit ops instead of mutating shared state
 
-  1. Create TickDelta struct in src/tick_delta.rs:
-  pub struct TickDelta {
-      pub upsert_nodes: Vec<(NodeId, NodeRecord)>,
-      pub delete_nodes: Vec<NodeId>,
-      pub upsert_edges: Vec<(EdgeId, EdgeRecord)>,
-      pub delete_edges: Vec<EdgeId>,
-      pub set_attachments: Vec<(AttachmentKey, Option<AttachmentValue>)>,
-  }
-  2. Modify ExecuteFn signature to take:
+    Key Changes:
+    1. Create TickDelta struct in src/tick_delta.rs:
+       pub struct TickDelta {
+       pub upsert_nodes: Vec<(NodeId, NodeRecord)>,
+       pub delete_nodes: Vec<NodeId>,
+       pub upsert_edges: Vec<(EdgeId, EdgeRecord)>,
+       pub delete_edges: Vec<EdgeId>,
+       pub set_attachments: Vec<(AttachmentKey, Option<AttachmentValue>)>,
+       }
+    2. Modify ExecuteFn signature to take:
     - &GraphView (read-only snapshot view) instead of &mut GraphStore
     - &mut TickDelta (append-only ops collector)
-  3. Implement canonical merge - sort ops by key for deterministic ordering
-  4. Add DeltaView - overlay that resolves reads from (snapshot + delta)
+    3. Implement canonical merge - sort ops by key for deterministic ordering
+    4. Add DeltaView - overlay that resolves reads from (snapshot + delta)
 
-  **Status: COMPLETE** (2026-01-18)
+    **Status: COMPLETE** (2026-01-18)
 
-  ---
-  Phase 4: SnapshotBuilder
+    ***
 
-  Goal: Apply merged TickDelta to produce next WSC snapshot
+    Phase 4: SnapshotBuilder
 
-  1. SnapshotBuilder takes base snapshot + merged ops
-  2. Produces next reachable-only snapshot tables
-  3. Writes WSC bytes via existing write_wsc_one_warp
-  4. Computes state_root from materialized snapshot
+    Goal: Apply merged TickDelta to produce next WSC snapshot
+    1. SnapshotBuilder takes base snapshot + merged ops
+    2. Produces next reachable-only snapshot tables
+    3. Writes WSC bytes via existing write_wsc_one_warp
+    4. Computes state_root from materialized snapshot
 
-  **Status: COMPLETE** (2026-01-18) - See `docs/memorials/2026-01-18-phase4-rubicon.md`
+    **Status: COMPLETE** (2026-01-18) - See `docs/memorials/2026-01-18-phase4-rubicon.md`
 
-  ---
-  Phase 5: Read-Only Execution
+    ***
 
-  Goal: Pure execution - executors read from snapshot, write to delta only
+    Phase 5: Read-Only Execution
 
-  1. ExecuteFn signature changed: `fn(&GraphView, &mut TickDelta, &NodeId)`
-  2. No GraphStore mutations during execution - emit ops only
-  3. State updated after execution via `apply_to_state()`
-  4. Legacy `&mut GraphStore` path removed from executor signature
+    Goal: Pure execution - executors read from snapshot, write to delta only
+    1. ExecuteFn signature changed: `fn(&GraphView, &mut TickDelta, &NodeId)`
+    2. No GraphStore mutations during execution - emit ops only
+    3. State updated after execution via `apply_to_state()`
+    4. Legacy `&mut GraphStore` path removed from executor signature
 
-  **Status: COMPLETE** (2026-01-18)
+    **Status: COMPLETE** (2026-01-18)
 
-  ---
-  Phase 6: Parallel Execution with Per-Worker Deltas
+    ***
 
-  Goal: Lockless parallelism without compromising determinism
+    Phase 6: Parallel Execution with Per-Worker Deltas
 
-  1. Per-worker TickDelta - each worker has thread-local delta
-  2. Canonical merge - concatenate then sort by (op_kind, key, tie_breaker)
-  3. Prove worker-count invariance - the "god test" passes for all worker counts
+    Goal: Lockless parallelism without compromising determinism
+    1. Per-worker TickDelta - each worker has thread-local delta
+    2. Canonical merge - concatenate then sort by (op_kind, key, tie_breaker)
+    3. Prove worker-count invariance - the "god test" passes for all worker counts
 
-  ---
-  Phase 7+ (Future)
+    ***
+
+    Phase 7+ (Future)
 
 - Segment-level structural sharing (content-addressed chunks)
 - Collapse/merge with typed registry
 - Privacy enforcement gates (mind vs diagnostics mode)
 
-  ---
+    ***
 
 Files to Create/Modify
-  ┌──────────────────────────────────────────┬────────┬───────────────────────────────────┐
-  │                   Path                   │ Action │              Purpose              │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/tests/boaw/mod.rs       │ Create │ Test module organization          │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/tests/boaw/common.rs    │ Create │ XorShift64, TestHarness, Scenario │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/tests/boaw_*.rs         │ Create │ 6 test files from ADR             │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/src/tick_delta.rs       │ Create │ TickDelta struct + merge          │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/src/delta_view.rs       │ Create │ Read-through overlay              │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/src/snapshot_builder.rs │ Create │ Apply delta → next WSC            │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/src/lib.rs              │ Modify │ Export new modules                │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/src/engine_impl.rs      │ Modify │ New ExecuteFn signature           │
-  ├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
-  │ crates/warp-core/src/rule.rs             │ Modify │ Update ExecuteFn type             │
-  └──────────────────────────────────────────┴────────┴───────────────────────────────────┘
-  ---
-
-  Immediate Next Steps
-
-  1. Create the test skeleton files from ADR-0007 Section 14
-  2. Add a PanicHarness that will fail loudly until wired
-  3. Commit as "test: add BOAW compliance test skeletons (red)"
-
-  Would you like me to proceed with Phase 1 - adding the test skeletons?
-
-  ---
-  HOO RAH! 🎖️
-
-  I'm ready to begin implementation upon your approval. The approach follows the ADR's migration plan exactly: start with failing tests that define the contract, then implement piece by piece until they pass.
+┌──────────────────────────────────────────┬────────┬───────────────────────────────────┐
+│ Path │ Action │ Purpose │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/tests/boaw/mod.rs │ Create │ Test module organization │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/tests/boaw/common.rs │ Create │ XorShift64, TestHarness, Scenario │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/tests/boaw\_\*.rs │ Create │ 6 test files from ADR │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/src/tick_delta.rs │ Create │ TickDelta struct + merge │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/src/delta_view.rs │ Create │ Read-through overlay │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/src/snapshot_builder.rs │ Create │ Apply delta → next WSC │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/src/lib.rs │ Modify │ Export new modules │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/src/engine_impl.rs │ Modify │ New ExecuteFn signature │
+├──────────────────────────────────────────┼────────┼───────────────────────────────────┤
+│ crates/warp-core/src/rule.rs │ Modify │ Update ExecuteFn type │
+└──────────────────────────────────────────┴────────┴───────────────────────────────────┘

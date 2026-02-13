@@ -1,0 +1,138 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+> **Milestone:** [Time Travel](README.md) | **Priority:** P2
+
+# TT3 — Rulial Diff
+
+Side-by-side worldline comparison: find the first divergence, show per-tick diffs, and visualize how changes propagate through the simulation graph.
+
+**Issues:** #172, #199, #204
+
+---
+
+## T-7-4-1: Implement rulial diff / worldline compare MVP (#172)
+
+**User Story:** As a developer comparing two simulation runs, I want to see the first tick where they diverge and a per-tick diff of state changes so that I can pinpoint the cause of nondeterminism or design differences.
+
+**Requirements:**
+
+- R1: Accept two worldline references (branch IDs or exported worldline files) and a tick range.
+- R2: Binary search for the first divergent tick by comparing `state_root` hashes at wormhole checkpoint boundaries, then narrowing to the exact tick.
+- R3: At the divergent tick, produce a structured diff: added/removed/modified nodes and edges, with node IDs and field values.
+- R4: Support both CLI output (JSONL diff records) and inspector protocol (diff frames for UI consumption).
+- R5: Handle worldlines of different lengths gracefully (shorter worldline ends; remaining ticks in the longer one are "added").
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Unit test: two identical worldlines produce "no divergence" result.
+- [ ] AC2: Unit test: two worldlines diverging at tick 50 — binary search finds tick 50 within O(log N) checkpoint comparisons.
+- [ ] AC3: Integration test: run two simulations with a single-bit input difference, verify the diff output identifies the affected entities.
+- [ ] AC4: CLI outputs valid JSONL; inspector emits parseable diff frames.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Divergence detection, per-tick structured diff, CLI + inspector output.
+**Out of Scope:** UI rendering of diffs (that is T-7-4-3); Wesley-aware semantic diffs (that is T-7-4-2); merge assistance.
+
+**Test Plan:**
+
+- **Goldens:** Golden JSONL output for a known divergence at tick 50 (node added on branch A, not on branch B).
+- **Failures:** Worldline reference not found (error); worldline with zero ticks (empty diff); corrupted checkpoint (skip and warn).
+- **Edges:** Divergence at tick 0 (different genesis); divergence at the last tick; worldlines that diverge and then reconverge.
+- **Fuzz/Stress:** Property test: inject a random single-tick mutation into one of two identical worldlines, verify the diff finds exactly that tick.
+
+**Blocked By:** T-7-3-1, T-7-3-2
+**Blocking:** T-7-4-2, T-7-4-3
+
+**Est. Hours:** 6h
+**Expected Complexity:** ~500 LoC
+
+---
+
+## T-7-4-2: Implement Wesley worldline diff — compare query outputs/proofs across ticks (#199)
+
+**User Story:** As a schema author using Wesley, I want to compare query results and proofs across two worldlines so that I can see how schema-level semantics differ, not just raw graph diffs.
+
+**Requirements:**
+
+- R1: Given two worldlines and a Wesley query (view definition), evaluate the query against each worldline's state at the divergent tick(s).
+- R2: Produce a semantic diff of query results: added/removed/changed rows, with field-level granularity.
+- R3: If proofs are available (Wesley proof artifacts), compare proof trees and highlight where they diverge.
+- R4: Output as structured JSON (for programmatic consumption) and as a human-readable summary.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Unit test: identical worldlines with the same query produce "no semantic diff."
+- [ ] AC2: Unit test: diverged worldlines produce a field-level diff for at least one query result row.
+- [ ] AC3: Proof diff highlights the first divergent proof node when proof trees are available.
+- [ ] AC4: Human-readable summary is emitted alongside structured JSON.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Wesley query evaluation on diverged states; semantic diff of results and proofs.
+**Out of Scope:** Wesley query authoring UI; proof generation (assumes proofs already exist); multi-query batch comparison.
+
+**Test Plan:**
+
+- **Goldens:** Golden JSON diff for a known Wesley query against two worldlines with a single divergent field.
+- **Failures:** Query references a type not present in one worldline (graceful "type missing" in diff); no proofs available (skip proof diff, note in output).
+- **Edges:** Query returns empty results on both worldlines (no diff); query returns empty on one, non-empty on the other.
+- **Fuzz/Stress:** Evaluate 50 queries across a 100-tick divergence window in under 5 seconds.
+
+**Blocked By:** T-7-4-1
+**Blocking:** T-7-4-3
+
+**Est. Hours:** 5h
+**Expected Complexity:** ~400 LoC
+
+---
+
+## T-7-4-3: Implement provenance heatmap — blast radius / cohesion over time (#204)
+
+**User Story:** As a developer analyzing simulation behavior, I want a visualization of how a single change propagates through the simulation graph over subsequent ticks so that I can understand blast radius and identify tightly coupled subsystems.
+
+**Requirements:**
+
+- R1: Given a divergence point (from T-7-4-1), track which nodes/edges are modified in subsequent ticks on one or both branches.
+- R2: Produce a per-tick "affected set" count and a cumulative heatmap (node/edge ID to "number of ticks affected").
+- R3: Render as a color-coded overlay on the simulation graph (hot = frequently affected, cold = stable).
+- R4: Compute a "cohesion score" per connected component: ratio of affected nodes to total nodes in that component.
+- R5: Export heatmap data as JSON for offline analysis.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Unit test: a single-node change at tick 50 propagates to 3 nodes by tick 55 — heatmap shows 4 affected nodes with correct per-tick counts.
+- [ ] AC2: Cohesion score is computed for at least 2 components and matches expected ratios.
+- [ ] AC3: Heatmap renders as a visual overlay with a color legend (hot/cold gradient).
+- [ ] AC4: JSON export contains per-tick affected sets and cumulative counts.
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Affected-set tracking, heatmap computation, visual overlay, cohesion score, JSON export.
+**Out of Scope:** Interactive heatmap editing; real-time heatmap during live simulation (batch analysis only); 3D visualization.
+
+**Test Plan:**
+
+- **Goldens:** Golden JSON heatmap for a known 10-tick propagation scenario.
+- **Failures:** Divergence with zero propagation (single tick, no downstream effects — heatmap shows 1 node); worldline too short for meaningful heatmap (warn, show partial data).
+- **Edges:** Change affects every node in the graph (uniform heatmap); change is completely isolated (cohesion score = 0 for other components).
+- **Fuzz/Stress:** Compute heatmap over 1000 ticks with 10,000 nodes in under 10 seconds.
+
+**Blocked By:** T-7-4-1, T-7-4-2
+**Blocking:** none
+
+**Est. Hours:** 6h
+**Expected Complexity:** ~450 LoC

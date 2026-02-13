@@ -5,11 +5,33 @@
 
 ## Unreleased
 
+### Added — Determinism & Verification
+
+- **DIND Phase 5 (The Shuffle):** Added robustness against insertion order and
+  HashMap iteration leaks.
+    - Implemented `echo-dind converge` command to verify that shuffles of
+      commutative operations (e.g. disjoint `put_kv`) yield identical final state
+      hashes.
+    - Added randomized scenario generator (`scripts/bootstrap_randomized_order.mjs`)
+      producing semantically equivalent transcripts via different orderings.
+    - Added regression tests for Invariant A (Self-Consistency) and Invariant B
+      (Convergence) in CI; see [issue #22](https://github.com/flyingrobots/echo/issues/22).
+- **Domain-Separated Hash Contexts:** Added unique domain-separation prefixes
+  to all core commitment hashes to prevent cross-context structural collisions.
+    - `state_root` (graph hash), `patch_digest` (tick patch), and `commit_id` (Merkle
+      root) now use distinct BLAKE3 domain tags (e.g. `echo:state_root:v1\0`).
+    - `RenderGraph::compute_hash` (`echo-graph`) now uses its own domain tag,
+      ensuring renderable snapshots cannot collide with engine state roots.
+    - Added `warp_core::domain` module containing public prefix constants.
+    - Integrated cross-domain collision tests into CI.
+- **Benchmarks CI Integration:** The `warp-benches` package is now integrated
+  into the CI compilation gate (`cargo check --benches`).
+
 ### Added - TTD Renderer Infrastructure (Task 6.2)
 
 - **`echo-scene-port` crate** (`crates/echo-scene-port/`): Pure Rust domain contract for hexagonal
   rendering ports. Zero dependencies, `no_std` capable. Defines `ScenePort` trait, `SceneDelta`,
-  `NodeDef`, `EdgeDef`, `LabelDef`, `CameraState`, `HighlightState`. No serde — serialization
+  `NodeDef`, `EdgeDef`, `LabelDef`, `CameraState`, \`HighlightState\`. No serde — serialization
   lives in codec layer.
 
 - **`echo-scene-codec` crate** (`crates/echo-scene-codec/`): CBOR encode/decode for scene port
@@ -110,6 +132,19 @@
     - Views resolved per-unit, dropped before claiming next unit
     - Fixed worker pool sized to `available_parallelism()`
 
+### Changed - Roadmap & Governance
+
+- **Roadmap Refactor ("Sharpened" structure):** Migrated the flat roadmap into
+  a 2-level hierarchy based on features and milestones.
+    - Established a **WIP Cap policy**: maximum 2 active milestones and 3 active
+      feature files per milestone to prevent context thrashing.
+    - Added binary **Exit Criteria** to all milestone READMEs to ensure clear,
+      objective completion signals.
+    - Renamed milestones for clarity (e.g. `lock-the-hashes`, `first-light`,
+      `proof-core`).
+    - Audited and updated license headers (SPDX) and formatting (Prettier/MD028)
+      across roadmap documents.
+
 ### Changed - Cross-Warp Parallelism
 
 - **Engine execution** (`engine_impl.rs`): Replaced serial per-warp for-loop with global work queue
@@ -135,7 +170,7 @@
 - **P0: Off-by-one in `publish_truth`** (`playback.rs`): Query `prov_tick = cursor.tick - 1` (0-based index of last applied patch) instead of `cursor.tick`; added early-return guard for `cursor.tick == 0`
 - **P0: Wrong package in bench docs** (`docs/notes/boaw-perf-baseline.md`): Corrected `warp-core` → `warp-benches`
 - **P1: Merkle chain verification** (`playback.rs`): `seek_to` now verifies `patch_digest`, recomputes `commit_hash` via `compute_commit_hash_v2`, and tracks parent chain per tick; added `SeekError::PatchDigestMismatch` and `SeekError::CommitHashMismatch` variants
-- **P1: Dead variant removal** (`playback.rs`): Removed `SeekThen::RestorePrevious` (broken semantics; treated identically to `Pause`)
+- **P1: Dead variant removal** (`playback.rs`): Removed `SeekThen::RestorePrevious` (broken semantics; treated identically to \`Pause\`)
 - **P1: OOM prevention** (`materialization/frame_v2.rs`): Bound `entry_count` by remaining payload size in `decode_v2_packet` to prevent malicious allocation
 - **P1: Fork guard** (`provenance_store.rs`): Added `WorldlineAlreadyExists` error variant; `fork()` rejects duplicate worldline IDs
 - **P1: Dangling edge validation** (`worldline.rs`): `UpsertEdge` now verifies `from`/`to` nodes exist in store before applying
@@ -230,7 +265,7 @@
 
 - **`OpOrigin` enhanced** (`tick_delta.rs`):
     - Added `op_ix: u32` field for per-rewrite sequential ordering
-    - Added `PartialOrd`, `Ord`, `Hash` derives for canonical sorting
+    - Added `PartialOrd`, `Ord`, \`Hash\` derives for canonical sorting
     - `ScopedDelta` now auto-increments `op_ix` on each `emit()` call
 
 - **`TickDelta::into_parts_unsorted()`**: Returns `(Vec<WarpOp>, Vec<OpOrigin>)` for merge
@@ -282,7 +317,7 @@
 
 - **`SnapshotAccumulator`** (`snapshot_accum.rs`): Columnar accumulator that builds WSC directly from `base + ops` without reconstructing GraphStore
     - `from_warp_state()`: Captures immutable base state
-    - `apply_ops()`: Processes all 8 `WarpOp` variants
+    - \`apply_ops()\`: Processes all 8 `WarpOp` variants
     - `compute_state_root()`: Computes state hash directly from accumulator tables
     - `build()`: Produces WSC bytes and state_root
 
@@ -311,6 +346,41 @@
 - Changed `ExecuteFn` signature to accept `&mut TickDelta` parameter
 - Added `assert_delta_matches_diff()` validation helper with `delta_validate` feature
 
+### Changed — Gateway Resilience (`echo-session-ws-gateway`)
+
+- **Typed `HubConnectError` enum** replaces the opaque `HubConnectError(String)`.
+  Four variants (`Timeout`, \`Connect\`, `Handshake`, `Subscribe`) carry structured
+  context, and a `should_retry()` predicate is wired into the ninelives retry
+  policy so future non-transient variants can short-circuit retries.
+- **Hub observer task exits are surfaced** — the fire-and-forget
+  `tokio::spawn` is wrapped in a watcher task that logs unexpected exits and
+  panics at `warn!`/`error!` level, preventing silent observer disappearance.
+- **`connect_failures` restored to per-attempt semantics** — the metric now
+  increments on every failed connection attempt (1:1 with `connect_attempts`),
+  not once per exhausted retry burst. This preserves dashboard/alerting accuracy
+  during prolonged hub outages.
+
+- **Hub observer reconnect** now uses `ninelives` retry policy with exponential
+  backoff (250 ms → 3 s) and full jitter, replacing hand-rolled backoff state.
+  Retries are grouped into bursts of 10 attempts; on exhaustion a 10 s cooldown
+  separates bursts. This prevents synchronized retry storms across gateway
+  instances and improves recovery behavior during prolonged hub outages.
+- Connection setup (connect + handshake + subscribe) extracted into
+  `hub_observer_try_connect`, separating connection logic from retry
+  orchestration.
+- Entire connection attempt (connect + handshake + subscribe) is now wrapped in
+  a single 5 s timeout, preventing a stalled peer from hanging the retry loop.
+- Retry policy construction uses graceful error handling instead of `.expect()`,
+  so a misconfiguration disables the observer with a log rather than panicking
+  inside a fire-and-forget `tokio::spawn`.
+- Added 1 s cooldown after the read loop exits to prevent tight reconnect loops
+  when the hub accepts connections but immediately closes them.
+
+### Fixed
+
+- **Security:** upgraded `bytes` 1.11.0 → 1.11.1 to fix RUSTSEC-2026-0007
+  (integer overflow in `BytesMut::reserve`).
+
 ## 2026-01-17 — MaterializationBus Phase 3 Complete
 
 - Completed MaterializationBus Phase 3 implementation:
@@ -325,7 +395,7 @@
     - `determinism.yml` — PR-gated determinism tests
     - `dind-cross-platform.yml` — Weekly cross-platform determinism proof (Linux x64/ARM64, Windows, macOS)
 - Added tooling:
-    - `cargo xtask dind` command with `run`, `record`, `torture`, and `converge` subcommands
+    - `cargo xtask dind` command with `run`, \`record\`, `torture`, and `converge` subcommands
 - DIND mission 100% complete.
 
 - Added `codec` module to `echo-wasm-abi`:
@@ -356,4 +426,4 @@
 - Added spec for canonical inbox sequencing and deterministic scheduler tie-breaks.
 - Added determinism guard scripts: `scripts/ban-globals.sh`, `scripts/ban-nondeterminism.sh`, and `scripts/ban-unordered-abi.sh`.
 - Added `ECHO_ROADMAP.md` to capture phased plans aligned with recent ADRs.
-- Removed legacy wasm encode helpers from `warp-wasm` (TS encoders are the protocol source of truth).
+- Removed legacy wasm encode helpers from \`warp-wasm\` (TS encoders are the protocol source of truth).

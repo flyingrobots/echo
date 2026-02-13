@@ -108,17 +108,18 @@ release builds. The guard is only active when:
 
 When active, the guard adds:
 
-- **Read path**: One `HashSet::contains()` lookup per `GraphView` accessor call
+- **Read path**: One `BTreeSet::contains()` lookup per `GraphView` accessor call
+  (e.g., `BTreeSet<NodeId>`, `BTreeSet<EdgeId>`, `BTreeSet<AttachmentKey>`)
 - **Write path**: One `check_op()` call per emitted op (post-hoc, after executor completes)
 - **Catch boundary**: One `catch_unwind` wrapper per `ExecItem` invocation
 
-In benchmarks, the debug-mode overhead is typically <5% for workloads with
-small footprints (1-10 declared resources). Larger footprints with many
-read accesses may see up to ~15% debug-mode overhead due to the per-access
-hash lookup.
+Debug benchmarks using a trivial executor observed modest overhead, dependent
+on footprint size and read-access frequency. Re-measure with your workload
+configuration before setting strict perf gates.
 
-The `unsafe_graph` feature removes all guard code paths entirely, including
-the `ExecItemKind` field from the `ExecItem` struct.
+The `unsafe_graph` feature disables all guard enforcement checks. The
+`ExecItem` struct and its `ExecItemKind` field remain gated by
+`debug_assertions` / `footprint_enforce_release`.
 
 ---
 

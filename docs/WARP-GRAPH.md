@@ -1,6 +1,11 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # WARP Graph Store
+
+> **Note:** This is a snapshot of `graph.rs`. For the authoritative version,
+> see `crates/warp-core/src/graph.rs`. Key change: `DeleteNode` now uses
+> `delete_node_isolated()` which rejects if edges exist—no more cascade.
 
 ```rust
 //! Minimal in-memory graph store used by the rewrite executor and tests.
@@ -25,8 +30,8 @@ pub struct GraphStore {
     pub(crate) edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>,
     /// Reverse adjacency: mapping from destination node to inbound edge ids.
     ///
-    /// This allows `delete_node_cascade` to remove inbound edges without scanning
-    /// every `edges_from` bucket (removal becomes `O(inbound_edges)`).
+    /// This enables efficient edge queries and validation without scanning
+    /// every `edges_from` bucket (lookup becomes `O(inbound_edges)`).
     pub(crate) edges_to: BTreeMap<NodeId, Vec<EdgeId>>,
     /// Attachment plane payloads for nodes (Paper I `α` plane).
     ///
@@ -572,9 +577,9 @@ Yep — your ident newtypes and GraphStore are compatible with the WSC design. W
 
 There are only three changes I'd push, and they're all sane:
 
-1. Add #[repr(transparent)] to NodeId/EdgeId/TypeId/WarpId (so you can safely treat them as "just bytes" everywhere).
-2. Add as_bytes() for all IDs (you only have it on NodeId/WarpId right now).
-3. For hashing + snapshots: stop truncating lengths/counts to u32 (use u64), or create a *_V2 hash. Your current u32 length hashing is a time bomb.
+1. Add #[repr(transparent)] to NodeId/EdgeId/TypeId/WarpId (so you can safely treat them as "just bytes" everywhere). **Done**: All ID types now have `#[repr(transparent)]`.
+2. Add as_bytes() for all IDs (you only have it on NodeId/WarpId right now). **Partial**: `as_bytes()` is available on NodeId and WarpId; EdgeId/TypeId use inner Hash which has `as_bytes()`.
+3. For hashing + snapshots: stop truncating lengths/counts to u32 (use u64), or create a \*\_V2 hash. **Done**: V2 hash variants (`state_root_v2`, etc.) now use u64 lengths/counts. The V1 variants remain for backwards compatibility but V2 is the current implementation.
 
 Everything else can remain as-is.
 

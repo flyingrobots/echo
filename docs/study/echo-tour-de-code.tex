@@ -808,7 +808,7 @@ execute_parallel(view, items, workers)
 \subsection{5.3 Enforced Execution Path}\label{enforced-execution-path}
 
 \textbf{Entry Point:} \texttt{execute\_item\_enforced()}
-\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs}
+\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:409-487}
 
 When footprint enforcement is active, each item is executed via
 \texttt{execute\_item\_enforced()} instead of a bare function-pointer call.
@@ -816,38 +816,50 @@ This wraps execution with \texttt{catch\_unwind} and performs post-hoc
 \texttt{check\_op()} validation on any newly-emitted ops.
 
 \begin{verbatim}
-execute_item_enforced(view, item, delta, footprint)
+execute_item_enforced(store, item, idx, unit, delta)
 │
-├─ ops_before = delta.ops_len()
+├─ guard = unit.guards[idx]
+├─ view = GraphView::new_guarded(store, guard)
+│
+├─ ops_before = delta.len()
 │   Snapshot the op count BEFORE the executor runs
 │
 ├─ result = std::panic::catch_unwind(AssertUnwindSafe(|| {
 │      (item.exec)(view, &item.scope, delta)
 │  }))
 │
-├─ FOR op IN delta.ops()[ops_before..]:
-│     check_op(op, footprint, item.kind) → Result<(), FootprintViolation>
+├─ FOR op IN delta.ops_ref()[ops_before..]:
+│     guard.check_op(op) → panic_any(FootprintViolation) on failure
 │     Validates that each newly-emitted op falls within the declared footprint.
 │     ExecItemKind::System items may emit warp-instance-level ops;
 │     ExecItemKind::User items may not.
 │
-└─ OUTCOME PRECEDENCE:
-      ├─ IF check_op fails:
-      │     return Err(FootprintViolation)
-      │     Write violations OVERRIDE executor panics — violation takes precedence.
+└─ OUTCOME PRECEDENCE (returns Result<TickDelta, PoisonedDelta>):
+      ├─ IF exec panicked AND check_op panicked:
+      │     return Err(PoisonedDelta(FootprintViolationWithPanic))
+      │     The violation wraps both the FootprintViolation and the exec panic.
       │
-      ├─ IF footprint is clean BUT executor panicked:
-      │     std::panic::resume_unwind(payload)
-      │     The original panic propagates to the caller.
+      ├─ IF exec panicked OR check_op panicked (but not both):
+      │     return Err(PoisonedDelta(panic_payload))
+      │     Single panic payload (either executor or violation).
       │
       └─ IF both clean:
-            return Ok(())
+            return Ok(delta)
 \end{verbatim}
 
 \textbf{The Poison Invariant:} If the executor panics, the \texttt{TickDelta}
 it was writing into is considered poisoned (partially-written ops with no
 transactional rollback). After an executor panic the delta must be
 discarded---it cannot be merged or committed.
+
+\textbf{Type-Level Enforcement:} The poison invariant is enforced at the type
+level via \texttt{PoisonedDelta}, a newtype distinct from \texttt{TickDelta}.
+When an executor panics, \texttt{execute\_item\_enforced()} returns
+\texttt{Result<TickDelta, PoisonedDelta>}. The API exposes \texttt{merge\_deltas\_ok()}
+(a higher-level wrapper around \texttt{merge\_deltas()}, which remains available
+feature-gated) that returns \texttt{Result} and only accepts non-poisoned deltas.
+A \texttt{PoisonedDelta} cannot be passed to \texttt{merge\_deltas\_ok()}---the
+type system prevents accidental merging.
 
 \subsection{5.4 ExecItem Structure}\label{execitem-structure}
 
@@ -884,11 +896,14 @@ discarded---it cannot be merged or committed.
 \end{itemize}
 
 \texttt{ExecItem::new()} always creates \texttt{User} items. System items are
-constructed only by internal engine code and never exposed through the public
+constructed via \texttt{ExecItem::new\_system()} (cfg-gated \texttt{pub(crate)}
+constructor used by portal/inbox rules) and are never exposed through the public
 API.
 
-\textbf{The triple cfg-gate pattern:} The \texttt{kind} field (and all
-enforcement logic) is guarded by:
+\textbf{The dual-attribute cfg-gate pattern:} The \texttt{kind} field (and all
+enforcement logic) is guarded by two cfg attributes that together express three
+conditions (\texttt{debug\_assertions}, \texttt{footprint\_enforce\_release},
+and \texttt{unsafe\_graph}):
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}

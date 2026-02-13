@@ -4,7 +4,7 @@
 //!
 //! This module provides runtime validation that execute functions stay within
 //! their declared footprints. Violations are reported via [`std::panic::panic_any`]
-//! with a typed [`FootprintViolation`] payload, matchable via `downcast_ref` in tests.
+//! with typed payloads, matchable via `downcast_ref` in tests.
 //!
 //! # Scope
 //!
@@ -17,7 +17,49 @@
 //! The guard is active when `debug_assertions` is set (debug builds) or when the
 //! `footprint_enforce_release` feature is enabled. The `unsafe_graph` feature
 //! disables all enforcement regardless.
+//!
+//! # Panic Semantics
+//!
+//! Footprint violations panic with `panic_any` carrying one of two payloads:
+//!
+//! - **[`FootprintViolation`]**: Standalone violation when the executor did not panic.
+//!   The guard's check functions (`check_node_read`, `check_op`, etc.) emit this directly.
+//!
+//! - **[`FootprintViolationWithPanic`]**: Composite payload when an executor panics AND
+//!   also has a write violation. Contains both the `FootprintViolation` and the original
+//!   executor panic payload. This is produced by `execute_item_enforced` when post-hoc
+//!   `check_op` validation fails on an already-panicked executor.
+//!
+//! Tests should use `downcast_ref` to detect both:
+//!
+//! ```ignore
+//! if let Some(v) = panic_payload.downcast_ref::<FootprintViolation>() {
+//!     // Pure violation (no executor panic)
+//! } else if let Some(vp) = panic_payload.downcast_ref::<FootprintViolationWithPanic>() {
+//!     // Violation + wrapped executor panic in vp.exec_panic
+//! }
+//! ```
+//!
+//! Both cases are **programmer errors** (incorrect footprint declarations), not
+//! recoverable runtime conditions. Detection is immediate and unambiguous.
+//! Workers catch panics via `catch_unwind` in `execute_item_enforced`.
+//!
+//! On violation: the violating item's execution is aborted, its delta becomes a
+//! `PoisonedDelta`, and the worker returns immediately (fail-fast). Poisoned
+//! deltas abort the tick at merge time via `MergeError::PoisonedDelta`.
+//!
+//! This is NOT a recoverable runtime error; fix your footprint declarations.
+//!
+//! # Cross-Warp Write Policy
+//!
+//! Cross-warp writes are **forbidden**. Each rule executes within a single warp
+//! scope and may only emit ops targeting that warp. Attempting to emit an op
+//! targeting a different warp triggers [`ViolationKind::CrossWarpEmission`].
+//!
+//! This is a fundamental invariant of BOAW, not a temporary restriction. Inter-warp
+//! communication flows through portals (attachment-based descent), not direct writes.
 
+use std::any::Any;
 use std::collections::BTreeSet;
 
 use crate::attachment::{AttachmentKey, AttachmentOwner};
@@ -77,6 +119,40 @@ pub struct FootprintViolation {
     pub op_kind: &'static str,
 }
 
+/// Composite payload when an executor panic coincides with a write violation.
+///
+/// The violation remains primary, but the original executor panic is preserved
+/// for inspection or rethrow by higher-level callers.
+pub struct FootprintViolationWithPanic {
+    /// The footprint violation that occurred during post-hoc validation.
+    pub violation: FootprintViolation,
+    /// The original executor panic payload.
+    pub exec_panic: Box<dyn Any + Send + 'static>,
+}
+
+impl std::fmt::Debug for FootprintViolationWithPanic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Attempt to downcast exec_panic to common string types for readability
+        let type_id_str: String;
+        let panic_desc: &dyn std::fmt::Debug =
+            if let Some(s) = self.exec_panic.downcast_ref::<&str>() {
+                s
+            } else if let Some(s) = self.exec_panic.downcast_ref::<String>() {
+                s
+            } else {
+                // Fallback: show the actual TypeId for non-string payloads
+                let type_id = (*self.exec_panic).type_id();
+                type_id_str = format!("panic TypeId({type_id:?})");
+                &type_id_str
+            };
+
+        f.debug_struct("FootprintViolationWithPanic")
+            .field("violation", &self.violation)
+            .field("exec_panic", panic_desc)
+            .finish()
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // OpTargets: canonical write-target extraction from WarpOp
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,10 +169,14 @@ pub(crate) struct OpTargets {
     pub edges: Vec<EdgeId>,
     /// Attachment keys that the op writes/mutates.
     pub attachments: Vec<AttachmentKey>,
-    /// Whether this is an instance-level op (`UpsertWarpInstance`/`DeleteWarpInstance`).
+    /// Whether this is an instance-level op (e.g., `OpenPortal`, `UpsertWarpInstance`,
+    /// `DeleteWarpInstance`). Instance-level ops modify multiverse topology and require
+    /// `is_system` permission.
     pub is_instance_op: bool,
-    /// The warp the op targets (for cross-warp check). `None` for instance-level ops
-    /// without a specific target warp.
+    /// The warp the op targets (for cross-warp check). Used to verify ops don't emit
+    /// to warps outside the declared footprint. Most ops set this to `Some(warp_id)`;
+    /// may be `None` only for instance-level ops that don't target a specific warp
+    /// (though currently all instance-level ops do provide a target warp).
     pub op_warp: Option<WarpId>,
     /// Static string naming the op variant (e.g. `"UpsertNode"`).
     pub kind_str: &'static str,
@@ -127,14 +207,29 @@ pub(crate) fn op_kind_str(op: &WarpOp) -> &'static str {
 /// `UpsertEdge`/`DeleteEdge` produce BOTH an edge write target (`edge_id`) AND a
 /// node write target (`from`). This means any rule that inserts/removes edges MUST
 /// declare `from` in `n_write` in its footprint.
+///
+/// **Why only `from`, not `to`?** Although `GraphStore` maintains reverse indexes
+/// (`edge_to_index`, `edges_to`) internally, the execution API ([`GraphView`]) only
+/// exposes `edges_from()` — rules cannot observe incoming edges. Since `to` adjacency
+/// is not observable during execution, it doesn't require footprint declaration.
 pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
     let kind_str = op_kind_str(op);
 
     match op {
-        WarpOp::UpsertNode { node, .. } | WarpOp::DeleteNode { node } => OpTargets {
+        WarpOp::UpsertNode { node, .. } => OpTargets {
             nodes: vec![node.local_id],
             edges: Vec::new(),
             attachments: Vec::new(),
+            is_instance_op: false,
+            op_warp: Some(node.warp_id),
+            kind_str,
+        },
+        WarpOp::DeleteNode { node } => OpTargets {
+            // DeleteNode deletes node + its alpha attachment (allowed mini-cascade).
+            // Footprint must declare both n_write(node) and a_write(node_alpha).
+            nodes: vec![node.local_id],
+            edges: Vec::new(),
+            attachments: vec![AttachmentKey::node_alpha(*node)],
             is_instance_op: false,
             op_warp: Some(node.warp_id),
             kind_str,
@@ -154,14 +249,18 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
             edge_id,
         } => OpTargets {
             // Adjacency write: edge deletion implies node adjacency mutation on `from`
+            // DeleteEdge also removes the edge's attachment (allowed mini-cascade).
             nodes: vec![*from],
             edges: vec![*edge_id],
-            attachments: Vec::new(),
+            attachments: vec![AttachmentKey::edge_beta(crate::ident::EdgeKey {
+                warp_id: *warp_id,
+                local_id: *edge_id,
+            })],
             is_instance_op: false,
             op_warp: Some(*warp_id),
             kind_str,
         },
-        WarpOp::SetAttachment { key, .. } | WarpOp::OpenPortal { key, .. } => OpTargets {
+        WarpOp::SetAttachment { key, .. } => OpTargets {
             nodes: Vec::new(),
             edges: Vec::new(),
             attachments: vec![*key],
@@ -169,12 +268,20 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
             op_warp: Some(key.owner.warp_id()),
             kind_str,
         },
-        WarpOp::UpsertWarpInstance { .. } => OpTargets {
+        WarpOp::OpenPortal { key, .. } => OpTargets {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            attachments: vec![*key],
+            is_instance_op: true,
+            op_warp: Some(key.owner.warp_id()),
+            kind_str,
+        },
+        WarpOp::UpsertWarpInstance { instance } => OpTargets {
             nodes: Vec::new(),
             edges: Vec::new(),
             attachments: Vec::new(),
             is_instance_op: true,
-            op_warp: None,
+            op_warp: Some(instance.warp_id),
             kind_str,
         },
         WarpOp::DeleteWarpInstance { warp_id } => OpTargets {
@@ -203,9 +310,16 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
 /// `nodes_read`/`nodes_write` store `NodeId` (bare local id).
 /// `edges_read`/`edges_write` store `EdgeId` (bare local id).
 /// These match EXACTLY what `GraphView` methods receive as parameters.
+///
+/// # Why `BTreeSet`?
+///
+/// `BTreeSet` is chosen for deterministic debug output and iteration order, aiding
+/// reproducibility when violations are logged. Footprints are typically small
+/// (< 100 items), so the O(log n) lookup cost is negligible.
 #[derive(Debug)]
 pub(crate) struct FootprintGuard {
     warp_id: WarpId,
+    // BTreeSet for deterministic iteration/debug output; see doc above.
     nodes_read: BTreeSet<NodeId>,
     nodes_write: BTreeSet<NodeId>,
     edges_read: BTreeSet<EdgeId>,
@@ -225,6 +339,36 @@ impl FootprintGuard {
         rule_name: &'static str,
         is_system: bool,
     ) -> Self {
+        // Detect cross-warp entries that will be silently filtered out.
+        // These indicate a rule declared the wrong warp in its footprint.
+        // Runs in debug builds and when footprint_enforce_release is enabled.
+        if cfg!(any(debug_assertions, feature = "footprint_enforce_release")) {
+            assert!(
+                !footprint.n_read.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_read (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.n_write.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in n_write (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.e_read.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_read (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.e_write.iter().any(|k| k.warp_id != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in e_write (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.a_read.iter().any(|k| k.owner.warp_id() != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_read (expected warp {warp_id:?})"
+            );
+            assert!(
+                !footprint.a_write.iter().any(|k| k.owner.warp_id() != warp_id),
+                "FootprintGuard::new: rule '{rule_name}' has cross-warp entries in a_write (expected warp {warp_id:?})"
+            );
+        }
+
         let nodes_read = footprint
             .n_read
             .iter()
@@ -276,6 +420,7 @@ impl FootprintGuard {
     }
 
     /// Panics if the node is not declared in the read set.
+    #[track_caller]
     pub(crate) fn check_node_read(&self, id: &NodeId) {
         if !self.nodes_read.contains(id) {
             std::panic::panic_any(FootprintViolation {
@@ -288,6 +433,7 @@ impl FootprintGuard {
     }
 
     /// Panics if the edge is not declared in the read set.
+    #[track_caller]
     pub(crate) fn check_edge_read(&self, id: &EdgeId) {
         if !self.edges_read.contains(id) {
             std::panic::panic_any(FootprintViolation {
@@ -300,6 +446,7 @@ impl FootprintGuard {
     }
 
     /// Panics if the attachment is not declared in the read set.
+    #[track_caller]
     pub(crate) fn check_attachment_read(&self, key: &AttachmentKey) {
         if !self.attachments_read.contains(key) {
             std::panic::panic_any(FootprintViolation {
@@ -321,6 +468,7 @@ impl FootprintGuard {
     /// 2. Op warp must match guard's warp (cross-warp rejection)
     /// 3. Missing `op_warp` on non-instance ops is always an error
     /// 4. Node/edge/attachment targets must be in the write sets
+    #[track_caller]
     pub(crate) fn check_op(&self, op: &WarpOp) {
         let targets = op_write_targets(op);
 

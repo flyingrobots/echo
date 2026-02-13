@@ -159,4 +159,39 @@ mod tests {
         assert_ne!(n, w);
         assert_ne!(e, w);
     }
+
+    #[test]
+    fn domain_separation_prevents_core_collisions() {
+        use crate::domain;
+        use blake3::Hasher;
+
+        let input = b"some shared bytes";
+
+        let mut h_state = Hasher::new();
+        h_state.update(domain::STATE_ROOT_V1);
+        h_state.update(input);
+        let d_state = h_state.finalize();
+
+        let mut h_commit = Hasher::new();
+        h_commit.update(domain::COMMIT_ID_V2);
+        h_commit.update(input);
+        let d_commit = h_commit.finalize();
+
+        let mut h_patch = Hasher::new();
+        h_patch.update(domain::PATCH_DIGEST_V1);
+        h_patch.update(input);
+        let d_patch = h_patch.finalize();
+
+        let mut h_render = Hasher::new();
+        h_render.update(domain::RENDER_GRAPH_V1);
+        h_render.update(input);
+        let d_render = h_render.finalize();
+
+        assert_ne!(d_state, d_commit);
+        assert_ne!(d_state, d_patch);
+        assert_ne!(d_state, d_render);
+        assert_ne!(d_commit, d_patch);
+        assert_ne!(d_commit, d_render);
+        assert_ne!(d_patch, d_render);
+    }
 }

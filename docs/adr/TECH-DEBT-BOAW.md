@@ -187,11 +187,11 @@ Defaults to `available_parallelism().min(NUM_SHARDS)`.
 
 **Completed:** 2026-01-24
 
-**Location:** `crates/warp-core/src/boaw/footprint_guard.rs`, `crates/warp-core/tests/boaw_footprints.rs`
+**Location:** `crates/warp-core/src/footprint_guard.rs`, `crates/warp-core/tests/slice_theorem_proof.rs`
 
 **Status:** RESOLVED
 
-**Note:** Guard implemented in footprint_guard.rs, runtime-validated via catch_unwind + check_op(), slice theorem proven in boaw_footprints.rs. Commits: 44aebb0, 0d0231b.
+**Note:** Guard implemented in footprint_guard.rs, runtime-validated via catch_unwind + check_op(), slice theorem proven in slice_theorem_proof.rs. Commits: 44aebb0, 0d0231b.
 
 ---
 

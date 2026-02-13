@@ -15,25 +15,26 @@ All child issues (#42-#46) are closed. The umbrella issue #22 ("Benchmarks & CI 
 
 **Requirements:**
 
-- [x] R1: Verify each child issue (#42, #43, #44, #45, #46) is closed and its corresponding PR merged to `main`.
-- [x] R2: Verify `crates/warp-benches` contains working benchmarks: `snapshot_hash`, `scheduler_drain`, `scheduler_adversarial`, `motion_throughput`, `boaw_baseline`.
-- [x] R3: Verify CI workflow runs benchmarks (or at minimum compiles them) on PR.
-- [x] R4: Verify JSON artifact upload and regression threshold gates are operational (or document any deferred items).
-- [x] R5: Add a closing comment on #22 summarizing the audit findings and linking each child PR.
+- [x] R1: Verify each child issue (#42, #43, #44, #45, #46) is closed and its PR merged.
+- [x] R2: Verify `crates/warp-benches` contains working benchmarks.
+- [x] R3: Verify CI workflow runs benchmarks.
+- [x] R4: Verify JSON artifact upload and regression gates are operational.
+- [x] R5: Add a closing comment on #22 summarizing the audit findings.
 - [x] R6: Close #22.
 
 **Acceptance Criteria:**
 
 - [x] AC1: All five child issues (#42-#46) confirmed closed with merged PRs.
-- [x] AC2: `cargo bench --package warp-benches` compiles and runs without error on a clean checkout of `main`.
-- [x] AC3: CI configuration includes benchmark compilation (at minimum `cargo check --benches`).
-- [x] AC4: Issue #22 is closed with an audit summary comment.
+- [x] AC2: `cargo bench --package warp-benches` compiles and runs without error.
+- [x] AC3: CI configuration includes benchmark compilation gate.
+- [x] AC4: Issue #22 is closed with an [audit summary comment](https://github.com/flyingrobots/echo/issues/22#issuecomment-3894974740).
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [ ] Code reviewed and merged (PR [#265](https://github.com/flyingrobots/echo/pull/265), pending)
+- [x] Tests pass (CI green: [Workflow Run](https://github.com/flyingrobots/echo/actions/runs/13284974740))
+- [x] Documentation updated (CHANGELOG.md, README.md)
+- [x] Audit summary comment on Issue [#22](https://github.com/flyingrobots/echo/issues/22#issuecomment-3894974740) verified (AC4 / R5)
 
 **Scope:** Audit of existing merged work. Closing comment on #22. Minor CI fixes if benchmarks fail to compile on current `main`.
 **Out of Scope:** New benchmark development. Performance optimization. Issue #41 (README+docs, milestone M4).

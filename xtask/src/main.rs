@@ -688,6 +688,7 @@ fn run_wesley_sync(wesley_path: &str, schema: &str, skip_rust: bool, dry_run: bo
         );
     } else {
         copy_dir_contents(&temp_out.join("manifest"), manifest_dest)?;
+        ensure_ttd_manifest_crate(manifest_dest)?;
     }
 
     // Step 4: Copy TypeScript files to packages/ttd-protocol-ts/
@@ -831,6 +832,58 @@ fn copy_dir_contents(src: &Path, dest: &Path) -> Result<()> {
             std::fs::copy(&src_path, &dest_path)?;
             println!("  Copied {}", dest_path.display());
         }
+    }
+
+    Ok(())
+}
+
+fn ensure_ttd_manifest_crate(dest: &Path) -> Result<()> {
+    let cargo_toml = dest.join("Cargo.toml");
+    if !cargo_toml.exists() {
+        std::fs::write(
+            &cargo_toml,
+            r#"# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "ttd-manifest"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+description = "Vendored TTD protocol manifest and IR (data-only crate)"
+license = "Apache-2.0"
+
+[dependencies]
+# Data-only crate, no dependencies.
+"#,
+        )?;
+        println!("  Created {}", cargo_toml.display());
+    }
+
+    let src_dir = dest.join("src");
+    std::fs::create_dir_all(&src_dir)?;
+
+    let lib_rs = src_dir.join("lib.rs");
+    if !lib_rs.exists() {
+        std::fs::write(
+            &lib_rs,
+            r#"// SPDX-License-Identifier: Apache-2.0
+// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+//! Vendored TTD protocol manifest and IR.
+
+/// The TTD Intermediate Representation (IR).
+pub const TTD_IR: &str = include_str!("../ttd-ir.json");
+
+/// The TTD protocol manifest.
+pub const MANIFEST: &str = include_str!("../manifest.json");
+
+/// The TTD behavioral contracts.
+pub const CONTRACTS: &str = include_str!("../contracts.json");
+
+/// The TTD protocol schema (JSON).
+pub const SCHEMA: &str = include_str!("../schema.json");
+"#,
+        )?;
+        println!("  Created {}", lib_rs.display());
     }
 
     Ok(())

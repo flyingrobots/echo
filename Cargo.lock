@@ -4957,6 +4957,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ttd-manifest"
+version = "0.1.0"
+
+[[package]]
 name = "ttd-protocol-rs"
 version = "0.1.0"
 dependencies = [

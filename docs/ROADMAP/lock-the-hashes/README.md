@@ -14,7 +14,7 @@ Complete domain-separated hashing and benchmark umbrella close-out to lock deter
 - [x] All domain-separation prefixes defined and applied
 - [x] Golden hash vectors updated and committed
 - [x] Cross-domain collision tests pass in CI
-- [x] Benchmarks umbrella issue #22 audited and closed
+- [x] Benchmarks umbrella [issue #22](https://github.com/flyingrobots/echo/issues/22) audited and closed
 - [x] No open hash-drift issues
 
 ## Features

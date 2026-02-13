@@ -31,9 +31,9 @@ All child issues (#42-#46) are closed. The umbrella issue #22 ("Benchmarks & CI 
 
 **Definition of Done:**
 
-- [ ] Code reviewed and merged
-- [ ] Tests pass (CI green)
-- [ ] Documentation updated (if applicable)
+- [x] Code reviewed and merged
+- [x] Tests pass (CI green)
+- [x] Documentation updated (if applicable)
 
 **Scope:** Audit of existing merged work. Closing comment on #22. Minor CI fixes if benchmarks fail to compile on current `main`.
 **Out of Scope:** New benchmark development. Performance optimization. Issue #41 (README+docs, milestone M4).

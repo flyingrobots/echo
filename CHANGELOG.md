@@ -15,7 +15,7 @@
     - Added randomized scenario generator (`scripts/bootstrap_randomized_order.mjs`)
       producing semantically equivalent transcripts via different orderings.
     - Added regression tests for Invariant A (Self-Consistency) and Invariant B
-      (Convergence) in CI.
+      (Convergence) in CI; see [issue #22](https://github.com/flyingrobots/echo/issues/22).
 - **Domain-Separated Hash Contexts:** Added unique domain-separation prefixes
   to all core commitment hashes to prevent cross-context structural collisions.
     - `state_root` (graph hash), `patch_digest` (tick patch), and `commit_id` (Merkle
@@ -38,7 +38,7 @@
     - Renamed milestones for clarity (e.g. `lock-the-hashes`, `first-light`,
       `proof-core`).
     - Audited and updated license headers (SPDX) and formatting (Prettier/MD028)
-      across all 66 roadmap documents.
+      across roadmap documents.
 
 ### Changed — Gateway Resilience (`echo-session-ws-gateway`)
 

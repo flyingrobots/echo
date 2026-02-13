@@ -490,7 +490,7 @@ impl GraphStore {
     #[must_use]
     pub fn canonical_state_hash(&self) -> Hash {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"DIND_STATE_HASH_V2\0");
+        hasher.update(crate::domain::STATE_ROOT_V1);
 
         // 1. Nodes (u64 count)
         hasher.update(&(self.nodes.len() as u64).to_le_bytes());

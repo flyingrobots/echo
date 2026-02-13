@@ -16,6 +16,7 @@ use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AtomPayload, AttachmentKey, AttachmentOwner, AttachmentValue};
+use crate::domain;
 use crate::footprint::WarpScopedPortKey;
 use crate::graph::{DeleteNodeError, GraphStore};
 use crate::ident::{EdgeId, EdgeKey, Hash as ContentHash, NodeId, NodeKey, WarpId};
@@ -785,6 +786,7 @@ fn compute_patch_digest_v2(
     ops: &[WarpOp],
 ) -> ContentHash {
     let mut h = Hasher::new();
+    h.update(domain::PATCH_DIGEST_V1);
     // Patch format version.
     h.update(&2u16.to_le_bytes());
     h.update(&policy_id.to_le_bytes());

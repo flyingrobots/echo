@@ -81,6 +81,8 @@ mod attachment;
 pub mod boaw;
 mod cmd;
 mod constants;
+/// Domain separation prefixes for hashing.
+pub mod domain;
 mod engine_impl;
 mod footprint;
 /// Footprint enforcement guard for BOAW Phase 6B.

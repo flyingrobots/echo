@@ -1,0 +1,99 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> */
+
+.state-inspector {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.state-inspector .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.state-inspector .panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.atom-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.atom-row {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.atom-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.atom-row.selected {
+  background: rgba(74, 158, 255, 0.1);
+  border-left: 3px solid var(--accent-blue);
+}
+
+.atom-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.atom-type {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent-purple);
+}
+
+.atom-id {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.atom-value {
+  background: var(--bg-primary);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.atom-value pre {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--accent-green);
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.atom-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.atom-tick {
+  font-family: "JetBrains Mono", monospace;
+}
+
+.atom-rule {
+  font-style: italic;
+}

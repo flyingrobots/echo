@@ -1,0 +1,154 @@
+{
+  "emissions": [
+    {
+      "channel": "ttd.head",
+      "event": "CursorMoved",
+      "opName": "seek",
+      "withinMs": 100
+    },
+    {
+      "channel": "ttd.head",
+      "event": "CursorMoved",
+      "opName": "stepForward",
+      "withinMs": 50
+    },
+    {
+      "channel": "ttd.head",
+      "event": "CursorMoved",
+      "opName": "stepBack",
+      "withinMs": 50
+    },
+    {
+      "channel": "ttd.session",
+      "event": "CursorCreated",
+      "opName": "createCursor"
+    },
+    {
+      "channel": "ttd.session",
+      "event": "CursorDestroyed",
+      "opName": "destroyCursor"
+    },
+    {
+      "channel": "ttd.session",
+      "event": "SessionStarted",
+      "opName": "startSession"
+    },
+    {
+      "channel": "ttd.session",
+      "event": "SessionEnded",
+      "opName": "endSession"
+    }
+  ],
+  "footprints": [
+    {
+      "creates": [],
+      "deletes": [],
+      "opName": "seek",
+      "reads": [
+        "CursorState"
+      ],
+      "writes": [
+        "CursorState"
+      ]
+    },
+    {
+      "creates": [],
+      "deletes": [],
+      "opName": "stepForward",
+      "reads": [
+        "CursorState"
+      ],
+      "writes": [
+        "CursorState"
+      ]
+    },
+    {
+      "creates": [],
+      "deletes": [],
+      "opName": "stepBack",
+      "reads": [
+        "CursorState"
+      ],
+      "writes": [
+        "CursorState"
+      ]
+    },
+    {
+      "creates": [],
+      "deletes": [],
+      "opName": "play",
+      "reads": [],
+      "writes": [
+        "CursorState"
+      ]
+    },
+    {
+      "creates": [],
+      "deletes": [],
+      "opName": "pause",
+      "reads": [],
+      "writes": [
+        "CursorState"
+      ]
+    },
+    {
+      "creates": [
+        "CursorState"
+      ],
+      "deletes": [],
+      "opName": "createCursor",
+      "reads": [],
+      "writes": []
+    },
+    {
+      "creates": [],
+      "deletes": [
+        "CursorState"
+      ],
+      "opName": "destroyCursor",
+      "reads": [],
+      "writes": []
+    },
+    {
+      "creates": [],
+      "deletes": [],
+      "opName": "getCursor",
+      "reads": [
+        "CursorState"
+      ],
+      "writes": []
+    },
+    {
+      "creates": [],
+      "deletes": [],
+      "opName": "listCursors",
+      "reads": [
+        "CursorState"
+      ],
+      "writes": []
+    }
+  ],
+  "invariants": [
+    {
+      "expr": "forall c in CursorState: c.tick >= 0",
+      "name": "tick_non_negative",
+      "severity": "error"
+    },
+    {
+      "expr": "op.seek.mustEmit(CursorMoved).within(100)",
+      "name": "seek_emits_head",
+      "severity": "error"
+    },
+    {
+      "expr": "op.stepForward.mustEmit(CursorMoved).within(50)",
+      "name": "step_emits_head",
+      "severity": "error"
+    },
+    {
+      "expr": "forall s in SessionStarted: exists c in CursorState: c.sessionId == s.sessionId",
+      "name": "session_has_cursor",
+      "severity": "warning"
+    }
+  ],
+  "stateMachines": []
+}

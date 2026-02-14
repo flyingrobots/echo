@@ -1,0 +1,12 @@
+{
+  "name": "ttd-browser",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WASM bindings for TTD Browser Engine",
+  "files": [
+    "pkg/*.{js,wasm,d.ts}"
+  ],
+  "main": "./pkg/ttd_browser.js",
+  "types": "./pkg/ttd_browser.d.ts",
+  "sideEffects": false
+}

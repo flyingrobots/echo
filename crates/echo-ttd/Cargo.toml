@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-ttd"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90.0"
+description = "Time-Travel Debugger compliance engine for Echo"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "ttd", "compliance", "debugger"]
+categories = ["development-tools", "debugging"]
+license = "Apache-2.0"
+
+[dependencies]
+warp-core = { workspace = true }
+thiserror = "1"
+
+[dev-dependencies]

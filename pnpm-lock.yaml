@@ -41,6 +41,9 @@ importers:
       react-dom:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
+      ttd-browser:
+        specifier: workspace:*
+        version: link:../../crates/ttd-browser
       zustand:
         specifier: ^5.0.0
         version: 5.0.11(@types/react@18.3.28)(react@18.3.1)
@@ -63,6 +66,8 @@ importers:
       vite-plugin-wasm:
         specifier: ^3.3.0
         version: 3.5.0(vite@6.4.1(@types/node@24.10.1))
+
+  crates/ttd-browser: {}
 
   packages/echo-renderer-three:
     devDependencies:

@@ -27,6 +27,10 @@ members = [
     "crates/echo-cas",
     "crates/echo-scene-port",
     "crates/echo-scene-codec",
+    "crates/ttd-browser",
+    "crates/ttd-protocol-rs",
+    "crates/ttd-manifest",
+    "crates/echo-ttd",
     "xtask"
 ]
 resolver = "2"
@@ -50,6 +54,10 @@ echo-session-client = { version = "0.1.0", path = "crates/echo-session-client" }
 echo-session-proto = { version = "0.1.1", path = "crates/echo-session-proto" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }
 warp-core = { version = "0.1.1", path = "crates/warp-core" }
+ttd-browser = { version = "0.1.0", path = "crates/ttd-browser" }
+ttd-protocol-rs = { version = "0.1.0", path = "crates/ttd-protocol-rs" }
+ttd-manifest = { version = "0.1.0", path = "crates/ttd-manifest" }
+echo-ttd = { version = "0.1.0", path = "crates/echo-ttd" }
 
 [profile.release]
 opt-level = "s"

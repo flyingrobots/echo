@@ -214,7 +214,9 @@ pub use scheduler::SchedulerKind;
 pub use serializable::{
     SerializableReceipt, SerializableReceiptEntry, SerializableSnapshot, SerializableTick,
 };
-pub use snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_store, Snapshot};
+pub use snapshot::{
+    compute_commit_hash_v2, compute_emissions_digest, compute_state_root_for_warp_store, Snapshot,
+};
 pub use telemetry::{NullTelemetrySink, TelemetrySink};
 pub use tick_delta::{DeltaStats, OpOrigin, ScopedDelta, TickDelta};
 pub use tick_patch::{

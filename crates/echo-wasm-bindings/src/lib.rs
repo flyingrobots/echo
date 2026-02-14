@@ -5,8 +5,11 @@
 //! Provides a tiny in-memory kernel for Spec-000 that mirrors the wasm ABI types.
 
 use echo_wasm_abi::{Edge, Node};
-pub use echo_wasm_abi::{Rewrite, SemanticOp, Value, WarpGraph};
-use std::collections::HashMap;
+pub use echo_wasm_abi::{PrivacyMask, Rewrite, SemanticOp, SessionToken, Value, WarpGraph};
+use std::collections::BTreeMap;
+
+pub mod ttd;
+pub use ttd::*;
 
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
@@ -63,7 +66,7 @@ impl DemoKernel {
             node_id.clone(),
             Node {
                 id: node_id.clone(),
-                fields: HashMap::new(),
+                fields: BTreeMap::new(),
             },
         );
         self.history.push(Rewrite {

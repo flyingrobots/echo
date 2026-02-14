@@ -9,6 +9,13 @@
 use ciborium::value::{Integer, Value};
 use half::f16;
 
+extern crate alloc;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use core::result;
+use core::str;
+
 /// Errors produced by the canonical CBOR encoder/decoder.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CanonError {
@@ -47,7 +54,7 @@ pub enum CanonError {
     Encode(String),
 }
 
-type Result<T> = std::result::Result<T, CanonError>;
+type Result<T> = result::Result<T, CanonError>;
 
 /// Encode a `ciborium::value::Value` to deterministic CBOR bytes.
 pub fn encode_value(val: &Value) -> Result<Vec<u8>> {
@@ -307,8 +314,8 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
             if major == 2 {
                 Ok(Value::Bytes(data.to_vec()))
             } else {
-                let s = std::str::from_utf8(data)
-                    .map_err(|e| CanonError::Decode(format!("utf8: {}", e)))?;
+                let s =
+                    str::from_utf8(data).map_err(|e| CanonError::Decode(format!("utf8: {}", e)))?;
                 Ok(Value::Text(s.to_string()))
             }
         }

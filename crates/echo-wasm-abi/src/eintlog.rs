@@ -14,7 +14,13 @@
 //! - Length: u32 LE (4 bytes)
 //! - Payload: [u8; Length] (Must be valid EINT envelope)
 
+#[cfg(feature = "std")]
 use std::io::{self, Read, Write};
+
+extern crate alloc;
+use alloc::format;
+use alloc::vec;
+use alloc::vec::Vec;
 
 /// Magic bytes identifying an ELOG file: "ELOG".
 pub const ELOG_MAGIC: [u8; 4] = *b"ELOG";
@@ -32,6 +38,7 @@ pub struct ElogHeader {
     pub flags: u16,
 }
 
+#[cfg(feature = "std")]
 fn read_exact_arr<const N: usize, R: Read>(r: &mut R) -> io::Result<[u8; N]> {
     let mut buf = [0u8; N];
     r.read_exact(&mut buf)?;
@@ -42,6 +49,7 @@ fn read_exact_arr<const N: usize, R: Read>(r: &mut R) -> io::Result<[u8; N]> {
 ///
 /// # Errors
 /// Returns an error if the magic bytes are invalid or the version is unsupported.
+#[cfg(feature = "std")]
 pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     let magic = read_exact_arr::<4, _>(r)?;
     if magic != ELOG_MAGIC {
@@ -82,6 +90,7 @@ pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
 ///
 /// # Errors
 /// Returns an error if writing fails.
+#[cfg(feature = "std")]
 pub fn write_elog_header<W: Write>(w: &mut W, hdr: &ElogHeader) -> io::Result<()> {
     w.write_all(&ELOG_MAGIC)?;
     w.write_all(&ELOG_VERSION.to_le_bytes())?;
@@ -100,6 +109,7 @@ pub fn write_elog_header<W: Write>(w: &mut W, hdr: &ElogHeader) -> io::Result<()
 ///
 /// # Errors
 /// Returns an error if the frame is too large, reading fails, or the payload is truncated.
+#[cfg(feature = "std")]
 pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     let mut len_bytes = [0u8; 4];
     match r.read_exact(&mut len_bytes) {
@@ -124,6 +134,7 @@ pub fn read_elog_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
 ///
 /// # Errors
 /// Returns an error if the frame exceeds [`MAX_FRAME_LEN`] or writing fails.
+#[cfg(feature = "std")]
 pub fn write_elog_frame<W: Write>(w: &mut W, frame: &[u8]) -> io::Result<()> {
     if frame.len() > MAX_FRAME_LEN {
         return Err(io::Error::new(
@@ -141,8 +152,12 @@ pub fn write_elog_frame<W: Write>(w: &mut W, frame: &[u8]) -> io::Result<()> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_elog_round_trip() {
         let hdr = ElogHeader {
             schema_hash: [0xAA; 32],
@@ -170,6 +185,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_elog_rejects_large_frame() {
         let mut buf = Vec::new();
         let huge_len = (MAX_FRAME_LEN + 1) as u32;

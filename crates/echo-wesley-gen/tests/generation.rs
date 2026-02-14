@@ -115,6 +115,76 @@ fn test_ops_catalog_present() {
 }
 
 #[test]
+fn test_generate_no_std_minicbor() {
+    let ir = r#"{
+        "ir_version": "echo-ir/v1",
+        "types": [
+            {
+                "name": "Node",
+                "kind": "OBJECT",
+                "fields": [
+                    { "name": "id", "type": "ID", "required": true },
+                    { "name": "pos", "type": "Float", "required": true, "list": true }
+                ]
+            },
+            {
+                "name": "Status",
+                "kind": "ENUM",
+                "values": ["ACTIVE", "INACTIVE"]
+            }
+        ],
+        "ops": []
+    }"#;
+
+    // Run with flags
+    let mut child = Command::new("cargo")
+        .args([
+            "run",
+            "-p",
+            "echo-wesley-gen",
+            "--",
+            "--no-std",
+            "--minicbor",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn cargo run");
+
+    let mut stdin = child.stdin.take().expect("failed to get stdin");
+    stdin
+        .write_all(ir.as_bytes())
+        .expect("failed to write to stdin");
+    drop(stdin);
+
+    let output = child.wait_with_output().expect("failed to wait on child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify no_std artifacts
+    assert!(stdout.contains("extern crate alloc;"));
+    assert!(stdout.contains("use alloc::string::String;"));
+    assert!(stdout.contains("use alloc::vec::Vec;"));
+
+    // Verify minicbor artifacts
+    assert!(stdout.contains("use minicbor::{Encode, Decode};"));
+    assert!(stdout
+        .contains("#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]"));
+    assert!(stdout.contains("#[cbor(index_only)]"));
+    assert!(stdout.contains("#[n(0u64)]"));
+    assert!(stdout.contains("#[n(1u64)]"));
+
+    // Verify ID -> [u8; 32] mapping for no_std
+    assert!(stdout.contains("pub id: [u8; 32]"));
+    assert!(stdout.contains("pub pos: Vec<f32>"));
+}
+
+#[test]
 fn test_rejects_unknown_version() {
     let ir = r#"{
         "ir_version": "echo-ir/v2",

@@ -1,0 +1,97 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> */
+
+.time-controls {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+}
+
+.time-controls-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.brand-icon {
+  color: var(--accent-blue);
+  font-size: 18px;
+}
+
+.brand-name {
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+
+.time-controls-playback {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.time-controls-tick {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+.tick-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.tick-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent-blue);
+  min-width: 60px;
+}
+
+.tick-separator {
+  color: var(--text-secondary);
+}
+
+.tick-max {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.time-controls-speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.time-controls-speed label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.time-controls-speed select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* Push compliance badge to the right */
+.time-controls > .badge {
+  margin-left: auto;
+}

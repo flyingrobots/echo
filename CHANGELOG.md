@@ -5,6 +5,18 @@
 
 ## Unreleased
 
+### Added — Deterministic Scene Data (TTD)
+
+- **Scene Rendering Port (`echo-scene-port`):** Defined the core data model for
+  deterministic scene updates, including nodes, edges, labels, and camera state.
+- **Scene Codec (`echo-scene-codec`):** Implemented a high-performance `minicbor`
+  codec for `SceneDelta` serialization with strict validation.
+- **Float Parity Proof:** Integrated a cross-language verification suite
+  ensuring `canonicalize_f32` produces bit-identical results between Rust and
+  JavaScript.
+- **Scene Integrity Drills:** Added stress tests for atomic state mutations and
+  robustness against truncated CBOR payloads.
+
 ### Added — TTD Protocol & Core Hardening
 
 - **TTD Wire Protocols (v2):** Implemented high-integrity codecs for intents and

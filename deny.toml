@@ -30,6 +30,8 @@ allow = [
     # Dependency chain: warp-viewer -> egui -> epaint -> epaint_default_fonts.
     # Verify: cargo tree -p warp-viewer -e normal | rg '(egui|epaint_default_fonts)'
     "Ubuntu-font-1.0",
+    # Required by minicbor (via echo-scene-codec).
+    "BlueOak-1.0.0",
 ]
 
 # Modernized for cargo-deny >=0.14.21 (PR #611):

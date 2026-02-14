@@ -19,7 +19,7 @@ minicbor = { version = "0.25", features = ["alloc"] }
 [features]
 default = ["std"]
 std = ["echo-scene-port/std", "minicbor/std"]
-test-support = []
+test-utils = []
 
 [dev-dependencies]
 rand = "0.8"

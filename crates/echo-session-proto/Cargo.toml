@@ -2,7 +2,7 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [package]
 name = "echo-session-proto"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.90.0"
 description = "Wire schema for Echo session hub (WARP streams, commands, notifications)"

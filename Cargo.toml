@@ -43,9 +43,9 @@ echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }
 echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
 echo-registry-api = { version = "0.1.0", path = "crates/echo-registry-api" }
 echo-session-client = { version = "0.1.0", path = "crates/echo-session-client" }
-echo-session-proto = { version = "0.1.0", path = "crates/echo-session-proto" }
+echo-session-proto = { version = "0.1.1", path = "crates/echo-session-proto" }
 echo-wasm-abi = { version = "0.1.0", path = "crates/echo-wasm-abi" }
-warp-core = { version = "0.1.0", path = "crates/warp-core" }
+warp-core = { version = "0.1.1", path = "crates/warp-core" }
 
 [profile.release]
 opt-level = "s"

@@ -1,0 +1,475 @@
+{
+  "channels": [
+    {
+      "channelHash": "f6d62a546616a1f76ccbd2602fe272de46f35fed91034bcbda0d0dc8ef48a89b",
+      "eventTypes": [
+        "ComplianceUpdate"
+      ],
+      "name": "ttd.compliance",
+      "ordered": true,
+      "persistent": false,
+      "version": 1
+    },
+    {
+      "channelHash": "841b68154610f365790c949666911a8e0d197023cef942b7701c46ca5abbb425",
+      "eventTypes": [
+        "ViolationDetected",
+        "SeekFailed"
+      ],
+      "name": "ttd.errors",
+      "ordered": true,
+      "persistent": true,
+      "version": 1
+    },
+    {
+      "channelHash": "4644e6b03086cd1adf4c1ef685e8f73525796f09e1625f43592b69730b79d915",
+      "eventTypes": [
+        "CursorMoved",
+        "SeekCompleted"
+      ],
+      "name": "ttd.head",
+      "ordered": true,
+      "persistent": false,
+      "version": 1
+    },
+    {
+      "channelHash": "e6f182658d2bb0e0180b2442d17944db032397a5fc02997a6f7fb764c8d11722",
+      "eventTypes": [
+        "SessionStarted",
+        "SessionEnded",
+        "CursorCreated",
+        "CursorDestroyed"
+      ],
+      "name": "ttd.session",
+      "ordered": true,
+      "persistent": false,
+      "version": 1
+    }
+  ],
+  "codecs": [
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "CursorMoved"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "SeekCompleted"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "SeekFailed"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "ViolationDetected"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "ComplianceUpdate"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "SessionStarted"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "SessionEnded"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "CursorCreated"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "CursorDestroyed"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "StepResult"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "Snapshot"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "ComplianceModel"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "Obligation"
+    },
+    {
+      "canonical": true,
+      "format": "cbor",
+      "typeName": "ObligationReport"
+    }
+  ],
+  "ops": [
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "stepForward",
+      "op_id": 116350618,
+      "resultType": "CursorMoved",
+      "signatureHash": "33b4ff016b90737e3dd09dd45d69de7f80be688f525b4bf8060c29d57fe08ed8"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "getCursor",
+      "op_id": 639452774,
+      "resultType": "CursorState",
+      "signatureHash": "64dd11aec6da75989f24698d585cd970203d141c1545549ff7ba8f231517632d"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "destroyCursor",
+      "op_id": 856261846,
+      "resultType": "CursorDestroyed",
+      "signatureHash": "10cd517751827ea420d7cc684c02dd236bfb4d0b8df5873420efdcd08ef0e6ad"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "getPendingObligations",
+      "op_id": 1131058299,
+      "resultType": "ObligationState",
+      "signatureHash": "56f8b1327aadd13df7e68639a4e650b5b220bb47b08db75760500a7d2bc44396"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "play",
+      "op_id": 1379835894,
+      "resultType": "CursorMoved",
+      "signatureHash": "d53012867ae191d0a4c5b57c5ff3cbfef17c991b87705113535bb60aa995bfc8"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "stepBack",
+      "op_id": 1394286172,
+      "resultType": "CursorMoved",
+      "signatureHash": "8caa940576a07004169da36e7490830031c68bccd824eea04fefa168e9830e38"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "listCursors",
+      "op_id": 1482350986,
+      "resultType": "CursorState",
+      "signatureHash": "28d5ab690a3f1c6e88a8663ba5ff378f7ce9230dc07cea7d768598c2286d809e"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "targetTick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "seek",
+      "op_id": 1824277946,
+      "resultType": "SeekCompleted",
+      "signatureHash": "7de79489bf47190438daa6c7b2468386377ae4ba222d68b8ceb5035ef6098a29"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "pause",
+      "op_id": 2364740775,
+      "resultType": "CursorMoved",
+      "signatureHash": "83555095517c81c4492155287db8bdd71319817aeebb1371b75f3b0958f77dda"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "reason",
+          "required": false,
+          "type": "String"
+        }
+      ],
+      "name": "endSession",
+      "op_id": 2437620378,
+      "resultType": "SessionEnded",
+      "signatureHash": "eef6a35176352a46460180d5e0c44df38f7625b45f4bbc73796e62366e637bbb"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "fromTick",
+          "required": true,
+          "type": "Int"
+        },
+        {
+          "list": false,
+          "name": "toTick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "getViolations",
+      "op_id": 3281714801,
+      "resultType": "Violation",
+      "signatureHash": "0192a55f64a3c9260c920eac6bb1587b2692454b8c788c0e155acfc802ad282c"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "role",
+          "required": true,
+          "type": "CursorRole"
+        },
+        {
+          "list": false,
+          "name": "initialTick",
+          "required": false,
+          "type": "Int"
+        }
+      ],
+      "name": "createCursor",
+      "op_id": 3581082943,
+      "resultType": "CursorCreated",
+      "signatureHash": "1d093c7116c737ea53161a26de016c194a968466cb6adc15c87cbd0c826642f5"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "sessionId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "cursorId",
+          "required": true,
+          "type": "Hash"
+        },
+        {
+          "list": false,
+          "name": "tick",
+          "required": true,
+          "type": "Int"
+        }
+      ],
+      "name": "getComplianceStatus",
+      "op_id": 3843805192,
+      "resultType": "ComplianceUpdate",
+      "signatureHash": "f0f6a1759958f5ae3354a2967af446b9fd32def6c062d47a9ee9b259958d3fc1"
+    },
+    {
+      "args": [
+        {
+          "list": false,
+          "name": "worldlineId",
+          "required": true,
+          "type": "Hash"
+        }
+      ],
+      "name": "startSession",
+      "op_id": 4193224715,
+      "resultType": "SessionStarted",
+      "signatureHash": "53b362d1445a2bc75d5baf6149cf1b25fe575f37f60d1a83ab9b2584da25694b"
+    }
+  ],
+  "registry": {
+    "entries": [
+      {
+        "deprecated": false,
+        "id": 1,
+        "typeHash": "7c4a9aa8f249ebc26d5794a1774fcfbec608df9f08074016bb0221e254d58675",
+        "typeName": "CursorMoved"
+      },
+      {
+        "deprecated": false,
+        "id": 2,
+        "typeHash": "929062453ee84f0b76e5d92bdd1b3794ec7e8e6bd0c6d3d42f4eb2cbb4f1b10d",
+        "typeName": "SeekCompleted"
+      },
+      {
+        "deprecated": false,
+        "id": 3,
+        "typeHash": "4a2eea10b00ee2fcf14aba534296228583adc62aee6e12e3003eda8655179bf6",
+        "typeName": "SeekFailed"
+      },
+      {
+        "deprecated": false,
+        "id": 4,
+        "typeHash": "e9fe58ea952959e79696c51bf146e7eb85f1943677a40f3190660723a713c318",
+        "typeName": "ViolationDetected"
+      },
+      {
+        "deprecated": false,
+        "id": 5,
+        "typeHash": "5f2b4807882b84540fea5a683ff4d6ee3b222cf12e9d4a29c81f8819a8bdefe3",
+        "typeName": "ComplianceUpdate"
+      },
+      {
+        "deprecated": false,
+        "id": 6,
+        "typeHash": "f4a8a66fffba7e2ad2ec159ed5594cdae7039f671b82d0f493fb9c2da2c9f6c2",
+        "typeName": "SessionStarted"
+      },
+      {
+        "deprecated": false,
+        "id": 7,
+        "typeHash": "815e636012d73f62f2130c5c81d2f1d59bf182f93a52658a6ad2b1e70ee57190",
+        "typeName": "SessionEnded"
+      },
+      {
+        "deprecated": false,
+        "id": 8,
+        "typeHash": "53e06565360c3daaf174e415edc022dd182404d09b5d2049d0d5591d08f01634",
+        "typeName": "CursorCreated"
+      },
+      {
+        "deprecated": false,
+        "id": 9,
+        "typeHash": "2975a958cfe5038b56c2ff0a97a67995716c4d295cf4d0359a08603139212780",
+        "typeName": "CursorDestroyed"
+      }
+    ],
+    "version": 1
+  },
+  "schemaHash": "d55d6000b43562e7be04702cdd4335452d1eb6df1f0fbea924e4c6434fff2871"
+}

@@ -1283,6 +1283,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "echo-ttd"
+version = "0.1.0"
+dependencies = [
+ "thiserror 1.0.69",
+ "warp-core",
+]
+
+[[package]]
 name = "echo-wasm-abi"
 version = "0.1.0"
 dependencies = [
@@ -4905,6 +4913,33 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "ttd-browser"
+version = "0.1.0"
+dependencies = [
+ "ciborium",
+ "console_error_panic_hook",
+ "echo-session-proto",
+ "echo-ttd",
+ "js-sys",
+ "serde",
+ "ttd-protocol-rs",
+ "warp-core",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "ttd-manifest"
+version = "0.1.0"
+
+[[package]]
+name = "ttd-protocol-rs"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

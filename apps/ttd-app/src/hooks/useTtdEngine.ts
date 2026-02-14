@@ -11,44 +11,44 @@ import { useEffect, useState } from "react";
  */
 export interface TtdEngine {
   // Worldline management
-  registerWorldline(worldlineId: Uint8Array, warpId: Uint8Array): void;
+  register_worldline(worldline_id: Uint8Array, warp_id: Uint8Array): void;
 
   // Cursor management
-  createCursor(worldlineId: Uint8Array): number;
-  seekTo(cursorId: number, tick: bigint): boolean;
-  step(cursorId: number): Uint8Array; // CBOR-encoded StepResult
-  getTick(cursorId: number): bigint;
-  setMode(cursorId: number, mode: string): void;
-  setSeek(cursorId: number, target: bigint, thenPlay: boolean): void;
-  updateFrontier(cursorId: number, maxTick: bigint): void;
-  dropCursor(cursorId: number): void;
+  create_cursor(worldline_id: Uint8Array): number;
+  seek_to(cursor_id: number, tick: bigint): boolean;
+  step(cursor_id: number): Uint8Array; // CBOR-encoded StepResult
+  get_tick(cursor_id: number): bigint;
+  set_mode(cursor_id: number, mode: string): void;
+  set_seek(cursor_id: number, target: bigint, then_play: boolean): void;
+  update_frontier(cursor_id: number, max_tick: bigint): void;
+  drop_cursor(cursor_id: number): void;
 
   // Provenance queries
-  getStateRoot(cursorId: number): Uint8Array;
-  getCommitHash(cursorId: number): Uint8Array;
-  getEmissionsDigest(cursorId: number): Uint8Array;
-  getHistoryLength(worldlineId: Uint8Array): bigint;
+  get_state_root(cursor_id: number): Uint8Array;
+  get_commit_hash(cursor_id: number): Uint8Array;
+  get_emissions_digest(cursor_id: number): Uint8Array;
+  get_history_length(worldline_id: Uint8Array): bigint;
 
   // Session management
-  createSession(): number;
-  setSessionCursor(sessionId: number, cursorId: number): void;
-  subscribe(sessionId: number, channel: Uint8Array): void;
-  unsubscribe(sessionId: number, channel: Uint8Array): void;
-  publishTruth(sessionId: number, cursorId: number): void;
-  drainFrames(sessionId: number): Uint8Array; // CBOR-encoded TruthFrame[]
-  dropSession(sessionId: number): void;
+  create_session(): number;
+  set_session_cursor(session_id: number, cursor_id: number): void;
+  subscribe(session_id: number, channel: Uint8Array): void;
+  unsubscribe(session_id: number, channel: Uint8Array): void;
+  publish_truth(session_id: number, cursor_id: number): void;
+  drain_frames(session_id: number): Uint8Array; // CBOR-encoded TruthFrame[]
+  drop_session(session_id: number): void;
 
   // Transactions
-  begin(cursorId: number): bigint;
-  commit(txId: bigint): Uint8Array; // TTDR receipt
+  begin(cursor_id: number): bigint;
+  commit(tx_id: bigint): Uint8Array; // TTDR receipt
 
   // Fork
-  snapshot(cursorId: number): Uint8Array;
-  forkFromSnapshot(snapshot: Uint8Array, newWorldlineId: Uint8Array): number;
+  snapshot(cursor_id: number): Uint8Array;
+  fork_from_snapshot(snapshot: Uint8Array, new_worldline_id: Uint8Array): number;
 
   // Compliance (stubs)
-  getCompliance(): Uint8Array;
-  getObligations(): Uint8Array;
+  get_compliance(): Uint8Array;
+  get_obligations(): Uint8Array;
 }
 
 export type EngineState = "loading" | "ready" | "error";
@@ -80,21 +80,30 @@ export function useTtdEngine(): {
 
     async function initEngine() {
       try {
-        // TODO: Replace with actual WASM import once ttd-browser is built
-        // const { default: init, TtdEngine } = await import('ttd-browser');
-        // await init();
-        // const engine = new TtdEngine();
+        let engineInstance: TtdEngine;
 
-        // For now, create a mock engine for UI development
-        const mockEngine = createMockEngine();
+        try {
+          // Attempt actual WASM import
+          // @ts-ignore
+          const wasm = await import("ttd-browser");
+          // wasm-bindgen init might be different depending on build
+          if (wasm.default && typeof wasm.default === "function") {
+            await wasm.default();
+          }
+          engineInstance = new wasm.TtdEngine() as TtdEngine;
+          console.log("[ttd] WASM engine initialized");
+        } catch (wasmErr) {
+          console.warn("[ttd] Failed to load WASM engine, falling back to mock:", wasmErr);
+          engineInstance = createMockEngine();
+        }
 
         if (!cancelled) {
-          setEngine(mockEngine);
+          setEngine(engineInstance);
           setState("ready");
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load WASM");
+          setError(err instanceof Error ? err.message : "Failed to load engine");
           setState("error");
         }
       }
@@ -120,18 +129,18 @@ function createMockEngine(): TtdEngine {
   const cursors = new Map<number, { tick: bigint; worldlineId: Uint8Array }>();
 
   return {
-    registerWorldline(_worldlineId: Uint8Array, _warpId: Uint8Array) {
+    register_worldline(_worldlineId: Uint8Array, _warpId: Uint8Array) {
       console.log("[mock] registerWorldline");
     },
 
-    createCursor(worldlineId: Uint8Array): number {
+    create_cursor(worldlineId: Uint8Array): number {
       const id = nextCursorId++;
       cursors.set(id, { tick: 0n, worldlineId });
       console.log("[mock] createCursor:", id);
       return id;
     },
 
-    seekTo(cursorId: number, tick: bigint): boolean {
+    seek_to(cursorId: number, tick: bigint): boolean {
       const cursor = cursors.get(cursorId);
       if (cursor) cursor.tick = tick;
       console.log("[mock] seekTo:", cursorId, tick);
@@ -145,48 +154,48 @@ function createMockEngine(): TtdEngine {
       return new Uint8Array([0xa2, 0x66, 0x72, 0x65, 0x73, 0x75, 0x6c, 0x74]);
     },
 
-    getTick(cursorId: number): bigint {
+    get_tick(cursorId: number): bigint {
       return cursors.get(cursorId)?.tick ?? 0n;
     },
 
-    setMode(cursorId: number, mode: string) {
+    set_mode(cursorId: number, mode: string) {
       console.log("[mock] setMode:", cursorId, mode);
     },
 
-    setSeek(cursorId: number, target: bigint, thenPlay: boolean) {
+    set_seek(cursorId: number, target: bigint, thenPlay: boolean) {
       console.log("[mock] setSeek:", cursorId, target, thenPlay);
     },
 
-    updateFrontier(cursorId: number, maxTick: bigint) {
-      console.log("[mock] updateFrontier:", cursorId, maxTick);
+    update_frontier(cursor_id: number, maxTick: bigint) {
+      console.log("[mock] updateFrontier:", cursor_id, maxTick);
     },
 
-    dropCursor(cursorId: number) {
+    drop_cursor(cursorId: number) {
       cursors.delete(cursorId);
       console.log("[mock] dropCursor:", cursorId);
     },
 
-    getStateRoot(_cursorId: number): Uint8Array {
+    get_state_root(_cursorId: number): Uint8Array {
       return new Uint8Array(32);
     },
 
-    getCommitHash(_cursorId: number): Uint8Array {
+    get_commit_hash(_cursorId: number): Uint8Array {
       return new Uint8Array(32);
     },
 
-    getEmissionsDigest(_cursorId: number): Uint8Array {
+    get_emissions_digest(_cursorId: number): Uint8Array {
       return new Uint8Array(32);
     },
 
-    getHistoryLength(_worldlineId: Uint8Array): bigint {
+    get_history_length(_worldlineId: Uint8Array): bigint {
       return 100n; // Mock 100 ticks of history
     },
 
-    createSession(): number {
+    create_session(): number {
       return nextSessionId++;
     },
 
-    setSessionCursor(sessionId: number, cursorId: number) {
+    set_session_cursor(sessionId: number, cursorId: number) {
       console.log("[mock] setSessionCursor:", sessionId, cursorId);
     },
 
@@ -198,15 +207,15 @@ function createMockEngine(): TtdEngine {
       console.log("[mock] unsubscribe:", sessionId);
     },
 
-    publishTruth(sessionId: number, cursorId: number) {
+    publish_truth(sessionId: number, cursorId: number) {
       console.log("[mock] publishTruth:", sessionId, cursorId);
     },
 
-    drainFrames(_sessionId: number): Uint8Array {
+    drain_frames(_sessionId: number): Uint8Array {
       return new Uint8Array([0x80]); // Empty CBOR array
     },
 
-    dropSession(sessionId: number) {
+    drop_session(sessionId: number) {
       console.log("[mock] dropSession:", sessionId);
     },
 
@@ -225,16 +234,16 @@ function createMockEngine(): TtdEngine {
       return new Uint8Array(64);
     },
 
-    forkFromSnapshot(_snapshot: Uint8Array, _newWorldlineId: Uint8Array): number {
+    fork_from_snapshot(_snapshot: Uint8Array, _newWorldlineId: Uint8Array): number {
       return nextCursorId++;
     },
 
-    getCompliance(): Uint8Array {
+    get_compliance(): Uint8Array {
       // Mock CBOR: { isGreen: true, violations: [] }
       return new Uint8Array([0xa2, 0x67, 0x69, 0x73, 0x47, 0x72, 0x65, 0x65, 0x6e, 0xf5]);
     },
 
-    getObligations(): Uint8Array {
+    get_obligations(): Uint8Array {
       // Mock CBOR: { pending: [], satisfied: [], violated: [] }
       return new Uint8Array([0xa3]);
     },

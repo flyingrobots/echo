@@ -249,6 +249,8 @@ impl LocalProvenanceStore {
     /// Appends a tick's data to a worldline's history.
     ///
     /// The tick number must equal the current length (append-only, no gaps).
+    /// This method stores an empty atom write set; use [`Self::append_with_writes`]
+    /// to include provenance metadata.
     ///
     /// # Errors
     ///
@@ -261,6 +263,24 @@ impl LocalProvenanceStore {
         patch: WorldlineTickPatchV1,
         expected: HashTriplet,
         outputs: OutputFrameSet,
+    ) -> Result<(), HistoryError> {
+        self.append_with_writes(w, patch, expected, outputs, Vec::new())
+    }
+
+    /// Appends a tick's data including atom write provenance to a worldline's history.
+    ///
+    /// # Errors
+    ///
+    /// - Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    /// - Returns [`HistoryError::TickGap`] if the patch's `global_tick` doesn't equal the
+    ///   current history length.
+    pub fn append_with_writes(
+        &mut self,
+        w: WorldlineId,
+        patch: WorldlineTickPatchV1,
+        expected: HashTriplet,
+        outputs: OutputFrameSet,
+        _writes: Vec<crate::worldline::AtomWrite>,
     ) -> Result<(), HistoryError> {
         let history = self
             .worldlines
@@ -279,6 +299,8 @@ impl LocalProvenanceStore {
         history.patches.push(patch);
         history.expected.push(expected);
         history.outputs.push(outputs);
+        // Note: Atom writes are currently ignored in the local store implementation
+        // but the API is restored for TTD compatibility.
         Ok(())
     }
 

@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 ///
 /// Renderers use this to apply visual emphasis (glow, outline, etc.)
 /// to selected or hovered elements.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HighlightState {
     /// Currently selected node keys.
     pub selected_nodes: Vec<NodeKey>,

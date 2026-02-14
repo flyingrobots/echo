@@ -5,16 +5,16 @@
 //! Uses minicbor for efficient CBOR serialization.
 //! Due to Rust's orphan rules, we use wrapper types for encoding/decoding.
 
+extern crate alloc;
+
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use echo_scene_port::{
-    CameraState, ColorRgba8, EdgeDef, EdgeStyle, Hash, HighlightState, LabelAnchor, LabelDef,
-    NodeDef, NodeShape, ProjectionKind, SceneDelta, SceneOp,
+    CameraState, ColorRgba8, EdgeDef, EdgeKey, EdgeStyle, Hash, HighlightState, LabelAnchor,
+    LabelDef, LabelKey, NodeDef, NodeKey, NodeShape, ProjectionKind, SceneDelta, SceneOp, MAX_OPS,
 };
 use minicbor::{Decoder, Encoder};
-
-extern crate alloc;
 
 // ============================================================================
 // Encoding helpers
@@ -39,6 +39,39 @@ fn decode_hash(d: &mut Decoder<'_>) -> Result<Hash, minicbor::decode::Error> {
     let mut hash = [0u8; 32];
     hash.copy_from_slice(bytes);
     Ok(hash)
+}
+
+fn encode_node_key<W: minicbor::encode::Write>(
+    e: &mut Encoder<W>,
+    key: &NodeKey,
+) -> Result<(), minicbor::encode::Error<W::Error>> {
+    encode_hash(e, &key.0)
+}
+
+fn decode_node_key(d: &mut Decoder<'_>) -> Result<NodeKey, minicbor::decode::Error> {
+    Ok(NodeKey(decode_hash(d)?))
+}
+
+fn encode_edge_key<W: minicbor::encode::Write>(
+    e: &mut Encoder<W>,
+    key: &EdgeKey,
+) -> Result<(), minicbor::encode::Error<W::Error>> {
+    encode_hash(e, &key.0)
+}
+
+fn decode_edge_key(d: &mut Decoder<'_>) -> Result<EdgeKey, minicbor::decode::Error> {
+    Ok(EdgeKey(decode_hash(d)?))
+}
+
+fn encode_label_key<W: minicbor::encode::Write>(
+    e: &mut Encoder<W>,
+    key: &LabelKey,
+) -> Result<(), minicbor::encode::Error<W::Error>> {
+    encode_hash(e, &key.0)
+}
+
+fn decode_label_key(d: &mut Decoder<'_>) -> Result<LabelKey, minicbor::decode::Error> {
+    Ok(LabelKey(decode_hash(d)?))
 }
 
 fn encode_color<W: minicbor::encode::Write>(
@@ -83,7 +116,23 @@ fn decode_f32_array(d: &mut Decoder<'_>) -> Result<[f32; 3], minicbor::decode::E
             len
         )));
     }
-    Ok([d.f32()?, d.f32()?, d.f32()?])
+    // Accept both f32 and f64 from wire for robustness
+    Ok([
+        decode_robust_f32(d)?,
+        decode_robust_f32(d)?,
+        decode_robust_f32(d)?,
+    ])
+}
+
+fn decode_robust_f32(d: &mut Decoder<'_>) -> Result<f32, minicbor::decode::Error> {
+    match d.datatype()? {
+        minicbor::data::Type::F32 => d.f32(),
+        minicbor::data::Type::F64 => Ok(d.f64()? as f32),
+        t => Err(minicbor::decode::Error::message(format!(
+            "expected float, got {:?}",
+            t
+        ))),
+    }
 }
 
 // ============================================================================
@@ -167,7 +216,7 @@ fn encode_node_def<W: minicbor::encode::Write>(
     node: &NodeDef,
 ) -> Result<(), minicbor::encode::Error<W::Error>> {
     e.array(5)?;
-    encode_hash(e, &node.key)?;
+    encode_node_key(e, &node.key)?;
     encode_f32_array(e, &node.position)?;
     e.f32(node.radius)?;
     encode_node_shape(e, &node.shape)?;
@@ -186,7 +235,7 @@ fn decode_node_def(d: &mut Decoder<'_>) -> Result<NodeDef, minicbor::decode::Err
         )));
     }
     Ok(NodeDef {
-        key: decode_hash(d)?,
+        key: decode_node_key(d)?,
         position: decode_f32_array(d)?,
         radius: d.f32()?,
         shape: decode_node_shape(d)?,
@@ -203,9 +252,9 @@ fn encode_edge_def<W: minicbor::encode::Write>(
     edge: &EdgeDef,
 ) -> Result<(), minicbor::encode::Error<W::Error>> {
     e.array(6)?;
-    encode_hash(e, &edge.key)?;
-    encode_hash(e, &edge.a)?;
-    encode_hash(e, &edge.b)?;
+    encode_edge_key(e, &edge.key)?;
+    encode_node_key(e, &edge.a)?;
+    encode_node_key(e, &edge.b)?;
     e.f32(edge.width)?;
     encode_edge_style(e, &edge.style)?;
     encode_color(e, &edge.color)?;
@@ -223,9 +272,9 @@ fn decode_edge_def(d: &mut Decoder<'_>) -> Result<EdgeDef, minicbor::decode::Err
         )));
     }
     Ok(EdgeDef {
-        key: decode_hash(d)?,
-        a: decode_hash(d)?,
-        b: decode_hash(d)?,
+        key: decode_edge_key(d)?,
+        a: decode_node_key(d)?,
+        b: decode_node_key(d)?,
         width: d.f32()?,
         style: decode_edge_style(d)?,
         color: decode_color(d)?,
@@ -244,7 +293,7 @@ fn encode_label_anchor<W: minicbor::encode::Write>(
         LabelAnchor::Node { key } => {
             e.array(2)?;
             e.u8(0)?;
-            encode_hash(e, key)?;
+            encode_node_key(e, key)?;
         }
         LabelAnchor::World { position } => {
             e.array(2)?;
@@ -267,7 +316,7 @@ fn decode_label_anchor(d: &mut Decoder<'_>) -> Result<LabelAnchor, minicbor::dec
     }
     match d.u8()? {
         0 => Ok(LabelAnchor::Node {
-            key: decode_hash(d)?,
+            key: decode_node_key(d)?,
         }),
         1 => Ok(LabelAnchor::World {
             position: decode_f32_array(d)?,
@@ -288,7 +337,7 @@ fn encode_label_def<W: minicbor::encode::Write>(
     label: &LabelDef,
 ) -> Result<(), minicbor::encode::Error<W::Error>> {
     e.array(6)?;
-    encode_hash(e, &label.key)?;
+    encode_label_key(e, &label.key)?;
     e.str(&label.text)?;
     e.f32(label.font_size)?;
     encode_color(e, &label.color)?;
@@ -308,7 +357,7 @@ fn decode_label_def(d: &mut Decoder<'_>) -> Result<LabelDef, minicbor::decode::E
         )));
     }
     Ok(LabelDef {
-        key: decode_hash(d)?,
+        key: decode_label_key(d)?,
         text: String::from(d.str()?),
         font_size: d.f32()?,
         color: decode_color(d)?,
@@ -334,7 +383,7 @@ fn encode_scene_op<W: minicbor::encode::Write>(
         SceneOp::RemoveNode { key } => {
             e.array(2)?;
             e.u8(1)?;
-            encode_hash(e, key)?;
+            encode_node_key(e, key)?;
         }
         SceneOp::UpsertEdge(def) => {
             e.array(2)?;
@@ -344,7 +393,7 @@ fn encode_scene_op<W: minicbor::encode::Write>(
         SceneOp::RemoveEdge { key } => {
             e.array(2)?;
             e.u8(3)?;
-            encode_hash(e, key)?;
+            encode_edge_key(e, key)?;
         }
         SceneOp::UpsertLabel(def) => {
             e.array(2)?;
@@ -354,7 +403,7 @@ fn encode_scene_op<W: minicbor::encode::Write>(
         SceneOp::RemoveLabel { key } => {
             e.array(2)?;
             e.u8(5)?;
-            encode_hash(e, key)?;
+            encode_label_key(e, key)?;
         }
         SceneOp::Clear => {
             e.array(1)?;
@@ -385,7 +434,7 @@ fn decode_scene_op(d: &mut Decoder<'_>) -> Result<SceneOp, minicbor::decode::Err
                 ));
             }
             Ok(SceneOp::RemoveNode {
-                key: decode_hash(d)?,
+                key: decode_node_key(d)?,
             })
         }
         2 => {
@@ -403,7 +452,7 @@ fn decode_scene_op(d: &mut Decoder<'_>) -> Result<SceneOp, minicbor::decode::Err
                 ));
             }
             Ok(SceneOp::RemoveEdge {
-                key: decode_hash(d)?,
+                key: decode_edge_key(d)?,
             })
         }
         4 => {
@@ -421,7 +470,7 @@ fn decode_scene_op(d: &mut Decoder<'_>) -> Result<SceneOp, minicbor::decode::Err
                 ));
             }
             Ok(SceneOp::RemoveLabel {
-                key: decode_hash(d)?,
+                key: decode_label_key(d)?,
             })
         }
         6 => {
@@ -445,7 +494,8 @@ fn encode_scene_delta_inner<W: minicbor::encode::Write>(
     e: &mut Encoder<W>,
     delta: &SceneDelta,
 ) -> Result<(), minicbor::encode::Error<W::Error>> {
-    e.array(4)?;
+    e.array(5)?;
+    e.u8(1)?; // Wire version
     encode_hash(e, &delta.session_id)?;
     encode_hash(e, &delta.cursor_id)?;
     e.u64(delta.epoch)?;
@@ -460,10 +510,17 @@ fn decode_scene_delta_inner(d: &mut Decoder<'_>) -> Result<SceneDelta, minicbor:
     let len = d.array()?.ok_or_else(|| {
         minicbor::decode::Error::message("expected definite array for SceneDelta")
     })?;
-    if len != 4 {
+    if len != 5 {
         return Err(minicbor::decode::Error::message(format!(
-            "SceneDelta expected 4 fields, got {}",
+            "SceneDelta expected 5 fields, got {}",
             len
+        )));
+    }
+    let version = d.u8()?;
+    if version != 1 {
+        return Err(minicbor::decode::Error::message(format!(
+            "unsupported SceneDelta version: {}",
+            version
         )));
     }
     let session_id = decode_hash(d)?;
@@ -472,6 +529,12 @@ fn decode_scene_delta_inner(d: &mut Decoder<'_>) -> Result<SceneDelta, minicbor:
     let ops_len = d
         .array()?
         .ok_or_else(|| minicbor::decode::Error::message("expected definite array for ops"))?;
+    if ops_len as usize > MAX_OPS {
+        return Err(minicbor::decode::Error::message(format!(
+            "SceneDelta ops count {} exceeds MAX_OPS {}",
+            ops_len, MAX_OPS
+        )));
+    }
     let mut ops = Vec::with_capacity(ops_len as usize);
     for _ in 0..ops_len {
         ops.push(decode_scene_op(d)?);
@@ -492,7 +555,8 @@ fn encode_camera_state_inner<W: minicbor::encode::Write>(
     e: &mut Encoder<W>,
     camera: &CameraState,
 ) -> Result<(), minicbor::encode::Error<W::Error>> {
-    e.array(8)?;
+    e.array(9)?;
+    e.u8(1)?; // Wire version
     encode_f32_array(e, &camera.position)?;
     encode_f32_array(e, &camera.target)?;
     encode_f32_array(e, &camera.up)?;
@@ -508,10 +572,17 @@ fn decode_camera_state_inner(d: &mut Decoder<'_>) -> Result<CameraState, minicbo
     let len = d.array()?.ok_or_else(|| {
         minicbor::decode::Error::message("expected definite array for CameraState")
     })?;
-    if len != 8 {
+    if len != 9 {
         return Err(minicbor::decode::Error::message(format!(
-            "CameraState expected 8 fields, got {}",
+            "CameraState expected 9 fields, got {}",
             len
+        )));
+    }
+    let version = d.u8()?;
+    if version != 1 {
+        return Err(minicbor::decode::Error::message(format!(
+            "unsupported CameraState version: {}",
+            version
         )));
     }
     Ok(CameraState {
@@ -534,22 +605,23 @@ fn encode_highlight_state_inner<W: minicbor::encode::Write>(
     e: &mut Encoder<W>,
     highlight: &HighlightState,
 ) -> Result<(), minicbor::encode::Error<W::Error>> {
-    e.array(4)?;
-    // selected_nodes
+    e.array(5)?;
+    e.u8(1)?; // Wire version
+              // selected_nodes
     e.array(highlight.selected_nodes.len() as u64)?;
     for key in &highlight.selected_nodes {
-        encode_hash(e, key)?;
+        encode_node_key(e, key)?;
     }
     // selected_edges
     e.array(highlight.selected_edges.len() as u64)?;
     for key in &highlight.selected_edges {
-        encode_hash(e, key)?;
+        encode_edge_key(e, key)?;
     }
     // hovered_node
     match &highlight.hovered_node {
         Some(key) => {
             e.array(1)?;
-            encode_hash(e, key)?;
+            encode_node_key(e, key)?;
         }
         None => {
             e.array(0)?;
@@ -559,7 +631,7 @@ fn encode_highlight_state_inner<W: minicbor::encode::Write>(
     match &highlight.hovered_edge {
         Some(key) => {
             e.array(1)?;
-            encode_hash(e, key)?;
+            encode_edge_key(e, key)?;
         }
         None => {
             e.array(0)?;
@@ -574,45 +646,68 @@ fn decode_highlight_state_inner(
     let len = d.array()?.ok_or_else(|| {
         minicbor::decode::Error::message("expected definite array for HighlightState")
     })?;
-    if len != 4 {
+    if len != 5 {
         return Err(minicbor::decode::Error::message(format!(
-            "HighlightState expected 4 fields, got {}",
+            "HighlightState expected 5 fields, got {}",
             len
+        )));
+    }
+    let version = d.u8()?;
+    if version != 1 {
+        return Err(minicbor::decode::Error::message(format!(
+            "unsupported HighlightState version: {}",
+            version
         )));
     }
     // selected_nodes
     let nodes_len = d.array()?.ok_or_else(|| {
         minicbor::decode::Error::message("expected definite array for selected_nodes")
     })?;
+    if nodes_len as usize > MAX_OPS {
+        return Err(minicbor::decode::Error::message("too many selected nodes"));
+    }
     let mut selected_nodes = Vec::with_capacity(nodes_len as usize);
     for _ in 0..nodes_len {
-        selected_nodes.push(decode_hash(d)?);
+        selected_nodes.push(decode_node_key(d)?);
     }
     // selected_edges
     let edges_len = d.array()?.ok_or_else(|| {
         minicbor::decode::Error::message("expected definite array for selected_edges")
     })?;
+    if edges_len as usize > MAX_OPS {
+        return Err(minicbor::decode::Error::message("too many selected edges"));
+    }
     let mut selected_edges = Vec::with_capacity(edges_len as usize);
     for _ in 0..edges_len {
-        selected_edges.push(decode_hash(d)?);
+        selected_edges.push(decode_edge_key(d)?);
     }
     // hovered_node
     let hovered_node_len = d.array()?.ok_or_else(|| {
         minicbor::decode::Error::message("expected definite array for hovered_node")
     })?;
+    if hovered_node_len > 1 {
+        return Err(minicbor::decode::Error::message(
+            "expected array of length 0 or 1 for hovered_node",
+        ));
+    }
     let hovered_node = if hovered_node_len == 0 {
         None
     } else {
-        Some(decode_hash(d)?)
+        Some(decode_node_key(d)?)
     };
     // hovered_edge
     let hovered_edge_len = d.array()?.ok_or_else(|| {
         minicbor::decode::Error::message("expected definite array for hovered_edge")
     })?;
+    if hovered_edge_len > 1 {
+        return Err(minicbor::decode::Error::message(
+            "expected array of length 0 or 1 for hovered_edge",
+        ));
+    }
     let hovered_edge = if hovered_edge_len == 0 {
         None
     } else {
-        Some(decode_hash(d)?)
+        Some(decode_edge_key(d)?)
     };
     Ok(HighlightState {
         selected_nodes,
@@ -637,7 +732,13 @@ pub fn encode_scene_delta(delta: &SceneDelta) -> Vec<u8> {
 /// Decode a SceneDelta from CBOR bytes.
 pub fn decode_scene_delta(bytes: &[u8]) -> Result<SceneDelta, minicbor::decode::Error> {
     let mut decoder = Decoder::new(bytes);
-    decode_scene_delta_inner(&mut decoder)
+    let delta = decode_scene_delta_inner(&mut decoder)?;
+    if decoder.position() < bytes.len() {
+        return Err(minicbor::decode::Error::message(
+            "trailing bytes in SceneDelta",
+        ));
+    }
+    Ok(delta)
 }
 
 /// Encode a CameraState to CBOR bytes.
@@ -651,7 +752,13 @@ pub fn encode_camera_state(camera: &CameraState) -> Vec<u8> {
 /// Decode a CameraState from CBOR bytes.
 pub fn decode_camera_state(bytes: &[u8]) -> Result<CameraState, minicbor::decode::Error> {
     let mut decoder = Decoder::new(bytes);
-    decode_camera_state_inner(&mut decoder)
+    let state = decode_camera_state_inner(&mut decoder)?;
+    if decoder.position() < bytes.len() {
+        return Err(minicbor::decode::Error::message(
+            "trailing bytes in CameraState",
+        ));
+    }
+    Ok(state)
 }
 
 /// Encode a HighlightState to CBOR bytes.
@@ -665,7 +772,13 @@ pub fn encode_highlight_state(highlight: &HighlightState) -> Vec<u8> {
 /// Decode a HighlightState from CBOR bytes.
 pub fn decode_highlight_state(bytes: &[u8]) -> Result<HighlightState, minicbor::decode::Error> {
     let mut decoder = Decoder::new(bytes);
-    decode_highlight_state_inner(&mut decoder)
+    let state = decode_highlight_state_inner(&mut decoder)?;
+    if decoder.position() < bytes.len() {
+        return Err(minicbor::decode::Error::message(
+            "trailing bytes in HighlightState",
+        ));
+    }
+    Ok(state)
 }
 
 #[cfg(test)]
@@ -683,7 +796,7 @@ mod tests {
     #[test]
     fn test_node_def_roundtrip() {
         let node = NodeDef {
-            key: make_test_hash(1),
+            key: NodeKey(make_test_hash(1)),
             position: [1.0, 2.0, 3.0],
             radius: 0.5,
             shape: NodeShape::Sphere,
@@ -701,9 +814,9 @@ mod tests {
     #[test]
     fn test_edge_def_roundtrip() {
         let edge = EdgeDef {
-            key: make_test_hash(1),
-            a: make_test_hash(2),
-            b: make_test_hash(3),
+            key: EdgeKey(make_test_hash(1)),
+            a: NodeKey(make_test_hash(2)),
+            b: NodeKey(make_test_hash(3)),
             width: 0.1,
             style: EdgeStyle::Dashed,
             color: [100, 150, 200, 128],
@@ -720,7 +833,7 @@ mod tests {
     #[test]
     fn test_label_anchor_node_roundtrip() {
         let anchor = LabelAnchor::Node {
-            key: make_test_hash(5),
+            key: NodeKey(make_test_hash(5)),
         };
         let mut buf = Vec::new();
         let mut encoder = Encoder::new(&mut buf);
@@ -748,12 +861,12 @@ mod tests {
     #[test]
     fn test_label_def_roundtrip() {
         let label = LabelDef {
-            key: make_test_hash(1),
+            key: LabelKey(make_test_hash(1)),
             text: "Hello World".into(),
             font_size: 14.0,
             color: [255, 255, 255, 255],
             anchor: LabelAnchor::Node {
-                key: make_test_hash(2),
+                key: NodeKey(make_test_hash(2)),
             },
             offset: [0.0, 1.0, 0.0],
         };
@@ -770,14 +883,14 @@ mod tests {
     fn test_scene_op_roundtrip() {
         let ops = vec![
             SceneOp::UpsertNode(NodeDef {
-                key: make_test_hash(1),
+                key: NodeKey(make_test_hash(1)),
                 position: [0.0, 0.0, 0.0],
                 radius: 1.0,
                 shape: NodeShape::Cube,
                 color: [255, 0, 0, 255],
             }),
             SceneOp::RemoveNode {
-                key: make_test_hash(2),
+                key: NodeKey(make_test_hash(2)),
             },
             SceneOp::Clear,
         ];
@@ -800,7 +913,7 @@ mod tests {
             epoch: 42,
             ops: vec![
                 SceneOp::UpsertNode(NodeDef {
-                    key: make_test_hash(10),
+                    key: NodeKey(make_test_hash(10)),
                     position: [1.0, 2.0, 3.0],
                     radius: 0.5,
                     shape: NodeShape::Sphere,
@@ -834,9 +947,9 @@ mod tests {
     #[test]
     fn test_highlight_state_roundtrip() {
         let highlight = HighlightState {
-            selected_nodes: vec![make_test_hash(1), make_test_hash(2)],
-            selected_edges: vec![make_test_hash(3)],
-            hovered_node: Some(make_test_hash(4)),
+            selected_nodes: vec![NodeKey(make_test_hash(1)), NodeKey(make_test_hash(2))],
+            selected_edges: vec![EdgeKey(make_test_hash(3))],
+            hovered_node: Some(NodeKey(make_test_hash(4))),
             hovered_edge: None,
         };
         let bytes = encode_highlight_state(&highlight);
@@ -853,13 +966,31 @@ mod tests {
     }
 
     #[test]
+    fn reject_trailing_garbage() {
+        let delta = SceneDelta {
+            session_id: make_test_hash(1),
+            cursor_id: make_test_hash(2),
+            epoch: 42,
+            ops: vec![SceneOp::Clear],
+        };
+        let mut bytes = encode_scene_delta(&delta);
+        bytes.push(0xFF); // Trailing garbage
+
+        let result = decode_scene_delta(&bytes);
+        assert!(
+            result.is_err(),
+            "Decoder should reject trailing garbage bytes"
+        );
+    }
+
+    #[test]
     fn drill_truncated_cbor() {
         let delta = SceneDelta {
             session_id: make_test_hash(1),
             cursor_id: make_test_hash(2),
             epoch: 42,
             ops: vec![SceneOp::UpsertNode(NodeDef {
-                key: make_test_hash(10),
+                key: NodeKey(make_test_hash(10)),
                 position: [1.0, 2.0, 3.0],
                 radius: 0.5,
                 shape: NodeShape::Sphere,
@@ -882,7 +1013,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "std")]
-    fn stress_atomic_scene_delta() {
+    fn stress_concurrent_decode() {
         use std::sync::{Arc, Mutex};
         use std::thread;
 
@@ -902,9 +1033,6 @@ mod tests {
             let b = Arc::clone(&bytes_arc);
             let s = Arc::clone(&success_count);
             handles.push(thread::spawn(move || {
-                // In a real scenario, this would call some ScenePort implementation.
-                // Here we just verify that multiple threads can decode concurrently
-                // without interference.
                 let decoded = decode_scene_delta(&b).unwrap();
                 if decoded.epoch == 42 {
                     let mut count = s.lock().unwrap();

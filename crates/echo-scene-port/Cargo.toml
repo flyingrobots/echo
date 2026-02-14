@@ -13,7 +13,7 @@ keywords = ["echo", "scene", "rendering", "ttd"]
 categories = ["graphics", "visualization"]
 
 [dependencies]
-# NO dependencies. Pure types only.
+thiserror = { version = "1", default-features = false }
 
 [features]
 default = ["std"]
@@ -22,3 +22,4 @@ std = []
 [dev-dependencies]
 rand = "0.8"
 hex = "0.4"
+serde_json = "1.0"

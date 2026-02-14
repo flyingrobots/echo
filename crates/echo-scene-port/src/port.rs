@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Scene port trait defining the renderer contract.
 
-use crate::{CameraState, HighlightState, SceneDelta};
+use crate::{ApplyError, CameraState, HighlightState, SceneDelta};
 
 /// Scene rendering port trait.
 ///
@@ -18,9 +18,18 @@ use crate::{CameraState, HighlightState, SceneDelta};
 ///
 /// Deltas are idempotent per (cursor_id, epoch). If an adapter receives a delta
 /// with an epoch it has already processed for that cursor, it should skip it.
-pub trait ScenePort {
+///
+/// # Thread Safety
+///
+/// Implementations must be `Send` to allow for multi-threaded state application
+/// and background decoding.
+pub trait ScenePort: Send {
     /// Apply a scene delta. Idempotent per (cursor_id, epoch).
-    fn apply_scene_delta(&mut self, delta: &SceneDelta);
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApplyError`] if the delta is malformed or violates scene invariants.
+    fn apply_scene_delta(&mut self, delta: &SceneDelta) -> Result<(), ApplyError>;
 
     /// Set camera state.
     fn set_camera(&mut self, camera: &CameraState);
@@ -34,6 +43,16 @@ pub trait ScenePort {
     fn render(&mut self);
 
     /// Resize viewport.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Viewport width in pixels.
+    /// * `height` - Viewport height in pixels.
+    /// * `dpr` - Device Pixel Ratio (must be > 0.0).
+    ///
+    /// # Panics
+    ///
+    /// Implementations may panic if `dpr` is not finite or is <= 0.0.
     fn resize(&mut self, width: u32, height: u32, dpr: f32);
 
     /// Reset epoch tracking for a cursor.

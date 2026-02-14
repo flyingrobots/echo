@@ -10,12 +10,39 @@ use alloc::vec::Vec;
 
 /// 32-byte content-addressed key.
 pub type Hash = [u8; 32];
+
 /// Key type for nodes (32-byte hash).
-pub type NodeKey = Hash;
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NodeKey(pub Hash);
+
+impl AsRef<Hash> for NodeKey {
+    fn as_ref(&self) -> &Hash {
+        &self.0
+    }
+}
+
 /// Key type for edges (32-byte hash).
-pub type EdgeKey = Hash;
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EdgeKey(pub Hash);
+
+impl AsRef<Hash> for EdgeKey {
+    fn as_ref(&self) -> &Hash {
+        &self.0
+    }
+}
+
 /// Key type for labels (32-byte hash).
-pub type LabelKey = Hash;
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LabelKey(pub Hash);
+
+impl AsRef<Hash> for LabelKey {
+    fn as_ref(&self) -> &Hash {
+        &self.0
+    }
+}
 
 /// Node shape for rendering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +68,7 @@ pub enum EdgeStyle {
 pub type ColorRgba8 = [u8; 4];
 
 /// Node definition for the scene graph.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NodeDef {
     /// Unique key for this node.
     pub key: NodeKey,
@@ -56,7 +83,7 @@ pub struct NodeDef {
 }
 
 /// Edge definition connecting two nodes.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EdgeDef {
     /// Unique key for this edge.
     pub key: EdgeKey,
@@ -73,7 +100,7 @@ pub struct EdgeDef {
 }
 
 /// Anchor point for labels.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LabelAnchor {
     /// Anchored to a node.
     Node {
@@ -134,9 +161,16 @@ pub enum SceneOp {
     Clear,
 }
 
+/// Maximum number of operations allowed in a single SceneDelta.
+///
+/// This limit prevents malicious or runaway deltas from triggering
+/// excessive memory allocations during decoding.
+pub const MAX_OPS: usize = 10_000;
+
 /// Scene delta: a batch of operations scoped to a cursor epoch.
 ///
 /// Deltas are idempotent per (cursor_id, epoch) pair.
+/// The number of operations is capped at [`MAX_OPS`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct SceneDelta {
     /// Session identifier.

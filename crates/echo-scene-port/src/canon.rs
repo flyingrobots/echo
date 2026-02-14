@@ -15,6 +15,13 @@
 /// Panics if `x` is NaN or Infinity. Scene data must be finite.
 pub fn canonicalize_f32(x: f32) -> f32 {
     assert!(x.is_finite(), "NaN/Infinity not allowed in scene data");
+    // Explicitly reject values too large for precision-scaled truncation.
+    // i64::MAX is ~9.22e18, so x * 1e6 must be < ~9.22e18.
+    // We cap at 1e12 to be safe and maintain high precision.
+    assert!(
+        x.abs() < 1_000_000_000_000.0,
+        "Scene coordinate magnitude exceeds 1e12 limit"
+    );
     // Perform scaling in f64 to match JS 'number' precision during intermediate step.
     let scaled = x as f64 * 1_000_000.0;
     let truncated = (scaled as i64) as f32 / 1_000_000.0;
@@ -61,37 +68,71 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "magnitude")]
+    fn test_canonicalize_large_values() {
+        // large value that would overflow i64 when scaled by 1,000,000
+        let val1 = 1e15_f32;
+        canonicalize_f32(val1);
+    }
+
+    #[test]
     #[cfg(feature = "std")]
     fn test_float_parity_with_js() {
         use rand::Rng;
+
         use std::process::Command;
 
         let mut rng = rand::thread_rng();
-        // 10,000 might be slow if we spawn node for each, let's do 1,000 or batch.
-        // Actually, spawning node 1000 times is still fast enough for a unit test.
-        for _ in 0..100 {
+
+        const NUM_VECTORS: usize = 1000;
+
+        let mut inputs = Vec::with_capacity(NUM_VECTORS);
+
+        let mut rust_hexes = Vec::with_capacity(NUM_VECTORS);
+
+        for _ in 0..NUM_VECTORS {
             let val: f32 = rng.gen_range(-10000.0..10000.0);
+
             let rust_result = canonicalize_f32(val);
-            let rust_hex = hex::encode(rust_result.to_le_bytes());
 
-            let val_str = format!("{:.10}", val);
-            let output = Command::new("node")
-                .arg("../../scripts/float-parity-check.js")
-                .arg(&val_str)
-                .output()
-                .expect("failed to execute node");
+            inputs.push(val);
 
-            let js_hex = String::from_utf8_lossy(&output.stdout);
-            if rust_hex != js_hex {
-                println!(
-                    "Value: {}, String sent to JS: {}, Rust Hex: {}, JS Hex: {}",
-                    val, val_str, rust_hex, js_hex
-                );
-            }
+            rust_hexes.push(hex::encode(rust_result.to_le_bytes()));
+        }
+
+        let input_json = serde_json::to_string(&inputs).expect("failed to serialize inputs");
+
+        let output = Command::new("node")
+            .arg("../../scripts/float-parity-check.js")
+            .arg(&input_json)
+            .output()
+            .expect("failed to execute node");
+
+        if !output.status.success() {
+            panic!(
+                "Node process failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let js_hexes: Vec<String> =
+            serde_json::from_slice(&output.stdout).expect("failed to parse JS output");
+
+        assert_eq!(
+            rust_hexes.len(),
+            js_hexes.len(),
+            "JS did not return expected number of results"
+        );
+
+        for i in 0..NUM_VECTORS {
             assert_eq!(
-                rust_hex, js_hex,
-                "Float parity mismatch for {}: Rust={} (hex {}), JS={} (hex {})",
-                val, rust_result, rust_hex, "?", js_hex
+                rust_hexes[i],
+                js_hexes[i].trim(),
+                "Float parity mismatch for input[{}]: {} (Rust hex: {}, JS hex: {})",
+                i,
+                inputs[i],
+                rust_hexes[i],
+                js_hexes[i]
             );
         }
     }

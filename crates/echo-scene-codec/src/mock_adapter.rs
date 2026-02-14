@@ -8,14 +8,9 @@
 use std::collections::HashMap;
 
 use echo_scene_port::{
-    CameraState, EdgeDef, HighlightState, LabelAnchor, LabelDef, NodeDef, SceneDelta, SceneOp,
-    ScenePort,
+    ApplyError, CameraState, EdgeDef, EdgeKey, HighlightState, LabelAnchor, LabelDef, LabelKey,
+    NodeDef, NodeKey, SceneDelta, SceneOp, ScenePort,
 };
-
-/// Convert a 32-byte hash to a hex string for use as HashMap key.
-fn hash_to_hex(hash: &[u8; 32]) -> String {
-    hash.iter().map(|b| format!("{:02x}", b)).collect()
-}
 
 /// Mock scene adapter for testing.
 ///
@@ -24,17 +19,17 @@ fn hash_to_hex(hash: &[u8; 32]) -> String {
 #[derive(Debug, Default)]
 pub struct MockAdapter {
     /// Current nodes in the scene.
-    pub nodes: HashMap<String, NodeDef>,
+    pub nodes: HashMap<[u8; 32], NodeDef>,
     /// Current edges in the scene.
-    pub edges: HashMap<String, EdgeDef>,
+    pub edges: HashMap<[u8; 32], EdgeDef>,
     /// Current labels in the scene.
-    pub labels: HashMap<String, LabelDef>,
+    pub labels: HashMap<[u8; 32], LabelDef>,
     /// Current camera state.
     pub camera: CameraState,
     /// Current highlight state.
     pub highlight: HighlightState,
-    /// Last epoch processed per cursor (hex string key).
-    last_epoch_by_cursor: HashMap<String, u64>,
+    /// Last epoch processed per cursor.
+    last_epoch_by_cursor: HashMap<[u8; 32], u64>,
     /// Number of render calls.
     pub render_count: u32,
     /// Current viewport dimensions.
@@ -65,46 +60,44 @@ impl MockAdapter {
     }
 
     /// Check if an edge is valid (both endpoints exist).
-    pub fn is_edge_valid(&self, edge_key: &str) -> bool {
-        if let Some(edge) = self.edges.get(edge_key) {
-            let a_hex = hash_to_hex(&edge.a);
-            let b_hex = hash_to_hex(&edge.b);
-            self.nodes.contains_key(&a_hex) && self.nodes.contains_key(&b_hex)
+    pub fn is_edge_valid(&self, edge_key: EdgeKey) -> bool {
+        if let Some(edge) = self.edges.get(&edge_key.0) {
+            self.nodes.contains_key(&edge.a.0) && self.nodes.contains_key(&edge.b.0)
         } else {
             false
         }
     }
 
-    /// Get node by hex key.
-    pub fn get_node(&self, key_hex: &str) -> Option<&NodeDef> {
-        self.nodes.get(key_hex)
+    /// Get node by key.
+    pub fn get_node(&self, key: NodeKey) -> Option<&NodeDef> {
+        self.nodes.get(&key.0)
     }
 
-    /// Get edge by hex key.
-    pub fn get_edge(&self, key_hex: &str) -> Option<&EdgeDef> {
-        self.edges.get(key_hex)
+    /// Get edge by key.
+    pub fn get_edge(&self, key: EdgeKey) -> Option<&EdgeDef> {
+        self.edges.get(&key.0)
     }
 
-    /// Get label by hex key.
-    pub fn get_label(&self, key_hex: &str) -> Option<&LabelDef> {
-        self.labels.get(key_hex)
+    /// Get label by key.
+    pub fn get_label(&self, key: LabelKey) -> Option<&LabelDef> {
+        self.labels.get(&key.0)
     }
 
-    /// Get the last epoch for a cursor (by hex key).
-    pub fn last_epoch(&self, cursor_hex: &str) -> Option<u64> {
-        self.last_epoch_by_cursor.get(cursor_hex).copied()
+    /// Get the last epoch for a cursor.
+    pub fn last_epoch(&self, cursor_id: &[u8; 32]) -> Option<u64> {
+        self.last_epoch_by_cursor.get(cursor_id).copied()
     }
 }
 
 impl ScenePort for MockAdapter {
-    fn apply_scene_delta(&mut self, delta: &SceneDelta) {
-        let cursor_hex = hash_to_hex(&delta.cursor_id);
-        let last_epoch = self.last_epoch_by_cursor.get(&cursor_hex).copied();
+    fn apply_scene_delta(&mut self, delta: &SceneDelta) -> Result<(), ApplyError> {
+        let cursor_id = delta.cursor_id;
+        let last_epoch = self.last_epoch_by_cursor.get(&cursor_id).copied();
 
         // Idempotency check: skip if epoch already processed
         if let Some(last) = last_epoch {
             if delta.epoch <= last {
-                return;
+                return Ok(());
             }
         }
 
@@ -112,36 +105,30 @@ impl ScenePort for MockAdapter {
         for op in &delta.ops {
             match op {
                 SceneOp::UpsertNode(node) => {
-                    let key_hex = hash_to_hex(&node.key);
-                    self.nodes.insert(key_hex, node.clone());
+                    self.nodes.insert(node.key.0, *node);
                 }
                 SceneOp::RemoveNode { key } => {
-                    let key_hex = hash_to_hex(key);
-                    self.nodes.remove(&key_hex);
+                    self.nodes.remove(&key.0);
                     // Remove labels anchored to this node
                     self.labels.retain(|_, label| {
                         if let LabelAnchor::Node { key: anchor_key } = &label.anchor {
-                            hash_to_hex(anchor_key) != key_hex
+                            anchor_key != key
                         } else {
                             true
                         }
                     });
                 }
                 SceneOp::UpsertEdge(edge) => {
-                    let key_hex = hash_to_hex(&edge.key);
-                    self.edges.insert(key_hex, edge.clone());
+                    self.edges.insert(edge.key.0, *edge);
                 }
                 SceneOp::RemoveEdge { key } => {
-                    let key_hex = hash_to_hex(key);
-                    self.edges.remove(&key_hex);
+                    self.edges.remove(&key.0);
                 }
                 SceneOp::UpsertLabel(label) => {
-                    let key_hex = hash_to_hex(&label.key);
-                    self.labels.insert(key_hex, label.clone());
+                    self.labels.insert(label.key.0, label.clone());
                 }
                 SceneOp::RemoveLabel { key } => {
-                    let key_hex = hash_to_hex(key);
-                    self.labels.remove(&key_hex);
+                    self.labels.remove(&key.0);
                 }
                 SceneOp::Clear => {
                     self.nodes.clear();
@@ -152,11 +139,12 @@ impl ScenePort for MockAdapter {
         }
 
         // Update epoch tracking
-        self.last_epoch_by_cursor.insert(cursor_hex, delta.epoch);
+        self.last_epoch_by_cursor.insert(cursor_id, delta.epoch);
+        Ok(())
     }
 
     fn set_camera(&mut self, camera: &CameraState) {
-        self.camera = camera.clone();
+        self.camera = *camera;
     }
 
     fn set_highlight(&mut self, highlight: &HighlightState) {
@@ -172,8 +160,7 @@ impl ScenePort for MockAdapter {
     }
 
     fn reset_cursor(&mut self, cursor_id: &[u8; 32]) {
-        let cursor_hex = hash_to_hex(cursor_id);
-        self.last_epoch_by_cursor.remove(&cursor_hex);
+        self.last_epoch_by_cursor.remove(cursor_id);
     }
 
     fn dispose(&mut self) {
@@ -181,6 +168,7 @@ impl ScenePort for MockAdapter {
         self.nodes.clear();
         self.edges.clear();
         self.labels.clear();
+        self.last_epoch_by_cursor.clear();
     }
 }
 
@@ -199,7 +187,7 @@ mod tests {
 
     fn make_node(seed: u8, pos: [f32; 3]) -> NodeDef {
         NodeDef {
-            key: make_test_hash(seed),
+            key: NodeKey(make_test_hash(seed)),
             position: pos,
             radius: 1.0,
             shape: NodeShape::Sphere,
@@ -209,9 +197,9 @@ mod tests {
 
     fn make_edge(seed: u8, a_seed: u8, b_seed: u8) -> EdgeDef {
         EdgeDef {
-            key: make_test_hash(seed),
-            a: make_test_hash(a_seed),
-            b: make_test_hash(b_seed),
+            key: EdgeKey(make_test_hash(seed)),
+            a: NodeKey(make_test_hash(a_seed)),
+            b: NodeKey(make_test_hash(b_seed)),
             width: 0.1,
             style: EdgeStyle::Solid,
             color: [255, 255, 255, 255],
@@ -220,12 +208,12 @@ mod tests {
 
     fn make_label(seed: u8, anchor_seed: u8, text: &str) -> LabelDef {
         LabelDef {
-            key: make_test_hash(seed),
+            key: LabelKey(make_test_hash(seed)),
             text: text.into(),
             font_size: 12.0,
             color: [255, 255, 255, 255],
             anchor: LabelAnchor::Node {
-                key: make_test_hash(anchor_seed),
+                key: NodeKey(make_test_hash(anchor_seed)),
             },
             offset: [0.0, 0.5, 0.0],
         }
@@ -234,17 +222,17 @@ mod tests {
     #[test]
     fn test_upsert_node() {
         let mut adapter = MockAdapter::new();
+        let node_id = NodeKey(make_test_hash(10));
         let delta = SceneDelta {
             session_id: make_test_hash(0),
             cursor_id: make_test_hash(1),
             epoch: 0,
             ops: vec![SceneOp::UpsertNode(make_node(10, [1.0, 2.0, 3.0]))],
         };
-        adapter.apply_scene_delta(&delta);
+        adapter.apply_scene_delta(&delta).expect("apply failed");
         assert_eq!(adapter.node_count(), 1);
 
-        let key_hex = hash_to_hex(&make_test_hash(10));
-        let node = adapter.get_node(&key_hex).unwrap();
+        let node = adapter.get_node(node_id).unwrap();
         assert_eq!(node.position, [1.0, 2.0, 3.0]);
     }
 
@@ -262,7 +250,7 @@ mod tests {
                 SceneOp::UpsertLabel(make_label(20, 10, "Node Label")),
             ],
         };
-        adapter.apply_scene_delta(&delta1);
+        adapter.apply_scene_delta(&delta1).expect("apply failed");
         assert_eq!(adapter.node_count(), 1);
         assert_eq!(adapter.label_count(), 1);
 
@@ -272,10 +260,10 @@ mod tests {
             cursor_id: make_test_hash(1),
             epoch: 1,
             ops: vec![SceneOp::RemoveNode {
-                key: make_test_hash(10),
+                key: NodeKey(make_test_hash(10)),
             }],
         };
-        adapter.apply_scene_delta(&delta2);
+        adapter.apply_scene_delta(&delta2).expect("apply failed");
         assert_eq!(adapter.node_count(), 0);
         assert_eq!(adapter.label_count(), 0); // Label should be removed too
     }
@@ -285,6 +273,7 @@ mod tests {
         let mut adapter = MockAdapter::new();
 
         // Add two nodes and an edge
+        let edge_key = EdgeKey(make_test_hash(20));
         let delta = SceneDelta {
             session_id: make_test_hash(0),
             cursor_id: make_test_hash(1),
@@ -295,11 +284,10 @@ mod tests {
                 SceneOp::UpsertEdge(make_edge(20, 10, 11)),
             ],
         };
-        adapter.apply_scene_delta(&delta);
+        adapter.apply_scene_delta(&delta).expect("apply failed");
 
         assert_eq!(adapter.edge_count(), 1);
-        let edge_key = hash_to_hex(&make_test_hash(20));
-        assert!(adapter.is_edge_valid(&edge_key));
+        assert!(adapter.is_edge_valid(edge_key));
     }
 
     #[test]
@@ -317,7 +305,7 @@ mod tests {
                 SceneOp::UpsertEdge(make_edge(20, 10, 11)),
             ],
         };
-        adapter.apply_scene_delta(&delta1);
+        adapter.apply_scene_delta(&delta1).expect("apply failed");
         assert_eq!(adapter.node_count(), 2);
         assert_eq!(adapter.edge_count(), 1);
 
@@ -328,7 +316,7 @@ mod tests {
             epoch: 1,
             ops: vec![SceneOp::Clear],
         };
-        adapter.apply_scene_delta(&delta2);
+        adapter.apply_scene_delta(&delta2).expect("apply failed");
         assert_eq!(adapter.node_count(), 0);
         assert_eq!(adapter.edge_count(), 0);
         assert_eq!(adapter.label_count(), 0);
@@ -345,7 +333,7 @@ mod tests {
             epoch: 0,
             ops: vec![SceneOp::UpsertNode(make_node(10, [0.0, 0.0, 0.0]))],
         };
-        adapter.apply_scene_delta(&delta);
+        adapter.apply_scene_delta(&delta).expect("apply failed");
         assert_eq!(adapter.node_count(), 1);
 
         // Apply epoch 0 again with different data - should be ignored
@@ -355,7 +343,7 @@ mod tests {
             epoch: 0,
             ops: vec![SceneOp::UpsertNode(make_node(11, [1.0, 1.0, 1.0]))],
         };
-        adapter.apply_scene_delta(&delta_dup);
+        adapter.apply_scene_delta(&delta_dup).expect("apply failed");
         assert_eq!(adapter.node_count(), 1); // Still just 1 node
     }
 
@@ -371,7 +359,7 @@ mod tests {
             epoch: 5,
             ops: vec![SceneOp::UpsertNode(make_node(10, [0.0, 0.0, 0.0]))],
         };
-        adapter.apply_scene_delta(&delta);
+        adapter.apply_scene_delta(&delta).expect("apply failed");
         assert_eq!(adapter.node_count(), 1);
 
         // Try epoch 3 - should be ignored
@@ -381,7 +369,7 @@ mod tests {
             epoch: 3,
             ops: vec![SceneOp::UpsertNode(make_node(11, [1.0, 1.0, 1.0]))],
         };
-        adapter.apply_scene_delta(&delta_old);
+        adapter.apply_scene_delta(&delta_old).expect("apply failed");
         assert_eq!(adapter.node_count(), 1);
 
         // Reset cursor
@@ -394,7 +382,7 @@ mod tests {
             epoch: 0,
             ops: vec![SceneOp::UpsertNode(make_node(12, [2.0, 2.0, 2.0]))],
         };
-        adapter.apply_scene_delta(&delta_new);
+        adapter.apply_scene_delta(&delta_new).expect("apply failed");
         assert_eq!(adapter.node_count(), 2); // Now 2 nodes
     }
 
@@ -411,7 +399,7 @@ mod tests {
             epoch: 0,
             ops: vec![SceneOp::UpsertNode(make_node(10, [0.0, 0.0, 0.0]))],
         };
-        adapter.apply_scene_delta(&delta_a);
+        adapter.apply_scene_delta(&delta_a).expect("apply failed");
         assert_eq!(adapter.node_count(), 1);
 
         // Apply to cursor B at epoch 0 - different cursor, should work
@@ -421,7 +409,7 @@ mod tests {
             epoch: 0,
             ops: vec![SceneOp::UpsertNode(make_node(11, [1.0, 1.0, 1.0]))],
         };
-        adapter.apply_scene_delta(&delta_b);
+        adapter.apply_scene_delta(&delta_b).expect("apply failed");
         assert_eq!(adapter.node_count(), 2);
     }
 
@@ -451,14 +439,14 @@ mod tests {
                 cursor_id: make_test_hash(1),
                 epoch: 2,
                 ops: vec![SceneOp::RemoveNode {
-                    key: make_test_hash(10),
+                    key: NodeKey(make_test_hash(10)),
                 }],
             },
         ];
 
         for delta in &deltas {
-            adapter1.apply_scene_delta(delta);
-            adapter2.apply_scene_delta(delta);
+            adapter1.apply_scene_delta(delta).expect("apply failed");
+            adapter2.apply_scene_delta(delta).expect("apply failed");
         }
 
         assert_eq!(adapter1.node_count(), adapter2.node_count());
@@ -468,6 +456,11 @@ mod tests {
         // Verify specific state
         assert_eq!(adapter1.node_count(), 1);
         assert_eq!(adapter1.edge_count(), 1);
+
+        // Verify edge is now invalid due to missing node 10
+        let edge_key = EdgeKey(make_test_hash(20));
+        assert!(!adapter1.is_edge_valid(edge_key));
+        assert!(!adapter2.is_edge_valid(edge_key));
     }
 
     #[test]
@@ -492,9 +485,9 @@ mod tests {
     fn test_set_highlight() {
         let mut adapter = MockAdapter::new();
         let highlight = HighlightState {
-            selected_nodes: vec![make_test_hash(1), make_test_hash(2)],
+            selected_nodes: vec![NodeKey(make_test_hash(1)), NodeKey(make_test_hash(2))],
             selected_edges: vec![],
-            hovered_node: Some(make_test_hash(3)),
+            hovered_node: Some(NodeKey(make_test_hash(3))),
             hovered_edge: None,
         };
         adapter.set_highlight(&highlight);
@@ -530,7 +523,7 @@ mod tests {
             epoch: 0,
             ops: vec![SceneOp::UpsertNode(make_node(10, [0.0, 0.0, 0.0]))],
         };
-        adapter.apply_scene_delta(&delta);
+        adapter.apply_scene_delta(&delta).expect("apply failed");
         assert!(!adapter.disposed);
         assert_eq!(adapter.node_count(), 1);
 

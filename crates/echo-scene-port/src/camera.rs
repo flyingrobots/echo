@@ -16,7 +16,7 @@ pub enum ProjectionKind {
 /// Camera state for rendering.
 ///
 /// Defines the view and projection parameters for the scene camera.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CameraState {
     /// Camera position in world space.
     pub position: [f32; 3],
@@ -31,6 +31,8 @@ pub struct CameraState {
     /// Orthographic scale (for orthographic).
     pub ortho_scale: f32,
     /// Near clipping plane.
+    ///
+    /// Values < 0.1 may cause depth buffer precision issues.
     pub near: f32,
     /// Far clipping plane.
     pub far: f32,
@@ -45,7 +47,7 @@ impl Default for CameraState {
             projection: ProjectionKind::Perspective,
             fov_y_radians: FRAC_PI_3, // 60 degrees
             ortho_scale: 10.0,
-            near: 0.01,
+            near: 0.1,
             far: 10000.0,
         }
     }

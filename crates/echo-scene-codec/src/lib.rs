@@ -12,7 +12,9 @@
 //! This keeps echo-scene-port pure and dependency-free.
 
 mod cbor;
+#[cfg(feature = "test-support")]
 mod mock_adapter;
 
 pub use cbor::*;
+#[cfg(feature = "test-support")]
 pub use mock_adapter::*;

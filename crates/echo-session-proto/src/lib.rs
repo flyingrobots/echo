@@ -1,14 +1,38 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Session wire schema for Echo hub (WARP snapshots/diffs + notifications).
+//!
+//! This crate provides wire protocols for Echo session communication:
+//!
+//! - **JIT! v1.0** ([`wire`]) — JS-ABI framing with OpEnvelopes (ADR/ARCH-0013)
+//! - **EINT v2** ([`eint_v2`]) — Intent envelope for TTD commands
+//! - **TTDR v2** ([`ttdr_v2`]) — Tick receipt record for deterministic verification
+//!
 //! WARP frames use the canonical `echo-graph` types and are transported in
-//! deterministic JS-ABI v1.0 OpEnvelopes (ADR/ARCH-0013).
+//! deterministic CBOR encoding.
 
 pub use echo_graph::{
     EdgeId, EpochId, Hash32, NodeId, RenderEdge, RenderGraph, RenderNode, WarpDiff, WarpFrame,
     WarpHello, WarpId, WarpOp, WarpSnapshot,
 };
 mod canonical;
+pub mod eint_v2;
+pub mod ttdr_v2;
+
+// Re-export key EINT v2 types at crate root for convenience.
+pub use eint_v2::{
+    decode_eint_v2, encode_eint_v2, EintError, EintFlags, EintFrame, EintHeader, EINT_HEADER_SIZE,
+    EINT_MAGIC, EINT_VERSION,
+};
+
+// Re-export key TTDR v2 types at crate root for convenience.
+pub use ttdr_v2::{
+    decode_ttdr_v2, encode_ttdr_v2, ChannelDigest, ReceiptMode, TtdrError, TtdrFlags, TtdrFrame,
+    TtdrHeader, TTDR_FIXED_HEADER_SIZE, TTDR_MAGIC, TTDR_VERSION,
+};
+
+mod integrity_tests;
+
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf};
 

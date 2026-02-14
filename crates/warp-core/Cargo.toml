@@ -2,7 +2,7 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [package]
 name = "warp-core"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.90.0"
 description = "Echo core: deterministic typed graph rewriting engine"

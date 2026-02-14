@@ -380,6 +380,81 @@ fn apply_set_attachment(
 /// wrapper with a `Deref<Target = [(ChannelId, Vec<u8>)]>` impl.
 pub type OutputFrameSet = Vec<(ChannelId, Vec<u8>)>;
 
+/// Records which atom was written by which rule during a tick.
+///
+/// This enables provenance tracking for the TTD "Show Me Why" feature and
+/// footprint verification. Each `AtomWrite` captures:
+/// - The atom (node) that was modified
+/// - The rule that performed the modification
+/// - The tick when it happened
+/// - The before/after values for diff visualization
+///
+/// # Usage
+///
+/// Atom writes are collected during tick execution and stored in the provenance
+/// store alongside patches and outputs. The WARPSITE demo uses this to render
+/// causal arrows from rules to atoms in the 4D provenance view.
+///
+/// # Serialization
+///
+/// Values are stored as raw bytes since the provenance store is codec-agnostic.
+/// Higher-level layers can interpret these bytes using the appropriate codec
+/// based on the atom's type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct AtomWrite {
+    /// The atom (node) that was written.
+    pub atom: NodeKey,
+    /// The canonical rule ID (256-bit hash) that performed this write.
+    pub rule_id: Hash,
+    /// The global tick when this write occurred.
+    pub tick: u64,
+    /// The atom's value before this write, if it existed.
+    ///
+    /// `None` means the atom was created (didn't exist before).
+    pub old_value: Option<Vec<u8>>,
+    /// The atom's value after this write.
+    ///
+    /// For deletions, this would be empty (but deletion is typically
+    /// tracked via `WarpOp::DeleteNode` rather than `AtomWrite`).
+    pub new_value: Vec<u8>,
+}
+
+impl AtomWrite {
+    /// Creates a new `AtomWrite` record.
+    pub fn new(
+        atom: NodeKey,
+        rule_id: Hash,
+        tick: u64,
+        old_value: Option<Vec<u8>>,
+        new_value: Vec<u8>,
+    ) -> Self {
+        Self {
+            atom,
+            rule_id,
+            tick,
+            old_value,
+            new_value,
+        }
+    }
+
+    /// Returns `true` if this was a create operation (atom didn't exist before).
+    pub fn is_create(&self) -> bool {
+        self.old_value.is_none()
+    }
+
+    /// Returns `true` if the value actually changed.
+    pub fn is_mutation(&self) -> bool {
+        self.old_value.as_deref() != Some(self.new_value.as_slice())
+    }
+}
+
+/// Collection of atom writes for a single tick.
+///
+/// This type alias exists for clarity at API boundaries. The writes are
+/// ordered by execution sequence within the tick.
+pub type AtomWriteSet = Vec<AtomWrite>;
+
 /// Errors produced while applying a worldline patch to a warp-local store.
 ///
 /// These errors indicate structural violations when replaying patches:

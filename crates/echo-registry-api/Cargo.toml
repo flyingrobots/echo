@@ -13,3 +13,7 @@ keywords = ["echo", "wasm", "registry"]
 categories = ["wasm", "development-tools"]
 
 [dependencies]
+
+[features]
+default = ["std"]
+std = []

@@ -6,6 +6,8 @@
 //! GraphQL/Wesley IR). Echo core and `warp-wasm` depend only on this crate and
 //! **must not** embed app-specific registries.
 
+#![no_std]
+
 /// Codec identifier used by the registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegistryInfo {

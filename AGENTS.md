@@ -13,6 +13,18 @@ Welcome to the **Echo** project. This file captures expectations for any LLM age
 - **Determinism First**: Avoid introducing sources of nondeterminism without a mitigation plan.
 - **Temporal Mindset**: Think in timelines—branching, merging, entropy budgets. Feature work should map to Chronos/Kairos/Aion axes where appropriate.
 
+## The Drill Sergeant Discipline
+
+Continuum (formerly JITOS) enforces a high-integrity "Drill Sergeant" discipline for all contributors (human or agent):
+
+1. **Tests as Spec**: Every `feat:` or `fix:` commit MUST include a "red -> green" test story. If you change source code without changing or adding a test, CI will flag it as a policy violation.
+2. **Zero-Warning Tolerance**: All determinism-critical crates (`warp-core`, `echo-wasm-abi`, `echo-scene-port`) are compiled with `RUSTFLAGS="-Dwarnings"`. Unused imports, dead code, or silenced lints are treated as build failures.
+3. **Determinism Integrity**: We assert inevitability, not just correctness.
+    - Bit-exact consistency across Rust and JavaScript/Node.js is mandatory for all float-to-int operations.
+    - Never iterate over `std::collections::HashMap` or `HashSet` in paths that affect the state hash; use `BTreeMap` or sorted iterators.
+    - Use the DIND (Deterministic Ironclad Nightmare Drills) harness to verify any changes against golden hash chains.
+4. **Panic Ban**: Library code must return `Result` or `Option` instead of panicking. `unwrap()` and `expect()` are forbidden in non-test code.
+
 ## Timeline Logging
 
 - Capture milestones, blockers, and decisions in relevant specs, ADRs, or PR descriptions.

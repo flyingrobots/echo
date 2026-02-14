@@ -130,12 +130,25 @@ SPEC-0004 introduces infrastructure for deterministic materialization, cursor-ba
 
 ## Ports & Adapters 🗺️ Planned
 
-### Renderer Port 🗺️ Planned
+### Renderer Port ✅ Implemented
 
-- **Responsibilities**: Receive frame data (render commands, camera states, debug overlays), manage render resources, and report capabilities.
-- **Data Flow**: Domain produces a `FramePacket` containing archetype-friendly draw data (mesh refs, transforms, materials); adapter translates into API-specific calls.
-- **Adapters**: Pixi 7/WebGL2 baseline, Canvas2D fallback, WebGPU (wgpu/WASM), native renderer (Skia or bgfx), experimental TUI renderer for debugging.
-- **Performance Contracts**: Frame submissions are immutable; adapters can reuse GPU buffers across frames; the port discourages per-entity draw calls.
+> **Reference:** [Deterministic Scene Port](/crates/echo-scene-port/README.md)
+
+The Renderer Port is implemented as a bit-exact, hexagonal boundary:
+
+- **`echo-scene-port`**: Defines the domain types (`SceneDelta`, `NodeDef`, `EdgeDef`) and the `ScenePort` trait.
+- **`echo-scene-codec`**: Implements the canonical CBOR serialization bridge and a `MockAdapter` for headless testing.
+- **`echo-renderer-three`**: A production-ready Three.js implementation of the `ScenePort` contract.
+- **Responsibilities**: Receives deterministic `SceneDelta` batches, manages GPU resources via Three.js, and maintains bit-exact visual state across replays.
+
+### Time Travel Debugging (TTD) ✅ Implemented
+
+TTD is a first-class citizen in Echo, built on top of the provenance and scene port layers:
+
+- **`ttd-browser`**: A WASM-compiled engine that manages parallel cursors and worldline forks in the browser.
+- **`echo-wesley-gen`**: Hardened code generator that emits bit-exact Rust/TS bridges from GraphQL schemas.
+- **`PrivacyMask`**: Built-in support for field-level redaction (Public, Pseudonymized, Private) to allow high-integrity debugging without leaking sensitive PII.
+- **`ttd-app`**: A React-based diagnostic dashboard for scrubbing timelines and inspecting causal provenance.
 
 ### Input Port 🗺️ Planned
 
@@ -190,11 +203,16 @@ SPEC-0004 introduces infrastructure for deterministic materialization, cursor-ba
 
 > **Current Status (2026-01):** Phase 0 is largely complete for `warp-core`. The Rust-first WARP graph rewriting engine is implemented with deterministic scheduling, snapshot hashing, and basic math. ECS storage and system scheduler remain future work.
 
-- **Phase 0 – Spec Deep Dive** ⚠️ Partial: WARP core specs finalized; ECS storage spec exists but not implemented; MaterializationBus implemented (ADR-0003).
-- **Phase 1 – Echo Core MVP** 🗺️ Planned: Entity/component storage, system scheduler, MaterializationBus integration (bus complete, integration pending).
-- **Phase 2 – Adapter Foundations** 🗺️ Planned _(Milestone: "Double-Jump")_: Renderer adapter, input, physics stub.
-- **Phase 3 – Advanced Adapters** 🗺️ Planned: Physics engines, WebGPU, audio, telemetry.
-- **Phase 4 – Tooling & Polishing** 🗺️ Planned: Inspector, hot-reload, documentation site.
+- **Phase 0 – Spec Deep Dive** ✅ Implemented: WARP core specs finalized; MaterializationBus implemented (ADR-0003).
+- **Phase 1 – Core EXTRACTION** ✅ Implemented: High-integrity TTD protocols, provenance hardening, and worldline management extracted from spec branch.
+- **Phase 2 – Deterministic Scene Data** ✅ Implemented: Bit-exact renderer port boundary and CBOR codec established.
+- **Phase 3 – Robust Code Generation** ✅ Implemented: Wesley bridge hardened for `no_std` WASM guests.
+- **Phase 4 – Safe WASM FFI & Privacy** ✅ Implemented: Opaque session tokens and field-level redaction (PrivacyMask) implemented.
+- **Phase 5 – Frontend Design System** ✅ Implemented: TTD UI substrate and pnpm workspace configuration restored.
+- **Phase 6 – Real-World UI Binding** ✅ Implemented: `ttd-app` wired to actual WASM TTD engine.
+- **Phase 7 – Final Documentation** ⚠️ In Progress: Documentation lock and CI policy reinforcement.
+- **Phase 8 – Echo Core MVP** 🗺️ Planned: Entity/component storage and system scheduler.
+- **Phase 9 – Adapter Foundations** 🗺️ Planned _(Milestone: "Double-Jump")_: Input and physics integration.
 - **Ongoing**: Benchmark suite, community feedback loop, incremental releases.
 
 ## Open Questions

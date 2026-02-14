@@ -821,6 +821,12 @@ impl TruthSink {
             .and_then(|r| r.last().copied())
     }
 
+    /// Clear all receipts and frames for a specific session.
+    pub fn clear_session(&mut self, session_id: SessionId) {
+        self.receipts.remove(&session_id);
+        self.frames.remove(&session_id);
+    }
+
     /// Clear all receipts and frames from the sink.
     pub fn clear(&mut self) {
         self.receipts.clear();
@@ -907,5 +913,45 @@ mod tests {
             value_hash: [7u8; 32],
         };
         assert_eq!(frame1, frame2);
+    }
+
+    #[test]
+    fn clear_session_cascading_cleanup() {
+        let mut sink = TruthSink::new();
+        let session_a = SessionId([1u8; 32]);
+        let session_b = SessionId([2u8; 32]);
+
+        let receipt = CursorReceipt {
+            session_id: session_a,
+            cursor_id: CursorId([0u8; 32]),
+            worldline_id: WorldlineId([0u8; 32]),
+            warp_id: WarpId([0u8; 32]),
+            tick: 1,
+            commit_hash: [0u8; 32],
+        };
+
+        let frame = TruthFrame {
+            cursor: receipt,
+            channel: crate::ident::TypeId([0u8; 32]),
+            value: vec![1, 2, 3],
+            value_hash: [0u8; 32],
+        };
+
+        // Populate both sessions
+        sink.publish_receipt(session_a, receipt);
+        sink.publish_frame(session_a, frame.clone());
+        sink.publish_receipt(session_b, receipt);
+        sink.publish_frame(session_b, frame);
+
+        assert!(!sink.collect_frames(session_a).is_empty());
+        assert!(!sink.collect_frames(session_b).is_empty());
+
+        // Clear only session A
+        sink.clear_session(session_a);
+
+        assert!(sink.collect_frames(session_a).is_empty());
+        assert!(sink.last_receipt(session_a).is_none());
+        assert!(!sink.collect_frames(session_b).is_empty());
+        assert!(sink.last_receipt(session_b).is_some());
     }
 }

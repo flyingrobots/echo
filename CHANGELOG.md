@@ -5,6 +5,25 @@
 
 ## Unreleased
 
+### Added — TTD Protocol & Core Hardening
+
+- **TTD Wire Protocols (v2):** Implemented high-integrity codecs for intents and
+  receipts.
+    - Added `EINT v2` (Intent Envelope) with Little-Endian fixed headers and
+      BLAKE3 payload checksums.
+    - Added `TTDR v2` (Tick Receipt Record) supporting full provenance
+      commitments including state roots and emission digests.
+    - Integrated "Header Integrity Drills" and a decoder fuzzer to ensure
+      protocol robustness.
+- **Provenance & Merkle Hardening:** Expanded core state model to support
+  deterministic "Show Me Why" features.
+    - Added `AtomWrite` records to track causal arrows from rules to state
+      changes.
+    - Implemented `compute_tick_commit_hash_v2`, binding schema identity,
+      worldline history, and materialized emissions into a single Merkle root.
+    - Added `TruthSink::clear_session` to ensure isolated and leak-free memory
+      management for TTD sessions.
+
 ### Added — Determinism & Verification
 
 - **DIND Phase 5 (The Shuffle):** Added robustness against insertion order and

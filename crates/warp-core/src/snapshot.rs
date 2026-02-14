@@ -412,3 +412,805 @@ fn hash_atom_payload(hasher: &mut Hasher, atom: &AtomPayload) {
     hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
     hasher.update(&atom.bytes);
 }
+
+// ─── TTD Tick Commit Hash (v2) ────────────────────────────────────────────────
+
+use crate::worldline::WorldlineId;
+
+/// Computes the TTD tick commit hash (v2 format).
+///
+/// This is the canonical commit hash for TTDR receipts. It commits to:
+/// - Schema identity (binds this commit to a specific protocol version)
+/// - Worldline identity (binds to a specific history branch)
+/// - Tick number (ordering within the worldline)
+/// - Parent commits (explicit history linkage)
+/// - Patch digest (what changed)
+/// - State root (resulting state, if available)
+/// - Emissions digest (what was output)
+/// - Op emission index digest (which ops emitted what, if tracked)
+///
+/// # Wire Format
+///
+/// ```text
+/// tick_commit:v2 = BLAKE3(
+///     "tick_commit:v2"           (14-byte domain separator)
+///     schema_hash: [u8; 32]
+///     worldline_id: [u8; 32]
+///     tick: u64 (LE)
+///     num_parents: u64 (LE)
+///     parent_hashes[]: [u8; 32]... (pre-sorted)
+///     patch_digest: [u8; 32]
+///     has_state_root: u8 (0 or 1)
+///     state_root?: [u8; 32]       (if present)
+///     emissions_digest: [u8; 32]
+///     has_op_emission_idx: u8 (0 or 1)
+///     op_emission_index_digest?: [u8; 32] (if present)
+/// )
+/// ```
+///
+/// # Parent Ordering
+///
+/// The `parent_hashes` slice MUST be pre-sorted in ascending lexicographic order.
+/// This function hashes parents exactly as provided—it does NOT re-sort internally.
+/// Callers are responsible for sorting to ensure determinism.
+///
+/// # Relationship to `compute_commit_hash_v2`
+///
+/// [`compute_commit_hash_v2`] is the simpler internal commit hash used by
+/// [`Snapshot`]. This function is the full TTD-aware version that includes
+/// `schema_hash`, `worldline_id`, and emission digests required by TTDR receipts.
+///
+/// # Example
+///
+/// ```ignore
+/// let commit_hash = compute_tick_commit_hash_v2(
+///     &schema_hash,
+///     &worldline_id,
+///     tick,
+///     &sorted_parents,
+///     &patch_digest,
+///     Some(&state_root),
+///     &emissions_digest,
+///     Some(&op_emission_index_digest),
+/// );
+/// ```
+// Allow many arguments: this signature matches the TTD spec (docs/plans/ttd-app.md §3.3)
+// exactly. A builder pattern would obscure the wire format correspondence.
+#[allow(clippy::too_many_arguments, dead_code)]
+pub fn compute_tick_commit_hash_v2(
+    schema_hash: &Hash,
+    worldline_id: &WorldlineId,
+    tick: u64,
+    parent_hashes: &[Hash],
+    patch_digest: &Hash,
+    state_root: Option<&Hash>,
+    emissions_digest: &Hash,
+    op_emission_index_digest: Option<&Hash>,
+) -> Hash {
+    let mut h = Hasher::new();
+
+    // Domain separator (matches spec: "tick_commit:v2")
+    h.update(b"tick_commit:v2");
+
+    // Schema and worldline identity
+    h.update(schema_hash);
+    h.update(worldline_id.as_bytes());
+
+    // Tick number (little-endian)
+    h.update(&tick.to_le_bytes());
+
+    // Parent commits (count + hashes, pre-sorted by caller)
+    h.update(&(parent_hashes.len() as u64).to_le_bytes());
+    for p in parent_hashes {
+        h.update(p);
+    }
+
+    // Patch digest
+    h.update(patch_digest);
+
+    // State root (optional)
+    match state_root {
+        Some(sr) => {
+            h.update(&[1u8]);
+            h.update(sr);
+        }
+        None => {
+            h.update(&[0u8]);
+        }
+    }
+
+    // Emissions digest (required)
+    h.update(emissions_digest);
+
+    // Op emission index digest (optional)
+    match op_emission_index_digest {
+        Some(oeid) => {
+            h.update(&[1u8]);
+            h.update(oeid);
+        }
+        None => {
+            h.update(&[0u8]);
+        }
+    }
+
+    h.finalize().into()
+}
+
+// ─── Emission Digests ────────────────────────────────────────────────────────
+
+use crate::materialization::{ChannelId, FinalizedChannel};
+
+/// Computes a deterministic digest over all finalized channel emissions.
+///
+/// This captures the complete set of materialized outputs for a tick in a single
+/// hash that can be included in commit verification.
+///
+/// # Ordering
+///
+/// Emissions are hashed in canonical order:
+/// 1. Channels sorted by [`ChannelId`] (lexicographic over bytes)
+/// 2. For each channel: the complete finalized data blob
+///
+/// # Wire Format
+///
+/// ```text
+/// emissions_digest = BLAKE3(
+///     version: u16 (LE)
+///     num_channels: u64 (LE)
+///     for each channel (sorted by channel_id):
+///         channel_id: [u8; 32]
+///         data_len: u64 (LE)
+///         data: [u8; data_len]
+/// )
+/// ```
+///
+/// # Usage
+///
+/// ```ignore
+/// let report = bus.finalize();
+/// let digest = compute_emissions_digest(&report.channels);
+/// ```
+#[allow(dead_code)]
+pub fn compute_emissions_digest(channels: &[FinalizedChannel]) -> Hash {
+    let mut h = Hasher::new();
+
+    // Version tag for future evolution
+    h.update(&1u16.to_le_bytes());
+
+    // Sort channels by ChannelId for deterministic ordering
+    let mut sorted: Vec<_> = channels.iter().collect();
+    sorted.sort_by(|a, b| a.channel.0.cmp(&b.channel.0));
+
+    // Number of channels
+    h.update(&(sorted.len() as u64).to_le_bytes());
+
+    // Hash each channel's emissions
+    for fc in sorted {
+        h.update(&fc.channel.0);
+        h.update(&(fc.data.len() as u64).to_le_bytes());
+        h.update(&fc.data);
+    }
+
+    h.finalize().into()
+}
+
+/// Entry mapping an operation to its emission indices.
+///
+/// This is used by [`compute_op_emission_index_digest`] to track which
+/// operations triggered which channel emissions within a tick.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+pub struct OpEmissionEntry {
+    /// The operation ID (opcode hash) that triggered emissions.
+    pub op_id: Hash,
+    /// Channel IDs that received emissions from this op.
+    pub channels: Vec<ChannelId>,
+}
+
+/// Computes a digest mapping operations to their emission channels.
+///
+/// This enables compliance verification: proving that an operation emitted
+/// exactly the channels it was supposed to (no more, no less).
+///
+/// # Ordering
+///
+/// Entries are hashed in canonical order:
+/// 1. Operations sorted by `op_id` (lexicographic over bytes)
+/// 2. For each op: channels sorted by `ChannelId`
+///
+/// # Wire Format
+///
+/// ```text
+/// op_emission_index_digest = BLAKE3(
+///     version: u16 (LE)
+///     num_ops: u64 (LE)
+///     for each op (sorted by op_id):
+///         op_id: [u8; 32]
+///         num_channels: u64 (LE)
+///         for each channel (sorted by channel_id):
+///             channel_id: [u8; 32]
+/// )
+/// ```
+///
+/// # Usage
+///
+/// ```ignore
+/// let entries = vec![
+///     OpEmissionEntry {
+///         op_id: op_hash,
+///         channels: vec![channel_a, channel_b],
+///     },
+/// ];
+/// let digest = compute_op_emission_index_digest(&entries);
+/// ```
+#[allow(dead_code)]
+pub fn compute_op_emission_index_digest(entries: &[OpEmissionEntry]) -> Hash {
+    let mut h = Hasher::new();
+
+    // Version tag for future evolution
+    h.update(&1u16.to_le_bytes());
+
+    // Sort entries by op_id for deterministic ordering
+    let mut sorted: Vec<_> = entries.iter().collect();
+    sorted.sort_by(|a, b| a.op_id.cmp(&b.op_id));
+
+    // Number of ops
+    h.update(&(sorted.len() as u64).to_le_bytes());
+
+    // Hash each op's emission index
+    for entry in sorted {
+        h.update(&entry.op_id);
+
+        // Sort channels for this op
+        let mut channels: Vec<_> = entry.channels.iter().collect();
+        channels.sort_by(|a, b| a.0.cmp(&b.0));
+
+        h.update(&(channels.len() as u64).to_le_bytes());
+        for ch in channels {
+            h.update(&ch.0);
+        }
+    }
+
+    h.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::materialization::make_channel_id;
+
+    fn make_hash(n: u8) -> Hash {
+        let mut h = [0u8; 32];
+        h[0] = n;
+        h
+    }
+
+    #[test]
+    fn emissions_digest_deterministic_ordering() {
+        // Same emissions in different order should produce same digest
+        let ch_a = make_channel_id("channel:a");
+        let ch_b = make_channel_id("channel:b");
+
+        let channels_order1 = vec![
+            FinalizedChannel {
+                channel: ch_a,
+                data: vec![1, 2, 3],
+            },
+            FinalizedChannel {
+                channel: ch_b,
+                data: vec![4, 5],
+            },
+        ];
+
+        let channels_order2 = vec![
+            FinalizedChannel {
+                channel: ch_b,
+                data: vec![4, 5],
+            },
+            FinalizedChannel {
+                channel: ch_a,
+                data: vec![1, 2, 3],
+            },
+        ];
+
+        let digest1 = compute_emissions_digest(&channels_order1);
+        let digest2 = compute_emissions_digest(&channels_order2);
+
+        assert_eq!(
+            digest1, digest2,
+            "emissions_digest should be order-independent"
+        );
+    }
+
+    #[test]
+    fn emissions_digest_empty() {
+        let digest = compute_emissions_digest(&[]);
+        // Should still produce a valid (non-zero) digest
+        assert_ne!(digest, [0u8; 32]);
+    }
+
+    #[test]
+    fn emissions_digest_content_sensitive() {
+        let ch = make_channel_id("test:channel");
+
+        let channels_a = vec![FinalizedChannel {
+            channel: ch,
+            data: vec![1, 2, 3],
+        }];
+
+        let channels_b = vec![FinalizedChannel {
+            channel: ch,
+            data: vec![1, 2, 4], // Different data
+        }];
+
+        let digest_a = compute_emissions_digest(&channels_a);
+        let digest_b = compute_emissions_digest(&channels_b);
+
+        assert_ne!(
+            digest_a, digest_b,
+            "different data should produce different digest"
+        );
+    }
+
+    #[test]
+    fn op_emission_index_digest_deterministic() {
+        let op_a = make_hash(1);
+        let op_b = make_hash(2);
+        let ch_x = make_channel_id("channel:x");
+        let ch_y = make_channel_id("channel:y");
+
+        let entries_order1 = vec![
+            OpEmissionEntry {
+                op_id: op_a,
+                channels: vec![ch_x, ch_y],
+            },
+            OpEmissionEntry {
+                op_id: op_b,
+                channels: vec![ch_x],
+            },
+        ];
+
+        let entries_order2 = vec![
+            OpEmissionEntry {
+                op_id: op_b,
+                channels: vec![ch_x],
+            },
+            OpEmissionEntry {
+                op_id: op_a,
+                channels: vec![ch_y, ch_x], // Channels also reordered
+            },
+        ];
+
+        let digest1 = compute_op_emission_index_digest(&entries_order1);
+        let digest2 = compute_op_emission_index_digest(&entries_order2);
+
+        assert_eq!(
+            digest1, digest2,
+            "op_emission_index_digest should be order-independent"
+        );
+    }
+
+    #[test]
+    fn op_emission_index_digest_empty() {
+        let digest = compute_op_emission_index_digest(&[]);
+        assert_ne!(digest, [0u8; 32]);
+    }
+
+    #[test]
+    fn op_emission_index_different_channels_different_digest() {
+        let op = make_hash(1);
+        let ch_x = make_channel_id("channel:x");
+        let ch_y = make_channel_id("channel:y");
+
+        let entries_a = vec![OpEmissionEntry {
+            op_id: op,
+            channels: vec![ch_x],
+        }];
+
+        let entries_b = vec![OpEmissionEntry {
+            op_id: op,
+            channels: vec![ch_y], // Different channel
+        }];
+
+        let digest_a = compute_op_emission_index_digest(&entries_a);
+        let digest_b = compute_op_emission_index_digest(&entries_b);
+
+        assert_ne!(
+            digest_a, digest_b,
+            "different channels should produce different digest"
+        );
+    }
+
+    // ─── Tick Commit Hash v2 Tests ───────────────────────────────────────────────
+
+    use crate::worldline::WorldlineId;
+
+    fn make_worldline_id(n: u8) -> WorldlineId {
+        WorldlineId(make_hash(n))
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_basic() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 42u64;
+        let parents = vec![make_hash(10), make_hash(11)];
+        let patch_digest = make_hash(20);
+        let state_root = make_hash(30);
+        let emissions_digest = make_hash(40);
+        let op_emission_index = make_hash(50);
+
+        let hash = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            Some(&state_root),
+            &emissions_digest,
+            Some(&op_emission_index),
+        );
+
+        // Should produce a valid non-zero hash
+        assert_ne!(hash, [0u8; 32]);
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_deterministic() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 100u64;
+        let parents = vec![make_hash(10)];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        // Compute twice with identical inputs
+        let hash1 = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash2 = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_eq!(
+            hash1, hash2,
+            "identical inputs should produce identical hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_schema_sensitive() {
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &make_hash(1), // schema A
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &make_hash(2), // schema B (different)
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different schema should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_worldline_sensitive() {
+        let schema_hash = make_hash(1);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &make_worldline_id(1), // worldline A
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &make_worldline_id(2), // worldline B (different)
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different worldline should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_tick_sensitive() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            1, // tick 1
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            2, // tick 2 (different)
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different tick should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_parent_order_matters() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        // Parents in order [A, B]
+        let parents_ab = vec![make_hash(10), make_hash(11)];
+        // Parents in order [B, A] (reversed)
+        let parents_ba = vec![make_hash(11), make_hash(10)];
+
+        let hash_ab = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents_ab,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        let hash_ba = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents_ba,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        // Parents are NOT re-sorted internally, so order matters
+        // Caller is responsible for canonical ordering
+        assert_ne!(hash_ab, hash_ba, "parent order matters (caller must sort)");
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_state_root_presence_matters() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+        let state_root = make_hash(30);
+
+        let hash_with_sr = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            Some(&state_root),
+            &emissions_digest,
+            None,
+        );
+
+        let hash_without_sr = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None, // no state root
+            &emissions_digest,
+            None,
+        );
+
+        assert_ne!(
+            hash_with_sr, hash_without_sr,
+            "state_root presence should affect hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_emissions_digest_sensitive() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+
+        let hash_a = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &make_hash(40), // emissions A
+            None,
+        );
+
+        let hash_b = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &make_hash(41), // emissions B (different)
+            None,
+        );
+
+        assert_ne!(
+            hash_a, hash_b,
+            "different emissions_digest should produce different hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_op_emission_index_presence_matters() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 1u64;
+        let parents: Vec<Hash> = vec![];
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+        let op_emission_index = make_hash(50);
+
+        let hash_with_oei = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            Some(&op_emission_index),
+        );
+
+        let hash_without_oei = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None, // no op emission index
+        );
+
+        assert_ne!(
+            hash_with_oei, hash_without_oei,
+            "op_emission_index_digest presence should affect hash"
+        );
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_empty_parents_valid() {
+        let schema_hash = make_hash(1);
+        let worldline_id = make_worldline_id(2);
+        let tick = 0u64; // genesis tick
+        let parents: Vec<Hash> = vec![]; // no parents (genesis)
+        let patch_digest = make_hash(20);
+        let emissions_digest = make_hash(40);
+
+        let hash = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &parents,
+            &patch_digest,
+            None,
+            &emissions_digest,
+            None,
+        );
+
+        // Should produce a valid non-zero hash
+        assert_ne!(hash, [0u8; 32]);
+    }
+
+    #[test]
+    fn tick_commit_hash_v2_golden_vector() {
+        // Golden vector test: ensures the hash algorithm doesn't change accidentally.
+        // If this test fails after code changes, the wire format has changed and
+        // requires a version bump or migration plan.
+
+        let schema_hash = [0xABu8; 32];
+        let worldline_id = WorldlineId([0xCDu8; 32]);
+        let tick = 42u64;
+        let parent = [0x11u8; 32];
+        let patch_digest = [0x22u8; 32];
+        let state_root = [0x33u8; 32];
+        let emissions_digest = [0x44u8; 32];
+        let op_emission_index = [0x55u8; 32];
+
+        let hash = compute_tick_commit_hash_v2(
+            &schema_hash,
+            &worldline_id,
+            tick,
+            &[parent],
+            &patch_digest,
+            Some(&state_root),
+            &emissions_digest,
+            Some(&op_emission_index),
+        );
+
+        // This is the expected hash for the above inputs.
+        // Computed once and recorded here. If this changes, the wire format changed.
+        let expected_hex = "a83bc43c4c35757493c95eaa14ba1c08403f94f02a3955b0c05b73a1af3618bf";
+        let actual_hex = hex::encode(hash);
+
+        assert_eq!(
+            actual_hex, expected_hex,
+            "golden vector mismatch - wire format may have changed!\nexpected: {expected_hex}\nactual:   {actual_hex}"
+        );
+    }
+}

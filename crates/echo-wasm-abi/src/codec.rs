@@ -2,6 +2,10 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Minimal deterministic codec helpers (length-prefixed, LE scalars).
 
+extern crate alloc;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use core::str;
 use thiserror::Error;
 
 /// Errors produced by codec readers.
@@ -182,7 +186,7 @@ impl<'a> Reader<'a> {
     /// Read a length-prefixed UTF-8 string with a max bound.
     pub fn read_string(&mut self, max_len: usize) -> Result<String, CodecError> {
         let bytes = self.read_len_prefixed_bytes(max_len)?;
-        std::str::from_utf8(bytes)
+        str::from_utf8(bytes)
             .map(|s| s.to_string())
             .map_err(|_| CodecError::InvalidUtf8)
     }

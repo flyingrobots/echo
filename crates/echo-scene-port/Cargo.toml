@@ -13,7 +13,7 @@ keywords = ["echo", "scene", "rendering", "ttd"]
 categories = ["graphics", "visualization"]
 
 [dependencies]
-thiserror = { version = "1", default-features = false }
+thiserror = "2.0"
 
 [features]
 default = ["std"]

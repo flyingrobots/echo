@@ -2,18 +2,31 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Shared WASM-friendly DTOs and Protocol Utilities for Echo.
 
+#![no_std]
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
 #![deny(clippy::panic)]
 
+#[cfg(feature = "std")]
+extern crate std;
+
+extern crate alloc;
+
+use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 pub mod canonical;
 pub use canonical::{CanonError, decode_value, encode_value};
 
+#[cfg(feature = "std")]
 pub mod eintlog;
+#[cfg(feature = "std")]
 pub use eintlog::*;
+
+pub mod ttd;
+pub use ttd::*;
 
 /// Deterministic binary codec for length-prefixed scalars and Q32.32 fixed-point helpers.
 pub mod codec;
@@ -174,7 +187,7 @@ fn cv_to_sv(val: ciborium::value::Value) -> Result<serde_value::Value, CanonErro
             SV::Seq(out)
         }
         CV::Map(entries) => {
-            let mut map = std::collections::BTreeMap::new();
+            let mut map = BTreeMap::new();
             for (k, v) in entries {
                 map.insert(cv_to_sv(k)?, cv_to_sv(v)?);
             }
@@ -210,7 +223,7 @@ pub struct Node {
     /// Unique identifier for this node.
     pub id: NodeId,
     /// Map of field names to their values.
-    pub fields: HashMap<FieldName, Value>,
+    pub fields: BTreeMap<FieldName, Value>,
 }
 
 /// A directed edge between two nodes.
@@ -226,7 +239,7 @@ pub struct Edge {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct WarpGraph {
     /// Map of node IDs to nodes.
-    pub nodes: HashMap<NodeId, Node>,
+    pub nodes: BTreeMap<NodeId, Node>,
     /// List of directed edges.
     pub edges: Vec<Edge>,
 }
@@ -319,6 +332,6 @@ mod tests {
         let packed = pack_intent_v1(99, &[]).unwrap();
         let (op, vars) = unpack_intent_v1(&packed).unwrap();
         assert_eq!(op, 99);
-        assert_eq!(vars, &[]);
+        assert_eq!(vars, &[] as &[u8]);
     }
 }

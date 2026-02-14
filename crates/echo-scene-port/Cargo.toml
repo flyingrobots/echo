@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-scene-port"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "Scene rendering port contract for Echo TTD"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "scene", "rendering", "ttd"]
+categories = ["graphics", "visualization"]
+
+[dependencies]
+# NO dependencies. Pure types only.
+
+[features]
+default = ["std"]
+std = []
+
+[dev-dependencies]
+rand = "0.8"
+hex = "0.4"

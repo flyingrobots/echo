@@ -556,7 +556,10 @@ impl TtdrFrame {
 
 /// Encode a TTDR v2 frame.
 pub fn encode_ttdr_v2(frame: &TtdrFrame) -> Result<Vec<u8>, TtdrError> {
-    // Validate counts
+    // Validate counts and mode
+    if frame.header.flags.receipt_mode() == ReceiptMode::Reserved {
+        return Err(TtdrError::ReservedReceiptMode);
+    }
     if frame.parent_hashes.len() > TTDR_MAX_PARENTS as usize {
         return Err(TtdrError::TooManyParents(frame.parent_hashes.len() as u16));
     }
@@ -564,6 +567,17 @@ pub fn encode_ttdr_v2(frame: &TtdrFrame) -> Result<Vec<u8>, TtdrError> {
         return Err(TtdrError::TooManyChannels(
             frame.channel_digests.len() as u16
         ));
+    }
+
+    const MAX_ENTRIES_PER_CHANNEL: u32 = 65536;
+    for (i, digest) in frame.channel_digests.iter().enumerate() {
+        if digest.entry_hashes.len() > MAX_ENTRIES_PER_CHANNEL as usize {
+            return Err(TtdrError::TooManyEntries {
+                channel_idx: i as u16,
+                count: digest.entry_hashes.len() as u32,
+                max: MAX_ENTRIES_PER_CHANNEL,
+            });
+        }
     }
 
     // Build header with correct counts
@@ -1226,5 +1240,66 @@ mod tests {
         assert_eq!(decoded.header.flags.receipt_mode(), ReceiptMode::Light);
         assert_eq!(decoded.header.commit_hash, [0xAAu8; 32]);
         assert_eq!(decoded.header.emissions_digest, [0xBBu8; 32]);
+    }
+
+    #[test]
+    fn reject_reserved_mode_during_encode() {
+        let frame = TtdrFrame {
+            header: TtdrHeader {
+                version: TTDR_VERSION,
+                flags: TtdrFlags::new(false, false, false, false, ReceiptMode::Reserved),
+                schema_hash: ZERO_HASH,
+                worldline_id: ZERO_HASH,
+                tick: 1,
+                commit_hash: ZERO_HASH,
+                patch_digest: ZERO_HASH,
+                state_root: ZERO_HASH,
+                emissions_digest: ZERO_HASH,
+                op_emission_index_digest: ZERO_HASH,
+                parent_count: 0,
+                channel_count: 0,
+            },
+            parent_hashes: vec![],
+            channel_digests: vec![],
+        };
+
+        let result = encode_ttdr_v2(&frame);
+        assert!(
+            result.is_err(),
+            "Encoder should reject Reserved mode to prevent undecodable frames"
+        );
+    }
+
+    #[test]
+    fn reject_too_many_entries_during_encode() {
+        let frame = TtdrFrame {
+            header: TtdrHeader {
+                version: TTDR_VERSION,
+                flags: TtdrFlags::new(false, false, false, true, ReceiptMode::Full),
+                schema_hash: ZERO_HASH,
+                worldline_id: ZERO_HASH,
+                tick: 1,
+                commit_hash: ZERO_HASH,
+                patch_digest: ZERO_HASH,
+                state_root: ZERO_HASH,
+                emissions_digest: ZERO_HASH,
+                op_emission_index_digest: ZERO_HASH,
+                parent_count: 0,
+                channel_count: 1,
+            },
+            parent_hashes: vec![],
+            channel_digests: vec![ChannelDigest {
+                channel_id: ZERO_HASH,
+                channel_version: 1,
+                payload_hash: None,
+                entry_hashes: vec![ZERO_HASH; 65537], // one over MAX
+            }],
+        };
+
+        let result = encode_ttdr_v2(&frame);
+        assert!(
+            result.is_err(),
+            "Encoder should reject frames with too many entries to prevent undecodable data"
+        );
     }
 }

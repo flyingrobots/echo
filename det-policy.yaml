@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+version: 1
+
+# Crate classification drives path-aware CI gates
+classes:
+  DET_CRITICAL:
+    description: "Determinism/security/replay-critical. Full gates required."
+    required_gates: [G1, G2, G4]
+  DET_IMPORTANT:
+    description: "Affects critical systems indirectly. Reduced gate set."
+    required_gates: [G2, G4]
+  DET_NONCRITICAL:
+    description: "No deterministic runtime impact. Standard CI only."
+    required_gates: []
+
+# One entry per workspace crate/package
+crates:
+  # ---- DET_CRITICAL ----
+  warp-core:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/warp-core/**"]
+  warp-geom:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/warp-geom/**"]
+  warp-wasm:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/warp-wasm/**"]
+  warp-ffi:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/warp-ffi/**"]
+  echo-wasm-abi:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/echo-wasm-abi/**"]
+  echo-scene-port:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/echo-scene-port/**"]
+  echo-scene-codec:
+    class: DET_CRITICAL
+    owner_role: "Security Engineer"
+    paths: ["crates/echo-scene-codec/**"]
+  echo-graph:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/echo-graph/**"]
+  echo-ttd:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/echo-ttd/**"]
+  echo-dind-harness:
+    class: DET_CRITICAL
+    owner_role: "CI Engineer"
+    paths: ["crates/echo-dind-harness/**"]
+  echo-dind-tests:
+    class: DET_CRITICAL
+    owner_role: "CI Engineer"
+    paths: ["crates/echo-dind-tests/**"]
+  ttd-browser:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/ttd-browser/**"]
+  ttd-protocol-rs:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/ttd-protocol-rs/**"]
+  ttd-manifest:
+    class: DET_CRITICAL
+    owner_role: "Architect"
+    paths: ["crates/ttd-manifest/**"]
+
+  # ---- DET_IMPORTANT ----
+  echo-wasm-bindings:
+    class: DET_IMPORTANT
+    owner_role: "Tooling Engineer"
+    paths: ["crates/echo-wasm-bindings/**"]
+  echo-wesley-gen:
+    class: DET_IMPORTANT
+    owner_role: "Tooling Engineer"
+    paths: ["crates/echo-wesley-gen/**"]
+  echo-app-core:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-app-core/**"]
+  echo-cas:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-cas/**"]
+  echo-config-fs:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-config-fs/**"]
+  echo-registry-api:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-registry-api/**"]
+  echo-session-client:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-session-client/**"]
+  echo-session-proto:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-session-proto/**"]
+  echo-session-service:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-session-service/**"]
+  echo-session-ws-gateway:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/echo-session-ws-gateway/**"]
+  warp-cli:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/warp-cli/**"]
+  warp-viewer:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["crates/warp-viewer/**"]
+
+  # ---- DET_NONCRITICAL ----
+  ttd-app:
+    class: DET_NONCRITICAL
+    owner_role: "Frontend Engineer"
+    paths: ["apps/ttd-app/**"]
+  docs:
+    class: DET_NONCRITICAL
+    owner_role: "Tech Writer"
+    paths: ["docs/**"]
+  echo-dry-tests:
+    class: DET_NONCRITICAL
+    owner_role: "CI Engineer"
+    paths: ["crates/echo-dry-tests/**"]
+  warp-benches:
+    class: DET_NONCRITICAL
+    owner_role: "Performance Engineer"
+    paths: ["crates/warp-benches/**"]
+
+policy:
+  require_full_classification: true
+  require_owners_for_critical: true
+  deterministic_guardrails:
+    enabled: true
+    deny_patterns:
+      - "HashMap"
+      - "HashSet"
+    allowlist_files: []

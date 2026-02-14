@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+version: 1
+claims:
+  DET-001:
+    statement: "No HashMap usage in echo-wasm-abi deterministic path."
+    required_evidence:
+      - type: static_inspection
+      - type: ci_artifact
+    owner_role: Architect
+
+  DET-002:
+    statement: "Float parity Rust/JS deterministic corpus."
+    required_evidence:
+      - type: behavior_test
+      - type: ci_artifact
+    owner_role: CI Engineer
+
+  SEC-001:
+    statement: "MAX_OPS pre-allocation bounds enforced."
+    required_evidence:
+      - type: behavior_test
+      - type: ci_artifact
+    owner_role: Security Engineer
+
+  SEC-002:
+    statement: "Trailing-byte payload rejection enforced."
+    required_evidence:
+      - type: behavior_test
+      - type: ci_artifact
+    owner_role: Security Engineer
+
+  PRF-001:
+    statement: "Performance regression bound within policy threshold."
+    required_evidence:
+      - type: benchmark
+      - type: ci_artifact
+    owner_role: Performance Engineer

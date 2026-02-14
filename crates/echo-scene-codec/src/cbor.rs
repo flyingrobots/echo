@@ -984,6 +984,66 @@ mod tests {
     }
 
     #[test]
+    fn reject_exceeding_max_ops() {
+        // Create an ops list larger than MAX_OPS
+        let mut ops = Vec::with_capacity(MAX_OPS + 1);
+        for _ in 0..=MAX_OPS {
+            ops.push(SceneOp::Clear);
+        }
+
+        // We can't use encode_scene_delta because that's for valid deltas
+        // We manually encode the header and then the array length
+        let mut buf = Vec::new();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.array(5).unwrap();
+        encoder.u8(1).unwrap(); // Version
+        encoder.bytes(&make_test_hash(1)).unwrap(); // session
+        encoder.bytes(&make_test_hash(2)).unwrap(); // cursor
+        encoder.u64(0).unwrap(); // epoch
+        encoder.array((MAX_OPS + 1) as u64).unwrap(); // ops array header
+        for op in ops {
+            encode_scene_op(&mut encoder, &op).unwrap();
+        }
+
+        let result = decode_scene_delta(&buf);
+        assert!(
+            result.is_err(),
+            "Decoder should reject ops count exceeding MAX_OPS"
+        );
+        let err = result.err().unwrap().to_string();
+        assert!(err.contains("exceeds MAX_OPS"));
+    }
+
+    #[test]
+    fn reject_invalid_version() {
+        let mut buf = Vec::new();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.array(5).unwrap();
+        encoder.u8(99).unwrap(); // Unsupported version
+
+        let result = decode_scene_delta(&buf);
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().contains("version"));
+    }
+
+    #[test]
+    fn reject_invalid_enum_tags() {
+        // NodeShape
+        let mut buf = Vec::new();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.u8(2).unwrap(); // Invalid shape
+        let mut decoder = Decoder::new(&buf);
+        assert!(decode_node_shape(&mut decoder).is_err());
+
+        // EdgeStyle
+        buf.clear();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.u8(2).unwrap(); // Invalid style
+        let mut decoder = Decoder::new(&buf);
+        assert!(decode_edge_style(&mut decoder).is_err());
+    }
+
+    #[test]
     fn drill_truncated_cbor() {
         let delta = SceneDelta {
             session_id: make_test_hash(1),

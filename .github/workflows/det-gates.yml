@@ -1,0 +1,174 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+name: det-gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  classify-changes:
+    name: classify-changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_full: ${{ steps.classify.outputs.run_full }}
+      run_reduced: ${{ steps.classify.outputs.run_reduced }}
+      run_none: ${{ steps.classify.outputs.run_none }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin ${{ github.base_ref }} --depth=1
+            git diff --name-only origin/${{ github.base_ref }}...HEAD > changed.txt
+          else
+            git diff --name-only HEAD~1..HEAD > changed.txt || true
+          fi
+          echo "Changed files:"
+          cat changed.txt || true
+
+      - name: Classify path impact from det-policy.yaml
+        id: classify
+        run: |
+          ./scripts/classify_changes.cjs changed.txt >> $GITHUB_OUTPUT
+
+  determinism-linux:
+    name: G1 determinism (linux)
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run parity tests (linux)
+        run: |
+          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture | tee det-linux.log
+      - name: Run DIND suite (linux)
+        run: |
+          node scripts/dind-run-suite.mjs --mode run | tee dind-linux.log
+      - name: Create digest table
+        run: |
+          mkdir -p artifacts
+          echo "target,commit,run_id,digest" > artifacts/digest-table.csv
+          # Extract a meaningful digest from dind-report.json if possible
+          echo "linux,${{ github.sha }},${{ github.run_id }},$(sha256sum dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: det-linux-artifacts
+          path: |
+            det-linux.log
+            dind-linux.log
+            dind-report.json
+            artifacts/digest-table.csv
+
+  determinism-macos:
+    name: G1 determinism (macos)
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run parity tests (macos)
+        run: |
+          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture | tee det-macos.log
+      - name: Run DIND suite (macos)
+        run: |
+          node scripts/dind-run-suite.mjs --mode run | tee dind-macos.log
+      - name: Create digest table
+        run: |
+          mkdir -p artifacts
+          echo "target,commit,run_id,digest" > artifacts/digest-table.csv
+          echo "macos,${{ github.sha }},${{ github.run_id }},$(shasum -a 256 dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: det-macos-artifacts
+          path: |
+            det-macos.log
+            dind-macos.log
+            dind-report.json
+            artifacts/digest-table.csv
+
+  decoder-security:
+    name: G2 decoder security tests
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run codec tests
+        run: |
+          cargo test -p echo-scene-codec --lib cbor::tests -- --nocapture | tee sec-tests.log
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-artifacts
+          path: sec-tests.log
+
+  perf-regression:
+    name: G3 perf regression (criterion)
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run benchmarks
+        run: |
+          cargo bench -p warp-benches --bench materialization_hotpath -- --output-format bencher | tee perf.log
+      - name: Upload perf artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-artifacts
+          path: perf.log
+
+  build-repro:
+    name: G4 build reproducibility (baseline)
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build wasm-related targets
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check --workspace --target wasm32-unknown-unknown | tee wasm-check.log
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-repro-artifacts
+          path: wasm-check.log
+
+  validate-evidence:
+    name: Evidence schema / claim policy
+    needs:
+      - classify-changes
+      - determinism-linux
+      - determinism-macos
+      - decoder-security
+      - perf-regression
+      - build-repro
+    if: always() && needs.classify-changes.outputs.run_none != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate evidence pack
+        run: |
+          ./scripts/generate_evidence.cjs
+      - name: Validate evidence pointers
+        run: |
+          ./scripts/validate_claims.cjs evidence.json

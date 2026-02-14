@@ -42,3 +42,7 @@ harness = false
 [[bench]]
 name = "boaw_baseline"
 harness = false
+
+[[bench]]
+name = "materialization_hotpath"
+harness = false

@@ -2,6 +2,14 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Checks if a file path matches a glob-like pattern.
+ * Supports ** for recursive directory matching and * for single level.
+ * 
+ * @param {string} file - The file path to check.
+ * @param {string} pattern - The glob-like pattern to match against.
+ * @returns {boolean} - True if the path matches the pattern.
+ */
 function matches(file, pattern) {
   const regexPattern = pattern
     .replace(/\./g, '\\.')
@@ -11,6 +19,13 @@ function matches(file, pattern) {
   return regex.test(file);
 }
 
+/**
+ * Classifies the impact of changed files based on a det-policy JSON.
+ * Outputs max_class and run_* flags for GitHub Actions.
+ * 
+ * @param {string} policyPath - Path to the det-policy JSON file.
+ * @param {string} changedFilesPath - Path to the file containing list of changed files.
+ */
 function classifyChanges(policyPath, changedFilesPath) {
   if (!fs.existsSync(policyPath)) {
     console.error(`Error: ${policyPath} not found.`);

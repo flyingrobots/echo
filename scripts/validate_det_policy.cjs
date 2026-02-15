@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 const fs = require('fs');
 
+/**
+ * Validates the structure and content of a det-policy JSON file.
+ * Checks for required gate definitions, crate classifications, and owner assignments.
+ * 
+ * @param {string} filePath - Path to the det-policy JSON file.
+ * @returns {boolean} - True if the policy file is valid.
+ */
 function validateDetPolicy(filePath) {
   if (!fs.existsSync(filePath)) {
     console.error(`Error: ${filePath} not found.`);

@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 const fs = require('fs');
 
+/**
+ * Validates that all claims marked as VERIFIED in the evidence file
+ * have the required immutable CI pointers (workflow, run_id, commit_sha, artifact_name).
+ * 
+ * @param {string} evidenceFile - Path to the evidence JSON file.
+ * @returns {boolean} - True if all verified claims are valid.
+ */
 function validateClaims(evidenceFile) {
   if (!fs.existsSync(evidenceFile)) {
     console.warn(`Warning: Evidence file ${evidenceFile} not found. Skipping validation.`);

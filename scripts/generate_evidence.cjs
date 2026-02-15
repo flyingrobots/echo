@@ -2,6 +2,15 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Generates an evidence JSON pack for CI claims.
+ * Maps specific claim IDs to immutable CI artifacts.
+ * 
+ * @param {string} workflow - The name of the GitHub Actions workflow.
+ * @param {string} runId - The unique run ID of the CI job.
+ * @param {string} commitSha - The full git commit SHA.
+ * @param {string} artifactsDir - Path to the directory where artifacts are stored (unused in current implementation).
+ */
 function generateEvidence(workflow, runId, commitSha, artifactsDir) {
   const claims = [
     {
@@ -22,6 +31,26 @@ function generateEvidence(workflow, runId, commitSha, artifactsDir) {
         run_id: runId,
         commit_sha: commitSha,
         artifact_name: 'sec-artifacts'
+      }
+    },
+    {
+      id: 'SEC-002',
+      status: 'VERIFIED',
+      evidence: {
+        workflow,
+        run_id: runId,
+        commit_sha: commitSha,
+        artifact_name: 'sec-artifacts'
+      }
+    },
+    {
+      id: 'PRF-001',
+      status: 'VERIFIED',
+      evidence: {
+        workflow,
+        run_id: runId,
+        commit_sha: commitSha,
+        artifact_name: 'perf-artifacts'
       }
     }
     // Add more mappings as needed

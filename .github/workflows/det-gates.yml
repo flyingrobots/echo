@@ -20,19 +20,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Detect changed files
         id: changed
         run: |
@@ -45,10 +32,14 @@ jobs:
           echo "Changed files:"
           cat changed.txt || true
 
+      - name: Convert policy to JSON
+        run: |
+          yq -o=json det-policy.yaml > det-policy.json
+
       - name: Classify path impact from det-policy.yaml
         id: classify
         run: |
-          ./scripts/classify_changes.cjs changed.txt >> $GITHUB_OUTPUT
+          node ./scripts/classify_changes.cjs det-policy.json changed.txt >> $GITHUB_OUTPUT
 
   determinism-linux:
     name: G1 determinism (linux)

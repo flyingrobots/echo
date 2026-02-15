@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 const fs = require('fs');
-const yaml = require('js-yaml');
 
 function validateDetPolicy(filePath) {
   if (!fs.existsSync(filePath)) {
@@ -9,7 +8,8 @@ function validateDetPolicy(filePath) {
   }
 
   try {
-    const data = yaml.load(fs.readFileSync(filePath, 'utf8'));
+    // Expecting JSON format to avoid external dependencies
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
     if (data.version !== 1) {
       console.error('Error: Invalid version in det-policy.yaml');
@@ -44,16 +44,17 @@ function validateDetPolicy(filePath) {
       }
     }
 
-    console.log('det-policy.yaml is valid.');
+    console.log('det-policy.json is valid.');
     return true;
   } catch (e) {
-    console.error(`Error parsing YAML: ${e}`);
+    console.error(`Error parsing JSON: ${e}`);
     return false;
   }
 }
 
 if (require.main === module) {
-  if (!validateDetPolicy('det-policy.yaml')) {
+  const filePath = process.argv[2] || 'det-policy.json';
+  if (!validateDetPolicy(filePath)) {
     process.exit(1);
   }
 }

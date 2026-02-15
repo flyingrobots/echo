@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
-const yaml = require('js-yaml');
 
 function matches(file, pattern) {
   const regexPattern = pattern
@@ -18,7 +17,8 @@ function classifyChanges(policyPath, changedFilesPath) {
     process.exit(1);
   }
 
-  const policy = yaml.load(fs.readFileSync(policyPath, 'utf8'));
+  // Expecting JSON format to avoid external dependencies like js-yaml
+  const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
   const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split('\n').filter(Boolean);
 
   let maxClass = 'DET_NONCRITICAL';
@@ -29,29 +29,30 @@ function classifyChanges(policyPath, changedFilesPath) {
     'DET_NONCRITICAL': 0
   };
 
-  for (const file of changedFiles) {
-    for (const [crateName, crateInfo] of Object.entries(policy.crates)) {
-      const paths = crateInfo.paths || [];
-      for (const pattern of paths) {
-        if (matches(file, pattern)) {
-          const cls = crateInfo.class;
-          if (classPriority[cls] > classPriority[maxClass]) {
-            maxClass = cls;
+  if (policy.crates) {
+    for (const file of changedFiles) {
+      for (const [crateName, crateInfo] of Object.entries(policy.crates)) {
+        const paths = crateInfo.paths || [];
+        for (const pattern of paths) {
+          if (matches(file, pattern)) {
+            const cls = crateInfo.class;
+            if (classPriority[cls] > classPriority[maxClass]) {
+              maxClass = cls;
+            }
           }
         }
       }
     }
   }
 
-  console.log(`max_class=${maxClass}`);
-  
-  // Also output individual gate flags for convenience
-  console.log(`run_full=${maxClass === 'DET_CRITICAL'}`);
-  console.log(`run_reduced=${maxClass === 'DET_IMPORTANT' || maxClass === 'DET_CRITICAL'}`);
-  console.log(`run_none=${changedFiles.length === 0}`);
+  process.stdout.write(`max_class=${maxClass}\n`);
+  process.stdout.write(`run_full=${maxClass === 'DET_CRITICAL'}\n`);
+  process.stdout.write(`run_reduced=${maxClass === 'DET_IMPORTANT' || maxClass === 'DET_CRITICAL'}\n`);
+  process.stdout.write(`run_none=${changedFiles.length === 0}\n`);
 }
 
 if (require.main === module) {
-  const changedFilesPath = process.argv[2] || 'changed.txt';
-  classifyChanges('det-policy.yaml', changedFilesPath);
+  const policyPath = process.argv[2] || 'det-policy.json';
+  const changedFilesPath = process.argv[3] || 'changed.txt';
+  classifyChanges(policyPath, changedFilesPath);
 }

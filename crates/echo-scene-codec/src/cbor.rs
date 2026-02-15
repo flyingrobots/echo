@@ -985,14 +985,7 @@ mod tests {
 
     #[test]
     fn reject_exceeding_max_ops() {
-        // Create an ops list larger than MAX_OPS
-        let mut ops = Vec::with_capacity(MAX_OPS + 1);
-        for _ in 0..=MAX_OPS {
-            ops.push(SceneOp::Clear);
-        }
-
-        // We can't use encode_scene_delta because that's for valid deltas
-        // We manually encode the header and then the array length
+        // Minimal CBOR header for SceneDelta
         let mut buf = Vec::new();
         let mut encoder = Encoder::new(&mut buf);
         encoder.array(5).unwrap();
@@ -1001,9 +994,6 @@ mod tests {
         encoder.bytes(&make_test_hash(2)).unwrap(); // cursor
         encoder.u64(0).unwrap(); // epoch
         encoder.array((MAX_OPS + 1) as u64).unwrap(); // ops array header
-        for op in ops {
-            encode_scene_op(&mut encoder, &op).unwrap();
-        }
 
         let result = decode_scene_delta(&buf);
         assert!(
@@ -1028,19 +1018,31 @@ mod tests {
 
     #[test]
     fn reject_invalid_enum_tags() {
-        // NodeShape
         let mut buf = Vec::new();
-        let mut encoder = Encoder::new(&mut buf);
-        encoder.u8(2).unwrap(); // Invalid shape
-        let mut decoder = Decoder::new(&buf);
-        assert!(decode_node_shape(&mut decoder).is_err());
 
-        // EdgeStyle
+        // NodeShape: allowed 0..=1
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.u8(2).unwrap();
+        assert!(decode_node_shape(&mut Decoder::new(&buf)).is_err());
+
+        // EdgeStyle: allowed 0..=1
         buf.clear();
         let mut encoder = Encoder::new(&mut buf);
-        encoder.u8(2).unwrap(); // Invalid style
-        let mut decoder = Decoder::new(&buf);
-        assert!(decode_edge_style(&mut decoder).is_err());
+        encoder.u8(2).unwrap();
+        assert!(decode_edge_style(&mut Decoder::new(&buf)).is_err());
+
+        // ProjectionKind: allowed 0..=1
+        buf.clear();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.u8(2).unwrap();
+        assert!(decode_projection_kind(&mut Decoder::new(&buf)).is_err());
+
+        // LabelAnchor tag: allowed 0..=1
+        buf.clear();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.array(2).unwrap();
+        encoder.u8(2).unwrap(); // Invalid tag
+        assert!(decode_label_anchor(&mut Decoder::new(&buf)).is_err());
     }
 
     #[test]

@@ -10,8 +10,8 @@ const fs = require('fs');
  */
 function validateClaims(evidenceFile) {
   if (!fs.existsSync(evidenceFile)) {
-    console.warn(`Warning: Evidence file ${evidenceFile} not found. Skipping validation.`);
-    return true;
+    console.error(`Error: Evidence file ${evidenceFile} not found.`);
+    return false;
   }
 
   try {
@@ -19,13 +19,31 @@ function validateClaims(evidenceFile) {
     const requiredFields = ['workflow', 'run_id', 'commit_sha', 'artifact_name'];
     const violations = [];
 
-    if (data.claims) {
-      for (const claim of data.claims) {
-        if (claim.status === 'VERIFIED') {
-          const evidence = claim.evidence || {};
-          const missing = requiredFields.filter(f => !evidence[f]);
-          if (missing.length > 0) {
-            violations.push(`Claim ${claim.id} is VERIFIED but missing pointers: ${missing.join(', ')}`);
+    if (!data.claims || !Array.isArray(data.claims)) {
+      console.error('Error: evidence.json is missing a valid claims array.');
+      return false;
+    }
+
+    for (const claim of data.claims) {
+      if (claim.status === 'VERIFIED') {
+        const evidence = claim.evidence || {};
+        const missing = requiredFields.filter(f => !evidence[f]);
+        if (missing.length > 0) {
+          violations.push(`Claim ${claim.id} is VERIFIED but missing pointers: ${missing.join(', ')}`);
+          continue;
+        }
+
+        // Semantic validation
+        if (!/^[0-9a-f]{40}$/i.test(evidence.commit_sha)) {
+          violations.push(`Claim ${claim.id} has invalid commit_sha: ${evidence.commit_sha}`);
+        }
+        if (!/^\d+$/.test(String(evidence.run_id)) && evidence.run_id !== 'local') {
+          violations.push(`Claim ${claim.id} has invalid run_id: ${evidence.run_id}`);
+        }
+        if (evidence.workflow === 'local' || evidence.artifact_name === 'local') {
+          // Warning or violation depending on CI context
+          if (process.env.GITHUB_ACTIONS) {
+            violations.push(`Claim ${claim.id} has placeholder evidence ('local') in CI environment.`);
           }
         }
       }

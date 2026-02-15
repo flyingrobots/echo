@@ -7,11 +7,11 @@
 
 **Goal:** Formalize the TTD (Time-Travel Determinism) hardening gates and evidence integrity.
 
-- [ ] **G1 (DET):** Multi-platform determinism matrix (macOS/Linux + wasm).
-- [ ] **G2 (SEC):** Explicit negative test mapping for decoder controls.
-- [ ] **G3 (PRF):** Criterion baseline + regression threshold for materialization path.
-- [ ] **G4 (REP):** Enforce artifact-backed VERIFIED claims and path-aware gates.
-- [ ] **GOV:** Publish release policy and commit-ordered rollback playbooks.
+- [x] **G1 (DET):** Multi-platform determinism matrix (macOS/Linux + wasm).
+- [x] **G2 (SEC):** Explicit negative test mapping for decoder controls.
+- [x] **G3 (PRF):** Criterion baseline + regression threshold for materialization path.
+- [x] **G4 (REP):** Enforce artifact-backed VERIFIED claims and path-aware gates.
+- [x] **GOV:** Publish release policy and commit-ordered rollback playbooks.
 
 ---
 

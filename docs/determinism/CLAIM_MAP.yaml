@@ -30,6 +30,27 @@ claims:
       - type: ci_artifact
     owner_role: Security Engineer
 
+  SEC-003:
+    statement: "Truncated payload rejection enforced."
+    required_evidence:
+      - type: behavior_test
+      - type: ci_artifact
+    owner_role: Security Engineer
+
+  SEC-004:
+    statement: "Bad version handling enforced."
+    required_evidence:
+      - type: behavior_test
+      - type: ci_artifact
+    owner_role: Security Engineer
+
+  SEC-005:
+    statement: "Invalid enum tag rejection enforced."
+    required_evidence:
+      - type: behavior_test
+      - type: ci_artifact
+    owner_role: Security Engineer
+
   PRF-001:
     statement: "Performance regression bound within policy threshold."
     required_evidence:

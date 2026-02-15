@@ -23,6 +23,7 @@ function validateDetPolicy(filePath) {
       return false;
     }
 
+    const ALLOWED_GATES = new Set(['G1', 'G2', 'G3', 'G4']);
     const classes = data.classes || {};
     const crates = data.crates || {};
     const policy = data.policy || {};
@@ -33,13 +34,28 @@ function validateDetPolicy(filePath) {
         console.error(`Error: Class ${className} missing required_gates`);
         return false;
       }
+      for (const gate of classInfo.required_gates) {
+        if (!ALLOWED_GATES.has(gate)) {
+          console.error(`Error: Class ${className} has invalid gate ${gate}`);
+          return false;
+        }
+      }
     }
 
     // Check crates
     for (const [crateName, crateInfo] of Object.entries(crates)) {
+      if (!crateInfo.class) {
+        console.error(`Error: Crate ${crateName} missing class`);
+        return false;
+      }
       const cls = crateInfo.class;
       if (!classes[cls]) {
         console.error(`Error: Crate ${crateName} has unknown class ${cls}`);
+        return false;
+      }
+
+      if (!crateInfo.paths || !Array.isArray(crateInfo.paths) || crateInfo.paths.length === 0) {
+        console.error(`Error: Crate ${crateName} missing or invalid paths`);
         return false;
       }
 
@@ -58,6 +74,8 @@ function validateDetPolicy(filePath) {
     return false;
   }
 }
+
+module.exports = { validateDetPolicy };
 
 if (require.main === module) {
   const filePath = process.argv[2] || 'det-policy.json';

@@ -6,7 +6,7 @@ version: 1
 classes:
   DET_CRITICAL:
     description: "Determinism/security/replay-critical. Full gates required."
-    required_gates: [G1, G2, G4]
+    required_gates: [G1, G2, G3, G4]
   DET_IMPORTANT:
     description: "Affects critical systems indirectly. Reduced gate set."
     required_gates: [G2, G4]
@@ -145,6 +145,7 @@ crates:
     class: DET_NONCRITICAL
     owner_role: "Performance Engineer"
     paths: ["crates/warp-benches/**"]
+    required_gates: ["G3"]
 
 policy:
   require_full_classification: true

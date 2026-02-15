@@ -19,14 +19,26 @@
       (MAX_OPS, invalid versions/enums, truncated payloads).
     - **G3 (Performance):** Created `materialization_hotpath` Criterion benchmark
       in `warp-benches` to track materialization overhead.
-    - **G4 (Build):** Added WASM build reproducibility checks.
+    - **G4 (Build):** Added WASM build reproducibility checks verifying bit-exact
+      artifacts across clean rebuilds.
 - **Evidence Integrity:** Added `generate_evidence.cjs` and `validate_claims.cjs`
   to ensure all `VERIFIED` claims are backed by immutable CI artifacts (run IDs,
   commit SHAs).
+- **Static Inspection:** Integrated `DET-001` automated static inspection into CI
+  to verify zero-HashMap usage in deterministic guest paths.
 - **Governance:** Published `RELEASE_POLICY.md` (staging/prod blockers) and
   `ROLLBACK_TTD.md` (commit-ordered rollback sequences).
 - **Security Claim Mapping:** Exported `sec-claim-map.json` mapping decoder
   controls to explicit negative test cases.
+
+### Fixed (Sprint S1)
+
+- **CI Security:** Fixed potential script injection in `det-gates` workflow by
+  using environment variables for branch references.
+- **Dependency Security:** Updated `js-yaml` 4.1.0 → 4.1.1 to address
+  CVE-2025-64718 (DoS via specially crafted YAML).
+- **Benchmark Methodology:** Optimized materialization benchmarks to measure
+  pure emitter throughput by removing allocation overhead from hot loops.
 
 ### Added — Deterministic Scene Data (TTD)
 
@@ -124,7 +136,7 @@
 - Added 1 s cooldown after the read loop exits to prevent tight reconnect loops
   when the hub accepts connections but immediately closes them.
 
-### Fixed
+### Fixed (Legacy)
 
 - **Security:** upgraded `bytes` 1.11.0 → 1.11.1 to fix RUSTSEC-2026-0007
   (integer overflow in `BytesMut::reserve`).

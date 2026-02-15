@@ -13,8 +13,9 @@ const path = require('path');
 function matches(file, pattern) {
   const regexPattern = pattern
     .replace(/\./g, '\\.')
-    .replace(/\*\*/g, '.*')
-    .replace(/\*/g, '[^/]*');
+    .replace(/\*\*/g, '___DBL_STAR___')
+    .replace(/\*/g, '[^/]*')
+    .replace(/___DBL_STAR___/g, '.*');
   const regex = new RegExp(`^${regexPattern}$`);
   return regex.test(file);
 }
@@ -28,28 +29,32 @@ function matches(file, pattern) {
  */
 function classifyChanges(policyPath, changedFilesPath) {
   if (!fs.existsSync(policyPath)) {
-    console.error(`Error: ${policyPath} not found.`);
-    process.exit(1);
+    throw new Error(`Policy file not found: ${policyPath}`);
+  }
+  if (!fs.existsSync(changedFilesPath)) {
+    throw new Error(`Changed files list not found: ${changedFilesPath}`);
   }
 
-  // Expecting JSON format to avoid external dependencies like js-yaml
   const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'));
   const changedFiles = fs.readFileSync(changedFilesPath, 'utf8').split('\n').filter(Boolean);
 
   let maxClass = 'DET_NONCRITICAL';
-
   const classPriority = {
     'DET_CRITICAL': 2,
     'DET_IMPORTANT': 1,
     'DET_NONCRITICAL': 0
   };
 
-  if (policy.crates) {
-    for (const file of changedFiles) {
+  const requireFull = policy.policy && policy.policy.require_full_classification;
+
+  for (const file of changedFiles) {
+    let matched = false;
+    if (policy.crates) {
       for (const [crateName, crateInfo] of Object.entries(policy.crates)) {
         const paths = crateInfo.paths || [];
         for (const pattern of paths) {
           if (matches(file, pattern)) {
+            matched = true;
             const cls = crateInfo.class;
             if (classPriority[cls] > classPriority[maxClass]) {
               maxClass = cls;
@@ -57,6 +62,11 @@ function classifyChanges(policyPath, changedFilesPath) {
           }
         }
       }
+    }
+    
+    if (requireFull && !matched) {
+      console.error(`Error: File ${file} is not classified in det-policy.yaml and require_full_classification is enabled.`);
+      process.exit(1);
     }
   }
 
@@ -67,7 +77,12 @@ function classifyChanges(policyPath, changedFilesPath) {
 }
 
 if (require.main === module) {
-  const policyPath = process.argv[2] || 'det-policy.json';
-  const changedFilesPath = process.argv[3] || 'changed.txt';
-  classifyChanges(policyPath, changedFilesPath);
+  try {
+    const policyPath = process.argv[2] || 'det-policy.json';
+    const changedFilesPath = process.argv[3] || 'changed.txt';
+    classifyChanges(policyPath, changedFilesPath);
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  }
 }

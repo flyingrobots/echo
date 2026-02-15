@@ -55,7 +55,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run parity tests (linux)
         run: |
-          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture | tee det-linux.log
+          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture 2>&1 | tee det-linux.log
+          grep -q "0 passed" det-linux.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Run DIND suite (linux)
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-linux.log
@@ -68,6 +69,7 @@ jobs:
           echo "target,commit,run_id,digest" > artifacts/digest-table.csv
           echo "linux,${COMMIT_SHA},${RUN_ID},$(sha256sum dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: det-linux-artifacts
@@ -88,7 +90,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run parity tests (macos)
         run: |
-          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture | tee det-macos.log
+          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture 2>&1 | tee det-macos.log
+          grep -q "0 passed" det-macos.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Run DIND suite (macos)
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-macos.log
@@ -101,6 +104,7 @@ jobs:
           echo "target,commit,run_id,digest" > artifacts/digest-table.csv
           echo "macos,${COMMIT_SHA},${RUN_ID},$(shasum -a 256 dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: det-macos-artifacts
@@ -155,8 +159,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Run codec tests
         run: |
-          cargo test -p echo-scene-codec --lib cbor::tests -- --nocapture | tee sec-tests.log
+          cargo test -p echo-scene-codec --lib cbor::tests -- --nocapture 2>&1 | tee sec-tests.log
+          grep -q "0 passed" sec-tests.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Upload security artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sec-artifacts
@@ -177,6 +183,7 @@ jobs:
         run: |
           cargo bench -p warp-benches --bench materialization_hotpath -- --output-format bencher | tee perf.log
       - name: Upload perf artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: perf-artifacts
@@ -219,12 +226,15 @@ jobs:
           diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)
           echo "Hashes match: $(cat hash1.txt)"
       - name: Upload build artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-repro-artifacts
           path: |
             hash1.txt
+            hash2.txt
             build1.wasm
+            build2.wasm
 
   validate-evidence:
     name: Evidence schema / claim policy

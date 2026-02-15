@@ -11,9 +11,10 @@ const fs = require('fs');
  */
 function matches(file, pattern) {
   const regexPattern = pattern
-    .replace(/\./g, '\\.')
     .replace(/\*\*/g, '___DBL_STAR___')
-    .replace(/\*/g, '[^/]*')
+    .replace(/\*/g, '___SGL_STAR___')
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/___SGL_STAR___/g, '[^/]*')
     .replace(/___DBL_STAR___/g, '.*');
   const regex = new RegExp(`^${regexPattern}$`);
   return regex.test(file);

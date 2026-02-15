@@ -3,7 +3,7 @@
 version: 1
 claims:
   DET-001:
-    statement: "No HashMap/HashSet or other nondeterministic API usage in DET_CRITICAL crate paths."
+    statement: "DET_CRITICAL crate paths contain zero matches for the banned pattern set defined in ban-nondeterminism.sh."
     required_evidence:
       - type: static_inspection
       - type: ci_artifact
@@ -17,21 +17,21 @@ claims:
     owner_role: CI Engineer
 
   SEC-001:
-    statement: "MAX_OPS pre-allocation bounds enforced."
+    statement: "CBOR payloads declaring more than MAX_OPS operations are rejected with an error before allocation."
     required_evidence:
       - type: behavior_test
       - type: ci_artifact
     owner_role: Security Engineer
 
   SEC-002:
-    statement: "Trailing-byte payload rejection enforced."
+    statement: "CBOR payloads with trailing bytes after the expected structure are rejected with an error."
     required_evidence:
       - type: behavior_test
       - type: ci_artifact
     owner_role: Security Engineer
 
   SEC-003:
-    statement: "Truncated payload rejection enforced."
+    statement: "CBOR payloads truncated before the expected structure is complete are rejected with an error."
     required_evidence:
       - type: behavior_test
       - type: ci_artifact
@@ -45,7 +45,7 @@ claims:
     owner_role: Security Engineer
 
   SEC-005:
-    statement: "Invalid enum tag rejection enforced."
+    statement: "CBOR payloads containing out-of-range enum discriminant tags are rejected with an error."
     required_evidence:
       - type: behavior_test
       - type: ci_artifact

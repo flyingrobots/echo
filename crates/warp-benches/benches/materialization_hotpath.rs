@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Microbenchmarks for `MaterializationBus` performance.
+// criterion_group!/criterion_main! expand to undocumented functions that cannot
+// carry #[allow] (attributes on macro invocations are ignored). Crate-level
+// suppress is required for benchmark binaries using Criterion.
 #![allow(missing_docs)]
+//! Microbenchmarks for `MaterializationBus` performance.
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use warp_core::materialization::{make_channel_id, ChannelPolicy, EmitKey, MaterializationBus};
 use warp_core::Hash;

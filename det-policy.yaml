@@ -73,6 +73,10 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/ttd-manifest/**"]
+  ci:
+    class: DET_CRITICAL
+    owner_role: "CI Engineer"
+    paths: [".github/workflows/**", "scripts/**", "det-policy.yaml"]
 
   # ---- DET_IMPORTANT ----
   echo-wasm-bindings:

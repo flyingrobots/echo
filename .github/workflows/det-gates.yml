@@ -56,7 +56,7 @@ jobs:
       - name: Run parity tests (linux)
         run: |
           cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture 2>&1 | tee det-linux.log
-          grep -q "0 passed" det-linux.log && echo "FATAL: zero tests matched filter" && exit 1 || true
+          grep -q " 0 passed" det-linux.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Run DIND suite (linux)
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-linux.log
@@ -91,7 +91,7 @@ jobs:
       - name: Run parity tests (macos)
         run: |
           cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture 2>&1 | tee det-macos.log
-          grep -q "0 passed" det-macos.log && echo "FATAL: zero tests matched filter" && exit 1 || true
+          grep -q " 0 passed" det-macos.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Run DIND suite (macos)
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-macos.log
@@ -160,7 +160,7 @@ jobs:
       - name: Run codec tests
         run: |
           cargo test -p echo-scene-codec --lib cbor::tests -- --nocapture 2>&1 | tee sec-tests.log
-          grep -q "0 passed" sec-tests.log && echo "FATAL: zero tests matched filter" && exit 1 || true
+          grep -q " 0 passed" sec-tests.log && echo "FATAL: zero tests matched filter" && exit 1 || true
       - name: Upload security artifacts
         if: always()
         uses: actions/upload-artifact@v4

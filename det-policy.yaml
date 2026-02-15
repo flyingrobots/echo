@@ -76,9 +76,13 @@ crates:
   ci:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
-    paths: [".github/workflows/**", "scripts/**", "det-policy.yaml"]
+    paths: [".github/workflows/**", "scripts/**", "det-policy.yaml", "Makefile", "xtask/**"]
 
   # ---- DET_IMPORTANT ----
+  build-system:
+    class: DET_IMPORTANT
+    owner_role: "Architect"
+    paths: ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "deny.toml", "audit.toml"]
   echo-wasm-bindings:
     class: DET_IMPORTANT
     owner_role: "Tooling Engineer"
@@ -132,11 +136,11 @@ crates:
   ttd-app:
     class: DET_NONCRITICAL
     owner_role: "Frontend Engineer"
-    paths: ["apps/ttd-app/**"]
+    paths: ["apps/ttd-app/**", "playwright.config.ts"]
   docs:
     class: DET_NONCRITICAL
     owner_role: "Tech Writer"
-    paths: ["docs/**"]
+    paths: ["docs/**", "README.md", "CHANGELOG.md", "LEGAL.md", "LICENSE*", "NOTICE", "SECURITY.md", "AGENTS.md", "COMING_SOON.md", "CONTRIBUTING.md", "ECHO_ROADMAP.md", ".editorconfig", ".gitignore", ".gitattributes", ".markdownlint.json", "ADR-*.md", "TASKS-DAG.md", "WASM-TASKS.md", ".ban-*", "DIND-MISSION*.md", "DETERMINISM-AUDIT.md", "MERGE_TTD_BRANCH_PLAN.md", "testdata/**", "tests/**", "e2e/**"]
   echo-dry-tests:
     class: DET_NONCRITICAL
     owner_role: "CI Engineer"

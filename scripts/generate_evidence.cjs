@@ -14,13 +14,18 @@ function generateEvidence(gatheredArtifactsDir) {
   const commitSha = process.env.GITHUB_SHA || 'local';
 
   const checkArtifact = (name) => {
-    return fs.existsSync(path.join(gatheredArtifactsDir, name));
+    const fullPath = path.join(gatheredArtifactsDir, name);
+    try {
+      return fs.existsSync(fullPath) && fs.readdirSync(fullPath).length > 0;
+    } catch (e) {
+      return false;
+    }
   };
 
   const claims = [
     {
       id: 'DET-001',
-      status: 'VERIFIED', // Static inspection usually passes if CI reached here
+      status: checkArtifact('static-inspection') ? 'VERIFIED' : 'UNVERIFIED',
       evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'static-inspection' }
     },
     {

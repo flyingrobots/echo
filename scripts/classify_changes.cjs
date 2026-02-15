@@ -70,6 +70,9 @@ function classifyChanges(policyPath, changedFilesPath) {
     }
   }
 
+  // Debug log for CI visibility
+  console.error(`Classified ${changedFiles.length} files. Max class: ${maxClass}`);
+
   process.stdout.write(`max_class=${maxClass}\n`);
   process.stdout.write(`run_full=${maxClass === 'DET_CRITICAL'}\n`);
   process.stdout.write(`run_reduced=${maxClass === 'DET_IMPORTANT' || maxClass === 'DET_CRITICAL'}\n`);

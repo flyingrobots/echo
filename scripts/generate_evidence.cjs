@@ -75,8 +75,9 @@ function generateEvidence(gatheredArtifactsDir) {
     }
   };
 
-  fs.writeFileSync('evidence.json', JSON.stringify(evidence, null, 2));
-  console.log('Generated evidence.json');
+  const outputPath = path.join(gatheredArtifactsDir, 'evidence.json');
+  fs.writeFileSync(outputPath, JSON.stringify(evidence, null, 2));
+  console.log(`Generated evidence.json at ${outputPath}`);
 }
 
 if (require.main === module) {

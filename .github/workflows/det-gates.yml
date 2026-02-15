@@ -184,9 +184,9 @@ jobs:
         run: |
           cd build1
           rustup target add wasm32-unknown-unknown
-          cargo build --release --target wasm32-unknown-unknown -p echo-wasm-abi
-          sha256sum target/wasm32-unknown-unknown/release/echo-wasm-abi.wasm > ../hash1.txt
-          cp target/wasm32-unknown-unknown/release/echo-wasm-abi.wasm ../build1.wasm
+          cargo build --release --target wasm32-unknown-unknown -p ttd-browser
+          sha256sum target/wasm32-unknown-unknown/release/ttd_browser.wasm > ../hash1.txt
+          cp target/wasm32-unknown-unknown/release/ttd_browser.wasm ../build1.wasm
       - name: Checkout Build 2
         uses: actions/checkout@v4
         with:
@@ -195,9 +195,9 @@ jobs:
         run: |
           cd build2
           rustup target add wasm32-unknown-unknown
-          cargo build --release --target wasm32-unknown-unknown -p echo-wasm-abi
-          sha256sum target/wasm32-unknown-unknown/release/echo-wasm-abi.wasm > ../hash2.txt
-          cp target/wasm32-unknown-unknown/release/echo-wasm-abi.wasm ../build2.wasm
+          cargo build --release --target wasm32-unknown-unknown -p ttd-browser
+          sha256sum target/wasm32-unknown-unknown/release/ttd_browser.wasm > ../hash2.txt
+          cp target/wasm32-unknown-unknown/release/ttd_browser.wasm ../build2.wasm
       - name: Compare hashes
         run: |
           diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)
@@ -241,4 +241,4 @@ jobs:
           ./scripts/generate_evidence.cjs gathered-artifacts
       - name: Validate evidence pointers
         run: |
-          ./scripts/validate_claims.cjs evidence.json
+          ./scripts/validate_claims.cjs gathered-artifacts/evidence.json

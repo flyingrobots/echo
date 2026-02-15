@@ -654,6 +654,26 @@ This living list documents open issues and the inferred dependencies contributor
 - Status: Open
 - (No detected dependencies)
 
+## [#284: CI: Per-crate gate overrides in det-policy classification system](https://github.com/flyingrobots/echo/issues/284)
+
+- Status: Open
+- (No detected dependencies)
+
+## [#285: CI: Auto-generate DETERMINISM_PATHS from det-policy.yaml DET_CRITICAL entries](https://github.com/flyingrobots/echo/issues/285)
+
+- Status: Open
+- (No detected dependencies)
+
+## [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
+
+- Status: Open
+- (No detected dependencies)
+
+## [#287: Docs: Document ban-nondeterminism.sh allowlist process in RELEASE_POLICY.md](https://github.com/flyingrobots/echo/issues/287)
+
+- Status: Open
+- (No detected dependencies)
+
 ---
 
 Rendering note (2026-01-09):

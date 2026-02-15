@@ -5,6 +5,29 @@
 
 ## Unreleased
 
+## [0.1.2] — 2026-02-14
+
+### Added — TTD Hardening Sprint S1 (Gates & Evidence)
+
+- **Path-Aware CI Gates:** Implemented `det-policy.yaml` and `classify_changes.cjs`
+  to classify workspace crates (DET_CRITICAL/IMPORTANT/NONCRITICAL) and drive
+  selective CI gate triggering (G1-G4).
+- **Hardening Gates (G1-G4):**
+    - **G1 (Determinism):** Integrated float parity tests and the DIND (Deterministic
+      Ironclad Nightmare Drills) suite on both Linux and macOS.
+    - **G2 (Security):** Added negative security tests for the CBOR decoder
+      (MAX_OPS, invalid versions/enums, truncated payloads).
+    - **G3 (Performance):** Created `materialization_hotpath` Criterion benchmark
+      in `warp-benches` to track materialization overhead.
+    - **G4 (Build):** Added WASM build reproducibility checks.
+- **Evidence Integrity:** Added `generate_evidence.cjs` and `validate_claims.cjs`
+  to ensure all `VERIFIED` claims are backed by immutable CI artifacts (run IDs,
+  commit SHAs).
+- **Governance:** Published `RELEASE_POLICY.md` (staging/prod blockers) and
+  `ROLLBACK_TTD.md` (commit-ordered rollback sequences).
+- **Security Claim Mapping:** Exported `sec-claim-map.json` mapping decoder
+  controls to explicit negative test cases.
+
 ### Added — Deterministic Scene Data (TTD)
 
 - **Scene Rendering Port (`echo-scene-port`):** Defined the core data model for

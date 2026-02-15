@@ -172,17 +172,18 @@ jobs:
     if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
     runs-on: ubuntu-latest
     steps:
+      - name: Setup Rust (Global)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - name: Checkout Build 1
         uses: actions/checkout@v4
         with:
           path: build1
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
       - name: Build 1
         run: |
           cd build1
+          rustup target add wasm32-unknown-unknown
           cargo build --release --target wasm32-unknown-unknown -p echo-wasm-abi
           sha256sum target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm > ../hash1.txt
           cp target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm ../build1.wasm
@@ -193,6 +194,7 @@ jobs:
       - name: Build 2
         run: |
           cd build2
+          rustup target add wasm32-unknown-unknown
           cargo build --release --target wasm32-unknown-unknown -p echo-wasm-abi
           sha256sum target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm > ../hash2.txt
           cp target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm ../build2.wasm

@@ -172,22 +172,30 @@ jobs:
     if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Build 1
+        uses: actions/checkout@v4
+        with:
+          path: build1
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: Deterministic Build 1
+      - name: Build 1
         run: |
+          cd build1
           cargo build --release --target wasm32-unknown-unknown -p echo-wasm-abi
-          sha256sum target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm > hash1.txt
-          cp target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm build1.wasm
-      - name: Deterministic Build 2
+          sha256sum target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm > ../hash1.txt
+          cp target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm ../build1.wasm
+      - name: Checkout Build 2
+        uses: actions/checkout@v4
+        with:
+          path: build2
+      - name: Build 2
         run: |
-          cargo clean -p echo-wasm-abi
+          cd build2
           cargo build --release --target wasm32-unknown-unknown -p echo-wasm-abi
-          sha256sum target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm > hash2.txt
-          cp target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm build2.wasm
+          sha256sum target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm > ../hash2.txt
+          cp target/wasm32-unknown-unknown/release/echo_wasm_abi.wasm ../build2.wasm
       - name: Compare hashes
         run: |
           diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)

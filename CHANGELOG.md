@@ -5,47 +5,34 @@
 
 ## Unreleased
 
-### Fixed (PR #283 Review Feedback)
-
-- **CI Security:** Completed script injection hardening by using env vars for
-  `github.event_name`, `github.sha`, and `github.run_id` interpolations in
-  `det-gates.yml`.
-- **Static Inspection Scope:** Expanded `DETERMINISM_PATHS` from `echo-wasm-abi`
-  only to all 14 DET_CRITICAL crates, aligning DET-001 gate scope with policy.
-- **Static Inspection Report:** Made report generation conditional on check
-  outcome (PASSED/FAILED) instead of unconditional PASSED.
-- **Evidence Validation:** Made artifact presence checks in `validate-evidence`
-  conditional on classification tier so `run_reduced` no longer hard-fails.
-- **Policy Classification:** Promoted `warp-benches` from DET_NONCRITICAL to
-  DET_IMPORTANT so benchmark crate changes trigger reduced gates.
-- **Script Quality:** Replaced `process.exit(1)` with `throw` in
-  `classify_changes.cjs` for testability; removed dead `path` import; exported
-  functions for unit testing.
-- **Benchmark Correctness:** Replaced `let _ =` with `.unwrap()` on all
-  `bus.emit()` calls in materialization benchmarks.
-- **Claim Map:** Updated DET-001 statement to reflect expanded scope across all
-  DET_CRITICAL crate paths.
-
-## [0.1.3] — 2026-02-15
+## [0.1.3]
 
 ### Fixed (Sprint S1)
 
 - **CI Security:** Hardened `det-gates` workflow against script injection by using
-  environment variables for branch references.
+  environment variables for all `github.*` interpolations (branch refs, SHA,
+  run ID, event name).
 - **WASM Reproducibility:** Implemented bit-exact reproducibility checks (G4)
-  for `echo-wasm-abi` using hash comparison of clean rebuilds.
-- **Static Inspection:** Added automated CI guard for `DET-001` verifying zero
-  `HashMap` usage in deterministic guest paths.
-- **Benchmark Methodology:** Optimized materialization benchmarks to measure
-  pure emitter throughput by removing allocation overhead from hot loops.
+  for `ttd-browser` WASM using hash comparison of clean isolated rebuilds.
+- **Static Inspection:** Added automated CI guard for `DET-001` covering all 14
+  DET_CRITICAL crate paths (expanded from `echo-wasm-abi` only). Report now
+  conditional on check outcome (PASSED/FAILED).
+- **Evidence Validation:** Made artifact presence checks in `validate-evidence`
+  conditional on classification tier; added `det-macos-artifacts` check;
+  `run_reduced` and `DET_NONCRITICAL` paths no longer hard-fail.
+- **Policy Classification:** Promoted `warp-benches` from DET_NONCRITICAL to
+  DET_IMPORTANT so benchmark crate changes trigger reduced gates.
+- **Benchmark Correctness:** Replaced `let _ =` with `.unwrap()` on all
+  `bus.emit()` calls; migrated `iter_with_setup` to `iter_batched`.
 - **CBOR Robustness:** Expanded negative security tests for `ProjectionKind`
   and `LabelAnchor` enum tags and optimized `MAX_OPS` boundary check.
 - **Evidence Integrity:** Enhanced `generate_evidence.cjs` and `validate_claims.cjs`
   with stricter semantic validation (SHAs, run IDs) and artifact existence checks.
-- **Script Quality:** Improved error handling, docstring coverage, and modularity
-  across all hardening scripts.
-- **Governance Alignment:** Moved `sec-claim-map.json` to `docs/determinism/`
-  and formalized `INFERRED`/`UNVERIFIED` states in `RELEASE_POLICY.md`.
+- **Script Quality:** Replaced `process.exit(1)` with `throw` in
+  `classify_changes.cjs`; removed dead import; exported functions for testing.
+- **Governance:** Moved `sec-claim-map.json` to `docs/determinism/`, formalized
+  gate states in `RELEASE_POLICY.md`, tightened claim statements in
+  `CLAIM_MAP.yaml`.
 
 ## [0.1.2] — 2026-02-14
 

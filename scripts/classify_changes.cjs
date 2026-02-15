@@ -74,7 +74,8 @@ function classifyChanges(policyPath, changedFilesPath) {
   process.stdout.write(`max_class=${maxClass}\n`);
   process.stdout.write(`run_full=${maxClass === 'DET_CRITICAL'}\n`);
   process.stdout.write(`run_reduced=${maxClass === 'DET_IMPORTANT' || maxClass === 'DET_CRITICAL'}\n`);
-  process.stdout.write(`run_none=${changedFiles.length === 0}\n`);
+  const noGates = changedFiles.length === 0 || maxClass === 'DET_NONCRITICAL';
+  process.stdout.write(`run_none=${noGates}\n`);
 }
 
 module.exports = { classifyChanges, matches };

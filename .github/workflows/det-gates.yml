@@ -255,6 +255,7 @@ jobs:
           # Only required when run_full (these jobs are skipped for run_reduced)
           if [ "$RUN_FULL" = "true" ]; then
             [ -d gathered-artifacts/det-linux-artifacts ] || (echo "Missing det-linux-artifacts" && exit 1)
+            [ -d gathered-artifacts/det-macos-artifacts ] || (echo "Missing det-macos-artifacts" && exit 1)
             [ -d gathered-artifacts/perf-artifacts ] || (echo "Missing perf-artifacts" && exit 1)
             [ -d gathered-artifacts/static-inspection ] || (echo "Missing static-inspection" && exit 1)
           fi

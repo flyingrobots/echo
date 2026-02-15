@@ -10,7 +10,7 @@ claims:
     owner_role: Architect
 
   DET-002:
-    statement: "Float parity Rust/JS deterministic corpus."
+    statement: "Rust and JS implementations produce bit-identical outputs for all float canonicalization and serialization in the deterministic test corpus."
     required_evidence:
       - type: behavior_test
       - type: ci_artifact
@@ -38,7 +38,7 @@ claims:
     owner_role: Security Engineer
 
   SEC-004:
-    statement: "Bad version handling enforced."
+    statement: "CBOR payloads with unrecognized version fields are rejected with an error."
     required_evidence:
       - type: behavior_test
       - type: ci_artifact

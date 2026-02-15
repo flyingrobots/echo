@@ -5,7 +5,7 @@
 // suppress is required for benchmark binaries using Criterion.
 #![allow(missing_docs)]
 //! Microbenchmarks for `MaterializationBus` performance.
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use warp_core::materialization::{make_channel_id, ChannelPolicy, EmitKey, MaterializationBus};
 use warp_core::Hash;
 
@@ -44,7 +44,7 @@ fn bench_materialization_finalize_log(c: &mut Criterion) {
     let payloads: Vec<Vec<u8>> = (0..1000).map(|_| vec![0u8; 64]).collect();
 
     c.bench_function("materialization_finalize_log_1000", |b| {
-        b.iter_with_setup(
+        b.iter_batched(
             || {
                 for (i, p) in payloads.iter().enumerate() {
                     bus.emit(ch, EmitKey::new(h(i as u64), 1), p.clone())
@@ -54,6 +54,7 @@ fn bench_materialization_finalize_log(c: &mut Criterion) {
             |_| {
                 let _ = black_box(bus.finalize());
             },
+            BatchSize::PerIteration,
         )
     });
 }
@@ -98,7 +99,7 @@ fn bench_materialization_finalize_strict_many(c: &mut Criterion) {
     let payloads: Vec<Vec<u8>> = (0..1000).map(|_| vec![0u8; 64]).collect();
 
     c.bench_function("materialization_finalize_strict_1000", |b| {
-        b.iter_with_setup(
+        b.iter_batched(
             || {
                 for (i, ch) in channels.iter().enumerate() {
                     bus.emit(*ch, EmitKey::new(h(0), 1), payloads[i].clone())
@@ -108,6 +109,7 @@ fn bench_materialization_finalize_strict_many(c: &mut Criterion) {
             |_| {
                 let _ = black_box(bus.finalize());
             },
+            BatchSize::PerIteration,
         )
     });
 }

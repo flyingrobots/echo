@@ -3,7 +3,7 @@
 
 # ECHO_ROADMAP — Phased Plan (Post-ADR Alignment)
 
-## Active Sprint: TTD-HARDENING-S1 (2026-02-14 to 2026-02-21)
+## Completed Sprint: TTD-HARDENING-S1 (2026-02-14 to 2026-02-15)
 
 **Goal:** Formalize the TTD (Time-Travel Determinism) hardening gates and evidence integrity.
 

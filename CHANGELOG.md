@@ -5,6 +5,27 @@
 
 ## Unreleased
 
+## [0.1.3] — 2026-02-15
+
+### Fixed (Sprint S1)
+
+- **CI Security:** Hardened `det-gates` workflow against script injection by using
+  environment variables for branch references.
+- **WASM Reproducibility:** Implemented bit-exact reproducibility checks (G4)
+  for `echo-wasm-abi` using hash comparison of clean rebuilds.
+- **Static Inspection:** Added automated CI guard for `DET-001` verifying zero
+  `HashMap` usage in deterministic guest paths.
+- **Benchmark Methodology:** Optimized materialization benchmarks to measure
+  pure emitter throughput by removing allocation overhead from hot loops.
+- **CBOR Robustness:** Expanded negative security tests for `ProjectionKind`
+  and `LabelAnchor` enum tags and optimized `MAX_OPS` boundary check.
+- **Evidence Integrity:** Enhanced `generate_evidence.cjs` and `validate_claims.cjs`
+  with stricter semantic validation (SHAs, run IDs) and artifact existence checks.
+- **Script Quality:** Improved error handling, docstring coverage, and modularity
+  across all hardening scripts.
+- **Governance Alignment:** Moved `sec-claim-map.json` to `docs/determinism/`
+  and formalized `INFERRED`/`UNVERIFIED` states in `RELEASE_POLICY.md`.
+
 ## [0.1.2] — 2026-02-14
 
 ### Added — TTD Hardening Sprint S1 (Gates & Evidence)
@@ -30,15 +51,6 @@
   `ROLLBACK_TTD.md` (commit-ordered rollback sequences).
 - **Security Claim Mapping:** Exported `sec-claim-map.json` mapping decoder
   controls to explicit negative test cases.
-
-### Fixed (Sprint S1)
-
-- **CI Security:** Fixed potential script injection in `det-gates` workflow by
-  using environment variables for branch references.
-- **Dependency Security:** Updated `js-yaml` 4.1.0 → 4.1.1 to address
-  CVE-2025-64718 (DoS via specially crafted YAML).
-- **Benchmark Methodology:** Optimized materialization benchmarks to measure
-  pure emitter throughput by removing allocation overhead from hot loops.
 
 ### Added — Deterministic Scene Data (TTD)
 

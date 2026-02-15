@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 const fs = require('fs');
-const path = require('path');
 
 /**
  * Checks if a file path matches a glob-like pattern.
@@ -65,8 +64,7 @@ function classifyChanges(policyPath, changedFilesPath) {
     }
     
     if (requireFull && !matched) {
-      console.error(`Error: File ${file} is not classified in det-policy.yaml and require_full_classification is enabled.`);
-      process.exit(1);
+      throw new Error(`File ${file} is not classified in det-policy.yaml and require_full_classification is enabled.`);
     }
   }
 
@@ -78,6 +76,8 @@ function classifyChanges(policyPath, changedFilesPath) {
   process.stdout.write(`run_reduced=${maxClass === 'DET_IMPORTANT' || maxClass === 'DET_CRITICAL'}\n`);
   process.stdout.write(`run_none=${changedFiles.length === 0}\n`);
 }
+
+module.exports = { classifyChanges, matches };
 
 if (require.main === module) {
   try {

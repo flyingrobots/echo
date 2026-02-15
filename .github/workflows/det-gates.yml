@@ -24,8 +24,9 @@ jobs:
         id: changed
         env:
           BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then
             git fetch origin "$BASE_REF" --depth=1
             git diff --name-only "origin/$BASE_REF...HEAD" > changed.txt
           else
@@ -59,10 +60,13 @@ jobs:
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-linux.log
       - name: Create digest table
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           mkdir -p artifacts
           echo "target,commit,run_id,digest" > artifacts/digest-table.csv
-          echo "linux,${{ github.sha }},${{ github.run_id }},$(sha256sum dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
+          echo "linux,${COMMIT_SHA},${RUN_ID},$(sha256sum dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -89,10 +93,13 @@ jobs:
         run: |
           node scripts/dind-run-suite.mjs --mode run | tee dind-macos.log
       - name: Create digest table
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           mkdir -p artifacts
           echo "target,commit,run_id,digest" > artifacts/digest-table.csv
-          echo "macos,${{ github.sha }},${{ github.run_id }},$(shasum -a 256 dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
+          echo "macos,${COMMIT_SHA},${RUN_ID},$(shasum -a 256 dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -113,14 +120,23 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: Run determinism check
+        id: det_check
         env:
-          DETERMINISM_PATHS: "crates/echo-wasm-abi"
+          DETERMINISM_PATHS: "crates/warp-core crates/warp-geom crates/warp-wasm crates/warp-ffi crates/echo-wasm-abi crates/echo-scene-port crates/echo-scene-codec crates/echo-graph crates/echo-ttd crates/echo-dind-harness crates/echo-dind-tests crates/ttd-browser crates/ttd-protocol-rs crates/ttd-manifest"
         run: |
           ./scripts/ban-nondeterminism.sh | tee static-inspection.log
       - name: Create report
+        if: always()
+        env:
+          DET_OUTCOME: ${{ steps.det_check.outcome }}
         run: |
-          echo '{"claim_id": "DET-001", "status": "PASSED"}' > static-inspection.json
+          if [ "$DET_OUTCOME" = "success" ]; then
+            echo '{"claim_id": "DET-001", "status": "PASSED"}' > static-inspection.json
+          else
+            echo '{"claim_id": "DET-001", "status": "FAILED"}' > static-inspection.json
+          fi
       - name: Upload inspection artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: static-inspection
@@ -229,13 +245,19 @@ jobs:
         with:
           path: gathered-artifacts
       - name: Verify artifact presence
+        env:
+          RUN_FULL: ${{ needs.classify-changes.outputs.run_full }}
         run: |
           ls -R gathered-artifacts
-          [ -d gathered-artifacts/det-linux-artifacts ] || (echo "Missing det-linux-artifacts" && exit 1)
+          # Always required (run on both full and reduced)
           [ -d gathered-artifacts/sec-artifacts ] || (echo "Missing sec-artifacts" && exit 1)
-          [ -d gathered-artifacts/perf-artifacts ] || (echo "Missing perf-artifacts" && exit 1)
           [ -d gathered-artifacts/build-repro-artifacts ] || (echo "Missing build-repro-artifacts" && exit 1)
-          [ -d gathered-artifacts/static-inspection ] || (echo "Missing static-inspection" && exit 1)
+          # Only required when run_full (these jobs are skipped for run_reduced)
+          if [ "$RUN_FULL" = "true" ]; then
+            [ -d gathered-artifacts/det-linux-artifacts ] || (echo "Missing det-linux-artifacts" && exit 1)
+            [ -d gathered-artifacts/perf-artifacts ] || (echo "Missing perf-artifacts" && exit 1)
+            [ -d gathered-artifacts/static-inspection ] || (echo "Missing static-inspection" && exit 1)
+          fi
       - name: Generate evidence pack
         run: |
           ./scripts/generate_evidence.cjs gathered-artifacts

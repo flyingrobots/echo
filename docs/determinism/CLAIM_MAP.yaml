@@ -3,7 +3,7 @@
 version: 1
 claims:
   DET-001:
-    statement: "No HashMap usage in echo-wasm-abi deterministic path."
+    statement: "No HashMap/HashSet or other nondeterministic API usage in DET_CRITICAL crate paths."
     required_evidence:
       - type: static_inspection
       - type: ci_artifact

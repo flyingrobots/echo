@@ -5,6 +5,27 @@
 
 ## Unreleased
 
+### Fixed (PR #283 Review Feedback)
+
+- **CI Security:** Completed script injection hardening by using env vars for
+  `github.event_name`, `github.sha`, and `github.run_id` interpolations in
+  `det-gates.yml`.
+- **Static Inspection Scope:** Expanded `DETERMINISM_PATHS` from `echo-wasm-abi`
+  only to all 14 DET_CRITICAL crates, aligning DET-001 gate scope with policy.
+- **Static Inspection Report:** Made report generation conditional on check
+  outcome (PASSED/FAILED) instead of unconditional PASSED.
+- **Evidence Validation:** Made artifact presence checks in `validate-evidence`
+  conditional on classification tier so `run_reduced` no longer hard-fails.
+- **Policy Classification:** Promoted `warp-benches` from DET_NONCRITICAL to
+  DET_IMPORTANT so benchmark crate changes trigger reduced gates.
+- **Script Quality:** Replaced `process.exit(1)` with `throw` in
+  `classify_changes.cjs` for testability; removed dead `path` import; exported
+  functions for unit testing.
+- **Benchmark Correctness:** Replaced `let _ =` with `.unwrap()` on all
+  `bus.emit()` calls in materialization benchmarks.
+- **Claim Map:** Updated DET-001 statement to reflect expanded scope across all
+  DET_CRITICAL crate paths.
+
 ## [0.1.3] — 2026-02-15
 
 ### Fixed (Sprint S1)

@@ -146,10 +146,9 @@ crates:
     owner_role: "CI Engineer"
     paths: ["crates/echo-dry-tests/**"]
   warp-benches:
-    class: DET_NONCRITICAL
+    class: DET_IMPORTANT
     owner_role: "Performance Engineer"
     paths: ["crates/warp-benches/**"]
-    required_gates: ["G3"]
 
 policy:
   require_full_classification: true

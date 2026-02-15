@@ -25,11 +25,12 @@ fn bench_materialization_emit_log(c: &mut Criterion) {
     c.bench_function("materialization_emit_log_1000", |b| {
         b.iter(|| {
             for (i, p) in payloads.iter().enumerate() {
-                let _ = bus.emit(
+                bus.emit(
                     black_box(ch),
                     black_box(EmitKey::new(h(i as u64), 1)),
                     black_box(p.clone()),
-                );
+                )
+                .unwrap();
             }
             bus.clear();
         })
@@ -46,7 +47,8 @@ fn bench_materialization_finalize_log(c: &mut Criterion) {
         b.iter_with_setup(
             || {
                 for (i, p) in payloads.iter().enumerate() {
-                    let _ = bus.emit(ch, EmitKey::new(h(i as u64), 1), p.clone());
+                    bus.emit(ch, EmitKey::new(h(i as u64), 1), p.clone())
+                        .unwrap();
                 }
             },
             |_| {
@@ -71,11 +73,12 @@ fn bench_materialization_emit_strict_many(c: &mut Criterion) {
     c.bench_function("materialization_emit_strict_1000", |b| {
         b.iter(|| {
             for (i, ch) in channels.iter().enumerate() {
-                let _ = bus.emit(
+                bus.emit(
                     black_box(*ch),
                     black_box(EmitKey::new(h(0), 1)),
                     black_box(payloads[i].clone()),
-                );
+                )
+                .unwrap();
             }
             bus.clear();
         })
@@ -98,7 +101,8 @@ fn bench_materialization_finalize_strict_many(c: &mut Criterion) {
         b.iter_with_setup(
             || {
                 for (i, ch) in channels.iter().enumerate() {
-                    let _ = bus.emit(*ch, EmitKey::new(h(0), 1), payloads[i].clone());
+                    bus.emit(*ch, EmitKey::new(h(0), 1), payloads[i].clone())
+                        .unwrap();
                 }
             },
             |_| {

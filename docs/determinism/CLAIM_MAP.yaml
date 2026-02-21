@@ -51,6 +51,13 @@ claims:
       - type: ci_artifact
     owner_role: Security Engineer
 
+  REPRO-001:
+    statement: "Dual WASM builds of ttd-browser produce bit-identical artifacts, verified by SHA-256 hash comparison in isolated CI environments."
+    required_evidence:
+      - type: ci_artifact
+      - type: static_inspection
+    owner_role: CI Engineer
+
   PRF-001:
     statement: "MaterializationBus hot-path benchmark latency remains within the Criterion noise threshold across runs."
     required_evidence:

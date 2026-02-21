@@ -27,7 +27,7 @@ function validateClaims(evidenceFile) {
     for (const claim of data.claims) {
       if (claim.status === 'VERIFIED') {
         const evidence = claim.evidence || {};
-        const missing = requiredFields.filter(f => !evidence[f]);
+        const missing = requiredFields.filter(f => evidence[f] == null || evidence[f] === '');
         if (missing.length > 0) {
           violations.push(`Claim ${claim.id} is VERIFIED but missing pointers: ${missing.join(', ')}`);
           continue;

@@ -34,6 +34,8 @@ The blocker matrix for release decisions:
 release_policy:
     staging_blockers: [G1, G2, G4]
     production_blockers: [G1, G2, G3, G4]
+    # G3 is intentionally staging-optional: perf regressions are caught
+    # before production but do not block functional validation in staging.
 ```
 
 ## Recommendation Rules

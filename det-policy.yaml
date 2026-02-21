@@ -137,6 +137,8 @@ crates:
     paths: ["crates/warp-benches/**"]
 
   # ---- DET_NONCRITICAL ----
+  # Note: tests/** and e2e/** are repo-root integration/E2E tests (Playwright),
+  # not determinism tests. Crate-level tests are classified with their parent crate.
   ttd-app:
     class: DET_NONCRITICAL
     owner_role: "Frontend Engineer"

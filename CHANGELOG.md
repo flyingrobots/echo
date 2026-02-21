@@ -46,6 +46,16 @@
 - **Backlog:** Added five `TASKS-DAG.md` items: BLD-001 claim gap, macOS parity
   claim, CI concurrency controls, expanded script test coverage, and
   `det-policy.yaml` path simplification.
+- **Evidence Completeness:** Added `REPRO-001` claim for G4 build reproducibility
+  to `CLAIM_MAP.yaml` and wired into `generate_evidence.cjs`.
+- **Script Hardening:** Added `Array.isArray` guard for `required_gates` in
+  `validate_det_policy.cjs`; used explicit null/undefined check in
+  `validate_claims.cjs` instead of falsy coercion.
+- **Test Robustness:** Encoded all 5 CBOR fields in `reject_invalid_version`
+  to prevent false passes from decoder field-read reordering.
+- **Docs:** Added G3 staging-optional rationale in `RELEASE_POLICY.md`;
+  merge-commit revert guidance and evidence packet filing in `ROLLBACK_TTD.md`;
+  documented `tests/**`/`e2e/**` classification rationale in `det-policy.yaml`.
 
 ## [0.1.2] — 2026-02-14
 

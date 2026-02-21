@@ -36,6 +36,7 @@ Return repository to pre-TTD integration state.
     - `3187e6a`
     - `6e34a77`
     - `f138b8a`
+        > **Merge commits:** If any listed commit is a merge, use `git revert -m 1 <sha>` to select the first parent as the mainline.
 3. Resolve conflicts preserving pre-TTD behavior.
 
 ### Validation Checklist (Scenario A)
@@ -79,3 +80,9 @@ Remove unstable FFI/UI integration while preserving core hardening.
 - failing/passing gate delta (before vs after)
 - residual risk summary
 - recommendation: GO / CONDITIONAL / NO-GO
+
+### Filing
+
+- Attach the evidence packet to the incident ticket.
+- Link the packet in the rollback PR description.
+- Name the artifact `incident-<ID>-post-rollback-evidence`.

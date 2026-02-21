@@ -19,7 +19,7 @@ function validateDetPolicy(filePath) {
     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
     if (data.version !== 1) {
-      console.error('Error: Invalid version in det-policy');
+      console.error(`Error: Invalid version in ${filePath}`);
       return false;
     }
 
@@ -30,8 +30,8 @@ function validateDetPolicy(filePath) {
 
     // Check classes
     for (const [className, classInfo] of Object.entries(classes)) {
-      if (!classInfo.required_gates) {
-        console.error(`Error: Class ${className} missing required_gates`);
+      if (!Array.isArray(classInfo.required_gates)) {
+        console.error(`Error: Class ${className} missing or invalid required_gates (must be an array)`);
         return false;
       }
       for (const gate of classInfo.required_gates) {
@@ -67,7 +67,7 @@ function validateDetPolicy(filePath) {
       }
     }
 
-    console.log('det-policy.json is valid.');
+    console.log(`${filePath} is valid.`);
     return true;
   } catch (e) {
     console.error(`Error parsing JSON: ${e}`);

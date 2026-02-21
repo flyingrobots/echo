@@ -17,6 +17,8 @@ fn h(n: u64) -> Hash {
 }
 
 /// Benchmark emitting 1000 items to a single `Log` channel.
+/// Note: `payload.clone()` is intentional — measures realistic end-to-end cost
+/// including payload ownership transfer (64-byte Vec allocation per emit).
 fn bench_materialization_emit_log(c: &mut Criterion) {
     let bus = MaterializationBus::new();
     let ch = make_channel_id("bench:log");

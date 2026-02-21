@@ -59,6 +59,11 @@ function generateEvidence(gatheredArtifactsDir) {
       evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'sec-artifacts' }
     },
     {
+      id: 'REPRO-001',
+      status: checkArtifact('build-repro-artifacts') ? 'VERIFIED' : 'UNVERIFIED',
+      evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'build-repro-artifacts' }
+    },
+    {
       id: 'PRF-001',
       status: checkArtifact('perf-artifacts') ? 'VERIFIED' : 'UNVERIFIED',
       evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'perf-artifacts' }

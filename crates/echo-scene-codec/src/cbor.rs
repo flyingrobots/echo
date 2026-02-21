@@ -1010,6 +1010,10 @@ mod tests {
         let mut encoder = Encoder::new(&mut buf);
         encoder.array(5).unwrap();
         encoder.u8(99).unwrap(); // Unsupported version
+        encoder.bytes(&make_test_hash(1)).unwrap(); // session
+        encoder.bytes(&make_test_hash(2)).unwrap(); // cursor
+        encoder.u64(0).unwrap(); // epoch
+        encoder.array(0).unwrap(); // empty ops
 
         let result = decode_scene_delta(&buf);
         assert!(result.is_err());

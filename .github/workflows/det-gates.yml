@@ -7,6 +7,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   classify-changes:
     name: classify-changes
@@ -122,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install -y ripgrep)
       - name: Run determinism check
         id: det_check
         env:
@@ -246,7 +249,7 @@ jobs:
       - decoder-security
       - perf-regression
       - build-repro
-    if: always() && needs.classify-changes.outputs.run_none != 'true'
+    if: always() && needs.classify-changes.result == 'success' && needs.classify-changes.outputs.run_none != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -271,7 +274,7 @@ jobs:
           fi
       - name: Generate evidence pack
         run: |
-          ./scripts/generate_evidence.cjs gathered-artifacts
+          node scripts/generate_evidence.cjs gathered-artifacts
       - name: Validate evidence pointers
         run: |
-          ./scripts/validate_claims.cjs gathered-artifacts/evidence.json
+          node scripts/validate_claims.cjs gathered-artifacts/evidence.json

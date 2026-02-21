@@ -5,7 +5,7 @@
 
 ## Unreleased
 
-## [0.1.3]
+## [0.1.3] — 2026-02-21
 
 ### Fixed (Sprint S1)
 
@@ -33,6 +33,19 @@
 - **Governance:** Moved `sec-claim-map.json` to `docs/determinism/`, formalized
   gate states in `RELEASE_POLICY.md`, tightened claim statements in
   `CLAIM_MAP.yaml`.
+- **CI Permissions:** Added `permissions: contents: read` to `det-gates.yml`
+  for least-privilege workflow execution.
+- **CI Robustness:** Made ripgrep install idempotent; gated `validate-evidence`
+  on `classify-changes` success; invoked CJS scripts via `node` for
+  cross-platform portability.
+- **Evidence Validation:** Relaxed `commit_sha` check to accept `local` sentinel
+  for local development; exported `generateEvidence` and `validateClaims`
+  functions for unit testing (#286).
+- **Claims Precision:** Sharpened `PRF-001` statement to reference specific
+  Criterion benchmark rather than generic threshold language.
+- **Backlog:** Added five `TASKS-DAG.md` items: BLD-001 claim gap, macOS parity
+  claim, CI concurrency controls, expanded script test coverage, and
+  `det-policy.yaml` path simplification.
 
 ## [0.1.2] — 2026-02-14
 
@@ -156,7 +169,7 @@
 - Added 1 s cooldown after the read loop exits to prevent tight reconnect loops
   when the hub accepts connections but immediately closes them.
 
-### Fixed (Legacy)
+### Fixed
 
 - **Security:** upgraded `bytes` 1.11.0 → 1.11.1 to fix RUSTSEC-2026-0007
   (integer overflow in `BytesMut::reserve`).

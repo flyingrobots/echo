@@ -131,6 +131,10 @@ crates:
     class: DET_IMPORTANT
     owner_role: "Architect"
     paths: ["crates/warp-viewer/**"]
+  warp-benches:
+    class: DET_IMPORTANT
+    owner_role: "Performance Engineer"
+    paths: ["crates/warp-benches/**"]
 
   # ---- DET_NONCRITICAL ----
   ttd-app:
@@ -145,16 +149,13 @@ crates:
     class: DET_NONCRITICAL
     owner_role: "CI Engineer"
     paths: ["crates/echo-dry-tests/**"]
-  warp-benches:
-    class: DET_IMPORTANT
-    owner_role: "Performance Engineer"
-    paths: ["crates/warp-benches/**"]
 
 policy:
   require_full_classification: true
   require_owners_for_critical: true
   deterministic_guardrails:
     enabled: true
+    # Documentation-only; enforcement is in scripts/ban-nondeterminism.sh
     deny_patterns:
       - "HashMap"
       - "HashSet"

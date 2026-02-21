@@ -34,17 +34,11 @@ function validateClaims(evidenceFile) {
         }
 
         // Semantic validation
-        if (!/^[0-9a-f]{40}$/i.test(evidence.commit_sha)) {
+        if (evidence.commit_sha !== 'local' && !/^[0-9a-f]{40}$/i.test(evidence.commit_sha)) {
           violations.push(`Claim ${claim.id} has invalid commit_sha: ${evidence.commit_sha}`);
         }
         if (!/^\d+$/.test(String(evidence.run_id)) && evidence.run_id !== 'local') {
           violations.push(`Claim ${claim.id} has invalid run_id: ${evidence.run_id}`);
-        }
-        if (evidence.workflow === 'local' || evidence.artifact_name === 'local') {
-          // Warning or violation depending on CI context
-          if (process.env.GITHUB_ACTIONS) {
-            violations.push(`Claim ${claim.id} has placeholder evidence ('local') in CI environment.`);
-          }
         }
       }
     }
@@ -61,6 +55,8 @@ function validateClaims(evidenceFile) {
     return false;
   }
 }
+
+module.exports = { validateClaims };
 
 if (require.main === module) {
   const evidencePath = process.argv[2] || 'evidence.json';

@@ -80,6 +80,8 @@ function generateEvidence(gatheredArtifactsDir) {
   console.log(`Generated evidence.json at ${outputPath}`);
 }
 
+module.exports = { generateEvidence };
+
 if (require.main === module) {
   const gatheredArtifactsDir = process.argv[2] || '.';
   generateEvidence(gatheredArtifactsDir);

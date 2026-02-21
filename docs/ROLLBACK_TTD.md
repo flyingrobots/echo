@@ -5,6 +5,8 @@
 
 ## Scope
 
+> **Note:** Commit SHAs below are pinned to the original TTD integration merge window. Verify against `git log` before executing any rollback.
+
 Rollback coverage for commit range:
 
 - Base: `efae3e8`

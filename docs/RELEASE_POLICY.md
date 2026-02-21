@@ -28,6 +28,8 @@
 
 ## Blocker Matrix
 
+The blocker matrix for release decisions:
+
 ```yaml
 release_policy:
     staging_blockers: [G1, G2, G4]

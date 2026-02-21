@@ -674,6 +674,38 @@ This living list documents open issues and the inferred dependencies contributor
 - Status: Open
 - (No detected dependencies)
 
+## Backlog: Add BLD-001 claim for G4 build reproducibility
+
+- Status: Open
+- Evidence: `generate_evidence.cjs` has no claim entry for G4. `CLAIM_MAP.yaml` has no BLD-001 declaration. The `build-repro` job runs and `validate-evidence` checks artifact presence, but no VERIFIED/UNVERIFIED status is emitted into the evidence pack. The release policy blocker matrix references G4 but the evidence chain cannot enforce it.
+- (No detected dependencies)
+
+## Backlog: Add macOS parity claim (DET-002 is Linux-only)
+
+- Status: Open
+- Evidence: `generate_evidence.cjs:33` maps DET-002 solely to `det-linux-artifacts`. The `det-macos-artifacts` are gathered and presence-validated, but no claim captures macOS parity results. A macOS-specific divergence would go undetected by the evidence system.
+- (No detected dependencies)
+
+## Backlog: Add concurrency controls to det-gates.yml
+
+- Status: Open
+- Evidence: `det-gates.yml` has no `concurrency:` block. Multiple runs for the same PR can pile up, burning CI minutes. Standard fix: `concurrency: { group: det-gates-${{ github.head_ref || github.ref }}, cancel-in-progress: true }`.
+- (No detected dependencies)
+
+## Backlog: Expand #286 scope to cover validate_claims.cjs and generate_evidence.cjs
+
+- Status: Open
+- Blocked by:
+    - [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
+    - Confidence: medium
+    - Evidence: Both scripts now export their main functions (M1/M2 in det-hard). Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON.
+
+## Backlog: Simplify docs crate path list in det-policy.yaml
+
+- Status: Open
+- Evidence: The `docs` entry in `det-policy.yaml` mixes directory globs with 20+ individual top-level filenames. Growing unwieldy; any new top-level file that doesn't match an existing crate pattern triggers `require_full_classification` failure. Consider a glob simplification or a catch-all mechanism.
+- (No detected dependencies)
+
 ---
 
 Rendering note (2026-01-09):

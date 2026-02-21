@@ -19,7 +19,7 @@ function validateDetPolicy(filePath) {
     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
     if (data.version !== 1) {
-      console.error('Error: Invalid version in det-policy.yaml');
+      console.error('Error: Invalid version in det-policy');
       return false;
     }
 

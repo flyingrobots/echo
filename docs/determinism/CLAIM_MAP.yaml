@@ -52,7 +52,7 @@ claims:
     owner_role: Security Engineer
 
   PRF-001:
-    statement: "Performance regression bound within policy threshold."
+    statement: "MaterializationBus hot-path benchmark latency remains within the Criterion noise threshold across runs."
     required_evidence:
       - type: benchmark
       - type: ci_artifact

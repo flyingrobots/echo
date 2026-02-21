@@ -136,9 +136,15 @@ crates:
     owner_role: "Performance Engineer"
     paths: ["crates/warp-benches/**"]
 
+  dind-tests-root:
+    class: DET_IMPORTANT
+    owner_role: "CI Engineer"
+    paths: ["tests/dind*", "tests/hooks/**", "testdata/dind/**"]
+
   # ---- DET_NONCRITICAL ----
-  # Note: tests/** and e2e/** are repo-root integration/E2E tests (Playwright),
-  # not determinism tests. Crate-level tests are classified with their parent crate.
+  # Note: remaining tests/** and e2e/** are repo-root integration/E2E tests
+  # (Playwright), not determinism tests. DIND tests are classified above.
+  # Crate-level tests are classified with their parent crate.
   ttd-app:
     class: DET_NONCRITICAL
     owner_role: "Frontend Engineer"

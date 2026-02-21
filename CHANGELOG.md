@@ -56,6 +56,12 @@
 - **Docs:** Added G3 staging-optional rationale in `RELEASE_POLICY.md`;
   merge-commit revert guidance and evidence packet filing in `ROLLBACK_TTD.md`;
   documented `tests/**`/`e2e/**` classification rationale in `det-policy.yaml`.
+- **Gate Coverage:** Made G3 (perf-regression) run for all non-`run_none` paths,
+  not just `run_full`. Ensures PRF-001 claim fires for DET_IMPORTANT changes
+  (e.g., `warp-benches`). Moved `perf-artifacts` presence check to always-required.
+- **Classification Precision:** Carved `tests/dind*` and `testdata/dind/**` out
+  of the DET_NONCRITICAL `docs` catch-all into a dedicated `dind-tests-root`
+  entry at DET_IMPORTANT, preventing gate evasion for DIND test modifications.
 
 ## [0.1.2] — 2026-02-14
 

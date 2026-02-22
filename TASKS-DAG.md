@@ -706,6 +706,18 @@ This living list documents open issues and the inferred dependencies contributor
 - Evidence: The `docs` entry in `det-policy.yaml` mixes directory globs with 20+ individual top-level filenames. Growing unwieldy; any new top-level file that doesn't match an existing crate pattern triggers `require_full_classification` failure. Consider a glob simplification or a catch-all mechanism.
 - (No detected dependencies)
 
+## Backlog: Add Rust caching to det-gates.yml CI jobs
+
+- Status: Open
+- Evidence: All det-gates.yml jobs start from cold Rust builds. Adding `Swatinem/rust-cache@v2` to determinism, static-inspection, decoder-security, and perf-regression jobs would reduce CI time. Intentionally omit from build-repro to preserve isolation.
+- (No detected dependencies)
+
+## Backlog: Add Criterion baseline comparison to G3 perf-regression
+
+- Status: Open
+- Evidence: G3 (perf-regression) runs Criterion benchmarks and uploads `perf.log` but does not compare against a stored baseline. PRF-001 relies on Criterion's internal noise threshold. Adding `critcmp` or `bencher.dev` integration would enable regression detection across commits.
+- (No detected dependencies)
+
 ---
 
 Rendering note (2026-01-09):

@@ -176,6 +176,8 @@ jobs:
   perf-regression:
     name: G3 perf regression (criterion)
     needs: classify-changes
+    # Runs for ALL non-NONCRITICAL changes (both DET_CRITICAL and DET_IMPORTANT).
+    # G3 is staging-optional per RELEASE_POLICY.md but always executes here.
     if: needs.classify-changes.outputs.run_none != 'true'
     runs-on: ubuntu-latest
     steps:

@@ -9,6 +9,10 @@ classes:
     required_gates: [G1, G2, G3, G4]
   DET_IMPORTANT:
     description: "Affects critical systems indirectly. Reduced gate set."
+    # Note: required_gates defines policy-level merge blockers, not workflow
+    # execution. G3 (perf regression) runs unconditionally for all non-NONCRITICAL
+    # changes in det-gates.yml (run_none != 'true') but is not a merge blocker
+    # for DET_IMPORTANT — consistent with RELEASE_POLICY.md staging-optional design.
     required_gates: [G2, G4]
   DET_NONCRITICAL:
     description: "No deterministic runtime impact. Standard CI only."
@@ -76,6 +80,10 @@ crates:
   ci:
     class: DET_CRITICAL
     owner_role: "CI Engineer"
+    # Intentional fail-safe: scripts/** is broadly classified as DET_CRITICAL
+    # so new CI scripts are automatically covered. Utility scripts (docs-open.sh,
+    # scaffold-community.sh, bench_*.py, etc.) pay the cost of extra CI runs but
+    # cannot silently bypass gates. Per-script refinement tracked in #284.
     paths: [".github/workflows/**", "scripts/**", "det-policy.yaml", "Makefile", "xtask/**"]
 
   # ---- DET_IMPORTANT ----
@@ -142,9 +150,12 @@ crates:
     paths: ["tests/dind*", "tests/hooks/**", "testdata/dind/**"]
 
   # ---- DET_NONCRITICAL ----
-  # Note: remaining tests/** and e2e/** are repo-root integration/E2E tests
-  # (Playwright), not determinism tests. DIND tests are classified above.
-  # Crate-level tests are classified with their parent crate.
+  # Note: tests/** and e2e/** below are repo-root integration/E2E tests
+  # (Playwright), not determinism tests. DIND tests are classified as
+  # DET_IMPORTANT in dind-tests-root above. When a file matches both entries
+  # (e.g., tests/dind.bats), classify_changes.cjs uses max-class semantics
+  # — DET_IMPORTANT wins over DET_NONCRITICAL. Crate-level tests inherit
+  # their parent crate's classification.
   ttd-app:
     class: DET_NONCRITICAL
     owner_role: "Frontend Engineer"

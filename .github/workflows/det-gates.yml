@@ -18,6 +18,7 @@ jobs:
   classify-changes:
     name: classify-changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       run_full: ${{ steps.classify.outputs.run_full }}
       run_reduced: ${{ steps.classify.outputs.run_reduced }}
@@ -60,6 +61,7 @@ jobs:
     needs: classify-changes
     if: needs.classify-changes.outputs.run_full == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
@@ -95,6 +97,7 @@ jobs:
     needs: classify-changes
     if: needs.classify-changes.outputs.run_full == 'true'
     runs-on: macos-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
@@ -130,6 +133,7 @@ jobs:
     needs: classify-changes
     if: needs.classify-changes.outputs.run_full == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Install ripgrep
@@ -173,6 +177,7 @@ jobs:
     needs: classify-changes
     if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
@@ -197,6 +202,7 @@ jobs:
     # G3 is staging-optional per RELEASE_POLICY.md but always executes here.
     if: needs.classify-changes.outputs.run_none != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust
@@ -216,6 +222,7 @@ jobs:
     needs: classify-changes
     if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Setup Rust (Global)
         uses: dtolnay/rust-toolchain@stable
@@ -228,6 +235,7 @@ jobs:
       - name: Build 1
         run: |
           cd build1
+          rustup target add wasm32-unknown-unknown
           cargo build --release --target wasm32-unknown-unknown -p ttd-browser
           sha256sum target/wasm32-unknown-unknown/release/ttd_browser.wasm > ../hash1.txt
           cp target/wasm32-unknown-unknown/release/ttd_browser.wasm ../build1.wasm
@@ -238,6 +246,7 @@ jobs:
       - name: Build 2
         run: |
           cd build2
+          rustup target add wasm32-unknown-unknown
           cargo build --release --target wasm32-unknown-unknown -p ttd-browser
           sha256sum target/wasm32-unknown-unknown/release/ttd_browser.wasm > ../hash2.txt
           cp target/wasm32-unknown-unknown/release/ttd_browser.wasm ../build2.wasm
@@ -268,6 +277,7 @@ jobs:
       - build-repro
     if: always() && needs.classify-changes.result == 'success' && needs.classify-changes.outputs.run_none != 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Download all artifacts

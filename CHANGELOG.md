@@ -67,7 +67,7 @@
 - **CI Concurrency:** Added `concurrency` block to `det-gates.yml` to cancel
   superseded runs on the same branch.
 - **CI Robustness:** Added push-event empty changelist guard (defaults to full
-  run); removed redundant `rustup target add` from `build-repro` job.
+  run).
 - **Dynamic DETERMINISM_PATHS:** Replaced hardcoded crate list in
   `static-inspection` with `yq`/`jq` extraction from `det-policy.yaml`
   DET_CRITICAL entries, eliminating manual sync.
@@ -80,6 +80,13 @@
   to `hash_comparison`; flattened verbose `required_evidence` syntax.
 - **Test Assertions:** Strengthened `reject_invalid_enum_tags` test to assert
   specific error messages instead of bare `is_err()` checks.
+- **CI Timeouts:** Added `timeout-minutes` to all `det-gates.yml` jobs to
+  prevent hung jobs from burning the 6-hour GitHub default.
+- **Classification Optimization:** Added early-exit in `classify_changes.cjs`
+  when `maxClass` reaches `DET_CRITICAL` (guarded by `require_full_classification`).
+- **Build Repro Fix:** Restored `rustup target add wasm32-unknown-unknown`
+  in `build-repro` — required because `rust-toolchain.toml` pins a specific
+  Rust version that overrides the `dtolnay/rust-toolchain` action's target.
 
 ## [0.1.2] — 2026-02-14
 

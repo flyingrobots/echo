@@ -48,6 +48,7 @@ function classifyChanges(policyPath, changedFilesPath) {
   const requireFull = policy.policy && policy.policy.require_full_classification;
 
   for (const file of changedFiles) {
+    if (maxClass === 'DET_CRITICAL' && !requireFull) break;
     let matched = false;
     if (policy.crates) {
       for (const [crateName, crateInfo] of Object.entries(policy.crates)) {

@@ -5,6 +5,14 @@
 
 ## Unreleased
 
+### Fixed (Docs)
+
+- **Docs Build:** Rewrote `ADR-0007-impl.md` from a 3185-line raw conversation
+  transcript into a proper 13-section ADR document. The Vue template compiler
+  was crashing on bare Rust generics (`BTreeMap<NodeId, NodeRecord>`, etc.)
+  outside fenced code blocks. The new document preserves all architectural
+  knowledge as a structured implementation companion to ADR-0007.
+
 ## [0.1.3] — 2026-02-21
 
 ### Fixed (Sprint S1)

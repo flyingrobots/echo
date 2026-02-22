@@ -62,6 +62,24 @@
 - **Classification Precision:** Carved `tests/dind*` and `testdata/dind/**` out
   of the DET_NONCRITICAL `docs` catch-all into a dedicated `dind-tests-root`
   entry at DET_IMPORTANT, preventing gate evasion for DIND test modifications.
+- **Policy Simplification:** Replaced 20+ explicit docs paths with `**` catch-all
+  in `det-policy.yaml`; max-class semantics ensure higher-priority patterns win.
+- **CI Concurrency:** Added `concurrency` block to `det-gates.yml` to cancel
+  superseded runs on the same branch.
+- **CI Robustness:** Added push-event empty changelist guard (defaults to full
+  run); removed redundant `rustup target add` from `build-repro` job.
+- **Dynamic DETERMINISM_PATHS:** Replaced hardcoded crate list in
+  `static-inspection` with `yq`/`jq` extraction from `det-policy.yaml`
+  DET_CRITICAL entries, eliminating manual sync.
+- **Evidence Sync Guardrails:** Added CI cross-check step validating claim IDs
+  in `evidence.json` match `CLAIM_MAP.yaml` exactly; added `sec-claim-map.json`
+  test ID existence verification against source.
+- **macOS Parity Claim:** Added `DET-003` to `CLAIM_MAP.yaml` and
+  `generate_evidence.cjs` for macOS-specific determinism verification.
+- **Claims Precision:** Fixed REPRO-001 evidence type from `static_inspection`
+  to `hash_comparison`; flattened verbose `required_evidence` syntax.
+- **Test Assertions:** Strengthened `reject_invalid_enum_tags` test to assert
+  specific error messages instead of bare `is_err()` checks.
 
 ## [0.1.2] — 2026-02-14
 

@@ -1027,26 +1027,42 @@ mod tests {
         // NodeShape: allowed 0..=1
         let mut encoder = Encoder::new(&mut buf);
         encoder.u8(2).unwrap();
-        assert!(decode_node_shape(&mut Decoder::new(&buf)).is_err());
+        let err = decode_node_shape(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid NodeShape"),
+            "unexpected error: {err}"
+        );
 
         // EdgeStyle: allowed 0..=1
         buf.clear();
         let mut encoder = Encoder::new(&mut buf);
         encoder.u8(2).unwrap();
-        assert!(decode_edge_style(&mut Decoder::new(&buf)).is_err());
+        let err = decode_edge_style(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid EdgeStyle"),
+            "unexpected error: {err}"
+        );
 
         // ProjectionKind: allowed 0..=1
         buf.clear();
         let mut encoder = Encoder::new(&mut buf);
         encoder.u8(2).unwrap();
-        assert!(decode_projection_kind(&mut Decoder::new(&buf)).is_err());
+        let err = decode_projection_kind(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid ProjectionKind"),
+            "unexpected error: {err}"
+        );
 
         // LabelAnchor tag: allowed 0..=1
         buf.clear();
         let mut encoder = Encoder::new(&mut buf);
         encoder.array(2).unwrap();
         encoder.u8(2).unwrap(); // Invalid tag
-        assert!(decode_label_anchor(&mut Decoder::new(&buf)).is_err());
+        let err = decode_label_anchor(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid LabelAnchor tag"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

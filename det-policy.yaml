@@ -150,12 +150,12 @@ crates:
     paths: ["tests/dind*", "tests/hooks/**", "testdata/dind/**"]
 
   # ---- DET_NONCRITICAL ----
-  # Note: tests/** and e2e/** below are repo-root integration/E2E tests
-  # (Playwright), not determinism tests. DIND tests are classified as
-  # DET_IMPORTANT in dind-tests-root above. When a file matches both entries
-  # (e.g., tests/dind.bats), classify_changes.cjs uses max-class semantics
-  # — DET_IMPORTANT wins over DET_NONCRITICAL. Crate-level tests inherit
-  # their parent crate's classification.
+  # Catch-all: any file not matched by a higher-priority crate entry falls
+  # through to DET_NONCRITICAL. classify_changes.cjs uses max-class semantics
+  # (line 59), so a file matching both DET_CRITICAL and DET_NONCRITICAL is
+  # always classified as DET_CRITICAL. This eliminates the need to enumerate
+  # every top-level filename and prevents require_full_classification failures
+  # when new non-critical files are added to the repo.
   ttd-app:
     class: DET_NONCRITICAL
     owner_role: "Frontend Engineer"
@@ -163,7 +163,7 @@ crates:
   docs:
     class: DET_NONCRITICAL
     owner_role: "Tech Writer"
-    paths: ["docs/**", "README.md", "CHANGELOG.md", "LEGAL.md", "LICENSE*", "NOTICE", "SECURITY.md", "AGENTS.md", "COMING_SOON.md", "CONTRIBUTING.md", "ECHO_ROADMAP.md", ".editorconfig", ".gitignore", ".gitattributes", ".markdownlint.json", "ADR-*.md", "TASKS-DAG.md", "WASM-TASKS.md", ".ban-*", "DIND-MISSION*.md", "DETERMINISM-AUDIT.md", "MERGE_TTD_BRANCH_PLAN.md", "testdata/**", "tests/**", "e2e/**"]
+    paths: ["**"]
   echo-dry-tests:
     class: DET_NONCRITICAL
     owner_role: "CI Engineer"

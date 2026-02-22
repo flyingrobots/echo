@@ -661,7 +661,7 @@ This living list documents open issues and the inferred dependencies contributor
 
 ## [#285: CI: Auto-generate DETERMINISM_PATHS from det-policy.yaml DET_CRITICAL entries](https://github.com/flyingrobots/echo/issues/285)
 
-- Status: Open
+- Status: Completed
 - (No detected dependencies)
 
 ## [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
@@ -682,13 +682,13 @@ This living list documents open issues and the inferred dependencies contributor
 
 ## Backlog: Add macOS parity claim (DET-002 is Linux-only)
 
-- Status: Open
+- Status: Completed
 - Evidence: `generate_evidence.cjs:33` maps DET-002 solely to `det-linux-artifacts`. The `det-macos-artifacts` are gathered and presence-validated, but no claim captures macOS parity results. A macOS-specific divergence would go undetected by the evidence system.
 - (No detected dependencies)
 
 ## Backlog: Add concurrency controls to det-gates.yml
 
-- Status: Open
+- Status: Completed
 - Evidence: `det-gates.yml` has no `concurrency:` block. Multiple runs for the same PR can pile up, burning CI minutes. Standard fix: `concurrency: { group: det-gates-${{ github.head_ref || github.ref }}, cancel-in-progress: true }`.
 - (No detected dependencies)
 
@@ -702,7 +702,7 @@ This living list documents open issues and the inferred dependencies contributor
 
 ## Backlog: Simplify docs crate path list in det-policy.yaml
 
-- Status: Open
+- Status: Completed
 - Evidence: The `docs` entry in `det-policy.yaml` mixes directory globs with 20+ individual top-level filenames. Growing unwieldy; any new top-level file that doesn't match an existing crate pattern triggers `require_full_classification` failure. Consider a glob simplification or a catch-all mechanism.
 - (No detected dependencies)
 

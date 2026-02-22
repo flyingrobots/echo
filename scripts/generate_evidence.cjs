@@ -22,12 +22,57 @@ function generateEvidence(gatheredArtifactsDir) {
     }
   };
 
+  /**
+   * Parse static-inspection.json for DET-001 claim status.
+   * Returns VERIFIED only when the file exists, parses as valid JSON,
+   * contains claim_id "DET-001", and status "PASSED".
+   * All other conditions return UNVERIFIED with an error description.
+   */
+  const checkStaticInspection = (artifactsDir) => {
+    const jsonPath = path.join(artifactsDir, 'static-inspection', 'static-inspection.json');
+    let raw;
+    try {
+      raw = fs.readFileSync(jsonPath, 'utf8');
+    } catch (e) {
+      console.error(`DET-001: static-inspection.json not found at ${jsonPath}`);
+      return { status: 'UNVERIFIED', error: 'static-inspection.json not found' };
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error(`DET-001: invalid JSON in static-inspection.json: ${e.message}`);
+      return { status: 'UNVERIFIED', error: `invalid JSON: ${e.message}` };
+    }
+
+    if (parsed.claim_id !== 'DET-001' || typeof parsed.status !== 'string') {
+      console.error(`DET-001: unexpected structure in static-inspection.json: ${JSON.stringify(parsed)}`);
+      return { status: 'UNVERIFIED', error: 'missing or unexpected claim_id/status field' };
+    }
+
+    const verified = parsed.status === 'PASSED';
+    if (!verified) {
+      console.error(`DET-001: static inspection reported status "${parsed.status}"`);
+    }
+    return { status: verified ? 'VERIFIED' : 'UNVERIFIED', source_status: parsed.status };
+  };
+
   const claims = [
-    {
-      id: 'DET-001',
-      status: checkArtifact('static-inspection') ? 'VERIFIED' : 'UNVERIFIED',
-      evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'static-inspection' }
-    },
+    (() => {
+      const det001 = checkStaticInspection(gatheredArtifactsDir);
+      return {
+        id: 'DET-001',
+        status: det001.status,
+        evidence: {
+          workflow, run_id: runId, commit_sha: commitSha,
+          artifact_name: 'static-inspection',
+          source_file: 'static-inspection.json',
+          source_status: det001.source_status || null,
+          ...(det001.error ? { error: det001.error } : {})
+        }
+      };
+    })(),
     {
       id: 'DET-002',
       status: checkArtifact('det-linux-artifacts') ? 'VERIFIED' : 'UNVERIFIED',

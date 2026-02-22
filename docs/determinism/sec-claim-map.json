@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "mappings": [
+    {
+      "claim_id": "SEC-001",
+      "control": "MAX_OPS+1 rejection",
+      "test_id": "cbor::tests::reject_exceeding_max_ops",
+      "crate": "echo-scene-codec"
+    },
+    {
+      "claim_id": "SEC-002",
+      "control": "trailing-byte rejection",
+      "test_id": "cbor::tests::reject_trailing_garbage",
+      "crate": "echo-scene-codec"
+    },
+    {
+      "claim_id": "SEC-003",
+      "control": "truncated payload rejection",
+      "test_id": "cbor::tests::drill_truncated_cbor",
+      "crate": "echo-scene-codec"
+    },
+    {
+      "claim_id": "SEC-004",
+      "control": "bad version handling",
+      "test_id": "cbor::tests::reject_invalid_version",
+      "crate": "echo-scene-codec"
+    },
+    {
+      "claim_id": "SEC-005",
+      "control": "invalid enum tag rejection",
+      "test_id": "cbor::tests::reject_invalid_enum_tags",
+      "crate": "echo-scene-codec"
+    }
+  ]
+}

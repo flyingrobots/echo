@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+version: 1
+claims:
+  DET-001:
+    statement: "DET_CRITICAL crate paths contain zero matches for the banned pattern set defined in ban-nondeterminism.sh."
+    required_evidence:
+      - static_inspection
+      - ci_artifact
+    owner_role: Architect
+
+  DET-002:
+    statement: "Rust and JS implementations produce bit-identical outputs for all float canonicalization and serialization in the deterministic test corpus."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: CI Engineer
+
+  DET-003:
+    statement: "Rust and JS implementations produce bit-identical outputs for all float canonicalization and serialization on macOS, verified by the same deterministic test corpus as DET-002."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: CI Engineer
+
+  SEC-001:
+    statement: "CBOR payloads declaring more than MAX_OPS operations are rejected with an error before allocation."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: Security Engineer
+
+  SEC-002:
+    statement: "CBOR payloads with trailing bytes after the expected structure are rejected with an error."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: Security Engineer
+
+  SEC-003:
+    statement: "CBOR payloads truncated before the expected structure is complete are rejected with an error."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: Security Engineer
+
+  SEC-004:
+    statement: "CBOR payloads with unrecognized version fields are rejected with an error."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: Security Engineer
+
+  SEC-005:
+    statement: "CBOR payloads containing out-of-range enum discriminant tags are rejected with an error."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: Security Engineer
+
+  REPRO-001:
+    statement: "Dual WASM builds of ttd-browser produce bit-identical artifacts, verified by SHA-256 hash comparison in isolated CI environments."
+    required_evidence:
+      - ci_artifact
+      - hash_comparison
+    owner_role: CI Engineer
+
+  PRF-001:
+    statement: "MaterializationBus hot-path benchmark latency remains within the Criterion noise threshold across runs."
+    required_evidence:
+      - benchmark
+      - ci_artifact
+    owner_role: Performance Engineer

@@ -5,6 +5,115 @@
 
 ## Unreleased
 
+## [0.1.3] — 2026-02-21
+
+### Fixed (Sprint S1)
+
+- **CI Security:** Hardened `det-gates` workflow against script injection by using
+  environment variables for all `github.*` interpolations (branch refs, SHA,
+  run ID, event name).
+- **WASM Reproducibility:** Implemented bit-exact reproducibility checks (G4)
+  for `ttd-browser` WASM using hash comparison of clean isolated rebuilds.
+- **Static Inspection:** Added automated CI guard for `DET-001` covering all 14
+  DET_CRITICAL crate paths (expanded from `echo-wasm-abi` only). Report now
+  conditional on check outcome (PASSED/FAILED).
+- **Evidence Validation:** Made artifact presence checks in `validate-evidence`
+  conditional on classification tier; added `det-macos-artifacts` check;
+  `run_reduced` and `DET_NONCRITICAL` paths no longer hard-fail.
+- **Policy Classification:** Promoted `warp-benches` from DET_NONCRITICAL to
+  DET_IMPORTANT so benchmark crate changes trigger reduced gates.
+- **Benchmark Correctness:** Replaced `let _ =` with `.unwrap()` on all
+  `bus.emit()` calls; migrated `iter_with_setup` to `iter_batched`.
+- **CBOR Robustness:** Expanded negative security tests for `ProjectionKind`
+  and `LabelAnchor` enum tags and optimized `MAX_OPS` boundary check.
+- **Evidence Integrity:** Enhanced `generate_evidence.cjs` and `validate_claims.cjs`
+  with stricter semantic validation (SHAs, run IDs) and artifact existence checks.
+- **Script Quality:** Replaced `process.exit(1)` with `throw` in
+  `classify_changes.cjs`; removed dead import; exported functions for testing.
+- **Governance:** Moved `sec-claim-map.json` to `docs/determinism/`, formalized
+  gate states in `RELEASE_POLICY.md`, tightened claim statements in
+  `CLAIM_MAP.yaml`.
+- **CI Permissions:** Added `permissions: contents: read` to `det-gates.yml`
+  for least-privilege workflow execution.
+- **CI Robustness:** Made ripgrep install idempotent; gated `validate-evidence`
+  on `classify-changes` success; invoked CJS scripts via `node` for
+  cross-platform portability.
+- **Evidence Validation:** Relaxed `commit_sha` check to accept `local` sentinel
+  for local development; exported `generateEvidence` and `validateClaims`
+  functions for unit testing (#286).
+- **Claims Precision:** Sharpened `PRF-001` statement to reference specific
+  Criterion benchmark rather than generic threshold language.
+- **Backlog:** Added five `TASKS-DAG.md` items: BLD-001 claim gap, macOS parity
+  claim, CI concurrency controls, expanded script test coverage, and
+  `det-policy.yaml` path simplification.
+- **Evidence Completeness:** Added `REPRO-001` claim for G4 build reproducibility
+  to `CLAIM_MAP.yaml` and wired into `generate_evidence.cjs`.
+- **Script Hardening:** Added `Array.isArray` guard for `required_gates` in
+  `validate_det_policy.cjs`; used explicit null/undefined check in
+  `validate_claims.cjs` instead of falsy coercion.
+- **Test Robustness:** Encoded all 5 CBOR fields in `reject_invalid_version`
+  to prevent false passes from decoder field-read reordering.
+- **Docs:** Added G3 staging-optional rationale in `RELEASE_POLICY.md`;
+  merge-commit revert guidance and evidence packet filing in `ROLLBACK_TTD.md`;
+  documented `tests/**`/`e2e/**` classification rationale in `det-policy.yaml`.
+- **Gate Coverage:** Made G3 (perf-regression) run for all non-`run_none` paths,
+  not just `run_full`. Ensures PRF-001 claim fires for DET_IMPORTANT changes
+  (e.g., `warp-benches`). Moved `perf-artifacts` presence check to always-required.
+- **Classification Precision:** Carved `tests/dind*` and `testdata/dind/**` out
+  of the DET_NONCRITICAL `docs` catch-all into a dedicated `dind-tests-root`
+  entry at DET_IMPORTANT, preventing gate evasion for DIND test modifications.
+- **Policy Simplification:** Replaced 20+ explicit docs paths with `**` catch-all
+  in `det-policy.yaml`; max-class semantics ensure higher-priority patterns win.
+- **CI Concurrency:** Added `concurrency` block to `det-gates.yml` to cancel
+  superseded runs on the same branch.
+- **CI Robustness:** Added push-event empty changelist guard (defaults to full
+  run).
+- **Dynamic DETERMINISM_PATHS:** Replaced hardcoded crate list in
+  `static-inspection` with `yq`/`jq` extraction from `det-policy.yaml`
+  DET_CRITICAL entries, eliminating manual sync.
+- **Evidence Sync Guardrails:** Added CI cross-check step validating claim IDs
+  in `evidence.json` match `CLAIM_MAP.yaml` exactly; added `sec-claim-map.json`
+  test ID existence verification against source.
+- **macOS Parity Claim:** Added `DET-003` to `CLAIM_MAP.yaml` and
+  `generate_evidence.cjs` for macOS-specific determinism verification.
+- **Claims Precision:** Fixed REPRO-001 evidence type from `static_inspection`
+  to `hash_comparison`; flattened verbose `required_evidence` syntax.
+- **Test Assertions:** Strengthened `reject_invalid_enum_tags` test to assert
+  specific error messages instead of bare `is_err()` checks.
+- **CI Timeouts:** Added `timeout-minutes` to all `det-gates.yml` jobs to
+  prevent hung jobs from burning the 6-hour GitHub default.
+- **Classification Optimization:** Added early-exit in `classify_changes.cjs`
+  when `maxClass` reaches `DET_CRITICAL` (guarded by `require_full_classification`).
+- **Build Repro Fix:** Restored `rustup target add wasm32-unknown-unknown`
+  in `build-repro` — required because `rust-toolchain.toml` pins a specific
+  Rust version that overrides the `dtolnay/rust-toolchain` action's target.
+
+## [0.1.2] — 2026-02-14
+
+### Added — TTD Hardening Sprint S1 (Gates & Evidence)
+
+- **Path-Aware CI Gates:** Implemented `det-policy.yaml` and `classify_changes.cjs`
+  to classify workspace crates (DET_CRITICAL/IMPORTANT/NONCRITICAL) and drive
+  selective CI gate triggering (G1-G4).
+- **Hardening Gates (G1-G4):**
+    - **G1 (Determinism):** Integrated float parity tests and the DIND (Deterministic
+      Ironclad Nightmare Drills) suite on both Linux and macOS.
+    - **G2 (Security):** Added negative security tests for the CBOR decoder
+      (MAX_OPS, invalid versions/enums, truncated payloads).
+    - **G3 (Performance):** Created `materialization_hotpath` Criterion benchmark
+      in `warp-benches` to track materialization overhead.
+    - **G4 (Build):** Added WASM build reproducibility checks verifying bit-exact
+      artifacts across clean rebuilds.
+- **Evidence Integrity:** Added `generate_evidence.cjs` and `validate_claims.cjs`
+  to ensure all `VERIFIED` claims are backed by immutable CI artifacts (run IDs,
+  commit SHAs).
+- **Static Inspection:** Integrated `DET-001` automated static inspection into CI
+  to verify zero-HashMap usage in deterministic guest paths.
+- **Governance:** Published `RELEASE_POLICY.md` (staging/prod blockers) and
+  `ROLLBACK_TTD.md` (commit-ordered rollback sequences).
+- **Security Claim Mapping:** Exported `sec-claim-map.json` mapping decoder
+  controls to explicit negative test cases.
+
 ### Added — Deterministic Scene Data (TTD)
 
 - **Scene Rendering Port (`echo-scene-port`):** Defined the core data model for

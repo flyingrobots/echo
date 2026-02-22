@@ -984,6 +984,88 @@ mod tests {
     }
 
     #[test]
+    fn reject_exceeding_max_ops() {
+        // Minimal CBOR header for SceneDelta
+        let mut buf = Vec::new();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.array(5).unwrap();
+        encoder.u8(1).unwrap(); // Version
+        encoder.bytes(&make_test_hash(1)).unwrap(); // session
+        encoder.bytes(&make_test_hash(2)).unwrap(); // cursor
+        encoder.u64(0).unwrap(); // epoch
+        encoder.array((MAX_OPS + 1) as u64).unwrap(); // ops array header
+
+        let result = decode_scene_delta(&buf);
+        assert!(
+            result.is_err(),
+            "Decoder should reject ops count exceeding MAX_OPS"
+        );
+        let err = result.err().unwrap().to_string();
+        assert!(err.contains("exceeds MAX_OPS"));
+    }
+
+    #[test]
+    fn reject_invalid_version() {
+        let mut buf = Vec::new();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.array(5).unwrap();
+        encoder.u8(99).unwrap(); // Unsupported version
+        encoder.bytes(&make_test_hash(1)).unwrap(); // session
+        encoder.bytes(&make_test_hash(2)).unwrap(); // cursor
+        encoder.u64(0).unwrap(); // epoch
+        encoder.array(0).unwrap(); // empty ops
+
+        let result = decode_scene_delta(&buf);
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().contains("version"));
+    }
+
+    #[test]
+    fn reject_invalid_enum_tags() {
+        let mut buf = Vec::new();
+
+        // NodeShape: allowed 0..=1
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.u8(2).unwrap();
+        let err = decode_node_shape(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid NodeShape"),
+            "unexpected error: {err}"
+        );
+
+        // EdgeStyle: allowed 0..=1
+        buf.clear();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.u8(2).unwrap();
+        let err = decode_edge_style(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid EdgeStyle"),
+            "unexpected error: {err}"
+        );
+
+        // ProjectionKind: allowed 0..=1
+        buf.clear();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.u8(2).unwrap();
+        let err = decode_projection_kind(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid ProjectionKind"),
+            "unexpected error: {err}"
+        );
+
+        // LabelAnchor tag: allowed 0..=1
+        buf.clear();
+        let mut encoder = Encoder::new(&mut buf);
+        encoder.array(2).unwrap();
+        encoder.u8(2).unwrap(); // Invalid tag
+        let err = decode_label_anchor(&mut Decoder::new(&buf)).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid LabelAnchor tag"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn drill_truncated_cbor() {
         let delta = SceneDelta {
             session_id: make_test_hash(1),

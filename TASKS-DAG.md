@@ -654,6 +654,70 @@ This living list documents open issues and the inferred dependencies contributor
 - Status: Open
 - (No detected dependencies)
 
+## [#284: CI: Per-crate gate overrides in det-policy classification system](https://github.com/flyingrobots/echo/issues/284)
+
+- Status: Open
+- (No detected dependencies)
+
+## [#285: CI: Auto-generate DETERMINISM_PATHS from det-policy.yaml DET_CRITICAL entries](https://github.com/flyingrobots/echo/issues/285)
+
+- Status: Completed
+- (No detected dependencies)
+
+## [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
+
+- Status: Open
+- (No detected dependencies)
+
+## [#287: Docs: Document ban-nondeterminism.sh allowlist process in RELEASE_POLICY.md](https://github.com/flyingrobots/echo/issues/287)
+
+- Status: Open
+- (No detected dependencies)
+
+## Backlog: Add BLD-001 claim for G4 build reproducibility
+
+- Status: Open
+- Evidence: `generate_evidence.cjs` has no claim entry for G4. `CLAIM_MAP.yaml` has no BLD-001 declaration. The `build-repro` job runs and `validate-evidence` checks artifact presence, but no VERIFIED/UNVERIFIED status is emitted into the evidence pack. The release policy blocker matrix references G4 but the evidence chain cannot enforce it.
+- (No detected dependencies)
+
+## Backlog: Add macOS parity claim (DET-002 is Linux-only)
+
+- Status: Completed
+- Evidence: `generate_evidence.cjs:33` maps DET-002 solely to `det-linux-artifacts`. The `det-macos-artifacts` are gathered and presence-validated, but no claim captures macOS parity results. A macOS-specific divergence would go undetected by the evidence system.
+- (No detected dependencies)
+
+## Backlog: Add concurrency controls to det-gates.yml
+
+- Status: Completed
+- Evidence: `det-gates.yml` has no `concurrency:` block. Multiple runs for the same PR can pile up, burning CI minutes. Standard fix: `concurrency: { group: det-gates-${{ github.head_ref || github.ref }}, cancel-in-progress: true }`.
+- (No detected dependencies)
+
+## Backlog: Expand #286 scope to cover validate_claims.cjs and generate_evidence.cjs
+
+- Status: Open
+- Blocked by:
+    - [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
+    - Confidence: medium
+    - Evidence: Both scripts now export their main functions (M1/M2 in det-hard). Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON.
+
+## Backlog: Simplify docs crate path list in det-policy.yaml
+
+- Status: Completed
+- Evidence: The `docs` entry in `det-policy.yaml` mixes directory globs with 20+ individual top-level filenames. Growing unwieldy; any new top-level file that doesn't match an existing crate pattern triggers `require_full_classification` failure. Consider a glob simplification or a catch-all mechanism.
+- (No detected dependencies)
+
+## Backlog: Add Rust caching to det-gates.yml CI jobs
+
+- Status: Open
+- Evidence: All det-gates.yml jobs start from cold Rust builds. Adding `Swatinem/rust-cache@v2` to determinism, static-inspection, decoder-security, and perf-regression jobs would reduce CI time. Intentionally omit from build-repro to preserve isolation.
+- (No detected dependencies)
+
+## Backlog: Add Criterion baseline comparison to G3 perf-regression
+
+- Status: Open
+- Evidence: G3 (perf-regression) runs Criterion benchmarks and uploads `perf.log` but does not compare against a stored baseline. PRF-001 relies on Criterion's internal noise threshold. Adding `critcmp` or `bencher.dev` integration would enable regression detection across commits.
+- (No detected dependencies)
+
 ---
 
 Rendering note (2026-01-09):

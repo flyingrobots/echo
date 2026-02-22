@@ -1,0 +1,333 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+name: det-gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: det-gates-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  classify-changes:
+    name: classify-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_full: ${{ steps.classify.outputs.run_full }}
+      run_reduced: ${{ steps.classify.outputs.run_reduced }}
+      run_none: ${{ steps.classify.outputs.run_none }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files
+        id: changed
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch origin "$BASE_REF" --depth=1
+            git diff --name-only "origin/$BASE_REF...HEAD" > changed.txt
+          else
+            git diff --name-only HEAD~1..HEAD > changed.txt || true
+          fi
+          if [ "$EVENT_NAME" = "push" ] && [ ! -s changed.txt ]; then
+            echo "Warning: empty changelist on push, treating as full run" >&2
+            echo "det-policy.yaml" > changed.txt
+          fi
+          echo "Changed files:"
+          cat changed.txt || true
+
+      - name: Convert policy to JSON
+        run: |
+          yq -o=json det-policy.yaml > det-policy.json
+
+      - name: Classify path impact from det-policy.yaml
+        id: classify
+        run: |
+          node ./scripts/classify_changes.cjs det-policy.json changed.txt >> $GITHUB_OUTPUT
+
+  determinism-linux:
+    name: G1 determinism (linux)
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run parity tests (linux)
+        run: |
+          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture 2>&1 | tee det-linux.log
+          grep -q " 0 passed" det-linux.log && echo "FATAL: zero tests matched filter" && exit 1 || true
+      - name: Run DIND suite (linux)
+        run: |
+          node scripts/dind-run-suite.mjs --mode run | tee dind-linux.log
+      - name: Create digest table
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          mkdir -p artifacts
+          echo "target,commit,run_id,digest" > artifacts/digest-table.csv
+          echo "linux,${COMMIT_SHA},${RUN_ID},$(sha256sum dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: det-linux-artifacts
+          path: |
+            det-linux.log
+            dind-linux.log
+            dind-report.json
+            artifacts/digest-table.csv
+
+  determinism-macos:
+    name: G1 determinism (macos)
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run parity tests (macos)
+        run: |
+          cargo test -p echo-scene-port test_float_parity_with_js -- --nocapture 2>&1 | tee det-macos.log
+          grep -q " 0 passed" det-macos.log && echo "FATAL: zero tests matched filter" && exit 1 || true
+      - name: Run DIND suite (macos)
+        run: |
+          node scripts/dind-run-suite.mjs --mode run | tee dind-macos.log
+      - name: Create digest table
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          mkdir -p artifacts
+          echo "target,commit,run_id,digest" > artifacts/digest-table.csv
+          echo "macos,${COMMIT_SHA},${RUN_ID},$(shasum -a 256 dind-report.json | cut -d' ' -f1)" >> artifacts/digest-table.csv
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: det-macos-artifacts
+          path: |
+            det-macos.log
+            dind-macos.log
+            dind-report.json
+            artifacts/digest-table.csv
+
+  static-inspection:
+    name: DET-001 Static Inspection
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ripgrep
+        run: command -v rg >/dev/null || (sudo apt-get update && sudo apt-get install -y ripgrep)
+      - name: Compute DETERMINISM_PATHS from policy
+        id: det_paths
+        run: |
+          PATHS=$(yq -o=json det-policy.yaml | jq -r '
+            .crates | to_entries[] |
+            select(.value.class == "DET_CRITICAL") |
+            .value.paths[]' |
+            grep '^crates/' | sed 's|/\*\*$||' | sort -u | tr '\n' ' ')
+          echo "paths=$PATHS" >> "$GITHUB_OUTPUT"
+      - name: Run determinism check
+        id: det_check
+        env:
+          DETERMINISM_PATHS: ${{ steps.det_paths.outputs.paths }}
+        run: |
+          ./scripts/ban-nondeterminism.sh | tee static-inspection.log
+      - name: Create report
+        if: always()
+        env:
+          DET_OUTCOME: ${{ steps.det_check.outcome }}
+        run: |
+          if [ "$DET_OUTCOME" = "success" ]; then
+            echo '{"claim_id": "DET-001", "status": "PASSED"}' > static-inspection.json
+          else
+            echo '{"claim_id": "DET-001", "status": "FAILED"}' > static-inspection.json
+          fi
+      - name: Upload inspection artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-inspection
+          path: |
+            static-inspection.log
+            static-inspection.json
+
+  decoder-security:
+    name: G2 decoder security tests
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run codec tests
+        run: |
+          cargo test -p echo-scene-codec --lib cbor::tests -- --nocapture 2>&1 | tee sec-tests.log
+          grep -q " 0 passed" sec-tests.log && echo "FATAL: zero tests matched filter" && exit 1 || true
+      - name: Upload security artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sec-artifacts
+          path: |
+            sec-tests.log
+            docs/determinism/sec-claim-map.json
+
+  perf-regression:
+    name: G3 perf regression (criterion)
+    needs: classify-changes
+    # Runs for ALL non-NONCRITICAL changes (both DET_CRITICAL and DET_IMPORTANT).
+    # G3 is staging-optional per RELEASE_POLICY.md but always executes here.
+    if: needs.classify-changes.outputs.run_none != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run benchmarks
+        run: |
+          cargo bench -p warp-benches --bench materialization_hotpath -- --output-format bencher | tee perf.log
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-artifacts
+          path: perf.log
+
+  build-repro:
+    name: G4 build reproducibility (wasm)
+    needs: classify-changes
+    if: needs.classify-changes.outputs.run_full == 'true' || needs.classify-changes.outputs.run_reduced == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Setup Rust (Global)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Checkout Build 1
+        uses: actions/checkout@v4
+        with:
+          path: build1
+      - name: Build 1
+        run: |
+          cd build1
+          rustup target add wasm32-unknown-unknown
+          cargo build --release --target wasm32-unknown-unknown -p ttd-browser
+          sha256sum target/wasm32-unknown-unknown/release/ttd_browser.wasm > ../hash1.txt
+          cp target/wasm32-unknown-unknown/release/ttd_browser.wasm ../build1.wasm
+      - name: Checkout Build 2
+        uses: actions/checkout@v4
+        with:
+          path: build2
+      - name: Build 2
+        run: |
+          cd build2
+          rustup target add wasm32-unknown-unknown
+          cargo build --release --target wasm32-unknown-unknown -p ttd-browser
+          sha256sum target/wasm32-unknown-unknown/release/ttd_browser.wasm > ../hash2.txt
+          cp target/wasm32-unknown-unknown/release/ttd_browser.wasm ../build2.wasm
+      - name: Compare hashes
+        run: |
+          diff hash1.txt hash2.txt || (echo "Reproducibility failure: Hashes differ!" && exit 1)
+          echo "Hashes match: $(cat hash1.txt)"
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-repro-artifacts
+          path: |
+            hash1.txt
+            hash2.txt
+            build1.wasm
+            build2.wasm
+
+  validate-evidence:
+    name: Evidence schema / claim policy
+    needs:
+      - classify-changes
+      - determinism-linux
+      - determinism-macos
+      - static-inspection
+      - decoder-security
+      - perf-regression
+      - build-repro
+    if: always() && needs.classify-changes.result == 'success' && needs.classify-changes.outputs.run_none != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: gathered-artifacts
+      - name: Verify artifact presence
+        env:
+          RUN_FULL: ${{ needs.classify-changes.outputs.run_full }}
+        run: |
+          ls -R gathered-artifacts
+          # Always required (run on both full and reduced)
+          [ -d gathered-artifacts/sec-artifacts ] || (echo "Missing sec-artifacts" && exit 1)
+          [ -d gathered-artifacts/build-repro-artifacts ] || (echo "Missing build-repro-artifacts" && exit 1)
+          [ -d gathered-artifacts/perf-artifacts ] || (echo "Missing perf-artifacts" && exit 1)
+          # Only required when run_full (these jobs are skipped for run_reduced)
+          if [ "$RUN_FULL" = "true" ]; then
+            [ -d gathered-artifacts/det-linux-artifacts ] || (echo "Missing det-linux-artifacts" && exit 1)
+            [ -d gathered-artifacts/det-macos-artifacts ] || (echo "Missing det-macos-artifacts" && exit 1)
+            [ -d gathered-artifacts/static-inspection ] || (echo "Missing static-inspection" && exit 1)
+          fi
+      - name: Generate evidence pack
+        run: |
+          node scripts/generate_evidence.cjs gathered-artifacts
+      - name: Validate evidence pointers
+        run: |
+          node scripts/validate_claims.cjs gathered-artifacts/evidence.json
+      - name: Cross-check claim IDs against CLAIM_MAP
+        run: |
+          EVIDENCE_IDS=$(jq -r '.claims[].id' gathered-artifacts/evidence.json | sort)
+          CLAIM_MAP_IDS=$(yq -o=json docs/determinism/CLAIM_MAP.yaml | jq -r '.claims | keys[]' | sort)
+          EXTRA=$(comm -23 <(echo "$EVIDENCE_IDS") <(echo "$CLAIM_MAP_IDS"))
+          MISSING=$(comm -13 <(echo "$EVIDENCE_IDS") <(echo "$CLAIM_MAP_IDS"))
+          if [ -n "$EXTRA" ]; then
+            echo "ERROR: Claims in evidence.json but not in CLAIM_MAP.yaml:" && echo "$EXTRA" && exit 1
+          fi
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: Claims in CLAIM_MAP.yaml but not in evidence.json:" && echo "$MISSING" && exit 1
+          fi
+          echo "All claim IDs synchronized"
+      - name: Verify sec-claim-map test IDs exist
+        run: |
+          MISSING=""
+          for tid in $(jq -r '.mappings[].test_id' docs/determinism/sec-claim-map.json); do
+            fn_name="${tid##*::}"
+            if ! grep -rq "fn ${fn_name}" crates/echo-scene-codec/src/; then
+              MISSING="$MISSING $tid"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: sec-claim-map.json references non-existent tests:$MISSING" && exit 1
+          fi
+          echo "All sec-claim-map test IDs verified"

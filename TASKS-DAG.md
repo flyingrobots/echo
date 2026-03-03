@@ -724,6 +724,12 @@ This living list documents open issues and the inferred dependencies contributor
 - Evidence: Commit `896c205` accidentally deleted `scripts/generate_evidence.cjs` while `det-gates.yml:304` still referenced it (`node scripts/generate_evidence.cjs gathered-artifacts`), breaking the Evidence schema job with `MODULE_NOT_FOUND`. A pre-commit hook or CI lint step that parses workflow YAML `run:` blocks for `node <script>` / `bash <script>` invocations and verifies the paths resolve to existing files would prevent recurrence.
 - (No detected dependencies)
 
+## Backlog: Add save_wsc() convenience wrapper in wsc module
+
+- Status: Open
+- Evidence: `wsc/build.rs` provides `build_one_warp_input()`, `wsc/write.rs` provides `write_wsc_one_warp()`, but there is no single-call convenience function combining build + write + `std::fs::write`. Users must chain three calls manually. A `save_wsc(store, root_node_id, schema_hash, tick, path)` wrapper would reduce boilerplate for tests and tooling. Low priority — the three-call chain works, but it's a quality-of-life gap. Originated from a design note in the now-deleted `docs/WARP-GRAPH.md`.
+- (No detected dependencies)
+
 ## Backlog: Extract checkArtifact helper to module scope in generate_evidence.cjs
 
 - Status: Open

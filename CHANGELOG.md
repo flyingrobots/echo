@@ -28,6 +28,10 @@
   domain prefix `echo:state_root:v1` defined in `domain.rs`.
 - **Module Count:** Fixed off-by-one module count in `ADR-0007-impl.md` metadata
   and §1 prose (36 → 37) and added qualifier noting tables cover key modules only.
+- **Stale Design Doc:** Deleted `docs/WARP-GRAPH.md` (1,219-line chat transcript
+  fully superseded by `ADR-0007-impl.md` and `crates/warp-core/src/wsc/`).
+  Extracted all-zero-key caveat into ADR §9.6 and `save_wsc()` convenience
+  wrapper gap into `TASKS-DAG.md` backlog before removal.
 
 ## [0.1.3] — 2026-02-21
 

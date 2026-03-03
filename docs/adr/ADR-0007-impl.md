@@ -668,6 +668,12 @@ transmutation that requires no `unsafe` in user code. The constraint is
 that all fields must be plain-old-data (no pointers, no padding with
 uninitialized bytes).
 
+**Caveat — all-zero keys:** Because IDs are BLAKE3 outputs, an all-zero
+key is astronomically unlikely but theoretically possible. The current
+implementation uses binary search over sorted tables (`O(log n)`) and is
+unaffected. If an on-disk open-addressed hash index is ever added, it
+must not use "all-zeros = empty slot" without an occupancy bitmap.
+
 ### 9.7 Separate GraphView Type
 
 `GraphView` is a compile-time read-only projection of `GraphStore`. Executors

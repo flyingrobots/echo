@@ -25,7 +25,9 @@
   knowledge as a structured implementation companion to ADR-0007.
 - **Stale Hash Domain:** Updated three stale `DIND_STATE_HASH_V2` references in
   `graph.rs` doc comment and `ADR-0007-impl.md` §2.1/§7 to match the actual
-  domain prefix `echo:state_root:v1` defined in `domain.rs`.
+  domain prefix `echo:state_root:v1` defined in `domain.rs`. Renamed the
+  adjacent `V2 Changes` subsection to `Layout Notes` to remove versioning
+  ambiguity.
 - **Module Count:** Fixed off-by-one module count in `ADR-0007-impl.md` metadata
   and §1 prose (36 → 37) and added qualifier noting tables cover key modules only.
 - **Stale Design Doc:** Deleted `docs/WARP-GRAPH.md` (1,219-line chat transcript

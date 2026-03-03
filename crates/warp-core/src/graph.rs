@@ -483,9 +483,9 @@ impl GraphStore {
     /// 4. Edge Count (u64 LE)
     /// 5. Edges (sorted by `EdgeId`): `b"E\0"` + `EdgeId` + From + To + Type + Attachment(if any)
     ///
-    /// # V2 Changes
+    /// # Layout Notes
     ///
-    /// V2 uses `u64` for all counts and lengths (node count, edge count, blob length)
+    /// Uses `u64` for all counts and lengths (node count, edge count, blob length)
     /// to align with the WSC format and avoid truncation issues with large graphs.
     #[must_use]
     pub fn canonical_state_hash(&self) -> Hash {

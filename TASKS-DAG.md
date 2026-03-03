@@ -748,6 +748,18 @@ This living list documents open issues and the inferred dependencies contributor
 - Evidence: ADR-0007-impl.md was a 3185-line transcript containing bare Rust generics (`BTreeMap<NodeId, NodeRecord>`) outside fenced code blocks, crashing the VitePress Vue template compiler. PR #288 rewrote the document, but no CI lint prevents recurrence. A markdownlint custom rule or shell script scanning `docs/**/*.md` for `<[A-Z]` outside backticks and code fences would catch this at pre-commit time.
 - (No detected dependencies)
 
+## Backlog: Clean up stale DIND_STATE_HASH_V2 in WARP-GRAPH.md references
+
+- Status: Completed
+- Evidence: `docs/WARP-GRAPH.md` was deleted in PR #288 (commit 80f0be8). The stale `DIND_STATE_HASH_V2` reference at line 791 was removed along with the entire file. Remaining `DIND_STATE_HASH_V2` references in `echo-dind-harness/src/dind.rs` and `testdata/dind/*.hashes.json` are intentional DIND test harness identifiers, not stale engine domain prefixes.
+- (No detected dependencies)
+
+## Backlog: Investigate CodeRabbit post-hoc verification false positives
+
+- Status: Open
+- Evidence: CodeRabbit's ASSERTIVE review mode ran `grep` and `git log` scripts on the current codebase to verify CHANGELOG claims, but the verification ran AFTER the fix deleted the evidence (replaced `DIND_STATE_HASH_V2` strings, rewrote 3,185-line file). This produced a Critical false positive claiming "fabricated" line counts and reference counts. Consider adding a `.coderabbitignore` pattern or CHANGELOG annotation convention that prevents post-hoc verification of claims about deleted/replaced content.
+- (No detected dependencies)
+
 ---
 
 Rendering note (2026-01-09):

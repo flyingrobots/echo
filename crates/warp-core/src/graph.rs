@@ -536,7 +536,7 @@ impl GraphStore {
             AttachmentValue::Atom(atom) => {
                 hasher.update(b"ATOM"); // Tag
                 hasher.update(&atom.type_id.0);
-                // V2: u64 blob length
+                // u64 blob length (aligned with WSC format)
                 hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
                 hasher.update(&atom.bytes);
             }

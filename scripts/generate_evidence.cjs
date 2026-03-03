@@ -9,7 +9,7 @@ const path = require('path');
  * All other conditions return UNVERIFIED with an error description.
  *
  * @param {string} artifactsDir - Path to the gathered artifacts directory.
- * @returns {{ status: string, source_status?: string|null, error?: string }}
+ * @returns {{ status: string, source_status: string|null, error?: string }}
  */
 function checkStaticInspection(artifactsDir) {
   const jsonPath = path.join(artifactsDir, 'static-inspection', 'static-inspection.json');
@@ -31,7 +31,7 @@ function checkStaticInspection(artifactsDir) {
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed) ||
       parsed.claim_id !== 'DET-001' || typeof parsed.status !== 'string') {
-    const preview = JSON.stringify(parsed)?.slice(0, 200) ?? 'null';
+    const preview = JSON.stringify(parsed).slice(0, 200);
     console.error(`DET-001: unexpected structure in static-inspection.json: ${preview}`);
     return { status: 'UNVERIFIED', source_status: null, error: 'missing or unexpected claim_id/status field' };
   }
@@ -72,7 +72,7 @@ function generateEvidence(gatheredArtifactsDir) {
         workflow, run_id: runId, commit_sha: commitSha,
         artifact_name: 'static-inspection',
         source_file: 'static-inspection.json',
-        source_status: det001.source_status ?? null,
+        source_status: det001.source_status,
         ...(det001.error ? { error: det001.error } : {})
       }
     },

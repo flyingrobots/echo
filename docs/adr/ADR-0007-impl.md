@@ -6,7 +6,7 @@
 - **Status:** Accepted
 - **Date:** 2026-01-19
 - **Parent:** ADR-0007 (BOAW Storage + Execution + Merge + Privacy)
-- **Crate:** `crates/warp-core` (36 source modules)
+- **Crate:** `crates/warp-core` (37 key source modules across five layers)
 
 ---
 
@@ -28,7 +28,9 @@ enforcement, segment-level COW) is called out explicitly in §11.
 
 ## 1) Module Organization
 
-The crate contains 36 source modules organized into five architectural layers.
+The crate contains 37 key source modules organized into five architectural layers.
+The tables below cover architecturally significant modules; utility modules
+(`mod.rs`, `lib.rs`) and `math/` internals are omitted.
 Line counts are as of 2026-01-19.
 
 ### Core execution
@@ -123,7 +125,7 @@ pub struct GraphStore {
 The `canonical_state_hash()` method computes a BLAKE3 digest over a
 deterministic byte stream (V2 format):
 
-- Header: `b"DIND_STATE_HASH_V2\0"`
+- Header: `b"echo:state_root:v1\0"`
 - Node count as `u64`, then nodes in ascending `NodeId` order
 - Edge count as `u64`, then edges in ascending `EdgeId` order
 - Attachments: ATOM → `(type_id, blob_len as u64, bytes)`, DESC → `(warp_id)`
@@ -523,7 +525,7 @@ All hashing uses BLAKE3.
 
 Deterministic BFS to collect the reachable graph across warp instances:
 
-- Header: `b"DIND_STATE_HASH_V2\0"`
+- Header: `b"echo:state_root:v1\0"`
 - Per-instance: `warp_id`, `root_node_id`, parent attachment key
 - Nodes in ascending `NodeId` order, each contributing `(node_id, type_id)`
 - Edges per source node, sorted by `EdgeId`, filtered to reachable targets

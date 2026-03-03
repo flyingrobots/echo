@@ -8,16 +8,16 @@ const path = require('path');
  * contains claim_id "DET-001", and status "PASSED".
  * All other conditions return UNVERIFIED with an error description.
  *
- * @param {string} artifactsDir - Path to the gathered artifacts directory.
- * @returns {{ status: string, source_status: string|null, error?: string }}
+ * @param {string} gatheredArtifactsDir - Path to the gathered artifacts directory.
+ * @returns {{ status: 'VERIFIED'|'UNVERIFIED', source_status: string|null, error?: string }}
  */
-function checkStaticInspection(artifactsDir) {
-  const jsonPath = path.join(artifactsDir, 'static-inspection', 'static-inspection.json');
+function checkStaticInspection(gatheredArtifactsDir) {
+  const jsonPath = path.join(gatheredArtifactsDir, 'static-inspection', 'static-inspection.json');
   let raw;
   try {
     raw = fs.readFileSync(jsonPath, 'utf8');
   } catch (e) {
-    console.error(`DET-001: failed to read static-inspection.json at ${jsonPath}: ${e.message}`);
+    console.error(`DET-001: failed to read static-inspection.json at ${jsonPath}: ${e.message.slice(0, 200)}`);
     return { status: 'UNVERIFIED', source_status: null, error: `read failed: ${e.message}` };
   }
 
@@ -25,7 +25,7 @@ function checkStaticInspection(artifactsDir) {
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
-    console.error(`DET-001: invalid JSON in static-inspection.json: ${e.message}`);
+    console.error(`DET-001: invalid JSON in static-inspection.json: ${e.message.slice(0, 200)}`);
     return { status: 'UNVERIFIED', source_status: null, error: `invalid JSON: ${e.message}` };
   }
 
@@ -38,7 +38,7 @@ function checkStaticInspection(artifactsDir) {
 
   const verified = parsed.status === 'PASSED';
   if (!verified) {
-    console.error(`DET-001: static inspection reported status "${parsed.status}"`);
+    console.error(`DET-001: static inspection reported status "${String(parsed.status).slice(0, 200)}"`);
   }
   return { status: verified ? 'VERIFIED' : 'UNVERIFIED', source_status: parsed.status };
 }
@@ -48,8 +48,12 @@ function checkStaticInspection(artifactsDir) {
  * Maps specific claim IDs to immutable CI artifacts if they exist.
  *
  * @param {string} gatheredArtifactsDir - Path to the directory where all artifacts were downloaded.
+ * @returns {void}
  */
 function generateEvidence(gatheredArtifactsDir) {
+  if (typeof gatheredArtifactsDir !== 'string') {
+    throw new TypeError(`gatheredArtifactsDir must be a string, got ${typeof gatheredArtifactsDir}`);
+  }
   const workflow = process.env.GITHUB_WORKFLOW || 'det-gates';
   const runId = process.env.GITHUB_RUN_ID || 'local';
   const commitSha = process.env.GITHUB_SHA || 'local';
@@ -142,5 +146,10 @@ module.exports = { generateEvidence, checkStaticInspection };
 
 if (require.main === module) {
   const gatheredArtifactsDir = process.argv[2] || '.';
-  generateEvidence(gatheredArtifactsDir);
+  try {
+    generateEvidence(gatheredArtifactsDir);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
 }

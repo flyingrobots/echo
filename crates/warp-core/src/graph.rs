@@ -477,7 +477,7 @@ impl GraphStore {
     /// Computes a canonical hash of the entire graph state.
     ///
     /// This traversal is strictly deterministic:
-    /// 1. Header: `b"DIND_STATE_HASH_V2\0"`
+    /// 1. Header: `b"echo:state_root:v1\0"`
     /// 2. Node Count (u64 LE)
     /// 3. Nodes (sorted by `NodeId`): `b"N\0"` + `NodeId` + `TypeId` + Attachment(if any)
     /// 4. Edge Count (u64 LE)

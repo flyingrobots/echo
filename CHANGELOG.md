@@ -11,6 +11,10 @@
   structured parsing and validation of `static-inspection.json`; `FAILED` static inspections
   now correctly yield `UNVERIFIED` evidence instead of relying solely on artifact existence.
   Adds `source_file`, `source_status`, and optional `error` fields to DET-001 evidence.
+- **Evidence Script Hardening:** Added TypeError guard on `generateEvidence` input,
+  try/catch with `process.exit(1)` in CLI mode, truncated log interpolations to
+  200 chars in `checkStaticInspection`, harmonized parameter naming, and tightened
+  JSDoc return types to `'VERIFIED'|'UNVERIFIED'` union.
 
 ### Fixed (Docs)
 
@@ -19,6 +23,11 @@
   was crashing on bare Rust generics (`BTreeMap<NodeId, NodeRecord>`, etc.)
   outside fenced code blocks. The new document preserves all architectural
   knowledge as a structured implementation companion to ADR-0007.
+- **Stale Hash Domain:** Updated three stale `DIND_STATE_HASH_V2` references in
+  `graph.rs` doc comment and `ADR-0007-impl.md` §2.1/§7 to match the actual
+  domain prefix `echo:state_root:v1` defined in `domain.rs`.
+- **Module Count:** Fixed off-by-one module count in `ADR-0007-impl.md` metadata
+  and §1 prose (36 → 37) and added qualifier noting tables cover key modules only.
 
 ## [0.1.3] — 2026-02-21
 

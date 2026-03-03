@@ -730,6 +730,18 @@ This living list documents open issues and the inferred dependencies contributor
 - Evidence: `checkStaticInspection` was extracted to module scope and exported in PR #288, but `checkArtifact` remains a closure inside `generateEvidence`. For consistency and testability, it should follow the same pattern: top-level function declaration, added to `module.exports`.
 - (No detected dependencies)
 
+## Backlog: Add --dry-run mode to generate_evidence.cjs
+
+- Status: Open
+- Evidence: `generate_evidence.cjs` always writes `evidence.json` to disk. A `--dry-run` flag that validates artifact presence, runs `checkStaticInspection`, and prints the evidence JSON to stdout without writing would enable local pre-push validation and make unit test assertions simpler (no temp dir cleanup).
+- (No detected dependencies)
+
+## Backlog: Lint docs/ markdown for bare angle brackets (VitePress guard)
+
+- Status: Open
+- Evidence: ADR-0007-impl.md was a 3185-line transcript containing bare Rust generics (`BTreeMap<NodeId, NodeRecord>`) outside fenced code blocks, crashing the VitePress Vue template compiler. PR #288 rewrote the document, but no CI lint prevents recurrence. A markdownlint custom rule or shell script scanning `docs/**/*.md` for `<[A-Z]` outside backticks and code fences would catch this at pre-commit time.
+- (No detected dependencies)
+
 ---
 
 Rendering note (2026-01-09):

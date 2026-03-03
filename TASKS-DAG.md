@@ -698,7 +698,7 @@ This living list documents open issues and the inferred dependencies contributor
 - Blocked by:
     - [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
     - Confidence: medium
-    - Evidence: Both scripts now export their main functions (M1/M2 in det-hard). Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON.
+    - Evidence: Both scripts now export their main functions (M1/M2 in det-hard). `checkStaticInspection` is now module-scoped and exported (PR #288), enabling direct unit tests for all 5 behavioral branches: file-not-found, invalid JSON, null/non-object parse, wrong structure, and PASSED/FAILED status. Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON.
 
 ## Backlog: Simplify docs crate path list in det-policy.yaml
 
@@ -716,6 +716,18 @@ This living list documents open issues and the inferred dependencies contributor
 
 - Status: Open
 - Evidence: G3 (perf-regression) runs Criterion benchmarks and uploads `perf.log` but does not compare against a stored baseline. PRF-001 relies on Criterion's internal noise threshold. Adding `critcmp` or `bencher.dev` integration would enable regression detection across commits.
+- (No detected dependencies)
+
+## Backlog: CI workflow lint — verify referenced scripts exist in repo
+
+- Status: Open
+- Evidence: Commit `896c205` accidentally deleted `scripts/generate_evidence.cjs` while `det-gates.yml:304` still referenced it (`node scripts/generate_evidence.cjs gathered-artifacts`), breaking the Evidence schema job with `MODULE_NOT_FOUND`. A pre-commit hook or CI lint step that parses workflow YAML `run:` blocks for `node <script>` / `bash <script>` invocations and verifies the paths resolve to existing files would prevent recurrence.
+- (No detected dependencies)
+
+## Backlog: Extract checkArtifact helper to module scope in generate_evidence.cjs
+
+- Status: Open
+- Evidence: `checkStaticInspection` was extracted to module scope and exported in PR #288, but `checkArtifact` remains a closure inside `generateEvidence`. For consistency and testability, it should follow the same pattern: top-level function declaration, added to `module.exports`.
 - (No detected dependencies)
 
 ---

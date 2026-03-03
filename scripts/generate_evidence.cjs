@@ -3,9 +3,50 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * Parse static-inspection.json for DET-001 claim status.
+ * Returns VERIFIED only when the file exists, parses as valid JSON,
+ * contains claim_id "DET-001", and status "PASSED".
+ * All other conditions return UNVERIFIED with an error description.
+ *
+ * @param {string} artifactsDir - Path to the gathered artifacts directory.
+ * @returns {{ status: string, source_status?: string|null, error?: string }}
+ */
+function checkStaticInspection(artifactsDir) {
+  const jsonPath = path.join(artifactsDir, 'static-inspection', 'static-inspection.json');
+  let raw;
+  try {
+    raw = fs.readFileSync(jsonPath, 'utf8');
+  } catch (e) {
+    console.error(`DET-001: failed to read static-inspection.json at ${jsonPath}: ${e.message}`);
+    return { status: 'UNVERIFIED', source_status: null, error: `read failed: ${e.message}` };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    console.error(`DET-001: invalid JSON in static-inspection.json: ${e.message}`);
+    return { status: 'UNVERIFIED', source_status: null, error: `invalid JSON: ${e.message}` };
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed) ||
+      parsed.claim_id !== 'DET-001' || typeof parsed.status !== 'string') {
+    const preview = JSON.stringify(parsed)?.slice(0, 200) ?? 'null';
+    console.error(`DET-001: unexpected structure in static-inspection.json: ${preview}`);
+    return { status: 'UNVERIFIED', source_status: null, error: 'missing or unexpected claim_id/status field' };
+  }
+
+  const verified = parsed.status === 'PASSED';
+  if (!verified) {
+    console.error(`DET-001: static inspection reported status "${parsed.status}"`);
+  }
+  return { status: verified ? 'VERIFIED' : 'UNVERIFIED', source_status: parsed.status };
+}
+
+/**
  * Generates an evidence JSON pack for CI claims.
  * Maps specific claim IDs to immutable CI artifacts if they exist.
- * 
+ *
  * @param {string} gatheredArtifactsDir - Path to the directory where all artifacts were downloaded.
  */
 function generateEvidence(gatheredArtifactsDir) {
@@ -22,57 +63,19 @@ function generateEvidence(gatheredArtifactsDir) {
     }
   };
 
-  /**
-   * Parse static-inspection.json for DET-001 claim status.
-   * Returns VERIFIED only when the file exists, parses as valid JSON,
-   * contains claim_id "DET-001", and status "PASSED".
-   * All other conditions return UNVERIFIED with an error description.
-   */
-  const checkStaticInspection = (artifactsDir) => {
-    const jsonPath = path.join(artifactsDir, 'static-inspection', 'static-inspection.json');
-    let raw;
-    try {
-      raw = fs.readFileSync(jsonPath, 'utf8');
-    } catch (e) {
-      console.error(`DET-001: static-inspection.json not found at ${jsonPath}`);
-      return { status: 'UNVERIFIED', error: 'static-inspection.json not found' };
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      console.error(`DET-001: invalid JSON in static-inspection.json: ${e.message}`);
-      return { status: 'UNVERIFIED', error: `invalid JSON: ${e.message}` };
-    }
-
-    if (parsed.claim_id !== 'DET-001' || typeof parsed.status !== 'string') {
-      console.error(`DET-001: unexpected structure in static-inspection.json: ${JSON.stringify(parsed)}`);
-      return { status: 'UNVERIFIED', error: 'missing or unexpected claim_id/status field' };
-    }
-
-    const verified = parsed.status === 'PASSED';
-    if (!verified) {
-      console.error(`DET-001: static inspection reported status "${parsed.status}"`);
-    }
-    return { status: verified ? 'VERIFIED' : 'UNVERIFIED', source_status: parsed.status };
-  };
-
+  const det001 = checkStaticInspection(gatheredArtifactsDir);
   const claims = [
-    (() => {
-      const det001 = checkStaticInspection(gatheredArtifactsDir);
-      return {
-        id: 'DET-001',
-        status: det001.status,
-        evidence: {
-          workflow, run_id: runId, commit_sha: commitSha,
-          artifact_name: 'static-inspection',
-          source_file: 'static-inspection.json',
-          source_status: det001.source_status || null,
-          ...(det001.error ? { error: det001.error } : {})
-        }
-      };
-    })(),
+    {
+      id: 'DET-001',
+      status: det001.status,
+      evidence: {
+        workflow, run_id: runId, commit_sha: commitSha,
+        artifact_name: 'static-inspection',
+        source_file: 'static-inspection.json',
+        source_status: det001.source_status ?? null,
+        ...(det001.error ? { error: det001.error } : {})
+      }
+    },
     {
       id: 'DET-002',
       status: checkArtifact('det-linux-artifacts') ? 'VERIFIED' : 'UNVERIFIED',
@@ -135,7 +138,7 @@ function generateEvidence(gatheredArtifactsDir) {
   console.log(`Generated evidence.json at ${outputPath}`);
 }
 
-module.exports = { generateEvidence };
+module.exports = { generateEvidence, checkStaticInspection };
 
 if (require.main === module) {
   const gatheredArtifactsDir = process.argv[2] || '.';

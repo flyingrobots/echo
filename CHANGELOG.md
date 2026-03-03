@@ -5,6 +5,13 @@
 
 ## Unreleased
 
+### Fixed (CI)
+
+- **Evidence Derivation:** Replaced artifact-directory-presence check for `DET-001` with
+  structured parsing and validation of `static-inspection.json`; `FAILED` static inspections
+  now correctly yield `UNVERIFIED` evidence instead of relying solely on artifact existence.
+  Adds `source_file`, `source_status`, and optional `error` fields to DET-001 evidence.
+
 ### Fixed (Docs)
 
 - **Docs Build:** Rewrote `ADR-0007-impl.md` from a 3185-line raw conversation

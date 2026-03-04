@@ -502,7 +502,11 @@ fn run_man_pages(args: ManPagesArgs) -> Result<()> {
 
     for sub in cmd.get_subcommands() {
         let sub_name = sub.get_name().to_string();
-        let man = clap_mangen::Man::new(sub.clone());
+        // Leak is fine: xtask is short-lived and we need 'static for clap::Str.
+        let prefixed_name: &'static str =
+            Box::leak(format!("echo-cli-{sub_name}").into_boxed_str());
+        let prefixed = sub.clone().name(prefixed_name);
+        let man = clap_mangen::Man::new(prefixed);
         let mut buf: Vec<u8> = Vec::new();
         man.render(&mut buf)
             .with_context(|| format!("failed to render echo-cli-{sub_name}.1"))?;

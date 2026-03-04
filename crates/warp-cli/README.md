@@ -32,7 +32,7 @@ echo-cli --format json verify state.wsc
 
 ### `echo-cli bench [--filter <pattern>]`
 
-Run Criterion benchmarks and format results as an ASCII table.
+Run Criterion benchmarks, parse JSON results, and format as an ASCII table.
 
 ```sh
 # Run all benchmarks

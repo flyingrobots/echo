@@ -32,6 +32,12 @@
 - **Visibility:** Narrowed all non-API structs and functions from `pub` to
   `pub(crate)` in bench, verify, inspect, and wsc_loader modules. Only
   `cli.rs` types remain `pub` (required by xtask man page generation).
+- **cargo-deny:** Fixed wildcard dependency error for `warp-cli` in
+  `xtask/Cargo.toml` by adding explicit `version = "0.1.0"` alongside
+  the path override.
+- **Man Page Cleanup:** `cargo xtask man-pages` now removes stale
+  `echo-cli*.1` files before regeneration so the output directory is an
+  exact snapshot.
 
 ### Fixed — Docs & CI
 

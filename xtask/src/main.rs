@@ -491,6 +491,22 @@ fn run_man_pages(args: ManPagesArgs) -> Result<()> {
     std::fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create output directory: {}", out_dir.display()))?;
 
+    // Remove stale man pages so the output is an exact snapshot.
+    if let Ok(entries) = std::fs::read_dir(out_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("echo-cli") && name.ends_with(".1") {
+                std::fs::remove_file(entry.path()).with_context(|| {
+                    format!(
+                        "failed to remove stale man page: {}",
+                        entry.path().display()
+                    )
+                })?;
+            }
+        }
+    }
+
     let cmd = warp_cli::cli::Cli::command();
     let man = clap_mangen::Man::new(cmd.clone());
     let mut buf: Vec<u8> = Vec::new();

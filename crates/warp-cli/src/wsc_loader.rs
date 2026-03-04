@@ -20,7 +20,7 @@ use warp_core::{
 /// Iterates the columnar WSC data (nodes, edges, attachments) and populates
 /// an in-memory `GraphStore` suitable for hash recomputation via
 /// `GraphStore::canonical_state_hash()`.
-pub fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
+pub(crate) fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
     let warp_id = WarpId(*view.warp_id());
     let mut store = GraphStore::new(warp_id);
 

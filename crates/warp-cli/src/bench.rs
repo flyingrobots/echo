@@ -18,25 +18,25 @@ use crate::output::emit;
 
 /// Parsed benchmark result from Criterion's `estimates.json`.
 #[derive(Debug, Clone, Serialize)]
-pub struct BenchResult {
-    pub name: String,
-    pub mean_ns: f64,
-    pub median_ns: f64,
-    pub stddev_ns: f64,
+pub(crate) struct BenchResult {
+    pub(crate) name: String,
+    pub(crate) mean_ns: f64,
+    pub(crate) median_ns: f64,
+    pub(crate) stddev_ns: f64,
 }
 
 /// Raw Criterion estimates JSON structure.
 #[derive(Debug, Deserialize)]
-pub struct CriterionEstimates {
-    pub mean: Estimate,
-    pub median: Estimate,
-    pub std_dev: Estimate,
+pub(crate) struct CriterionEstimates {
+    pub(crate) mean: Estimate,
+    pub(crate) median: Estimate,
+    pub(crate) std_dev: Estimate,
 }
 
 /// A single Criterion estimate.
 #[derive(Debug, Deserialize)]
-pub struct Estimate {
-    pub point_estimate: f64,
+pub(crate) struct Estimate {
+    pub(crate) point_estimate: f64,
 }
 
 /// Describes a process exit caused by a signal (Unix) or unknown termination.
@@ -57,7 +57,7 @@ fn format_signal(status: &std::process::ExitStatus) -> String {
 }
 
 /// Builds the `cargo bench` command with optional Criterion regex filter.
-pub fn build_bench_command(filter: Option<&str>) -> Command {
+pub(crate) fn build_bench_command(filter: Option<&str>) -> Command {
     let mut cmd = Command::new("cargo");
     cmd.args(["bench", "-p", "warp-benches"]);
 
@@ -73,7 +73,7 @@ pub fn build_bench_command(filter: Option<&str>) -> Command {
 }
 
 /// Runs the bench subcommand.
-pub fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
+pub(crate) fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
     // 1. Shell out to cargo bench.
     let mut cmd = build_bench_command(filter);
 
@@ -109,7 +109,7 @@ pub fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
 }
 
 /// Scans `target/criterion/*/new/estimates.json` for benchmark results.
-pub fn collect_criterion_results(
+pub(crate) fn collect_criterion_results(
     criterion_dir: &Path,
     filter: Option<&str>,
 ) -> Result<Vec<BenchResult>> {
@@ -164,7 +164,7 @@ pub fn collect_criterion_results(
 }
 
 /// Parses a single `estimates.json` file into a `BenchResult`.
-pub fn parse_estimates(name: &str, path: &Path) -> Result<BenchResult> {
+pub(crate) fn parse_estimates(name: &str, path: &Path) -> Result<BenchResult> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
     let estimates: CriterionEstimates = serde_json::from_str(&content)
@@ -179,7 +179,7 @@ pub fn parse_estimates(name: &str, path: &Path) -> Result<BenchResult> {
 }
 
 /// Formats benchmark results as an ASCII table.
-pub fn format_table(results: &[BenchResult]) -> String {
+pub(crate) fn format_table(results: &[BenchResult]) -> String {
     let mut table = Table::new();
     table.set_content_arrangement(ContentArrangement::Dynamic);
     table.set_header(vec!["Benchmark", "Mean", "Median", "Std Dev"]);

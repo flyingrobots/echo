@@ -19,28 +19,28 @@ use crate::wsc_loader::graph_store_from_warp_view;
 
 /// Result of verifying a single warp instance within a WSC file.
 #[derive(Debug, Serialize)]
-pub struct WarpVerifyResult {
-    pub warp_id: String,
-    pub root_node_id: String,
-    pub nodes: usize,
-    pub edges: usize,
-    pub state_root: String,
-    pub status: String,
+pub(crate) struct WarpVerifyResult {
+    pub(crate) warp_id: String,
+    pub(crate) root_node_id: String,
+    pub(crate) nodes: usize,
+    pub(crate) edges: usize,
+    pub(crate) state_root: String,
+    pub(crate) status: String,
 }
 
 /// Result of the full verify operation.
 #[derive(Debug, Serialize)]
-pub struct VerifyReport {
-    pub file: String,
-    pub tick: u64,
-    pub schema_hash: String,
-    pub warp_count: usize,
-    pub warps: Vec<WarpVerifyResult>,
-    pub result: String,
+pub(crate) struct VerifyReport {
+    pub(crate) file: String,
+    pub(crate) tick: u64,
+    pub(crate) schema_hash: String,
+    pub(crate) warp_count: usize,
+    pub(crate) warps: Vec<WarpVerifyResult>,
+    pub(crate) result: String,
 }
 
 /// Runs the verify subcommand.
-pub fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat) -> Result<()> {
+pub(crate) fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat) -> Result<()> {
     // 1. Load WSC file.
     let file = WscFile::open(snapshot)
         .with_context(|| format!("failed to open WSC file: {}", snapshot.display()))?;
@@ -128,25 +128,25 @@ fn format_text_report(report: &VerifyReport) -> String {
     use std::fmt::Write;
 
     let mut out = String::new();
-    writeln!(out, "echo-cli verify").ok();
-    writeln!(out, "  File: {}", report.file).ok();
-    writeln!(out, "  Tick: {}", report.tick).ok();
-    writeln!(out, "  Schema: {}", report.schema_hash).ok();
-    writeln!(out, "  Warps: {}", report.warp_count).ok();
-    writeln!(out).ok();
+    let _ = writeln!(out, "echo-cli verify");
+    let _ = writeln!(out, "  File: {}", report.file);
+    let _ = writeln!(out, "  Tick: {}", report.tick);
+    let _ = writeln!(out, "  Schema: {}", report.schema_hash);
+    let _ = writeln!(out, "  Warps: {}", report.warp_count);
+    let _ = writeln!(out);
 
     for (i, w) in report.warps.iter().enumerate() {
-        writeln!(out, "  Warp {i}:").ok();
-        writeln!(out, "    ID:        {}", w.warp_id).ok();
-        writeln!(out, "    Root node: {}", w.root_node_id).ok();
-        writeln!(out, "    Nodes:     {}", w.nodes).ok();
-        writeln!(out, "    Edges:     {}", w.edges).ok();
-        writeln!(out, "    State root: {}", w.state_root).ok();
-        writeln!(out, "    Status:    {}", w.status).ok();
-        writeln!(out).ok();
+        let _ = writeln!(out, "  Warp {i}:");
+        let _ = writeln!(out, "    ID:        {}", w.warp_id);
+        let _ = writeln!(out, "    Root node: {}", w.root_node_id);
+        let _ = writeln!(out, "    Nodes:     {}", w.nodes);
+        let _ = writeln!(out, "    Edges:     {}", w.edges);
+        let _ = writeln!(out, "    State root: {}", w.state_root);
+        let _ = writeln!(out, "    Status:    {}", w.status);
+        let _ = writeln!(out);
     }
 
-    writeln!(out, "  Result: {}", report.result).ok();
+    let _ = writeln!(out, "  Result: {}", report.result);
     out
 }
 

@@ -21,49 +21,49 @@ use crate::wsc_loader::graph_store_from_warp_view;
 
 /// Metadata section of the inspect report.
 #[derive(Debug, Serialize)]
-pub struct Metadata {
-    pub file: String,
-    pub tick: u64,
-    pub schema_hash: String,
-    pub warp_count: usize,
+pub(crate) struct Metadata {
+    pub(crate) file: String,
+    pub(crate) tick: u64,
+    pub(crate) schema_hash: String,
+    pub(crate) warp_count: usize,
 }
 
 /// Per-warp statistics.
 #[derive(Debug, Serialize)]
-pub struct WarpStats {
-    pub warp_id: String,
-    pub root_node_id: String,
-    pub state_root: String,
-    pub total_nodes: usize,
-    pub total_edges: usize,
-    pub node_types: BTreeMap<String, usize>,
-    pub edge_types: BTreeMap<String, usize>,
-    pub connected_components: usize,
+pub(crate) struct WarpStats {
+    pub(crate) warp_id: String,
+    pub(crate) root_node_id: String,
+    pub(crate) state_root: String,
+    pub(crate) total_nodes: usize,
+    pub(crate) total_edges: usize,
+    pub(crate) node_types: BTreeMap<String, usize>,
+    pub(crate) edge_types: BTreeMap<String, usize>,
+    pub(crate) connected_components: usize,
 }
 
 /// Full inspect report.
 #[derive(Debug, Serialize)]
-pub struct InspectReport {
-    pub metadata: Metadata,
-    pub warps: Vec<WarpStats>,
+pub(crate) struct InspectReport {
+    pub(crate) metadata: Metadata,
+    pub(crate) warps: Vec<WarpStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tree: Option<Vec<TreeNode>>,
+    pub(crate) tree: Option<Vec<TreeNode>>,
 }
 
 /// A node in the ASCII tree rendering.
 #[derive(Debug, Serialize)]
-pub struct TreeNode {
-    pub depth: usize,
-    pub node_id: String,
-    pub node_type: String,
-    pub children: Vec<TreeNode>,
+pub(crate) struct TreeNode {
+    pub(crate) depth: usize,
+    pub(crate) node_id: String,
+    pub(crate) node_type: String,
+    pub(crate) children: Vec<TreeNode>,
 }
 
 /// Maximum depth for ASCII tree rendering.
 const TREE_MAX_DEPTH: usize = 5;
 
 /// Runs the inspect subcommand.
-pub fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Result<()> {
+pub(crate) fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Result<()> {
     let file = WscFile::open(snapshot)
         .with_context(|| format!("failed to open WSC file: {}", snapshot.display()))?;
 
@@ -117,12 +117,12 @@ fn compute_stats(view: &WarpView<'_>, state_root: &[u8; 32]) -> WarpStats {
     // Type breakdown.
     let mut node_types: BTreeMap<String, usize> = BTreeMap::new();
     for n in nodes {
-        *node_types.entry(short_hex(&n.node_type)).or_insert(0) += 1;
+        *node_types.entry(short_hex(&n.node_type)).or_default() += 1;
     }
 
     let mut edge_types: BTreeMap<String, usize> = BTreeMap::new();
     for e in edges {
-        *edge_types.entry(short_hex(&e.edge_type)).or_insert(0) += 1;
+        *edge_types.entry(short_hex(&e.edge_type)).or_default() += 1;
     }
 
     // Connected components via BFS.
@@ -264,44 +264,44 @@ fn format_text_report(report: &InspectReport) -> String {
     use std::fmt::Write;
 
     let mut out = String::new();
-    writeln!(out, "echo-cli inspect").ok();
-    writeln!(out, "  File: {}", report.metadata.file).ok();
-    writeln!(out, "  Tick: {}", report.metadata.tick).ok();
-    writeln!(out, "  Schema: {}", report.metadata.schema_hash).ok();
-    writeln!(out, "  Warps: {}", report.metadata.warp_count).ok();
-    writeln!(out).ok();
+    let _ = writeln!(out, "echo-cli inspect");
+    let _ = writeln!(out, "  File: {}", report.metadata.file);
+    let _ = writeln!(out, "  Tick: {}", report.metadata.tick);
+    let _ = writeln!(out, "  Schema: {}", report.metadata.schema_hash);
+    let _ = writeln!(out, "  Warps: {}", report.metadata.warp_count);
+    let _ = writeln!(out);
 
     for (i, w) in report.warps.iter().enumerate() {
-        writeln!(out, "  Warp {i}:").ok();
-        writeln!(out, "    ID:         {}", w.warp_id).ok();
-        writeln!(out, "    Root node:  {}", w.root_node_id).ok();
-        writeln!(out, "    State root: {}", w.state_root).ok();
-        writeln!(out, "    Nodes:      {}", w.total_nodes).ok();
-        writeln!(out, "    Edges:      {}", w.total_edges).ok();
-        writeln!(out, "    Components: {}", w.connected_components).ok();
+        let _ = writeln!(out, "  Warp {i}:");
+        let _ = writeln!(out, "    ID:         {}", w.warp_id);
+        let _ = writeln!(out, "    Root node:  {}", w.root_node_id);
+        let _ = writeln!(out, "    State root: {}", w.state_root);
+        let _ = writeln!(out, "    Nodes:      {}", w.total_nodes);
+        let _ = writeln!(out, "    Edges:      {}", w.total_edges);
+        let _ = writeln!(out, "    Components: {}", w.connected_components);
 
         if !w.node_types.is_empty() {
-            writeln!(out, "    Node types:").ok();
+            let _ = writeln!(out, "    Node types:");
             for (ty, count) in &w.node_types {
-                writeln!(out, "      {ty}: {count}").ok();
+                let _ = writeln!(out, "      {ty}: {count}");
             }
         }
 
         if !w.edge_types.is_empty() {
-            writeln!(out, "    Edge types:").ok();
+            let _ = writeln!(out, "    Edge types:");
             for (ty, count) in &w.edge_types {
-                writeln!(out, "      {ty}: {count}").ok();
+                let _ = writeln!(out, "      {ty}: {count}");
             }
         }
-        writeln!(out).ok();
+        let _ = writeln!(out);
     }
 
     if let Some(ref tree) = report.tree {
-        writeln!(out, "  Tree:").ok();
+        let _ = writeln!(out, "  Tree:");
         for node in tree {
             format_tree_node(&mut out, node, "", true);
         }
-        writeln!(out).ok();
+        let _ = writeln!(out);
     }
 
     out
@@ -318,12 +318,11 @@ fn format_tree_node(out: &mut String, node: &TreeNode, prefix: &str, is_last: bo
         "\u{251c}\u{2500}\u{2500} "
     };
 
-    writeln!(
+    let _ = writeln!(
         out,
         "    {prefix}{connector}[{}] type={}",
         node.node_id, node.node_type
-    )
-    .ok();
+    );
 
     let child_prefix = if node.depth == 0 {
         String::new()

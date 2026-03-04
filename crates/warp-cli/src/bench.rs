@@ -39,6 +39,23 @@ pub struct Estimate {
     pub point_estimate: f64,
 }
 
+/// Describes a process exit caused by a signal (Unix) or unknown termination.
+fn format_signal(status: &std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        match status.signal() {
+            Some(sig) => format!("killed by signal {sig}"),
+            None => "unknown termination".to_string(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = status;
+        "unknown termination".to_string()
+    }
+}
+
 /// Builds the `cargo bench` command with optional Criterion regex filter.
 pub fn build_bench_command(filter: Option<&str>) -> Command {
     let mut cmd = Command::new("cargo");
@@ -65,10 +82,11 @@ pub fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
         .context("failed to run cargo bench (is cargo available?)")?;
 
     if !status.success() {
-        bail!(
-            "cargo bench exited with status {}",
-            status.code().unwrap_or(-1)
-        );
+        let code_desc = match status.code() {
+            Some(code) => format!("exit code {code}"),
+            None => format_signal(&status),
+        };
+        bail!("cargo bench failed: {code_desc}");
     }
 
     // 2. Parse Criterion JSON results.

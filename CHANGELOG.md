@@ -15,6 +15,11 @@
   warps 1+ instead of silently claiming "pass". Emits a stderr warning when
   `--expected` is used with multi-warp snapshots. Text and JSON output now
   use consistent lowercase status values.
+- **Unused Dependency:** Removed `colored = "2"` from `warp-cli` (declared but
+  never imported).
+- **Output Hardening:** `emit()` no longer panics on JSON serialization failure;
+  falls back to stderr. Bench exit status now reports Unix signal numbers
+  instead of a misleading `-1`.
 
 ### Added — Developer CLI (`echo-cli`)
 

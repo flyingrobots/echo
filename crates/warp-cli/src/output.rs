@@ -11,14 +11,10 @@ use crate::cli::OutputFormat;
 pub fn emit(format: &OutputFormat, text: &str, json: &serde_json::Value) {
     match format {
         OutputFormat::Text => print!("{text}"),
-        OutputFormat::Json => {
-            // serde_json::to_string_pretty is infallible for Value
-            println!(
-                "{}",
-                serde_json::to_string_pretty(json)
-                    .expect("JSON serialization of Value is infallible")
-            );
-        }
+        OutputFormat::Json => match serde_json::to_string_pretty(json) {
+            Ok(s) => println!("{s}"),
+            Err(e) => eprintln!("error: failed to serialize JSON output: {e}"),
+        },
     }
 }
 

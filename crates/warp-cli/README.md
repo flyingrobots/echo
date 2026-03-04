@@ -1,21 +1,80 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# warp-cli
 
-Placeholder CLI for Echo tooling. Subcommands will be added as the engine matures.
+# echo-cli
 
-See the repository root `README.md` for project context.
+Developer CLI for the Echo deterministic simulation engine.
 
-## What this crate does
+## Installation
 
-- Provides a home for command-line entrypoints into Echo tooling:
-  - future subcommands for running the engine, inspecting WARPs, driving the
-    session service, etc.
-- Currently a placeholder; behavior will be fleshed out alongside engine and
-  tooling milestones.
+```sh
+cargo install --path crates/warp-cli
+```
+
+The binary is named `echo-cli`.
+
+## Subcommands
+
+### `echo-cli verify <snapshot.wsc>`
+
+Validate WSC snapshot integrity. Loads the file, validates structure, reconstructs the graph, and computes state root hashes.
+
+```sh
+# Verify a snapshot
+echo-cli verify state.wsc
+
+# Verify against a known hash
+echo-cli verify state.wsc --expected abcd1234...
+
+# JSON output
+echo-cli --format json verify state.wsc
+```
+
+### `echo-cli bench [--filter <pattern>]`
+
+Run Criterion benchmarks and format results as an ASCII table.
+
+```sh
+# Run all benchmarks
+echo-cli bench
+
+# Filter by name
+echo-cli bench --filter hotpath
+
+# JSON output for CI
+echo-cli --format json bench
+```
+
+### `echo-cli inspect <snapshot.wsc> [--tree]`
+
+Display WSC snapshot metadata and graph statistics.
+
+```sh
+# Show metadata and stats
+echo-cli inspect state.wsc
+
+# Include ASCII tree of graph structure
+echo-cli inspect state.wsc --tree
+
+# JSON output
+echo-cli --format json inspect state.wsc
+```
+
+## Global Flags
+
+- `--format text|json` — Output format (default: `text`). Can appear before or after the subcommand.
+- `--help` — Show help.
+- `--version` — Show version.
+
+## Man Pages
+
+Generate man pages via xtask:
+
+```sh
+cargo xtask man-pages
+# Output: docs/man/echo-cli.1, echo-cli-verify.1, etc.
+```
 
 ## Documentation
 
-- For now, see the root `README.md` and the Echo book (`docs/book/echo/`) for
-  the overall architecture and planned CLI roles (runtime control, debugging,
-  inspection).
+See the root `README.md` and `docs/spec/` for architecture context.

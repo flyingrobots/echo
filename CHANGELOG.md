@@ -5,6 +5,40 @@
 
 ## Unreleased
 
+### Added — Developer CLI (`echo-cli`)
+
+- **CLI Scaffold (`warp-cli`):** Replaced placeholder with full `clap` 4 derive
+  subcommand dispatch. Three subcommands: `verify`, `bench`, `inspect`. Global
+  `--format text|json` flag for machine-readable output.
+- **Verify Subcommand:** `echo-cli verify <snapshot.wsc>` loads a WSC snapshot,
+  validates structural integrity via `validate_wsc`, reconstructs the in-memory
+  `GraphStore` from columnar data, and computes the state root hash. Optional
+  `--expected <hex>` flag compares against a known hash.
+- **WSC Loader:** New `wsc_loader` module bridges WSC columnar format to
+  `GraphStore` — the inverse of `warp_core::wsc::build_one_warp_input`.
+  Reconstructs nodes, edges, and attachments from `WarpView`.
+- **Bench Subcommand:** `echo-cli bench [--filter <pattern>]` shells out to
+  `cargo bench -p warp-benches`, parses Criterion JSON from
+  `target/criterion/*/new/estimates.json`, and renders an ASCII table via
+  `comfy-table`. Supports `--format json` for CI integration.
+- **Inspect Subcommand:** `echo-cli inspect <snapshot.wsc> [--tree]` displays
+  WSC metadata (tick, schema hash, warp count), graph statistics (node/edge
+  counts, type breakdown, connected components via BFS), and optional ASCII
+  tree rendering depth-limited to 5 levels.
+- **Man Pages:** Added `clap_mangen`-based man page generation to `xtask`.
+  `cargo xtask man-pages` generates `docs/man/echo-cli.1`,
+  `echo-cli-verify.1`, `echo-cli-bench.1`, `echo-cli-inspect.1`.
+
+### Added — Provenance Payload Spec (PP-1)
+
+- **SPEC-0005:** Published `docs/spec/SPEC-0005-provenance-payload.md` mapping
+  Paper III (AION Foundations) formalism to concrete Echo types. Defines four
+  new types (`ProvenancePayload`, `BoundaryTransitionRecord`, `ProvenanceNode`,
+  `DerivationGraph`), wire format with CBOR encoding and domain separation tags,
+  two worked examples (3-tick accumulator, branching fork), bridge to existing
+  `ProvenanceStore`/`PlaybackCursor` APIs, and attestation envelope with SLSA
+  alignment.
+
 ### Fixed (CI)
 
 - **Evidence Derivation:** Replaced artifact-directory-presence check for `DET-001` with

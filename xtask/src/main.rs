@@ -31,6 +31,8 @@ enum Commands {
     Dags(DagsArgs),
     /// Run DIND (Deterministic Ironclad Nightmare Drills) harness.
     Dind(DindArgs),
+    /// Generate man pages for echo-cli.
+    ManPages(ManPagesArgs),
 }
 
 #[derive(Args)]
@@ -114,12 +116,20 @@ struct DagsArgs {
     snapshot: Option<String>,
 }
 
+#[derive(Args)]
+struct ManPagesArgs {
+    /// Output directory for generated man pages.
+    #[arg(long, default_value = "docs/man")]
+    out: std::path::PathBuf,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Dags(args) => run_dags(args),
         Commands::Dind(args) => run_dind(args),
+        Commands::ManPages(args) => run_man_pages(args),
     }
 }
 
@@ -472,4 +482,37 @@ fn load_matching_scenarios(
         .collect();
 
     Ok(filtered)
+}
+
+fn run_man_pages(args: ManPagesArgs) -> Result<()> {
+    use clap::CommandFactory;
+
+    let out_dir = &args.out;
+    std::fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create output directory: {}", out_dir.display()))?;
+
+    let cmd = warp_cli::cli::Cli::command();
+    let man = clap_mangen::Man::new(cmd.clone());
+    let mut buf: Vec<u8> = Vec::new();
+    man.render(&mut buf)
+        .context("failed to render echo-cli.1")?;
+    let path = out_dir.join("echo-cli.1");
+    std::fs::write(&path, &buf).with_context(|| format!("failed to write {}", path.display()))?;
+    println!("  wrote {}", path.display());
+
+    for sub in cmd.get_subcommands() {
+        let sub_name = sub.get_name().to_string();
+        let man = clap_mangen::Man::new(sub.clone());
+        let mut buf: Vec<u8> = Vec::new();
+        man.render(&mut buf)
+            .with_context(|| format!("failed to render echo-cli-{sub_name}.1"))?;
+        let filename = format!("echo-cli-{sub_name}.1");
+        let path = out_dir.join(&filename);
+        std::fs::write(&path, &buf)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+        println!("  wrote {}", path.display());
+    }
+
+    println!("Man pages generated in {}", out_dir.display());
+    Ok(())
 }

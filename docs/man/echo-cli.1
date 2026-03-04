@@ -1,0 +1,41 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH echo-cli 1  "echo-cli 0.1.0" 
+.SH NAME
+echo\-cli \- Echo developer CLI
+.SH SYNOPSIS
+\fBecho\-cli\fR [\fB\-\-format\fR] [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Echo developer CLI
+.SH OPTIONS
+.TP
+\fB\-\-format\fR \fI<FORMAT>\fR [default: text]
+Output format (text or json)
+.br
+
+.br
+\fIPossible values:\fR
+.RS 14
+.IP \(bu 2
+text: Human\-readable text output
+.IP \(bu 2
+json: Machine\-readable JSON output
+.RE
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help (see a summary with \*(Aq\-h\*(Aq)
+.TP
+\fB\-V\fR, \fB\-\-version\fR
+Print version
+.SH SUBCOMMANDS
+.TP
+echo\-cli\-verify(1)
+Verify hash integrity of a WSC snapshot
+.TP
+echo\-cli\-bench(1)
+Run benchmarks and format results
+.TP
+echo\-cli\-inspect(1)
+Inspect a WSC snapshot
+.SH VERSION
+v0.1.0

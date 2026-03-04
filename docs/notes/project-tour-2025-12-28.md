@@ -97,7 +97,8 @@ Aspirational / partially specified (not fully implemented yet):
 - `crates/warp-wasm`
     - wasm-bindgen bindings for `warp-core` (tooling/web environments).
 - `crates/warp-cli`
-    - Placeholder CLI home.
+    - Developer CLI (`echo-cli`): `verify` (WSC integrity), `bench` (Criterion
+      runner/formatter), `inspect` (snapshot metadata + ASCII tree).
 - `crates/warp-benches`
     - Criterion microbenchmarks (scheduler drain, snapshot hash, etc.).
 

@@ -344,7 +344,6 @@ jobs:
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-core --no-deps
       - name: rustdoc warnings gate (warp-geom)
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-geom --no-deps
-
       - name: rustdoc warnings gate (warp-wasm)
         run: |
           if [ -f crates/warp-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p warp-wasm --no-deps; fi

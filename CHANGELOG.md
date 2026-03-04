@@ -26,6 +26,25 @@
   blob data instead of silent fallback.
 - **Dead Code:** Replaced blanket `#![allow(dead_code)]` on `lib.rs` with
   targeted `#[allow(dead_code)]` on the `output` module only.
+- **Man Page Headers:** Subcommand man pages now use prefixed names
+  (`echo-cli-bench`, `echo-cli-verify`, `echo-cli-inspect`) in `.TH` headers
+  instead of bare subcommand names.
+- **Visibility:** Narrowed all non-API structs and functions from `pub` to
+  `pub(crate)` in bench, verify, inspect, and wsc_loader modules. Only
+  `cli.rs` types remain `pub` (required by xtask man page generation).
+
+### Fixed — Docs & CI
+
+- **TASKS-DAG Spec Path:** `SPEC-PROVENANCE-PAYLOAD.md` →
+  `SPEC-0005-provenance-payload.md` in sub-task title and AC1 (two
+  occurrences). Same stale path fixed in ROADMAP backlog `security.md`.
+- **SPEC-0005 Byte Counts:** Domain separation tag sizes corrected:
+  `echo:provenance_payload:v1\0` = 27 bytes (was 28),
+  `echo:provenance_edge:v1\0` = 24 bytes (was 25).
+- **Project Tour:** Updated `warp-cli` description from "Placeholder CLI home"
+  to list actual subcommands (verify, bench, inspect).
+- **CI Formatting:** Removed stray blank line between warp-geom and warp-wasm
+  rustdoc steps in `ci.yml`.
 
 ### Added — Developer CLI (`echo-cli`)
 

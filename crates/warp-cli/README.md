@@ -23,7 +23,7 @@ Validate WSC snapshot integrity. Loads the file, validates structure, reconstruc
 # Verify a snapshot
 echo-cli verify state.wsc
 
-# Verify against a known hash
+# Verify against a known hash (warp 0 only; additional warps report "unchecked")
 echo-cli verify state.wsc --expected abcd1234...
 
 # JSON output

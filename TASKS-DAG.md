@@ -417,7 +417,7 @@ This living list documents open issues and the inferred dependencies contributor
 
 ### Sub-tasks
 
-#### PP-1: Write SPEC-PROVENANCE-PAYLOAD.md
+#### PP-1: Write SPEC-0005-provenance-payload.md
 
 Translate Paper III (AION Foundations) into a concrete engineering spec with wire format.
 
@@ -433,7 +433,7 @@ Translate Paper III (AION Foundations) into a concrete engineering spec with wir
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Spec document exists at `docs/spec/SPEC-PROVENANCE-PAYLOAD.md`
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-0005-provenance-payload.md`
 - [ ] AC2: All Paper III definitions (Def 3.1–3.9) have concrete field-level wire format
 - [ ] AC3: Two worked examples: (a) 3-tick accumulator (Paper III §A), (b) branching fork
 - [ ] AC4: Patch sufficiency checklist from Paper III Remark 3.3 is reproduced with Echo-specific field names

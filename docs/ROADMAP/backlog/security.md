@@ -193,7 +193,7 @@ Specifications and hardening for trust boundaries across FFI, WASM, and CLI surf
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Spec document exists at `docs/specs/SPEC-PROVENANCE-PAYLOAD.md`
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-0005-provenance-payload.md`
 - [ ] AC2: Envelope structure is fully defined with field-level documentation
 - [ ] AC3: At least two worked examples (single artifact, chained artifacts)
 - [ ] AC4: Relationship to SLSA levels is explicitly discussed

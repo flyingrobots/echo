@@ -351,9 +351,9 @@ with `warp_core::domain`:
 
 | Type                            | Domain Tag                     | Bytes |
 | ------------------------------- | ------------------------------ | ----- |
-| `ProvenancePayload` digest      | `echo:provenance_payload:v1\0` | 28    |
+| `ProvenancePayload` digest      | `echo:provenance_payload:v1\0` | 27    |
 | `BoundaryTransitionRecord` hash | `echo:btr:v1\0`                | 12    |
-| `ProvenanceEdge` identifier     | `echo:provenance_edge:v1\0`    | 25    |
+| `ProvenanceEdge` identifier     | `echo:provenance_edge:v1\0`    | 24    |
 
 These tags MUST be added to `crates/warp-core/src/domain.rs` during
 implementation (PP-2).

@@ -477,15 +477,15 @@ impl GraphStore {
     /// Computes a canonical hash of the entire graph state.
     ///
     /// This traversal is strictly deterministic:
-    /// 1. Header: `b"DIND_STATE_HASH_V2\0"`
+    /// 1. Header: `b"echo:state_root:v1\0"`
     /// 2. Node Count (u64 LE)
     /// 3. Nodes (sorted by `NodeId`): `b"N\0"` + `NodeId` + `TypeId` + Attachment(if any)
     /// 4. Edge Count (u64 LE)
     /// 5. Edges (sorted by `EdgeId`): `b"E\0"` + `EdgeId` + From + To + Type + Attachment(if any)
     ///
-    /// # V2 Changes
+    /// # Layout Notes
     ///
-    /// V2 uses `u64` for all counts and lengths (node count, edge count, blob length)
+    /// Uses `u64` for all counts and lengths (node count, edge count, blob length)
     /// to align with the WSC format and avoid truncation issues with large graphs.
     #[must_use]
     pub fn canonical_state_hash(&self) -> Hash {
@@ -536,7 +536,7 @@ impl GraphStore {
             AttachmentValue::Atom(atom) => {
                 hasher.update(b"ATOM"); // Tag
                 hasher.update(&atom.type_id.0);
-                // V2: u64 blob length
+                // u64 blob length (aligned with WSC format)
                 hasher.update(&(atom.bytes.len() as u64).to_le_bytes());
                 hasher.update(&atom.bytes);
             }

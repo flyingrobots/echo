@@ -698,7 +698,7 @@ This living list documents open issues and the inferred dependencies contributor
 - Blocked by:
     - [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
     - Confidence: medium
-    - Evidence: Both scripts now export their main functions (M1/M2 in det-hard). Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON.
+    - Evidence: Both scripts now export their main functions (M1/M2 in det-hard). `checkStaticInspection` is now module-scoped and exported (PR #288), enabling direct unit tests for all 5 behavioral branches: file-not-found, invalid JSON, null/non-object parse, wrong structure, and PASSED/FAILED status. Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON.
 
 ## Backlog: Simplify docs crate path list in det-policy.yaml
 
@@ -716,6 +716,48 @@ This living list documents open issues and the inferred dependencies contributor
 
 - Status: Open
 - Evidence: G3 (perf-regression) runs Criterion benchmarks and uploads `perf.log` but does not compare against a stored baseline. PRF-001 relies on Criterion's internal noise threshold. Adding `critcmp` or `bencher.dev` integration would enable regression detection across commits.
+- (No detected dependencies)
+
+## Backlog: CI workflow lint — verify referenced scripts exist in repo
+
+- Status: Open
+- Evidence: Commit `896c205` accidentally deleted `scripts/generate_evidence.cjs` while `det-gates.yml:304` still referenced it (`node scripts/generate_evidence.cjs gathered-artifacts`), breaking the Evidence schema job with `MODULE_NOT_FOUND`. A pre-commit hook or CI lint step that parses workflow YAML `run:` blocks for `node <script>` / `bash <script>` invocations and verifies the paths resolve to existing files would prevent recurrence.
+- (No detected dependencies)
+
+## Backlog: Add save_wsc() convenience wrapper in wsc module
+
+- Status: Open
+- Evidence: `wsc/build.rs` provides `build_one_warp_input()`, `wsc/write.rs` provides `write_wsc_one_warp()`, but there is no single-call convenience function combining build + write + `std::fs::write`. Users must chain three calls manually. A `save_wsc(store, root_node_id, schema_hash, tick, path)` wrapper would reduce boilerplate for tests and tooling. Low priority — the three-call chain works, but it's a quality-of-life gap. Originated from a design note in the now-deleted `docs/WARP-GRAPH.md`.
+- (No detected dependencies)
+
+## Backlog: Extract checkArtifact helper to module scope in generate_evidence.cjs
+
+- Status: Open
+- Evidence: `checkStaticInspection` was extracted to module scope and exported in PR #288, but `checkArtifact` remains a closure inside `generateEvidence`. For consistency and testability, it should follow the same pattern: top-level function declaration, added to `module.exports`.
+- (No detected dependencies)
+
+## Backlog: Add --dry-run mode to generate_evidence.cjs
+
+- Status: Open
+- Evidence: `generate_evidence.cjs` always writes `evidence.json` to disk. A `--dry-run` flag that validates artifact presence, runs `checkStaticInspection`, and prints the evidence JSON to stdout without writing would enable local pre-push validation and make unit test assertions simpler (no temp dir cleanup).
+- (No detected dependencies)
+
+## Backlog: Lint docs/ markdown for bare angle brackets (VitePress guard)
+
+- Status: Open
+- Evidence: ADR-0007-impl.md was a 3185-line transcript containing bare Rust generics (`BTreeMap<NodeId, NodeRecord>`) outside fenced code blocks, crashing the VitePress Vue template compiler. PR #288 rewrote the document, but no CI lint prevents recurrence. A markdownlint custom rule or shell script scanning `docs/**/*.md` for `<[A-Z]` outside backticks and code fences would catch this at pre-commit time.
+- (No detected dependencies)
+
+## Backlog: Clean up stale DIND_STATE_HASH_V2 in WARP-GRAPH.md references
+
+- Status: Completed
+- Evidence: `docs/WARP-GRAPH.md` was deleted in PR #288 (commit 80f0be8). The stale `DIND_STATE_HASH_V2` reference at line 791 was removed along with the entire file. Remaining `DIND_STATE_HASH_V2` references in `echo-dind-harness/src/dind.rs` and `testdata/dind/*.hashes.json` are intentional DIND test harness identifiers, not stale engine domain prefixes.
+- (No detected dependencies)
+
+## Backlog: Investigate CodeRabbit post-hoc verification false positives
+
+- Status: Open
+- Evidence: CodeRabbit's ASSERTIVE review mode ran `grep` and `git log` scripts on the current codebase to verify CHANGELOG claims, but the verification ran AFTER the fix deleted the evidence (replaced `DIND_STATE_HASH_V2` strings, rewrote 3,185-line file). This produced a Critical false positive claiming "fabricated" line counts and reference counts. Consider adding a `.coderabbitignore` pattern or CHANGELOG annotation convention that prevents post-hoc verification of claims about deleted/replaced content.
 - (No detected dependencies)
 
 ---

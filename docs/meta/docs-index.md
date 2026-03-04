@@ -37,7 +37,7 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md` | Canonical terminology: WarpState vs SkeletonGraph, instances/portals, and wormholes (reserved for history compression) |
 | `phase1-plan.md`                                               | Phase 1 implementation roadmap & demo targets                                                                          |
 | `spec-warp-core.md`                                            | WARP core format and runtime                                                                                           |
-| `WARP-GRAPH.md`                                                | WSC (Write-Streaming Columnar) snapshot format design spec                                                             |
+| ~~`WARP-GRAPH.md`~~                                            | **Deleted.** Superseded by `adr/ADR-0007-impl.md` §8 (WSC Build Process) and `crates/warp-core/src/wsc/`.              |
 | `scheduler.md`                                                 | Doc map: warp-core rewrite scheduler vs planned system scheduler                                                       |
 | `scheduler-warp-core.md`                                       | Canonical doc: warp-core rewrite scheduler (`reserve()` / drain)                                                       |
 | `scheduler-performance-warp-core.md`                           | Canonical doc: warp-core scheduler benchmarks                                                                          |

@@ -5,6 +5,36 @@
 
 ## Unreleased
 
+### Fixed (CI)
+
+- **Evidence Derivation:** Replaced artifact-directory-presence check for `DET-001` with
+  structured parsing and validation of `static-inspection.json`; `FAILED` static inspections
+  now correctly yield `UNVERIFIED` evidence instead of relying solely on artifact existence.
+  Adds `source_file`, `source_status`, and optional `error` fields to DET-001 evidence.
+- **Evidence Script Hardening:** Added TypeError guard on `generateEvidence` input,
+  try/catch with `process.exit(1)` in CLI mode, truncated log interpolations to
+  200 chars in `checkStaticInspection`, harmonized parameter naming, and tightened
+  JSDoc return types to `'VERIFIED'|'UNVERIFIED'` union.
+
+### Fixed (Docs)
+
+- **Docs Build:** Rewrote `ADR-0007-impl.md` from a 3185-line raw conversation
+  transcript into a proper 13-section ADR document. The Vue template compiler
+  was crashing on bare Rust generics (`BTreeMap<NodeId, NodeRecord>`, etc.)
+  outside fenced code blocks. The new document preserves all architectural
+  knowledge as a structured implementation companion to ADR-0007.
+- **Stale Hash Domain:** Updated three stale `DIND_STATE_HASH_V2` references in
+  `graph.rs` doc comment and `ADR-0007-impl.md` §2.1/§7 to match the actual
+  domain prefix `echo:state_root:v1` defined in `domain.rs`. Renamed the
+  adjacent `V2 Changes` subsection to `Layout Notes` to remove versioning
+  ambiguity.
+- **Module Count:** Fixed off-by-one module count in `ADR-0007-impl.md` metadata
+  and §1 prose (36 → 37) and added qualifier noting tables cover key modules only.
+- **Stale Design Doc:** Deleted `docs/WARP-GRAPH.md` (1,219-line chat transcript
+  fully superseded by `ADR-0007-impl.md` and `crates/warp-core/src/wsc/`).
+  Extracted all-zero-key caveat into ADR §9.6 and `save_wsc()` convenience
+  wrapper gap into `TASKS-DAG.md` backlog before removal.
+
 ## [0.1.3] — 2026-02-21
 
 ### Fixed (Sprint S1)

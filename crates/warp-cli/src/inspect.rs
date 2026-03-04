@@ -53,6 +53,7 @@ pub(crate) struct InspectReport {
 /// A node in the ASCII tree rendering.
 #[derive(Debug, Serialize)]
 pub(crate) struct TreeNode {
+    pub(crate) warp_index: usize,
     pub(crate) depth: usize,
     pub(crate) node_id: String,
     pub(crate) node_type: String,
@@ -92,7 +93,7 @@ pub(crate) fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Re
         warp_stats.push(stats);
 
         if let Some(ref mut tree_list) = trees {
-            let tree = build_tree(&view, TREE_MAX_DEPTH);
+            let tree = build_tree(&view, i, TREE_MAX_DEPTH);
             tree_list.push(tree);
         }
     }
@@ -194,7 +195,7 @@ fn count_connected_components(view: &WarpView<'_>) -> usize {
 }
 
 /// Builds an ASCII tree from the root node, depth-limited.
-fn build_tree(view: &WarpView<'_>, max_depth: usize) -> Vec<TreeNode> {
+fn build_tree(view: &WarpView<'_>, warp_index: usize, max_depth: usize) -> Vec<TreeNode> {
     let root_id = *view.root_node_id();
     let root_ix = match view.node_ix(&root_id) {
         Some(ix) => ix,
@@ -207,6 +208,7 @@ fn build_tree(view: &WarpView<'_>, max_depth: usize) -> Vec<TreeNode> {
 
     vec![build_tree_node(
         view,
+        warp_index,
         &root_id,
         &root_node.node_type,
         0,
@@ -217,6 +219,7 @@ fn build_tree(view: &WarpView<'_>, max_depth: usize) -> Vec<TreeNode> {
 
 fn build_tree_node(
     view: &WarpView<'_>,
+    warp_index: usize,
     node_id: &[u8; 32],
     node_type: &[u8; 32],
     depth: usize,
@@ -239,6 +242,7 @@ fn build_tree_node(
                             let to_node = &view.nodes()[to_ix];
                             children.push(build_tree_node(
                                 view,
+                                warp_index,
                                 &to_id,
                                 &to_node.node_type,
                                 depth + 1,
@@ -253,6 +257,7 @@ fn build_tree_node(
     }
 
     TreeNode {
+        warp_index,
         depth,
         node_id: short_hex(node_id),
         node_type: short_hex(node_type),
@@ -297,8 +302,16 @@ fn format_text_report(report: &InspectReport) -> String {
     }
 
     if let Some(ref tree) = report.tree {
-        let _ = writeln!(out, "  Tree:");
+        let multi_warp = report.metadata.warp_count > 1;
+        let mut current_warp: Option<usize> = None;
         for node in tree {
+            if multi_warp && (current_warp != Some(node.warp_index)) {
+                let _ = writeln!(out, "  Tree (warp {}):", node.warp_index);
+                current_warp = Some(node.warp_index);
+            } else if !multi_warp && current_warp.is_none() {
+                let _ = writeln!(out, "  Tree:");
+                current_warp = Some(0);
+            }
             format_tree_node(&mut out, node, "", true);
         }
         let _ = writeln!(out);
@@ -429,9 +442,10 @@ mod tests {
         let file = WscFile::from_bytes(wsc).unwrap();
         let view = file.warp_view(0).unwrap();
 
-        let tree = build_tree(&view, 5);
+        let tree = build_tree(&view, 0, 5);
         assert!(!tree.is_empty());
         assert_eq!(tree[0].depth, 0);
+        assert_eq!(tree[0].warp_index, 0);
     }
 
     #[test]
@@ -440,7 +454,7 @@ mod tests {
         let file = WscFile::from_bytes(wsc).unwrap();
         let view = file.warp_view(0).unwrap();
 
-        let tree = build_tree(&view, 5);
+        let tree = build_tree(&view, 0, 5);
         assert!(!tree.is_empty());
         // Root should have children from edges.
         assert!(!tree[0].children.is_empty(), "root should have children");

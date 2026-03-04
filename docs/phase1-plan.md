@@ -61,7 +61,7 @@ graph TD
 ### 1C · Rhai/TS Bindings
 
 - Tasks
-    - Expose C ABI for host integrations, embed Rhai with deterministic sandbox + host modules.
+    - Embed Rhai with deterministic sandbox + host modules.
     - Build WASM bindings for tooling.
     - Port inspector CLI to use snapshots.
 - Demonstration: Rhai script triggers rewrite; inspector shows matching snapshot hash.

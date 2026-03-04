@@ -101,8 +101,13 @@ state.
 ```rust
 /// Ordered sequence of tick patches forming a provenance proof.
 ///
-/// Invariant: patches[i].header.global_tick == i (zero-indexed from
-/// the worldline's registration tick, contiguous, no gaps).
+/// Invariant: ticks are strictly contiguous over the payload's range.
+/// For all i > 0: patches[i].header.global_tick ==
+///   patches[i-1].header.global_tick + 1.
+/// Equivalently: patches[i].header.global_tick == start_tick + i,
+/// where start_tick = patches[0].header.global_tick.
+/// The start tick need NOT be zero — payloads constructed from
+/// `from_store(store, wl, 5..10)` begin at tick 5.
 ///
 /// Paper III: P = (μ₀, μ₁, …, μₙ₋₁)
 pub struct ProvenancePayload {
@@ -110,7 +115,8 @@ pub struct ProvenancePayload {
     pub worldline_id: WorldlineId,
     /// Initial state reference (MVP: WarpId).
     pub u0: WarpId,
-    /// Ordered tick patches. Must be contiguous and zero-gap.
+    /// Ordered tick patches. Must be contiguous (no gaps) but may
+    /// start at any absolute tick.
     pub patches: Vec<WorldlineTickPatchV1>,
     /// Corresponding hash triplets for each tick (verification anchors).
     pub expected: Vec<HashTriplet>,
@@ -198,7 +204,7 @@ verify_btr(btr, initial_store):
         a. patch.apply_to_store(&mut store)
         b. assert canonical_state_hash(store) == btr.payload.expected[i].state_root
     4. assert canonical_state_hash(store) == btr.h_out
-    5. recompute commit_hash from (h_out, parents, patch_digest, policy_id)
+    5. recompute commit_hash per §5.4: BLAKE3("echo:btr:v1\0" || h_in || h_out || u0 || payload_digest || tick || policy_id)
     6. assert recomputed == btr.commit_hash
 ```
 
@@ -292,6 +298,11 @@ pub struct DerivationGraph {
 
 ```text
 derive(store, worldline_id, slot, tick):
+    // Seed: find the query tick only if it actually produces the queried slot.
+    seed_patch ← store.patch(worldline_id, tick)
+    if slot not in seed_patch.out_slots:
+        return DerivationGraph { query_slot: slot, query_tick: tick, nodes: [], edges: [] }
+
     frontier ← { (worldline_id, tick) }
     visited ← {}
     result_nodes ← []
@@ -302,14 +313,14 @@ derive(store, worldline_id, slot, tick):
         if (wl, t) in visited: continue
         visited.insert((wl, t))
 
+        // Every node pulled from the frontier is already known to be
+        // in the backward cone (it was added because a downstream node
+        // consumed one of its out_slots). Accept it unconditionally.
         patch ← store.patch(wl, t)
-        if slot not in patch.out_slots and (wl, t) != (worldline_id, tick):
-            continue  // This tick didn't produce anything we care about.
-
         node ← ProvenanceNode from patch
         result_nodes.push(node)
 
-        // Trace backward through in_slots.
+        // Trace backward through ALL in_slots of this patch.
         for in_slot in patch.in_slots:
             for prev_tick in (0..t).rev():
                 prev_patch ← store.patch(wl, prev_tick)
@@ -329,6 +340,12 @@ derive(store, worldline_id, slot, tick):
         edges: result_edges,
     }
 ```
+
+**Correctness note:** The frontier is seeded only with the query tick (after
+verifying it produces `slot`). Each subsequent node is added to the frontier
+because a node already in the cone consumed one of its `out_slots`. Therefore,
+every node in the frontier is transitively causal — no per-node slot filter
+is needed after the seed check.
 
 ---
 

@@ -229,19 +229,17 @@ mod tests {
     }
 
     #[test]
-    fn tampered_wsc_fails() {
+    fn tampered_wsc_does_not_panic() {
         let (mut wsc_bytes, _) = make_test_wsc();
         // Flip a byte in the node data (well past the header).
         let flip_pos = wsc_bytes.len() / 2;
         wsc_bytes[flip_pos] ^= 0xFF;
         let f = write_temp_wsc(&wsc_bytes);
-        // May fail at validation or hash comparison.
-        let result = run(f.path(), None, &OutputFormat::Text);
-        // Tampered files may still pass structural validation if the flip
-        // hits data (not structural fields). What matters is the state root
-        // will differ, which we verify via the expected hash mechanism.
-        // So this test just ensures no panic.
-        drop(result);
+        // Tampered files may fail at structural validation or produce a
+        // different state root — the outcome depends on which byte was
+        // flipped. We intentionally allow both Ok and Err here; the point
+        // is that the loader never panics on corrupted input.
+        let _result = run(f.path(), None, &OutputFormat::Text);
     }
 
     #[test]

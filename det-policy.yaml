@@ -33,10 +33,6 @@ crates:
     class: DET_CRITICAL
     owner_role: "Architect"
     paths: ["crates/warp-wasm/**"]
-  warp-ffi:
-    class: DET_CRITICAL
-    owner_role: "Architect"
-    paths: ["crates/warp-ffi/**"]
   echo-wasm-abi:
     class: DET_CRITICAL
     owner_role: "Architect"

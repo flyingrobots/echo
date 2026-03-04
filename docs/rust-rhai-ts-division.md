@@ -19,13 +19,13 @@ Echo’s runtime stack is intentionally stratified. Rust owns the deterministic 
 - Asset pipeline: import/export graphs, payload storage, zero-copy access.
 - Confluence: distributed synchronization of rewrite transactions.
 - Rhai engine hosting: embed Rhai with deterministic module set; expose WARP bindings.
-- CLI tools: `warp` command for apply/snapshot/diff/verify.
+- CLI tools: `echo-cli` with `verify`, `bench`, and `inspect` subcommands.
 
 ### Key Crates
 
 - `warp-core` – core engine; Rhai binds directly in-process
 - `warp-wasm` – WASM build for tooling/editor
-- `warp-cli` – CLI utilities
+- `warp-cli` – CLI utilities (`echo-cli` binary: verify, bench, inspect)
 
 ---
 

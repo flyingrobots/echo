@@ -41,11 +41,12 @@ pub(crate) fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
         let node_id = NodeId(node_row.node_id);
         let atts = view.node_attachments(node_ix);
         // WSC stores at most one attachment per node (alpha plane).
-        debug_assert!(
-            atts.len() <= 1,
-            "expected ≤1 node attachment, got {}",
-            atts.len()
-        );
+        if atts.len() > 1 {
+            eprintln!(
+                "warning: node {node_ix} has {} attachments (expected ≤1); using first",
+                atts.len()
+            );
+        }
         if let Some(att) = atts.first() {
             let value = att_row_to_value(att, view);
             store.set_node_attachment(node_id, Some(value));
@@ -57,11 +58,12 @@ pub(crate) fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
         let edge_id = EdgeId(edge_row.edge_id);
         let atts = view.edge_attachments(edge_ix);
         // WSC stores at most one attachment per edge (beta plane).
-        debug_assert!(
-            atts.len() <= 1,
-            "expected ≤1 edge attachment, got {}",
-            atts.len()
-        );
+        if atts.len() > 1 {
+            eprintln!(
+                "warning: edge {edge_ix} has {} attachments (expected ≤1); using first",
+                atts.len()
+            );
+        }
         if let Some(att) = atts.first() {
             let value = att_row_to_value(att, view);
             store.set_edge_attachment(edge_id, Some(value));
@@ -188,6 +190,81 @@ mod tests {
         let reconstructed = graph_store_from_warp_view(&view);
 
         assert_eq!(original_hash, reconstructed.canonical_state_hash());
+    }
+
+    /// Verifies that edge attachments survive the WSC roundtrip.
+    #[test]
+    fn roundtrip_with_edge_attachments() {
+        let warp = make_warp_id("test");
+        let node_ty = make_type_id("TestNode");
+        let edge_ty = make_type_id("TestEdge");
+        let payload_ty = make_type_id("EdgePayload");
+        let root = make_node_id("root");
+        let child = make_node_id("child");
+        let edge_id = make_edge_id("root->child");
+
+        let mut store = GraphStore::new(warp);
+        store.insert_node(root, NodeRecord { ty: node_ty });
+        store.insert_node(child, NodeRecord { ty: node_ty });
+        store.insert_edge(
+            root,
+            EdgeRecord {
+                id: edge_id,
+                from: root,
+                to: child,
+                ty: edge_ty,
+            },
+        );
+        store.set_edge_attachment(
+            edge_id,
+            Some(AttachmentValue::Atom(AtomPayload::new(
+                payload_ty,
+                Bytes::from_static(&[10, 20, 30]),
+            ))),
+        );
+
+        let original_hash = store.canonical_state_hash();
+
+        let input = build_one_warp_input(&store, root);
+        let wsc_bytes = write_wsc_one_warp(&input, [0u8; 32], 0).expect("WSC write failed");
+
+        let file = WscFile::from_bytes(wsc_bytes).expect("WSC load failed");
+        let view = file.warp_view(0).expect("warp_view failed");
+        let reconstructed = graph_store_from_warp_view(&view);
+
+        assert_eq!(
+            original_hash,
+            reconstructed.canonical_state_hash(),
+            "state root must survive edge-attachment roundtrip"
+        );
+    }
+
+    /// Verifies that Descend (cross-warp reference) attachments survive roundtrip.
+    #[test]
+    fn roundtrip_with_descend_attachment() {
+        let warp = make_warp_id("test");
+        let child_warp = make_warp_id("child_warp");
+        let node_ty = make_type_id("TestNode");
+        let root = make_node_id("root");
+
+        let mut store = GraphStore::new(warp);
+        store.insert_node(root, NodeRecord { ty: node_ty });
+        store.set_node_attachment(root, Some(AttachmentValue::Descend(child_warp)));
+
+        let original_hash = store.canonical_state_hash();
+
+        let input = build_one_warp_input(&store, root);
+        let wsc_bytes = write_wsc_one_warp(&input, [0u8; 32], 0).expect("WSC write failed");
+
+        let file = WscFile::from_bytes(wsc_bytes).expect("WSC load failed");
+        let view = file.warp_view(0).expect("warp_view failed");
+        let reconstructed = graph_store_from_warp_view(&view);
+
+        assert_eq!(
+            original_hash,
+            reconstructed.canonical_state_hash(),
+            "state root must survive Descend-attachment roundtrip"
+        );
     }
 
     /// Empty graph (0 nodes) roundtrips successfully.

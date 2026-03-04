@@ -39,6 +39,33 @@
   `echo-cli*.1` files before regeneration so the output directory is an
   exact snapshot.
 
+### Fixed — Code Review (PR #289, Round 2)
+
+- **Inspect Tree Warp Identity:** Multi-warp snapshots now label each tree
+  section with its warp index (`Tree (warp 0):`, `Tree (warp 1):`) instead of
+  flattening all trees into a single unlabeled `Tree:` section.
+- **WSC Loader Attachment Checks:** Replaced `debug_assert!` with runtime
+  warnings for attachment multiplicity violations. Previously, release builds
+  silently dropped extra attachments; now emits a warning to stderr.
+- **Test Naming:** Renamed `tampered_wsc_fails` to `tampered_wsc_does_not_panic`
+  to accurately reflect the test's behavior (no assertion, just no-panic guard).
+- **Test Coverage:** Added `roundtrip_with_edge_attachments` and
+  `roundtrip_with_descend_attachment` tests to `wsc_loader.rs`, covering
+  previously untested code paths.
+- **SPEC-0005 `global_tick` Invariant:** Reworded from `patches[i].global_tick == i`
+  to correctly state contiguity relative to the payload's start tick, since
+  payloads can begin at any absolute tick via `from_store(store, wl, 5..10)`.
+- **SPEC-0005 BTR Verification:** Fixed step 5 of the verification algorithm
+  to reference the actual hash formula from §5.4 instead of a nonexistent
+  `parents` field.
+- **SPEC-0005 Derivation Algorithm:** Fixed backward-cone traversal that dropped
+  transitive dependencies. The original filter checked the root query slot at
+  every hop; now accepts all frontier nodes unconditionally (they are already
+  known-causal) and traces all `in_slots` backward.
+- **Stale `warp-ffi` References:** Removed dead `warp-ffi` entry from
+  `det-policy.yaml`, C ABI text from `phase1-plan.md`, and stale CLI names
+  from `rust-rhai-ts-division.md`.
+
 ### Fixed — Docs & CI
 
 - **TASKS-DAG Spec Path:** `SPEC-PROVENANCE-PAYLOAD.md` →
@@ -75,6 +102,14 @@
 - **Man Pages:** Added `clap_mangen`-based man page generation to `xtask`.
   `cargo xtask man-pages` generates `docs/man/echo-cli.1`,
   `echo-cli-verify.1`, `echo-cli-bench.1`, `echo-cli-inspect.1`.
+
+### Removed
+
+- **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
+  has been removed. The C ABI approach was abandoned in favor of Rust plugin
+  extension via `RewriteRule` trait registration and Rhai scripting. See
+  TASKS-DAG.md #26 (Graveyard). This is a **BREAKING CHANGE** for any
+  downstream code that depended on the C FFI surface.
 
 ### Added — Provenance Payload Spec (PP-1)
 

@@ -5,7 +5,6 @@
 //! The library target exists solely to let `xtask` import the `Cli` struct
 //! for `clap_mangen` man page generation. The output module is included for
 //! completeness but its functions are only called by the binary target.
-#![allow(dead_code)]
-
 pub mod cli;
+#[allow(dead_code)]
 pub(crate) mod output;

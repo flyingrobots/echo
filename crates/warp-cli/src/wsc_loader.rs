@@ -41,6 +41,11 @@ pub fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
         let node_id = NodeId(node_row.node_id);
         let atts = view.node_attachments(node_ix);
         // WSC stores at most one attachment per node (alpha plane).
+        debug_assert!(
+            atts.len() <= 1,
+            "expected ≤1 node attachment, got {}",
+            atts.len()
+        );
         if let Some(att) = atts.first() {
             let value = att_row_to_value(att, view);
             store.set_node_attachment(node_id, Some(value));
@@ -52,6 +57,11 @@ pub fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
         let edge_id = EdgeId(edge_row.edge_id);
         let atts = view.edge_attachments(edge_ix);
         // WSC stores at most one attachment per edge (beta plane).
+        debug_assert!(
+            atts.len() <= 1,
+            "expected ≤1 edge attachment, got {}",
+            atts.len()
+        );
         if let Some(att) = atts.first() {
             let value = att_row_to_value(att, view);
             store.set_edge_attachment(edge_id, Some(value));
@@ -83,7 +93,13 @@ fn edge_row_to_record(row: &EdgeRow) -> (NodeId, EdgeRecord) {
 
 fn att_row_to_value(att: &AttRow, view: &WarpView<'_>) -> AttachmentValue {
     if att.is_atom() {
-        let blob = view.blob_for_attachment(att).unwrap_or(&[]);
+        let blob = match view.blob_for_attachment(att) {
+            Some(b) => b,
+            None => {
+                eprintln!("warning: missing blob for atom attachment; using empty payload");
+                &[]
+            }
+        };
         AttachmentValue::Atom(AtomPayload::new(
             TypeId(att.type_or_warp),
             Bytes::copy_from_slice(blob),

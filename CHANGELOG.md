@@ -20,6 +20,12 @@
 - **Output Hardening:** `emit()` no longer panics on JSON serialization failure;
   falls back to stderr. Bench exit status now reports Unix signal numbers
   instead of a misleading `-1`.
+- **Error Handling:** `collect_criterion_results` now logs a warning on
+  unparseable `estimates.json` instead of silently skipping. `format_duration`
+  returns "N/A" for NaN/negative values. `att_row_to_value` warns on missing
+  blob data instead of silent fallback.
+- **Dead Code:** Replaced blanket `#![allow(dead_code)]` on `lib.rs` with
+  targeted `#[allow(dead_code)]` on the `output` module only.
 
 ### Added — Developer CLI (`echo-cli`)
 

@@ -6,7 +6,7 @@
 //! (node/edge counts, type breakdown, connected components), and an optional
 //! ASCII tree rendering of the graph structure.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -59,6 +59,9 @@ pub struct TreeNode {
     pub children: Vec<TreeNode>,
 }
 
+/// Maximum depth for ASCII tree rendering.
+const TREE_MAX_DEPTH: usize = 5;
+
 /// Runs the inspect subcommand.
 pub fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Result<()> {
     let file = WscFile::open(snapshot)
@@ -89,7 +92,7 @@ pub fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Result<()
         warp_stats.push(stats);
 
         if let Some(ref mut tree_list) = trees {
-            let tree = build_tree(&view, 5);
+            let tree = build_tree(&view, TREE_MAX_DEPTH);
             tree_list.push(tree);
         }
     }
@@ -145,7 +148,8 @@ fn count_connected_components(view: &WarpView<'_>) -> usize {
     }
 
     // Build adjacency from edges (undirected).
-    let mut adjacency: BTreeMap<[u8; 32], BTreeSet<[u8; 32]>> = BTreeMap::new();
+    // HashMap/HashSet: this is CLI-only code, not the deterministic engine.
+    let mut adjacency: HashMap<[u8; 32], HashSet<[u8; 32]>> = HashMap::new();
     for n in nodes {
         adjacency.entry(n.node_id).or_default();
     }
@@ -160,7 +164,7 @@ fn count_connected_components(view: &WarpView<'_>) -> usize {
             .insert(e.from_node_id);
     }
 
-    let mut visited: BTreeSet<[u8; 32]> = BTreeSet::new();
+    let mut visited: HashSet<[u8; 32]> = HashSet::new();
     let mut components = 0;
 
     for node in nodes {

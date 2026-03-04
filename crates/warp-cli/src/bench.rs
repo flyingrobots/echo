@@ -153,8 +153,9 @@ pub fn collect_criterion_results(
             continue;
         }
 
-        if let Ok(result) = parse_estimates(&bench_name, &estimates_path) {
-            results.push(result);
+        match parse_estimates(&bench_name, &estimates_path) {
+            Ok(result) => results.push(result),
+            Err(e) => eprintln!("warning: skipping {bench_name}: {e:#}"),
         }
     }
 
@@ -197,6 +198,9 @@ pub fn format_table(results: &[BenchResult]) -> String {
 
 /// Formats nanosecond durations in human-readable form.
 fn format_duration(ns: f64) -> String {
+    if ns.is_nan() || ns < 0.0 {
+        return "N/A".to_string();
+    }
     if ns >= 1_000_000_000.0 {
         format!("{:.2} s", ns / 1_000_000_000.0)
     } else if ns >= 1_000_000.0 {
@@ -318,6 +322,16 @@ mod tests {
         assert_eq!(format_duration(1_500.0), "1.50 \u{00b5}s");
         assert_eq!(format_duration(1_500_000.0), "1.50 ms");
         assert_eq!(format_duration(1_500_000_000.0), "1.50 s");
+    }
+
+    #[test]
+    fn format_duration_nan_returns_na() {
+        assert_eq!(format_duration(f64::NAN), "N/A");
+    }
+
+    #[test]
+    fn format_duration_negative_returns_na() {
+        assert_eq!(format_duration(-1.0), "N/A");
     }
 
     #[test]

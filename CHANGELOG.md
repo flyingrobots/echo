@@ -5,6 +5,13 @@
 
 ## Unreleased
 
+### Fixed — Developer CLI (`echo-cli`)
+
+- **Bench Filter:** `echo-cli bench --filter <pattern>` now passes the filter
+  as a Criterion regex (`-- <pattern>`) instead of a `--bench` cargo target
+  selector. Previous behavior would look for a bench _target_ named after the
+  pattern rather than filtering benchmarks by regex.
+
 ### Added — Developer CLI (`echo-cli`)
 
 - **CLI Scaffold (`warp-cli`):** Replaced placeholder with full `clap` 4 derive

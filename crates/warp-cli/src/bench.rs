@@ -39,19 +39,26 @@ pub struct Estimate {
     pub point_estimate: f64,
 }
 
-/// Runs the bench subcommand.
-pub fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
-    // 1. Shell out to cargo bench.
+/// Builds the `cargo bench` command with optional Criterion regex filter.
+pub fn build_bench_command(filter: Option<&str>) -> Command {
     let mut cmd = Command::new("cargo");
     cmd.args(["bench", "-p", "warp-benches"]);
 
     if let Some(f) = filter {
-        cmd.args(["--bench", f]);
+        cmd.args(["--", f]);
     }
 
-    // Suppress benchmark stdout to avoid mixing with our formatted output.
+    // Inherit stdout/stderr so Criterion progress is visible.
     cmd.stdout(std::process::Stdio::inherit());
     cmd.stderr(std::process::Stdio::inherit());
+
+    cmd
+}
+
+/// Runs the bench subcommand.
+pub fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
+    // 1. Shell out to cargo bench.
+    let mut cmd = build_bench_command(filter);
 
     let status = cmd
         .status()
@@ -299,5 +306,36 @@ mod tests {
     fn nonexistent_criterion_dir_returns_empty() {
         let results = collect_criterion_results(Path::new("/nonexistent/criterion"), None).unwrap();
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn build_bench_command_with_filter_passes_criterion_regex() {
+        let cmd = build_bench_command(Some("hotpath"));
+        let args: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
+        // Filter should appear after "--" (Criterion regex), not "--bench" (cargo target).
+        assert!(
+            args.contains(&std::ffi::OsStr::new("--")),
+            "command should contain '--' separator"
+        );
+        assert!(
+            args.contains(&std::ffi::OsStr::new("hotpath")),
+            "command should contain filter pattern"
+        );
+        // Ensure "--bench" is NOT used for filter.
+        let bench_pos = args.iter().position(|a| *a == "--bench");
+        assert!(
+            bench_pos.is_none(),
+            "command should not use --bench for filter"
+        );
+    }
+
+    #[test]
+    fn build_bench_command_without_filter_omits_separator() {
+        let cmd = build_bench_command(None);
+        let args: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
+        assert!(
+            !args.contains(&std::ffi::OsStr::new("--")),
+            "command without filter should not contain '--'"
+        );
     }
 }

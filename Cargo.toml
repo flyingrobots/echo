@@ -3,7 +3,7 @@
 [workspace]
 members = [
     "crates/warp-core",
-    "crates/warp-ffi",
+
     "crates/warp-wasm",
     "crates/warp-cli",
     "crates/warp-geom",

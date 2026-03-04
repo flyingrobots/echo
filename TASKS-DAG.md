@@ -34,22 +34,20 @@ This living list documents open issues and the inferred dependencies contributor
     - Confidence: strong
     - Evidence: Inferred: Epic completion depends on constituent task
 
-## [#21: Spec: Security Contexts (FFI/WASM/CLI)](https://github.com/flyingrobots/echo/issues/21)
+## [#21: Spec: Security Contexts (WASM/CLI)](https://github.com/flyingrobots/echo/issues/21)
 
 - Status: Open
 - Blocked by:
     - [#37: Draft security contexts spec](https://github.com/flyingrobots/echo/issues/37)
     - Confidence: strong
     - Evidence: Inferred: Epic completion depends on Draft Spec task
-    - [#38: FFI limits and validation](https://github.com/flyingrobots/echo/issues/38)
+    - ~~[#38: FFI limits and validation](https://github.com/flyingrobots/echo/issues/38)~~ — Closed (Graveyard: C ABI abandoned for determinism)
+    - [#39: WASM input validation](https://github.com/flyingrobots/echo/issues/39) — Completed
     - Confidence: strong
-    - Evidence: Inferred: Epic completion depends on constituent task
-    - [#39: WASM input validation](https://github.com/flyingrobots/echo/issues/39)
-    - Confidence: strong
-    - Evidence: Inferred: Epic completion depends on constituent task
+    - Evidence: `crates/warp-wasm/src/lib.rs` implements `validate_object_against_args` with 4 test cases.
     - [#40: Unit tests for denials](https://github.com/flyingrobots/echo/issues/40)
     - Confidence: strong
-    - Evidence: Inferred: Epic completion depends on constituent task
+    - Evidence: Inferred: Epic completion depends on constituent task (scoped to WASM/CLI denials)
 
 ## [#22: Benchmarks & CI Regression Gates](https://github.com/flyingrobots/echo/issues/22)
 
@@ -74,7 +72,7 @@ This living list documents open issues and the inferred dependencies contributor
 
 ## [#26: Plugin ABI (C) v0](https://github.com/flyingrobots/echo/issues/26)
 
-- Status: In Progress
+- Status: Closed (Graveyard: C ABI abandoned for determinism — C's UB is incompatible with Echo's determinism guarantees. Rust plugin extension via RewriteRule trait registration and Rhai scripting replace this path.)
 - (No detected dependencies)
 
 ## [#27: Add golden test vectors (encoder/decoder)](https://github.com/flyingrobots/echo/issues/27)
@@ -150,19 +148,17 @@ This living list documents open issues and the inferred dependencies contributor
 
 ## [#38: FFI limits and validation](https://github.com/flyingrobots/echo/issues/38)
 
-- Status: In Progress
+- Status: Closed (Graveyard: C ABI abandoned for determinism — warp-ffi crate deleted)
 - Blocks:
-    - [#21: Spec: Security Contexts (FFI/WASM/CLI)](https://github.com/flyingrobots/echo/issues/21)
-    - Confidence: strong
-    - Evidence: Inferred: Epic completion depends on constituent task
+    - [#21: Spec: Security Contexts (WASM/CLI)](https://github.com/flyingrobots/echo/issues/21) — no longer blocking (FFI path removed)
 
 ## [#39: WASM input validation](https://github.com/flyingrobots/echo/issues/39)
 
-- Status: In Progress
+- Status: Completed
 - Blocks:
-    - [#21: Spec: Security Contexts (FFI/WASM/CLI)](https://github.com/flyingrobots/echo/issues/21)
+    - [#21: Spec: Security Contexts (WASM/CLI)](https://github.com/flyingrobots/echo/issues/21)
     - Confidence: strong
-    - Evidence: `crates/warp-wasm/src/lib.rs` implements `validate_object_against_args` for schema checks.
+    - Evidence: `crates/warp-wasm/src/lib.rs` implements `validate_object_against_args` with full schema validation + 4 test cases. GitHub issue closed.
 
 ## [#40: Unit tests for denials](https://github.com/flyingrobots/echo/issues/40)
 
@@ -259,22 +255,22 @@ This living list documents open issues and the inferred dependencies contributor
 
 ## [#86: C header + host loader](https://github.com/flyingrobots/echo/issues/86)
 
-- Status: In Progress
+- Status: Closed (Graveyard: C ABI abandoned for determinism)
 - (No detected dependencies)
 
 ## [#87: Version negotiation](https://github.com/flyingrobots/echo/issues/87)
 
-- Status: Open
+- Status: Closed (Graveyard: C ABI abandoned for determinism)
 - (No detected dependencies)
 
 ## [#88: Capability tokens](https://github.com/flyingrobots/echo/issues/88)
 
-- Status: Open
+- Status: Closed (Graveyard: C ABI abandoned for determinism)
 - (No detected dependencies)
 
 ## [#89: Example plugin + tests](https://github.com/flyingrobots/echo/issues/89)
 
-- Status: Open
+- Status: Closed (Graveyard: C ABI abandoned for determinism)
 - (No detected dependencies)
 
 ## [#103: Policy: Require PR↔Issue linkage and 'Closes #…' in PRs](https://github.com/flyingrobots/echo/issues/103)
@@ -410,10 +406,179 @@ This living list documents open issues and the inferred dependencies contributor
     - Confidence: weak
     - Evidence: Inferred: TT3 task depends on TT2 MVP
 
-## [#202: Spec: Provenance Payload (PP) v1 (canonical envelope for artifact lineage + signatures)](https://github.com/flyingrobots/echo/issues/202)
+## [#202: Provenance Payload (PP) v1 — spec + implementation](https://github.com/flyingrobots/echo/issues/202)
 
-- Status: In Progress
-- (No detected dependencies)
+- Status: Open — ACTIVE (prerequisite for time travel debugging)
+- Evidence: Paper III (AION Foundations) provides full formal spec: Provenance Payloads, Boundary Transition Records (BTRs), payload monoid, slicing, wormholes. Lower-level infrastructure exists in `warp-core` (ProvenanceStore, WorldlineTickPatchV1, HashTriplet, AtomWrite) but the Paper III formalism is not yet connected.
+- Blocks:
+    - [#170: TT1: StreamsFrame inspector support](https://github.com/flyingrobots/echo/issues/170)
+    - Confidence: strong
+    - Evidence: Time travel debugging requires provenance payloads for replay, slicing, and causal cone analysis.
+
+### Sub-tasks
+
+#### PP-1: Write SPEC-PROVENANCE-PAYLOAD.md
+
+Translate Paper III (AION Foundations) into a concrete engineering spec with wire format.
+
+**Requirements:**
+
+- R1: Define TickPatch record (rule-pack ID, accepted match keys, attachment deltas, commit flag, optional trace ρ)
+- R2: Define ProvenancePayload as ordered sequence P = (μ₀, …, μₙ₋₁) with monoid structure
+- R3: Define BoundaryEncoding B = (U₀, P) — initial state + payload
+- R4: Define BTR envelope: (h_in, h_out, U₀, P, t, κ) with content-addressed hashing and authentication tag
+- R5: Define In(μ)/Out(μ) — declared inputs/outputs per patch — and the provenance graph 𝕡 induced by them
+- R6: Map to W3C PROV vocabulary (tick patch = Activity, values = Entity)
+- R7: Specify canonical serialization format (deterministic CBOR or canonical JSON)
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-PROVENANCE-PAYLOAD.md`
+- [ ] AC2: All Paper III definitions (Def 3.1–3.9) have concrete field-level wire format
+- [ ] AC3: Two worked examples: (a) 3-tick accumulator (Paper III §A), (b) branching fork
+- [ ] AC4: Patch sufficiency checklist from Paper III Remark 3.3 is reproduced with Echo-specific field names
+- [ ] AC5: Security posture section (tamper-evidence, not tamper-proof; hash + auth binding)
+
+**Est. Hours:** 6h
+
+---
+
+#### PP-2: TickPatch type + Apply wiring
+
+Define the core TickPatch record in Rust and wire it to the existing engine tick logic.
+
+**Requirements:**
+
+- R1: `TickPatch` struct capturing: rule-pack hash, accepted matches (content-addressed keys), attachment deltas (TickDelta), commit flag, optional trace
+- R2: `Apply(state, patch) -> state` function that replays a single tick deterministically
+- R3: Integrate with existing `WorldlineTickPatchV1` — either replace or bridge
+
+**Acceptance Criteria:**
+
+- [ ] AC1: `TickPatch` type defined in `warp-core`
+- [ ] AC2: `Apply` function produces identical state to live engine execution for the same tick
+- [ ] AC3: Round-trip test: run engine tick → extract TickPatch → Apply from prior state → assert identical post-state
+
+**Test Plan:**
+
+- **Goldens:** Bit-exact patch bytes for the motion demo rule (3 ticks)
+- **Failures:** Corrupt patch (wrong rule-pack hash, missing match key, truncated delta)
+- **Edges:** Empty tick (no matches), single-match tick, max-conflict-resolution tick
+- **Fuzz:** proptest over random graph states + random rule applications → extract patch → replay → assert convergence
+
+**Est. Hours:** 10h
+
+---
+
+#### PP-3: ProvenancePayload + monoid operations
+
+Implement the payload sequence type with composition (concatenation) and identity.
+
+**Requirements:**
+
+- R1: `ProvenancePayload` wrapping `Vec<TickPatch>` with monoid `compose(P, Q)` = concatenation
+- R2: `BoundaryEncoding` struct: (initial_state: SnapshotHash, payload: ProvenancePayload)
+- R3: `Replay(B) -> Worldline` iterator that applies patches sequentially
+- R4: Payload serialization/deserialization (canonical byte format)
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Monoid laws hold: `compose(P, empty) == P`, `compose(empty, P) == P`, associativity
+- [ ] AC2: `Replay(U₀, P·Q)` produces same final state as `Replay(Replay(U₀, P).final, Q)`
+- [ ] AC3: Serialized payload round-trips bit-exactly
+
+**Test Plan:**
+
+- **Goldens:** Canonical bytes for known payloads (motion demo, 5-tick sequence)
+- **Failures:** Payload with patch for wrong state (Apply should fail gracefully)
+- **Edges:** Empty payload, single-patch payload, 1000-patch payload
+- **Fuzz:** proptest compose random payloads → assert monoid laws
+
+**Est. Hours:** 6h
+
+---
+
+#### PP-4: Boundary Transition Record (BTR)
+
+Implement the tamper-evident packaging format from Paper III §3.3.
+
+**Requirements:**
+
+- R1: `BTR` struct: (h_in: Hash, h_out: Hash, initial_state: U₀, payload: P, counter: u64, auth_tag: Vec<u8>)
+- R2: Content-addressed hashing for h_in and h_out (domain-separated, consistent with Lock the Hashes)
+- R3: Authentication tag computation (HMAC-SHA256 or Ed25519 signature binding all fields)
+- R4: BTR verification: recompute h_out from replay and compare
+
+**Acceptance Criteria:**
+
+- [ ] AC1: BTR creation from a completed worldline segment
+- [ ] AC2: BTR verification succeeds for valid records
+- [ ] AC3: BTR verification fails for any single-bit mutation in any field
+- [ ] AC4: BTR indexable by h_in and h_out for content-addressed storage
+
+**Test Plan:**
+
+- **Goldens:** Known BTR bytes for motion demo (3-tick worldline)
+- **Failures:** Tampered h_out, tampered payload, tampered auth_tag, swapped h_in/h_out
+- **Edges:** Zero-tick BTR (h_in == h_out), single-tick BTR, BTR at counter=u64::MAX
+- **Fuzz:** proptest mutate random byte positions in serialized BTR → assert verification fails
+
+**Est. Hours:** 8h
+
+---
+
+#### PP-5: Provenance graph + derivation graph D(v)
+
+Build the backward causal cone data structure from Paper III §3.4–3.5.
+
+**Requirements:**
+
+- R1: Track In(μ)/Out(μ) per TickPatch during replay
+- R2: Build provenance graph 𝕡 = (V, E) from patch inputs/outputs
+- R3: Compute derivation graph D(v) — backward reachable subgraph for any value v
+- R4: Assert finiteness and acyclicity (Paper III Prop 3.4)
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Provenance graph correctly captures all data-flow edges
+- [ ] AC2: D(v) for a known value matches hand-computed expected cone
+- [ ] AC3: Acyclicity assertion never fires for valid worldlines
+
+**Test Plan:**
+
+- **Goldens:** Hand-traced provenance graph for 3-tick accumulator example (Paper III §A)
+- **Failures:** Malformed patch with cyclic In/Out declarations → assert acyclicity violation
+- **Edges:** Value with no dependencies (initial state), value depending on all ticks
+- **Fuzz:** proptest random worldlines → build provenance graph → assert acyclicity + backward completeness
+
+**Est. Hours:** 8h
+
+---
+
+#### PP-6: Slice payloads (partial materialization)
+
+Implement causal-cone slicing from Paper III §4.
+
+**Requirements:**
+
+- R1: Given target value v and full payload P, compute slice payload P|D(v)
+- R2: Replaying P|D(v) from U₀ reconstructs v with the same value as full replay
+- R3: Slice is minimal: no patch in P|D(v) can be removed without breaking reconstruction
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Slice payload for accumulator example matches Paper III worked example
+- [ ] AC2: Slice replay produces identical target value to full replay
+- [ ] AC3: Slice is strictly smaller than or equal to full payload
+
+**Test Plan:**
+
+- **Goldens:** Slice bytes for known target values in motion demo
+- **Failures:** Slice with removed patch → assert replay diverges or fails
+- **Edges:** Target value that depends on all patches (slice == full), target in initial state (slice == empty)
+- **Fuzz:** proptest random worldlines + random target values → slice → replay → assert value match
+
+**Est. Hours:** 6h
 
 ## [#203: TT1: Constraint Lens panel (admission/scheduler explain-why + counterfactual sliders)](https://github.com/flyingrobots/echo/issues/203)
 
@@ -497,7 +662,7 @@ This living list documents open issues and the inferred dependencies contributor
 
 ## [#231: Demo 3: Tumble Tower — Stage 0 physics (2D AABB stacking)](https://github.com/flyingrobots/echo/issues/231)
 
-- Status: In Progress
+- Status: Open (unscheduled — future milestone)
 - Blocks:
     - [#238: Demo 3: Tumble Tower — docs course (physics ladder)](https://github.com/flyingrobots/echo/issues/238)
     - Confidence: medium
@@ -505,7 +670,7 @@ This living list documents open issues and the inferred dependencies contributor
     - [#232: Demo 3: Tumble Tower — Stage 1 physics (rotation + angular, OBB contacts)](https://github.com/flyingrobots/echo/issues/232)
     - Confidence: strong
     - Evidence: Inferred: Stage 1 physics depends on Stage 0
-- Evidence: `crates/warp-geom` implements primitives (AABB, Transform), but solver logic for "stacking" is not yet visible in the top-level modules.
+- Evidence: `crates/warp-geom` implements geometric primitives (AABB, Transform, broad-phase detection) but no physics simulation code exists: zero gravity, zero solver, zero contact resolution. Status corrected from "In Progress" to "Open" (2026-03-03).
 
 ## [#232: Demo 3: Tumble Tower — Stage 1 physics (rotation + angular, OBB contacts)](https://github.com/flyingrobots/echo/issues/232)
 

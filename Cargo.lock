@@ -5199,13 +5199,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "warp-ffi"
-version = "0.1.0"
-dependencies = [
- "warp-core",
-]
-
-[[package]]
 name = "warp-geom"
 version = "0.1.0"
 dependencies = [

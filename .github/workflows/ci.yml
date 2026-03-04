@@ -93,7 +93,7 @@ jobs:
           workspaces: |
             .
       # Intentionally test only warp-core under MUSL; warp-wasm targets wasm32
-      # (wasm-bindgen/js-sys) and warp-ffi has separate cross-compilation concerns.
+      # (wasm-bindgen/js-sys) and has separate cross-compilation concerns.
       - name: cargo test (warp-core, musl)
         run: cargo test -p warp-core --target x86_64-unknown-linux-musl
 
@@ -344,9 +344,7 @@ jobs:
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-core --no-deps
       - name: rustdoc warnings gate (warp-geom)
         run: RUSTDOCFLAGS="-D warnings" cargo doc -p warp-geom --no-deps
-      - name: rustdoc warnings gate (warp-ffi)
-        run: |
-          if [ -f crates/warp-ffi/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p warp-ffi --no-deps; fi
+
       - name: rustdoc warnings gate (warp-wasm)
         run: |
           if [ -f crates/warp-wasm/Cargo.toml ]; then RUSTDOCFLAGS="-D warnings" cargo doc -p warp-wasm --no-deps; fi

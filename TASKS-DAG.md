@@ -698,7 +698,7 @@ This living list documents open issues and the inferred dependencies contributor
 - Blocked by:
     - [#286: CI: Add unit tests for classify_changes.cjs and matches()](https://github.com/flyingrobots/echo/issues/286)
     - Confidence: medium
-    - Evidence: Both scripts now export their main functions (M1/M2 in det-hard). `checkStaticInspection` is now module-scoped and exported (PR #288), enabling direct unit tests for all 5 behavioral branches: file-not-found, invalid JSON, null/non-object parse, wrong structure, and PASSED/FAILED status. Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON.
+    - Evidence: Both scripts now export their main functions. `checkStaticInspection` is module-scoped and exported (merged in PR #288), enabling direct unit tests for all 5 behavioral branches: file-not-found, invalid JSON, null/non-object parse, wrong structure, and PASSED/FAILED status. PR #288 also added a TypeError guard on `generateEvidence` (non-string input), CLI try/catch with `process.exit(1)`, and log truncation (`.slice(0, 200)`) — all testable. Edge cases to cover: 'local' sentinel, missing artifacts, malformed evidence JSON, undefined input.
 
 ## Backlog: Simplify docs crate path list in det-policy.yaml
 
@@ -733,7 +733,7 @@ This living list documents open issues and the inferred dependencies contributor
 ## Backlog: Extract checkArtifact helper to module scope in generate_evidence.cjs
 
 - Status: Open
-- Evidence: `checkStaticInspection` was extracted to module scope and exported in PR #288, but `checkArtifact` remains a closure inside `generateEvidence`. For consistency and testability, it should follow the same pattern: top-level function declaration, added to `module.exports`.
+- Evidence: `checkStaticInspection` was extracted to module scope and exported (merged in PR #288), but `checkArtifact` remains a closure inside `generateEvidence`. For consistency and testability, it should follow the same pattern: top-level function declaration, added to `module.exports`.
 - (No detected dependencies)
 
 ## Backlog: Add --dry-run mode to generate_evidence.cjs
@@ -745,7 +745,7 @@ This living list documents open issues and the inferred dependencies contributor
 ## Backlog: Lint docs/ markdown for bare angle brackets (VitePress guard)
 
 - Status: Open
-- Evidence: ADR-0007-impl.md was a 3185-line transcript containing bare Rust generics (`BTreeMap<NodeId, NodeRecord>`) outside fenced code blocks, crashing the VitePress Vue template compiler. PR #288 rewrote the document, but no CI lint prevents recurrence. A markdownlint custom rule or shell script scanning `docs/**/*.md` for `<[A-Z]` outside backticks and code fences would catch this at pre-commit time.
+- Evidence: ADR-0007-impl.md was a 3,185-line transcript containing bare Rust generics (`BTreeMap<NodeId, NodeRecord>`) outside fenced code blocks, crashing the VitePress Vue template compiler. The document was rewritten (merged in PR #288), but no CI lint prevents recurrence. A markdownlint custom rule or shell script scanning `docs/**/*.md` for `<[A-Z]` outside backticks and code fences would catch this at pre-commit time.
 - (No detected dependencies)
 
 ## Backlog: Clean up stale DIND_STATE_HASH_V2 in WARP-GRAPH.md references

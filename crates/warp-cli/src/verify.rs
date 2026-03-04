@@ -56,6 +56,13 @@ pub fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat) -> Re
     let mut warp_results = Vec::with_capacity(warp_count);
     let mut all_pass = true;
 
+    if expected.is_some() && warp_count > 1 {
+        eprintln!(
+            "warning: --expected only applies to warp 0; {} additional warp(s) will report 'unchecked'",
+            warp_count - 1
+        );
+    }
+
     // 3. For each warp: reconstruct graph, compute state root.
     for i in 0..warp_count {
         let view = file
@@ -76,7 +83,7 @@ pub fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat) -> Re
                     format!("MISMATCH (expected {exp})")
                 }
             } else {
-                "pass".to_string()
+                "unchecked".to_string()
             }
         } else {
             "pass".to_string()
@@ -139,7 +146,7 @@ fn format_text_report(report: &VerifyReport) -> String {
         writeln!(out).ok();
     }
 
-    writeln!(out, "  Result: {}", report.result.to_uppercase()).ok();
+    writeln!(out, "  Result: {}", report.result).ok();
     out
 }
 
@@ -258,6 +265,46 @@ mod tests {
         assert!(
             err_msg.contains("failed to open WSC file"),
             "error should mention file open failure: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn text_report_shows_unchecked_for_extra_warps() {
+        let report = VerifyReport {
+            file: "test.wsc".to_string(),
+            tick: 1,
+            schema_hash: "abcd".to_string(),
+            warp_count: 2,
+            warps: vec![
+                WarpVerifyResult {
+                    warp_id: "0000".to_string(),
+                    root_node_id: "1111".to_string(),
+                    nodes: 3,
+                    edges: 2,
+                    state_root: "aaaa".to_string(),
+                    status: "pass".to_string(),
+                },
+                WarpVerifyResult {
+                    warp_id: "2222".to_string(),
+                    root_node_id: "3333".to_string(),
+                    nodes: 1,
+                    edges: 0,
+                    state_root: "bbbb".to_string(),
+                    status: "unchecked".to_string(),
+                },
+            ],
+            result: "pass".to_string(),
+        };
+
+        let text = format_text_report(&report);
+        assert!(
+            text.contains("unchecked"),
+            "multi-warp report should show 'unchecked' for warps 1+: {text}"
+        );
+        // Result line should be lowercase (no .to_uppercase()).
+        assert!(
+            text.contains("Result: pass"),
+            "result should be lowercase 'pass': {text}"
         );
     }
 

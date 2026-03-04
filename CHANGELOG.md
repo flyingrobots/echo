@@ -11,6 +11,10 @@
   as a Criterion regex (`-- <pattern>`) instead of a `--bench` cargo target
   selector. Previous behavior would look for a bench _target_ named after the
   pattern rather than filtering benchmarks by regex.
+- **Verify Expected Hash:** `--expected` now correctly reports "unchecked" for
+  warps 1+ instead of silently claiming "pass". Emits a stderr warning when
+  `--expected` is used with multi-warp snapshots. Text and JSON output now
+  use consistent lowercase status values.
 
 ### Added — Developer CLI (`echo-cli`)
 

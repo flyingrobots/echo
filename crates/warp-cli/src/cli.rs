@@ -35,7 +35,8 @@ pub enum Commands {
         /// Path to WSC snapshot file.
         snapshot: PathBuf,
 
-        /// Expected state root hash (hex) to compare against.
+        /// Expected state root hash (hex) for warp 0 only; additional warps
+        /// report "unchecked".
         #[arg(long)]
         expected: Option<String>,
     },

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::expect_used)]
 //! Tests for the Engine ledger/history API.
 
 use warp_core::{make_node_id, make_type_id, Engine, GraphStore, NodeRecord};

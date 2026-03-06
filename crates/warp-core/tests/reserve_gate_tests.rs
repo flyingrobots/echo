@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 use echo_dry_tests::{build_port_demo_engine, PORT_RULE_NAME};
 use warp_core::{
     decode_motion_atom_payload, make_node_id, make_type_id, AttachmentValue, NodeRecord,

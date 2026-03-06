@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::items_after_statements, clippy::no_effect_underscore_binding)]
 //! Determinism Drill Sergeant™ test suite for MaterializationBus.
 //!
 //! These tests prove (and continuously re-prove) that bus semantics are:
@@ -112,8 +113,7 @@ fn frame_rejects_truncated() {
         let truncated = &encoded[..len];
         assert!(
             MaterializationFrame::decode(truncated).is_none(),
-            "should reject truncation at byte {}",
-            len
+            "should reject truncation at byte {len}"
         );
     }
 }
@@ -606,11 +606,10 @@ fn permutation_suite_n4_is_order_independent() {
             bus.emit(ch, *k, d.clone()).expect("emit");
         }
         let report = bus.finalize();
-        assert!(!report.has_errors(), "perm {}", perm_count);
+        assert!(!report.has_errors(), "perm {perm_count}");
         assert_eq!(
             &report.channels[0].data, &ref_data,
-            "permutation {} should match reference",
-            perm_count
+            "permutation {perm_count} should match reference"
         );
         perm_count += 1;
     });
@@ -646,11 +645,10 @@ fn permutation_suite_with_subkeys() {
             bus.emit(ch, *k, d.clone()).expect("emit");
         }
         let report = bus.finalize();
-        assert!(!report.has_errors(), "perm {}", perm_count);
+        assert!(!report.has_errors(), "perm {perm_count}");
         assert_eq!(
             &report.channels[0].data, &ref_data,
-            "permutation {} should match",
-            perm_count
+            "permutation {perm_count} should match"
         );
         perm_count += 1;
     });
@@ -694,20 +692,19 @@ fn permutation_suite_multi_channel() {
             bus.emit(*c, *k, d.clone()).expect("emit");
         }
         let report = bus.finalize();
-        assert!(!report.has_errors(), "perm {}", perm_count);
+        assert!(!report.has_errors(), "perm {perm_count}");
 
         // Must have same number of channels
         assert_eq!(
             report.channels.len(),
             ref_channels.len(),
-            "perm {} channel count",
-            perm_count
+            "perm {perm_count} channel count"
         );
 
         // Each channel's data must match
         for (r, (ref_ch, ref_data)) in report.channels.iter().zip(ref_channels.iter()) {
-            assert_eq!(r.channel, *ref_ch, "perm {} channel id", perm_count);
-            assert_eq!(r.data, *ref_data, "perm {} channel data", perm_count);
+            assert_eq!(r.channel, *ref_ch, "perm {perm_count} channel id");
+            assert_eq!(r.data, *ref_data, "perm {perm_count} channel data");
         }
         perm_count += 1;
     });

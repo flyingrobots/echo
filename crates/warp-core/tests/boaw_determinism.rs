@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::panic)]
 //! BOAW Determinism Tests (ADR-0007 §1, §5)
 //!
 //! Tests for snapshot hash invariance, serial vs parallel equivalence,

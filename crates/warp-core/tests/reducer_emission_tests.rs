@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::cast_possible_truncation)]
 //! SPEC-0004 Reducer emission tests for materialization semantics.
 //!
 //! This module tests reducer behavior for confluence-safe parallel rewriting.
@@ -189,8 +190,7 @@ fn reducer_commutative_is_permutation_invariant_and_replayable() {
         // Assert: bytes must be identical to reference
         assert_eq!(
             out_bytes, reference_bytes,
-            "Permutation {} produced different bytes! Sum reducer must be permutation-invariant.",
-            perm_count
+            "Permutation {perm_count} produced different bytes! Sum reducer must be permutation-invariant."
         );
 
         perm_count += 1;
@@ -258,8 +258,7 @@ fn reducer_sum_permutation_invariant_n5() {
         let out = finalize_bytes(&bus);
         assert_eq!(
             out, reference_bytes,
-            "Permutation {} differs from reference",
-            perm_count
+            "Permutation {perm_count} differs from reference"
         );
         perm_count += 1;
     });
@@ -336,8 +335,7 @@ fn reducer_max_min_are_permutation_invariant() {
             let report = bus.finalize();
             assert_eq!(
                 report.channels[0].data, max_reference,
-                "Max permutation {} differs",
-                perm_count
+                "Max permutation {perm_count} differs"
             );
         }
 
@@ -351,8 +349,7 @@ fn reducer_max_min_are_permutation_invariant() {
             let report = bus.finalize();
             assert_eq!(
                 report.channels[0].data, min_reference,
-                "Min permutation {} differs",
-                perm_count
+                "Min permutation {perm_count} differs"
             );
         }
 
@@ -546,7 +543,7 @@ fn reducer_multiple_emissions_same_scope_different_subkeys() {
             bus.emit(ch, e.key, e.data.clone()).expect("emit");
         }
         let out = finalize_bytes(&bus);
-        assert_eq!(out, reference, "Permutation {} differs", perm_count);
+        assert_eq!(out, reference, "Permutation {perm_count} differs");
         perm_count += 1;
     });
 
@@ -691,8 +688,7 @@ fn reducer_order_dependent_is_canonically_deterministic_and_replayable() {
         // Assert: Output IDENTICAL across permutations
         assert_eq!(
             result, &reference,
-            "permutation {} should produce identical output due to EmitKey canonicalization",
-            perm_count
+            "permutation {perm_count} should produce identical output due to EmitKey canonicalization"
         );
 
         // Assert: Playback equals recorded (wire bytes)
@@ -706,8 +702,7 @@ fn reducer_order_dependent_is_canonically_deterministic_and_replayable() {
         });
         assert_eq!(
             result_bytes, reference_bytes,
-            "permutation {} wire bytes should match reference (playback consistency)",
-            perm_count
+            "permutation {perm_count} wire bytes should match reference (playback consistency)"
         );
 
         perm_count += 1;
@@ -825,8 +820,7 @@ fn concat_binary_data_is_permutation_invariant() {
 
         assert_eq!(
             result, &reference,
-            "binary permutation {} should match reference",
-            perm_count
+            "binary permutation {perm_count} should match reference"
         );
         perm_count += 1;
     });
@@ -890,7 +884,7 @@ fn concat_multiple_emissions_same_scope_different_subkeys() {
         let report = bus.finalize();
         let result = &report.channels[0].data;
 
-        assert_eq!(result, &reference, "Permutation {} differs", perm_count);
+        assert_eq!(result, &reference, "Permutation {perm_count} differs");
         perm_count += 1;
     });
 
@@ -1014,8 +1008,7 @@ fn first_last_reducers_are_canonically_deterministic() {
             let report = bus.finalize();
             assert_eq!(
                 report.channels[0].data, first_reference,
-                "First permutation {} differs",
-                perm_count
+                "First permutation {perm_count} differs"
             );
         }
 
@@ -1029,8 +1022,7 @@ fn first_last_reducers_are_canonically_deterministic() {
             let report = bus.finalize();
             assert_eq!(
                 report.channels[0].data, last_reference,
-                "Last permutation {} differs",
-                perm_count
+                "Last permutation {perm_count} differs"
             );
         }
 
@@ -1069,7 +1061,7 @@ fn reduced_channel_emits_single_authoritative_value_per_tick() {
     // Using different keys to simulate multiple rule emissions within one tick
     for i in 0u8..15 {
         let k = key_subscription(i, 1, 0); // Different scope for each emission
-        bus.emit(ch, k, u64_le(i as u64))
+        bus.emit(ch, k, u64_le(u64::from(i)))
             .expect("emit should succeed");
     }
 
@@ -1143,7 +1135,7 @@ fn t13_multiple_reduce_channels_each_emit_single_value() {
     // Emit multiple values to each channel (10 emissions each)
     for i in 0u8..10 {
         let k = key_subscription(i, 1, 0);
-        let value = (i as u64) * 10; // 0, 10, 20, ..., 90
+        let value = u64::from(i) * 10; // 0, 10, 20, ..., 90
         bus.emit(ch_sum, k, u64_le(value)).expect("emit sum");
         bus.emit(ch_max, k, u64_le(value)).expect("emit max");
         bus.emit(ch_min, k, u64_le(value)).expect("emit min");
@@ -1264,7 +1256,7 @@ fn t13_reduce_vs_log_proves_no_raw_emission_leak() {
 
     for i in 0u8..5 {
         bus_reduce
-            .emit(ch_reduce, key_subscription(i, 1, 0), u64_le(i as u64))
+            .emit(ch_reduce, key_subscription(i, 1, 0), u64_le(u64::from(i)))
             .expect("emit");
     }
 
@@ -1278,7 +1270,7 @@ fn t13_reduce_vs_log_proves_no_raw_emission_leak() {
 
     for i in 0u8..5 {
         bus_log
-            .emit(ch_log, key_subscription(i, 1, 0), u64_le(i as u64))
+            .emit(ch_log, key_subscription(i, 1, 0), u64_le(u64::from(i)))
             .expect("emit");
     }
 

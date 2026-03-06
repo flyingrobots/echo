@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation
+)]
 //! Outputs playback tests for SPEC-0004 Commit 5: Record Outputs Per Tick + Seek/Playback.
 //!
 //! These tests verify:
@@ -57,7 +61,7 @@ fn setup_worldline_with_outputs(
     );
 
     for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
+        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
 
         // Apply patch to get the resulting state
         patch
@@ -197,7 +201,7 @@ fn step_back_is_seek_minus_one_then_pause() {
     let result = cursor.step(&provenance, &initial_store);
 
     // Assert result is Seeked
-    assert!(result.is_ok(), "step should succeed: {:?}", result);
+    assert!(result.is_ok(), "step should succeed: {result:?}");
     assert_eq!(
         result.expect("step should succeed"),
         StepResult::Seeked,
@@ -255,20 +259,16 @@ fn reader_play_consumes_existing_then_pauses_at_frontier() {
         let result = cursor.step(&provenance, &initial_store);
         assert!(
             result.is_ok(),
-            "step {} should succeed: {:?}",
-            expected_tick,
-            result
+            "step {expected_tick} should succeed: {result:?}"
         );
         assert_eq!(
             result.expect("step should succeed"),
             StepResult::Advanced,
-            "step {} should return Advanced",
-            expected_tick
+            "step {expected_tick} should return Advanced"
         );
         assert_eq!(
             cursor.tick, expected_tick,
-            "cursor should be at tick {}",
-            expected_tick
+            "cursor should be at tick {expected_tick}"
         );
         assert_eq!(
             cursor.mode,
@@ -381,8 +381,7 @@ fn outputs_match_recorded_bytes_for_same_tick() {
             .expect("frame should exist for channel");
         assert_eq!(
             frame_value, expected_value,
-            "frame value for channel {:?} should match recorded output",
-            channel
+            "frame value for channel {channel:?} should match recorded output"
         );
     }
 
@@ -626,8 +625,7 @@ fn publish_truth_returns_error_for_unavailable_tick() {
             seek_result,
             Err(SeekError::HistoryUnavailable { tick: 100 })
         ),
-        "seek_to(100) should fail with HistoryUnavailable, got: {:?}",
-        seek_result
+        "seek_to(100) should fail with HistoryUnavailable, got: {seek_result:?}"
     );
 
     // Seek to tick 5 (boundary: valid since 5 <= history_len).
@@ -646,8 +644,7 @@ fn publish_truth_returns_error_for_unavailable_tick() {
     let result = session.publish_truth(&cursor, &provenance, &mut sink);
     assert!(
         result.is_ok(),
-        "publish_truth should succeed at boundary tick 5 (prov_tick=4), got: {:?}",
-        result
+        "publish_truth should succeed at boundary tick 5 (prov_tick=4), got: {result:?}"
     );
 
     // Verify it returns correct data from provenance[4]: position=[4, 4, 4]
@@ -714,7 +711,7 @@ fn writer_play_advances_and_records_outputs() {
 
     for tick in 0..10u64 {
         // Create a patch for this tick
-        let patch = create_add_node_patch(warp_id, tick, &format!("writer-node-{}", tick));
+        let patch = create_add_node_patch(warp_id, tick, &format!("writer-node-{tick}"));
 
         // Apply the patch to get the resulting state
         patch
@@ -759,7 +756,7 @@ fn writer_play_advances_and_records_outputs() {
 
     // Assert: provenance.expected(worldline, t) exists for t in 0..10
     // Recompute the Merkle chain to verify stored commit_hashes match
-    let mut verify_store = initial_store.clone();
+    let mut verify_store = initial_store;
     let mut verify_parents: Vec<warp_core::Hash> = Vec::new();
     for tick in 0..10u64 {
         let triplet = provenance
@@ -783,8 +780,7 @@ fn writer_play_advances_and_records_outputs() {
 
         assert_eq!(
             triplet.commit_hash, expected_commit,
-            "commit_hash should match recomputed value for tick {}",
-            tick
+            "commit_hash should match recomputed value for tick {tick}"
         );
         verify_parents = vec![expected_commit];
     }
@@ -795,18 +791,15 @@ fn writer_play_advances_and_records_outputs() {
             .outputs(worldline_id, tick)
             .expect("outputs should exist for tick");
 
-        assert_eq!(outputs.len(), 1, "should have 1 output for tick {}", tick);
+        assert_eq!(outputs.len(), 1, "should have 1 output for tick {tick}");
         assert_eq!(
             outputs[0].0, output_channel,
-            "output channel should match for tick {}",
-            tick
+            "output channel should match for tick {tick}"
         );
         assert_eq!(
             outputs[0].1,
             vec![tick as u8],
-            "output value should be [{}] for tick {}",
-            tick,
-            tick
+            "output value should be [{tick}] for tick {tick}"
         );
     }
 }

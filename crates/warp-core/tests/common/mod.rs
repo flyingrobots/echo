@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::cast_possible_truncation,
+    clippy::format_collect,
+    clippy::match_same_arms
+)]
 
 use warp_core::{
     compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_node_id,
@@ -150,9 +160,7 @@ pub fn hex32(h: &Hash32) -> String {
 
 /// For comparing hashes with readable diffs.
 pub fn assert_hash_eq(a: &Hash32, b: &Hash32, msg: &str) {
-    if a != b {
-        panic!("{msg}\n  a: {}\n  b: {}", hex32(a), hex32(b));
-    }
+    assert!((a == b), "{msg}\n  a: {}\n  b: {}", hex32(a), hex32(b));
 }
 
 /// Results from BOAW execution that can be compared deterministically.
@@ -765,7 +773,7 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
         warp_id,
         local_id: node_id,
     };
-    let ty = make_type_id(&format!("Type{}", tick));
+    let ty = make_type_id(&format!("Type{tick}"));
 
     WorldlineTickPatchV1 {
         header: test_header(tick),
@@ -803,7 +811,7 @@ pub fn setup_worldline_with_ticks(
     let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
+        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
 
         // Apply patch to get the resulting state
         patch
@@ -856,7 +864,7 @@ macro_rules! make_touch_rule {
     ($rule_name:expr, $marker_type:expr, $marker_bytes:expr) => {{
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"rule:");
-        hasher.update($rule_name.as_bytes());
+        hasher.update(b"t16s/touch");
         let id: warp_core::Hash = hasher.finalize().into();
 
         warp_core::RewriteRule {

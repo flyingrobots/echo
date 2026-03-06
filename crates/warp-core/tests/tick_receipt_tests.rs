@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::items_after_statements
+)]
 
 use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{

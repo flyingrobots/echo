@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::match_same_arms,
+    clippy::cast_possible_truncation
+)]
 //! Multi-warp worker-count invariance tests for BOAW Phase 6.
 //!
 //! These tests verify that execution results are identical regardless of
@@ -310,7 +316,7 @@ fn worker_count_invariance_for_writer_advance() {
     // Create 19 more independent nodes (total 20)
     let mut all_nodes = vec![root];
     for i in 1..20 {
-        let node = warp_core::make_node_id(&format!("t16/node{}", i));
+        let node = warp_core::make_node_id(&format!("t16/node{i}"));
         base_store.insert_node(node, NodeRecord { ty: node_ty });
         all_nodes.push(node);
     }
@@ -336,7 +342,7 @@ fn worker_count_invariance_for_writer_advance() {
             match engine.apply(tx, rule_name, scope) {
                 Ok(ApplyResult::Applied) => {}
                 Ok(ApplyResult::NoMatch) => {}
-                Err(e) => panic!("apply error: {:?}", e),
+                Err(e) => panic!("apply error: {e:?}"),
             }
         }
 
@@ -362,7 +368,7 @@ fn worker_count_invariance_for_writer_advance() {
             match engine.apply(tx, rule_name, scope) {
                 Ok(ApplyResult::Applied) => {}
                 Ok(ApplyResult::NoMatch) => {}
-                Err(e) => panic!("apply error with {} workers: {:?}", workers, e),
+                Err(e) => panic!("apply error with {workers} workers: {e:?}"),
             }
         }
 
@@ -402,7 +408,7 @@ fn worker_count_invariance_for_writer_advance_shuffled() {
 
     let mut all_nodes = vec![root];
     for i in 1..20 {
-        let node = warp_core::make_node_id(&format!("t16s/node{}", i));
+        let node = warp_core::make_node_id(&format!("t16s/node{i}"));
         base_store.insert_node(node, NodeRecord { ty: node_ty });
         all_nodes.push(node);
     }
@@ -428,7 +434,7 @@ fn worker_count_invariance_for_writer_advance_shuffled() {
             match engine.apply(tx, rule_name, scope) {
                 Ok(ApplyResult::Applied) => {}
                 Ok(ApplyResult::NoMatch) => {}
-                Err(e) => panic!("apply error: {:?}", e),
+                Err(e) => panic!("apply error: {e:?}"),
             }
         }
 
@@ -461,10 +467,7 @@ fn worker_count_invariance_for_writer_advance_shuffled() {
                 match engine.apply(tx, rule_name, scope) {
                     Ok(ApplyResult::Applied) => {}
                     Ok(ApplyResult::NoMatch) => {}
-                    Err(e) => panic!(
-                        "apply error (seed={:#x}, workers={}): {:?}",
-                        seed, workers, e
-                    ),
+                    Err(e) => panic!("apply error (seed={seed:#x}, workers={workers}): {e:?}"),
                 }
             }
 

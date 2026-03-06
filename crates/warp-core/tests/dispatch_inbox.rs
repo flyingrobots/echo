@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::match_wildcard_for_single_variants
+)]
 //! Tests for the generic `sys/dispatch_inbox` rule.
 
 use echo_dry_tests::build_engine_with_root;

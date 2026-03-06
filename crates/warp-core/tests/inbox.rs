@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::match_wildcard_for_single_variants
+)]
 //! Inbox ingestion scaffolding tests.
 
 use bytes::Bytes;
@@ -63,7 +68,7 @@ fn ingest_inbox_event_is_idempotent_by_intent_bytes_not_seq() {
 
     let intent_bytes: &[u8] = b"idempotent-intent";
     let payload_bytes = Bytes::copy_from_slice(intent_bytes);
-    let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes.clone());
+    let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes);
 
     engine.ingest_inbox_event(1, &payload).unwrap();
     engine.ingest_inbox_event(2, &payload).unwrap();

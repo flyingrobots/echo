@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::cast_possible_truncation
+)]
 //! Slice Theorem Executable Proof.
 //!
 //! Proves that parallel execution with footprint enforcement produces
@@ -742,7 +748,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
     // Runtime: execute R1 in tick 1 (writes B attachment), then R4 in tick 2 (reads B).
     // BOAW uses snapshot semantics: executors within a tick read the SAME pre-tick view.
     // R4 can only see R1's write after it's committed to the store (separate tick).
-    let mut engine = EngineBuilder::new(store.clone(), root).workers(4).build();
+    let mut engine = EngineBuilder::new(store, root).workers(4).build();
     engine.register_rule(r1_rule()).expect("r1");
     engine.register_rule(r4_rule()).expect("r4");
 

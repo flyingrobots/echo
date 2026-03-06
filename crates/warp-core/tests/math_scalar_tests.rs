@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::float_cmp)]
 use warp_core::math::scalar::F32Scalar;
 use warp_core::math::Scalar;
 
@@ -46,7 +46,7 @@ fn test_f32_traits() {
     let nz = F32Scalar::new(-0.0);
 
     // Test Display (this will fail to compile until Display is implemented)
-    assert_eq!(format!("{}", z), "0");
+    assert_eq!(format!("{z}"), "0");
 
     // Test Eq/Ord (this will fail to compile until traits are implemented)
     assert!(z >= nz); // 0.0 >= -0.0 is True if 0.0 > -0.0.

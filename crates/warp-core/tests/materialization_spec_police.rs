@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::panic)]
 //! SPEC Police: Exhaustive permutation tests for MaterializationBus determinism.
 //!
 //! These tests prove that:
@@ -482,16 +483,14 @@ fn reduce_op_commutativity_table_is_honest() {
     for op in &commutative {
         assert!(
             op.is_commutative(),
-            "{:?} claims to be commutative in docs, is_commutative() must agree",
-            op
+            "{op:?} claims to be commutative in docs, is_commutative() must agree"
         );
     }
 
     for op in &ordered {
         assert!(
             !op.is_commutative(),
-            "{:?} is order-dependent, is_commutative() must return false",
-            op
+            "{op:?} is order-dependent, is_commutative() must return false"
         );
     }
 }
@@ -523,7 +522,7 @@ fn reduce_sum_is_permutation_invariant() {
 
     let expected = vec![6, 0, 0, 0, 0, 0, 0, 0]; // 1+2+3 = 6
 
-    let mut values_mut = values.clone();
+    let mut values_mut = values;
     for_each_permutation(&mut values_mut, |perm| {
         let result = ReduceOp::Sum.apply(perm.iter().cloned());
         assert_eq!(result, expected, "Sum must be permutation invariant");

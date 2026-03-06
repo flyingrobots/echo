@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation
+)]
 //! Checkpoint and fork tests for SPEC-0004: Worldlines, Playback, and `TruthBus`.
 //!
 //! These tests verify:
@@ -54,7 +58,7 @@ fn setup_worldline_with_ticks_and_checkpoints(
     let mut parents: Vec<Hash> = Vec::new();
 
     for patch_index in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, patch_index, &format!("node-{}", patch_index));
+        let patch = create_add_node_patch(warp_id, patch_index, &format!("node-{patch_index}"));
 
         // Apply patch to get the resulting state
         patch
@@ -300,7 +304,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     // Add divergent ticks 8, 9, 10 with different node names
     for tick in 8..=10 {
         // Use a different node name pattern to create divergent history
-        let patch = create_add_node_patch(warp_id, tick, &format!("forked-node-{}", tick));
+        let patch = create_add_node_patch(warp_id, tick, &format!("forked-node-{tick}"));
 
         patch
             .apply_to_store(&mut forked_store)
@@ -344,8 +348,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
             .expect("original tick should still exist");
         assert_eq!(
             current_expected, original_expected_hashes[tick as usize],
-            "original worldline tick {} expected hash should be unchanged",
-            tick
+            "original worldline tick {tick} expected hash should be unchanged"
         );
     }
 
@@ -360,8 +363,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
         assert_eq!(
             original_expected, forked_expected,
-            "forked worldline tick {} should match original",
-            tick
+            "forked worldline tick {tick} should match original"
         );
     }
 
@@ -385,15 +387,13 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
         // State roots should differ because patches created different nodes
         assert_ne!(
             original_expected.state_root, forked_expected.state_root,
-            "forked worldline tick {} state_root should differ from original",
-            tick
+            "forked worldline tick {tick} state_root should differ from original"
         );
 
         // Commit hashes should also differ (we used different pattern)
         assert_ne!(
             original_expected.commit_hash, forked_expected.commit_hash,
-            "forked worldline tick {} commit_hash should differ from original",
-            tick
+            "forked worldline tick {tick} commit_hash should differ from original"
         );
     }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::expect_used, clippy::panic)]
 
 //! Deterministic math validation harness for the motion rewrite spike.
 //!

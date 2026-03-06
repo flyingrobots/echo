@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::items_after_statements,
+    clippy::print_stderr
+)]
 
 use std::f32::consts::TAU;
 
@@ -22,7 +28,7 @@ fn deterministic_sin_cos_f32(angle: f32) -> (f32, f32) {
 }
 
 fn oracle_sin_cos_f64(angle: f32) -> (f64, f64) {
-    let angle64 = angle as f64;
+    let angle64 = f64::from(angle);
     (libm::sin(angle64), libm::cos(angle64))
 }
 
@@ -90,8 +96,7 @@ fn test_trig_special_cases_golden_bits() {
             let result = std::panic::catch_unwind(|| deterministic_sin_cos_f32(angle));
             assert!(
                 result.is_err(),
-                "expected debug tripwire for non-finite angle_bits={:#010x}",
-                angle_bits
+                "expected debug tripwire for non-finite angle_bits={angle_bits:#010x}"
             );
             continue;
         }
@@ -101,14 +106,12 @@ fn test_trig_special_cases_golden_bits() {
         assert_eq!(
             s.to_bits(),
             *expected_sin_bits,
-            "sin bits mismatch for angle_bits={:#010x}",
-            angle_bits
+            "sin bits mismatch for angle_bits={angle_bits:#010x}"
         );
         assert_eq!(
             c.to_bits(),
             *expected_cos_bits,
-            "cos bits mismatch for angle_bits={:#010x}",
-            angle_bits
+            "cos bits mismatch for angle_bits={angle_bits:#010x}"
         );
     }
 }
@@ -160,14 +163,12 @@ fn test_trig_known_angle_golden_bits() {
         assert_eq!(
             s.to_bits(),
             *expected_sin_bits,
-            "sin bits mismatch for angle_bits={:#010x}",
-            angle_bits
+            "sin bits mismatch for angle_bits={angle_bits:#010x}"
         );
         assert_eq!(
             c.to_bits(),
             *expected_cos_bits,
-            "cos bits mismatch for angle_bits={:#010x}",
-            angle_bits
+            "cos bits mismatch for angle_bits={angle_bits:#010x}"
         );
     }
 }
@@ -263,8 +264,8 @@ fn test_sin_cos_error_budget_pinned_against_deterministic_oracle() {
             }
         }
 
-        let sin_abs = ((s as f64) - s_ref64).abs();
-        let cos_abs = ((c as f64) - c_ref64).abs();
+        let sin_abs = (f64::from(s) - s_ref64).abs();
+        let cos_abs = (f64::from(c) - c_ref64).abs();
         let abs = sin_abs.max(cos_abs);
         if abs > max_abs {
             max_abs = abs;

@@ -56,13 +56,19 @@ impl InMemoryConfigStore {
 
     /// Configure the store to fail on load operations.
     pub fn set_fail_on_load(&self, fail: bool) {
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.fail_on_load = fail;
     }
 
     /// Configure the store to fail on save operations.
     pub fn set_fail_on_save(&self, fail: bool) {
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.fail_on_save = fail;
     }
 
@@ -74,7 +80,7 @@ impl InMemoryConfigStore {
     pub fn load_count(&self) -> usize {
         self.inner
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .load_count
     }
 
@@ -86,7 +92,7 @@ impl InMemoryConfigStore {
     pub fn save_count(&self) -> usize {
         self.inner
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .save_count
     }
 
@@ -98,7 +104,7 @@ impl InMemoryConfigStore {
     pub fn keys(&self) -> Vec<String> {
         self.inner
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .data
             .keys()
             .cloned()
@@ -109,7 +115,7 @@ impl InMemoryConfigStore {
     pub fn contains_key(&self, key: &str) -> bool {
         self.inner
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .data
             .contains_key(key)
     }
@@ -123,7 +129,10 @@ impl InMemoryConfigStore {
     /// - `fail_on_load`: Reset to false
     /// - `fail_on_save`: Reset to false
     pub fn reset(&self) {
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.data.clear();
         inner.load_count = 0;
         inner.save_count = 0;
@@ -134,7 +143,10 @@ impl InMemoryConfigStore {
 
 impl ConfigStore for InMemoryConfigStore {
     fn load_raw(&self, key: &str) -> Result<Vec<u8>, ConfigError> {
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.load_count += 1;
 
         if inner.fail_on_load {
@@ -145,7 +157,10 @@ impl ConfigStore for InMemoryConfigStore {
     }
 
     fn save_raw(&self, key: &str, data: &[u8]) -> Result<(), ConfigError> {
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.save_count += 1;
 
         if inner.fail_on_save {

@@ -114,7 +114,7 @@ pub enum WarpOp {
 }
 
 /// Renderable node.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderNode {
     /// Node identifier.
     pub id: NodeId,
@@ -125,7 +125,7 @@ pub struct RenderNode {
 }
 
 /// Renderable edge.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RenderEdge {
     /// Edge identifier.
     pub id: EdgeId,
@@ -140,7 +140,7 @@ pub struct RenderEdge {
 }
 
 /// Renderable graph used in snapshots.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct RenderGraph {
     /// All nodes in the graph.
     pub nodes: Vec<RenderNode>,
@@ -190,7 +190,7 @@ impl RenderGraph {
         match op {
             WarpOp::AddNode { id, kind, data } => {
                 if self.nodes.iter().any(|n| n.id == id) {
-                    anyhow::bail!("node already exists: {}", id);
+                    anyhow::bail!("node already exists: {id}");
                 }
                 self.nodes.push(RenderNode { id, kind, data });
             }
@@ -198,13 +198,13 @@ impl RenderGraph {
                 let before = self.nodes.len();
                 self.nodes.retain(|n| n.id != id);
                 if self.nodes.len() == before {
-                    anyhow::bail!("missing node: {}", id);
+                    anyhow::bail!("missing node: {id}");
                 }
                 self.edges.retain(|e| e.src != id && e.dst != id);
             }
             WarpOp::UpdateNode { id, data } => {
                 let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) else {
-                    anyhow::bail!("missing node: {}", id);
+                    anyhow::bail!("missing node: {id}");
                 };
                 match data {
                     NodeDataPatch::Replace(nd) => node.data = nd,
@@ -218,13 +218,13 @@ impl RenderGraph {
                 data,
             } => {
                 if self.edges.iter().any(|e| e.id == id) {
-                    anyhow::bail!("edge already exists: {}", id);
+                    anyhow::bail!("edge already exists: {id}");
                 }
                 if !self.nodes.iter().any(|n| n.id == src) {
-                    anyhow::bail!("missing src node: {}", src);
+                    anyhow::bail!("missing src node: {src}");
                 }
                 if !self.nodes.iter().any(|n| n.id == dst) {
-                    anyhow::bail!("missing dst node: {}", dst);
+                    anyhow::bail!("missing dst node: {dst}");
                 }
                 self.edges.push(RenderEdge {
                     id,
@@ -238,12 +238,12 @@ impl RenderGraph {
                 let before = self.edges.len();
                 self.edges.retain(|e| e.id != id);
                 if self.edges.len() == before {
-                    anyhow::bail!("missing edge: {}", id);
+                    anyhow::bail!("missing edge: {id}");
                 }
             }
             WarpOp::UpdateEdge { id, data } => {
                 let Some(edge) = self.edges.iter_mut().find(|e| e.id == id) else {
-                    anyhow::bail!("missing edge: {}", id);
+                    anyhow::bail!("missing edge: {id}");
                 };
                 match data {
                     EdgeDataPatch::Replace(ed) => edge.data = ed,
@@ -255,7 +255,7 @@ impl RenderGraph {
 }
 
 /// Full snapshot of an epoch.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WarpSnapshot {
     /// Epoch identifier for this snapshot.
     pub epoch: EpochId,
@@ -266,7 +266,7 @@ pub struct WarpSnapshot {
 }
 
 /// Diff between consecutive epochs (must be gapless in live streams).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WarpDiff {
     /// Base epoch (pre-diff).
     pub from_epoch: EpochId,
@@ -279,7 +279,7 @@ pub struct WarpDiff {
 }
 
 /// Wire frame.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum WarpFrame {
     /// Full state snapshot for an epoch.
     Snapshot(WarpSnapshot),
@@ -288,7 +288,7 @@ pub enum WarpFrame {
 }
 
 /// Viewer→Engine hello for late join/reconnect.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WarpHello {
     /// Viewer’s last known epoch (if any).
     pub last_known_epoch: Option<EpochId>,
@@ -299,6 +299,7 @@ pub struct WarpHello {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

@@ -48,7 +48,7 @@ pub(crate) fn process_frames(
                                 ToastKind::Error,
                                 ToastScope::Local,
                                 "Snapshot hash mismatch",
-                                Some(format!("expected {:?}, got {:?}", expected, actual)),
+                                Some(format!("expected {expected:?}, got {actual:?}")),
                                 std::time::Duration::from_secs(6),
                                 Instant::now(),
                             );
@@ -125,7 +125,7 @@ pub(crate) fn process_frames(
                                 ToastKind::Error,
                                 ToastScope::Local,
                                 "State hash mismatch",
-                                Some(format!("expected {:?}, got {:?}", expected, actual)),
+                                Some(format!("expected {expected:?}, got {actual:?}")),
                                 std::time::Duration::from_secs(8),
                                 Instant::now(),
                             );

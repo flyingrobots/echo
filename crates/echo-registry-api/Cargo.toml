@@ -17,3 +17,6 @@ categories = ["wasm", "development-tools"]
 [features]
 default = ["std"]
 std = []
+
+[lints]
+workspace = true

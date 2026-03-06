@@ -17,11 +17,7 @@
 //!
 //! - [`compliance`]: Channel policy validation and violation tracking
 
-#![deny(missing_docs)]
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::cargo)]
-#![allow(clippy::module_name_repetitions)]
+// Workspace lints apply via [lints] workspace = true.
 
 pub mod compliance;
 

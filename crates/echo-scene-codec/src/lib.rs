@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+// CBOR codec with intentional fixed-width casts for wire format compatibility.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::trivially_copy_pass_by_ref
+)]
 //! CBOR codec and test harness for echo-scene-port.
 //!
 //! This crate provides:

@@ -297,6 +297,7 @@ impl TtdrHeader {
     }
 
     /// Parse header from bytes. Returns error if invalid.
+    #[allow(clippy::unwrap_used)] // slice lengths are verified by the guard above each group
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, TtdrError> {
         if bytes.len() < TTDR_FIXED_HEADER_SIZE {
             return Err(TtdrError::IncompleteHeader(bytes.len()));
@@ -412,6 +413,7 @@ impl ChannelDigest {
     }
 
     /// Decode from bytes. Returns (digest, bytes_consumed).
+    #[allow(clippy::unwrap_used)] // slice lengths are verified by the guard above each group
     pub fn decode(
         bytes: &[u8],
         flags: TtdrFlags,
@@ -622,6 +624,7 @@ pub fn encode_ttdr_v2(frame: &TtdrFrame) -> Result<Vec<u8>, TtdrError> {
 /// # Returns
 /// * `Ok((frame, consumed))` - Parsed frame and number of bytes consumed
 /// * `Err(e)` - Parse error
+#[allow(clippy::unwrap_used)] // slice lengths are verified by the guard above each group
 pub fn decode_ttdr_v2(bytes: &[u8]) -> Result<(TtdrFrame, usize), TtdrError> {
     let header = TtdrHeader::from_bytes(bytes)?;
 
@@ -662,6 +665,7 @@ pub fn decode_ttdr_v2(bytes: &[u8]) -> Result<(TtdrFrame, usize), TtdrError> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

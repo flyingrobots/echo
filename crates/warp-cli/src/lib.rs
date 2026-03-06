@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 //! Echo CLI library — re-exports CLI types for man page generation.
 //!
 //! The library target exists solely to let `xtask` import the `Cli` struct

@@ -97,12 +97,11 @@ fn edge_row_to_record(row: &EdgeRow) -> (NodeId, EdgeRecord) {
 
 fn att_row_to_value(att: &AttRow, view: &WarpView<'_>) -> AttachmentValue {
     if att.is_atom() {
-        let blob = match view.blob_for_attachment(att) {
-            Some(b) => b,
-            None => {
-                eprintln!("warning: missing blob for atom attachment; using empty payload");
-                &[]
-            }
+        let blob = if let Some(b) = view.blob_for_attachment(att) {
+            b
+        } else {
+            eprintln!("warning: missing blob for atom attachment; using empty payload");
+            &[]
         };
         AttachmentValue::Atom(AtomPayload::new(
             TypeId(att.type_or_warp),

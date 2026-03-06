@@ -30,3 +30,7 @@ warp-core = { workspace = true }
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+
+
+[lints]
+workspace = true

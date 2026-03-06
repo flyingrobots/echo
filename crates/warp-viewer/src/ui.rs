@@ -93,7 +93,7 @@ pub fn draw_view_hud(
     ctx: &Context,
     app: &mut App,
     toasts: &[echo_app_core::toast::ToastRender],
-    _debug_arc: &Option<(egui::Pos2, egui::Pos2)>,
+    _debug_arc: Option<&(egui::Pos2, egui::Pos2)>,
 ) {
     // Menu button
     egui::Area::new("menu_button".into())

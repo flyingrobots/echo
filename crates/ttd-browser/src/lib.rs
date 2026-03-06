@@ -37,11 +37,8 @@
 //! For now, we expose the playback, session, and provenance APIs that work
 //! with existing `warp-core` infrastructure.
 
-#![deny(missing_docs)]
-#![deny(clippy::all)]
-#![deny(clippy::pedantic)]
-#![deny(clippy::cargo)]
-#![allow(clippy::module_name_repetitions)]
+// wasm_bindgen generates unsafe glue code; allow unsafe in this crate.
+#![allow(unsafe_code)]
 
 use std::collections::BTreeMap;
 
@@ -1083,6 +1080,7 @@ mod wasm_tests {
 // Native tests that don't call methods returning JsError on failure paths.
 // Tests that trigger error paths must run on wasm32 target.
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

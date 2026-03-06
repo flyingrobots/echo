@@ -54,6 +54,7 @@ impl SessionClient {
 
     /// Poll a single message if already available (non-blocking). Returns Ok(None) when no complete frame is buffered yet or on clean EOF.
     /// Buffers across calls so partial reads never drop bytes.
+    #[allow(clippy::unused_async)] // async signature is intentional for caller ergonomics
     pub async fn poll_message(&mut self) -> Result<Option<Message>> {
         const MAX_PAYLOAD: usize = 8 * 1024 * 1024; // 8 MiB cap
 
@@ -66,7 +67,7 @@ impl SessionClient {
                     self.buffer[11],
                 ]) as usize;
                 if len > MAX_PAYLOAD {
-                    return Err(anyhow!("frame payload too large: {} bytes", len));
+                    return Err(anyhow!("frame payload too large: {len} bytes"));
                 }
                 let frame_len = 12usize
                     .checked_add(len)
@@ -99,7 +100,7 @@ impl SessionClient {
                     self.buffer.extend_from_slice(&chunk[..n]);
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => return Ok(None),
-                Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
                 Err(e) => return Err(e.into()),
             }
         }
@@ -286,15 +287,14 @@ fn run_read_loop(
             );
             break;
         }
-        let frame_len = match 12usize.checked_add(len).and_then(|v| v.checked_add(32)) {
-            Some(v) => v,
-            None => {
-                tracing::warn!(
-                    payload_len = len,
-                    "read loop exiting: frame length overflow"
-                );
-                break;
-            }
+        let frame_len = if let Some(v) = 12usize.checked_add(len).and_then(|v| v.checked_add(32)) {
+            v
+        } else {
+            tracing::warn!(
+                payload_len = len,
+                "read loop exiting: frame length overflow"
+            );
+            break;
         };
         let mut rest = vec![0u8; len + 32];
         if let Err(err) = stream.read_exact(&mut rest) {
@@ -326,17 +326,21 @@ fn run_read_loop(
             }
             Ok((msg, _, _)) => {
                 tracing::debug!(op = msg.op_name(), "read loop ignoring unsupported message");
-                continue;
             }
             Err(err) => {
                 tracing::warn!(error = %err, "read loop dropping invalid packet");
-                continue;
             }
         }
     }
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::needless_continue
+)]
 mod tests {
     use super::*;
     use echo_session_proto::{NotifyKind, NotifyScope};
@@ -450,7 +454,7 @@ mod tests {
 
         match received.expect("message not received") {
             Message::Notification(n) => assert_eq!(n, notification),
-            other => panic!("expected notification, got {:?}", other),
+            other => panic!("expected notification, got {other:?}"),
         }
     }
 

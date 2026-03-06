@@ -229,9 +229,9 @@ pub fn entrypoint() -> Result<()> {
                             Some(&expected),
                             &msg,
                         )?;
-                        bail!("{}\nRepro bundle emitted to {:?}", msg, repro_path);
+                        bail!("{msg}\nRepro bundle emitted to {}", repro_path.display());
                     }
-                    bail!("{}", msg);
+                    bail!("{msg}");
                 }
 
                 // Check length first to avoid silent truncation from zip
@@ -250,9 +250,9 @@ pub fn entrypoint() -> Result<()> {
                             Some(&expected),
                             &msg,
                         )?;
-                        bail!("{}\nRepro bundle emitted to {:?}", msg, repro_path);
+                        bail!("{msg}\nRepro bundle emitted to {}", repro_path.display());
                     }
-                    bail!("{}", msg);
+                    bail!("{msg}");
                 }
 
                 // Compare hashes (length already validated above)
@@ -261,8 +261,7 @@ pub fn entrypoint() -> Result<()> {
                 {
                     if actual != expect {
                         let msg = format!(
-                            "Hash mismatch at step {}.\nActual:   {}\nExpected: {}",
-                            i, actual, expect
+                            "Hash mismatch at step {i}.\nActual:   {actual}\nExpected: {expect}"
                         );
                         if let Some(repro_path) = emit_repro {
                             create_repro_bundle(
@@ -273,9 +272,9 @@ pub fn entrypoint() -> Result<()> {
                                 Some(&expected),
                                 &msg,
                             )?;
-                            bail!("{}\nRepro bundle emitted to {:?}", msg, repro_path);
+                            bail!("{msg}\nRepro bundle emitted to {}", repro_path.display());
                         }
-                        bail!("{}", msg);
+                        bail!("{msg}");
                     }
                 }
 
@@ -300,9 +299,9 @@ pub fn entrypoint() -> Result<()> {
                 .context("failed to serialize golden output")?;
             f.sync_all().context("failed to sync golden output")?;
             println!(
-                "DIND: Recorded {} steps to {:?}",
+                "DIND: Recorded {} steps to {}",
                 golden.hashes_hex.len(),
-                out
+                out.display()
             );
         }
         Commands::Torture {
@@ -310,7 +309,10 @@ pub fn entrypoint() -> Result<()> {
             runs,
             emit_repro,
         } => {
-            println!("DIND: Torture starting. {} runs on {:?}", runs, scenario);
+            println!(
+                "DIND: Torture starting. {runs} runs on {}",
+                scenario.display()
+            );
             let (baseline_hashes, header) =
                 run_scenario(&scenario).context("Run 1 (Baseline) failed")?;
 
@@ -324,7 +326,7 @@ pub fn entrypoint() -> Result<()> {
             };
 
             for i in 2..=runs {
-                let (hashes, _) = run_scenario(&scenario).context(format!("Run {} failed", i))?;
+                let (hashes, _) = run_scenario(&scenario).context(format!("Run {i} failed"))?;
 
                 if hashes != baseline_hashes {
                     let mut failure_msg = String::new();
@@ -334,9 +336,8 @@ pub fn entrypoint() -> Result<()> {
                     {
                         if base != current {
                             failure_msg = format!(
-                                "DIND: DIVERGENCE DETECTED in Run {} at Step {}.\nBaseline: {}
-Current:  {}",
-                                i, step, base, current
+                                "DIND: DIVERGENCE DETECTED in Run {i} at Step {step}.\nBaseline: {base}
+Current:  {current}"
                             );
                             break;
                         }
@@ -354,16 +355,19 @@ Current:  {}",
                             Some(&baseline_golden),
                             &failure_msg,
                         )?;
-                        bail!("{}\nRepro bundle emitted to {:?}", failure_msg, repro_path);
+                        bail!(
+                            "{failure_msg}\nRepro bundle emitted to {}",
+                            repro_path.display()
+                        );
                     }
-                    bail!("{}", failure_msg);
+                    bail!("{failure_msg}");
                 }
                 // Optional: print progress every 10/100 runs
                 if i % 10 == 0 {
-                    println!("DIND: {}/{} runs clean...", i, runs);
+                    println!("DIND: {i}/{runs} runs clean...");
                 }
             }
-            println!("DIND: Torture complete. {} runs identical.", runs);
+            println!("DIND: Torture complete. {runs} runs identical.");
         }
         Commands::Converge {
             scenarios,
@@ -401,17 +405,17 @@ Current:  {}",
             };
 
             println!(
-                "Baseline established from {:?}: {}",
-                baseline, baseline_full
+                "Baseline established from {}: {baseline_full}",
+                baseline.display()
             );
             if let Some(scope) = &converge_scope {
-                println!("Convergence scope: {}", scope);
-                println!("Baseline projected hash: {}", baseline_proj);
+                println!("Convergence scope: {scope}");
+                println!("Baseline projected hash: {baseline_proj}");
             }
 
             for path in scenarios.iter().skip(1) {
-                let (hashes, _, kernel) =
-                    run_scenario_with_kernel(path).context(format!("Failed to run {:?}", path))?;
+                let (hashes, _, kernel) = run_scenario_with_kernel(path)
+                    .context(format!("Failed to run {}", path.display()))?;
                 let full_hash = hashes.last().cloned().unwrap_or_default();
                 let projected_hash = match &converge_scope {
                     Some(scope) => hex::encode(projected_state_hash(&kernel, scope)),
@@ -419,15 +423,16 @@ Current:  {}",
                 };
                 if projected_hash != baseline_proj {
                     bail!(
-                        "DIND: CONVERGENCE FAILURE.\nBaseline ({:?}): {}\nCurrent  ({:?}): {}",
-                        baseline,
-                        baseline_proj,
-                        path,
-                        projected_hash
+                        "DIND: CONVERGENCE FAILURE.\nBaseline ({}): {baseline_proj}\nCurrent  ({}): {projected_hash}",
+                        baseline.display(),
+                        path.display()
                     );
                 }
                 if converge_scope.is_some() {
-                    println!("Converged (projected): {:?} => {}", path, projected_hash);
+                    println!(
+                        "Converged (projected): {} => {projected_hash}",
+                        path.display()
+                    );
                     if full_hash != baseline_full {
                         println!("  Note: full hash differs (expected for commutative scenarios).");
                     }
@@ -603,11 +608,7 @@ fn resolve_converge_scope(scenarios: &[PathBuf]) -> Result<Option<String>> {
             None => scope = Some(entry_scope),
             Some(existing) => {
                 if existing != &entry_scope {
-                    bail!(
-                        "Converge scope mismatch: '{}' vs '{}'",
-                        existing,
-                        entry_scope
-                    );
+                    bail!("Converge scope mismatch: '{existing}' vs '{entry_scope}'");
                 }
             }
         }
@@ -617,7 +618,7 @@ fn resolve_converge_scope(scenarios: &[PathBuf]) -> Result<Option<String>> {
         return Ok(None);
     }
     if !missing.is_empty() {
-        bail!("Converge scope missing for scenarios: {:?}", missing);
+        bail!("Converge scope missing for scenarios: {missing:?}");
     }
     Ok(scope)
 }

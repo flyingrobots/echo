@@ -35,7 +35,7 @@ fn build_chain_engine(n: usize) -> Engine {
     let link_ty = make_type_id(LINK_TYPE_STR);
     let mut chain_tail = root;
     for i in 0..n {
-        let to_label = format!("{}{}", ENT_LABEL_PREFIX, i);
+        let to_label = format!("{ENT_LABEL_PREFIX}{i}");
         let id = make_node_id(&to_label);
         store.insert_node(id, NodeRecord { ty: entity_ty });
         // Human-friendly edge id: <from>-to-<to>.
@@ -44,7 +44,7 @@ fn build_chain_engine(n: usize) -> Engine {
         } else {
             format!("{}{}", ENT_LABEL_PREFIX, i - 1)
         };
-        let edge_id = make_edge_id(&format!("edge-{}-to-{}", from_label, to_label));
+        let edge_id = make_edge_id(&format!("edge-{from_label}-to-{to_label}"));
         store.insert_edge(
             chain_tail,
             EdgeRecord {
@@ -78,7 +78,7 @@ fn bench_snapshot_hash(c: &mut Criterion) {
                     criterion::black_box(snap.hash);
                 },
                 BatchSize::PerIteration,
-            )
+            );
         });
     }
     group.finish();

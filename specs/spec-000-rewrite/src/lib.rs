@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(unsafe_code, clippy::print_stdout, clippy::print_stderr)]
 //! Spec-000 scaffold: Leptos CSR app wired for trunk/wasm32.
 
 use leptos::prelude::*;

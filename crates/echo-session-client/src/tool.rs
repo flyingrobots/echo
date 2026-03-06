@@ -88,8 +88,10 @@ impl SessionPort for ChannelSession {
             for _ in 0..max {
                 match rx.try_recv() {
                     Ok(n) => out.push(n),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                    Err(
+                        std::sync::mpsc::TryRecvError::Empty
+                        | std::sync::mpsc::TryRecvError::Disconnected,
+                    ) => break,
                 }
             }
         }
@@ -102,8 +104,10 @@ impl SessionPort for ChannelSession {
             for _ in 0..max {
                 match rx.try_recv() {
                     Ok(f) => out.push(f),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                    Err(
+                        std::sync::mpsc::TryRecvError::Empty
+                        | std::sync::mpsc::TryRecvError::Disconnected,
+                    ) => break,
                 }
             }
         }

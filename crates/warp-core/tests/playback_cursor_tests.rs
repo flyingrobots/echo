@@ -36,7 +36,7 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
     let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..10u64 {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{}", tick));
+        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
 
         // Apply patch to get the resulting state
         patch
@@ -95,8 +95,7 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
     let result = cursor.seek_to(8, &provenance, &initial_store);
     assert!(
         matches!(result, Err(SeekError::StateRootMismatch { tick: 6 })),
-        "expected StateRootMismatch at tick 6, got: {:?}",
-        result
+        "expected StateRootMismatch at tick 6, got: {result:?}"
     );
 }
 
@@ -121,19 +120,14 @@ fn seek_past_available_history_returns_history_unavailable() {
     // With 10 patches in history (indices 0..9), valid ticks are 0..=10.
     // Tick 10 represents the state after all patches have been applied.
     let result = cursor.seek_to(10, &provenance, &initial_store);
-    assert!(
-        result.is_ok(),
-        "seek to tick 10 should succeed: {:?}",
-        result
-    );
+    assert!(result.is_ok(), "seek to tick 10 should succeed: {result:?}");
     assert_eq!(cursor.tick, 10);
 
     // Seeking to tick 50 should fail with HistoryUnavailable
     let result = cursor.seek_to(50, &provenance, &initial_store);
     assert!(
         matches!(result, Err(SeekError::HistoryUnavailable { tick: 50 })),
-        "expected HistoryUnavailable at tick 50, got: {:?}",
-        result
+        "expected HistoryUnavailable at tick 50, got: {result:?}"
     );
 }
 
@@ -262,7 +256,7 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
     cursor.mode = warp_core::PlaybackMode::Play;
     let result = cursor.step(&provenance, &initial_store);
 
-    assert!(result.is_ok(), "step should not error: {:?}", result);
+    assert!(result.is_ok(), "step should not error: {result:?}");
     assert_eq!(
         result.unwrap(),
         warp_core::StepResult::ReachedFrontier,
@@ -300,8 +294,7 @@ fn seek_to_u64_max_returns_history_unavailable() {
 
     assert!(
         matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == u64::MAX),
-        "expected HistoryUnavailable at u64::MAX, got: {:?}",
-        result
+        "expected HistoryUnavailable at u64::MAX, got: {result:?}"
     );
 
     // Cursor tick should remain at 0 (seek failed, no state change)
@@ -348,8 +341,7 @@ fn empty_worldline_cursor_at_tick_zero() {
     let result = cursor.seek_to(1, &provenance, &initial_store);
     assert!(
         matches!(result, Err(SeekError::HistoryUnavailable { tick: 1 })),
-        "expected HistoryUnavailable at tick 1 on empty worldline, got: {:?}",
-        result
+        "expected HistoryUnavailable at tick 1 on empty worldline, got: {result:?}"
     );
 
     // Cursor should remain at tick 0
@@ -420,8 +412,7 @@ fn duplicate_worldline_registration_is_idempotent() {
         .unwrap_err();
     assert!(
         matches!(err, warp_core::HistoryError::WorldlineAlreadyExists(_)),
-        "expected WorldlineAlreadyExists error, got: {:?}",
-        err
+        "expected WorldlineAlreadyExists error, got: {err:?}"
     );
 
     // History should still be intact after the failed re-registration
@@ -450,8 +441,7 @@ fn duplicate_worldline_registration_is_idempotent() {
     let result = cursor.seek_to(1, &provenance, &initial_store);
     assert!(
         result.is_ok(),
-        "seek should succeed after failed re-registration: {:?}",
-        result
+        "seek should succeed after failed re-registration: {result:?}"
     );
     assert_eq!(cursor.tick, 1);
 }

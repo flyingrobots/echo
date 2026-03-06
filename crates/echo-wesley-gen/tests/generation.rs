@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Integration test for the echo-wesley-gen CLI (Wesley IR -> Rust code).
 
 use std::io::Write;

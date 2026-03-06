@@ -14,8 +14,8 @@ fn pack_port(node: &NodeId, port_id: u32, dir_in: bool) -> PortKey {
     let mut node_hi = [0u8; 8];
     node_hi.copy_from_slice(&node.0[0..8]);
     let node_bits = u64::from_le_bytes(node_hi);
-    let dir_bit = if dir_in { 1u64 } else { 0u64 };
-    (node_bits << 32) | ((port_id as u64) << 2) | dir_bit
+    let dir_bit = u64::from(dir_in);
+    (node_bits << 32) | (u64::from(port_id) << 2) | dir_bit
 }
 
 #[test]

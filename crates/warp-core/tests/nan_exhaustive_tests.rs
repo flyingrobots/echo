@@ -49,28 +49,25 @@ fn test_comprehensive_nan_coverage() {
     for bits in patterns {
         let f = f32::from_bits(bits);
         // Pre-condition: verify our assumption that these ARE NaNs according to Rust
-        assert!(f.is_nan(), "Rust did not identify {:#x} as NaN", bits);
+        assert!(f.is_nan(), "Rust did not identify {bits:#x} as NaN");
 
         let scalar = F32Scalar::new(f);
         let out_bits = scalar.to_f32().to_bits();
 
         assert_eq!(
             out_bits, 0x7fc00000,
-            "Input NaN {:#x} was not canonicalized to 0x7fc00000, got {:#x}",
-            bits, out_bits
+            "Input NaN {bits:#x} was not canonicalized to 0x7fc00000, got {out_bits:#x}"
         );
 
         // Explicitly test reflexivity for the canonicalized NaN
         assert_eq!(
             scalar, scalar,
-            "Reflexivity failed for canonicalized NaN from input {:#x}",
-            bits
+            "Reflexivity failed for canonicalized NaN from input {bits:#x}"
         );
         assert_eq!(
             scalar.cmp(&scalar),
             std::cmp::Ordering::Equal,
-            "Ordering reflexivity failed for canonicalized NaN from input {:#x}",
-            bits
+            "Ordering reflexivity failed for canonicalized NaN from input {bits:#x}"
         );
     }
 
@@ -90,8 +87,7 @@ fn test_comprehensive_nan_coverage() {
             assert_eq!(
                 s.to_f32().to_bits(),
                 0x7fc00000,
-                "Failed low mantissa {:#x}",
-                bits
+                "Failed low mantissa {bits:#x}"
             );
         }
         // Loop max-1000..max
@@ -102,8 +98,7 @@ fn test_comprehensive_nan_coverage() {
             assert_eq!(
                 s.to_f32().to_bits(),
                 0x7fc00000,
-                "Failed high mantissa {:#x}",
-                bits
+                "Failed high mantissa {bits:#x}"
             );
         }
     }

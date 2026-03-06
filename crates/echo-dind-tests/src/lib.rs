@@ -2,6 +2,15 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Deterministic test kernel used by the DIND harness.
 
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::cast_possible_truncation,
+    clippy::unnecessary_wraps,
+    clippy::match_wildcard_for_single_variants
+)]
+
 use echo_dry_tests::build_motion_demo_engine;
 use warp_core::{make_node_id, ApplyResult, DispatchDisposition, Engine};
 

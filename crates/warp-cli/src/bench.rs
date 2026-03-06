@@ -212,7 +212,7 @@ fn format_duration(ns: f64) -> String {
             format!("{:.2} \u{00b5}s", ns / 1_000.0)
         }
     } else {
-        format!("{:.2} ns", ns)
+        format!("{ns:.2} ns")
     }
 }
 

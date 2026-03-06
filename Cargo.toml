@@ -59,6 +59,60 @@ ttd-protocol-rs = { version = "0.1.0", path = "crates/ttd-protocol-rs" }
 ttd-manifest = { version = "0.1.0", path = "crates/ttd-manifest" }
 echo-ttd = { version = "0.1.0", path = "crates/echo-ttd" }
 
+# ── Workspace-wide lint policy ──────────────────────────────────────
+# Maximum strictness. Crates opt in via `[lints] workspace = true`.
+# Per-crate overrides go in that crate's `[lints]` table.
+[workspace.lints.rust]
+missing_docs = "deny"
+rust_2018_idioms = "deny"
+unused_must_use = "deny"
+# deny (not forbid) so WASM/FFI crates can #![allow(unsafe_code)] locally
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# Lint groups — all promoted to deny
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+# Anti-pattern lints — explicit deny
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+# Pedantic overrides — allow where too noisy for this codebase
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+unreadable_literal = "allow"
+missing_const_for_fn = "allow"
+suboptimal_flops = "allow"
+redundant_pub_crate = "allow"
+many_single_char_names = "allow"
+module_name_repetitions = "allow"
+use_self = "allow"
+# Nursery overrides — too noisy or false-positive-prone
+cognitive_complexity = "allow"
+option_if_let_else = "allow"
+significant_drop_tightening = "allow"
+# Pedantic overrides — low signal-to-noise for this codebase
+doc_markdown = "allow"
+too_many_lines = "allow"
+struct_excessive_bools = "allow"
+too_long_first_doc_paragraph = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+similar_names = "allow"
+trivially_copy_pass_by_ref = "allow"
+needless_collect = "allow"
+manual_let_else = "allow"
+needless_pass_by_value = "allow"
+# cargo group overrides
+multiple_crate_versions = "allow"
+
 [profile.release]
 opt-level = "s"
 lto = true

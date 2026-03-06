@@ -46,3 +46,6 @@ harness = false
 [[bench]]
 name = "materialization_hotpath"
 harness = false
+
+[lints]
+workspace = true

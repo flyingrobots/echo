@@ -135,6 +135,7 @@ pub fn moving_from_origin(velocity: [f32; 3]) -> AtomPayload {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
     use warp_core::decode_motion_atom_payload;

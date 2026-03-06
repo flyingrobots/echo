@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 
 //! Echo repository maintenance tasks.
 //!
@@ -294,14 +295,14 @@ fn run_dind_record(tags: Option<String>, exclude_tags: Option<String>) -> Result
     for scenario in &scenarios {
         let scenario_path = format!("testdata/dind/{}", scenario.path);
         let golden_path = match scenario_path.strip_suffix(".eintlog") {
-            Some(base) => format!("{}.hashes.json", base),
+            Some(base) => format!("{base}.hashes.json"),
             None => bail!(
                 "scenario path '{}' does not end with '.eintlog'",
                 scenario.path
             ),
         };
 
-        println!("\n>>> Recording: {} -> {}", scenario_path, golden_path);
+        println!("\n>>> Recording: {scenario_path} -> {golden_path}");
 
         let status = Command::new("cargo")
             .args([
@@ -322,15 +323,14 @@ fn run_dind_record(tags: Option<String>, exclude_tags: Option<String>) -> Result
             eprintln!("\n!!! FAILED: {}", scenario.path);
             eprintln!("\nDIND FAILED. Repro command:");
             eprintln!(
-                "  cargo run -p echo-dind-harness -- record {} --out {}\n",
-                scenario_path, golden_path
+                "  cargo run -p echo-dind-harness -- record {scenario_path} --out {golden_path}\n"
             );
             failed += 1;
         }
     }
 
     if failed > 0 {
-        bail!("DIND RECORD: {} scenario(s) failed", failed);
+        bail!("DIND RECORD: {failed} scenario(s) failed");
     }
 
     println!(
@@ -398,8 +398,10 @@ fn run_dind_converge(tags: Option<String>, exclude_tags: Option<String>) -> Resu
             .status()
             .context("failed to spawn cargo")?;
 
-        if !status.success() {
-            eprintln!("\n!!! CONVERGE FAILED for scope: {}", scope);
+        if status.success() {
+            println!("    CONVERGE OK: {scope}");
+        } else {
+            eprintln!("\n!!! CONVERGE FAILED for scope: {scope}");
             // Build the repro command with all scenario paths
             let repro_paths: Vec<String> = group
                 .iter()
@@ -411,13 +413,11 @@ fn run_dind_converge(tags: Option<String>, exclude_tags: Option<String>) -> Resu
                 repro_paths.join(" ")
             );
             failed += 1;
-        } else {
-            println!("    CONVERGE OK: {}", scope);
         }
     }
 
     if failed > 0 {
-        bail!("DIND CONVERGE: {} group(s) failed", failed);
+        bail!("DIND CONVERGE: {failed} group(s) failed");
     }
 
     println!("\nDIND CONVERGE: All groups verified.");
@@ -447,7 +447,7 @@ fn load_matching_scenarios(
     let include_tags: Vec<&str> = tags
         .map(|t| {
             t.split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .collect()
         })
@@ -455,7 +455,7 @@ fn load_matching_scenarios(
     let exclude_tag_list: Vec<&str> = exclude_tags
         .map(|t| {
             t.split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .collect()
         })
@@ -466,14 +466,16 @@ fn load_matching_scenarios(
         .filter(|s| {
             // If include tags specified, scenario must have at least one
             if !include_tags.is_empty()
-                && !include_tags.iter().any(|t| s.tags.contains(&t.to_string()))
+                && !include_tags
+                    .iter()
+                    .any(|t| s.tags.contains(&(*t).to_string()))
             {
                 return false;
             }
             // If exclude tags specified, scenario must not have any
             if exclude_tag_list
                 .iter()
-                .any(|t| s.tags.contains(&t.to_string()))
+                .any(|t| s.tags.contains(&(*t).to_string()))
             {
                 return false;
             }

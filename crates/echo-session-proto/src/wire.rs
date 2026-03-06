@@ -19,7 +19,10 @@ use crate::canonical::{decode_value, encode_value};
 use crate::{Message, OpEnvelope, SubscribeWarpPayload, WarpStreamPayload};
 
 fn sv_to_cv(val: SerdeValue) -> Result<Value, String> {
-    use serde_value::Value::*;
+    use serde_value::Value::{
+        Bool, Bytes, Char, Map, Newtype, Option, Seq, String, Unit, F32, F64, I16, I32, I64, I8,
+        U16, U32, U64, U8,
+    };
     match val {
         Bool(b) => Ok(Value::Bool(b)),
         I8(n) => Ok(Value::Integer(Integer::from(n))),
@@ -30,7 +33,7 @@ fn sv_to_cv(val: SerdeValue) -> Result<Value, String> {
         U16(n) => Ok(Value::Integer(Integer::from(n))),
         U32(n) => Ok(Value::Integer(Integer::from(n))),
         U64(n) => Ok(Value::Integer(Integer::from(n))),
-        F32(f) => Ok(Value::Float(f as f64)),
+        F32(f) => Ok(Value::Float(f64::from(f))),
         F64(f) => Ok(Value::Float(f)),
         Char(c) => Ok(Value::Text(c.to_string())),
         String(s) => Ok(Value::Text(s)),
@@ -67,7 +70,7 @@ fn encode_payload<T: Serialize>(value: &T) -> Result<Value, ciborium::ser::Error
 fn decode_payload<T: serde::de::DeserializeOwned>(
     value: Value,
 ) -> Result<T, ciborium::de::Error<io::Error>> {
-    let sv = cv_to_sv(value).map_err(|e| ciborium::de::Error::Semantic(None, e.to_string()))?;
+    let sv = cv_to_sv(value).map_err(|e| ciborium::de::Error::Semantic(None, e))?;
     T::deserialize(sv).map_err(|e| ciborium::de::Error::Semantic(None, e.to_string()))
 }
 
@@ -295,6 +298,7 @@ pub fn decode_message(
 // --- Unit tests -----------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{ErrorPayload, HandshakePayload};

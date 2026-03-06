@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+// Generated code — relax workspace lints that conflict with codegen output.
 #![allow(
     dead_code,
-    clippy::derivable_impls,
+    missing_docs,
     non_snake_case,
     non_camel_case_types,
-    missing_docs
+    unsafe_code,
+    clippy::derivable_impls,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic
 )]
 use serde::{Deserialize, Serialize};
 /// SHA256 hash of the source TTD schema.

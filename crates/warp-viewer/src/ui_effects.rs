@@ -20,7 +20,7 @@ fn resolve_socket_path(host: &str, port: u16) -> String {
     }
     let mut base = default_socket_path();
     if let Some(parent) = base.parent() {
-        let fname = format!("echo-session-{}-{}.sock", host, port);
+        let fname = format!("echo-session-{host}-{port}.sock");
         base = parent.join(fname);
     }
     base.display().to_string()

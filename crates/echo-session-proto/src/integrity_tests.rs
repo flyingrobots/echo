@@ -3,6 +3,7 @@
 //! High-integrity protocol drills for PR 1.
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use crate::eint_v2::*;
     use crate::ttdr_v2::*;

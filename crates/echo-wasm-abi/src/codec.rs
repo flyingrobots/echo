@@ -3,7 +3,7 @@
 //! Minimal deterministic codec helpers (length-prefixed, LE scalars).
 
 extern crate alloc;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::str;
 use thiserror::Error;
@@ -37,7 +37,7 @@ pub trait Encode {
 /// Trait for deterministic decoding from bytes.
 pub trait Decode: Sized {
     /// Decode from the provided reader.
-    fn decode(reader: &mut Reader) -> Result<Self, CodecError>;
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, CodecError>;
 }
 
 /// Encode a value into a fresh Vec.
@@ -187,7 +187,7 @@ impl<'a> Reader<'a> {
     pub fn read_string(&mut self, max_len: usize) -> Result<String, CodecError> {
         let bytes = self.read_len_prefixed_bytes(max_len)?;
         str::from_utf8(bytes)
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .map_err(|_| CodecError::InvalidUtf8)
     }
 }
@@ -213,7 +213,7 @@ pub fn fx_from_i64(n: i64) -> i64 {
 #[inline]
 #[must_use]
 pub fn fx_from_f32(value: f32) -> i64 {
-    let scaled = (value as f64) * ((1u64 << 32) as f64);
+    let scaled = f64::from(value) * ((1u64 << 32) as f64);
     if scaled.is_nan() {
         0
     } else if scaled.is_infinite() {

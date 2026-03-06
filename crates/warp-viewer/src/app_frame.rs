@@ -21,7 +21,10 @@ use std::time::Instant;
 const FREE_CAMERA_CONTROLS: bool = false; // set true for debug free-fly
 
 impl App {
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     pub fn frame(&mut self) {
+        use egui_winit::winit::keyboard::KeyCode;
+
         let (win, width_px, height_px, raw_input) = {
             let Some(vp) = self.viewports.get_mut(0) else {
                 // No viewport available; nothing to draw this frame.
@@ -39,8 +42,7 @@ impl App {
             };
             let scope = match n.scope {
                 NotifyScope::Global => ToastScope::Global,
-                NotifyScope::Session(_) => ToastScope::Session,
-                NotifyScope::Warp(_) => ToastScope::Session,
+                NotifyScope::Session(_) | NotifyScope::Warp(_) => ToastScope::Session,
                 NotifyScope::Local => ToastScope::Local,
             };
             self.toasts.push(
@@ -97,23 +99,22 @@ impl App {
                     160.0
                 };
                 let mut mv = Vec3::ZERO;
-                use egui_winit::winit::keyboard::KeyCode::*;
-                if self.viewer.keys.contains(&KeyW) {
+                if self.viewer.keys.contains(&KeyCode::KeyW) {
                     mv.z += speed * dt;
                 }
-                if self.viewer.keys.contains(&KeyS) {
+                if self.viewer.keys.contains(&KeyCode::KeyS) {
                     mv.z -= speed * dt;
                 }
-                if self.viewer.keys.contains(&KeyA) {
+                if self.viewer.keys.contains(&KeyCode::KeyA) {
                     mv.x -= speed * dt;
                 }
-                if self.viewer.keys.contains(&KeyD) {
+                if self.viewer.keys.contains(&KeyCode::KeyD) {
                     mv.x += speed * dt;
                 }
-                if self.viewer.keys.contains(&KeyQ) {
+                if self.viewer.keys.contains(&KeyCode::KeyQ) {
                     mv.y -= speed * dt;
                 }
-                if self.viewer.keys.contains(&KeyE) {
+                if self.viewer.keys.contains(&KeyCode::KeyE) {
                     mv.y += speed * dt;
                 }
                 self.viewer.camera.move_relative(mv);
@@ -135,11 +136,13 @@ impl App {
             Screen::Title => draw_title_screen(ctx, self),
             Screen::Connecting => draw_connecting_screen(ctx, &self.ui.connect_log),
             Screen::Error(msg) => draw_error_screen(ctx, self, &msg),
-            Screen::View => draw_view_hud(ctx, self, &visible_toasts, &debug_arc_screen),
+            Screen::View => draw_view_hud(ctx, self, &visible_toasts, debug_arc_screen.as_ref()),
         });
 
         self.publish_wvp(Instant::now());
 
+        // SAFETY: We return early at the top of frame() if viewports is empty.
+        #[allow(clippy::unwrap_used)]
         let vp = self.viewports.get_mut(0).unwrap();
         vp.egui_state
             .handle_platform_output(win, full_output.platform_output);
@@ -166,7 +169,7 @@ impl App {
 
         let render_out = render::render_frame(
             vp,
-            &mut self.viewer,
+            &self.viewer,
             view_proj,
             radius,
             paint_jobs,
@@ -240,6 +243,7 @@ impl App {
         self.viewer.epoch = Some(to_epoch);
     }
 
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     fn handle_pointer(
         &mut self,
         dt: f32,
@@ -348,6 +352,7 @@ impl App {
         }
     }
 
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     fn debug_arc_screen(
         &self,
         width_px: u32,
@@ -382,6 +387,12 @@ impl App {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::match_wildcard_for_single_variants,
+    clippy::uninlined_format_args
+)]
 mod tests {
     use super::*;
     use echo_graph::{NodeData, NodeDataPatch, WarpOp};

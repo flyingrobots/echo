@@ -15,3 +15,6 @@ categories = ["development-tools", "config"]
 [dependencies]
 directories = "5"
 echo-app-core = { version = "0.1.0", path = "../echo-app-core" }
+
+[lints]
+workspace = true

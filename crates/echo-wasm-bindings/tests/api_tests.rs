@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! API surface tests for the DemoKernel WASM bindings shim.
 use echo_wasm_bindings::{DemoKernel, SemanticOp, Value};
 

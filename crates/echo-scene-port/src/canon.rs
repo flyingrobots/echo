@@ -23,7 +23,7 @@ pub fn canonicalize_f32(x: f32) -> f32 {
         "Scene coordinate magnitude exceeds 1e12 limit"
     );
     // Perform scaling in f64 to match JS 'number' precision during intermediate step.
-    let scaled = x as f64 * 1_000_000.0;
+    let scaled = f64::from(x) * 1_000_000.0;
     let truncated = (scaled as i64) as f32 / 1_000_000.0;
     if truncated == 0.0 {
         0.0
@@ -42,6 +42,7 @@ pub fn canonicalize_position(p: [f32; 3]) -> [f32; 3] {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -108,12 +109,11 @@ mod tests {
             .output()
             .expect("failed to execute node");
 
-        if !output.status.success() {
-            panic!(
-                "Node process failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        assert!(
+            output.status.success(),
+            "Node process failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         let js_hexes: Vec<String> =
             serde_json::from_slice(&output.stdout).expect("failed to parse JS output");

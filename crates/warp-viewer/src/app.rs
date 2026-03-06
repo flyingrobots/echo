@@ -97,9 +97,7 @@ impl App {
                 Instant::now(),
             );
         }
-        let mut viewer = ViewerState {
-            ..Default::default()
-        };
+        let mut viewer = ViewerState::default();
         viewer.wire_graph = sample_wire_graph();
         viewer.graph = scene_from_wire(&viewer.wire_graph);
         viewer.history.append(viewer.wire_graph.clone(), 0);
@@ -193,6 +191,7 @@ impl App {
     /// Each call increments an internal pulse counter and derives new position/color
     /// values from a hash of `(node_id, pulse)`. The mutation is applied locally and
     /// queued as a pending op for the next diff frame.
+    #[allow(clippy::expect_used, clippy::cast_precision_loss)]
     pub fn pulse_local_graph(&mut self) {
         if self.viewer.wire_graph.nodes.is_empty() {
             self.toasts.push(
@@ -255,6 +254,7 @@ impl App {
 }
 
 impl ApplicationHandler for App {
+    #[allow(clippy::expect_used)]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if !self.viewports.is_empty() {
             return;

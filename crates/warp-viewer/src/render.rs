@@ -15,10 +15,10 @@ pub struct RenderOutputs {
 }
 
 /// Render the scene and UI. Returns frame timing.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::cast_possible_truncation)]
 pub fn render_frame(
     vp: &mut Viewport,
-    viewer: &mut ViewerState,
+    viewer: &ViewerState,
     view_proj: Mat4,
     radius: f32,
     paint_jobs: Vec<egui::epaint::ClippedPrimitive>,
@@ -174,7 +174,7 @@ pub fn render_frame(
         // debug sphere using higher-poly mesh
         if viewer.debug_show_sphere {
             let offset_bytes =
-                sphere_instance_offset as u64 * std::mem::size_of::<Instance>() as u64;
+                u64::from(sphere_instance_offset) * std::mem::size_of::<Instance>() as u64;
             rpass.set_vertex_buffer(0, gpu.mesh_debug_sphere.vbuf.slice(..));
             rpass.set_vertex_buffer(1, gpu.instance_buf.slice(offset_bytes..));
             rpass.set_index_buffer(

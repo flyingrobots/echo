@@ -56,9 +56,7 @@ fn tick_patch_digest_changes_when_payload_type_changes_even_if_bytes_match() {
     };
 
     let base_ops = vec![
-        WarpOp::UpsertWarpInstance {
-            instance: instance.clone(),
-        },
+        WarpOp::UpsertWarpInstance { instance },
         WarpOp::UpsertNode {
             node: node_key,
             record: NodeRecord { ty: node_ty },

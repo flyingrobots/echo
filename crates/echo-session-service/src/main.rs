@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 //! Minimal Unix-socket CBOR hub skeleton.
 
 use anyhow::Result;
@@ -33,6 +34,12 @@ impl Default for HostPrefs {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::items_after_statements
+)]
 mod tests {
     use super::*;
     use echo_graph::{RenderGraph, WarpDiff, WarpFrame, WarpSnapshot};
@@ -302,7 +309,7 @@ mod tests {
                 };
                 assert_eq!(snap.epoch, 0);
             }
-            other => panic!("expected warp stream, got {:?}", other),
+            other => panic!("expected warp stream, got {other:?}"),
         }
 
         producer
@@ -334,7 +341,7 @@ mod tests {
                 assert_eq!(diff.from_epoch, 0);
                 assert_eq!(diff.to_epoch, 1);
             }
-            other => panic!("expected warp stream, got {:?}", other),
+            other => panic!("expected warp stream, got {other:?}"),
         }
 
         // Attacker cannot publish (producer already claimed ownership).
@@ -359,7 +366,7 @@ mod tests {
                 assert_eq!(payload.name, "E_FORBIDDEN_PUBLISH");
                 assert_eq!(payload.code, 403);
             }
-            other => panic!("expected error, got {:?}", other),
+            other => panic!("expected error, got {other:?}"),
         }
 
         assert!(
@@ -392,7 +399,7 @@ mod tests {
                 assert_eq!(payload.name, "E_WARP_EPOCH_GAP");
                 assert_eq!(payload.code, 409);
             }
-            other => panic!("expected error, got {:?}", other),
+            other => panic!("expected error, got {other:?}"),
         }
 
         assert!(
@@ -462,7 +469,7 @@ mod tests {
                 assert_eq!(payload.name, "E_FORBIDDEN_PUBLISH");
                 assert_eq!(payload.code, 403);
             }
-            other => panic!("expected error, got {:?}", other),
+            other => panic!("expected error, got {other:?}"),
         }
 
         assert!(
@@ -541,6 +548,8 @@ async fn main() -> Result<()> {
 }
 
 async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<()> {
+    const MAX_PAYLOAD: usize = 8 * 1024 * 1024;
+
     // split stream
     let (mut reader, writer) = tokio::io::split(stream);
 
@@ -573,7 +582,6 @@ async fn handle_client(stream: UnixStream, hub: Arc<Mutex<HubState>>) -> Result<
         }
     });
 
-    const MAX_PAYLOAD: usize = 8 * 1024 * 1024;
     let mut read_buf: Vec<u8> = vec![0u8; 16 * 1024];
     let mut acc: Vec<u8> = Vec::with_capacity(32 * 1024);
     loop {
@@ -691,9 +699,9 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                                 code: 403,
                                 name: "E_FORBIDDEN_PUBLISH".into(),
                                 details: None,
-                                message: format!("warp_id {} is owned by {}", warp_id, p),
+                                message: format!("warp_id {warp_id} is owned by {p}"),
                             });
-                            err_reason = Some(format!("producer mismatch for warp_id {}", warp_id));
+                            err_reason = Some(format!("producer mismatch for warp_id {warp_id}"));
                         }
                     } else {
                         stream.producer = Some(conn_id);
@@ -707,18 +715,17 @@ async fn handle_message(msg: Message, conn_id: u64, hub: &Arc<Mutex<HubState>>) 
                                 stream.latest_snapshot = Some(s.clone());
                             }
                             WarpFrame::Diff(d) => {
-                                let last = match stream.last_epoch {
-                                    Some(v) => v,
-                                    None => {
-                                        error = Some(ErrorPayload {
-                                            code: 409,
-                                            name: "E_WARP_SNAPSHOT_REQUIRED".into(),
-                                            details: None,
-                                            message: "send a snapshot before the first diff".into(),
-                                        });
-                                        err_reason = Some("diff before snapshot".into());
-                                        0 // placeholder, unused when error is set
-                                    }
+                                let last = if let Some(v) = stream.last_epoch {
+                                    v
+                                } else {
+                                    error = Some(ErrorPayload {
+                                        code: 409,
+                                        name: "E_WARP_SNAPSHOT_REQUIRED".into(),
+                                        details: None,
+                                        message: "send a snapshot before the first diff".into(),
+                                    });
+                                    err_reason = Some("diff before snapshot".into());
+                                    0 // placeholder, unused when error is set
                                 };
                                 if error.is_none()
                                     && (d.from_epoch != last || d.to_epoch != d.from_epoch + 1)

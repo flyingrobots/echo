@@ -16,3 +16,6 @@ categories = ["game-engines", "data-structures"]
 warp-core = { workspace = true }
 
 [dev-dependencies]
+
+[lints]
+workspace = true

@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::items_after_statements,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic
+)]
 //! Benchmark: scheduler drain throughput with a no-op rule
 //!
 //! Applies a trivial no-op rule across `n` entity nodes to measure scheduler
@@ -64,7 +70,7 @@ fn build_engine_with_entities(n: usize) -> (Engine, Vec<NodeId>) {
     let ty = make_type_id(ENTITY_TYPE_STR);
     let mut ids = Vec::with_capacity(n);
     for i in 0..n {
-        let label = format!("{}{}", ENT_LABEL_PREFIX, i);
+        let label = format!("{ENT_LABEL_PREFIX}{i}");
         let id = make_node_id(&label);
         engine
             .insert_node(id, NodeRecord { ty })
@@ -102,7 +108,7 @@ fn bench_scheduler_drain(c: &mut Criterion) {
                     criterion::black_box(snap);
                 },
                 BatchSize::PerIteration,
-            )
+            );
         });
 
         // Enqueue phase only (apply without commit)
@@ -118,7 +124,7 @@ fn bench_scheduler_drain(c: &mut Criterion) {
                     criterion::black_box(tx);
                 },
                 BatchSize::PerIteration,
-            )
+            );
         });
 
         // Drain phase only (commit with pre-enqueued rewrites)
@@ -139,7 +145,7 @@ fn bench_scheduler_drain(c: &mut Criterion) {
                     criterion::black_box(snap);
                 },
                 BatchSize::PerIteration,
-            )
+            );
         });
     }
     group.finish();

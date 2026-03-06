@@ -23,3 +23,7 @@ serde_json = "1.0"
 
 [features]
 wasm = ["wasm-bindgen"]
+
+
+[lints]
+workspace = true

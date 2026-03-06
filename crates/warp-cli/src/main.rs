@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+// CLI binary — printing to stdout/stderr is the primary interface.
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 //! Echo CLI entrypoint.
 //!
 //! Provides developer-facing commands for working with Echo snapshots:

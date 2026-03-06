@@ -23,3 +23,7 @@ wasm-bindgen = { version = "0.2", optional = true }
 [features]
 default = []
 wasm = ["wasm-bindgen"]
+
+
+[lints]
+workspace = true

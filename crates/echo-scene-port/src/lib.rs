@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+// Geometry/scene code with intentional float casts and comparisons.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::float_cmp,
+    clippy::items_after_statements
+)]
 //! Scene port contract for Echo renderers.
 //!
 //! This crate defines the domain contract between TTD Controller and renderers.

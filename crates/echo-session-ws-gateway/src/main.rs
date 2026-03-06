@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 //! WebSocket ↔ Unix socket bridge for the Echo session service.
 //! Browsers speak WebSocket; the bridge forwards binary JS-ABI frames to the Unix bus.
 
@@ -538,7 +539,10 @@ async fn main() -> Result<()> {
     {
         let mut metrics = state.metrics.lock().await;
         metrics.hub_observer.enabled = !args.no_observer;
-        metrics.hub_observer.subscribed_warps = args.observe_warp.clone();
+        metrics
+            .hub_observer
+            .subscribed_warps
+            .clone_from(&args.observe_warp);
     }
 
     if !args.no_observer {
@@ -576,6 +580,7 @@ async fn main() -> Result<()> {
     // graceful shutdown on Ctrl+C
     let shutdown = handle.clone();
     tokio::spawn(async move {
+        #[allow(clippy::expect_used)]
         tokio::signal::ctrl_c()
             .await
             .expect("failed to install ctrl-c handler");
@@ -746,7 +751,7 @@ async fn run_hub_observer(state: Arc<AppState>, warp_ids: Vec<u64>) {
         .max_attempts(10)
         .backoff(backoff)
         .with_jitter(Jitter::full())
-        .should_retry(|err| err.should_retry())
+        .should_retry(HubConnectError::should_retry)
         .build()
     {
         Ok(p) => p,
@@ -994,6 +999,19 @@ async fn ws_handler(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: SocketAddr) {
+    enum EndReason {
+        Client(TaskResult<()>),
+        Upstream(TaskResult<Result<(), anyhow::Error>>),
+        Writer(TaskResult<()>),
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum EndKind {
+        Client,
+        Upstream,
+        Writer,
+    }
+
     let socket_path = state.unix_socket.clone();
     let unix = match time::timeout(Duration::from_secs(2), UnixStream::connect(&socket_path)).await
     {
@@ -1086,18 +1104,17 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
                         .uds_to_ws_bytes
                         .wrapping_add(pkt.len().try_into().unwrap_or(u64::MAX));
 
-                    match decoded {
-                        Ok((msg, ts, _)) => metrics.observe_message(
+                    if let Ok((msg, ts, _)) = decoded {
+                        metrics.observe_message(
                             conn_id,
                             SessionDirection::UdsToWs,
                             &msg,
                             ts,
                             now_ms,
-                        ),
-                        Err(_) => {
-                            metrics.decode_errors = metrics.decode_errors.wrapping_add(1);
-                            metrics.touch_conn(conn_id, now_ms);
-                        }
+                        );
+                    } else {
+                        metrics.decode_errors = metrics.decode_errors.wrapping_add(1);
+                        metrics.touch_conn(conn_id, now_ms);
                     }
                 }
                 if out_tx_clone
@@ -1147,18 +1164,17 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
                             .ws_to_uds_bytes
                             .wrapping_add(data.len().try_into().unwrap_or(u64::MAX));
 
-                        match decoded {
-                            Ok((msg, ts, _)) => metrics.observe_message(
+                        if let Ok((msg, ts, _)) = decoded {
+                            metrics.observe_message(
                                 conn_id,
                                 SessionDirection::WsToUds,
                                 &msg,
                                 ts,
                                 now_ms,
-                            ),
-                            Err(_) => {
-                                metrics.decode_errors = metrics.decode_errors.wrapping_add(1);
-                                metrics.touch_conn(conn_id, now_ms);
-                            }
+                            );
+                        } else {
+                            metrics.decode_errors = metrics.decode_errors.wrapping_add(1);
+                            metrics.touch_conn(conn_id, now_ms);
                         }
                     }
                     if let Err(err) = uds_writer.write_all(&data).await {
@@ -1198,12 +1214,6 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
         }
     });
 
-    enum EndReason {
-        Client(TaskResult<()>),
-        Upstream(TaskResult<Result<(), anyhow::Error>>),
-        Writer(TaskResult<()>),
-    }
-
     let mut ws_to_uds = ws_to_uds;
     let mut uds_to_ws = uds_to_ws;
     let mut writer = writer;
@@ -1213,13 +1223,6 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
         res = &mut uds_to_ws => EndReason::Upstream(res),
         res = &mut writer => EndReason::Writer(res),
     };
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum EndKind {
-        Client,
-        Upstream,
-        Writer,
-    }
 
     let end_kind = match &reason {
         EndReason::Client(_) => EndKind::Client,
@@ -1247,12 +1250,11 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>, peer: Socket
 
     // Best-effort flush for the close frame; force-cancel on slow/broken clients.
     if !matches!(end_kind, EndKind::Writer) {
-        match time::timeout(Duration::from_secs(1), &mut writer).await {
-            Ok(res) => log_void_task_result("writer", peer, res),
-            Err(_) => {
-                writer.abort();
-                log_void_task_result("writer", peer, writer.await);
-            }
+        if let Ok(res) = time::timeout(Duration::from_secs(1), &mut writer).await {
+            log_void_task_result("writer", peer, res);
+        } else {
+            writer.abort();
+            log_void_task_result("writer", peer, writer.await);
         }
     }
 
@@ -1367,6 +1369,11 @@ async fn load_tls(cert_path: PathBuf, key_path: PathBuf) -> Result<RustlsConfig>
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation
+)]
 mod tests {
     use super::*;
 

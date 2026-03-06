@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::cast_sign_loss)]
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use rustc_hash::FxHashMap;
@@ -14,8 +14,8 @@ struct Colliding(u64);
 fn prng_u64(prng: &mut Prng) -> u64 {
     // `Prng` currently exposes `next_int`/`next_f32`. Compose two i32 samples into
     // a stable 64-bit key without reaching for OS-backed RNGs.
-    let hi = prng.next_int(i32::MIN, i32::MAX) as u32 as u64;
-    let lo = prng.next_int(i32::MIN, i32::MAX) as u32 as u64;
+    let hi = u64::from(prng.next_int(i32::MIN, i32::MAX) as u32);
+    let lo = u64::from(prng.next_int(i32::MIN, i32::MAX) as u32);
     (hi << 32) | lo
 }
 

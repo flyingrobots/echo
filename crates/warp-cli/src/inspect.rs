@@ -2,7 +2,7 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! `echo-cli inspect` — display WSC snapshot metadata and graph statistics.
 //!
-//! Prints metadata (tick count, schema hash, warp count), graph statistics
+//! Displays metadata (tick count, schema hash, warp count), graph statistics
 //! (node/edge counts, type breakdown, connected components), and an optional
 //! ASCII tree rendering of the graph structure.
 
@@ -60,7 +60,7 @@ pub(crate) struct TreeNode {
     pub(crate) children: Vec<TreeNode>,
 }
 
-/// Maximum depth for ASCII tree rendering.
+/// Limits tree rendering depth to prevent excessive output for wide/deep graphs.
 const TREE_MAX_DEPTH: usize = 5;
 
 /// Runs the inspect subcommand.
@@ -106,7 +106,7 @@ pub(crate) fn run(snapshot: &Path, show_tree: bool, format: &OutputFormat) -> Re
 
     let text = format_text_report(&report);
     let json = serde_json::to_value(&report).context("failed to serialize inspect report")?;
-    emit(format, &text, &json);
+    emit(format, &text, &json)?;
 
     Ok(())
 }
@@ -232,23 +232,24 @@ fn build_tree_node(
         if let Some(node_ix) = view.node_ix(node_id) {
             let out_edges = view.out_edges_for_node(node_ix);
             for out_edge in out_edges {
-                let edge_ix = out_edge.edge_ix() as usize;
-                if edge_ix < view.edges().len() {
-                    let edge = &view.edges()[edge_ix];
-                    let to_id = edge.to_node_id;
+                if let Ok(edge_ix) = usize::try_from(out_edge.edge_ix()) {
+                    if edge_ix < view.edges().len() {
+                        let edge = &view.edges()[edge_ix];
+                        let to_id = edge.to_node_id;
 
-                    if visited.insert(to_id) {
-                        if let Some(to_ix) = view.node_ix(&to_id) {
-                            let to_node = &view.nodes()[to_ix];
-                            children.push(build_tree_node(
-                                view,
-                                warp_index,
-                                &to_id,
-                                &to_node.node_type,
-                                depth + 1,
-                                max_depth,
-                                visited,
-                            ));
+                        if visited.insert(to_id) {
+                            if let Some(to_ix) = view.node_ix(&to_id) {
+                                let to_node = &view.nodes()[to_ix];
+                                children.push(build_tree_node(
+                                    view,
+                                    warp_index,
+                                    &to_id,
+                                    &to_node.node_type,
+                                    depth + 1,
+                                    max_depth,
+                                    visited,
+                                ));
+                            }
                         }
                     }
                 }
@@ -346,7 +347,7 @@ fn format_tree_node(out: &mut String, node: &TreeNode, prefix: &str, is_last: bo
     };
 
     for (i, child) in node.children.iter().enumerate() {
-        let last = i == node.children.len() - 1;
+        let last = i + 1 == node.children.len();
         format_tree_node(out, child, &child_prefix, last);
     }
 }

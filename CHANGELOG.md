@@ -5,6 +5,41 @@
 
 ## Unreleased
 
+### Fixed — Self-Review (PP-1 Branch)
+
+- **Stale `warp-ffi` References:** Removed deleted crate from git hooks
+  (`pre-push-parallel`, `pre-push-sequential`), `warp-core/README.md`, and
+  `AGENTS.md`. Only historical references in CHANGELOG and TASKS-DAG remain.
+- **Broken Spec Paths:** Fixed `docs/specs/` → `docs/spec/` in two acceptance
+  criteria in `docs/ROADMAP/backlog/security.md`.
+- **`emit()` Error Propagation:** Changed `output::emit()` to return
+  `Result<()>` instead of silently printing to stderr on serialization failure.
+  All call sites (`bench.rs`, `verify.rs`, `inspect.rs`) now propagate with `?`.
+- **SPEC-0005 Clarity:** Bound loop index variable in BTR verification algorithm
+  (H-3); documented missing-producer behavior in `derive()` (H-4); clarified
+  multi-producer vs. most-recent-producer semantics between
+  `build_provenance_graph()` and `derive()` (M-4); added
+  `canonical_state_hash()` cross-reference (M-5); specified composition error
+  semantics (M-6); added set semantics for `Out(μ)`/`In(μ)` (M-8); expanded
+  `ProvenanceNode` constructor in pseudocode (L-10); documented empty derivation
+  graph semantics (L-11); formalized identity composition (L-12); defined
+  `H(P)` notation in example (L-13); added Paper III citation (L-14).
+- **`format_duration()` Infinity:** Added `is_infinite()` check alongside
+  `is_nan()` so `f64::INFINITY` returns "N/A" instead of formatting as seconds.
+- **Safe `edge_ix` Cast:** Replaced `as usize` with `usize::try_from()` in
+  `inspect.rs` tree builder to guard against truncation on 32-bit targets.
+- **Bench Test Ordering:** Added positional assertion ensuring `--` precedes
+  the filter pattern in `build_bench_command`.
+- **Bench Empty Warning:** Added stderr warning when no benchmark results found.
+- **WSC Loader Warnings:** Warning messages now include entity IDs (first 4
+  bytes hex) for easier debugging.
+- **Inspect Docstring:** Changed "Prints" to "Displays" in module docstring.
+- **`TREE_MAX_DEPTH` Doc:** Added doc comment explaining the depth limit's
+  purpose.
+- **Fragile `len() - 1`:** Changed `i == node.children.len() - 1` to
+  `i + 1 == node.children.len()` to avoid underflow on empty children (though
+  the loop guards against this, the pattern is safer).
+
 ### Fixed — Developer CLI (`echo-cli`)
 
 - **Bench Filter:** `echo-cli bench --filter <pattern>` now passes the filter

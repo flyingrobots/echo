@@ -138,6 +138,12 @@ compose(P₁, P₂) = ProvenancePayload {
 - Associativity: concatenation is associative.
 - Precondition: `P₁.worldline_id == P₂.worldline_id` and
   last tick of `P₁` + 1 == first tick of `P₂` (contiguity).
+  If the precondition is violated, `compose()` returns
+  `Err(CompositionError)` with variant `WorldlineMismatch` or
+  `DiscontiguousTicks`.
+- Composing with the identity element: `compose(ε, P) = P` and
+  `compose(P, ε) = P` where `ε` is an empty payload sharing the same
+  `worldline_id` and `u0`.
 
 **Construction from `LocalProvenanceStore`:**
 
@@ -200,7 +206,7 @@ pub struct BoundaryTransitionRecord {
 verify_btr(btr, initial_store):
     1. store ← clone(initial_store)
     2. assert canonical_state_hash(store) == btr.h_in
-    3. for each patch in btr.payload.patches:
+    3. for (i, patch) in enumerate(btr.payload.patches):
         a. patch.apply_to_store(&mut store)
         b. assert canonical_state_hash(store) == btr.payload.expected[i].state_root
     4. assert canonical_state_hash(store) == btr.h_out
@@ -208,10 +214,15 @@ verify_btr(btr, initial_store):
     6. assert recomputed == btr.commit_hash
 ```
 
+Where `canonical_state_hash(store)` is `compute_state_root_for_warp_store()` as
+defined in `warp-core/src/snapshot.rs`.
+
 ### 4.3 Provenance Graph Nodes and Edges
 
 The provenance graph `𝕡` connects tick patches through their slot I/O:
 if `Out(μ_i)` ∩ `In(μ_j)` ≠ ∅, there is a causal edge from `μ_i` to `μ_j`.
+Where `Out(μ)` and `In(μ)` are treated as sets (duplicate `SlotId` values are
+collapsed before intersection).
 
 ```rust
 /// A node in the provenance graph.
@@ -269,6 +280,11 @@ build_provenance_graph(store, worldline_id, tick_range):
     return (nodes, edges)
 ```
 
+Note: `build_provenance_graph()` records edges to **all** prior producers of a
+shared slot, capturing full causal history. In contrast, `derive()` (§4.4)
+traces only the **most recent** producer per slot, sufficient for backward-cone
+queries.
+
 **Optimization note:** In practice, maintain a slot→tick index to avoid the
 O(n²) backward scan. The naive algorithm is shown for specification clarity.
 
@@ -303,6 +319,10 @@ derive(store, worldline_id, slot, tick):
     if slot not in seed_patch.out_slots:
         return DerivationGraph { query_slot: slot, query_tick: tick, nodes: [], edges: [] }
 
+    // An empty derivation graph indicates the queried slot is not produced
+    // at the given tick. If the slot exists but has no prior causality, the
+    // graph contains a single node (the seed patch) with no edges.
+
     frontier ← { (worldline_id, tick) }
     visited ← {}
     result_nodes ← []
@@ -317,7 +337,13 @@ derive(store, worldline_id, slot, tick):
         // in the backward cone (it was added because a downstream node
         // consumed one of its out_slots). Accept it unconditionally.
         patch ← store.patch(wl, t)
-        node ← ProvenanceNode from patch
+        node ← ProvenanceNode {
+            worldline_id: wl,
+            tick: t,
+            patch_digest: patch.patch_digest,
+            in_slots: patch.in_slots,
+            out_slots: patch.out_slots,
+        }
         result_nodes.push(node)
 
         // Trace backward through ALL in_slots of this patch.
@@ -332,6 +358,8 @@ derive(store, worldline_id, slot, tick):
                     })
                     frontier.insert((wl, prev_tick))
                     break  // Found the most recent producer.
+            // If loop completes without finding a producer, the slot
+            // is an external input — no edge is recorded.
 
     return DerivationGraph {
         query_slot: slot,
@@ -346,6 +374,10 @@ verifying it produces `slot`). Each subsequent node is added to the frontier
 because a node already in the cone consumed one of its `out_slots`. Therefore,
 every node in the frontier is transitively causal — no per-node slot filter
 is needed after the seed check.
+
+If no producer is found for an `in_slot`, it is treated as an external input
+(no edge recorded). Callers MUST handle incomplete causality when operating on
+partial stores.
 
 ---
 
@@ -406,7 +438,9 @@ btr_hash = BLAKE3(
 
 ## 6. Worked Examples
 
-### 6.1 Three-Tick Accumulator (Paper III Appendix A)
+### 6.1 Three-Tick Accumulator (Paper III, Appendix A)
+
+(See [Computational Holography & Provenance Payloads](https://doi.org/10.5281/zenodo.17963669), Appendix A)
 
 **Setup:** A single worldline with an accumulator node. Each tick increments
 the accumulator by 1.
@@ -445,6 +479,8 @@ BTR = {
   policy_id: 0,
   commit_hash: BLAKE3("echo:btr:v1\0" || h_in || h_out || u0 || H(P) || 2u64 || 0u32),
 }
+// where H(P) = provenance_payload_digest(payload) per §5.3
+
 ```
 
 **Provenance graph:**

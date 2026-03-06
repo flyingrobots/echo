@@ -95,7 +95,8 @@ pub(crate) fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
     if results.is_empty() {
         let text = "No benchmark results found.\n";
         let json = serde_json::json!({ "benchmarks": [], "message": "no results found" });
-        emit(format, text, &json);
+        eprintln!("warning: no benchmark results found in target/criterion/");
+        emit(format, text, &json)?;
         return Ok(());
     }
 
@@ -104,7 +105,7 @@ pub(crate) fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
     let json = serde_json::to_value(&results).context("failed to serialize bench results")?;
     let json = serde_json::json!({ "benchmarks": json });
 
-    emit(format, &text, &json);
+    emit(format, &text, &json)?;
     Ok(())
 }
 
@@ -198,7 +199,7 @@ pub(crate) fn format_table(results: &[BenchResult]) -> String {
 
 /// Formats nanosecond durations in human-readable form.
 fn format_duration(ns: f64) -> String {
-    if ns.is_nan() || ns < 0.0 {
+    if ns.is_nan() || ns.is_infinite() || ns < 0.0 {
         return "N/A".to_string();
     }
     if ns >= 1_000_000_000.0 {
@@ -335,6 +336,12 @@ mod tests {
     }
 
     #[test]
+    fn format_duration_infinity_returns_na() {
+        assert_eq!(format_duration(f64::INFINITY), "N/A");
+        assert_eq!(format_duration(f64::NEG_INFINITY), "N/A");
+    }
+
+    #[test]
     fn nonexistent_criterion_dir_returns_empty() {
         let results = collect_criterion_results(Path::new("/nonexistent/criterion"), None).unwrap();
         assert!(results.is_empty());
@@ -359,6 +366,13 @@ mod tests {
             bench_pos.is_none(),
             "command should not use --bench for filter"
         );
+        // Ensure "--" precedes the filter pattern.
+        let sep_pos = args.iter().position(|a| *a == "--").expect("missing --");
+        let filter_pos = args
+            .iter()
+            .position(|a| *a == "hotpath")
+            .expect("missing filter");
+        assert!(sep_pos < filter_pos, "'--' must precede filter pattern");
     }
 
     #[test]

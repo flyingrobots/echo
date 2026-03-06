@@ -43,7 +43,8 @@ pub(crate) fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
         // WSC stores at most one attachment per node (alpha plane).
         if atts.len() > 1 {
             eprintln!(
-                "warning: node {node_ix} has {} attachments (expected ≤1); using first",
+                "warning: node {node_ix} (id={}) has {} attachments (expected ≤1); using first",
+                hex::encode(&node_row.node_id[..4]),
                 atts.len()
             );
         }
@@ -60,7 +61,8 @@ pub(crate) fn graph_store_from_warp_view(view: &WarpView<'_>) -> GraphStore {
         // WSC stores at most one attachment per edge (beta plane).
         if atts.len() > 1 {
             eprintln!(
-                "warning: edge {edge_ix} has {} attachments (expected ≤1); using first",
+                "warning: edge {edge_ix} (id={}) has {} attachments (expected ≤1); using first",
+                hex::encode(&edge_row.edge_id[..4]),
                 atts.len()
             );
         }

@@ -2,19 +2,26 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Shared output formatting for text and JSON modes.
 
+use anyhow::{Context, Result};
+
 use crate::cli::OutputFormat;
 
 /// Emits output in the selected format.
 ///
 /// - `Text` mode prints `text` as-is (caller includes newlines).
 /// - `Json` mode pretty-prints `json` with a trailing newline.
-pub fn emit(format: &OutputFormat, text: &str, json: &serde_json::Value) {
+pub fn emit(format: &OutputFormat, text: &str, json: &serde_json::Value) -> Result<()> {
     match format {
-        OutputFormat::Text => print!("{text}"),
-        OutputFormat::Json => match serde_json::to_string_pretty(json) {
-            Ok(s) => println!("{s}"),
-            Err(e) => eprintln!("error: failed to serialize JSON output: {e}"),
-        },
+        OutputFormat::Text => {
+            print!("{text}");
+            Ok(())
+        }
+        OutputFormat::Json => {
+            let s =
+                serde_json::to_string_pretty(json).context("failed to serialize JSON output")?;
+            println!("{s}");
+            Ok(())
+        }
     }
 }
 

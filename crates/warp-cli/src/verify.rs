@@ -116,7 +116,7 @@ pub(crate) fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat
     let text = format_text_report(&report);
     let json = serde_json::to_value(&report).context("failed to serialize verify report")?;
 
-    emit(format, &text, &json);
+    emit(format, &text, &json)?;
 
     if !all_pass {
         bail!("verification failed");

@@ -34,6 +34,16 @@
   marked milestone as "In Progress".
 - Resequenced roadmap phases: P0 verified, P1→P2→P3 ordering clarified.
 
+### Fixed — Code Review (PR #291)
+
+- **Bench Recursive Scanning:** `collect_criterion_results` now walks
+  directories recursively, correctly finding grouped (`benchmark_group`) and
+  parameterised (`BenchmarkId`) benchmarks that Criterion stores in nested
+  directories (e.g. `group/bench/new/estimates.json`).
+- **Bench Regex Filter:** Post-filter now uses `regex::Regex` to match
+  Criterion's own regex semantics instead of substring `contains`. Filters
+  with anchors or metacharacters (e.g. `^hotpath$`) now work correctly.
+
 ### Fixed — Self-Review (PP-1 Branch)
 
 - **Stale `warp-ffi` References:** Removed deleted crate from git hooks

@@ -586,7 +586,7 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
 /// Returns `(destination, line_number)` pairs. Handles title text,
 /// balanced parentheses in URLs, and angle-bracketed links correctly.
 fn extract_link_targets(content: &str) -> Vec<(String, usize)> {
-    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+    use pulldown_cmark::{Event, Options, Parser, Tag};
 
     let parser = Parser::new_ext(content, Options::all());
     let mut results = Vec::new();
@@ -595,20 +595,15 @@ fn extract_link_targets(content: &str) -> Vec<(String, usize)> {
         .chain(content.match_indices('\n').map(|(i, _)| i + 1))
         .collect();
 
-    let mut current_offset = 0;
     for (event, range) in parser.into_offset_iter() {
-        current_offset = range.start;
         if let Event::Start(Tag::Link { dest_url, .. }) = event {
             let dest = dest_url.into_string();
             if !dest.is_empty() {
-                let line = line_starts.partition_point(|&s| s <= current_offset);
+                let line = line_starts.partition_point(|&s| s <= range.start);
                 results.push((dest, line));
             }
-        } else if let Event::End(TagEnd::Link) = event {
-            // nothing
         }
     }
-    let _ = current_offset; // suppress unused warning
 
     results
 }

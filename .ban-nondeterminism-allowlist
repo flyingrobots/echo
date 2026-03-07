@@ -12,3 +12,6 @@ crates/warp-core/src/boaw/exec.rs
 # This is read once at engine construction for worker count - determinism is not affected
 # because the worker count doesn't change execution results, only parallelism level
 crates/warp-core/src/engine_impl.rs
+# Test file uses std::fs to read/write golden vector binaries for determinism verification
+# This is test-only I/O, not simulation code — it validates determinism, not violates it
+crates/warp-core/tests/trig_golden_vectors.rs

@@ -49,8 +49,8 @@ Echo eliminates both by making **state immutable** and **updates pure functions*
 Think of each frame as an **immutable commit** with a **cryptographic hash** over the reachable graph (canonical byte order).  
 Player inputs become **candidate rewrites**. Thanks to **confluence** (category-theory math), all inputs fold into a **single deterministic effect**.
 
-```text
-(world, inputs) → world′
+```math
+(world, inputs) \to world'
 ```
 
 No prediction. No rollback. No arbitration. If two machines disagree, a **hash mismatch at frame N+1** is an immediate, precise alarm.

@@ -29,7 +29,7 @@ In code today: `warp_core::GraphStore`.
 
 Conceptually:
 
-```text
+```math
 U := (G, A)
 ```
 
@@ -53,8 +53,8 @@ AtomPayload {
 
 `π` forgets attachments:
 
-```text
-π(G, A) = G
+```math
+\pi(G, A) = G
 ```
 
 Echo’s core rewrite hot path operates over `π(U)` unless a rule explicitly chooses to decode attachments.

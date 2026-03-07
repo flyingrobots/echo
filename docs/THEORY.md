@@ -78,8 +78,8 @@ Each of these attachments can itself have attachments (e.g., a syntax tree node 
 
 WARPs can be characterized as the **initial algebra** for a polynomial functor:
 
-```text
-F(X) = P + Σ_{S ∈ Graphs} (V_S → X) × (E_S → X)
+```math
+F(X) = P + \Sigma_{S \in Graphs} (V_S \to X) \times (E_S \to X)
 ```
 
 This means: to define a function out of WARPs, it suffices to say:
@@ -103,8 +103,8 @@ The result is then **unique**. This gives us structural recursion and induction 
 
 This gives finite-depth approximations of arbitrarily deep WARPs. The **infinite unfolding** `unf_∞(X)` is the colimit of the tower:
 
-```text
-unf_0(X) → unf_1(X) → unf_2(X) → ...
+```math
+unf_0(X) \to unf_1(X) \to unf_2(X) \to ...
 ```
 
 ### Category of WARPs
@@ -216,8 +216,8 @@ Rewriting uses **Double-Pushout with Interfaces (DPOI)** - a categorical formali
 
 A **DPOI rule** is a span of monomorphisms:
 
-```text
-L ←ℓ K →r R
+```math
+L \xleftarrow{\ell} K \xrightarrow{r} R
 ```
 
 Where:
@@ -237,8 +237,8 @@ This is standard categorical rewriting - the key insight is how we use it on **t
 
 A **tick** groups concurrent work into an atomic commit:
 
-```text
-U = (G; α, β)  ⇒[Tick]  U' = (G'; α', β')
+```math
+U = (G; \alpha, \beta)  \Rightarrow[Tick]  U' = (G'; \alpha', \beta')
 ```
 
 **Inside a tick:**
@@ -261,8 +261,8 @@ For each match `m: L ↪ G` with interface `K ⊆ L`, define:
 
 Matches `m₁` and `m₂` are **independent** if:
 
-```text
-Del(m₁) ∩ Use(m₂) = ∅  AND  Del(m₂) ∩ Use(m₁) = ∅
+```math
+Del(m_1) \cap Use(m_2) = \emptyset  AND  Del(m_2) \cap Use(m_1) = \emptyset
 ```
 
 **Translation:** Neither deletes structure that the other reads.
@@ -286,8 +286,8 @@ Tick confluence says: "given `B`, the outcome is deterministic." But how is `B` 
 
 A **deterministic scheduler** is a total function:
 
-```text
-σ: WState → Batch
+```math
+\sigma: WState \to Batch
 ```
 
 One canonical choice: **left-most greedy filter**
@@ -298,8 +298,8 @@ One canonical choice: **left-most greedy filter**
 
 A **tick receipt** records what happened:
 
-```text
-ρ = (E, ≼, E_acc, E_rej, meta)
+```math
+\rho = (E, \preceq, E_acc, E_rej, meta)
 ```
 
 Where:
@@ -368,8 +368,8 @@ This square **commutes up to canonical isomorphism**.
 
 Given a deterministic scheduler `σ` and a deterministic policy for attachment updates, a run produces a canonical **worldline**:
 
-```text
-U₀ ⇒[Tick₁, ρ₁] U₁ ⇒[Tick₂, ρ₂] U₂ ⇒[Tick₃, ρ₃] ...
+```math
+U_0 \Rightarrow[Tick_1, \rho_1] U_1 \Rightarrow[Tick_2, \rho_2] U_2 \Rightarrow[Tick_3, \rho_3] ...
 ```
 
 Each `ρᵢ` is a tick receipt recording the scheduler's choices. The global history is linear (ℕ-indexed), but each tick carries internal partial-order structure (the tick-event poset).
@@ -433,8 +433,8 @@ For Echo, provenance is not "nice to have" - it's **structural**. We need a comp
 
 The boundary is:
 
-```text
-B = (U₀, P)
+```math
+B = (U_0, P)
 ```
 
 Where:
@@ -472,14 +472,14 @@ A patch may contain an embedded receipt when full audit is needed, but holograph
 
 There's a deterministic partial function:
 
-```text
-Apply: WState × Labels ⇀ WState
+```math
+Apply: WState \times Labels \rightharpoonup WState
 ```
 
 Where `Labels` is the space of tick patches. Given a state `Uᵢ` and patch `μᵢ`, Apply produces the next state:
 
-```text
-Uᵢ₊₁ = Apply(Uᵢ, μᵢ)
+```math
+U_{i+1} = Apply(U_i, \mu_i)
 ```
 
 **Key property:** For patch-deterministic worldlines, `(Uᵢ, μᵢ)` **uniquely determines** `Uᵢ₊₁` (whenever Apply is defined).
@@ -492,14 +492,14 @@ Provenance payloads have **algebraic structure**:
 
 **Composition (concatenation):**
 
-```text
-P · Q = (μ₀, ..., μₘ₋₁, ν₀, ..., νₙ₋₁)
+```math
+P \cdot Q = (\mu_0, \ldots, \mu_{m-1}, \nu_0, \ldots, \nu_{n-1})
 ```
 
 **Identity (empty payload):**
 
-```text
-ε = ()
+```math
+\varepsilon = ()
 ```
 
 **Properties:**
@@ -523,8 +523,8 @@ The mathematical boundary `(U₀, P)` is sufficient for replay, but real systems
 
 **BTR format:**
 
-```text
-BTR = (h_in, h_out, U₀, P, t, κ)
+```math
+BTR = (h_in, h_out, U_0, P, t, \kappa)
 ```
 
 Where:
@@ -611,8 +611,8 @@ You often don't need the **entire** worldline - just the causal cone for a speci
 
 **Slice payload:**
 
-```text
-P|_{D(v)} = (μᵢ)_{i ∈ I(v)}
+```math
+P|_{D(v)} = (\mu_i)_{i \in I(v)}
 ```
 
 Where `I(v)` = tick indices whose patches contribute to `D(v)` (in increasing order).
@@ -661,14 +661,14 @@ A **wormhole** is a single edge that compresses a multi-tick segment while prese
 
 **Wormhole boundary:**
 
-```text
-W(Uᵢ, Uᵢ₊ₖ) = P_{i:k} = (μᵢ, ..., μᵢ₊ₖ₋₁)
+```math
+W(U_i, U_{i+k}) = P_{i:k} = (\mu_i, \ldots, \mu_{i+k-1})
 ```
 
 **Wormhole edge:**
 
-```text
-e = (Uᵢ, W(Uᵢ, Uᵢ₊ₖ), Uᵢ₊ₖ)
+```math
+e = (U_i, W(U_i, U_{i+k}), U_{i+k})
 ```
 
 This represents the compressed k-tick transition `Uᵢ ⇒ᵏ Uᵢ₊ₖ`.
@@ -764,8 +764,8 @@ For Echo, this matters because:
 
 An **observer** `O` is a functor from the history category to a trace space:
 
-```text
-O: Hist(𝒰, R) → Tr
+```math
+O: Hist(\mathcal{U}, R) \to Tr
 ```
 
 Where:
@@ -786,8 +786,8 @@ An observer is **(τ, m)-bounded** if it can be implemented within time `τ` and
 
 A **translator** from `O₁` to `O₂` is an algorithmic operator:
 
-```text
-T₁₂: Tr → Tr
+```math
+T_{12}: Tr \to Tr
 ```
 
 Such that `T₁₂ ∘ O₁` approximates `O₂`.
@@ -800,8 +800,8 @@ We measure translator complexity using **Minimum Description Length (MDL)**:
 
 **Key property (subadditivity):** For composable translators,
 
-```text
-DL(T₂₃ ∘ T₁₂) ≤ DL(T₁₂) + DL(T₂₃) + c
+```math
+DL(T_{23} \circ T_{12}) \leq DL(T_{12}) + DL(T_{23}) + c
 ```
 
 Where `c` is a small constant (prefix-coding overhead).
@@ -810,24 +810,24 @@ Where `c` is a small constant (prefix-coding overhead).
 
 Fix a metric `dist_tr` on trace space. The **lifted distortion** between observers is:
 
-```text
-Dist(O, O') = sup_{h ∈ Hist} dist_tr(O(h), O'(h))
+```math
+Dist(O, O') = sup_{h \in Hist} dist_tr(O(h), O'(h))
 ```
 
 **Translation:** Worst-case trace distance over all histories.
 
 **Non-expansiveness assumption:** Post-composition by any translator is 1-Lipschitz:
 
-```text
-Dist(T ∘ O, T ∘ O') ≤ Dist(O, O')
+```math
+Dist(T \circ O, T \circ O') \leq Dist(O, O')
 ```
 
 ### Directed Rulial Cost
 
 For observers `O₁, O₂`, the **directed cost** is:
 
-```text
-→D_{τ,m}(O₁ → O₂) = inf_{T₁₂ ∈ Trans_{τ,m}(O₁, O₂)} (DL(T₁₂) + λ·Dist(O₂, T₁₂ ∘ O₁))
+```math
+\vec{D}_{\tau,m}(O_1 \to O_2) = \inf_{T_{12} \in Trans_{\tau,m}(O_1, O_2)} (DL(T_{12}) + \lambda \cdot Dist(O_2, T_{12} \circ O_1))
 ```
 
 Where:
@@ -843,8 +843,8 @@ If no translator exists within the budget, `→D_{τ,m} = +∞`.
 
 The **rulial distance** is:
 
-```text
-D_{τ,m}(O₁, O₂) = →D_{τ,m}(O₁ → O₂) + →D_{τ,m}(O₂ → O₁)
+```math
+D_{\tau,m}(O_1, O_2) = \vec{D}_{\tau,m}(O_1 \to O_2) + \vec{D}_{\tau,m}(O_2 \to O_1)
 ```
 
 **Properties:**
@@ -858,8 +858,8 @@ This makes `D_{τ,m}` a **quasi-pseudometric** - it satisfies all metric axioms 
 
 **Budget monotonicity:** Relaxing budgets can only decrease distance:
 
-```text
-If (τ', m') ≥ (τ, m), then D_{τ',m'}(O₁, O₂) ≤ D_{τ,m}(O₁, O₂)
+```math
+If (\tau', m') \geq (\tau, m), \text{ then } D_{\tau',m'}(O_1, O_2) \leq D_{\tau,m}(O_1, O_2)
 ```
 
 ### Lawvere Metric: The Enriched Category Viewpoint
@@ -913,8 +913,8 @@ Let:
 
 **The Ruliad:** The large history space built from all possible computations:
 
-```text
-Ruliad = ⨆_{(U₀, R) ∈ 𝔘 × 𝔑} Hist(𝒰_{U₀,R}, R)
+```math
+Ruliad = \bigsqcup_{(U_0, R) \in \mathfrak{U} \times \mathfrak{N}} Hist(\mathcal{U}_{U_0,R}, R)
 ```
 
 (Disjoint union of history categories over initial states and rule packs)
@@ -972,8 +972,8 @@ To reason about liveness, safety, and reconciliation properties, we introduce a 
 
 **Transport lemma:** If observers `O₁, O₂` are connected by a low-distortion translator, and atomic propositions are δ-robust, then temporal formulas have the same truth values:
 
-```text
-O₂ ⊨ φ  ⟺  (T ∘ O₁) ⊨ φ
+```math
+O_2 \models \varphi  \iff  (T \circ O_1) \models \varphi
 ```
 
 **Translation:** Temporal properties transport across observers when translation distortion is below the robustness threshold.

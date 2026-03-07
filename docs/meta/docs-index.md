@@ -57,7 +57,7 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `meta/docs-index.md`                                           | This index                                                                                                             |
 | `hash-graph.md`                                                | Hash relationships across subsystems                                                                                   |
 | `meta/legacy-excavation.md`                                    | Historical artifact log                                                                                                |
-| `memorial.md`                                                  | Tribute to Caverns                                                                                                     |
+| `memorials/2026-01-18-phase4-rubicon.md`                       | Tribute to Caverns                                                                                                     |
 | `release-criteria.md`                                          | Phase transition checklist                                                                                             |
 
 ## Start Here

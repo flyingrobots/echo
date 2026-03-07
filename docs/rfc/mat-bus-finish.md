@@ -168,13 +168,13 @@ rule authors to think: "Am I iterating deterministically? Do I need unique subke
 
 ### Files to Create/Modify
 
-| File                                    | Action                                            |
-| --------------------------------------- | ------------------------------------------------- |
-| `src/materialization/emission_port.rs`  | **Create** — trait definition                     |
-| `src/materialization/scoped_emitter.rs` | **Create** — adapter implementation               |
-| `src/materialization/mod.rs`            | **Modify** — export new types                     |
-| `src/materialization/bus.rs`            | **Modify** — add DuplicateEmission, update emit() |
-| `src/engine.rs` (or equivalent)         | **Modify** — create ScopedEmitter per rule        |
+| File                                                     | Action                                            |
+| -------------------------------------------------------- | ------------------------------------------------- |
+| `crates/warp-core/src/materialization/emission_port.rs`  | **Create** — trait definition                     |
+| `crates/warp-core/src/materialization/scoped_emitter.rs` | **Create** — adapter implementation               |
+| `crates/warp-core/src/materialization/mod.rs`            | **Modify** — export new types                     |
+| `crates/warp-core/src/materialization/bus.rs`            | **Modify** — add DuplicateEmission, update emit() |
+| `crates/warp-core/src/engine.rs` (or equivalent)         | **Modify** — create ScopedEmitter per rule        |
 
 ---
 
@@ -371,12 +371,12 @@ fn bitwise_and(a: &[u8], b: &[u8]) -> Vec<u8> {
 
 ### Files to Create/Modify
 
-| File                                   | Action                                          |
-| -------------------------------------- | ----------------------------------------------- |
-| `src/materialization/reduce_op.rs`     | **Create** — enum + apply()                     |
-| `src/materialization/channel.rs`       | **Modify** — update ChannelPolicy               |
-| `src/materialization/bus.rs`           | **Modify** — call ReduceOp::apply() in finalize |
-| `tests/materialization_determinism.rs` | **Add** — reduce op tests                       |
+| File                                                    | Action                                          |
+| ------------------------------------------------------- | ----------------------------------------------- |
+| `crates/warp-core/src/materialization/reduce_op.rs`     | **Create** — enum + apply()                     |
+| `crates/warp-core/src/materialization/channel.rs`       | **Modify** — update ChannelPolicy               |
+| `crates/warp-core/src/materialization/bus.rs`           | **Modify** — call ReduceOp::apply() in finalize |
+| `crates/warp-core/tests/materialization_determinism.rs` | **Add** — reduce op tests                       |
 
 ---
 
@@ -396,10 +396,10 @@ Current tests run only on the host platform.
 
 Two-layer testing:
 
-| Layer              | Environment      | Trigger                 | Purpose                        |
-| ------------------ | ---------------- | ----------------------- | ------------------------------ |
-| **DIND**           | Docker-in-Docker | `cargo xtask dind-test` | Local dev, fast iteration      |
-| **GitHub Actions** | Native runners   | Push/PR                 | Gate merges, real environments |
+| Layer              | Environment      | Trigger                        | Purpose                        |
+| ------------------ | ---------------- | ------------------------------ | ------------------------------ |
+| **DIND**           | Docker-in-Docker | `cargo xtask dind-determinism` | Local dev, fast iteration      |
+| **GitHub Actions** | Native runners   | Push/PR                        | Gate merges, real environments |
 
 ### 3.1 DIND Harness Extension
 
@@ -476,6 +476,7 @@ jobs:
               run: |
                   DIGEST=$(cargo run -p echo-dind-tests --bin capture-digest)
                   echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+                  echo "$DIGEST" > digest.txt
 
             - name: Upload digest artifact
               uses: actions/upload-artifact@v4

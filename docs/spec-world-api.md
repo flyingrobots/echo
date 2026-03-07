@@ -66,7 +66,7 @@ interface ReplayOptions {
 ## Determinism Enforcement
 
 - All mutations funnel through Codex’s Baby (`emit/emitCross`); direct ECS modifications prohibited.
-- API ensures capability checks occur before operations.
+- API ensures capability checks occur before operations (see [spec-capabilities-and-security.md](spec-capabilities-and-security.md)).
 - `version` increments when breaking changes occur; components may opt into new versions explicitly.
 
 ---
@@ -90,9 +90,11 @@ api.emit("update", {
 
 ## Change Management
 
-- API changes require version bump.
-- Deprecated methods remain no-op until next major release.
-- Extensions (e.g., debug utilities) provided under `api.debug.*` and marked unstable.
+This API follows [SemVer 2.0.0](https://semver.org/). Deprecated methods are retained as no-ops through the next major release. The `api.debug.*` namespace is `@unstable` with no compatibility guarantees.
+
+- API changes require a version bump.
+- Deprecated methods remain as no-ops until the next major release.
+- Extensions (e.g., debug utilities) are provided under `api.debug.*` and marked `@unstable`.
 
 ---
 

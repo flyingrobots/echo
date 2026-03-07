@@ -3,7 +3,7 @@
 
 # Knots In (and Over) Graphs — Time Knots for Echo
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 This memo captures two complementary ways to bring knot theory into Echo’s deterministic rewrite engine, and how that interacts with kinematics.
 
@@ -72,7 +72,7 @@ We keep physics a **fold** over the graph and combine it with Chronos Timespans 
 3. Swept AABB (conservative swept volume proxy)
     - Pure translation by `d`: exact swept volume = Minkowski sum `K ⊕ segment[0,d]`; swept AABB equals hull of start/end world AABBs
     - With rotation: use conservative hull of start/end world AABBs (deterministic and fast); refine later if needed
-4. Kairos::swept: build `SweptVolumeProxy { entity, tick, fat: Aabb }` and insert into broad‑phase (pairs in canonical order)
+4. Kairos::swept: build `SweepProxy { entity, tick, fat: Aabb }` and insert into broad‑phase (pairs in canonical order)
 
 This is orthogonal to knot diagrams; the latter lives in the state graph as its own domain with its own rewrites and invariants.
 

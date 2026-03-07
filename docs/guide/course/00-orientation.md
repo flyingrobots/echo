@@ -9,9 +9,7 @@ This module sets the frame for the whole course.
 
 - What Echo is trying to be “best in class” at (determinism, replay, sync, verification).
 - What we’re proving with Demo 2 (“Splash Guy”).
-- The difference between:
-    - “the simulation is correct” and
-    - “two machines agree on what happened”.
+- The difference between “the simulation is correct” and “two machines agree on what happened”.
 
 ## The Promise (In Plain Language)
 

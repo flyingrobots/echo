@@ -37,7 +37,7 @@ Reader isolation
 
 Footprint F = (N_read, N_write, E_read, E_write, B_in, B_out; factor_mask)
 
-- N*\*: node bitmaps; E*\*: edge bitmaps
+- `N_read`/`N_write`: node bitmaps; `E_read`/`E_write`: edge bitmaps
 - B_in/B_out: boundary port occupancy bitmaps; port key = `(node_id << 32) | (port_id << 2) | dir_bits`
 - factor_mask: u64 coarse partition (room/shard/system factor)
 

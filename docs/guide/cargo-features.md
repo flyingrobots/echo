@@ -6,6 +6,9 @@
 Generated from `Cargo.toml` files as of 2026-03-07. Run
 `grep -r '^\[features\]' crates/*/Cargo.toml` to verify.
 
+> **Source of truth:** Crate `Cargo.toml` manifests. This page is a curated
+> snapshot — check individual crates for the latest flags.
+
 This document lists all Cargo feature flags across the Echo workspace. For
 runtime configuration, see [configuration-reference.md](configuration-reference.md).
 

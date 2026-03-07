@@ -26,6 +26,8 @@ Deterministic traversal:
 - Node order: ascending `NodeId` within each warp (lexicographic over 32-byte ids), filtered to reachable nodes in that warp.
 - Edge order: per reachable source bucket, sort edges by ascending `EdgeId`, and include only edges whose destination node is reachable.
 
+Identifiers are compared as opaque 32-byte sequences in lexicographic order (bytes[0]..bytes[31]). No integer interpretation is applied during traversal ordering.
+
 Encoding (little-endian where applicable):
 
 - Root key:
@@ -62,7 +64,7 @@ Where:
     - `present: u8` (`0` = None, `1` = Some)
     - when present:
         - `value_tag: u8` (`1` = Atom, `2` = Descend)
-        - if Atom: `payload_type_id: 32`, `payload_len: u64 LE`, then raw bytes
+        - if Atom: `payload_type_id: 32`, `payload_len: u64 LE`, then raw bytes. A `payload_len` of 0 is valid and indicates an empty payload with no subsequent bytes. Implementations MUST validate that `payload_len` does not exceed a repository-defined maximum before processing.
         - if Descend: `child_warp_id: 32`
 
 Hash: blake3(encoding) → 32-byte digest.
@@ -73,7 +75,7 @@ Header fields (v2):
 
 - version: u16 = 2
 - parents: `Vec<Hash>` (length u64 LE, then each 32-byte hash). Genesis commits
-  have zero parents (length = 0).
+  have zero parents (length = 0). The parent count MUST NOT exceed 16. Implementations MUST reject commits exceeding this limit.
 - state_root: 32 bytes (from section 1)
 - patch_digest: 32 bytes (digest of the tick patch boundary delta)
 - policy_id: u32 (version pin for Aion policy)
@@ -98,7 +100,7 @@ tooling, but commit hash v2 intentionally does **not** commit to them.
 
 `plan_digest` is a deterministic digest of the candidate ready set and its
 canonical ordering (encoded as a length-prefixed list; empty list =
-`blake3(0u64.to_le_bytes())`).
+`EMPTY_LEN_DIGEST`).
 
 ### 3.2 decision_digest (Tick receipt digest)
 
@@ -108,7 +110,7 @@ outcomes (accepted vs rejected candidates).
 Canonical encoding (v1) for the tick receipt digest:
 
 - If the tick receipt has **0 entries**, `decision_digest` is the canonical empty
-  digest: `blake3(0u64.to_le_bytes())` (matches `DIGEST_LEN0_U64`).
+  digest: `EMPTY_LEN_DIGEST` (see section 4).
 - Otherwise, compute `blake3(encoding)` where `encoding` is:
     - `version: u16 = 1`
     - `count: u64` number of entries
@@ -129,7 +131,7 @@ not to the blocker metadata.
 
 `rewrites_digest` is a deterministic digest of the ordered rewrites applied
 during the tick (encoded as a length-prefixed list; empty list =
-`blake3(0u64.to_le_bytes())`).
+`EMPTY_LEN_DIGEST`).
 
 ### 3.4 admission_digest (Stream admission decisions)
 
@@ -147,7 +149,7 @@ Purpose:
 Canonical encoding (v1) for `admission_digest`:
 
 - If there are **0** admission decisions for the tick, `admission_digest` is the
-  canonical empty digest: `blake3(0u64.to_le_bytes())` (matches `DIGEST_LEN0_U64`).
+  canonical empty digest: `EMPTY_LEN_DIGEST` (see section 4).
 - Otherwise, compute `blake3(encoding)` where `encoding` is:
     - `version: u16 = 1`
     - `count: u64` number of decision records
@@ -180,6 +182,7 @@ Notes:
   derived (not separately encoded) to avoid circularity and to keep the
   admission digest stable. Compute it as:
     - `decision_id = blake3("echo:stream_admission_decision_id:v1\0" || decision_record_bytes_v1)`
+      The trailing `\0` denotes a single null byte (`0x00`), not the two-character escape sequence.
     - where `decision_record_bytes_v1` is exactly the per-decision record encoding
       bytes listed above (from `view_id_len` through `admitted_digest`).
 
@@ -187,11 +190,16 @@ Notes:
 
 ## 4. Invariants and Notes
 
+Constants:
+
+- `EMPTY_LEN_DIGEST = blake3(0u64.to_le_bytes())` -- used as the canonical digest when a collection contains zero entries. This is the value referenced by the engine’s `DIGEST_LEN0_U64` constant.
+
+Invariants:
+
 - Any change to ordering, lengths, or endianness breaks all prior hashes.
 - The commit_id (v2) is stable across identical states and patch deltas, independent of runtime.
 - The canonical empty digest for _length-prefixed list digests_ is
-  `blake3(0u64.to_le_bytes())` (not `blake3(b"")`). This matches the engine’s
-  `DIGEST_LEN0_U64` constant and keeps empty-digest semantics consistent with the
+  `EMPTY_LEN_DIGEST` (not `blake3(b"")`). This keeps empty-digest semantics consistent with the
   encoding strategy (the length prefix is part of the canonical byte stream).
 
 ## 5. Future Evolution

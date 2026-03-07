@@ -49,9 +49,7 @@ Provide a first-class mechanism for descended attachments (“WARPs all the way 
 
 ### Attachment identity
 
-- `AttachmentPlane = Alpha | Beta`
-    - Alpha = vertex/node plane (`α`)
-    - Beta = edge plane (`β`)
+- `AttachmentPlane = Alpha | Beta` — Alpha = vertex/node plane (`α`), Beta = edge plane (`β`)
 - `AttachmentOwner = Node(NodeKey) | Edge(EdgeKey)`
 - `AttachmentKey = { owner: AttachmentOwner, plane: AttachmentPlane }`
 
@@ -103,10 +101,16 @@ ID note (recommended, not required by this spec): `child_warp` should be determi
 
 ### O2: SetAttachment (atoms and clears)
 
-Attachment slots may also be updated directly:
+`SetAttachment(key: AttachmentKey, value: Option<AttachmentValue>)`
 
-- `SetAttachment(key, Some(Atom(...)))`
-- `SetAttachment(key, None)` (clears)
+This is the canonical operation for atom-level attachment writes. It MUST:
+
+1. set `Attachment[key] = value` (or clear when `value` is `None`)
+
+Variants:
+
+- `SetAttachment(key, Some(Atom(...)))` — write an atom payload
+- `SetAttachment(key, None)` — clear the attachment slot
 
 Setting `Descend(child_warp)` via a generic SetAttachment is discouraged in v1; prefer `OpenPortal` so portal creation and instance creation cannot be separated across ticks.
 
@@ -180,8 +184,8 @@ Given a target commit `C` with parents `P1..Pn` and an initial demand set `D` (u
 
 1. Include in the slice any ops in `C` that write slots in `D`.
 2. For each demanded slot not written in `C`, follow parent provenance:
-    - if exactly one parent can produce it, follow that parent for that slot
-    - if multiple parents can produce it, the merge patch MUST resolve it (M1); otherwise the slice is invalid
+    - (a) if exactly one parent can produce it, follow that parent for that slot
+    - (b) if multiple parents can produce it, the merge patch MUST resolve it (M1); otherwise the slice is invalid
 3. For each included op, union its read-set into `D` and repeat until closure.
 4. Portal-chain closure (Stage B1):
     - if any demanded slot is within a descendant instance `W`, include the portal chain establishing reachability (root → … → W)

@@ -19,6 +19,8 @@ It is intentionally “low ceremony”: the goal is to pin _executable evidence_
 
 > Given a fixed starting state and a fixed set of candidate rewrites for a tick, the engine produces a unique deterministic outcome (same terminal digest) independent of the order in which candidates were enqueued.
 
+These litmus tests cover scenarios where insertion-order tie-breakers (nonce) do not affect admission or winner selection. See `scheduler-warp-core.md` for the nonce tie-break rule.
+
 In other words: we test _order independence under the engine’s admissibility rules_, not the full “unique up to iso” statement from adhesive-category DPO.
 
 ## Ambient assumptions (pragmatic “adhesive enough”)

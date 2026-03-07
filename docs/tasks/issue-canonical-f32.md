@@ -9,7 +9,7 @@ Upgrade `F32Scalar` to enforce strict bit-level determinism across all platforms
 
 ## Problem
 
-IEEE 754 floating point behavior varies across architectures (x86, ARM, WASM):
+IEEE 754 floating-point behavior varies across architectures (x86, ARM, WASM):
 
 1. **NaN Payloads:** `0.0/0.0` produces different bit patterns on different CPUs.
 2. **Subnormals:** Some environments flush subnormals to zero (FTZ/DAZ), others do not.
@@ -37,4 +37,5 @@ Enable the commented-out tests in `crates/warp-core/tests/determinism_policy_tes
 
 - `F32Scalar::new` implements the full sanitization logic.
 - All tests in `determinism_policy_tests.rs` are uncommented and passing.
+- [ ] Enable `test_policy_nan_canonicalization` and `test_policy_subnormal_flushing` in `determinism_policy_tests.rs`
 - Benchmarks confirm acceptable overhead.

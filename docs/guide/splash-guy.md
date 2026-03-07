@@ -136,8 +136,7 @@ Recommended (initial) phase order:
 4. **Advance fuses**:
     - decrement `fuse_ticks_remaining`
 5. **Explode balloons whose fuse hit 0**:
-    - compute splash tiles deterministically
-    - trigger chain reactions deterministically
+    - compute splash tiles and trigger chain reactions deterministically
 6. **Apply damage**:
     - players in splash tiles become `alive = false` (or mark “hit”)
 7. **Apply pickups / block destruction** (optional, deterministic)

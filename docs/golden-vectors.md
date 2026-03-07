@@ -53,23 +53,11 @@ Maps MUST be sorted by the bytewise representation of their encoded keys.
 }
 ```
 
-**Canonical Sort Order:**
+**Canonical Sort Order** (bytewise on encoded keys):
 
-1. `"navOpen"` (`67 6e 61 76 4f 70 65 6e`)
-2. `"routePath"` (`69 72 6f 75 74 65 50 61 74 68`)
-3. `"theme"` (`65 74 68 65 6d 65`)
-
-Wait, let's check bytewise:
-
-- `navOpen`: `67 ...`
-- `routePath`: `69 ...`
-- `theme`: `65 ...`
-
-Bytewise order:
-
-1. `65 ...` (`"theme"`)
-2. `67 ...` (`"navOpen"`)
-3. `69 ...` (`"routePath"`)
+1. `"theme"` (`65 74 68 65 6d 65`)
+2. `"navOpen"` (`67 6e 61 76 4f 70 65 6e`)
+3. `"routePath"` (`69 72 6f 75 74 65 50 61 74 68`)
 
 **Hex Encoding**:
 `a3` (map of 3)

@@ -29,7 +29,7 @@ Merging timelines is where Echo’s temporal sandbox shines. This playbook defin
 2. Collect diffs `Δα` (from `L` to branch α head) and `Δβ` (to branch β head).
 3. For each entity/component touched:
     - Compare mutation timestamps (relative order from diff metadata).
-    - If both branches modify same slot [=> conflict].
+    - If both branches modify same slot → flag conflict.
 4. For deletions vs modifications, flag structural conflict.
 5. Accumulate conflict records for resolution stage.
 

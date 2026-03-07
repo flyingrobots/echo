@@ -21,24 +21,26 @@ The Temporal Bridge (TB) is the service that moves events between branches in Ec
 
 ## Data Structures
 
+Throughout this spec, `BranchId` is the canonical type. `KairosBranchId` is a legacy alias: `type KairosBranchId = BranchId`.
+
 ```ts
 interface BridgeQueueEntry {
     envelope: EventEnvelope;
-    sourceBranch: KairosBranchId;
+    sourceBranch: BranchId;
     bridgeSeq: number; // monotonic per source branch
     dedupHash: string; // envelopeHash or hash(envelope)
 }
 
 interface BridgeState {
-    pending: Map<KairosBranchId, BridgeQueueEntry[]>;
+    pending: Map<BranchId, BridgeQueueEntry[]>;
     seen: Set<string>; // dedup for exactly-once mode
     retroLog: RetroRecord[];
 }
 
 interface RetroRecord {
     eventId: string;
-    fromBranch: KairosBranchId;
-    retroBranch: KairosBranchId;
+    fromBranch: BranchId;
+    retroBranch: BranchId;
     lcaNodeId: NodeId;
 }
 ```
@@ -75,6 +77,8 @@ If `evt.chronos < Hβ.chronos`:
 
 Before delivery, TB compares event write set against read set of diffs applied since `L`:
 
+When L is undefined (same-tick or future-queued deliveries), L defaults to the most recent stable checkpoint boundary. `appliedSinceL` then represents diffs applied since that checkpoint.
+
 - `writes(evt) ∩ reads(appliedSinceL) ≠ ∅` → send to paradox queue, increment entropy `wM + wP`, emit `ParadoxEvent` for inspector.
 - Otherwise, proceed to delivery.
 
@@ -105,7 +109,7 @@ interface TemporalBridge {
     enqueue(entry: BridgeQueueEntry): void;
     deliver(context: BridgeContext): void; // invoked during timeline_flush
     rerouteCollapsed(
-        branch: KairosBranchId,
+        branch: BranchId,
         mergeTarget: BranchId,
         mergeNode: NodeId,
     ): void;
@@ -124,7 +128,7 @@ interface BridgeContext {
 
 interface BridgeInspectorFrame {
     readonly tick: ChronosTick;
-    readonly pendingPerBranch: Record<KairosBranchId, number>;
+    readonly pendingPerBranch: Record<BranchId, number>;
     readonly retroEvents: RetroRecord[];
     readonly paradoxes: number;
     readonly rerouted: number;

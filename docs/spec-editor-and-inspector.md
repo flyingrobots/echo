@@ -36,6 +36,8 @@ interface InspectorEnvelope {
 }
 ```
 
+> **Note:** The types above are proposed — they are not yet present in the generated protocol artifacts (`ttd-protocol-ts`). Treat this section as a draft contract.
+
 - Frames emitted post `timeline_flush` each tick.
 - Order stable: sorted by `(tick, frameType)`.
 - Frames written to JSONL log in deterministic mode.
@@ -46,7 +48,7 @@ interface InspectorEnvelope {
 
 - Default: local WebSocket (`ws://localhost:<port>/echo-inspector`).
 - CLI fallback: JSONL log for offline analysis.
-- Remote inspector requires signed session token (`ui:inspector` capability).
+- Remote inspector requires a signed session token (`ui:inspector` capability).
 
 ### Commands
 

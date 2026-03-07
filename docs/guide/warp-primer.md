@@ -9,7 +9,8 @@ You do not need to know the papers or any category theory to follow this.
 If you only remember one thing:
 
 > Echo treats **structure** (the graph) and **data** (attachments) as separate planes.
-> Rewriting, scheduling, hashing, and slicing happen over the **structure plane** unless a rule explicitly opts into decoding data.
+> Rewriting, scheduling, hashing, and slicing happen over the **structure plane**
+> unless a rule explicitly opts into decoding data.
 
 ---
 
@@ -160,7 +161,8 @@ A **portal** is simply an attachment slot whose value is `Descend(child_warp_id)
 But to make replay and slicing correct, portals have strict invariants:
 
 - No **dangling portal**: you may not observe `Descend(child)` without the corresponding child instance existing.
-- No **orphan instance**: a child instance that declares a `parent` portal must be realized by that portal slot pointing back to it.
+- No **orphan instance**: a child instance that declares a `parent` portal must
+  be realized by that portal slot pointing back to it.
 
 ### 4.1 Atomic portal authoring (`OpenPortal`)
 
@@ -180,7 +182,8 @@ This prevents history where “the portal was set” but “the child universe n
 
 The subtle correctness law is:
 
-- Any rewrite executed _inside_ a descended instance must record READs of the portal chain that makes that instance reachable.
+- Any rewrite executed _inside_ a descended instance must record READs of the
+  portal chain that makes that instance reachable.
 
 Echo enforces this in `Engine::apply_in_warp(tx, warp_id, rule, scope, descent_stack)`:
 

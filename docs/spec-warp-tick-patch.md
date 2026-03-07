@@ -3,7 +3,7 @@
 
 # WARP Tick Patch Spec (v2)
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 This document defines the **tick patch** boundary artifact used for Paper III-style replay and slicing.
 
@@ -107,7 +107,7 @@ Non-canonical optional metadata (not part of `patch_digest` unless explicitly up
 
 - tick receipts / traces (e.g., Paper II receipts with blocking-causality witness)
 - applied rewrite keys (“how we got here”)
-- stream admission decision records (`StreamAdmissionDecision`) for time travel tooling (pause/buffer/catch-up). These are committed via `admission_digest` on `Snapshot` (see `docs/spec-merkle-commit.md`) rather than `patch_digest` in v2.
+- stream admission decision records (`StreamAdmissionDecision`) for time travel tooling (pause/buffer/catch-up). These are committed via `admission_digest` on `Snapshot` (see [spec-merkle-commit.md](spec-merkle-commit.md)) rather than `patch_digest` in v2.
 
 ---
 
@@ -134,14 +134,14 @@ Within each tag:
 
 `ops` must be emitted in canonical order (`WarpOp::sort_key`):
 
-1. `OpenPortal` by (`owner_tag`, `plane_tag`, `owner.warp_id`, `owner.local_id`)
-2. `UpsertWarpInstance` by (`warp_id`)
-3. `DeleteWarpInstance` by (`warp_id`)
-4. `DeleteEdge` by (`warp_id`, `from`, `edge_id`)
-5. `DeleteNode` by (`node.warp_id`, `node.local_id`)
-6. `UpsertNode` by (`node.warp_id`, `node.local_id`)
-7. `UpsertEdge` by (`warp_id`, `record.from`, `record.id`)
-8. `SetAttachment` by (`owner_tag`, `plane_tag`, `owner.warp_id`, `owner.local_id`)
+- (replay step 1: OpenPortal) by (`owner_tag`, `plane_tag`, `owner.warp_id`, `owner.local_id`)
+- (replay step 2: UpsertWarpInstance) by (`warp_id`)
+- (replay step 3: DeleteWarpInstance) by (`warp_id`)
+- (replay step 4: DeleteEdge) by (`warp_id`, `from`, `edge_id`)
+- (replay step 5: DeleteNode) by (`node.warp_id`, `node.local_id`)
+- (replay step 6: UpsertNode) by (`node.warp_id`, `node.local_id`)
+- (replay step 7: UpsertEdge) by (`warp_id`, `record.from`, `record.id`)
+- (replay step 8: SetAttachment) by (`owner_tag`, `plane_tag`, `owner.warp_id`, `owner.local_id`)
 
 Rationale:
 

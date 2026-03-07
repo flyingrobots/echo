@@ -61,7 +61,7 @@ Each submission references hashes from local diff graphs. Deduplication occurs w
 
 ## Security
 
-- Journal entries signed (Ed25519) and capability-scoped.
+- Journal entries signed (Ed25519) and capability-scoped. The signed payload is the canonical byte sequence of the journal entry excluding the signature field itself. The exact canonicalization follows the encoding rules defined in this spec. Verifiers MUST reject signatures over any other encoding.
 - Confluence rejects blocks that conflict with capabilities or fail hash validation.
 - Audit logs allow replay of every submission.
 

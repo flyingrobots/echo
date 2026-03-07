@@ -6,6 +6,7 @@
 This is a lightweight “docs hygiene” memo: which documents look stale, overlapping, or underspecified, and what we should do about them.
 
 **Initial audit:** 2026-01-02
+**Last updated:** 2026-03-07
 
 ---
 

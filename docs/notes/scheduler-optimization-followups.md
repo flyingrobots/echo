@@ -28,6 +28,8 @@ This document contains prompts for future work addressing gaps identified during
 > 4. **Add to CI**: Ensure these tests run on every commit to catch future regressions
 >
 > The goal is **100% confidence** that we haven't introduced any ordering divergence from the original BTreeMap semantics. Location: `crates/warp-core/src/scheduler.rs` and new test file `crates/warp-core/tests/scheduler_determinism.rs`"
+>
+> **Future work:** Property-based tests (proptest) should fuzz `drain_in_order()` against a reference implementation for edge cases at the SMALL_SORT_THRESHOLD boundary.
 
 ---
 
@@ -61,6 +63,8 @@ This document contains prompts for future work addressing gaps identified during
 >     - How the scratch buffer enables in-place-like behavior
 >
 > Add this explanation as inline comments in `scheduler.rs` and/or as a new doc file at `docs/notes/radix-sort-internals.md`. Include diagrams (Mermaid or ASCII art) showing the pass sequence and memory layout."
+>
+> **See also:** `crates/warp-core/src/scheduler.rs` contains the radix sort implementation with inline comments. A dedicated internals doc is planned.
 
 ---
 
@@ -79,6 +83,7 @@ This document contains prompts for future work addressing gaps identified during
 >         - Different CPU instruction latencies
 >     - **Validation needed**: Benchmark on Intel/AMD x86_64, ARM Cortex-A series, RISC-V
 >     - **Potential solution**: Make threshold configurable via feature flag or runtime detection
+>     - **Determinism note:** `SMALL_SORT_THRESHOLD` is a compile-time constant (`1024`). All participants must use the same value. This is not auto-tuned.
 > 2. **16-bit radix digit size:**
 >     - Assumes 256KB zeroing is acceptable fixed cost
 >     - Alternative: 8-bit digits (20KB zeroing, 40 passes) might win on memory-constrained systems
@@ -192,7 +197,7 @@ During the optimization process, we evaluated several alternative approaches bef
     - Real games have variable rewrite counts per frame
 - **Why rejected**:
     - Most frames have <100 rewrites, paying huge penalty for rare large frames is unacceptable
-    - "Flat green line" in benchmarks (see `docs/benchmarks/BEFORE.webp`)
+    - "Flat green line" in benchmarks (benchmark visualization not yet generated) (see scheduler-radix-optimization-2.md)
     - Cannot justify 91x regression for 90% of frames to optimize 10% of frames
 
 ---
@@ -211,7 +216,7 @@ During the optimization process, we evaluated several alternative approaches bef
 - **Why rejected**:
     - Preliminary analysis suggested memory bandwidth not the bottleneck, pass count is
     - At n=10k, memory cost (5MB) is amortized, but 20 extra passes are not
-    - Rust's `sort_unstable` is _extremely_ optimized; hard to beat with more passes
+    - Rust's `sort_unstable` is _extremely_ optimized; difficult to surpass with more passes
     - Would need empirical benchmarking to prove 8-bit is better (didn't have time)
 
 ---

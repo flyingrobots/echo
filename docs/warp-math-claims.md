@@ -86,14 +86,12 @@ The embedding $J$ means: if someone ships Wolfram‑style hypergraph rules for a
 
 1. Write the encoding $J$: implement the hyperedge→edge‑node incidence gadget with typed ports; add a converter.
 2. Proof note (4–6 pages):
-
-- $J$ full/faithful on monos;
-- preserves pushouts along monos;
-- lifts to derivations (span/cospan bicategory).
-
-1. WPP parity demo: pick 1–2 WPP rules; generate causal/branchial graphs both ways; ship a notebook + CLI reproducer.
-2. Echo integration: add “Import WPP Rule Pack” to the toolchain; use your tick determinism + two‑plane to demonstrate hot inserts the WPP side can’t.
-3. Public phrasing (tight):
+    - $J$ full/faithful on monos;
+    - preserves pushouts along monos;
+    - lifts to derivations (span/cospan bicategory).
+3. WPP parity demo: pick 1–2 WPP rules; generate causal/branchial graphs both ways; ship a notebook + CLI reproducer.
+4. Echo integration: add “Import WPP Rule Pack” to the toolchain; use your tick determinism + two‑plane to demonstrate hot inserts the WPP side can’t.
+5. Public phrasing (tight):
 
 - “WARP strictly generalizes hypergraph rewriting via a typed open‑graph encoding. This preserves Wolfram‑style derivations while adding compositional interfaces, atomic publishing, and deterministic parallelism.”
 
@@ -147,15 +145,15 @@ For each $H\in \mathbf{OHyp}_T$, build a typed graph $J(H)$ by:
 This extends on arrows to a functor
 $J:\ \mathbf{OHyp}T \longrightarrow \mathbf{OGraph}{T^\star}$.
 
-## Proposition 1 (full & faithful on monos)
+### Proposition 1 (full & faithful on monos)
 
 Restricted to monomorphisms, $J$ is full and faithful: a mono $m:H_1\hookrightarrow H_2$ corresponds to a unique mono $J(m):J(H_1)\hookrightarrow J(H_2)$, and conversely any mono between incidence‑respecting images comes from a unique $m$.
 
-### Sketch (Proposition 1)
+#### Sketch (Proposition 1)
 
 > The incidence gadget makes edge‑nodes and port indices explicit; type preservation + port index preservation pins down the map on $E$ and thus on $V$. □
 
-## Proposition 2 (creates pushouts along monos)
+### Proposition 2 (creates pushouts along monos)
 
 Given a span of monos $H_1 \leftarrow K \rightarrow H_2 in \mathbf{OHyp}_T$, the pushout $H_1 +K H_2$ exists; moreover
 
@@ -163,11 +161,11 @@ $J(H_1 +K H_2) \;\cong\; J(H_1) +{J(K)} J(H_2)$
 
 (i.e., compute the pushout in $\mathbf{OGraph}{T^\star}$, it stays inside the incidence‑respecting subcategory).
 
-### Sketch (Proposition 2)
+#### Sketch (Proposition 2)
 
 > Pushouts in adhesive categories along monos are universal and stable; port labels and types forbid “bad” identifications, so the result satisfies the incidence schema. Hence $J$ creates such pushouts. □
 
-## Theorem 1 (DPO preservation/reflection)
+### Theorem 1 (DPO preservation/reflection)
 
 For any DPOI rule $p=(L\leftarrow K\to R)$ in $\mathbf{OHyp}T$ and boundary‑preserving match $m:L\hookrightarrow H$ satisfying gluing, the DPO step $H\Rightarrow_p H’$ exists iff the DPOI step
 
@@ -175,7 +173,7 @@ $J(H)\;\Rightarrow{\,J(p)}\; J(H’)$
 
 exists in $\mathbf{OGraph}_{T^\star}$, and the results correspond up to typed‑open‑graph isomorphism.
 
-### Sketch (Theorem 1)
+#### Sketch (Theorem 1)
 
 > The DPO construction is “pushout‑complement + pushout” along monos; by Prop. 2, J creates both. □
 
@@ -185,7 +183,7 @@ Takeaway: Wolfram‑style typed hypergraph rewriting sits inside WARP’s typed 
 
 Let $\mathrm{Der}(\mathbf{OHyp}T)$ (resp. $\mathrm{Der}(\mathbf{OGraph}{T^\star})$) be the bicategory: objects are open graphs; 1‑cells are rewrite spans; 2‑cells are commuting diagrams modulo boundary iso.
 
-## Theorem 2 (derivation functor)
+### Theorem 2 (derivation functor)
 
 $J$ lifts to a homomorphism of bicategories
 $J_\star:\ \mathrm{Der}(\mathbf{OHyp}T)\ \to\ \mathrm{Der}(\mathbf{OGraph}{T^\star})$
@@ -216,16 +214,16 @@ Let $\mathrm{DL}(T)$ be a prefix‑code description length (MDL) of $T$, and $\$
 
 $D^{(\tau,m)}(O_1,O_2)\;=\;\inf_{T_{12},T_{21}}\ \mathrm{DL}(T_{12})+\mathrm{DL}(T_{21})\;+\;\lambda\!\left[\mathrm{Dist}(O_2,T_{12}\!\circ O_1)+\mathrm{Dist}(O_1,T_{21}\!\circ O_2)\right]$.
 
-## Proposition 3 (pseudometric)
+### Proposition 3 (pseudometric)
 
 $D^{(\tau,m)}$ is a pseudometric (nonnegative, symmetric, $D(O,O)=0$).
 
-## Theorem 3 (triangle inequality)
+### Theorem 3 (triangle inequality)
 
 If $\mathrm{Dist}$ satisfies the triangle inequality and $\mathrm{DL}$ is subadditive (up to constant $c$), then
 $D^{(\tau,m)}(O_1,O_3)\ \le\ D^{(\tau,m)}(O_1,O_2)\ +\ D^{(\tau,m)}(O_2,O_3)\ +\ 2c$.
 
-### Sketch (Theorem 3)
+#### Sketch (Theorem 3)
 
 > Compose near‑optimal translators $T_{23}\circ T_{12}$ and $T_{21}\circ T_{32}$; subadditivity bounds $\mathrm{DL}$, the metric triangle bounds $\mathrm{Dist}$; take infima. □
 

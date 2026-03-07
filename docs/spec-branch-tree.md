@@ -167,7 +167,7 @@ Pins must be recorded in the timeline so replays reflect identical liveness.
 
 1. ECS provides `DirtyChunkIndex`.
 2. For each dirty chunk:
-    - Validate `versionBefore` matches snapshot version.
+    - Validate `versionBefore` matches snapshot version. If `versionBefore` does not match the snapshot version, the commit aborts and emits a `ParadoxTimelineNode` referencing the conflicting chunk IDs. This ensures deterministic behavior on replay.
     - Serialize component payloads using canonical encoding.
     - Build `ChunkDiff` with roaring bitmap, read/write sets, merge strategy (default `lastWriteWins`).
 3. Compute cumulative diff size; decide whether to create new base snapshot.
@@ -183,7 +183,7 @@ Pins must be recorded in the timeline so replays reflect identical liveness.
 3. For each `(chunk, component)` in lexicographic order:
     - Combine roaring bitmaps to identify slots touched by either branch.
     - Perform three-way merge using snapshot at `L` as base.
-    - If both branches changed the same slot and results differ (`!equals(A', B')`), register conflict.
+    - If both branches changed the same slot and results differ (`!equals(A', B')`), register conflict. Equality (`equals`) is defined as bitwise comparison of canonical serialized payloads — no epsilon or component-specific comparison is used, preserving determinism.
     - Apply merge strategy (policy, CRDT, manual). Record decision digest.
 4. Build merged diff & optional snapshot, commit new node as head of α.
 5. Mark branch β `collapsed` or `abandoned` depending on workflow.
@@ -402,15 +402,15 @@ Violations terminate the tick and record deterministic error nodes.
 
 ### Error Model & Recovery
 
-| Failure              | Detection          | Recovery                              | Status        |
-| -------------------- | ------------------ | ------------------------------------- | ------------- |
-| Diff apply fails     | checksum mismatch  | discard node, mark branch `corrupted` | deterministic |
-| Snapshot corrupted   | hash mismatch      | rebuild from last base snapshot       | deterministic |
-| Capability violation | runtime guard      | abort tick, log error                 | deterministic |
-| Merge unresolved     | conflict count     | require manual merge node             | deterministic |
-| Paradox              | read/write overlap | isolate branch, emit paradox node     | deterministic |
+| Failure              | Detection          | Recovery                              | Status                            |
+| -------------------- | ------------------ | ------------------------------------- | --------------------------------- |
+| Diff apply fails     | checksum mismatch  | discard node, mark branch `corrupted` | deterministic                     |
+| Snapshot corrupted   | hash mismatch      | rebuild from last base snapshot       | deterministic                     |
+| Capability violation | runtime guard      | abort tick, log error                 | deterministic                     |
+| Merge unresolved     | conflict count     | require manual merge node             | deterministic (decision recorded) |
+| Paradox              | read/write overlap | isolate branch, emit paradox node     | deterministic                     |
 
-Recovery operations emit synthetic nodes so replay matches origin.
+Recovery operations emit synthetic nodes so replay matches origin. In particular, manual merge resolutions are persisted as canonical decision nodes in the timeline, making replays deterministic even when human intervention was required.
 
 ### Public API Boundary
 

@@ -37,6 +37,13 @@ interface EchoConfig {
 
 Canonical ordering: keys sorted lexicographically, numeric fields clamped to valid ranges.
 
+### Validation Rules
+
+- `chunkSize` MUST be a power of two in the range [1024, 1048576].
+- `inspector.port` MUST be in the range [1024, 65535].
+- All values in `entropyWeights` MUST be non-negative.
+- `traceLevel` is a closed enum: only the values `"TRACE"`, `"DEBUG"`, `"INFO"`, `"WARN"`, and `"ERROR"` are valid. Implementations MUST reject unrecognized values.
+
 ---
 
 ## Load Pipeline
@@ -51,7 +58,7 @@ Canonical ordering: keys sorted lexicographically, numeric fields clamped to val
 
 ## Overrides & Diff
 
-- Configuration cannot be mutated at runtime except via explicit `config/update` events (requires capability `world:config`).
+- Configuration cannot be mutated at runtime except via explicit `config/update` events (requires capability `world:config`). Note: the `world:config` capability token is proposed here but not yet defined in `spec-capabilities-and-security.md`. It MUST be added to the capabilities spec before implementation.
 - Each update produces `ConfigDiffRecord` with old/new values; replay reproduces sequence.
 
 ---
@@ -68,6 +75,10 @@ Canonical ordering: keys sorted lexicographically, numeric fields clamped to val
 
 - Hash recorded in determinism log; mismatches trigger `ERR_CONFIG_HASH_MISMATCH`.
 - Config load order (base, overlay) must be identical for all deployments.
+
+### Error Codes
+
+- `ERR_CONFIG_HASH_MISMATCH`: Emitted when the recomputed config hash does not match the hash recorded in the determinism log. This indicates that the configuration loaded by this runtime diverges from the configuration used by the reference run. Expected behavior: the engine MUST halt deterministic replay and surface the mismatch to the operator. Remediation: verify that `echo.config.json` and `echo.config.local.json` are identical across all environments participating in replay, then re-run.
 
 ---
 

@@ -92,9 +92,9 @@ An append-only log of events produced by some domain.
 
 Minimum properties:
 
-- Each event has a **monotonic** stream-local sequence number `seq` (no gaps in the produced ordering).
-- Each event may include `wall_time` metadata (for UX and diagnostics).
-- Each event’s payload is canonically encodable (for hashing/dedup where needed).
+- Events carry a monotonic stream-local sequence number (`seq`).
+- An optional `wall_time` field provides UX/diagnostic metadata.
+- The payload is canonically encodable for hashing and dedup.
 
 Examples:
 
@@ -188,6 +188,8 @@ interface StreamAdmissionDecision {
     fairnessOrderDigest?: string;
 }
 ```
+
+The canonical serialization order follows schema declaration order as listed above. Optional fields are always serialized (with null/default values). Implementations MUST NOT reorder fields.
 
 ##### `decision_id` derivation (required for determinism)
 

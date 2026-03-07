@@ -690,9 +690,7 @@ fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<P
     };
 
     // For extensionless links, also try .md and .html
-    let has_extension = Path::new(target)
-        .extension()
-        .is_some_and(|ext| !ext.is_empty());
+    let has_extension = Path::new(target).extension().is_some();
     if !has_extension {
         let stem = primary.file_name().unwrap_or_default().to_string_lossy();
         candidates.push(primary.with_file_name(format!("{stem}.md")));
@@ -702,10 +700,12 @@ fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<P
     candidates
 }
 
-/// Collect `.md` files under `dir` from the git index.
+/// Collect `.md` files under `dir` from git-tracked and untracked (but not
+/// ignored) paths.
 ///
-/// Uses `git ls-files` so that untracked and gitignored files (e.g.
-/// build artifacts in `.vitepress/dist/`) are never included.
+/// Uses `git ls-files --cached --others --exclude-standard` so that
+/// gitignored files (e.g. build artifacts in `.vitepress/dist/`) are
+/// excluded, while new files not yet staged are still picked up.
 fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     let output = Command::new("git")
         .args([
@@ -728,7 +728,12 @@ fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         if entry.is_empty() {
             continue;
         }
-        let path = PathBuf::from(std::str::from_utf8(entry)?);
+        let path = PathBuf::from(std::str::from_utf8(entry).with_context(|| {
+            format!(
+                "git ls-files entry is not valid UTF-8: {:?}",
+                String::from_utf8_lossy(entry)
+            )
+        })?);
         if path.extension().is_some_and(|ext| ext == "md") {
             out.push(path);
         }
@@ -785,7 +790,16 @@ fn run_markdown_fix(args: &MarkdownFixArgs) -> Result<()> {
         }
     }
 
-    let file_args: Vec<&str> = md_files.iter().filter_map(|p| p.to_str()).collect();
+    let file_args: Vec<&str> = md_files
+        .iter()
+        .filter_map(|p| match p.to_str() {
+            Some(s) => Some(s),
+            None => {
+                eprintln!("markdown-fix: skipping non-UTF-8 path: {}", p.display());
+                None
+            }
+        })
+        .collect();
 
     // 2) Prettier formatting
     if !args.no_prettier {
@@ -834,8 +848,8 @@ fn run_markdown_fix(args: &MarkdownFixArgs) -> Result<()> {
 }
 
 fn command_exists(cmd: &str) -> bool {
-    Command::new("which")
-        .arg(cmd)
+    Command::new(cmd)
+        .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()

@@ -3,7 +3,7 @@
 
 # Capabilities & Security Specification (Phase 0.5)
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 Defines capability tokens, signer policies, and deterministic security faults for Echo subsystems.
 

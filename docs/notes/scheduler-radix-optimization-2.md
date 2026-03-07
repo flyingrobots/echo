@@ -3,6 +3,8 @@
 
 # From $O(n \log n)$ to $O(n)$: Optimizing Echo’s Deterministic Scheduler
 
+> **Provenance:** This document supersedes `docs/archive/notes/scheduler-radix-optimization.md`. See the archive for earlier analysis.
+
 **Tags:** performance, algorithms, optimization, radix-sort
 
 ---
@@ -161,7 +163,7 @@ Initial implementation:
 pub(crate) pending: BTreeMap<(Hash, Hash), PendingRewrite>;
 ```
 
-**Bottleneck**: Draining + sorting $n$ entries → $O(n \log n)$ 256-bit comparisons.
+**Bottleneck**: Insertions into the `BTreeMap` required $O(n \log n)$ comparisons over 256-bit scope hashes; draining via `BTreeMap::drain()` was $O(n)$.
 
 | $n$   | Time        |
 | ----- | ----------- |
@@ -340,7 +342,7 @@ When you can execute **30,000 deterministic rewrites per frame** and still hit *
 - **Implementation**: crates/warp-core/src/scheduler.rs (see `radix_sort`, `drain_in_order`)
 - **Benchmarks**: crates/warp-benches/benches/scheduler_drain.rs
 - **Dashboard**: `docs/benchmarks/report-inline.html`
-- **PR**: pending on branch repo/tidy
+- **PR**: The radix optimization work has been merged to main.
 
 ---
 

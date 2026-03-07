@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# AIΩN Foundations → Echo: Bridge
+# AIΩN Foundations → Echo Bridge
 
 Last reviewed: 2025-12-29.
 

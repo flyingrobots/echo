@@ -144,7 +144,7 @@ Our initial implementation used a `BTreeMap<(Hash, Hash), PendingRewrite>`:
 pub(crate) pending: BTreeMap<(Hash, Hash), PendingRewrite>
 ```
 
-**The bottleneck:** At scale, draining and sorting n rewrites required **$O(n log n)$** comparisons over 256-bit scope hashes. Benchmarks showed:
+**The bottleneck:** Insertions into the `BTreeMap` required $O(n \log n)$ comparisons over 256-bit scope hashes. Draining via `BTreeMap::drain()` was $O(n)$. The radix sort optimization eliminates the insertion bottleneck. Benchmarks showed:
 
 ```text
 n=1000:  ~1.33ms (comparison sort via BTreeMap iteration)
@@ -455,10 +455,10 @@ The graph is a straight line. The future is deterministic. **And Echo is how we 
 
 ## Code References
 
-- Implementation: `crates/warp-core/src/scheduler.rs:142-277` _(line numbers may have shifted)_
+- Implementation: `crates/warp-core/src/scheduler.rs` (see `fn radix_sort` near line 338) _(line numbers may have shifted)_
 - Benchmarks: `crates/warp-benches/benches/scheduler_drain.rs`
 - Dashboard: `docs/benchmarks/report-inline.html`
-- PR: [Pending on branch `repo/tidy`]
+- The radix optimization work has been merged to main.
 
 ---
 

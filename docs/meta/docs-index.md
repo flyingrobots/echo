@@ -152,8 +152,6 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`notes/project-tour-2025-12-28.md`](/notes/project-tour-2025-12-28)                                                         | Echo Project Tour (2025-12-28)                                                        |
 | [`notes/scheduler-optimization-followups.md`](/notes/scheduler-optimization-followups)                                       | Scheduler Optimization Follow-up Tasks                                                |
 | [`notes/scheduler-radix-optimization-2.md`](/notes/scheduler-radix-optimization-2)                                           | From $O(n \\log n)$ to $O(n)$: Optimizing Echo’s Deterministic Scheduler              |
-| [`notes/scheduler-radix-optimization.md`](/notes/scheduler-radix-optimization)                                               | Redirect: archived (superseded by `-2` version)                                       |
-| [`notes/xtask-wizard.md`](/notes/xtask-wizard)                                                                               | Redirect: archived (concept note, never implemented)                                  |
 | [`phase1-plan.md`](/phase1-plan)                                                                                             | Phase 1 – Core Ignition Plan                                                          |
 | [`procedures/EXTRACT-PR-COMMENTS.md`](/procedures/EXTRACT-PR-COMMENTS)                                                       | Procedure: Extract Actionable Comments from PR Review Threads (CodeRabbitAI + Humans) |
 | [`procedures/ISSUE-DEPENDENCIES.md`](/procedures/ISSUE-DEPENDENCIES)                                                         | Procedure: GitHub Issue Dependencies (“blocked by” / “blocking”)                      |
@@ -205,7 +203,14 @@ These docs had zero or one inbound references from other docs. They are linked h
 
 ## Archive
 
-Superseded and stale documents live in [`docs/archive/`](../archive/). Each
+Superseded and stale documents live in [`docs/archive/`](../archive/).
+
+| Redirect stub                                                                  | Status                                     |
+| ------------------------------------------------------------------------------ | ------------------------------------------ |
+| [`notes/scheduler-radix-optimization.md`](/notes/scheduler-radix-optimization) | Archived (superseded by `-2` version)      |
+| [`notes/xtask-wizard.md`](/notes/xtask-wizard)                                 | Archived (concept note, never implemented) |
+
+Each
 original location has a minimal redirect stub pointing to the archived file and
 its replacement. See the archive directory for: legacy Phase 0 specs, concept
 notes that were never implemented, and plans for features that have been

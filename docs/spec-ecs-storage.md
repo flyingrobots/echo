@@ -49,7 +49,7 @@ interface ComponentTypeDescriptor {
 
 ```ts
 interface EntityRecord {
-    readonly generation: number;
+    generation: number;
     archetypeId: number;
     chunkIndex: number;
     slotIndex: number;

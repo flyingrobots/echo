@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# ADR-000Y: No Global State in Echo — Dependency Injection Only
+# ADR-0004: No Global State in Echo — Dependency Injection Only
 
 - **Status:** Accepted
 - **Date:** 2026-01-14
@@ -175,5 +175,5 @@ All dependencies (registry, codecs, ports, buses) are injected explicitly via ru
 Why: global state breaks provenance, complicates replay, and creates “it depends how you booted it” bugs.
 
 Enforcement: `./scripts/ban-globals.sh` runs in CI and rejects forbidden patterns (`OnceLock`, `LazyLock`, `lazy_static`, `thread_local`, `static mut`, etc.).
-See ADR-000Y: **No Global State**.
+See ADR-0004: **No Global State**.
 ```

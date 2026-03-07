@@ -3,7 +3,7 @@
 
 # Serialization Protocol Specification (Phase 0.5)
 
-> **Background:** For a gentler introduction, see [ELI5 Primer](/guide/eli5) (hashing section).
+> **Background:** For a gentler introduction, see [ELI5 Primer](guide/eli5.md) (hashing section).
 
 Defines the canonical encoding for Echo’s snapshots, diffs, events, and block manifests. Ensures identical bytes across platforms and supports content-addressed storage.
 

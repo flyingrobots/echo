@@ -12,6 +12,21 @@
   pseudo-code, and a formal resource conflict detection model aligned with
   warp-core's `Footprint`. Replaced `ComponentSignature` with `SystemFootprint`
   (reads/writes/exclusiveTags).
+- **Review:** Addressed 69 CodeRabbit review comments across 37 files:
+    - **xtask:** Cross-platform `command_exists`, annotated UTF-8 errors, warned
+      on non-UTF-8 path drops, simplified `has_extension`, fixed doc comment.
+    - **Specs:** Hardened 15 spec docs — added error handling for branch-tree
+      commit conflicts, defined equality predicates, bounded parent counts in
+      merkle-commit, specified canonical field ordering, fixed broken cross-refs
+      and link styles, added validation rules and error codes to runtime-config,
+      unified `BranchId`/`KairosBranchId`, clarified signing payloads.
+    - **Notes/Archive:** Corrected O(n log n) cost attribution in scheduler
+      notes, fixed stale code references and branch names, expanded commit
+      hashes, added provenance blocks.
+    - **Docs:** Fixed ADR-0004 placeholder, normalized titles, corrected
+      dependency direction in ISSUES_MATRIX, fixed emphasis style, consolidated
+      repetitive bullets, added cargo-features provenance note, fixed heading
+      levels in warp-math-claims, fixed workflow artifacts in mat-bus-finish RFC.
 - **Archive:** Moved 6 superseded docs to `docs/archive/` with redirect stubs
   (`spec-deterministic-math.md`, `spec-geom-collision.md`,
   `notes/scheduler-radix-optimization.md`, `notes/xtask-wizard.md`,

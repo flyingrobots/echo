@@ -6,6 +6,4 @@
 > **Archived:** 2026-03-07 (PR #292)
 > **Reason:** Spec stub relocated to archive; not yet re-specified.
 
-This document has been archived. See [archive/spec-geom-collision.md](archive/spec-geom-collision.md).
-
-For the collision tour, see [guide/collision-tour.md](guide/collision-tour.md).
+This spec was archived because it contained only scope and direction — no normative content. See [archive/spec-geom-collision.md](archive/spec-geom-collision.md) for the original and [guide/collision-tour.md](guide/collision-tour.md) for current guidance.

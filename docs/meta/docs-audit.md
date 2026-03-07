@@ -83,6 +83,8 @@ Moved 6 superseded documents to `docs/archive/` with redirect stubs:
 - `ROADMAP/backlog/editor-hot-reload.md`: `docs/specs/` -> `docs/spec/`
 - `ROADMAP/backlog/plugin-abi.md`: `docs/specs/` -> `docs/spec/`
 - `meta/docs-index.md`: `memorial.md` -> `memorials/2026-01-18-phase4-rubicon.md`
+- `ROADMAP/ISSUE-INDEX.md`: 6 references to `streams-inspector-frame.md`
+  -> `streams-inspector.md` (file never had the `-frame` suffix)
 
 ### Added
 

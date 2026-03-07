@@ -14,8 +14,9 @@
 - **Consolidate:** Added "Docs Map" callouts to `SPEC_DETERMINISTIC_MATH.md`
   and `DETERMINISTIC_MATH.md` linking all 5 docs in the deterministic math
   cluster. Updated `scheduler.md` Quick Map with status labels.
-- **Fix:** Repaired 3 broken cross-references (`docs/specs/` -> `docs/spec/`,
-  `memorial.md` -> `memorials/2026-01-18-phase4-rubicon.md`).
+- **Fix:** Repaired 9 broken cross-references (`docs/specs/` -> `docs/spec/`,
+  `memorial.md` -> `memorials/...`, `streams-inspector-frame.md` ->
+  `streams-inspector.md`).
 - **New:** Configuration reference (`docs/guide/configuration-reference.md`)
   covering engine parameters, protocol constants, and environment variables.
 - **New:** Cargo feature flags reference (`docs/guide/cargo-features.md`)

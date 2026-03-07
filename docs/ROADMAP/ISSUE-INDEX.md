@@ -33,7 +33,7 @@ This index maps tracked GitHub issues (open and carry-forward references) to roa
 |   #87 | Version negotiation                                 | T-10-1-3             | [backlog/plugin-abi.md](backlog/plugin-abi.md)                                                     |
 |   #88 | Capability tokens                                   | T-10-1-4             | [backlog/plugin-abi.md](backlog/plugin-abi.md)                                                     |
 |   #89 | Example plugin + tests                              | T-10-1-5             | [backlog/plugin-abi.md](backlog/plugin-abi.md)                                                     |
-|  #170 | TT1: StreamsFrame inspector support                 | T-7-2-5              | [time-travel/streams-inspector-frame.md](time-travel/streams-inspector-frame.md)                   |
+|  #170 | TT1: StreamsFrame inspector support                 | T-7-2-5              | [time-travel/streams-inspector.md](time-travel/streams-inspector.md)                               |
 |  #171 | TT2: Time Travel MVP                                | T-7-3-1, T-7-3-2     | [time-travel/time-travel-mvp.md](time-travel/time-travel-mvp.md)                                   |
 |  #172 | TT3: Rulial diff / worldline compare                | T-7-4-1              | [time-travel/rulial-diff.md](time-travel/rulial-diff.md)                                           |
 |  #173 | S1: Deterministic Rhai surface                      | T-10-6-1a, T-10-6-1b | [backlog/deterministic-rhai.md](backlog/deterministic-rhai.md)                                     |
@@ -51,7 +51,7 @@ This index maps tracked GitHub issues (open and carry-forward references) to roa
 |  #198 | W1: Provenance as query semantics                   | T-10-7-4             | [backlog/wesley-boundary-grammar.md](backlog/wesley-boundary-grammar.md)                           |
 |  #199 | TT3: Wesley worldline diff                          | T-7-4-2              | [time-travel/rulial-diff.md](time-travel/rulial-diff.md)                                           |
 |  #202 | Spec: Provenance Payload (PP) v1                    | T-10-2-5             | [backlog/security.md](backlog/security.md)                                                         |
-|  #203 | TT1: Constraint Lens panel                          | T-7-2-6              | [time-travel/streams-inspector-frame.md](time-travel/streams-inspector-frame.md)                   |
+|  #203 | TT1: Constraint Lens panel                          | T-7-2-6              | [time-travel/streams-inspector.md](time-travel/streams-inspector.md)                               |
 |  #204 | TT3: Provenance heatmap                             | T-7-4-3              | [time-travel/rulial-diff.md](time-travel/rulial-diff.md)                                           |
 |  #205 | TT2: Reliving debugger MVP                          | T-7-3-2              | [time-travel/time-travel-mvp.md](time-travel/time-travel-mvp.md)                                   |
 |  #207 | Naming test (noisy-line)                            | T-10-8-2             | [backlog/tooling-misc.md](backlog/tooling-misc.md)                                                 |
@@ -69,7 +69,7 @@ This index maps tracked GitHub issues (open and carry-forward references) to roa
 |  #237 | Tumble Tower: visualization                         | T-8-2-7              | [tumble-tower/visualization.md](tumble-tower/visualization.md)                                     |
 |  #238 | Tumble Tower: docs course                           | T-8-2-8              | [tumble-tower/course-material.md](tumble-tower/course-material.md)                                 |
 |  #239 | Reliving debugger UX                                | T-10-8-3             | [backlog/tooling-misc.md](backlog/tooling-misc.md)                                                 |
-|  #243 | TT1: dt policy                                      | T-7-2-1              | [time-travel/streams-inspector-frame.md](time-travel/streams-inspector-frame.md)                   |
-|  #244 | TT1: TimeStream retention                           | T-7-2-2              | [time-travel/streams-inspector-frame.md](time-travel/streams-inspector-frame.md)                   |
-|  #245 | TT1: Merge semantics                                | T-7-2-3              | [time-travel/streams-inspector-frame.md](time-travel/streams-inspector-frame.md)                   |
-|  #246 | TT1: Security/capabilities                          | T-7-2-4              | [time-travel/streams-inspector-frame.md](time-travel/streams-inspector-frame.md)                   |
+|  #243 | TT1: dt policy                                      | T-7-2-1              | [time-travel/streams-inspector.md](time-travel/streams-inspector.md)                               |
+|  #244 | TT1: TimeStream retention                           | T-7-2-2              | [time-travel/streams-inspector.md](time-travel/streams-inspector.md)                               |
+|  #245 | TT1: Merge semantics                                | T-7-2-3              | [time-travel/streams-inspector.md](time-travel/streams-inspector.md)                               |
+|  #246 | TT1: Security/capabilities                          | T-7-2-4              | [time-travel/streams-inspector.md](time-travel/streams-inspector.md)                               |

@@ -58,6 +58,20 @@ claims:
       - ci_artifact
     owner_role: Security Engineer
 
+  DET-004:
+    statement: "The deterministic trig oracle (sin/cos) produces bit-identical f32 outputs for all 2048 golden vector angles on Linux, macOS, and Alpine, verified against a checked-in binary vector file."
+    required_evidence:
+      - golden_vectors
+      - ci_artifact
+    owner_role: Architect
+
+  DET-005:
+    statement: "The parallel execution engine (1, 2, 4, 8, 16, 32 workers) produces identical TickDelta output as serial execution for all BOAW test scenarios, verified by per-op hash comparison."
+    required_evidence:
+      - behavior_test
+      - ci_artifact
+    owner_role: Architect
+
   REPRO-001:
     statement: "Dual WASM builds of ttd-browser produce bit-identical artifacts, verified by SHA-256 hash comparison in isolated CI environments."
     required_evidence:

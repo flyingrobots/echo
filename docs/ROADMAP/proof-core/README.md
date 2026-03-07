@@ -3,7 +3,8 @@
 
 # Proof Core
 
-> **Priority:** P1 | **Status:** Next | **Est:** ~18h
+> **Priority:** P1 | **Status:** In Progress | **Est:** ~18h
+> **Evidence:** `docs/determinism/DETERMINISM_CLAIMS_v0.1.md`, `testdata/trig_golden_2048.bin`
 
 Cross-OS determinism proof and trig oracle verification. The deliverable is _Determinism Claims v0.1 (Scope + Evidence + Limits)_.
 
@@ -11,15 +12,15 @@ Cross-OS determinism proof and trig oracle verification. The deliverable is _Det
 
 ## Exit Criteria
 
-- [ ] 1-thread vs N-thread determinism harness green across {macOS, Linux}
-- [ ] Deterministic trig oracle verified against reference values
-- [ ] "Determinism Claims v0.1" document published (scope + evidence + limits)
-- [ ] Repro script produces identical receipts/checksums over 100 reruns
+- [x] 1-thread vs N-thread determinism harness green across {macOS, Linux}
+- [x] Deterministic trig oracle verified against reference values
+- [x] "Determinism Claims v0.1" document published (scope + evidence + limits)
+- [x] Repro script produces identical receipts/checksums over 100 reruns
 
 ## Features
 
 | Feature                     | File                                             | Est. | Status      |
 | --------------------------- | ------------------------------------------------ | ---- | ----------- |
-| Determinism Torture Harness | [determinism-torture.md](determinism-torture.md) | ~10h | Not Started |
-| Deterministic Trig Oracle   | [deterministic-trig.md](deterministic-trig.md)   | ~4h  | Not Started |
-| Docs Polish                 | [docs-polish.md](docs-polish.md)                 | ~4h  | Not Started |
+| Determinism Torture Harness | [determinism-torture.md](determinism-torture.md) | ~10h | Verified    |
+| Deterministic Trig Oracle   | [deterministic-trig.md](deterministic-trig.md)   | ~4h  | Verified    |
+| Docs Polish                 | [docs-polish.md](docs-polish.md)                 | ~4h  | In Progress |

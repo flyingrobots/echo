@@ -3,11 +3,11 @@
 
 # First Light
 
-> **Priority:** P1 | **Status:** Not Started | **Est:** ~88h
+> **Priority:** P2 | **Status:** Planned | **Est:** ~88h
 
 The crown jewel — TTD (Tick-based Deterministic engine) running in-browser. Every user interaction is a graph rewrite, rendered live. This milestone includes the Wesley pipeline work that feeds the website, the WASM runtime integration, browser visualization, echo-cas browser validation, and Wesley type bridging across JS/WASM.
 
-**Blocked By:** —
+**Blocked By:** Proof Core
 
 ## Exit Criteria
 

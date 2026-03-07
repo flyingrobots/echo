@@ -3,11 +3,11 @@
 
 # Proof Core
 
-> **Priority:** P1 | **Status:** Planned | **Est:** ~18h
+> **Priority:** P1 | **Status:** Next | **Est:** ~18h
 
 Cross-OS determinism proof and trig oracle verification. The deliverable is _Determinism Claims v0.1 (Scope + Evidence + Limits)_.
 
-**Blocked By:** Lock the Hashes
+**Blocked By:** Lock the Hashes ✅, Developer CLI ✅
 
 ## Exit Criteria
 

@@ -5,7 +5,6 @@
 
 > [!CAUTION]
 > This spec is a **design draft** — none of the interfaces below are implemented.
-> Known open questions are marked with `TODO`.
 >
 > **Background:** For a gentler introduction, see [Scheduler Hub](/scheduler).
 
@@ -54,16 +53,35 @@ interface SystemDescriptor {
     readonly unpauseable?: boolean;
     readonly parallelizable?: boolean;
     readonly priority?: number; // tie-breaker within DAG (higher runs earlier)
-    readonly signature?: ComponentSignature; // optional query signature hint
+    readonly footprint?: SystemFootprint; // declared read/write component sets
     readonly handler: SystemHandler; // function invoked by scheduler
+}
+
+interface SystemFootprint {
+    readonly reads: ReadonlySet<string>; // component types read
+    readonly writes: ReadonlySet<string>; // component types written
+    readonly exclusiveTags?: ReadonlySet<string>; // coarse mutual-exclusion labels
 }
 ```
 
-<!-- TODO: Bidirectional dependency resolution (both `before` and `after` fields)
-     needs formal specification. When system A declares `before: [B]` and system B
-     declares `after: [A]`, the redundant edges are harmless, but conflicting
-     declarations (A.before includes B AND B.before includes A) would create a
-     cycle. The registration workflow must detect and report this clearly. -->
+#### Dependency Resolution
+
+Both `before` and `after` fields produce directed edges in the same dependency
+DAG. `A.after = [B]` means "A runs after B", producing edge B → A. `A.before = [B]`
+means "A runs before B", producing edge A → B.
+
+Rules:
+
+1. **Deduplication.** Redundant declarations collapse into one edge. If A declares
+   `after: [B]` and B declares `before: [A]`, both produce the same directed edge
+   B → A. The edge is stored once.
+2. **Cycle detection.** Conflicting declarations (A declares `after: [B]` and B
+   declares `after: [A]`) produce edges B → A and A → B — a cycle. The
+   topological sort (see [Topology Computation](#topology-computation)) detects
+   this and throws a descriptive error listing the cycle path.
+3. **Eager validation.** All edges are validated at registration time, not lazily
+   at tick time. Inserting a system that creates a cycle is an immediate error.
+   This ensures the DAG is always valid between ticks.
 
 ### Graph Structures
 
@@ -92,36 +110,54 @@ function registerSystem(descriptor: SystemDescriptor): void {
     for (const phase of descriptor.phases ?? ["update"]) {
         const graph = phaseBuckets.getOrCreate(phase);
         if (graph.nodes.has(descriptor.id)) throw duplicate;
+
+        // Initialize node and its edge set before wiring any dependencies.
         graph.nodes.set(descriptor.id, {
             descriptor,
             status: "pending",
-            // additional runtime metadata (profiling counters, lastDuration, etc.)
         });
-        // Establish edges
+        if (!graph.edges.has(descriptor.id)) {
+            graph.edges.set(descriptor.id, new Set());
+        }
+        if (!graph.inDegree.has(descriptor.id)) {
+            graph.inDegree.set(descriptor.id, 0);
+        }
+
+        // Wire "after" edges: afterId → descriptor.id
         for (const afterId of descriptor.after ?? []) {
-            graph.edges.get(afterId)?.add(descriptor.id) ??
-                graph.edges.set(afterId, new Set([descriptor.id]));
+            const outgoing = getOrCreateEdgeSet(graph, afterId);
+            outgoing.add(descriptor.id);
             graph.inDegree.set(
                 descriptor.id,
-                (graph.inDegree.get(descriptor.id) ?? 0) + 1,
+                graph.inDegree.get(descriptor.id)! + 1,
             );
         }
+
+        // Wire "before" edges: descriptor.id → beforeId
         for (const beforeId of descriptor.before ?? []) {
-            graph.edges.get(descriptor.id)?.add(beforeId) ??
-                graph.edges.set(descriptor.id, new Set([beforeId]));
+            const outgoing = graph.edges.get(descriptor.id)!;
+            outgoing.add(beforeId);
             graph.inDegree.set(
                 beforeId,
                 (graph.inDegree.get(beforeId) ?? 0) + 1,
             );
         }
+
         graph.dirty = true;
+
+        // Eagerly validate: cycle detection runs immediately.
+        recomputeTopology(graph); // throws if cycle detected
     }
 }
-// TODO: The edge creation logic above needs review. In particular, the
-// `getOrCreate` pattern using `?.add()` with a `??` fallback is fragile
-// and may silently drop edges when a node has no prior entry in the edges
-// map. A clearer implementation should initialise edge sets for every
-// registered node before wiring dependencies.
+
+function getOrCreateEdgeSet(graph: PhaseGraph, id: SystemId): Set<SystemId> {
+    let set = graph.edges.get(id);
+    if (!set) {
+        set = new Set();
+        graph.edges.set(id, set);
+    }
+    return set;
+}
 ```
 
 - `priority` influences topological ordering by adjusting insertion order (e.g., using min-heap keyed by `(topologyLevel, -priority)`).
@@ -194,6 +230,42 @@ function recomputeTopology(graph: PhaseGraph) {
 }
 ```
 
+### Resource Conflict Detection
+
+Before two systems can execute in parallel, the scheduler must verify they do not
+conflict on shared resources. This model is analogous to warp-core's
+[`Footprint`](/spec-mwmr-concurrency) independence check, adapted from graph
+elements (nodes/edges/ports) to ECS component types.
+
+Each system optionally declares a `SystemFootprint` (see
+[System Descriptor](#system-descriptor)):
+
+- `reads` — the set of component type names the system reads.
+- `writes` — the set of component type names the system writes.
+- `exclusiveTags` — coarse mutual-exclusion labels (analogous to warp-core's
+  `factor_mask`). Any overlap in exclusive tags forces serialization without
+  inspecting component sets.
+
+**Conflict rule.** Two systems conflict if any of the following hold:
+
+1. Their `exclusiveTags` sets intersect (O(1) prefilter when tags are small).
+2. One system's `writes` intersects the other's `reads` (write-read conflict).
+3. Their `writes` sets intersect (write-write conflict).
+
+Read-read access to the same component type is safe and does not conflict.
+
+**Safe default.** A system without a declared footprint (`footprint` is
+`undefined`) is treated as conflicting with every other system. This is
+conservative — it may over-serialize, but never produces incorrect parallel
+execution. Systems that want parallelism must opt in by declaring their
+footprint.
+
+**Implementation.** The conflict check uses set intersection on the string sets.
+For small component counts (typical for ECS systems), linear scans suffice.
+If profiling shows this is a bottleneck, component types can be assigned
+compact integer IDs and checked via bitmask AND (mirroring warp-core's bitmap
+approach).
+
 ### Parallel Batch Planning
 
 - Only for phases that allow parallel execution (initially `update`).
@@ -202,17 +274,9 @@ function recomputeTopology(graph: PhaseGraph) {
     2. Maintain `readySet` of systems whose dependencies have been scheduled but not yet executed.
     3. For each system:
         - If `descriptor.parallelizable` and not `unpauseable`, try to place into current batch.
-        - Ensure no resource conflicts (e.g., two systems writing to same exclusive resource). For initial version, require manual declarations of exclusive tags or rely on heuristics (e.g., overlapping component signatures) to avoid collisions.
-    4. If system cannot be parallelized, flush current batch, execute sequentially, then resume batching.
+        - Check for resource conflicts against all systems already in the current batch using the conflict rule above. If no conflict, add to batch.
+    4. If system cannot be parallelized (not marked `parallelizable`, or conflicts with a system in the current batch), flush current batch, execute sequentially, then resume batching.
 - Implementation may begin sequential (no parallelism) and introduce batches after profiling.
-
-<!-- TODO: Conflict detection for parallel batch planning is under-specified.
-     "Manual declarations of exclusive tags" and "overlapping component
-     signatures" are mentioned but neither mechanism is formally defined.
-     Before implementation, specify: (a) what a resource/exclusive tag is,
-     (b) how conflicts are detected (set intersection? bitmask?), and
-     (c) whether the check is conservative (never wrong) or heuristic
-     (may over-serialise). -->
 
 ### Pause Handling
 
@@ -336,9 +400,9 @@ Objective: validate scheduler behavior and complexity under realistic dependency
 
 ## Open Questions
 
-- How to model resource conflicts for parallel execution (manual tags vs automatic detection).
 - Whether phase-specific priorities should be allowed (e.g., `render_prep` custom ordering).
 - Strategy for cross-branch scheduling: separate scheduler per branch vs shared graph with branch-specific execution queues.
 - Should initialization phase run lazily when systems added mid-game, or strictly at startup?
+- Whether `SystemFootprint` should support `creates` and `deletes` sets (as warp-core's `FootprintInfo` does) for finer-grained conflict analysis, or if read/write is sufficient at the system scheduler level.
 
 Document updates feed into implementation tasks (GitHub Issues).

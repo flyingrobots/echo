@@ -7,6 +7,11 @@
 
 ### Docs Polish (#41)
 
+- **Spec:** Resolved all 3 TODO comments in `spec-scheduler.md`:
+  bidirectional dependency resolution rules, cleaner `registerSystem`
+  pseudo-code, and a formal resource conflict detection model aligned with
+  warp-core's `Footprint`. Replaced `ComponentSignature` with `SystemFootprint`
+  (reads/writes/exclusiveTags).
 - **Archive:** Moved 6 superseded docs to `docs/archive/` with redirect stubs
   (`spec-deterministic-math.md`, `spec-geom-collision.md`,
   `notes/scheduler-radix-optimization.md`, `notes/xtask-wizard.md`,

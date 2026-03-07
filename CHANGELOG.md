@@ -32,6 +32,18 @@
   covering engine parameters, protocol constants, and environment variables.
 - **New:** Cargo feature flags reference (`docs/guide/cargo-features.md`)
   covering all 19 features across 11 crates.
+- **Fix:** `cargo xtask lint-dead-refs` now uses `pulldown-cmark` for link
+  extraction (handles title text, balanced parens, angle-bracket URLs) and
+  separates scan scope from VitePress docs root. Includes 10 unit tests.
+- **Fix:** `det_fixed` correctly documented as a behavioral switch in
+  `cargo-features.md`; `worker_count` default now shows `NUM_SHARDS` cap.
+- **Fix:** All file collection in xtask now uses `git ls-files` instead of
+  filesystem walks (skips build artifacts like `.vitepress/dist/`).
+- **Update:** Archival stubs enriched with date, reason, and PR metadata.
+  Draft spec (`spec-scheduler.md`) marked with `[!CAUTION]` disclaimer and
+  TODO markers for unspecified sections.
+- **Update:** Math code fences converted from `text` to `math` with proper
+  LaTeX markup across `THEORY.md`, `SPEC-0001`, and scheduler notes.
 - **Update:** README determinism claims link, reference docs section,
   docs-index entries, docs-audit log.
 

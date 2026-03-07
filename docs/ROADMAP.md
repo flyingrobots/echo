@@ -21,7 +21,7 @@ To prevent context thrashing, we adhere to a strict WIP limit:
 
 ```mermaid
 flowchart TD
-  A["P0 Lock the Hashes ✅"] --> D["P1 Proof Core"]
+  A["P0 Lock the Hashes ✅"] --> D["P1 Proof Core ✅"]
   B["P0 Developer CLI ✅"] --> D
   D --> C["P2 First Light"]
   E["P1 Time Semantics Lock"] --> F["P3 Time Travel"]
@@ -38,7 +38,7 @@ flowchart TD
 | ------ | ---------------------------------------------------------------------- | ---------------------------------------- | -------- |
 | **P0** | **[Lock the Hashes](ROADMAP/lock-the-hashes/README.md)**               | Canonical hash vectors & cleanup         | Verified |
 | **P0** | **[Developer CLI](ROADMAP/developer-cli/README.md)**                   | `verify`, `bench`, `inspect` tools       | Verified |
-| **P1** | **[Proof Core](ROADMAP/proof-core/README.md)**                         | Determinism claims _without_ Time Travel | **Next** |
+| **P1** | **[Proof Core](ROADMAP/proof-core/README.md)**                         | Determinism claims _without_ Time Travel | Verified |
 | **P1** | **[Time Semantics Lock](ROADMAP/time-semantics-lock/README.md)**       | Frozen Time Spec (Doc only)              | Planned  |
 | **P2** | **[First Light](ROADMAP/first-light/README.md)**                       | Browser Demo (Website)                   | Planned  |
 | **P3** | **[Time Travel](ROADMAP/time-travel/README.md)**                       | Inspector & Rewind Tooling               | Planned  |

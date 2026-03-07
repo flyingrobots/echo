@@ -3,7 +3,7 @@
 
 # Proof Core
 
-> **Priority:** P1 | **Status:** In Progress | **Est:** ~18h
+> **Priority:** P1 | **Status:** Verified | **Est:** ~18h
 > **Evidence:** `docs/determinism/DETERMINISM_CLAIMS_v0.1.md`, `testdata/trig_golden_2048.bin`
 
 Cross-OS determinism proof and trig oracle verification. The deliverable is _Determinism Claims v0.1 (Scope + Evidence + Limits)_.

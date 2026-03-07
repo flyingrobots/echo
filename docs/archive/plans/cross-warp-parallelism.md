@@ -7,7 +7,13 @@
 **Status:** IMPLEMENTED
 **Archived:** 2026-03-07 (PR #292)
 **Reason:** Feature fully implemented
+**Implementation:** PR #257 (Phase 6B); see `crates/warp-core/src/boaw/exec.rs`
 **Context:** Performance optimization — parallelize execution across warps
+
+> **Archival Note:** The implemented design deviates from this plan. The `WorkUnit`
+> struct as built does NOT store an explicit `shard_id` field — shard identity is
+> implicit in the items membership. See `crates/warp-core/src/boaw/exec.rs:259-281`
+> for the actual structure. This document preserves the original planning intent.
 
 ---
 
@@ -35,7 +41,7 @@ than O(1) when parallelism is available.
 
 1. **Partition rewrites by warp** — group by `WarpId`
 2. **Within each warp, partition into shards** — reuse existing `shard_of()` (256 shards)
-3. **Build work units** — `WorkUnit { warp_id, shard_id, items: &[ExecItem] }`
+3. **Build work units** — `WorkUnit { warp_id, items: Vec<ExecItem> }` _(shard_id not stored; implicit in items membership)_
 4. **Spawn fixed worker pool** — `available_parallelism()` threads, spawned once
 5. **Atomic work claiming** — workers claim next unit via `AtomicUsize` index
 6. **Execute with warp-local view** — each unit resolves its warp's `GraphView`
@@ -60,13 +66,13 @@ than O(1) when parallelism is available.
 
 ## Implementation Steps
 
-| Step | Description                                          | Files          |
-| ---- | ---------------------------------------------------- | -------------- |
-| 1    | Add `WorkUnit { warp_id, shard_id, items }` struct   | exec.rs        |
-| 2    | Add `build_work_units()` — partition by warp + shard | exec.rs        |
-| 3    | Add `execute_work_queue()` — atomic claim loop       | exec.rs        |
-| 4    | Replace serial for-loop with `execute_work_queue()`  | engine_impl.rs |
-| 5    | Add `#[cfg(feature = "cross-warp-parallel")]` gate   | Cargo.toml     |
+| Step | Description                                            | Files          |
+| ---- | ------------------------------------------------------ | -------------- |
+| 1    | Add `WorkUnit { warp_id, items }` struct (no shard_id) | exec.rs        |
+| 2    | Add `build_work_units()` — partition by warp + shard   | exec.rs        |
+| 3    | Add `execute_work_queue()` — atomic claim loop         | exec.rs        |
+| 4    | Replace serial for-loop with `execute_work_queue()`    | engine_impl.rs |
+| 5    | Add `#[cfg(feature = "cross-warp-parallel")]` gate     | Cargo.toml     |
 
 ---
 

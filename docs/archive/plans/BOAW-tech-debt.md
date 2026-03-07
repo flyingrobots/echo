@@ -59,11 +59,13 @@ Feature-gated behind `parallel-stride-fallback`. Adds maintenance burden.
 
 Verify these are still accurate post-merge:
 
-<!-- Items below reflect status at time of archival (2026-03-07). -->
+<!-- Items below reflect status at time of archival (2026-03-07).
+     Unchecked boxes were not completed before archival; tracking
+     has moved to TECH-DEBT-BOAW.md. -->
 
-- [ ] `TECH-DEBT-BOAW.md` — mark Phase 6B items complete
-- [ ] `ADR-0007-BOAW-Storage.md` — phase status markers
-- [ ] `CHANGELOG.md` — PR #257 merge recorded
+- [ ] `TECH-DEBT-BOAW.md` — mark Phase 6B items complete _(not completed before archival)_
+- [ ] `ADR-0007-BOAW-Storage.md` — phase status markers _(not completed before archival)_
+- [ ] `CHANGELOG.md` — PR #257 merge recorded _(not completed before archival)_
 
 ---
 
@@ -256,6 +258,10 @@ These are **not scheduled**. Only pursue if perf gate shows regression:
 ---
 
 <!-- Execution checklist reflects status at time of archival. See ROADMAP.md for current plans. -->
+
+> **⚠️ TRACKING MOVED:** This archived checklist is preserved for historical
+> context only. Active work tracking is now in
+> [`TECH-DEBT-BOAW.md`](../../adr/TECH-DEBT-BOAW.md). Do NOT update checkboxes here.
 
 ## Execution Checklist
 

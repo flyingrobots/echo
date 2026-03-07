@@ -96,10 +96,13 @@ A sketch of the full *fold→rewrite→commit* pipeline:
 > 3. Confluence fold each bucket (ACI).
 > 4. Apply remaining rewrites in a canonical order:
 >
-> <!-- Note: field names here use an earlier convention; see scheduler-radix-optimization-2.md for current names. -->
+> <!-- Note: field names here use an earlier convention.
+>      The canonical drain key is (scope, rule_id, nonce); see scheduler-radix-optimization-2.md
+>      and the "20-Pass Radix Sort" section below for current names. -->
 >
 > ```text
 > order by (scope_hash, family, compact_rule_id, payload_digest).
+> (Early convention — current drain key: scope, rule_id, nonce)
 > ```
 >
 > 1. Emit a new snapshot and compute commit hash.
@@ -446,11 +449,13 @@ The graph is a straight line. The future is deterministic. **And Echo is how we 
 
 ---
 
-<!-- Code references reflect state at time of writing; paths may have changed. -->
+> **Note:** Code references below reflect state at time of writing and may be
+> stale. Paths and line numbers have likely changed since this document was
+> authored. Use repo search (`rg`) to locate current implementations.
 
 ## Code References
 
-- Implementation: `crates/warp-core/src/scheduler.rs:142-277`
+- Implementation: `crates/warp-core/src/scheduler.rs:142-277` _(line numbers may have shifted)_
 - Benchmarks: `crates/warp-benches/benches/scheduler_drain.rs`
 - Dashboard: `docs/benchmarks/report-inline.html`
 - PR: [Pending on branch `repo/tidy`]

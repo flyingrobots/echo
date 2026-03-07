@@ -44,6 +44,12 @@
   TODO markers for unspecified sections.
 - **Update:** Math code fences converted from `text` to `math` with proper
   LaTeX markup across `THEORY.md`, `SPEC-0001`, and scheduler notes.
+- **Fix:** Archived `cross-warp-parallelism.md` annotated with implementation
+  traceability and `WorkUnit` struct deviation (no `shard_id` in actual code).
+- **Fix:** Archived `BOAW-tech-debt.md` checklists annotated as frozen with
+  tracking-moved callout pointing to `TECH-DEBT-BOAW.md`.
+- **Fix:** Archived `scheduler-radix-optimization.md` canonical order clarified
+  and code-reference staleness disclaimer made visible.
 - **Update:** README determinism claims link, reference docs section,
   docs-index entries, docs-audit log.
 

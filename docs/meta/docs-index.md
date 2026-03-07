@@ -205,10 +205,11 @@ These docs had zero or one inbound references from other docs. They are linked h
 
 ## Archive
 
-Superseded and stale documents live in `docs/archive/`. Each original location
-has a 3-line redirect stub pointing to the archived file and its replacement.
-See the archive directory for: legacy Phase 0 specs, concept notes that were
-never implemented, and plans for features that have been completed.
+Superseded and stale documents live in [`docs/archive/`](../archive/). Each
+original location has a minimal redirect stub pointing to the archived file and
+its replacement. See the archive directory for: legacy Phase 0 specs, concept
+notes that were never implemented, and plans for features that have been
+completed.
 
 Example redirect stub:
 
@@ -217,5 +218,8 @@ Example redirect stub:
 
 # Title (Archived)
 
-Moved to [docs/archive/...](archive/...). Archived 2026-03-07 (PR #292).
+> **Archived:** YYYY-MM-DD (PR #NNN)
+> **Reason:** Brief explanation of why this was archived.
+
+Moved to [docs/archive/...](archive/...).
 ```

@@ -2,9 +2,9 @@
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! `echo-cli bench` — run benchmarks and format results.
 //!
-//! Shells out to `cargo bench -p warp-benches`, parses Criterion JSON from
-//! `target/criterion/*/new/estimates.json`, and renders an ASCII table or
-//! JSON array.
+//! Shells out to `cargo bench -p warp-benches`, recursively parses Criterion
+//! JSON from `target/criterion/**/new/estimates.json`, and renders an ASCII
+//! table or JSON array.
 
 use std::path::Path;
 use std::process::Command;
@@ -109,7 +109,11 @@ pub(crate) fn run(filter: Option<&str>, format: &OutputFormat) -> Result<()> {
     Ok(())
 }
 
-/// Scans `target/criterion/*/new/estimates.json` for benchmark results.
+/// Recursively scans `criterion_dir` for `new/estimates.json` files.
+///
+/// Criterion stores grouped and parameterised benchmarks in nested directories
+/// (e.g. `group/bench/new/estimates.json` or `group/bench/param/new/estimates.json`).
+/// The benchmark name is derived from the path relative to `criterion_dir`.
 pub(crate) fn collect_criterion_results(
     criterion_dir: &Path,
     filter: Option<&str>,
@@ -120,8 +124,30 @@ pub(crate) fn collect_criterion_results(
         return Ok(results);
     }
 
-    let entries = std::fs::read_dir(criterion_dir)
-        .with_context(|| format!("failed to read {}", criterion_dir.display()))?;
+    let filter_re = filter
+        .map(|f| regex::Regex::new(f).with_context(|| format!("invalid filter regex: {f}")))
+        .transpose()?;
+
+    collect_estimates_recursive(
+        criterion_dir,
+        criterion_dir,
+        filter_re.as_ref(),
+        &mut results,
+    )?;
+
+    results.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(results)
+}
+
+/// Walks `dir` recursively, collecting any `new/estimates.json` it finds.
+fn collect_estimates_recursive(
+    root: &Path,
+    dir: &Path,
+    filter_re: Option<&regex::Regex>,
+    results: &mut Vec<BenchResult>,
+) -> Result<()> {
+    let entries =
+        std::fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))?;
 
     for entry in entries {
         let entry = entry?;
@@ -131,37 +157,39 @@ pub(crate) fn collect_criterion_results(
             continue;
         }
 
-        let bench_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
+        let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         // Skip Criterion metadata directories.
-        if bench_name.starts_with('.') || bench_name == "report" {
+        if dir_name.starts_with('.') || dir_name == "report" {
             continue;
-        }
-
-        // Apply filter if specified.
-        if let Some(f) = filter {
-            if !bench_name.contains(f) {
-                continue;
-            }
         }
 
         let estimates_path = path.join("new").join("estimates.json");
-        if !estimates_path.is_file() {
-            continue;
-        }
+        if estimates_path.is_file() {
+            let bench_name = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
 
-        match parse_estimates(&bench_name, &estimates_path) {
-            Ok(result) => results.push(result),
-            Err(e) => eprintln!("warning: skipping {bench_name}: {e:#}"),
+            // Apply regex filter (matches Criterion's own regex semantics).
+            if let Some(re) = filter_re {
+                if !re.is_match(&bench_name) {
+                    continue;
+                }
+            }
+
+            match parse_estimates(&bench_name, &estimates_path) {
+                Ok(result) => results.push(result),
+                Err(e) => eprintln!("warning: skipping {bench_name}: {e:#}"),
+            }
+        } else {
+            // No estimates here — recurse deeper.
+            collect_estimates_recursive(root, &path, filter_re, results)?;
         }
     }
 
-    results.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(results)
+    Ok(())
 }
 
 /// Parses a single `estimates.json` file into a `BenchResult`.
@@ -308,6 +336,73 @@ mod tests {
         let results = collect_criterion_results(dir.path(), Some("beta")).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].name, "beta_bench");
+    }
+
+    #[test]
+    fn filter_uses_regex_semantics() {
+        let dir = tempfile::tempdir().unwrap();
+
+        for name in &["hotpath_alloc", "hotpath_dealloc", "coldpath_alloc"] {
+            let bench_dir = dir.path().join(name).join("new");
+            fs::create_dir_all(&bench_dir).unwrap();
+            let est = make_estimates_json(1000.0, 1000.0, 10.0);
+            fs::write(bench_dir.join("estimates.json"), &est).unwrap();
+        }
+
+        // Regex anchor should work, not just substring contains.
+        let results = collect_criterion_results(dir.path(), Some("^hotpath")).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.name.starts_with("hotpath")));
+
+        // Exact match via anchors.
+        let results = collect_criterion_results(dir.path(), Some("^coldpath_alloc$")).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "coldpath_alloc");
+    }
+
+    #[test]
+    fn collects_nested_grouped_benchmarks() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Simulate Criterion benchmark_group layout:
+        // group/bench_a/new/estimates.json
+        // group/bench_b/new/estimates.json
+        for name in &["bench_a", "bench_b"] {
+            let bench_dir = dir.path().join("my_group").join(name).join("new");
+            fs::create_dir_all(&bench_dir).unwrap();
+            let est = make_estimates_json(2000.0, 1900.0, 100.0);
+            fs::write(bench_dir.join("estimates.json"), &est).unwrap();
+        }
+
+        let results = collect_criterion_results(dir.path(), None).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|r| r.name == "my_group/bench_a"));
+        assert!(results.iter().any(|r| r.name == "my_group/bench_b"));
+    }
+
+    #[test]
+    fn collects_deeply_nested_parameterised_benchmarks() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Simulate BenchmarkId layout:
+        // group/bench/param_1/new/estimates.json
+        // group/bench/param_2/new/estimates.json
+        for param in &["param_1", "param_2"] {
+            let bench_dir = dir
+                .path()
+                .join("group")
+                .join("bench")
+                .join(param)
+                .join("new");
+            fs::create_dir_all(&bench_dir).unwrap();
+            let est = make_estimates_json(3000.0, 2900.0, 200.0);
+            fs::write(bench_dir.join("estimates.json"), &est).unwrap();
+        }
+
+        let results = collect_criterion_results(dir.path(), None).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|r| r.name == "group/bench/param_1"));
+        assert!(results.iter().any(|r| r.name == "group/bench/param_2"));
     }
 
     #[test]

@@ -22,6 +22,7 @@ bytes = "1"
 clap = { version = "4", features = ["derive"] }
 comfy-table = "7"
 hex = "0.4"
+regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 warp-core = { workspace = true }

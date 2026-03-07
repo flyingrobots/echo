@@ -5319,6 +5319,7 @@ dependencies = [
  "comfy-table",
  "hex",
  "predicates",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

@@ -76,7 +76,7 @@ pub(crate) fn run(snapshot: &Path, expected: Option<&str>, format: &OutputFormat
         // Check against expected hash (if provided, applies to first warp).
         let status = if let Some(exp) = expected {
             if i == 0 {
-                if state_root_hex == exp {
+                if state_root_hex == exp.to_ascii_lowercase() {
                     "pass".to_string()
                 } else {
                     all_pass = false;

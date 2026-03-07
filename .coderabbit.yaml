@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+# CodeRabbit configuration — https://docs.coderabbit.ai/guides/configure-coderabbit
+
+reviews:
+  path_filters:
+    - "!docs/archive/**"

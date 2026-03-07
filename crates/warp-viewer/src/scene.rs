@@ -101,9 +101,9 @@ impl History {
             }
             Some(head) => {
                 let mut cur = head;
+                #[allow(clippy::unwrap_used)] // safe: loop invariant guarantees Some
                 while cur.next.is_some() {
-                    let next = cur.next.as_mut().unwrap();
-                    cur = next;
+                    cur = cur.next.as_mut().unwrap();
                 }
                 cur.next = Some(node);
                 self.tail_rev = revision;
@@ -146,15 +146,15 @@ fn id_to_u64(bytes: &[u8]) -> u64 {
     u64::from_le_bytes(arr)
 }
 
+#[allow(clippy::cast_precision_loss)]
 fn radial_pos_u64(id: u64) -> Vec3 {
     let mut h = Hasher::new();
     h.update(&id.to_le_bytes());
     let bytes = h.finalize();
-    let theta = u32::from_le_bytes(bytes.as_bytes()[0..4].try_into().unwrap()) as f32
-        / u32::MAX as f32
+    let b = bytes.as_bytes();
+    let theta = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f32 / u32::MAX as f32
         * std::f32::consts::TAU;
-    let phi = u32::from_le_bytes(bytes.as_bytes()[4..8].try_into().unwrap()) as f32
-        / u32::MAX as f32
+    let phi = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) as f32 / u32::MAX as f32
         * std::f32::consts::PI
         - std::f32::consts::FRAC_PI_2;
     let r = 200.0;
@@ -169,9 +169,9 @@ fn hash_color_u64(id: u64) -> [f32; 3] {
     let h = blake3::hash(&id.to_be_bytes());
     let b = h.as_bytes();
     [
-        b[0] as f32 / 255.0,
-        b[1] as f32 / 255.0,
-        b[2] as f32 / 255.0,
+        f32::from(b[0]) / 255.0,
+        f32::from(b[1]) / 255.0,
+        f32::from(b[2]) / 255.0,
     ]
 }
 
@@ -203,9 +203,10 @@ fn compute_depth(edges: &[(usize, usize)], n: usize) -> usize {
 
 /// Build a renderable graph from wire-format graph data.
 pub fn scene_from_wire(w: &WireGraph) -> RenderGraph {
+    use std::collections::HashMap;
+
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
-    use std::collections::HashMap;
 
     let mut id_to_idx = HashMap::new();
     for (i, n) in w.nodes.iter().enumerate() {

@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::cast_possible_truncation
+)]
 //! BOAW Footprint & Independence Tests (ADR-0007 §6)
 //!
 //! Tests for footprint independence checking, bucket enforcement,

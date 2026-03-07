@@ -27,6 +27,6 @@ impl PerfStats {
         self.frame_ms.push_back(frame);
     }
     pub fn fps(&self) -> f32 {
-        self.frame_ms.back().map(|ms| 1000.0 / ms).unwrap_or(0.0)
+        self.frame_ms.back().map_or(0.0, |ms| 1000.0 / ms)
     }
 }

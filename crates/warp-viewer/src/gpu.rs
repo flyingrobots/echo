@@ -72,6 +72,7 @@ pub struct Gpu {
 }
 
 impl Gpu {
+    #[allow(clippy::expect_used)]
     pub async fn new(window: &'static Window) -> Result<Self> {
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window)?;
@@ -102,7 +103,7 @@ impl Gpu {
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            .find(wgpu::TextureFormat::is_srgb)
             .unwrap_or(caps.formats[0]);
         let pmode_fast = caps
             .present_modes
@@ -202,7 +203,7 @@ impl Gpu {
             vertex: wgpu::VertexState {
                 module: &shader_nodes,
                 entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -245,7 +246,7 @@ impl Gpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader_nodes,
                 entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -261,8 +262,8 @@ impl Gpu {
                 format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
-                stencil: Default::default(),
-                bias: Default::default(),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,
@@ -278,7 +279,7 @@ impl Gpu {
             vertex: wgpu::VertexState {
                 module: &shader_nodes,
                 entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -321,7 +322,7 @@ impl Gpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader_nodes,
                 entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -338,8 +339,8 @@ impl Gpu {
                 format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: Default::default(),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,
@@ -355,7 +356,7 @@ impl Gpu {
             vertex: wgpu::VertexState {
                 module: &shader_edges,
                 entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<EdgeInstance>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
@@ -370,7 +371,7 @@ impl Gpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader_edges,
                 entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -386,8 +387,8 @@ impl Gpu {
                 format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
-                stencil: Default::default(),
-                bias: Default::default(),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
                 count: sample_count,
@@ -504,6 +505,7 @@ fn create_msaa(
     Some(tex.create_view(&wgpu::TextureViewDescriptor::default()))
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn unit_octahedron(device: &wgpu::Device) -> Mesh {
     let verts: [Vertex; 6] = [
         Vertex {
@@ -551,6 +553,7 @@ fn unit_octahedron(device: &wgpu::Device) -> Mesh {
     }
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
 fn unit_uv_sphere(device: &wgpu::Device, segments: u32, rings: u32) -> Mesh {
     let mut verts = Vec::new();
     let mut idx = Vec::new();

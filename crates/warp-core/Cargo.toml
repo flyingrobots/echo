@@ -72,3 +72,6 @@ required-features = ["golden_prng"]
 
 [build-dependencies]
 blake3 = "1.0"
+
+[lints]
+workspace = true

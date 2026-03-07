@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::todo)]
 //! BOAW COW Overlay Semantics Tests (ADR-0007 §5)
 //!
 //! Tests for Copy-on-Write semantics:

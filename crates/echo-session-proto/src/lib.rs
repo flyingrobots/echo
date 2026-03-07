@@ -1,5 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+// Protocol crate with CBOR encoding — intentional fixed-width casts.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::float_cmp,
+    clippy::items_after_statements,
+    clippy::match_same_arms,
+    clippy::fn_params_excessive_bools,
+    clippy::needless_pass_by_value,
+    clippy::unnecessary_wraps,
+    clippy::derive_partial_eq_without_eq
+)]
 //! Session wire schema for Echo hub (WARP snapshots/diffs + notifications).
 //!
 //! This crate provides wire protocols for Echo session communication:
@@ -41,9 +55,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 /// Prefers a per-user runtime dir (XDG_RUNTIME_DIR) and falls back to `/tmp`
 /// when unavailable.
 pub fn default_socket_path() -> PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    let base =
+        std::env::var_os("XDG_RUNTIME_DIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
     base.join("echo-session.sock")
 }
 
@@ -52,7 +65,7 @@ pub fn default_socket_path() -> PathBuf {
 /// * `op` – operation name (see ADR-0013).
 /// * `ts` – logical timestamp (authoritative on the server side).
 /// * `payload` – operation specific body.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OpEnvelope<P> {
     /// Operation name (e.g., "handshake", "handshake_ack", "error", "warp_stream").
     pub op: String,
@@ -170,7 +183,7 @@ pub struct HandshakeAckPayload {
 }
 
 /// Subscribe payload (consumer → host).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubscribeWarpPayload {
     /// Identifier of the WARP stream to receive.
     #[serde(alias = "rmg_id")]

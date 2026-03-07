@@ -27,9 +27,6 @@
     - Deterministic math: `crates/warp-core/src/math/*`
     - Tests (integration): `crates/warp-core/tests/*`
 
-- warp-ffi — C ABI for host integrations
-    - `crates/warp-ffi/src/lib.rs`
-
 - warp-wasm — wasm-bindgen bindings
     - `crates/warp-wasm/src/lib.rs`
 

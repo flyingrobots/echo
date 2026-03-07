@@ -62,7 +62,7 @@ run_tests() {
 run_rustdoc() {
   local out=""
   local rc=0
-  for krate in warp-core warp-geom warp-ffi warp-wasm; do
+  for krate in warp-core warp-geom warp-wasm; do
     if [ -f "crates/${krate}/Cargo.toml" ]; then
       out+="[rustdoc] ${krate}"$'\n'
       local krate_out

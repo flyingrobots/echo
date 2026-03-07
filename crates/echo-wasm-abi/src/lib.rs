@@ -3,9 +3,20 @@
 //! Shared WASM-friendly DTOs and Protocol Utilities for Echo.
 
 #![no_std]
-#![deny(clippy::unwrap_used)]
-#![deny(clippy::expect_used)]
-#![deny(clippy::panic)]
+#![allow(unsafe_code)]
+// Low-level CBOR codec with intentional fixed-width casts and float ops.
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::float_cmp,
+    clippy::items_after_statements,
+    clippy::unnecessary_wraps,
+    clippy::missing_errors_doc,
+    clippy::match_same_arms,
+    clippy::derive_partial_eq_without_eq
+)]
 
 #[cfg(feature = "std")]
 extern crate std;
@@ -119,18 +130,21 @@ pub fn decode_cbor<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, Cano
 
 fn sv_to_cv(val: serde_value::Value) -> Result<ciborium::value::Value, CanonError> {
     use ciborium::value::Value as CV;
-    use serde_value::Value::*;
+    use serde_value::Value::{
+        Bool, Bytes, Char, F32, F64, I8, I16, I32, I64, Map, Newtype, Option, Seq, String, U8, U16,
+        U32, U64, Unit,
+    };
     Ok(match val {
         Bool(b) => CV::Bool(b),
-        I8(n) => CV::Integer((n as i64).into()),
-        I16(n) => CV::Integer((n as i64).into()),
-        I32(n) => CV::Integer((n as i64).into()),
+        I8(n) => CV::Integer(i64::from(n).into()),
+        I16(n) => CV::Integer(i64::from(n).into()),
+        I32(n) => CV::Integer(i64::from(n).into()),
         I64(n) => CV::Integer(n.into()),
-        U8(n) => CV::Integer((n as u64).into()),
-        U16(n) => CV::Integer((n as u64).into()),
-        U32(n) => CV::Integer((n as u64).into()),
+        U8(n) => CV::Integer(u64::from(n).into()),
+        U16(n) => CV::Integer(u64::from(n).into()),
+        U32(n) => CV::Integer(u64::from(n).into()),
         U64(n) => CV::Integer(n.into()),
-        F32(f) => CV::Float(f as f64),
+        F32(f) => CV::Float(f64::from(f)),
         F64(f) => CV::Float(f),
         Char(c) => CV::Text(c.to_string()),
         String(s) => CV::Text(s),
@@ -204,7 +218,7 @@ pub type NodeId = String;
 pub type FieldName = String;
 
 /// A typed value that can be stored in a node field.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value")]
 pub enum Value {
     /// String value.
@@ -218,7 +232,7 @@ pub enum Value {
 }
 
 /// A node in the warp graph with an ID and field map.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Node {
     /// Unique identifier for this node.
     pub id: NodeId,
@@ -227,7 +241,7 @@ pub struct Node {
 }
 
 /// A directed edge between two nodes.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edge {
     /// Source node ID.
     pub from: NodeId,
@@ -245,7 +259,7 @@ pub struct WarpGraph {
 }
 
 /// The type of semantic operation in a rewrite.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SemanticOp {
     /// Set a field value on a node.
     Set,
@@ -260,7 +274,7 @@ pub enum SemanticOp {
 }
 
 /// A single rewrite operation describing a graph mutation.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rewrite {
     /// Unique identifier for this rewrite operation.
     pub id: u64,

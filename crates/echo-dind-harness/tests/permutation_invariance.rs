@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::expect_used)]
 //! Tests for permutation invariance of the deterministic kernel.
 
 use std::path::PathBuf;
@@ -26,8 +27,7 @@ fn permutation_invariance_050_seeds_produce_identical_full_hash_chains() -> Resu
             None => baseline = Some(hashes),
             Some(base) => assert_eq!(
                 &hashes, base,
-                "expected permutation-invariant full hash chain for {:?}",
-                path
+                "expected permutation-invariant full hash chain for {path:?}"
             ),
         }
     }
@@ -56,8 +56,7 @@ fn convergence_051_seeds_produce_identical_final_hash() -> Result<()> {
             None => baseline_final_hash = Some(final_hash.clone()),
             Some(base) => assert_eq!(
                 final_hash, base,
-                "expected convergent final hash for {:?}",
-                path
+                "expected convergent final hash for {path:?}"
             ),
         }
     }

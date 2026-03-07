@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::cast_possible_truncation)]
 //! Engine Integration Tests for MaterializationBus.
 //!
 //! # Tier 5: Engine Integration (RFC mat-bus-finish.md)
@@ -598,8 +599,7 @@ fn engine_permutation_invariant_n4() {
         let bytes = finalized_to_bytes(&report.channels);
         assert_eq!(
             bytes, reference,
-            "permutation {} should match reference",
-            perm_count
+            "permutation {perm_count} should match reference"
         );
         perm_count += 1;
     });
@@ -659,8 +659,7 @@ fn engine_permutation_invariant_mixed_policies() {
         let bytes = finalized_to_bytes(&report.channels);
         assert_eq!(
             bytes, reference,
-            "mixed policy permutation {} should match",
-            perm_count
+            "mixed policy permutation {perm_count} should match"
         );
         perm_count += 1;
     });

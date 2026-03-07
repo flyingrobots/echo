@@ -1,16 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![deny(
-    warnings,
-    clippy::all,
-    clippy::pedantic,
-    rust_2018_idioms,
-    missing_docs,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic
-)]
+// Workspace lints apply via [lints] workspace = true.
 #![doc = r"Geometry primitives for Echo.
 
 This crate provides:

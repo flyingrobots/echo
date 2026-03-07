@@ -61,7 +61,7 @@ pub fn read_elog_header<R: Read>(r: &mut R) -> io::Result<ElogHeader> {
     if version != ELOG_VERSION {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("unsupported ELOG version: {}", version),
+            format!("unsupported ELOG version: {version}"),
         ));
     }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Codec round-trip tests.
 
 use echo_wasm_abi::codec::{

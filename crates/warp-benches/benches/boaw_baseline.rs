@@ -3,7 +3,7 @@
 // criterion_group!/criterion_main! expand to undocumented functions that cannot
 // carry #[allow] (attributes on macro invocations are ignored). Crate-level
 // suppress is required for benchmark binaries using Criterion.
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::panic, clippy::items_after_statements)]
 //! BOAW Phase 6B performance baseline benchmarks.
 //!
 //! Measures parallel vs serial execution across different workload sizes
@@ -110,7 +110,7 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                     criterion::black_box(delta)
                 },
                 BatchSize::SmallInput,
-            )
+            );
         });
 
         // Parallel execution with 4 workers
@@ -127,7 +127,7 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                     criterion::black_box(deltas)
                 },
                 BatchSize::SmallInput,
-            )
+            );
         });
 
         // Phase 6B work-queue pipeline
@@ -143,7 +143,7 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                     let by_warp = vec![(warp_id, items)];
                     let units = build_work_units(by_warp);
                     let stores: BTreeMap<WarpId, GraphStore> =
-                        [(warp_id, store)].into_iter().collect();
+                        std::iter::once((warp_id, store)).collect();
                     let results = execute_work_queue(&units, 4, |wid| stores.get(wid));
                     // Bench assumes all stores exist; panic on MissingStore/Poisoned for debugging
                     for r in &results {
@@ -160,7 +160,7 @@ fn bench_serial_vs_parallel(c: &mut Criterion) {
                     criterion::black_box(results)
                 },
                 BatchSize::SmallInput,
-            )
+            );
         });
     }
     group.finish();
@@ -251,7 +251,7 @@ fn bench_work_queue(c: &mut Criterion) {
                         criterion::black_box(results)
                     },
                     BatchSize::SmallInput,
-                )
+                );
             },
         );
     }
@@ -290,7 +290,7 @@ fn bench_worker_scaling(c: &mut Criterion) {
                         criterion::black_box(deltas)
                     },
                     BatchSize::SmallInput,
-                )
+                );
             },
         );
     }

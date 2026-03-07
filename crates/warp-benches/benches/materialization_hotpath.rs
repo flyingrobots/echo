@@ -3,7 +3,7 @@
 // criterion_group!/criterion_main! expand to undocumented functions that cannot
 // carry #[allow] (attributes on macro invocations are ignored). Crate-level
 // suppress is required for benchmark binaries using Criterion.
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used)]
 //! Microbenchmarks for `MaterializationBus` performance.
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use warp_core::materialization::{make_channel_id, ChannelPolicy, EmitKey, MaterializationBus};
@@ -35,7 +35,7 @@ fn bench_materialization_emit_log(c: &mut Criterion) {
                 .unwrap();
             }
             bus.clear();
-        })
+        });
     });
 }
 
@@ -53,11 +53,11 @@ fn bench_materialization_finalize_log(c: &mut Criterion) {
                         .unwrap();
                 }
             },
-            |_| {
+            |()| {
                 let _ = black_box(bus.finalize());
             },
             BatchSize::PerIteration,
-        )
+        );
     });
 }
 
@@ -66,7 +66,7 @@ fn bench_materialization_emit_strict_many(c: &mut Criterion) {
     let mut bus = MaterializationBus::new();
     let channels: Vec<_> = (0..1000)
         .map(|i| {
-            let ch = make_channel_id(&format!("bench:strict:{}", i));
+            let ch = make_channel_id(&format!("bench:strict:{i}"));
             bus.register_channel(ch, ChannelPolicy::StrictSingle);
             ch
         })
@@ -84,7 +84,7 @@ fn bench_materialization_emit_strict_many(c: &mut Criterion) {
                 .unwrap();
             }
             bus.clear();
-        })
+        });
     });
 }
 
@@ -93,7 +93,7 @@ fn bench_materialization_finalize_strict_many(c: &mut Criterion) {
     let mut bus = MaterializationBus::new();
     let channels: Vec<_> = (0..1000)
         .map(|i| {
-            let ch = make_channel_id(&format!("bench:strict:{}", i));
+            let ch = make_channel_id(&format!("bench:strict:{i}"));
             bus.register_channel(ch, ChannelPolicy::StrictSingle);
             ch
         })
@@ -108,11 +108,11 @@ fn bench_materialization_finalize_strict_many(c: &mut Criterion) {
                         .unwrap();
                 }
             },
-            |_| {
+            |()| {
                 let _ = black_box(bus.finalize());
             },
             BatchSize::PerIteration,
-        )
+        );
     });
 }
 

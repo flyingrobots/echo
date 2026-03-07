@@ -144,16 +144,17 @@ fn base_scope_footprint(view: GraphView<'_>, scope: &NodeId) -> BaseScopeFootpri
     let mut a_read = AttachmentSet::default();
     let mut a_write = AttachmentSet::default();
     n_read.insert_with_warp(warp_id, *scope);
-    let mut attachment_key = None;
-    if view.node(scope).is_some() {
+    let attachment_key = if view.node(scope).is_some() {
         let key = AttachmentKey::node_alpha(NodeKey {
             warp_id,
             local_id: *scope,
         });
         a_read.insert(key);
         a_write.insert(key);
-        attachment_key = Some(key);
-    }
+        Some(key)
+    } else {
+        None
+    };
     BaseScopeFootprint {
         warp_id,
         n_read,

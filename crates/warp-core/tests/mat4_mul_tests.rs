@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::float_cmp,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 use warp_core::math::Mat4;
 
 const EPS: f32 = 1e-6;
@@ -80,10 +86,7 @@ fn rotations_do_not_produce_negative_zero() {
                 assert_ne!(
                     e.to_bits(),
                     neg_zero,
-                    "found -0.0 in rotation_{} matrix at element [{}] for angle {}",
-                    axis,
-                    idx,
-                    a
+                    "found -0.0 in rotation_{axis} matrix at element [{idx}] for angle {a}"
                 );
             }
         }
@@ -116,7 +119,7 @@ fn mat4_mul_assign_matches_operator_randomized() {
         }
         fn next_int(&mut self, min: i32, max: i32) -> i32 {
             assert!(min <= max);
-            let span = (max as i64 - min as i64 + 1) as u64;
+            let span = (i64::from(max) - i64::from(min) + 1) as u64;
             let v = if span.is_power_of_two() {
                 self.next_u64() & (span - 1)
             } else {
@@ -128,7 +131,7 @@ fn mat4_mul_assign_matches_operator_randomized() {
                     }
                 }
             };
-            (v as i64 + min as i64) as i32
+            (v as i64 + i64::from(min)) as i32
         }
     }
     let mut rng = TestRng::new(0x00C0_FFEE);

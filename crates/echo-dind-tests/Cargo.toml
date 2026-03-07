@@ -24,3 +24,6 @@ bytes = "1.0"
 [features]
 # Enables test-only ops (e.g., put_kv) for DIND convergence tests.
 dind_ops = []
+
+[lints]
+workspace = true

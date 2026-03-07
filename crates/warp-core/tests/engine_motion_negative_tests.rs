@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::float_cmp,
+    clippy::items_after_statements
+)]
 //! Negative/edge-case tests for the motion rule under deterministic payload semantics.
 //!
 //! The motion payload is now canonicalized into a Q32.32 fixed-point encoding (v2) so that

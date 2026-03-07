@@ -32,3 +32,7 @@ serde-value = "0.7"
 [dev-dependencies]
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+
+[lints]
+workspace = true

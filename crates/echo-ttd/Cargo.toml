@@ -17,3 +17,6 @@ warp-core = { workspace = true }
 thiserror = "1"
 
 [dev-dependencies]
+
+[lints]
+workspace = true

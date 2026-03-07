@@ -23,7 +23,7 @@ Specifications and hardening for trust boundaries across FFI, WASM, and CLI surf
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Spec document exists at `docs/specs/SPEC-SIGNING.md`
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-SIGNING.md`
 - [ ] AC2: Canonical signing input is defined unambiguously
 - [ ] AC3: Spec covers key lifecycle (generation, rotation, revocation)
 - [ ] AC4: Spec reviewed by at least one contributor
@@ -65,7 +65,7 @@ Specifications and hardening for trust boundaries across FFI, WASM, and CLI surf
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Spec document exists at `docs/specs/SPEC-SECURITY-CONTEXTS.md`
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-SECURITY-CONTEXTS.md`
 - [ ] AC2: All four trust boundaries are enumerated with allowed operations
 - [ ] AC3: Threat model section is explicit about assumptions
 - [ ] AC4: Spec reviewed by at least one contributor
@@ -193,7 +193,7 @@ Specifications and hardening for trust boundaries across FFI, WASM, and CLI surf
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Spec document exists at `docs/specs/SPEC-PROVENANCE-PAYLOAD.md`
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-0005-provenance-payload.md`
 - [ ] AC2: Envelope structure is fully defined with field-level documentation
 - [ ] AC3: At least two worked examples (single artifact, chained artifacts)
 - [ ] AC4: Relationship to SLSA levels is explicitly discussed

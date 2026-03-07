@@ -16,6 +16,7 @@ pub struct InputOutcome {
     pub ui_event: Option<UiEvent>,
 }
 
+#[allow(clippy::cast_possible_truncation)]
 pub fn handle_window_event(
     event: &WindowEvent,
     window: &Window,

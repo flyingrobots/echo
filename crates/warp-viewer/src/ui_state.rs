@@ -49,17 +49,15 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
         UiEvent::ConnectPortChanged(p) => next.connect_port = p,
         UiEvent::ConnectSubmit => {
             next.connect_log.clear();
-            let target = if !next.connect_host.trim().is_empty() {
-                if next.connect_host.starts_with('/') {
-                    next.connect_host.clone()
-                } else {
-                    format!(
-                        "{}:{} (runtime sock name)",
-                        next.connect_host, next.connect_port
-                    )
-                }
-            } else {
+            let target = if next.connect_host.trim().is_empty() {
                 default_socket_path().display().to_string()
+            } else if next.connect_host.starts_with('/') {
+                next.connect_host.clone()
+            } else {
+                format!(
+                    "{}:{} (runtime sock name)",
+                    next.connect_host, next.connect_port
+                )
             };
             next.connect_log
                 .push(format!("Connecting to {target} (WARP {})...", next.warp_id));
@@ -83,7 +81,7 @@ pub fn reduce(ui: &UiState, ev: UiEvent) -> (UiState, Vec<UiEffect>) {
         UiEvent::OpenPublishOverlay => next.overlay = ViewerOverlay::Publish,
         UiEvent::OpenSubscribeOverlay => next.overlay = ViewerOverlay::Subscribe,
         UiEvent::ShowError(msg) => {
-            next.connect_log.push(format!("Connection error: {}", msg));
+            next.connect_log.push(format!("Connection error: {msg}"));
             next.screen = Screen::Error(msg);
         }
         UiEvent::ShutdownRequested => {

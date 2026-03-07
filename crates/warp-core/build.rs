@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -17,8 +17,7 @@ fn main() {
     let bytes: [u8; 32] = hasher.finalize().into();
 
     let generated = format!(
-        "/// Canonical family id for `rule:motion/update` (BLAKE3).\npub const MOTION_UPDATE_FAMILY_ID: [u8; 32] = {:?};\n",
-        bytes
+        "/// Canonical family id for `rule:motion/update` (BLAKE3).\npub const MOTION_UPDATE_FAMILY_ID: [u8; 32] = {bytes:?};\n"
     );
     fs::write(dest, generated).expect("write rule_ids.rs");
 }

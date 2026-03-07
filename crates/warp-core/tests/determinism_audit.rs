@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::expect_used, clippy::float_cmp)]
 
 //! Audit tests for floating-point determinism in hashing paths.
 //!
@@ -121,6 +122,6 @@ fn audit_repeatability() {
 
     let first = hashes[0];
     for (i, h) in hashes.iter().enumerate().skip(1) {
-        assert_eq!(*h, first, "Hash mismatch at iteration {}", i);
+        assert_eq!(*h, first, "Hash mismatch at iteration {i}");
     }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::expect_used, clippy::panic)]
 use proptest::prelude::*;
 use proptest::test_runner::{Config as PropConfig, RngAlgorithm, TestRng, TestRunner};
 

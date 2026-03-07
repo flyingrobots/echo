@@ -16,33 +16,8 @@
 //! - **JSON:** Forbidden for protocol/hashing. Allowed ONLY for debug/view layers (e.g. telemetry).
 //! - **Float Math:** The default `F32Scalar` backend is optimistic (assumes IEEE 754).
 //!   For strict cross-platform consensus, use the `det_fixed` feature.
+// Escalate workspace `deny(unsafe_code)` to `forbid` — no exceptions in the engine.
 #![forbid(unsafe_code)]
-#![deny(missing_docs, rust_2018_idioms, unused_must_use)]
-#![deny(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::todo,
-    clippy::unimplemented,
-    clippy::dbg_macro,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
-#![allow(
-    clippy::must_use_candidate,
-    clippy::return_self_not_must_use,
-    clippy::unreadable_literal,
-    clippy::missing_const_for_fn,
-    clippy::suboptimal_flops,
-    clippy::redundant_pub_crate,
-    clippy::many_single_char_names,
-    clippy::module_name_repetitions,
-    clippy::use_self
-)]
 
 #[cfg(all(feature = "footprint_enforce_release", feature = "unsafe_graph"))]
 compile_error!(

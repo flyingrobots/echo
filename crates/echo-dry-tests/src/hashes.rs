@@ -77,7 +77,7 @@ pub fn compute_plan_digest(entries: &[(Hash, Hash)]) -> Hash {
 
 /// Pre-defined test rule IDs for common scenarios.
 pub mod presets {
-    use super::*;
+    use super::{make_rule_id, Hash};
 
     /// Rule ID for "rule-a" (useful in multi-rule tests).
     pub fn rule_a() -> Hash {

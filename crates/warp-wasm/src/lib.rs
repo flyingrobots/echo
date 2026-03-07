@@ -5,7 +5,8 @@
 //!
 //! Provides WASM exports for browser clients to interact with the
 //! deterministic engine and registry.
-#![deny(missing_docs)]
+// wasm_bindgen generates unsafe glue code; allow unsafe in this crate.
+#![allow(unsafe_code)]
 
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;

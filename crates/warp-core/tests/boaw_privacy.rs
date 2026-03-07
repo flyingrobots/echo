@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unimplemented)]
 //! BOAW Privacy Tests (ADR-0007 §10)
 //!
 //! Tests for mind mode enforcement and claim merging:

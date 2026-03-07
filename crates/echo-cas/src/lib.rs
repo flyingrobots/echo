@@ -20,32 +20,6 @@
 //! (same bytes → same hash), not collection-level. Any future `list`/`iter` API must
 //! return results sorted by [`BlobHash`].
 #![forbid(unsafe_code)]
-#![deny(missing_docs, rust_2018_idioms, unused_must_use)]
-#![deny(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo,
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::todo,
-    clippy::unimplemented,
-    clippy::dbg_macro,
-    clippy::print_stdout,
-    clippy::print_stderr
-)]
-#![allow(
-    clippy::must_use_candidate,
-    clippy::return_self_not_must_use,
-    clippy::unreadable_literal,
-    clippy::missing_const_for_fn,
-    clippy::suboptimal_flops,
-    clippy::redundant_pub_crate,
-    clippy::many_single_char_names,
-    clippy::module_name_repetitions,
-    clippy::use_self
-)]
 
 mod memory;
 pub use memory::MemoryTier;

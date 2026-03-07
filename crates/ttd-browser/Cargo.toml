@@ -35,3 +35,7 @@ ttd-protocol-rs = { workspace = true }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+
+[lints]
+workspace = true

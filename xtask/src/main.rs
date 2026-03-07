@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 
 //! Echo repository maintenance tasks.
 //!
@@ -31,6 +32,8 @@ enum Commands {
     Dags(DagsArgs),
     /// Run DIND (Deterministic Ironclad Nightmare Drills) harness.
     Dind(DindArgs),
+    /// Generate man pages for echo-cli.
+    ManPages(ManPagesArgs),
 }
 
 #[derive(Args)]
@@ -114,12 +117,20 @@ struct DagsArgs {
     snapshot: Option<String>,
 }
 
+#[derive(Args)]
+struct ManPagesArgs {
+    /// Output directory for generated man pages.
+    #[arg(long, default_value = "docs/man")]
+    out: std::path::PathBuf,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Dags(args) => run_dags(args),
         Commands::Dind(args) => run_dind(args),
+        Commands::ManPages(args) => run_man_pages(args),
     }
 }
 
@@ -284,14 +295,14 @@ fn run_dind_record(tags: Option<String>, exclude_tags: Option<String>) -> Result
     for scenario in &scenarios {
         let scenario_path = format!("testdata/dind/{}", scenario.path);
         let golden_path = match scenario_path.strip_suffix(".eintlog") {
-            Some(base) => format!("{}.hashes.json", base),
+            Some(base) => format!("{base}.hashes.json"),
             None => bail!(
                 "scenario path '{}' does not end with '.eintlog'",
                 scenario.path
             ),
         };
 
-        println!("\n>>> Recording: {} -> {}", scenario_path, golden_path);
+        println!("\n>>> Recording: {scenario_path} -> {golden_path}");
 
         let status = Command::new("cargo")
             .args([
@@ -312,15 +323,14 @@ fn run_dind_record(tags: Option<String>, exclude_tags: Option<String>) -> Result
             eprintln!("\n!!! FAILED: {}", scenario.path);
             eprintln!("\nDIND FAILED. Repro command:");
             eprintln!(
-                "  cargo run -p echo-dind-harness -- record {} --out {}\n",
-                scenario_path, golden_path
+                "  cargo run -p echo-dind-harness -- record {scenario_path} --out {golden_path}\n"
             );
             failed += 1;
         }
     }
 
     if failed > 0 {
-        bail!("DIND RECORD: {} scenario(s) failed", failed);
+        bail!("DIND RECORD: {failed} scenario(s) failed");
     }
 
     println!(
@@ -388,8 +398,10 @@ fn run_dind_converge(tags: Option<String>, exclude_tags: Option<String>) -> Resu
             .status()
             .context("failed to spawn cargo")?;
 
-        if !status.success() {
-            eprintln!("\n!!! CONVERGE FAILED for scope: {}", scope);
+        if status.success() {
+            println!("    CONVERGE OK: {scope}");
+        } else {
+            eprintln!("\n!!! CONVERGE FAILED for scope: {scope}");
             // Build the repro command with all scenario paths
             let repro_paths: Vec<String> = group
                 .iter()
@@ -401,13 +413,11 @@ fn run_dind_converge(tags: Option<String>, exclude_tags: Option<String>) -> Resu
                 repro_paths.join(" ")
             );
             failed += 1;
-        } else {
-            println!("    CONVERGE OK: {}", scope);
         }
     }
 
     if failed > 0 {
-        bail!("DIND CONVERGE: {} group(s) failed", failed);
+        bail!("DIND CONVERGE: {failed} group(s) failed");
     }
 
     println!("\nDIND CONVERGE: All groups verified.");
@@ -437,7 +447,7 @@ fn load_matching_scenarios(
     let include_tags: Vec<&str> = tags
         .map(|t| {
             t.split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .collect()
         })
@@ -445,7 +455,7 @@ fn load_matching_scenarios(
     let exclude_tag_list: Vec<&str> = exclude_tags
         .map(|t| {
             t.split(',')
-                .map(|s| s.trim())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .collect()
         })
@@ -456,14 +466,16 @@ fn load_matching_scenarios(
         .filter(|s| {
             // If include tags specified, scenario must have at least one
             if !include_tags.is_empty()
-                && !include_tags.iter().any(|t| s.tags.contains(&t.to_string()))
+                && !include_tags
+                    .iter()
+                    .any(|t| s.tags.contains(&(*t).to_string()))
             {
                 return false;
             }
             // If exclude tags specified, scenario must not have any
             if exclude_tag_list
                 .iter()
-                .any(|t| s.tags.contains(&t.to_string()))
+                .any(|t| s.tags.contains(&(*t).to_string()))
             {
                 return false;
             }
@@ -472,4 +484,57 @@ fn load_matching_scenarios(
         .collect();
 
     Ok(filtered)
+}
+
+fn run_man_pages(args: ManPagesArgs) -> Result<()> {
+    use clap::CommandFactory;
+
+    let out_dir = &args.out;
+    std::fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create output directory: {}", out_dir.display()))?;
+
+    // Remove stale man pages so the output is an exact snapshot.
+    if let Ok(entries) = std::fs::read_dir(out_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("echo-cli") && name.ends_with(".1") {
+                std::fs::remove_file(entry.path()).with_context(|| {
+                    format!(
+                        "failed to remove stale man page: {}",
+                        entry.path().display()
+                    )
+                })?;
+            }
+        }
+    }
+
+    let cmd = warp_cli::cli::Cli::command();
+    let man = clap_mangen::Man::new(cmd.clone());
+    let mut buf: Vec<u8> = Vec::new();
+    man.render(&mut buf)
+        .context("failed to render echo-cli.1")?;
+    let path = out_dir.join("echo-cli.1");
+    std::fs::write(&path, &buf).with_context(|| format!("failed to write {}", path.display()))?;
+    println!("  wrote {}", path.display());
+
+    for sub in cmd.get_subcommands() {
+        let sub_name = sub.get_name().to_string();
+        // Leak is fine: xtask is short-lived and we need 'static for clap::Str.
+        let prefixed_name: &'static str =
+            Box::leak(format!("echo-cli-{sub_name}").into_boxed_str());
+        let prefixed = sub.clone().name(prefixed_name);
+        let man = clap_mangen::Man::new(prefixed);
+        let mut buf: Vec<u8> = Vec::new();
+        man.render(&mut buf)
+            .with_context(|| format!("failed to render echo-cli-{sub_name}.1"))?;
+        let filename = format!("echo-cli-{sub_name}.1");
+        let path = out_dir.join(&filename);
+        std::fs::write(&path, &buf)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+        println!("  wrote {}", path.display());
+    }
+
+    println!("Man pages generated in {}", out_dir.display());
+    Ok(())
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::float_cmp)]
 #![cfg(feature = "det_fixed")]
 
 use warp_core::math::scalar::DFix64;

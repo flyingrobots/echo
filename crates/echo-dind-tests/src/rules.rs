@@ -3,7 +3,13 @@
 //! Rewrite rules for the DIND test kernel.
 
 use crate::codecs::{ops, MotionV2Builder, MotionV2View};
-use crate::type_ids::*;
+#[cfg(feature = "dind_ops")]
+use crate::type_ids::TYPEID_STATE_KV;
+use crate::type_ids::{
+    TYPEID_PAYLOAD_MOTION_V2, TYPEID_STATE_NAV_OPEN, TYPEID_STATE_ROUTE_PATH, TYPEID_STATE_THEME,
+    TYPEID_VIEW_OP_ROUTEPUSH, TYPEID_VIEW_OP_SETTHEME, TYPEID_VIEW_OP_SHOWTOAST,
+    TYPEID_VIEW_OP_TOGGLENAV,
+};
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_edge_id, make_node_id, make_type_id, AtomPayload, AtomView, AttachmentKey, AttachmentSet,
@@ -554,7 +560,7 @@ fn emit_toggle_nav(view: GraphView<'_>, delta: &mut TickDelta) {
         Some(AttachmentValue::Atom(a)) if !a.bytes.is_empty() && a.bytes[0] == 1 => 1u8,
         _ => 0u8,
     };
-    let next_val = if current_val == 1 { 0u8 } else { 1u8 };
+    let next_val = u8::from(current_val != 1);
 
     delta.push(WarpOp::SetAttachment {
         key: AttachmentKey::node_alpha(NodeKey {
@@ -577,7 +583,7 @@ fn view_op_ids_for_scope(scope: &NodeId) -> (NodeId, EdgeId) {
     use std::fmt::Write as _;
     // Size-agnostic: derives hex length from actual byte slice
     let mut scope_hex = String::with_capacity(scope.0.len() * 2);
-    for &b in scope.0.iter() {
+    for &b in &scope.0 {
         write!(&mut scope_hex, "{b:02x}").expect("write to String cannot fail");
     }
     (
@@ -641,7 +647,7 @@ fn emit_view_op_delta_scoped(
 #[cfg(feature = "dind_ops")]
 fn emit_put_kv(warp_id: WarpId, delta: &mut TickDelta, key: String, value: String) {
     let (_, sim_state_id) = emit_state_base(warp_id, delta);
-    let node_label = format!("sim/state/kv/{}", key);
+    let node_label = format!("sim/state/kv/{key}");
     let id = make_node_id(&node_label);
 
     delta.push(WarpOp::UpsertNode {
@@ -654,7 +660,7 @@ fn emit_put_kv(warp_id: WarpId, delta: &mut TickDelta, key: String, value: Strin
         },
     });
 
-    let edge_label = format!("edge:sim/state/kv/{}", key);
+    let edge_label = format!("edge:sim/state/kv/{key}");
     delta.push(WarpOp::UpsertEdge {
         warp_id,
         record: EdgeRecord {
@@ -799,7 +805,7 @@ pub fn apply_toggle_nav(store: &mut GraphStore) {
         Some(AttachmentValue::Atom(a)) if !a.bytes.is_empty() && a.bytes[0] == 1 => 1u8,
         _ => 0u8,
     };
-    let next_val = if current_val == 1 { 0u8 } else { 1u8 };
+    let next_val = u8::from(current_val != 1);
 
     store.set_node_attachment(
         id,
@@ -814,7 +820,7 @@ pub fn apply_toggle_nav(store: &mut GraphStore) {
 #[cfg(feature = "dind_ops")]
 pub fn apply_put_kv(store: &mut GraphStore, key: String, value: String) {
     let (_, sim_state_id) = ensure_state_base(store);
-    let node_label = format!("sim/state/kv/{}", key);
+    let node_label = format!("sim/state/kv/{key}");
     let id = make_node_id(&node_label);
 
     store.insert_node(
@@ -824,7 +830,7 @@ pub fn apply_put_kv(store: &mut GraphStore, key: String, value: String) {
         },
     );
 
-    let edge_label = format!("edge:sim/state/kv/{}", key);
+    let edge_label = format!("edge:sim/state/kv/{key}");
     store.insert_edge(
         sim_state_id,
         EdgeRecord {
@@ -872,7 +878,7 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
             _ => None,
         })
         .unwrap_or(0);
-    let op_id = make_node_id(&format!("sim/view/op:{:016}", seq));
+    let op_id = make_node_id(&format!("sim/view/op:{seq:016}"));
     store.insert_node(
         op_id,
         NodeRecord {
@@ -882,7 +888,7 @@ pub fn emit_view_op(store: &mut GraphStore, type_id: TypeId, payload: &[u8]) {
     store.insert_edge(
         view_id,
         EdgeRecord {
-            id: make_edge_id(&format!("edge:view/op:{:016}", seq)),
+            id: make_edge_id(&format!("edge:view/op:{seq:016}")),
             from: view_id,
             to: op_id,
             ty: make_type_id("edge:view/op"),

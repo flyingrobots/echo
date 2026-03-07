@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(missing_docs)]
+#![allow(missing_docs, clippy::unwrap_used, clippy::panic)]
 use blake3::Hasher;
 use echo_dry_tests::{motion_rule, MOTION_RULE_NAME};
 use warp_core::{
@@ -27,7 +27,7 @@ fn registering_duplicate_rule_name_is_rejected() {
     let err = engine.register_rule(motion_rule()).unwrap_err();
     match err {
         warp_core::EngineError::DuplicateRuleName(name) => {
-            assert_eq!(name, MOTION_RULE_NAME)
+            assert_eq!(name, MOTION_RULE_NAME);
         }
         other => panic!("unexpected error: {other:?}"),
     }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::print_stdout, clippy::print_stderr)]
 //! CLI that reads Wesley IR JSON from stdin and emits Rust structs/enums for Echo.
 
 use anyhow::Result;
@@ -50,7 +51,7 @@ fn main() -> Result<()> {
     if let Some(path) = args.out {
         std::fs::write(path, code)?;
     } else {
-        println!("{}", code);
+        println!("{code}");
     }
 
     Ok(())
@@ -328,13 +329,10 @@ fn validate_version(ir: &WesleyIR) -> Result<()> {
     match ir.ir_version.as_deref() {
         Some(SUPPORTED) => Ok(()),
         Some(other) => anyhow::bail!(
-            "Unsupported ir_version '{}'; expected '{}'. Please regenerate IR with a compatible generator.",
-            other,
-            SUPPORTED
+            "Unsupported ir_version '{other}'; expected '{SUPPORTED}'. Please regenerate IR with a compatible generator."
         ),
         None => anyhow::bail!(
-            "Missing ir_version; expected '{}'. Regenerate IR with a current @wesley/generator-echo.",
-            SUPPORTED
+            "Missing ir_version; expected '{SUPPORTED}'. Regenerate IR with a current @wesley/generator-echo."
         ),
     }
 }

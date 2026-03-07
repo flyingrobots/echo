@@ -103,7 +103,7 @@ fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
 }
 
 fn enc_len(major: u8, len: u64, out: &mut Vec<u8>) {
-    write_major(major, len as u128, out);
+    write_major(major, u128::from(len), out);
 }
 
 fn enc_int(n: i128, out: &mut Vec<u8>) {
@@ -148,7 +148,7 @@ fn enc_float(f: f64, out: &mut Vec<u8>) {
         return;
     }
     let f32v = f as f32;
-    if f32v as f64 == f {
+    if f64::from(f32v) == f {
         write_f32(f32v, out);
     } else {
         write_f64(f, out);
@@ -227,7 +227,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize, strict: bool) -> Result<Value> {
     }
 
     let n = match ai {
-        0..=23 => ai as u64,
+        0..=23 => u64::from(ai),
         24 => take_u(bytes, idx, 1),
         25 => take_u(bytes, idx, 2),
         26 => take_u(bytes, idx, 4),
@@ -239,12 +239,12 @@ fn dec_value(bytes: &[u8], idx: &mut usize, strict: bool) -> Result<Value> {
         0 => {
             // unsigned int
             check_min_int(ai, n, false, strict)?;
-            Ok(int_to_value(n as u128, false))
+            Ok(int_to_value(u128::from(n), false))
         }
         1 => {
             // negative
             check_min_int(ai, n, true, strict)?;
-            Ok(int_to_value(n as u128, true))
+            Ok(int_to_value(u128::from(n), true))
         }
         2 => {
             let len = n as usize;
@@ -319,7 +319,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize, strict: bool) -> Result<Value> {
                 }
                 26 => {
                     let bits = take_u(bytes, idx, 4) as u32;
-                    let f = f32::from_bits(bits) as f64;
+                    let f = f64::from(f32::from_bits(bits));
                     if strict && float_should_be_int(f) {
                         return Err(CanonError::FloatShouldBeInt);
                     }
@@ -380,6 +380,7 @@ fn check_min_int(ai: u8, n: u64, _negative: bool, strict: bool) -> Result<()> {
     }
 }
 
+#[allow(clippy::expect_used)]
 fn int_to_value(n: u128, negative: bool) -> Value {
     if negative {
         // value = -1 - n
@@ -413,13 +414,14 @@ fn float_canonical_width(f: f64, width: u8) -> bool {
         return width == 16;
     }
     let f32v = f as f32;
-    if f32v as f64 == f {
+    if f64::from(f32v) == f {
         return width == 32;
     }
     true // otherwise needs f64
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

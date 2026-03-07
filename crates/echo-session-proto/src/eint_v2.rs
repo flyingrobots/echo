@@ -160,6 +160,7 @@ impl EintHeader {
     }
 
     /// Parse header from bytes. Returns error if invalid.
+    #[allow(clippy::unwrap_used)] // slice lengths are verified by the guard above each group
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, EintError> {
         if bytes.len() < EINT_HEADER_SIZE {
             return Err(EintError::IncompleteHeader(bytes.len()));
@@ -316,6 +317,7 @@ pub fn decode_eint_v2(bytes: &[u8]) -> Result<(EintFrame<'_>, usize), EintError>
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -542,7 +544,7 @@ mod tests {
         let encoded = encode_eint_v2(ZERO_HASH, 1, 1, EintFlags::default(), payload).unwrap();
 
         // Append trailing bytes
-        let mut with_trailing = encoded.clone();
+        let mut with_trailing = encoded;
         with_trailing.extend_from_slice(b"EXTRA");
 
         // Decode should succeed and report correct consumed count

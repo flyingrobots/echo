@@ -5,6 +5,196 @@
 
 ## Unreleased
 
+### Added — Proof Core (P1 Milestone)
+
+- **Determinism Claims v0.1:** New `docs/determinism/DETERMINISM_CLAIMS_v0.1.md`
+  documenting five determinism claims (DET-001 through DET-005) covering
+  static inspection, float parity, parallel execution, trig oracle golden
+  vectors, and torture-rerun reproducibility.
+- **Trig Golden Vectors (DET-004):** New test
+  `crates/warp-core/tests/trig_golden_vectors.rs` with a 2048-sample golden
+  binary (`testdata/trig_golden_2048.bin`) that locks down `dfix64` sin/cos/tan
+  outputs across platforms. Runs on Linux and macOS in CI.
+- **Torture Rerun Script (DET-005):** `scripts/torture-100-reruns.sh` — turnkey
+  repro script that runs 100 sequential simulations and asserts identical hashes.
+- **CI Trig Oracle Gate:** Added trig golden vector tests to
+  `.github/workflows/det-gates.yml` for both Linux and macOS runners, with log
+  artifacts uploaded alongside existing determinism artifacts.
+- **CLAIM_MAP.yaml:** Added DET-004 and DET-005 entries with required evidence
+  pointers and owner roles.
+- **Evidence Generator:** Wired DET-004 and DET-005 into
+  `scripts/generate_evidence.cjs` so the evidence policy cross-check passes.
+- **Ban-Nondeterminism Allowlist:** Added `trig_golden_vectors.rs` to
+  `.ban-nondeterminism-allowlist` (test-only `std::fs` for reading golden
+  vector binaries).
+
+### Changed — Roadmap
+
+- Updated `docs/ROADMAP/proof-core/README.md`: checked off P1 exit criteria,
+  marked milestone as "In Progress".
+- Resequenced roadmap phases: P0 verified, P1→P2→P3 ordering clarified.
+
+### Fixed — Code Review (PR #291)
+
+- **Bench Recursive Scanning:** `collect_criterion_results` now walks
+  directories recursively, correctly finding grouped (`benchmark_group`) and
+  parameterised (`BenchmarkId`) benchmarks that Criterion stores in nested
+  directories (e.g. `group/bench/new/estimates.json`).
+- **Bench Regex Filter:** Post-filter now uses `regex::Regex` to match
+  Criterion's own regex semantics instead of substring `contains`. Filters
+  with anchors or metacharacters (e.g. `^hotpath$`) now work correctly.
+
+### Fixed — Self-Review (PP-1 Branch)
+
+- **Stale `warp-ffi` References:** Removed deleted crate from git hooks
+  (`pre-push-parallel`, `pre-push-sequential`), `warp-core/README.md`, and
+  `AGENTS.md`. Only historical references in CHANGELOG and TASKS-DAG remain.
+- **Broken Spec Paths:** Fixed `docs/specs/` → `docs/spec/` in two acceptance
+  criteria in `docs/ROADMAP/backlog/security.md`.
+- **`emit()` Error Propagation:** Changed `output::emit()` to return
+  `Result<()>` instead of silently printing to stderr on serialization failure.
+  All call sites (`bench.rs`, `verify.rs`, `inspect.rs`) now propagate with `?`.
+- **SPEC-0005 Clarity:** Bound loop index variable in BTR verification algorithm
+  (H-3); documented missing-producer behavior in `derive()` (H-4); clarified
+  multi-producer vs. most-recent-producer semantics between
+  `build_provenance_graph()` and `derive()` (M-4); added
+  `canonical_state_hash()` cross-reference (M-5); specified composition error
+  semantics (M-6); added set semantics for `Out(μ)`/`In(μ)` (M-8); expanded
+  `ProvenanceNode` constructor in pseudocode (L-10); documented empty derivation
+  graph semantics (L-11); formalized identity composition (L-12); defined
+  `H(P)` notation in example (L-13); added Paper III citation (L-14).
+- **`format_duration()` Infinity:** Added `is_infinite()` check alongside
+  `is_nan()` so `f64::INFINITY` returns "N/A" instead of formatting as seconds.
+- **Safe `edge_ix` Cast:** Replaced `as usize` with `usize::try_from()` in
+  `inspect.rs` tree builder to guard against truncation on 32-bit targets.
+- **Bench Test Ordering:** Added positional assertion ensuring `--` precedes
+  the filter pattern in `build_bench_command`.
+- **Bench Empty Warning:** Added stderr warning when no benchmark results found.
+- **WSC Loader Warnings:** Warning messages now include entity IDs (first 4
+  bytes hex) for easier debugging.
+- **Inspect Docstring:** Changed "Prints" to "Displays" in module docstring.
+- **`TREE_MAX_DEPTH` Doc:** Added doc comment explaining the depth limit's
+  purpose.
+- **Fragile `len() - 1`:** Changed `i == node.children.len() - 1` to
+  `i + 1 == node.children.len()` to avoid underflow on empty children (though
+  the loop guards against this, the pattern is safer).
+
+### Fixed — Developer CLI (`echo-cli`)
+
+- **Bench Filter:** `echo-cli bench --filter <pattern>` now passes the filter
+  as a Criterion regex (`-- <pattern>`) instead of a `--bench` cargo target
+  selector. Previous behavior would look for a bench _target_ named after the
+  pattern rather than filtering benchmarks by regex.
+- **Verify Expected Hash:** `--expected` now correctly reports "unchecked" for
+  warps 1+ instead of silently claiming "pass". Emits a stderr warning when
+  `--expected` is used with multi-warp snapshots. Text and JSON output now
+  use consistent lowercase status values.
+- **Unused Dependency:** Removed `colored = "2"` from `warp-cli` (declared but
+  never imported).
+- **Output Hardening:** `emit()` no longer panics on JSON serialization failure;
+  falls back to stderr. Bench exit status now reports Unix signal numbers
+  instead of a misleading `-1`.
+- **Error Handling:** `collect_criterion_results` now logs a warning on
+  unparseable `estimates.json` instead of silently skipping. `format_duration`
+  returns "N/A" for NaN/negative values. `att_row_to_value` warns on missing
+  blob data instead of silent fallback.
+- **Dead Code:** Replaced blanket `#![allow(dead_code)]` on `lib.rs` with
+  targeted `#[allow(dead_code)]` on the `output` module only.
+- **Man Page Headers:** Subcommand man pages now use prefixed names
+  (`echo-cli-bench`, `echo-cli-verify`, `echo-cli-inspect`) in `.TH` headers
+  instead of bare subcommand names.
+- **Visibility:** Narrowed all non-API structs and functions from `pub` to
+  `pub(crate)` in bench, verify, inspect, and wsc_loader modules. Only
+  `cli.rs` types remain `pub` (required by xtask man page generation).
+- **cargo-deny:** Fixed wildcard dependency error for `warp-cli` in
+  `xtask/Cargo.toml` by adding explicit `version = "0.1.0"` alongside
+  the path override.
+- **Man Page Cleanup:** `cargo xtask man-pages` now removes stale
+  `echo-cli*.1` files before regeneration so the output directory is an
+  exact snapshot.
+
+### Fixed — Code Review (PR #289, Round 2)
+
+- **Inspect Tree Warp Identity:** Multi-warp snapshots now label each tree
+  section with its warp index (`Tree (warp 0):`, `Tree (warp 1):`) instead of
+  flattening all trees into a single unlabeled `Tree:` section.
+- **WSC Loader Attachment Checks:** Replaced `debug_assert!` with runtime
+  warnings for attachment multiplicity violations. Previously, release builds
+  silently dropped extra attachments; now emits a warning to stderr.
+- **Test Naming:** Renamed `tampered_wsc_fails` to `tampered_wsc_does_not_panic`
+  to accurately reflect the test's behavior (no assertion, just no-panic guard).
+- **Test Coverage:** Added `roundtrip_with_edge_attachments` and
+  `roundtrip_with_descend_attachment` tests to `wsc_loader.rs`, covering
+  previously untested code paths.
+- **SPEC-0005 `global_tick` Invariant:** Reworded from `patches[i].global_tick == i`
+  to correctly state contiguity relative to the payload's start tick, since
+  payloads can begin at any absolute tick via `from_store(store, wl, 5..10)`.
+- **SPEC-0005 BTR Verification:** Fixed step 5 of the verification algorithm
+  to reference the actual hash formula from §5.4 instead of a nonexistent
+  `parents` field.
+- **SPEC-0005 Derivation Algorithm:** Fixed backward-cone traversal that dropped
+  transitive dependencies. The original filter checked the root query slot at
+  every hop; now accepts all frontier nodes unconditionally (they are already
+  known-causal) and traces all `in_slots` backward.
+- **Stale `warp-ffi` References:** Removed dead `warp-ffi` entry from
+  `det-policy.yaml`, C ABI text from `phase1-plan.md`, and stale CLI names
+  from `rust-rhai-ts-division.md`.
+
+### Fixed — Docs & CI
+
+- **TASKS-DAG Spec Path:** `SPEC-PROVENANCE-PAYLOAD.md` →
+  `SPEC-0005-provenance-payload.md` in sub-task title and AC1 (two
+  occurrences). Same stale path fixed in ROADMAP backlog `security.md`.
+- **SPEC-0005 Byte Counts:** Domain separation tag sizes corrected:
+  `echo:provenance_payload:v1\0` = 27 bytes (was 28),
+  `echo:provenance_edge:v1\0` = 24 bytes (was 25).
+- **Project Tour:** Updated `warp-cli` description from "Placeholder CLI home"
+  to list actual subcommands (verify, bench, inspect).
+- **CI Formatting:** Removed stray blank line between warp-geom and warp-wasm
+  rustdoc steps in `ci.yml`.
+
+### Added — Developer CLI (`echo-cli`)
+
+- **CLI Scaffold (`warp-cli`):** Replaced placeholder with full `clap` 4 derive
+  subcommand dispatch. Three subcommands: `verify`, `bench`, `inspect`. Global
+  `--format text|json` flag for machine-readable output.
+- **Verify Subcommand:** `echo-cli verify <snapshot.wsc>` loads a WSC snapshot,
+  validates structural integrity via `validate_wsc`, reconstructs the in-memory
+  `GraphStore` from columnar data, and computes the state root hash. Optional
+  `--expected <hex>` flag compares against a known hash.
+- **WSC Loader:** New `wsc_loader` module bridges WSC columnar format to
+  `GraphStore` — the inverse of `warp_core::wsc::build_one_warp_input`.
+  Reconstructs nodes, edges, and attachments from `WarpView`.
+- **Bench Subcommand:** `echo-cli bench [--filter <pattern>]` shells out to
+  `cargo bench -p warp-benches`, parses Criterion JSON from
+  `target/criterion/*/new/estimates.json`, and renders an ASCII table via
+  `comfy-table`. Supports `--format json` for CI integration.
+- **Inspect Subcommand:** `echo-cli inspect <snapshot.wsc> [--tree]` displays
+  WSC metadata (tick, schema hash, warp count), graph statistics (node/edge
+  counts, type breakdown, connected components via BFS), and optional ASCII
+  tree rendering depth-limited to 5 levels.
+- **Man Pages:** Added `clap_mangen`-based man page generation to `xtask`.
+  `cargo xtask man-pages` generates `docs/man/echo-cli.1`,
+  `echo-cli-verify.1`, `echo-cli-bench.1`, `echo-cli-inspect.1`.
+
+### Removed
+
+- **`warp-ffi` crate deleted:** The C ABI integration path (`crates/warp-ffi`)
+  has been removed. The C ABI approach was abandoned in favor of Rust plugin
+  extension via `RewriteRule` trait registration and Rhai scripting. See
+  TASKS-DAG.md #26 (Graveyard). This is a **BREAKING CHANGE** for any
+  downstream code that depended on the C FFI surface.
+
+### Added — Provenance Payload Spec (PP-1)
+
+- **SPEC-0005:** Published `docs/spec/SPEC-0005-provenance-payload.md` mapping
+  Paper III (AION Foundations) formalism to concrete Echo types. Defines four
+  new types (`ProvenancePayload`, `BoundaryTransitionRecord`, `ProvenanceNode`,
+  `DerivationGraph`), wire format with CBOR encoding and domain separation tags,
+  two worked examples (3-tick accumulator, branching fork), bridge to existing
+  `ProvenanceStore`/`PlaybackCursor` APIs, and attestation envelope with SLSA
+  alignment.
+
 ### Fixed (CI)
 
 - **Evidence Derivation:** Replaced artifact-directory-presence check for `DET-001` with

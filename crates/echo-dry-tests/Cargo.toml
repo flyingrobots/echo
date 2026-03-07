@@ -36,3 +36,6 @@ default = []
 # Scalar backend feature passthrough (matches warp-core)
 det_float = ["warp-core/det_float"]
 det_fixed = ["warp-core/det_fixed"]
+
+[lints]
+workspace = true

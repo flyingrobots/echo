@@ -1,12 +1,13 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # `warp-core` — WARP Core Runtime & API Tour
->
+
 > **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
 This document is a **tour of the `warp-core` crate**: the core data model,
-deterministic boundary artifacts, and the runtime APIs that higher layers (`warp-ffi`,
-`warp-wasm`, tools, and eventually the full Echo runtime) build on.
+deterministic boundary artifacts, and the runtime APIs that higher layers (`warp-wasm`,
+tools, and eventually the full Echo runtime) build on.
 
 If you only remember one thing:
 
@@ -80,7 +81,7 @@ Key types (from `ident.rs`):
 - `WarpId(Hash)` — namespacing identity for Stage B1 WarpInstances (“layers”).
 - `TypeId(Hash)` — meaning tag for either skeleton typing (node/edge record types) or attachment atoms.
 
-Stage B1 adds *instance-scoped keys*:
+Stage B1 adds _instance-scoped keys_:
 
 - `NodeKey { warp_id: WarpId, local_id: NodeId }`
 - `EdgeKey { warp_id: WarpId, local_id: EdgeId }`
@@ -103,15 +104,15 @@ Construction helpers:
 `GraphStore` is the in-memory store for one warp instance (one `warp_id`):
 
 - Skeleton plane:
-  - `nodes: BTreeMap<NodeId, NodeRecord>`
-  - `edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>` (adjacency buckets)
-  - `edges_to: BTreeMap<NodeId, Vec<EdgeId>>` (reverse adjacency, used for fast deletes)
+    - `nodes: BTreeMap<NodeId, NodeRecord>`
+    - `edges_from: BTreeMap<NodeId, Vec<EdgeRecord>>` (adjacency buckets)
+    - `edges_to: BTreeMap<NodeId, Vec<EdgeId>>` (reverse adjacency, used for fast deletes)
 - Attachment plane (stored separately, but co-located in the struct):
-  - `node_attachments: BTreeMap<NodeId, AttachmentValue>` (node-attachment plane)
-  - `edge_attachments: BTreeMap<EdgeId, AttachmentValue>` (edge-attachment plane)
+    - `node_attachments: BTreeMap<NodeId, AttachmentValue>` (node-attachment plane)
+    - `edge_attachments: BTreeMap<EdgeId, AttachmentValue>` (edge-attachment plane)
 - Reverse indexes:
-  - `edge_index: BTreeMap<EdgeId, NodeId>` (EdgeId → from)
-  - `edge_to_index: BTreeMap<EdgeId, NodeId>` (EdgeId → to)
+    - `edge_index: BTreeMap<EdgeId, NodeId>` (EdgeId → from)
+    - `edge_to_index: BTreeMap<EdgeId, NodeId>` (EdgeId → to)
 
 Design intent:
 
@@ -176,7 +177,7 @@ The engine does not decode attachments in matching/indexing. Typed boundaries us
 
 - `trait Codec<T> { const TYPE_ID: TypeId; fn encode_canon(&T)->Bytes; fn decode_strict(&Bytes)->Result<T, DecodeError>; }`
 - `AtomPayload::decode_for_match` encodes the v0 decode-failure policy:
-  - type mismatch or decode error ⇒ “rule does not apply”
+    - type mismatch or decode error ⇒ “rule does not apply”
 
 ---
 
@@ -252,7 +253,7 @@ Commit hash v2 commits to:
 - `patch_digest` (replayable delta)
 - `policy_id`
 
-Plan/decision/rewrites digests remain deterministic diagnostics but are *not* committed by v2.
+Plan/decision/rewrites digests remain deterministic diagnostics but are _not_ committed by v2.
 See `docs/spec-merkle-commit.md` for the canonical encoding.
 
 ### 8.2 `TickReceipt`: Paper II outcomes
@@ -306,7 +307,7 @@ Crucial correctness law:
 
 ### 9.1 Worked example: descent-chain reads become `Footprint.a_read`
 
-The engine enforces the law in `Engine::apply_in_warp` by *injecting* the descent
+The engine enforces the law in `Engine::apply_in_warp` by _injecting_ the descent
 chain into the footprint before the candidate is enqueued:
 
 ```rust
@@ -411,9 +412,9 @@ and `WarpTickPatchV1` alongside the snapshot hash.
 
 The minimal “B1-shaped” workflow is:
 
-1) establish a portal (`OpenPortal`) from a node-owned attachment slot (Alpha plane) to a child `WarpId`  
-2) apply a rewrite inside the child warp using `Engine::apply_in_warp` with a `descent_stack` containing that portal key  
-3) verify the tick patch `in_slots` includes the portal slot, and slicing pulls in the portal-opening tick
+1. establish a portal (`OpenPortal`) from a node-owned attachment slot (Alpha plane) to a child `WarpId`
+2. apply a rewrite inside the child warp using `Engine::apply_in_warp` with a `descent_stack` containing that portal key
+3. verify the tick patch `in_slots` includes the portal slot, and slicing pulls in the portal-opening tick
 
 ```rust
 use warp_core::{
@@ -557,6 +558,6 @@ assert_eq!(ticks, vec![0, 1]);
 
 Notes:
 
-- `Engine::apply_in_warp(..., descent_stack)` is the *only* place the engine needs to “know about recursion”
+- `Engine::apply_in_warp(..., descent_stack)` is the _only_ place the engine needs to “know about recursion”
   for correctness: the hot path still matches within an instance skeleton only.
 - If you don’t record descent-chain reads, you can build a system that “looks right” but produces incorrect slices.

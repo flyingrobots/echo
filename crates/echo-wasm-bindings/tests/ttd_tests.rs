@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Tests for the TTD controller and privacy redaction.
 
 use echo_wasm_bindings::{PrivacyMask, TtdController, Value};
@@ -45,7 +46,7 @@ fn test_privacy_redaction() {
         .set_privacy_mask(token, "password".into(), PrivacyMask::Pseudonymized)
         .unwrap();
     let r3 = controller
-        .redact_value(token, "password", secret_val.clone())
+        .redact_value(token, "password", secret_val)
         .unwrap();
     if let Value::Str(s) = r3 {
         assert!(s.contains("hash("));

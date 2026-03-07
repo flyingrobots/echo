@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unimplemented)]
 //! BOAW Collapse/Merge Tests (ADR-0007 §9)
 //!
 //! Tests for multi-parent merge semantics:

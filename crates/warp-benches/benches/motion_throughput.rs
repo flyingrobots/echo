@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(missing_docs)]
+#![allow(
+    missing_docs,
+    clippy::panic,
+    clippy::expect_used,
+    clippy::cast_precision_loss
+)]
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use echo_dry_tests::{build_motion_demo_engine, MOTION_RULE_NAME};
 use std::{hint::black_box, time::Duration};
@@ -34,7 +39,7 @@ fn build_engine_with_n_entities(n: usize) -> (Engine, Vec<NodeId>) {
     let mut ids = Vec::with_capacity(n);
     // Insert N entities with a simple payload.
     for i in 0..n {
-        let label = format!("ent-{}", i);
+        let label = format!("ent-{i}");
         // Precompute NodeId so hashing is not part of the hot loop.
         let id = make_node_id(&label);
         let pos = [i as f32, 0.0, 0.0];
@@ -73,7 +78,7 @@ fn bench_motion_apply(c: &mut Criterion) {
                 black_box(engine);
                 black_box(ids);
                 black_box(decoded);
-            })
+            });
         });
     }
     build_group.finish();
@@ -105,7 +110,7 @@ fn bench_motion_apply(c: &mut Criterion) {
                     black_box(decoded);
                 },
                 BatchSize::PerIteration,
-            )
+            );
         });
     }
     apply_group.finish();

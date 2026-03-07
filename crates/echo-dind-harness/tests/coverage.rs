@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::print_stderr,
+    clippy::unnecessary_debug_formatting
+)]
 //! DIND scenario coverage tests.
 
 use anyhow::Result;
@@ -32,7 +38,7 @@ fn test_dind_coverage() -> Result<()> {
         if PathBuf::from("testdata/dind/MANIFEST.json").exists() {
             return run_suite(PathBuf::from("testdata/dind/MANIFEST.json"));
         }
-        panic!("Could not find MANIFEST.json at {:?}", manifest_path);
+        panic!("Could not find MANIFEST.json at {manifest_path:?}");
     }
 
     run_suite(manifest_path)
@@ -54,7 +60,7 @@ fn run_suite(manifest_path: PathBuf) -> Result<()> {
 
     for entry in manifest {
         let scenario_path = base_dir.join(&entry.path);
-        eprintln!("Coverage running: {:?}", scenario_path);
+        eprintln!("Coverage running: {scenario_path:?}");
 
         let (hashes, _) = run_scenario(&scenario_path)?;
 
@@ -76,7 +82,7 @@ fn run_suite(manifest_path: PathBuf) -> Result<()> {
             let mut f_out = std::fs::File::create(&golden_path)?;
             serde_json::to_writer_pretty(&mut f_out, &golden)?;
             f_out.sync_all()?;
-            eprintln!("Updated: {:?}", golden_path);
+            eprintln!("Updated: {golden_path:?}");
         } else if golden_path.exists() {
             let f_golden = File::open(&golden_path)?;
             let expected: echo_dind_harness::dind::Golden =

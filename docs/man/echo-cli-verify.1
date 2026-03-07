@@ -1,0 +1,19 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH echo-cli-verify 1  "echo-cli-verify " 
+.SH NAME
+echo\-cli\-verify \- Verify hash integrity of a WSC snapshot
+.SH SYNOPSIS
+\fBecho\-cli\-verify\fR [\fB\-\-expected\fR] [\fB\-h\fR|\fB\-\-help\fR] <\fISNAPSHOT\fR> 
+.SH DESCRIPTION
+Verify hash integrity of a WSC snapshot
+.SH OPTIONS
+.TP
+\fB\-\-expected\fR \fI<EXPECTED>\fR
+Expected state root hash (hex) for warp 0 only; additional warps report "unchecked"
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.TP
+<\fISNAPSHOT\fR>
+Path to WSC snapshot file

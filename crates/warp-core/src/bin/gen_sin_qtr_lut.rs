@@ -12,6 +12,12 @@
 //! - The checked-in table is the source of truth for determinism; this tool is
 //!   purely for maintenance and review.
 
+#![allow(
+    clippy::print_stdout,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss
+)]
+
 use std::f64::consts::FRAC_PI_2;
 
 fn main() {

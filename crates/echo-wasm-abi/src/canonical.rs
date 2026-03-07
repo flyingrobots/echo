@@ -118,7 +118,7 @@ fn enc_value(v: &Value, out: &mut Vec<u8>) -> Result<()> {
 }
 
 fn enc_len(major: u8, len: u64, out: &mut Vec<u8>) {
-    write_major(major, len as u128, out);
+    write_major(major, u128::from(len), out);
 }
 
 fn enc_int(n: i128, out: &mut Vec<u8>) {
@@ -164,7 +164,7 @@ fn enc_float(f: f64, out: &mut Vec<u8>) {
         return;
     }
     let f32v = f as f32;
-    if f32v as f64 == f {
+    if f64::from(f32v) == f {
         write_f32(f32v, out);
     } else {
         write_f64(f, out);
@@ -240,7 +240,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
         need(bytes, *idx, nbytes)?;
         let mut val = 0u64;
         for _ in 0..nbytes {
-            val = (val << 8) | (bytes[*idx] as u64);
+            val = (val << 8) | u64::from(bytes[*idx]);
             *idx += 1;
         }
         Ok(val)
@@ -257,11 +257,11 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
                     .map_err(|_| CanonError::Decode("invalid f16 bytes".into()))?,
             ))
             .to_f64(),
-            4 => f32::from_be_bytes(
+            4 => f64::from(f32::from_be_bytes(
                 slice
                     .try_into()
                     .map_err(|_| CanonError::Decode("invalid f32 bytes".into()))?,
-            ) as f64,
+            )),
             8 => f64::from_be_bytes(
                 slice
                     .try_into()
@@ -273,7 +273,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
 
     fn read_len(bytes: &[u8], idx: &mut usize, info: u8) -> Result<u64> {
         let val = match info {
-            0..=23 => info as u64,
+            0..=23 => u64::from(info),
             24 => read_uint(bytes, idx, 1)?,
             25 => read_uint(bytes, idx, 2)?,
             26 => read_uint(bytes, idx, 4)?,
@@ -298,7 +298,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
             let i = if major == 0 {
                 Integer::from(n)
             } else {
-                let neg = -(1i128 + n as i128);
+                let neg = -(1i128 + i128::from(n));
                 let signed = i64::try_from(neg)
                     .map_err(|_| CanonError::Decode("integer out of range".into()))?;
                 Integer::from(signed)
@@ -315,7 +315,7 @@ fn dec_value(bytes: &[u8], idx: &mut usize) -> Result<Value> {
                 Ok(Value::Bytes(data.to_vec()))
             } else {
                 let s =
-                    str::from_utf8(data).map_err(|e| CanonError::Decode(format!("utf8: {}", e)))?;
+                    str::from_utf8(data).map_err(|e| CanonError::Decode(format!("utf8: {e}")))?;
                 Ok(Value::Text(s.to_string()))
             }
         }
@@ -414,5 +414,5 @@ fn can_fit_f32(f: f64) -> bool {
     if f.is_nan() {
         return true;
     }
-    (f as f32) as f64 == f
+    f64::from(f as f32) == f
 }

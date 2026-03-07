@@ -58,7 +58,7 @@ fn step_forward_advances_one_then_pauses() {
     let result = cursor.step(&provenance, &initial_store);
 
     // Verify result
-    assert!(result.is_ok(), "step should succeed: {:?}", result);
+    assert!(result.is_ok(), "step should succeed: {result:?}");
     assert_eq!(result.unwrap(), StepResult::Advanced);
 
     // Verify tick advanced by 1
@@ -239,8 +239,8 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
         value_hash: [17u8; 32], // Distinct byte pattern for tick 7 (easily identifiable in assertions)
     };
 
-    sink.publish_frame(session1_id, frame1.clone());
-    sink.publish_frame(session2_id, frame2.clone());
+    sink.publish_frame(session1_id, frame1);
+    sink.publish_frame(session2_id, frame2);
 
     // Verify sessions receive different truth
     let frames1 = sink.collect_frames(session1_id);
@@ -343,7 +343,7 @@ fn reader_play_advances_until_frontier() {
     // When at tick 5 (= pin_max_tick), the next step hits the frontier check
     for expected_tick in 1..=5 {
         let result = cursor.step(&provenance, &initial_store);
-        assert!(result.is_ok(), "step {} should succeed", expected_tick);
+        assert!(result.is_ok(), "step {expected_tick} should succeed");
         assert_eq!(result.unwrap(), StepResult::Advanced);
         assert_eq!(cursor.tick, expected_tick);
         assert_eq!(cursor.mode, PlaybackMode::Play, "should stay in Play mode");

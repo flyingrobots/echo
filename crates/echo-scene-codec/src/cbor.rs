@@ -112,8 +112,7 @@ fn decode_f32_array(d: &mut Decoder<'_>) -> Result<[f32; 3], minicbor::decode::E
         .ok_or_else(|| minicbor::decode::Error::message("expected definite array for f32 array"))?;
     if len != 3 {
         return Err(minicbor::decode::Error::message(format!(
-            "f32 array expected 3 elements, got {}",
-            len
+            "f32 array expected 3 elements, got {len}"
         )));
     }
     // Accept both f32 and f64 from wire for robustness
@@ -129,8 +128,7 @@ fn decode_robust_f32(d: &mut Decoder<'_>) -> Result<f32, minicbor::decode::Error
         minicbor::data::Type::F32 => d.f32(),
         minicbor::data::Type::F64 => Ok(d.f64()? as f32),
         t => Err(minicbor::decode::Error::message(format!(
-            "expected float, got {:?}",
-            t
+            "expected float, got {t:?}"
         ))),
     }
 }
@@ -152,8 +150,7 @@ fn decode_node_shape(d: &mut Decoder<'_>) -> Result<NodeShape, minicbor::decode:
         0 => Ok(NodeShape::Sphere),
         1 => Ok(NodeShape::Cube),
         n => Err(minicbor::decode::Error::message(format!(
-            "invalid NodeShape: {}",
-            n
+            "invalid NodeShape: {n}"
         ))),
     }
 }
@@ -175,8 +172,7 @@ fn decode_edge_style(d: &mut Decoder<'_>) -> Result<EdgeStyle, minicbor::decode:
         0 => Ok(EdgeStyle::Solid),
         1 => Ok(EdgeStyle::Dashed),
         n => Err(minicbor::decode::Error::message(format!(
-            "invalid EdgeStyle: {}",
-            n
+            "invalid EdgeStyle: {n}"
         ))),
     }
 }
@@ -201,8 +197,7 @@ fn decode_projection_kind(d: &mut Decoder<'_>) -> Result<ProjectionKind, minicbo
         0 => Ok(ProjectionKind::Perspective),
         1 => Ok(ProjectionKind::Orthographic),
         n => Err(minicbor::decode::Error::message(format!(
-            "invalid ProjectionKind: {}",
-            n
+            "invalid ProjectionKind: {n}"
         ))),
     }
 }
@@ -230,8 +225,7 @@ fn decode_node_def(d: &mut Decoder<'_>) -> Result<NodeDef, minicbor::decode::Err
         .ok_or_else(|| minicbor::decode::Error::message("expected definite array for NodeDef"))?;
     if len != 5 {
         return Err(minicbor::decode::Error::message(format!(
-            "NodeDef expected 5 fields, got {}",
-            len
+            "NodeDef expected 5 fields, got {len}"
         )));
     }
     Ok(NodeDef {
@@ -267,8 +261,7 @@ fn decode_edge_def(d: &mut Decoder<'_>) -> Result<EdgeDef, minicbor::decode::Err
         .ok_or_else(|| minicbor::decode::Error::message("expected definite array for EdgeDef"))?;
     if len != 6 {
         return Err(minicbor::decode::Error::message(format!(
-            "EdgeDef expected 6 fields, got {}",
-            len
+            "EdgeDef expected 6 fields, got {len}"
         )));
     }
     Ok(EdgeDef {
@@ -310,8 +303,7 @@ fn decode_label_anchor(d: &mut Decoder<'_>) -> Result<LabelAnchor, minicbor::dec
     })?;
     if len != 2 {
         return Err(minicbor::decode::Error::message(format!(
-            "LabelAnchor expected 2 fields, got {}",
-            len
+            "LabelAnchor expected 2 fields, got {len}"
         )));
     }
     match d.u8()? {
@@ -322,8 +314,7 @@ fn decode_label_anchor(d: &mut Decoder<'_>) -> Result<LabelAnchor, minicbor::dec
             position: decode_f32_array(d)?,
         }),
         n => Err(minicbor::decode::Error::message(format!(
-            "invalid LabelAnchor tag: {}",
-            n
+            "invalid LabelAnchor tag: {n}"
         ))),
     }
 }
@@ -352,8 +343,7 @@ fn decode_label_def(d: &mut Decoder<'_>) -> Result<LabelDef, minicbor::decode::E
         .ok_or_else(|| minicbor::decode::Error::message("expected definite array for LabelDef"))?;
     if len != 6 {
         return Err(minicbor::decode::Error::message(format!(
-            "LabelDef expected 6 fields, got {}",
-            len
+            "LabelDef expected 6 fields, got {len}"
         )));
     }
     Ok(LabelDef {
@@ -480,8 +470,7 @@ fn decode_scene_op(d: &mut Decoder<'_>) -> Result<SceneOp, minicbor::decode::Err
             Ok(SceneOp::Clear)
         }
         n => Err(minicbor::decode::Error::message(format!(
-            "invalid SceneOp tag: {}",
-            n
+            "invalid SceneOp tag: {n}"
         ))),
     }
 }
@@ -512,15 +501,13 @@ fn decode_scene_delta_inner(d: &mut Decoder<'_>) -> Result<SceneDelta, minicbor:
     })?;
     if len != 5 {
         return Err(minicbor::decode::Error::message(format!(
-            "SceneDelta expected 5 fields, got {}",
-            len
+            "SceneDelta expected 5 fields, got {len}"
         )));
     }
     let version = d.u8()?;
     if version != 1 {
         return Err(minicbor::decode::Error::message(format!(
-            "unsupported SceneDelta version: {}",
-            version
+            "unsupported SceneDelta version: {version}"
         )));
     }
     let session_id = decode_hash(d)?;
@@ -531,8 +518,7 @@ fn decode_scene_delta_inner(d: &mut Decoder<'_>) -> Result<SceneDelta, minicbor:
         .ok_or_else(|| minicbor::decode::Error::message("expected definite array for ops"))?;
     if ops_len as usize > MAX_OPS {
         return Err(minicbor::decode::Error::message(format!(
-            "SceneDelta ops count {} exceeds MAX_OPS {}",
-            ops_len, MAX_OPS
+            "SceneDelta ops count {ops_len} exceeds MAX_OPS {MAX_OPS}"
         )));
     }
     let mut ops = Vec::with_capacity(ops_len as usize);
@@ -574,15 +560,13 @@ fn decode_camera_state_inner(d: &mut Decoder<'_>) -> Result<CameraState, minicbo
     })?;
     if len != 9 {
         return Err(minicbor::decode::Error::message(format!(
-            "CameraState expected 9 fields, got {}",
-            len
+            "CameraState expected 9 fields, got {len}"
         )));
     }
     let version = d.u8()?;
     if version != 1 {
         return Err(minicbor::decode::Error::message(format!(
-            "unsupported CameraState version: {}",
-            version
+            "unsupported CameraState version: {version}"
         )));
     }
     Ok(CameraState {
@@ -648,15 +632,13 @@ fn decode_highlight_state_inner(
     })?;
     if len != 5 {
         return Err(minicbor::decode::Error::message(format!(
-            "HighlightState expected 5 fields, got {}",
-            len
+            "HighlightState expected 5 fields, got {len}"
         )));
     }
     let version = d.u8()?;
     if version != 1 {
         return Err(minicbor::decode::Error::message(format!(
-            "unsupported HighlightState version: {}",
-            version
+            "unsupported HighlightState version: {version}"
         )));
     }
     // selected_nodes
@@ -722,6 +704,7 @@ fn decode_highlight_state_inner(
 // ============================================================================
 
 /// Encode a SceneDelta to CBOR bytes.
+#[allow(clippy::expect_used)] // Vec<u8> encoding is infallible (only OOM panics).
 pub fn encode_scene_delta(delta: &SceneDelta) -> Vec<u8> {
     let mut buf = Vec::new();
     let mut encoder = Encoder::new(&mut buf);
@@ -742,6 +725,7 @@ pub fn decode_scene_delta(bytes: &[u8]) -> Result<SceneDelta, minicbor::decode::
 }
 
 /// Encode a CameraState to CBOR bytes.
+#[allow(clippy::expect_used)] // Vec<u8> encoding is infallible (only OOM panics).
 pub fn encode_camera_state(camera: &CameraState) -> Vec<u8> {
     let mut buf = Vec::new();
     let mut encoder = Encoder::new(&mut buf);
@@ -762,6 +746,7 @@ pub fn decode_camera_state(bytes: &[u8]) -> Result<CameraState, minicbor::decode
 }
 
 /// Encode a HighlightState to CBOR bytes.
+#[allow(clippy::expect_used)] // Vec<u8> encoding is infallible (only OOM panics).
 pub fn encode_highlight_state(highlight: &HighlightState) -> Vec<u8> {
     let mut buf = Vec::new();
     let mut encoder = Encoder::new(&mut buf);
@@ -782,6 +767,7 @@ pub fn decode_highlight_state(bytes: &[u8]) -> Result<HighlightState, minicbor::
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -1087,8 +1073,7 @@ mod tests {
             let result = decode_scene_delta(truncated);
             assert!(
                 result.is_err(),
-                "Decoding should fail for truncated input of length {}",
-                len
+                "Decoding should fail for truncated input of length {len}"
             );
         }
     }

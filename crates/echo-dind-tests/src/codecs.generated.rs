@@ -41,7 +41,7 @@ impl Theme {
 pub struct MotionV2View<'a> {
     raw: &'a [u8],
 }
-impl<'a> MotionV2View<'a> {
+impl MotionV2View<'_> {
     #[inline]
     fn slot_i64_le(&self, slot: usize) -> i64 {
         let start = slot * 8;
@@ -89,7 +89,7 @@ impl MotionV2Builder {
 }
 
 pub mod ops {
-    use super::*;
+    use super::Theme;
     pub mod app_state {
         use super::*;
         pub const OP_ID: u32 = 190543078;
@@ -117,7 +117,7 @@ pub mod ops {
         }
     }
     pub mod set_theme {
-        use super::*;
+        use super::Theme;
         pub const OP_ID: u32 = 1822649880;
         pub struct Args {
             pub mode: Theme,

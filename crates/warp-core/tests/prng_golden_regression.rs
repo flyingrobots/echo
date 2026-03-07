@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
+#![allow(missing_docs)]
+
 use warp_core::math::Prng;
 
 #[test]

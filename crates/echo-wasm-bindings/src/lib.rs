@@ -3,11 +3,13 @@
 //! Minimal WARP graph + rewrite API exposed for WASM specs.
 //!
 //! Provides a tiny in-memory kernel for Spec-000 that mirrors the wasm ABI types.
+#![allow(unsafe_code)]
 
 use echo_wasm_abi::{Edge, Node};
 pub use echo_wasm_abi::{PrivacyMask, Rewrite, SemanticOp, SessionToken, Value, WarpGraph};
 use std::collections::BTreeMap;
 
+#[allow(clippy::unwrap_used)]
 pub mod ttd;
 pub use ttd::*;
 

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+// Test utility crate — expect/unwrap/panic are standard in test helpers.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Shared test doubles and fixtures for Echo crates.
-#![forbid(unsafe_code)]
 //!
 //! This crate provides commonly used test utilities to reduce duplication
 //! across the Echo test suite and improve test maintainability.

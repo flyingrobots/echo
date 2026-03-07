@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Golden vectors and rejection cases for canonical CBOR encoding/decoding.
 
 use echo_wasm_abi::{decode_cbor, encode_cbor};

@@ -6392,7 +6392,6 @@ dependencies = [
  "clap",
  "clap_mangen",
  "pulldown-cmark",
- "regex",
  "serde",
  "serde_json",
  "warp-cli",

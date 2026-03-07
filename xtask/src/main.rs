@@ -132,6 +132,13 @@ struct ManPagesArgs {
 }
 
 fn main() -> Result<()> {
+    // Ensure CWD is the repo root so that relative paths like "docs/",
+    // "scripts/ensure_spdx.sh", and git-ls-files all work regardless of
+    // where `cargo xtask` is invoked from.
+    let repo_root = find_repo_root()?;
+    std::env::set_current_dir(&repo_root)
+        .with_context(|| format!("failed to chdir to {}", repo_root.display()))?;
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -606,6 +613,18 @@ fn extract_link_targets(content: &str) -> Vec<(String, usize)> {
     }
 
     results
+}
+
+/// Find the git repository root via `git rev-parse --show-toplevel`.
+fn find_repo_root() -> Result<PathBuf> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .context("failed to run git rev-parse --show-toplevel")?;
+    if !output.status.success() {
+        bail!("not inside a git repository");
+    }
+    Ok(PathBuf::from(std::str::from_utf8(&output.stdout)?.trim()))
 }
 
 /// Find the VitePress docs root directory.

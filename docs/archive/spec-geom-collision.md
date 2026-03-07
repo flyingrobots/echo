@@ -31,7 +31,7 @@ What this spec should eventually cover:
 - Deterministic broad phase + narrow phase modeled as graph rewrites (DPO).
 - Canonical IDs, stable ordering, and hashing inputs/outputs for replay.
 - Temporal proxies, CCD workflow, and event emission in a timeline-aware world.
-- Deterministic math constraints for collision (no platform transcendentals; quantized policies; fixed-point audits).
+- See [SPEC_DETERMINISTIC_MATH.md](../SPEC_DETERMINISTIC_MATH.md) for the normative deterministic math policy.
 
 ## Near-Term Deliverables
 

@@ -57,7 +57,7 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `meta/docs-index.md`                                           | This index                                                                                                             |
 | `hash-graph.md`                                                | Hash relationships across subsystems                                                                                   |
 | `meta/legacy-excavation.md`                                    | Historical artifact log                                                                                                |
-| `memorials/2026-01-18-phase4-rubicon.md`                       | Tribute to Caverns                                                                                                     |
+| `memorials/2026-01-18-phase4-rubicon.md`                       | Phase 4 milestone retrospective (SnapshotAccumulator "Rubicon Crossing")                                               |
 | `determinism/DETERMINISM_CLAIMS_v0.1.md`                       | Verified determinism claims (DET-001 through DET-005)                                                                  |
 | `guide/configuration-reference.md`                             | Engine parameters, protocol constants, environment variables                                                           |
 | `guide/cargo-features.md`                                      | Cargo feature flags across the workspace                                                                               |
@@ -209,3 +209,13 @@ Superseded and stale documents live in `docs/archive/`. Each original location
 has a 3-line redirect stub pointing to the archived file and its replacement.
 See the archive directory for: legacy Phase 0 specs, concept notes that were
 never implemented, and plans for features that have been completed.
+
+Example redirect stub:
+
+```markdown
+<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+
+# Title (Archived)
+
+Moved to [docs/archive/...](archive/...). Archived 2026-03-07 (PR #292).
+```

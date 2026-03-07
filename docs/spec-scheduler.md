@@ -3,6 +3,10 @@
 
 # Echo Scheduler Specification (Phase 0 — not yet implemented)
 
+> [!CAUTION]
+> This spec is a **design draft** — none of the interfaces below are implemented.
+> Known open questions are marked with `TODO`.
+>
 > **Background:** For a gentler introduction, see [Scheduler Hub](/scheduler).
 
 This document defines the **planned** ECS-style system scheduler (systems + phases + a dependency DAG) for Echo core.
@@ -54,6 +58,12 @@ interface SystemDescriptor {
     readonly handler: SystemHandler; // function invoked by scheduler
 }
 ```
+
+<!-- TODO: Bidirectional dependency resolution (both `before` and `after` fields)
+     needs formal specification. When system A declares `before: [B]` and system B
+     declares `after: [A]`, the redundant edges are harmless, but conflicting
+     declarations (A.before includes B AND B.before includes A) would create a
+     cycle. The registration workflow must detect and report this clearly. -->
 
 ### Graph Structures
 
@@ -107,6 +117,11 @@ function registerSystem(descriptor: SystemDescriptor): void {
         graph.dirty = true;
     }
 }
+// TODO: The edge creation logic above needs review. In particular, the
+// `getOrCreate` pattern using `?.add()` with a `??` fallback is fragile
+// and may silently drop edges when a node has no prior entry in the edges
+// map. A clearer implementation should initialise edge sets for every
+// registered node before wiring dependencies.
 ```
 
 - `priority` influences topological ordering by adjusting insertion order (e.g., using min-heap keyed by `(topologyLevel, -priority)`).
@@ -190,6 +205,14 @@ function recomputeTopology(graph: PhaseGraph) {
         - Ensure no resource conflicts (e.g., two systems writing to same exclusive resource). For initial version, require manual declarations of exclusive tags or rely on heuristics (e.g., overlapping component signatures) to avoid collisions.
     4. If system cannot be parallelized, flush current batch, execute sequentially, then resume batching.
 - Implementation may begin sequential (no parallelism) and introduce batches after profiling.
+
+<!-- TODO: Conflict detection for parallel batch planning is under-specified.
+     "Manual declarations of exclusive tags" and "overlapping component
+     signatures" are mentioned but neither mechanism is formally defined.
+     Before implementation, specify: (a) what a resource/exclusive tag is,
+     (b) how conflicts are detected (set intersection? bitmask?), and
+     (c) whether the check is conservative (never wrong) or heuristic
+     (may over-serialise). -->
 
 ### Pause Handling
 

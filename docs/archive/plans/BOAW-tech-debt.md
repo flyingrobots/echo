@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
+<!-- Archived: 2026-03-07 (PR #292). Reason: Superseded by TECH-DEBT-BOAW.md; parallel execution engine complete. -->
+
 # BOAW Roadmap: Phase 6B → Phase 9
 
 **Created:** 2026-01-20
@@ -56,6 +58,8 @@ Feature-gated behind `parallel-stride-fallback`. Adds maintenance burden.
 ### 0.3 Doc Accuracy Pass
 
 Verify these are still accurate post-merge:
+
+<!-- Items below reflect status at time of archival (2026-03-07). -->
 
 - [ ] `TECH-DEBT-BOAW.md` — mark Phase 6B items complete
 - [ ] `ADR-0007-BOAW-Storage.md` — phase status markers
@@ -250,6 +254,8 @@ These are **not scheduled**. Only pursue if perf gate shows regression:
 **After Phase 9:** ~54 tests passing (all BOAW tests enabled)
 
 ---
+
+<!-- Execution checklist reflects status at time of archival. See ROADMAP.md for current plans. -->
 
 ## Execution Checklist
 

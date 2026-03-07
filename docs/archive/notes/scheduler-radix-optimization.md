@@ -96,6 +96,8 @@ A sketch of the full *fold→rewrite→commit* pipeline:
 > 3. Confluence fold each bucket (ACI).
 > 4. Apply remaining rewrites in a canonical order:
 >
+> <!-- Note: field names here use an earlier convention; see scheduler-radix-optimization-2.md for current names. -->
+>
 > ```text
 > order by (scope_hash, family, compact_rule_id, payload_digest).
 > ```
@@ -293,6 +295,7 @@ fn drain_in_order(&mut self) -> Vec<P> {
     // ... drain logic
 }
 
+<!-- Pseudo-code sketch; see scheduler.rs for implementation. -->
 fn cmp_thin(a: &RewriteThin, b: &RewriteThin) -> Ordering {
     a.scope_be32.cmp(&b.scope_be32)
         .then_with(|| a.rule_id.cmp(&b.rule_id))
@@ -442,6 +445,8 @@ This optimization journey—from spotting the $O(n log n)$ bottleneck to proving
 The graph is a straight line. The future is deterministic. **And Echo is how we get there.** 🚀
 
 ---
+
+<!-- Code references reflect state at time of writing; paths may have changed. -->
 
 ## Code References
 

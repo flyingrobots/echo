@@ -5,6 +5,8 @@
 
 **Created:** 2026-01-20
 **Status:** IMPLEMENTED
+**Archived:** 2026-03-07 (PR #292)
+**Reason:** Feature fully implemented
 **Context:** Performance optimization — parallelize execution across warps
 
 ---

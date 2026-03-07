@@ -3,6 +3,9 @@
 
 # Cargo Feature Flags
 
+Generated from `Cargo.toml` files as of 2026-03-07. Run
+`grep -r '^\[features\]' crates/*/Cargo.toml` to verify.
+
 This document lists all Cargo feature flags across the Echo workspace. For
 runtime configuration, see [configuration-reference.md](configuration-reference.md).
 
@@ -23,9 +26,11 @@ The simulation engine. Most flags live here.
 
 ### Scalar Backend Lanes
 
-The `det_float` and `det_fixed` features are **CI orchestration markers**, not
-behavioral switches. They allow the CI matrix to run separate test lanes for
-each scalar backend:
+The `det_float` feature is a **CI orchestration marker** — it tags a test lane
+but does not change runtime behavior. The `det_fixed` feature, however, **is a
+behavioral switch**: it selects the fixed-point Q32.32 math backend (`DFix64`),
+which genuinely changes runtime arithmetic. Both allow the CI matrix to run
+separate test lanes for each scalar backend:
 
 ```bash
 # Float lane (default behavior)

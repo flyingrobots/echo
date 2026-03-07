@@ -12,13 +12,13 @@ runtime. For the formal specification and hashing semantics, see
 The primary configuration surface is `EngineBuilder` in `warp-core`. All
 parameters have sensible defaults; only override what you need.
 
-| Parameter             | Type                     | Default                                              | Determinism Impact                                                                |
-| --------------------- | ------------------------ | ---------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `scheduler`           | `SchedulerKind`          | `Radix`                                              | None -- both variants produce identical results                                   |
-| `policy_id`           | `u32`                    | `POLICY_ID_NO_POLICY_V0` (`b"NOP0"` as LE u32)       | **Critical** -- committed into `patch_digest` and `commit_id` v2                  |
-| `worker_count`        | `usize`                  | `ECHO_WORKERS` env var, or `available_parallelism()` | None -- canonical merge order ensures identical output regardless of thread count |
-| `telemetry`           | `Arc<dyn TelemetrySink>` | `NullTelemetrySink` (no-op)                          | None -- observability only                                                        |
-| `materialization_bus` | `MaterializationBus`     | Fresh empty bus                                      | None -- channel registration only                                                 |
+| Parameter             | Type                     | Default                                                                            | Determinism Impact                                                                |
+| --------------------- | ------------------------ | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `scheduler`           | `SchedulerKind`          | `Radix`                                                                            | None -- both variants produce identical results                                   |
+| `policy_id`           | `u32`                    | `POLICY_ID_NO_POLICY_V0` (`b"NOP0"` as LE u32)                                     | **Critical** -- committed into `patch_digest` and `commit_id` v2                  |
+| `worker_count`        | `usize`                  | `ECHO_WORKERS` env var, or `available_parallelism()`, capped at `NUM_SHARDS` (256) | None -- canonical merge order ensures identical output regardless of thread count |
+| `telemetry`           | `Arc<dyn TelemetrySink>` | `NullTelemetrySink` (no-op)                                                        | None -- observability only                                                        |
+| `materialization_bus` | `MaterializationBus`     | Fresh empty bus                                                                    | None -- channel registration only                                                 |
 
 ### SchedulerKind
 

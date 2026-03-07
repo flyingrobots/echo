@@ -5,7 +5,7 @@
 
 This is a lightweight “docs hygiene” memo: which documents look stale, overlapping, or underspecified, and what we should do about them.
 
-**Audit date:** 2026-01-02
+**Initial audit:** 2026-01-02
 
 ---
 
@@ -130,9 +130,8 @@ Moved 6 superseded documents to `docs/archive/` with redirect stubs:
 
 ### Merge candidates
 
-- Deterministic math docs:
-    - `docs/DETERMINISTIC_MATH.md` (hazards) and `docs/SPEC_DETERMINISTIC_MATH.md` (policy) are both useful, but they should cross-link explicitly and avoid duplicating the same “why” text.
-    - Action: add a short “Docs map” section to both files so readers know which is normative vs explanatory.
+- ~~Deterministic math docs:~~ **Done (2026-03-07).** Both files now have
+  structured “Docs Map” tables cross-linking the full math cluster.
 
 - Scheduler documentation:
     - Multiple reserve/scheduler docs exist (`docs/scheduler-benchmarks.md`, `docs/scheduler-reserve-*.md`, `docs/spec-scheduler.md`).

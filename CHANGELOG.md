@@ -5,6 +5,24 @@
 
 ## Unreleased
 
+### Docs Polish (#41)
+
+- **Archive:** Moved 6 superseded docs to `docs/archive/` with redirect stubs
+  (`spec-deterministic-math.md`, `spec-geom-collision.md`,
+  `notes/scheduler-radix-optimization.md`, `notes/xtask-wizard.md`,
+  `plans/cross-warp-parallelism.md`, `plans/BOAW-tech-debt.md`).
+- **Consolidate:** Added "Docs Map" callouts to `SPEC_DETERMINISTIC_MATH.md`
+  and `DETERMINISTIC_MATH.md` linking all 5 docs in the deterministic math
+  cluster. Updated `scheduler.md` Quick Map with status labels.
+- **Fix:** Repaired 3 broken cross-references (`docs/specs/` -> `docs/spec/`,
+  `memorial.md` -> `memorials/2026-01-18-phase4-rubicon.md`).
+- **New:** Configuration reference (`docs/guide/configuration-reference.md`)
+  covering engine parameters, protocol constants, and environment variables.
+- **New:** Cargo feature flags reference (`docs/guide/cargo-features.md`)
+  covering all 19 features across 11 crates.
+- **Update:** README determinism claims link, reference docs section,
+  docs-index entries, docs-audit log.
+
 ### Added — Proof Core (P1 Milestone)
 
 - **Determinism Claims v0.1:** New `docs/determinism/DETERMINISM_CLAIMS_v0.1.md`

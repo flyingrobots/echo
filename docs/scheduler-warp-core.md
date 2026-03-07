@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # WARP Rewrite Scheduler (warp-core)
 
 This document covers the **implemented** rewrite scheduler in Rust `warp-core`.
@@ -12,6 +13,7 @@ For a “which scheduler doc should I read?” landing page, see `docs/scheduler
 ## Scope
 
 This doc exists to keep a single, up-to-date source of truth for:
+
 - what `reserve()` means and guarantees,
 - what determinism properties we require for rewrite scheduling, and
 - how we validate and benchmark those claims.
@@ -29,16 +31,16 @@ and are intended to be directly checkable against code:
   carrying `(scope_hash, compact_rule, scope, footprint, phase)`.
 - **Footprint:** `crate::footprint::Footprint` in `crates/warp-core/src/footprint.rs` — the declared resource
   access sets for a rewrite:
-  - node reads/writes: `n_read` / `n_write`
-  - edge reads/writes: `e_read` / `e_write`
-  - attachment reads/writes: `a_read` / `a_write`
-  - boundary port claims: `b_in` / `b_out` (treated as a single “claimed ports” set for conflict purposes)
-  - coarse prefilter: `factor_mask` (a superset/partition hint used as an O(1) independence fast-path)
+    - node reads/writes: `n_read` / `n_write`
+    - edge reads/writes: `e_read` / `e_write`
+    - attachment reads/writes: `a_read` / `a_write`
+    - boundary port claims: `b_in` / `b_out` (treated as a single “claimed ports” set for conflict purposes)
+    - coarse prefilter: `factor_mask` (a superset/partition hint used as an O(1) independence fast-path)
 - **Resource keys:** concrete key types used by the scheduler’s active sets:
-  - nodes: `NodeKey` (warp id + local node id)
-  - edges: `EdgeKey` (warp id + local edge id)
-  - attachments: `AttachmentKey`
-  - boundary ports: `PortKey`
+    - nodes: `NodeKey` (warp id + local node id)
+    - edges: `EdgeKey` (warp id + local edge id)
+    - attachments: `AttachmentKey`
+    - boundary ports: `PortKey`
 
 The scheduler’s correctness assumes **footprints are a sound over-approximation** of the rewrite’s effects:
 rewrites must not mutate resources they did not declare, or determinism can be violated.
@@ -70,10 +72,12 @@ must yield the same final state (because neither rewrite reads or writes data th
 ### Conflicts (informal)
 
 A conflict exists if either rewrite:
+
 - writes a resource the other reads, or
 - writes a resource the other writes.
 
 Resources are tracked in (at least) these categories:
+
 - node reads/writes (`Footprint::{n_read,n_write}`)
 - edge reads/writes (`Footprint::{e_read,e_write}`)
 - attachment reads/writes (`Footprint::{a_read,a_write}`)
@@ -88,8 +92,9 @@ an implementation bug: the footprint must be expanded until it fully describes t
 ### Atomicity (check-then-mark)
 
 The implementation uses a **two-phase protocol**:
-1) **check phase**: detect any conflicts without mutating the active set
-2) **mark phase**: only if the check phase succeeds, mark all resources
+
+1. **check phase**: detect any conflicts without mutating the active set
+2. **mark phase**: only if the check phase succeeds, mark all resources
 
 **Guarantee:** if a rewrite is rejected, it must not partially mark state.
 
@@ -103,9 +108,9 @@ Concretely, this means:
   and performs membership lookups/inserts in `GenSet` active sets. The active sets are hash-backed for O(1)
   lookup/insert, but determinism does **not** rely on hash-table iteration order (we never iterate the hash tables).
 - `drain_for_tx()` drains rewrites in a deterministic lexicographic order derived from:
-  - `scope_hash` (full 32 bytes),
-  - rule id (stable compact id),
-  - `nonce` (an insertion-order tie-break).
+    - `scope_hash` (full 32 bytes),
+    - rule id (stable compact id),
+    - `nonce` (an insertion-order tie-break).
 
 See the ordering invariant comment at the top of `crates/warp-core/src/scheduler.rs`.
 
@@ -117,15 +122,17 @@ Most of the “reserve is correct” evidence is in `crates/warp-core/src/schedu
 Some integration-level behavior is also exercised via `crates/warp-core/tests/*`.
 
 Key test themes:
+
 - **Atomic reservation:** failing reserves do not partially mark resources.
 - **Determinism:** the same reserve sequence yields the same accept/reject decisions repeatedly.
 - **Conflict detection:** node/edge/port conflicts are detected correctly.
 - **Independence:** independent rewrites are admitted concurrently.
 
 Concrete tests to look for in `crates/warp-core/src/scheduler.rs`:
+
 - `reserve_is_atomic_no_partial_marking_on_conflict`
 - `reserve_determinism_same_sequence_same_results`
-- `reserve_scaling_is_linear_in_footprint_size` *(timing is noisy; treat as a sanity check, not a benchmark)*
+- `reserve_scaling_is_linear_in_footprint_size` _(timing is noisy; treat as a sanity check, not a benchmark)_
 
 For a concrete “how to run” section, see below.
 
@@ -134,6 +141,7 @@ For a concrete “how to run” section, see below.
 ## Complexity (Why `reserve()` is O(m), not O(k×m))
 
 Let:
+
 - `m` = total footprint size of the candidate rewrite (sum of read/write sets across resource kinds)
 - `k` = number of rewrites already admitted to the active set
 
@@ -150,6 +158,7 @@ scales like `O(k×m)` because it checks a candidate footprint against every prev
 ### “Count the loops” (check + mark)
 
 In the worst case (no early conflict), `reserve()` does:
+
 - a pass over each resource category to **check** conflicts, then
 - a pass over each resource category to **mark** resources
 
@@ -161,6 +170,7 @@ The active sets rely on hash tables (`FxHashMap` under the hood).
 Average-case behavior is O(1) per lookup/insert, but pathological collisions can degrade.
 
 Status / mitigation notes:
+
 - `FxHashMap` is deterministic (not cryptographically seeded); collision resistance is not its goal.
 - We currently treat scheduler keys as internal engine identifiers (not attacker-controlled inputs).
 - We maintain an adversarial-collision benchmark to detect regressions and quantify worst-case behavior:
@@ -168,6 +178,7 @@ Status / mitigation notes:
 - Longer-term hasher hardening discussion lives in `docs/notes/scheduler-optimization-followups.md`.
 
 See also the adversarial hashing bench:
+
 - `crates/warp-benches/benches/scheduler_adversarial.rs`
 
 ---
@@ -191,10 +202,12 @@ cargo bench -p warp-benches
 
 Some older docs used strong language like “empirical proof” or quoted “10–100× faster” speedups.
 The safest, reviewable stance is:
+
 - algorithmically, the GenSet approach avoids the old “compare against every previous footprint” pattern (so it should not scale like `k×m`), and
 - meaningful performance claims should come from Criterion benches, not single-run timings inside unit tests.
 
 Concrete guidance (so reviews can be consistent):
+
 - **Minor claims (≈10% level):** require a Criterion benchmark showing ≥10% median change with a 95% CI that does not overlap 0.
 - **Major claims (≥2× / “order of magnitude”):** require stable benchmark inputs and a Criterion result showing ≥2× median change,
   plus a narrative describing the benchmark scenario, inputs, and why the result should generalize.
@@ -221,11 +234,13 @@ cargo test -p warp-core --test reserve_gate_tests
 ## Docs Maintenance Notes
 
 When changing `crates/warp-core/src/scheduler.rs` behavior (especially around `reserve()`):
+
 - update this doc,
 - keep `docs/scheduler.md`’s mapping accurate,
 - and prefer encoding invariants in tests over prose-only claims.
 
 Additional maintenance expectations:
+
 - **Versioning:** this doc targets the default implementation (`SchedulerKind::Radix`). If the default changes, update the Scope banner
   and the “Complexity” section to match.
 - **Drift detection:** treat changes to `reserve()`/footprint structures as “docs must change” in code review; prefer adding/adjusting tests

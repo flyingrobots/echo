@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Procedure: Extract Actionable Comments from PR Review Threads (CodeRabbitAI + Humans)
 
 This procedure is part of the required PR workflow for this repo.
@@ -40,11 +41,11 @@ Prefer the repo automation whenever possible:
 
 It is designed to:
 
-- include review comments from **all** authors (CodeRabbitAI *and* human reviewers),
+- include review comments from **all** authors (CodeRabbitAI _and_ human reviewers),
 - include “outdated” comments that are not visible on the current head diff,
 - detect `✅ Addressed in commit ...` markers authored by a human:
-  - either as review-thread replies, or
-  - as a single PR conversation “round ack” comment listing `discussion_r<id>` targets,
+    - either as review-thread replies, or
+    - as a single PR conversation “round ack” comment listing `discussion_r<id>` targets,
 - and produce a deterministic Markdown report.
 
 To widen the net beyond inline review threads, you can include:
@@ -57,6 +58,7 @@ To widen the net beyond inline review threads, you can include:
 ```
 
 Note:
+
 - Conversation comments and review summaries are not diff-positioned like review threads, so the script applies a simple “likely actionable” heuristic and emits a separate “Unclassified” bucket for anything that doesn’t match.
 - For those non-thread sources, the script treats **human-authored** items as actionable; bot-authored summaries/status comments are included for context but are not counted as “Needs attention” (they can’t be reliably acked the same way review-thread replies can).
 
@@ -82,6 +84,7 @@ gh api "repos/${OWNER}/${REPO}/pulls/${PR_NUMBER}/comments" --paginate > "$TMPFI
 ```
 
 Note:
+
 - This endpoint returns PR review comments authored by anyone (humans, bots, CodeRabbitAI, etc.).
 
 ---
@@ -131,6 +134,7 @@ cat /tmp/comments-latest.json | jq '
 ```
 
 Key insight:
+
 - “Outdated” means “not visible on the current head diff”, **not** “fixed”.
 - Always verify against current code before acting (see Step 7).
 
@@ -182,6 +186,7 @@ cat "$TMPFILE" | jq '
 ```
 
 Key insight:
+
 - Explicit acks are only useful when they can’t be accidentally “spoofed” by templated bot text.
 
 ---

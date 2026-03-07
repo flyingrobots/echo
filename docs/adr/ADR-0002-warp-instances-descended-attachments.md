@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR-0002: WarpInstances + Descended Attachments via Flattened Indirection
 
 Status: Accepted  
@@ -12,8 +13,8 @@ The WARP theory defines a two-plane state object:
 
 - **Skeleton plane**: explicit graph structure used for matching, rewriting, scheduling, slicing, determinism.
 - **Attachment plane**: payloads over vertices/edges; attachments may be:
-  - atomic (depth 0), or
-  - recursively descended (“WARPs all the way down”).
+    - atomic (depth 0), or
+    - recursively descended (“WARPs all the way down”).
 
 Echo v0 implemented depth-0 attachments as **typed atoms** (Stage B0). However, depth‑0 alone is not the canonical “graphs all the way down” object: we need a first-class way to represent descended attachments without:
 
@@ -25,21 +26,21 @@ Echo v0 implemented depth-0 attachments as **typed atoms** (Stage B0). However, 
 
 We represent descended attachments as **flattened indirection** using **WarpInstances**.
 
-1) Introduce **WarpInstances** identified by `WarpId`.
-2) Instance-scope ids using 2D keys:
-   - `NodeKey = { warp_id: WarpId, local_id: NodeId }`
-   - `EdgeKey = { warp_id: WarpId, local_id: EdgeId }`
-3) Extend attachment values:
-   - `AttachmentValue = Atom(AtomPayload) | Descend(WarpId)`
-4) Make attachment slots first-class and engine-visible:
-   - `AttachmentKey { owner: AttachmentOwner(NodeKey|EdgeKey), plane: Alpha|Beta }`
-5) Keep the rewrite/match hot path skeleton-only:
-   - matching/indexing must not decode atoms or automatically traverse descended instances
-   - descent is explicit (`Descend(WarpId)`), not encoded inside bytes
-6) Authoring a descended instance is **atomic**:
-   - creating the child instance and setting `Descend(child_warp)` must be performed as a single canonical operation (`OpenPortal`).
-7) Multi-parent merges (DAG) require explicit resolution at the patch level:
-   - merge commits must resolve slot conflicts (including attachment slots) deterministically.
+1. Introduce **WarpInstances** identified by `WarpId`.
+2. Instance-scope ids using 2D keys:
+    - `NodeKey = { warp_id: WarpId, local_id: NodeId }`
+    - `EdgeKey = { warp_id: WarpId, local_id: EdgeId }`
+3. Extend attachment values:
+    - `AttachmentValue = Atom(AtomPayload) | Descend(WarpId)`
+4. Make attachment slots first-class and engine-visible:
+    - `AttachmentKey { owner: AttachmentOwner(NodeKey|EdgeKey), plane: Alpha|Beta }`
+5. Keep the rewrite/match hot path skeleton-only:
+    - matching/indexing must not decode atoms or automatically traverse descended instances
+    - descent is explicit (`Descend(WarpId)`), not encoded inside bytes
+6. Authoring a descended instance is **atomic**:
+    - creating the child instance and setting `Descend(child_warp)` must be performed as a single canonical operation (`OpenPortal`).
+7. Multi-parent merges (DAG) require explicit resolution at the patch level:
+    - merge commits must resolve slot conflicts (including attachment slots) deterministically.
 
 ## Laws (Non-Negotiable Invariants)
 
@@ -77,6 +78,7 @@ If a slice demands any slot within instance `W`, the slice must include producer
 Creating a child instance and setting `Attachment[key] = Descend(child_warp)` MUST be atomic at the patch level.
 
 Slices/replay must not be able to observe:
+
 - a “dangling portal” (`Descend(child_warp)` without a corresponding `WarpInstance(child_warp)`), or
 - an “orphan instance” (a `WarpInstance` whose recorded `parent` slot does not point to it).
 
@@ -96,22 +98,24 @@ Wormholes remain a **history/payload** compression mechanism over tick ranges. T
 ## Consequences
 
 Pros:
+
 - Enables “WARPs all the way down” without recursive hot paths.
 - Makes descent visible and hashable (no hidden structure).
 - Preserves determinism and scales to large graphs.
 - Allows multi-scale tooling by projecting instances as macro-nodes (state zoom), without conflating with wormholes (history compression).
 
 Cons:
+
 - Requires instance-scoped keys and explicit attachment slot identity.
 - Adds small footprint overhead (bounded by descent depth).
 
 ## Alternatives Considered
 
-1) Embed subgraphs inside payload bytes.
-   - Rejected: violates “no hidden edges”; breaks slicing/causality; unsafe typing boundary.
+1. Embed subgraphs inside payload bytes.
+    - Rejected: violates “no hidden edges”; breaks slicing/causality; unsafe typing boundary.
 
-2) Use recursive Rust data structures (`Box`, `Rc`, etc).
-   - Rejected: poor fit for cycles/sharing, determinism, and patch/slice boundary artifacts.
+2. Use recursive Rust data structures (`Box`, `Rc`, etc).
+    - Rejected: poor fit for cycles/sharing, determinism, and patch/slice boundary artifacts.
 
 ## Follow-ups
 

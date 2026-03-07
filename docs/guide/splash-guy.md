@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Demo 2 Scenario: “Splash Guy” (Deterministic Lockstep Proof)
 
 This document defines a small, familiar gameplay scenario we can use to prove:
@@ -20,10 +21,10 @@ We want a demo that is:
 - **Familiar**: people immediately understand movement, walls, timed hazards, chain reactions.
 - **Discrete**: easy to reason about tick-by-tick determinism (no floating physics required).
 - **Nasty in the right ways**: contains the classic “determinism traps”:
-  - simultaneous movement conflicts
-  - chain reactions
-  - timers
-  - optional randomness (pickups)
+    - simultaneous movement conflicts
+    - chain reactions
+    - timers
+    - optional randomness (pickups)
 - **Small**: implementable end‑to‑end with clear invariants + tests.
 
 ---
@@ -54,9 +55,9 @@ The splash:
 
 - A rectangular grid, e.g. 13×11.
 - Tile types:
-  - `Empty`
-  - `Wall` (indestructible)
-  - `Block` (optional, destructible)
+    - `Empty`
+    - `Wall` (indestructible)
+    - `Block` (optional, destructible)
 
 ### Players
 
@@ -92,10 +93,10 @@ Pickup types:
 
 We want the core “proof” to be simple:
 
-1) All peers start from the same initial state (map + players + seed).
-2) All peers consume the same ordered input log (per tick, per player).
-3) All peers compute a per‑tick fingerprint (hash).
-4) Fingerprints must match on every tick.
+1. All peers start from the same initial state (map + players + seed).
+2. All peers consume the same ordered input log (per tick, per player).
+3. All peers compute a per‑tick fingerprint (hash).
+4. Fingerprints must match on every tick.
 
 If any mismatch occurs, it’s a hard failure:
 
@@ -124,22 +125,22 @@ To avoid ambiguity, we define a stable tick pipeline.
 
 Recommended (initial) phase order:
 
-1) **Collect inputs** (for tick `t`).
-2) **Resolve movement intents**:
-   - compute desired target tiles
-   - resolve conflicts deterministically (see below)
-   - update player positions
-3) **Resolve balloon placement intents**:
-   - deterministic ordering by `player_id`
-   - enforce per-player balloon limits
-4) **Advance fuses**:
-   - decrement `fuse_ticks_remaining`
-5) **Explode balloons whose fuse hit 0**:
-   - compute splash tiles deterministically
-   - trigger chain reactions deterministically
-6) **Apply damage**:
-   - players in splash tiles become `alive = false` (or mark “hit”)
-7) **Apply pickups / block destruction** (optional, deterministic)
+1. **Collect inputs** (for tick `t`).
+2. **Resolve movement intents**:
+    - compute desired target tiles
+    - resolve conflicts deterministically (see below)
+    - update player positions
+3. **Resolve balloon placement intents**:
+    - deterministic ordering by `player_id`
+    - enforce per-player balloon limits
+4. **Advance fuses**:
+    - decrement `fuse_ticks_remaining`
+5. **Explode balloons whose fuse hit 0**:
+    - compute splash tiles deterministically
+    - trigger chain reactions deterministically
+6. **Apply damage**:
+    - players in splash tiles become `alive = false` (or mark “hit”)
+7. **Apply pickups / block destruction** (optional, deterministic)
 
 This explicit phase ordering is part of the “show the world it works” story:
 Echo is deterministic because it refuses to leave “who wins?” to accident.

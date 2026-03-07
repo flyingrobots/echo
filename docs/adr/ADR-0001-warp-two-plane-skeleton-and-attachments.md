@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR-0001: Two-plane WARP representation in Echo (SkeletonGraph + Attachment Plane)
 
 Status: Accepted  
@@ -22,25 +23,25 @@ Echo also requires that graph rewriting remain fast: core matching/indexing must
 
 ## Decision
 
-1) Echo’s core in-memory storage separates **SkeletonGraph** (structure) from the attachment plane (payloads).
+1. Echo’s core in-memory storage separates **SkeletonGraph** (structure) from the attachment plane (payloads).
 
 The rewrite hot path is defined over the skeleton projection `π(U)` (matching/indexing does not decode attachments unless a rule explicitly opts in).
 
-2) Attachments exist but are represented as **typed atoms** by default (depth-0):
+1. Attachments exist but are represented as **typed atoms** by default (depth-0):
 
 - `AtomPayload = { type_id: TypeId, bytes: Bytes }`
 
-3) Any semantic meaning of payload bytes is enforced at **typed boundaries** via strict codecs:
+1. Any semantic meaning of payload bytes is enforced at **typed boundaries** via strict codecs:
 
 - decoding is explicit and deterministic;
 - decoding does not occur in the core scheduler/matcher unless a rule chooses to decode.
 
-4) **No hidden edges**:
+1. **No hidden edges**:
 
 - If a dependency matters for matching, causality, slicing, or rewrite applicability, it must be represented explicitly in the skeleton plane.
 - Payload bytes must not be used to smuggle graph structure the engine cannot see.
 
-5) Future recursion in attachments is represented as **flattened indirection** (future work):
+1. Future recursion in attachments is represented as **flattened indirection** (future work):
 
 - recursion is modeled via explicit references (e.g., attachment-root references / skeleton-visible links), not nested Rust structs.
 

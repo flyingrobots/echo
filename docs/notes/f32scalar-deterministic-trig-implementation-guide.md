@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Implementation Guide — Deterministic `sin/cos` for `F32Scalar` (LUT-backed)
 
 This document is a step-by-step, code-oriented guide for implementing a deterministic `sin`, `cos`, and `sin_cos` backend for `warp_core::math::scalar::F32Scalar`.
@@ -41,13 +42,13 @@ Replace the hardware/libc-backed trig:
 - Implementing the fixed-point trig backend.
 - Designing the “forever” math backend architecture.
 
-The intent is: *ship a deterministic trig backend with a known, documented error budget*, then iterate.
+The intent is: _ship a deterministic trig backend with a known, documented error budget_, then iterate.
 
 ---
 
 ## Determinism & API contract
 
-Before writing code, decide and *write down* the exact contract the implementation must obey.
+Before writing code, decide and _write down_ the exact contract the implementation must obey.
 
 ### Inputs
 
@@ -176,7 +177,7 @@ Notes:
 With `N` samples over `[0, TAU)`:
 
 - `scale = N as f32 / TAU`
-- `t = r * scale`  (expected in `[0, N)`)
+- `t = r * scale` (expected in `[0, N)`)
 - `i0 = floor(t)` as usize
 - `frac = t - (i0 as f32)` in `[0, 1)`
 - `i1 = (i0 + 1) & (N - 1)` if `N` is power-of-two, else modulo
@@ -246,12 +247,12 @@ Suggested test progression:
 1. Keep the special-case “golden bits” test passing (NaN/inf/subnormal handling).
 2. Keep the “outputs are canonical” test passing for a sample sweep.
 3. Turn on the WIP error-budget test:
-   - un-ignore it
-   - decide a concrete `max_ulp` and/or `max_abs` threshold
-   - commit that threshold with a short rationale in the test doc comment
+    - un-ignore it
+    - decide a concrete `max_ulp` and/or `max_abs` threshold
+    - commit that threshold with a short rationale in the test doc comment
 4. Add a compact “finite golden vector” (optional):
-   - pick ~32 angles (including quadrant boundaries and midpoints)
-   - assert `sin.to_bits()` and `cos.to_bits()` equal committed constants
+    - pick ~32 angles (including quadrant boundaries and midpoints)
+    - assert `sin.to_bits()` and `cos.to_bits()` equal committed constants
 
 ### Step 10 — Document the policy compliance
 
@@ -277,8 +278,8 @@ Two workable strategies:
 
 1. Write a tiny generator tool (Rust `xtask` or a script under `scripts/`).
 2. Use a known-stable reference implementation to generate high-precision values:
-   - If using Python, pin interpreter + deps and emit u32 bits.
-   - If using Rust, consider a BigFloat crate or a known “software libm” implementation.
+    - If using Python, pin interpreter + deps and emit u32 bits.
+    - If using Rust, consider a BigFloat crate or a known “software libm” implementation.
 3. Emit `u32` bit patterns into a Rust source file.
 4. Commit the generated file so all builds use identical bits.
 

@@ -1,8 +1,9 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# WARP View Protocol (WVP)
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
+# WARP View Protocol (WVP)
+
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
 A narrow, deterministic pub/sub protocol for sharing **WARP streams** (snapshots + diffs over a renderable graph) between tools via the session service.
 
@@ -35,7 +36,7 @@ The current wire schema is intentionally small:
 - `handshake` / `handshake_ack`
 - `subscribe_warp { warp_id }`
 - `warp_stream { warp_id, frame }`
-  - `frame = Snapshot(WarpSnapshot) | Diff(WarpDiff)`
+    - `frame = Snapshot(WarpSnapshot) | Diff(WarpDiff)`
 - `notification`
 - `error`
 
@@ -45,8 +46,8 @@ See `crates/echo-session-proto/src/lib.rs` and `crates/echo-session-proto/src/wi
 
 - **Snapshots** are authoritative full-state resets for a `WarpId` at a specific epoch.
 - **Diffs** must be gapless for live streams:
-  - `from_epoch == last_epoch`
-  - `to_epoch == from_epoch + 1`
+    - `from_epoch == last_epoch`
+    - `to_epoch == from_epoch + 1`
 - **Hashing:** `WarpSnapshot::state_hash` / `WarpDiff::state_hash` are optional. When present, consumers should verify them and treat mismatches as desync.
 
 ## Consumer Algorithm (per `WarpId`)
@@ -57,14 +58,14 @@ Tools that consume a WARP stream keep a per-`WarpId` state machine:
 2. On `Snapshot(epoch = e)`: set epoch to `e`, replace local graph, (optionally) verify `state_hash`.
 3. On `Diff(from = e, to = e+1)`: apply ops; advance epoch; (optionally) verify `state_hash`.
 4. Any gap or hash mismatch is a protocol error:
-   - today: disconnect + reconnect (simple, explicit),
-   - future: formalize a resync request flow (see backlog).
+    - today: disconnect + reconnect (simple, explicit),
+    - future: formalize a resync request flow (see backlog).
 
 ## Session Service Behavior (hub)
 
 - Track producer per `WarpId`; reject non‑producer publishes with an `Error` response.
 - Track the latest epoch and latest snapshot per `WarpId`:
-  - when a subscriber subscribes and a snapshot exists, the hub sends the latest snapshot immediately.
+    - when a subscriber subscribes and a snapshot exists, the hub sends the latest snapshot immediately.
 - Validate gapless diffs from the producer; if a diff is non-sequential, reject and do not fan out.
 - Fan‑out valid `warp_stream` frames and `notification` messages to subscribed clients via per-connection outboxes.
 

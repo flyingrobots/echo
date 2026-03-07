@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 <!-- markdownlint-disable MD024 -->
+
 # RFC: MaterializationBus Completion
 
 **Status:** Complete
@@ -167,13 +168,13 @@ rule authors to think: "Am I iterating deterministically? Do I need unique subke
 
 ### Files to Create/Modify
 
-| File                                     | Action                                              |
-| ---------------------------------------- | --------------------------------------------------- |
-| `src/materialization/emission_port.rs`   | **Create** — trait definition                       |
-| `src/materialization/scoped_emitter.rs`  | **Create** — adapter implementation                 |
-| `src/materialization/mod.rs`             | **Modify** — export new types                       |
-| `src/materialization/bus.rs`             | **Modify** — add DuplicateEmission, update emit()   |
-| `src/engine.rs` (or equivalent)          | **Modify** — create ScopedEmitter per rule          |
+| File                                    | Action                                            |
+| --------------------------------------- | ------------------------------------------------- |
+| `src/materialization/emission_port.rs`  | **Create** — trait definition                     |
+| `src/materialization/scoped_emitter.rs` | **Create** — adapter implementation               |
+| `src/materialization/mod.rs`            | **Modify** — export new types                     |
+| `src/materialization/bus.rs`            | **Modify** — add DuplicateEmission, update emit() |
+| `src/engine.rs` (or equivalent)         | **Modify** — create ScopedEmitter per rule        |
 
 ---
 
@@ -370,12 +371,12 @@ fn bitwise_and(a: &[u8], b: &[u8]) -> Vec<u8> {
 
 ### Files to Create/Modify
 
-| File                                   | Action                                           |
-| -------------------------------------- | ------------------------------------------------ |
-| `src/materialization/reduce_op.rs`     | **Create** — enum + apply()                      |
-| `src/materialization/channel.rs`       | **Modify** — update ChannelPolicy                |
-| `src/materialization/bus.rs`           | **Modify** — call ReduceOp::apply() in finalize  |
-| `tests/materialization_determinism.rs` | **Add** — reduce op tests                        |
+| File                                   | Action                                          |
+| -------------------------------------- | ----------------------------------------------- |
+| `src/materialization/reduce_op.rs`     | **Create** — enum + apply()                     |
+| `src/materialization/channel.rs`       | **Modify** — update ChannelPolicy               |
+| `src/materialization/bus.rs`           | **Modify** — call ReduceOp::apply() in finalize |
+| `tests/materialization_determinism.rs` | **Add** — reduce op tests                       |
 
 ---
 
@@ -395,10 +396,10 @@ Current tests run only on the host platform.
 
 Two-layer testing:
 
-| Layer              | Environment        | Trigger                 | Purpose                        |
-| ------------------ | ------------------ | ----------------------- | ------------------------------ |
-| **DIND**           | Docker-in-Docker   | `cargo xtask dind-test` | Local dev, fast iteration      |
-| **GitHub Actions** | Native runners     | Push/PR                 | Gate merges, real environments |
+| Layer              | Environment      | Trigger                 | Purpose                        |
+| ------------------ | ---------------- | ----------------------- | ------------------------------ |
+| **DIND**           | Docker-in-Docker | `cargo xtask dind-test` | Local dev, fast iteration      |
+| **GitHub Actions** | Native runners   | Push/PR                 | Gate merges, real environments |
 
 ### 3.1 DIND Harness Extension
 
@@ -435,73 +436,73 @@ All three must produce identical `materialization_digest`.
 name: Determinism
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
 
 jobs:
-  determinism-matrix:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            target: x86_64-apple-darwin
+    determinism-matrix:
+        strategy:
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+                include:
+                    - os: ubuntu-latest
+                      target: x86_64-unknown-linux-gnu
+                    - os: macos-latest
+                      target: x86_64-apple-darwin
 
-    runs-on: ${{ matrix.os }}
+        runs-on: ${{ matrix.os }}
 
-    steps:
-      - uses: actions/checkout@v4
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-action@stable
-        with:
-          targets: ${{ matrix.target }},wasm32-unknown-unknown
+            - name: Install Rust
+              uses: dtolnay/rust-action@stable
+              with:
+                  targets: ${{ matrix.target }},wasm32-unknown-unknown
 
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+            - name: Install wasm-pack
+              run: cargo install wasm-pack
 
-      - name: Run determinism tests
-        run: cargo test -p warp-core --test materialization_determinism
+            - name: Run determinism tests
+              run: cargo test -p warp-core --test materialization_determinism
 
-      - name: Run WASM determinism tests
-        run: wasm-pack test --node crates/warp-core
+            - name: Run WASM determinism tests
+              run: wasm-pack test --node crates/warp-core
 
-      - name: Capture materialization digest
-        id: digest
-        run: |
-          DIGEST=$(cargo run -p echo-dind-tests --bin capture-digest)
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+            - name: Capture materialization digest
+              id: digest
+              run: |
+                  DIGEST=$(cargo run -p echo-dind-tests --bin capture-digest)
+                  echo "digest=$DIGEST" >> $GITHUB_OUTPUT
 
-      - name: Upload digest artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: digest-${{ matrix.os }}
-          path: digest.txt
+            - name: Upload digest artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: digest-${{ matrix.os }}
+                  path: digest.txt
 
-  verify-cross-platform:
-    needs: determinism-matrix
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all digests
-        uses: actions/download-artifact@v4
+    verify-cross-platform:
+        needs: determinism-matrix
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download all digests
+              uses: actions/download-artifact@v4
 
-      - name: Compare digests
-        run: |
-          LINUX=$(cat digest-ubuntu-latest/digest.txt)
-          MACOS=$(cat digest-macos-latest/digest.txt)
+            - name: Compare digests
+              run: |
+                  LINUX=$(cat digest-ubuntu-latest/digest.txt)
+                  MACOS=$(cat digest-macos-latest/digest.txt)
 
-          if [ "$LINUX" != "$MACOS" ]; then
-            echo "DETERMINISM FAILURE: Linux and macOS produced different digests"
-            echo "Linux: $LINUX"
-            echo "macOS: $MACOS"
-            exit 1
-          fi
+                  if [ "$LINUX" != "$MACOS" ]; then
+                    echo "DETERMINISM FAILURE: Linux and macOS produced different digests"
+                    echo "Linux: $LINUX"
+                    echo "macOS: $MACOS"
+                    exit 1
+                  fi
 
-          echo "Cross-platform determinism verified: $LINUX"
+                  echo "Cross-platform determinism verified: $LINUX"
 ```
 
 ### 3.3 Local DIND Command
@@ -519,12 +520,12 @@ cargo xtask dind-determinism
 
 ### Files to Create/Modify
 
-| File                                               | Action                                     |
-| -------------------------------------------------- | ------------------------------------------ |
-| `.github/workflows/determinism.yml`                | **Create** — CI workflow                   |
-| `crates/echo-dind-tests/src/lib.rs`                | **Modify** — add materialization_digest    |
-| `crates/echo-dind-tests/src/bin/capture-digest.rs` | **Create** — digest capture binary         |
-| `xtask/src/main.rs`                                | **Modify** — add dind-determinism command  |
+| File                                               | Action                                    |
+| -------------------------------------------------- | ----------------------------------------- |
+| `.github/workflows/determinism.yml`                | **Create** — CI workflow                  |
+| `crates/echo-dind-tests/src/lib.rs`                | **Modify** — add materialization_digest   |
+| `crates/echo-dind-tests/src/bin/capture-digest.rs` | **Create** — digest capture binary        |
+| `xtask/src/main.rs`                                | **Modify** — add dind-determinism command |
 
 ---
 

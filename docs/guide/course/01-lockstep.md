@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # 01 — Lockstep, Explained (Inputs‑Only Networking)
 
 This module explains the simplest networking model Echo wants to make easy:
@@ -21,9 +22,9 @@ Lockstep means:
 
 If two peers:
 
-1) start from the same initial state, and
-2) apply the same ordered input stream, and
-3) advance time using the same tick rules…
+1. start from the same initial state, and
+2. apply the same ordered input stream, and
+3. advance time using the same tick rules…
 
 …then they should compute the same results.
 

@@ -37,6 +37,10 @@ enum Commands {
     ManPages(ManPagesArgs),
     /// Lint docs for dead cross-references (broken markdown links).
     LintDeadRefs(LintDeadRefsArgs),
+    /// Auto-fix common markdown lint violations (SPDX headers, prettier, markdownlint).
+    MarkdownFix(MarkdownFixArgs),
+    /// Run all docs linters: markdown-fix (auto-fix) then lint-dead-refs (check).
+    DocsLint(DocsLintArgs),
 }
 
 #[derive(Args)]
@@ -135,6 +139,8 @@ fn main() -> Result<()> {
         Commands::Dind(args) => run_dind(args),
         Commands::ManPages(args) => run_man_pages(args),
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
+        Commands::MarkdownFix(args) => run_markdown_fix(&args),
+        Commands::DocsLint(args) => run_docs_lint(args),
     }
 }
 
@@ -648,6 +654,142 @@ fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[derive(Args)]
+struct MarkdownFixArgs {
+    /// Root directory to fix (default: `docs/`).
+    #[arg(long, default_value = "docs")]
+    root: PathBuf,
+
+    /// Skip prettier formatting.
+    #[arg(long)]
+    no_prettier: bool,
+
+    /// Skip markdownlint --fix.
+    #[arg(long)]
+    no_lint: bool,
+}
+
+fn run_markdown_fix(args: &MarkdownFixArgs) -> Result<()> {
+    let root = &args.root;
+    if !root.is_dir() {
+        bail!("{} is not a directory", root.display());
+    }
+
+    let mut md_files = Vec::new();
+    collect_md_files(root, &mut md_files)?;
+    md_files.sort();
+
+    if md_files.is_empty() {
+        println!("markdown-fix: no .md files found in {}", root.display());
+        return Ok(());
+    }
+
+    println!(
+        "markdown-fix: {} file(s) in {}",
+        md_files.len(),
+        root.display()
+    );
+
+    // 1) SPDX header repair
+    if Path::new("scripts/ensure_spdx.sh").exists() {
+        println!("markdown-fix: repairing SPDX headers...");
+        let status = Command::new("bash")
+            .args(["scripts/ensure_spdx.sh"])
+            .env("ECHO_AUTO_FMT", "1")
+            .status()
+            .context("failed to run scripts/ensure_spdx.sh")?;
+        if !status.success() {
+            bail!("markdown-fix: SPDX header repair failed");
+        }
+    }
+
+    let file_args: Vec<&str> = md_files.iter().filter_map(|p| p.to_str()).collect();
+
+    // 2) Prettier formatting
+    if !args.no_prettier {
+        if command_exists("npx") {
+            println!("markdown-fix: running prettier...");
+            let status = Command::new("npx")
+                .arg("prettier")
+                .arg("--write")
+                .args(&file_args)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .context("failed to run prettier")?;
+            if !status.success() {
+                bail!("markdown-fix: prettier failed");
+            }
+        } else {
+            eprintln!("markdown-fix: npx not found, skipping prettier");
+        }
+    }
+
+    // 3) markdownlint --fix
+    if !args.no_lint {
+        if command_exists("npx") {
+            println!("markdown-fix: running markdownlint --fix...");
+            let status = Command::new("npx")
+                .arg("markdownlint-cli2")
+                .arg("--fix")
+                .args(&file_args)
+                .status()
+                .context("failed to run markdownlint-cli2")?;
+            if !status.success() {
+                // markdownlint --fix returns non-zero if unfixable errors remain.
+                // This is expected — report but don't bail.
+                eprintln!(
+                    "markdown-fix: markdownlint reported errors that --fix could not resolve"
+                );
+                eprintln!("  Run `npx markdownlint-cli2 <file>` for details");
+            }
+        } else {
+            eprintln!("markdown-fix: npx not found, skipping markdownlint");
+        }
+    }
+
+    println!("markdown-fix: done");
+    Ok(())
+}
+
+fn command_exists(cmd: &str) -> bool {
+    Command::new("which")
+        .arg(cmd)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+#[derive(Args)]
+struct DocsLintArgs {
+    /// Root directory to lint (default: `docs/`).
+    #[arg(long, default_value = "docs")]
+    root: PathBuf,
+
+    /// Also check non-markdown links (images, HTML, etc.) in lint-dead-refs.
+    #[arg(long)]
+    all: bool,
+}
+
+fn run_docs_lint(args: DocsLintArgs) -> Result<()> {
+    // Phase 1: auto-fix
+    let fix_args = MarkdownFixArgs {
+        root: args.root.clone(),
+        no_prettier: false,
+        no_lint: false,
+    };
+    run_markdown_fix(&fix_args)?;
+
+    println!();
+
+    // Phase 2: check dead refs
+    let refs_args = LintDeadRefsArgs {
+        root: args.root,
+        all: args.all,
+    };
+    run_lint_dead_refs(refs_args)
 }
 
 fn run_man_pages(args: ManPagesArgs) -> Result<()> {

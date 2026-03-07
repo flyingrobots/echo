@@ -1,29 +1,32 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Networking Specification (Phase 0.75)
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
+# Networking Specification (Phase 0.75)
+
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
 Defines Echo’s deterministic networking model based on event replication, rollback, and branch merges.
 
 ---
 
 ## Core Principle
+
 Networking transports `EventEnvelope`s; no raw state replication. Every node runs the same simulation, receiving identical events in deterministic order.
 
 ---
 
 ## Architecture Layers
 
-| Layer | Responsibility | Language |
-| ----- | -------------- | -------- |
-| Networking Core | Event replication, lockstep/rollback, authority decisions | Rust |
-| Codex’s Baby Bridge | Converts network packets into cross-branch events | Rust / Rhai |
-| Rhai Gameplay | Declares networked components/events via API | Rhai |
+| Layer               | Responsibility                                            | Language    |
+| ------------------- | --------------------------------------------------------- | ----------- |
+| Networking Core     | Event replication, lockstep/rollback, authority decisions | Rust        |
+| Codex’s Baby Bridge | Converts network packets into cross-branch events         | Rust / Rhai |
+| Rhai Gameplay       | Declares networked components/events via API              | Rhai        |
 
 ---
 
 ## Modes
+
 1. **Lockstep** – Collect inputs for tick `n` from all peers, then advance. Perfect determinism, higher latency.
 2. **Rollback (Predictive)** – Predict local inputs for a window. When authoritative events arrive, rollback to LCA tick and replay deterministically using branch tree capabilities.
 3. **Authoritative Hybrid** – Host/server acts as merge authority, selecting canonical branch and rejecting paradoxes.
@@ -34,10 +37,10 @@ Networking transports `EventEnvelope`s; no raw state replication. Every node run
 
 ```ts
 interface NetworkingPort {
-  mode: "p2p" | "client-server";
-  send(evt: EventEnvelope): void;
-  receive(): EventEnvelope[];
-  syncClock(): ChronosTick;
+    mode: "p2p" | "client-server";
+    send(evt: EventEnvelope): void;
+    receive(): EventEnvelope[];
+    syncClock(): ChronosTick;
 }
 ```
 
@@ -65,6 +68,7 @@ fn on_player_input(evt) {
 ---
 
 ## Determinism Constraints
+
 - All network data serialized via canonical encoder; hashed for verification.
 - Clock sync uses tick counts, not wall time.
 - Packet loss handled via resend; dedup through `envelopeHash`.

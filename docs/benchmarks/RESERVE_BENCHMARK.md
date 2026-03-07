@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Reserve Independence Benchmark
 
 ## Overview
@@ -18,6 +19,7 @@ Added comprehensive benchmarking for the `reserve()` independence checking funct
 - Input sizes: 10, 100, 1K, 3K, 10K, 30K rewrites
 
 **Key Design Choices:**
+
 - Uses no-op rule to isolate reserve cost from executor overhead
 - All entities independent (write different nodes) → all reserves succeed
 - Overlapping factor_masks prevent fast-path early exits
@@ -26,11 +28,13 @@ Added comprehensive benchmarking for the `reserve()` independence checking funct
 ### 2. Dashboard Integration
 
 **Files Modified:**
+
 - `docs/benchmarks/index.html` - Added reserve_independence to GROUPS
 - `scripts/bench_bake.py` - Added to GROUPS list for baking
 - `crates/warp-benches/Cargo.toml` - Registered benchmark with harness=false
 
 **Visual Style:**
+
 - Color: `#7dcfff` (cyan)
 - Line style: `dash: '2,6'` (short dashes)
 - Label: "Reserve Independence Check"
@@ -40,23 +44,25 @@ Added comprehensive benchmarking for the `reserve()` independence checking funct
 Benchmark results for reserve() with n rewrites (each checking against k-1 prior):
 
 | n (rewrites) | Mean Time | Time per Reserve | Throughput |
-|--------------|-----------|------------------|------------|
-| 10 | 8.58 µs | 858 ns | 1.17 M/s |
-| 100 | 81.48 µs | 815 ns | 1.23 M/s |
-| 1,000 | 827 µs | 827 ns | 1.21 M/s |
-| 3,000 | 3.37 ms | 1.12 µs | 894 K/s |
-| 10,000 | 11.30 ms | 1.13 µs | 885 K/s |
-| 30,000 | 35.57 ms | 1.19 µs | 843 K/s |
+| ------------ | --------- | ---------------- | ---------- |
+| 10           | 8.58 µs   | 858 ns           | 1.17 M/s   |
+| 100          | 81.48 µs  | 815 ns           | 1.23 M/s   |
+| 1,000        | 827 µs    | 827 ns           | 1.21 M/s   |
+| 3,000        | 3.37 ms   | 1.12 µs          | 894 K/s    |
+| 10,000       | 11.30 ms  | 1.13 µs          | 885 K/s    |
+| 30,000       | 35.57 ms  | 1.19 µs          | 843 K/s    |
 
 **Analysis:**
+
 - **Per-reserve time remains roughly constant** (~800-1200 ns) across all scales
 - This proves O(m) complexity, **independent of k** (# prior reserves)
 - Slight slowdown at larger scales likely due to:
-  - Hash table resizing overhead
-  - Cache effects
-  - Memory allocation
+    - Hash table resizing overhead
+    - Cache effects
+    - Memory allocation
 
 **Comparison to Theoretical O(k×m):**
+
 - If reserve were O(k×m), the n=30,000 case would be ~900× slower than n=10
 - Actual: only 4.1× slower (35.57ms vs 8.58µs)
 - **Validates O(m) claim empirically**
@@ -64,16 +70,19 @@ Benchmark results for reserve() with n rewrites (each checking against k-1 prior
 ## Running the Benchmarks
 
 ### Quick Test
+
 ```bash
 cargo bench -p warp-benches --bench reserve_independence
 ```
 
 ### Full Dashboard Generation
+
 ```bash
 make bench-bake  # Runs all benches + generates docs/benchmarks/report-inline.html
 ```
 
 ### View Dashboard
+
 ```bash
 # Option 1: Open inline report (works with file://)
 open docs/benchmarks/report-inline.html

@@ -1,14 +1,16 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# Runtime Configuration Specification (Phase 0.75)
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
+# Runtime Configuration Specification (Phase 0.75)
+
+> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
 Details deterministic configuration schema, load order, and hashing for Echo.
 
 ---
 
 ## Principles
+
 - Config files produce identical bytes across platforms after canonicalization.
 - Configuration changes recorded and hashable for provenance.
 - No environment-specific defaults; explicit overrides only.
@@ -19,17 +21,17 @@ Details deterministic configuration schema, load order, and hashing for Echo.
 
 ```ts
 interface EchoConfig {
-  version: string;
-  mathMode: "float32" | "fixed32";
-  chunkSize: number;
-  backpressureMode: "throw" | "dropOldest" | "dropNewest";
-  traceLevel: "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";
-  entropyWeights: Record<string, number>;
-  inspector: {
-    enabled: boolean;
-    port: number;
-  };
-  plugins: string[];
+    version: string;
+    mathMode: "float32" | "fixed32";
+    chunkSize: number;
+    backpressureMode: "throw" | "dropOldest" | "dropNewest";
+    traceLevel: "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";
+    entropyWeights: Record<string, number>;
+    inspector: {
+        enabled: boolean;
+        port: number;
+    };
+    plugins: string[];
 }
 ```
 
@@ -38,6 +40,7 @@ Canonical ordering: keys sorted lexicographically, numeric fields clamped to val
 ---
 
 ## Load Pipeline
+
 1. Load `echo.config.json` from project root.
 2. Apply optional overlay `echo.config.local.json` (must be deterministic in CI).
 3. Validate against JSON Schema.
@@ -47,12 +50,14 @@ Canonical ordering: keys sorted lexicographically, numeric fields clamped to val
 ---
 
 ## Overrides & Diff
+
 - Configuration cannot be mutated at runtime except via explicit `config/update` events (requires capability `world:config`).
 - Each update produces `ConfigDiffRecord` with old/new values; replay reproduces sequence.
 
 ---
 
 ## CLI Commands
+
 - `echo config --dump` – prints canonical config JSON + hash.
 - `echo config --verify` – recomputes hash to detect tampering.
 - `echo config --schema` – outputs JSON Schema.
@@ -60,6 +65,7 @@ Canonical ordering: keys sorted lexicographically, numeric fields clamped to val
 ---
 
 ## Determinism
+
 - Hash recorded in determinism log; mismatches trigger `ERR_CONFIG_HASH_MISMATCH`.
 - Config load order (base, overlay) must be identical for all deployments.
 

@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Scheduler `reserve()` Implementation Validation
 
 This document has been **merged** into the canonical warp-core scheduler doc:
@@ -18,4 +19,5 @@ It remains as a stable link target for older references.
 ---
 
 If you’re here for evidence details (atomicity/determinism/complexity), read:
+
 - [docs/scheduler-warp-core.md](./scheduler-warp-core.md)

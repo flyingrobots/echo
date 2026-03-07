@@ -73,7 +73,7 @@ Echo represents a depth-0 attachment as a **typed atom**:
 Key property:
 
 - The `type_id` is part of the deterministic boundary.
-  - same bytes with a different meaning is not allowed to collide.
+    - same bytes with a different meaning is not allowed to collide.
 
 Attachment bytes are opaque to the engine unless a rule explicitly decodes them.
 
@@ -98,12 +98,12 @@ Canonical statement: `docs/warp-two-plane-law.md`.
 Enforcement in `warp-core` is by construction:
 
 - The only engine-recognized “structure inside data” mechanism is `AttachmentValue::Descend(WarpId)` (explicit portals).
-  - `AtomPayload.bytes` are treated as opaque data; the engine never interprets them as skeleton structure.
+    - `AtomPayload.bytes` are treated as opaque data; the engine never interprets them as skeleton structure.
 - Matching/indexing/scheduling operate on `GraphStore` skeleton structure.
-  - Attachments are only read/decoded if a rule explicitly calls attachment APIs.
+    - Attachments are only read/decoded if a rule explicitly calls attachment APIs.
 - Typed decode failure is deterministic at the rule boundary.
-  - For example, invalid motion payload bytes result in `ApplyResult::NoMatch` (rule does not apply):
-    `crates/warp-core/tests/engine_motion_negative_tests.rs`.
+    - For example, invalid motion payload bytes result in `ApplyResult::NoMatch` (rule does not apply):
+      `crates/warp-core/tests/engine_motion_negative_tests.rs`.
 - Attachment identity includes `type_id` at the deterministic boundary:
   `crates/warp-core/tests/atom_payload_digest_tests.rs`.
 
@@ -124,7 +124,7 @@ Echo’s solution is **flattened indirection**:
 That `Descend(...)` does not contain a graph.
 It points to another graph **instance** that lives alongside the current one.
 
-Terminology note: “portals/instances” are *state recursion*. “Wormholes” are a different concept
+Terminology note: “portals/instances” are _state recursion_. “Wormholes” are a different concept
 (tick-range compression in the history/provenance plane). See
 `docs/architecture/TERMS_WARP_STATE_INSTANCES_PORTALS_WORMHOLES.md`.
 
@@ -170,9 +170,9 @@ To enforce those invariants at the boundary artifact level, portal authoring is 
 
 This single op:
 
-1) ensures the child instance exists and is consistent
-2) ensures the child root node exists (create or validate)
-3) sets the portal slot to `Descend(child_warp)`
+1. ensures the child instance exists and is consistent
+2. ensures the child root node exists (create or validate)
+3. sets the portal slot to `Descend(child_warp)`
 
 This prevents history where “the portal was set” but “the child universe never existed” (or vice versa).
 
@@ -180,7 +180,7 @@ This prevents history where “the portal was set” but “the child universe n
 
 The subtle correctness law is:
 
-- Any rewrite executed *inside* a descended instance must record READs of the portal chain that makes that instance reachable.
+- Any rewrite executed _inside_ a descended instance must record READs of the portal chain that makes that instance reachable.
 
 Echo enforces this in `Engine::apply_in_warp(tx, warp_id, rule, scope, descent_stack)`:
 
@@ -201,12 +201,12 @@ which makes slicing automatically include the portal chain.
 
 At a high level, `warp-core` runs:
 
-1) **Begin** a transaction
-2) **Apply** rules to enqueue candidate rewrites
-3) **Commit**:
-   - deterministically schedule a conflict-free subset
-   - execute them
-   - emit deterministic boundary artifacts
+1. **Begin** a transaction
+2. **Apply** rules to enqueue candidate rewrites
+3. **Commit**:
+    - deterministically schedule a conflict-free subset
+    - execute them
+    - emit deterministic boundary artifacts
 
 Conflict detection is based on **Footprints** (read/write sets over nodes/edges/attachments/ports).
 
@@ -217,14 +217,14 @@ Conflict detection is based on **Footprints** (read/write sets over nodes/edges/
 Each committed tick can emit:
 
 - **Snapshot**
-  - commits to `state_root` (canonical hash of reachable state)
-  - commits to `patch_digest` (the replayable delta boundary)
+    - commits to `state_root` (canonical hash of reachable state)
+    - commits to `patch_digest` (the replayable delta boundary)
 - **TickReceipt**
-  - records which candidates were applied vs rejected (and why)
-  - can include within-tick blocking causality
+    - records which candidates were applied vs rejected (and why)
+    - can include within-tick blocking causality
 - **WarpTickPatchV1**
-  - the replayable delta (“these canonical ops happened”)
-  - conservative `in_slots` / `out_slots` for slicing
+    - the replayable delta (“these canonical ops happened”)
+    - conservative `in_slots` / `out_slots` for slicing
 
 The key design stance is:
 
@@ -262,10 +262,10 @@ Stage B1 makes this work for descended instances because:
 
 Recommended reading order:
 
-1) `docs/guide/warp-primer.md` — you are here (what WARP means in Echo).
-2) `docs/spec-warp-core.md` — `warp-core` crate tour and API map.
-3) `docs/warp-two-plane-law.md` — the hard laws (structure vs data, no hidden edges).
-4) `docs/spec-merkle-commit.md` — state hashing + commit header semantics.
-5) `docs/spec-warp-tick-patch.md` — tick patch boundary artifact (delta ops, hashing).
-6) `docs/spec/SPEC-0002-descended-attachments-v1.md` — WarpInstances, portals, merge/DAG slicing semantics.
-   (Terminology note: wormholes are *history compression*, not state descent; see the terms doc above.)
+1. `docs/guide/warp-primer.md` — you are here (what WARP means in Echo).
+2. `docs/spec-warp-core.md` — `warp-core` crate tour and API map.
+3. `docs/warp-two-plane-law.md` — the hard laws (structure vs data, no hidden edges).
+4. `docs/spec-merkle-commit.md` — state hashing + commit header semantics.
+5. `docs/spec-warp-tick-patch.md` — tick patch boundary artifact (delta ops, hashing).
+6. `docs/spec/SPEC-0002-descended-attachments-v1.md` — WarpInstances, portals, merge/DAG slicing semantics.
+   (Terminology note: wormholes are _history compression_, not state descent; see the terms doc above.)

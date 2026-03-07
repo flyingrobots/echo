@@ -22,6 +22,12 @@
   cross-references. Handles relative paths, VitePress root-relative links,
   and `docs/public/` asset resolution. Use `--all` to also check non-markdown
   file references (images, HTML).
+- **New:** `cargo xtask markdown-fix` — auto-fixes common markdown lint
+  violations: SPDX header repair, prettier formatting, and markdownlint
+  `--fix`. Supports `--no-prettier` and `--no-lint` flags.
+- **New:** `cargo xtask docs-lint` — combined pipeline that runs
+  `markdown-fix` followed by `lint-dead-refs`. Single command for full docs
+  hygiene.
 - **New:** Configuration reference (`docs/guide/configuration-reference.md`)
   covering engine parameters, protocol constants, and environment variables.
 - **New:** Cargo feature flags reference (`docs/guide/cargo-features.md`)

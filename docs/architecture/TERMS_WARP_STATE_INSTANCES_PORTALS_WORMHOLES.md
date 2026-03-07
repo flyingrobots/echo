@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Terms: WARP State, SkeletonGraph, Instances, Portals, Wormholes
 
 Status: Canonical Terminology (Project Law)  
@@ -7,6 +8,7 @@ Date: 2025-12-30
 Scope: Echo / WARP implementation
 
 This document exists to prevent terminology collisions across:
+
 - the published WARP papers (AIΩN Foundations series),
 - older book drafts, and
 - the Echo codebase.
@@ -22,12 +24,14 @@ If a term in code/docs conflicts with this file, **this file wins**.
 Meaning: the theoretical two-plane state object.
 
 `WarpState` is:
+
 - **SkeletonGraph** `G` (explicit structure)
 - **Attachment plane** `A` (payloads over skeleton vertices/edges)
 
 Informally: `U = (G, A)` and `π(U) = G`.
 
 In code today:
+
 - `warp_core::WarpState` is the multi-instance container.
 - Each instance’s skeleton + attachments live in `warp_core::GraphStore`.
 
@@ -36,6 +40,7 @@ In code today:
 Meaning: the explicit structural graph that rewriting/scheduling/slicing operates on.
 
 SkeletonGraph contains:
+
 - nodes, edges, ports (if applicable)
 - adjacency / incidence relations
 - stable ids
@@ -47,6 +52,7 @@ Law: SkeletonGraph is the **hot path**. Matching/indexing must remain skeleton-o
 Meaning: attachments assigned to skeleton elements, stored separately from the skeleton.
 
 Attachment values:
+
 - `Atom(TypeId, Bytes)` (depth-0)
 - `Descend(WarpId)` (indirection to a child instance)
 
@@ -79,6 +85,7 @@ Meaning: a namespace/layer for a skeleton graph + its attachments.
 Instances are identified by `WarpId`.
 
 Each instance has:
+
 - `warp_id`
 - `root_node` (entry point into its skeleton)
 - `parent: Option<AttachmentKey>` (the attachment slot that descends into it; `None` for the root instance)
@@ -107,6 +114,7 @@ Portals are not “edges hidden in bytes.” Portals are explicit, engine-visibl
 ### `OpenPortal` (canonical operation)
 
 Meaning: the atomic authoring op that:
+
 - establishes/creates the child instance, and
 - sets the `Descend(child_warp)` attachment value
 
@@ -151,6 +159,7 @@ Law: slot conflicts must be resolved explicitly by the merge patch (no implicit 
 Meaning: a provenance subgraph sufficient to replay/justify demanded outputs.
 
 Slicing may be:
+
 - worldline slice (single-parent fast path), or
 - DAG slice (multi-parent general case)
 
@@ -160,10 +169,10 @@ Law: if a demanded slot is in a descended instance, the slice must include the p
 
 ## Project laws (quick list)
 
-1) No hidden edges: never smuggle structure inside atom bytes.
-2) Skeleton hot path: skeleton rewrites never decode attachments.
-3) Typed atoms: Atom = (TypeId, Bytes); TypeId participates in canonical identity.
-4) Flattened recursion: Descend uses indirection (WarpId), not nested structs.
-5) Atomic portals: create child + set Descend in one canonical op (`OpenPortal`).
-6) Merge explicitness: multi-parent conflicts resolved by merge patch writes.
-7) Wormhole reserved: wormhole = history/payload tick-range compression only.
+1. No hidden edges: never smuggle structure inside atom bytes.
+2. Skeleton hot path: skeleton rewrites never decode attachments.
+3. Typed atoms: Atom = (TypeId, Bytes); TypeId participates in canonical identity.
+4. Flattened recursion: Descend uses indirection (WarpId), not nested structs.
+5. Atomic portals: create child + set Descend in one canonical op (`OpenPortal`).
+6. Merge explicitness: multi-parent conflicts resolved by merge patch writes.
+7. Wormhole reserved: wormhole = history/payload tick-range compression only.

@@ -1,6 +1,8 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Serialization Protocol Specification (Phase 0.5)
+
 > **Background:** For a gentler introduction, see [ELI5 Primer](/guide/eli5) (hashing section).
 
 Defines the canonical encoding for Echo’s snapshots, diffs, events, and block manifests. Ensures identical bytes across platforms and supports content-addressed storage.
@@ -8,6 +10,7 @@ Defines the canonical encoding for Echo’s snapshots, diffs, events, and block 
 ---
 
 > **Implementation Status Legend:**
+>
 > - ✅ **Implemented** — enforced in this repo today (runtime or tests)
 > - ⚠️ **Partial** — some pieces exist, others are in-flight
 > - 🗺️ **Planned** — vision/aspirational, not yet implemented
@@ -36,21 +39,22 @@ Defines the canonical encoding for Echo’s snapshots, diffs, events, and block 
 
 ```ts
 interface ComponentSchemaRecord {
-  typeId: number;
-  version: number;
-  fields: Array<{ name: string; type: string; offset: number; size: number }>;
+    typeId: number;
+    version: number;
+    fields: Array<{ name: string; type: string; offset: number; size: number }>;
 }
 ```
 
 Encoding: for each record
+
 1. `typeId (uint32)`
 2. `version (uint32)`
 3. `fieldCount (uint16)`
 4. For each field (sorted by `name`):
-   - `name (string)`
-   - `type (string)`
-   - `offset (uint32)`
-   - `size (uint32)`
+    - `name (string)`
+    - `type (string)`
+    - `offset (uint32)`
+    - `size (uint32)`
 
 Ledger hash = BLAKE3(concat(record bytes)). Stored in snapshot header.
 
@@ -59,15 +63,16 @@ Ledger hash = BLAKE3(concat(record bytes)). Stored in snapshot header.
 ## Chunk Payload Encoding 🗺️
 
 Per chunk:
+
 1. `chunkId (string)`
 2. `archetypeId (uint32)`
 3. `version (uint64)`
 4. `componentCount (uint16)`
 5. For each component:
-   - `componentType (uint32)`
-   - `slotCount (uint32)`
-   - `payloadBytesLength (uint32)`
-   - `payloadBytes` (raw column data; already canonical due to Float32Array + deterministic order)
+    - `componentType (uint32)`
+    - `slotCount (uint32)`
+    - `payloadBytesLength (uint32)`
+    - `payloadBytes` (raw column data; already canonical due to Float32Array + deterministic order)
 
 Chunk blocks stored individually; referenced by hash.
 
@@ -76,6 +81,7 @@ Chunk blocks stored individually; referenced by hash.
 ## Diff Encoding 🗺️
 
 For each `ChunkDiff` (sorted by `chunkId`, `componentType`):
+
 1. `chunkId (string)`
 2. `componentType (uint32)`
 3. `versionBefore (uint64)`
@@ -106,6 +112,7 @@ Snapshot hash = BLAKE3(header + chunkRefs).
 ## Event Encoding 🗺️
 
 Events use a canonical binary encoding (typed bytes only):
+
 1. `id (uint32)`
 2. `kind (string)`
 3. `chronos (uint64)`
@@ -128,10 +135,10 @@ Used by persistence to describe relationships among blocks.
 
 ```ts
 interface BlockManifest {
-  nodes: Hash[];
-  snapshots: Hash[];
-  diffs: Hash[];
-  payloads: Hash[];
+    nodes: Hash[];
+    snapshots: Hash[];
+    diffs: Hash[];
+    payloads: Hash[];
 }
 ```
 
@@ -173,45 +180,47 @@ flowchart TD
 ### State Root (`state_root`) ✅
 
 1. **Root binding**:
-   - `root.warp_id` (32 bytes raw)
-   - `root.local_id` (32 bytes raw)
+    - `root.warp_id` (32 bytes raw)
+    - `root.local_id` (32 bytes raw)
 2. **Per reachable warp instance**, iterated in lexicographic `WarpId` order:
-   - `instance.warp_id` (32 bytes)
-   - `instance.root_node` (32 bytes)
-   - `instance.parent` (presence tag + bytes)
-     - `0u8` if `None`
-     - `1u8` then `AttachmentKey` bytes if `Some`
+    - `instance.warp_id` (32 bytes)
+    - `instance.root_node` (32 bytes)
+    - `instance.parent` (presence tag + bytes)
+        - `0u8` if `None`
+        - `1u8` then `AttachmentKey` bytes if `Some`
 3. **Nodes** within the instance, iterated by ascending `NodeId`:
-   - `node_id` (32 bytes)
-   - `node.ty` (32 bytes)
-   - `node.attachment` (presence tag + bytes)
+    - `node_id` (32 bytes)
+    - `node.ty` (32 bytes)
+    - `node.attachment` (presence tag + bytes)
 4. **Edges** grouped by `from` node, iterated by ascending `from` `NodeId`:
-   - `from` (32 bytes)
-   - `edge_count` (`u64` LE)
-   - for each edge sorted by `EdgeId`:
-     - `edge.id` (32 bytes)
-     - `edge.ty` (32 bytes)
-     - `edge.to` (32 bytes)
-     - `edge.attachment` (presence tag + bytes)
+    - `from` (32 bytes)
+    - `edge_count` (`u64` LE)
+    - for each edge sorted by `EdgeId`:
+        - `edge.id` (32 bytes)
+        - `edge.ty` (32 bytes)
+        - `edge.to` (32 bytes)
+        - `edge.attachment` (presence tag + bytes)
 
 **AttachmentKey encoding** ✅:
+
 - `owner_tag` (1 byte)
 - `plane_tag` (1 byte)
 - `owner`:
-  - Node: `warp_id` (32 bytes) + `local_id` (32 bytes)
-  - Edge: `warp_id` (32 bytes) + `local_id` (32 bytes)
+    - Node: `warp_id` (32 bytes) + `local_id` (32 bytes)
+    - Edge: `warp_id` (32 bytes) + `local_id` (32 bytes)
 
 **AttachmentValue encoding** ✅:
+
 - `None` → `0u8`
 - `Some` → `1u8` followed by:
-  - Atom:
-    - tag `1u8`
-    - `type_id` (32 bytes)
-    - `byte_len` (`u64` LE)
-    - `payload_bytes` (exact bytes)
-  - Descend:
-    - tag `2u8`
-    - `warp_id` (32 bytes)
+    - Atom:
+        - tag `1u8`
+        - `type_id` (32 bytes)
+        - `byte_len` (`u64` LE)
+        - `payload_bytes` (exact bytes)
+    - Descend:
+        - tag `2u8`
+        - `warp_id` (32 bytes)
 
 `state_root = BLAKE3(canonical_bytes)`
 

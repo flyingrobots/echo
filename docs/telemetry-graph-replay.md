@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Telemetry: Graph Snapshot for Repro/Replay (Design Note)
 
 Status: Draft • Scope: warp-core (dev-only feature)
@@ -12,34 +13,40 @@ When a conflict or unexpected outcome occurs during a transaction, logs with cou
 
 - Add a feature-gated telemetry event `graph_snapshot` that emits the canonical, stable serialization of the reachable subgraph.
 - Trigger points (feature-controlled):
-  - On first conflict within a tx (sampled or rate-limited)
-  - On commit (debug builds only)
+    - On first conflict within a tx (sampled or rate-limited)
+    - On commit (debug builds only)
 - Consumers can store the JSONL stream and later reconstruct the exact state to reproduce behavior.
 
 ## Constraints
 
 - Deterministic ordering and bytes: leverage the existing snapshot hash traversal and encoding rules. Do NOT invent a second ordering.
 - Size control:
-  - Emit only the reachable subgraph from `root`.
-  - Optionally redact payloads or cap payload size via a `telemetry_max_payload_bytes` knob.
-  - Allow sampling (e.g., `N` per minute) to keep overhead bounded.
+    - Emit only the reachable subgraph from `root`.
+    - Optionally redact payloads or cap payload size via a `telemetry_max_payload_bytes` knob.
+    - Allow sampling (e.g., `N` per minute) to keep overhead bounded.
 - Security: feature must be off by default; never ship in production. Payloads may contain domain data.
 
 ## Event Shape (JSONL)
 
-```
+```json
 {
-  "timestamp_micros": 1234567890,
-  "tx_id": 42,
-  "event": "graph_snapshot",
-  "root": "<hex NodeId>",
-  "snapshot_hash": "<hex blake3>",
-  "nodes": [
-    { "id": "<hex>", "ty": "<hex>", "payload": "<base64 or omitted>" }
-  ],
-  "edges": [
-    { "id": "<hex>", "from": "<hex>", "to": "<hex>", "ty": "<hex>", "payload": "<base64 or omitted>" }
-  ]
+    "timestamp_micros": 1234567890,
+    "tx_id": 42,
+    "event": "graph_snapshot",
+    "root": "<hex NodeId>",
+    "snapshot_hash": "<hex blake3>",
+    "nodes": [
+        { "id": "<hex>", "ty": "<hex>", "payload": "<base64 or omitted>" }
+    ],
+    "edges": [
+        {
+            "id": "<hex>",
+            "from": "<hex>",
+            "to": "<hex>",
+            "ty": "<hex>",
+            "payload": "<base64 or omitted>"
+        }
+    ]
 }
 ```
 
@@ -63,4 +70,3 @@ When a conflict or unexpected outcome occurs during a transaction, logs with cou
 - [ ] Feature-gate emitting on conflict (first per tx) and on commit (debug only).
 - [ ] CLI command: `warp-cli replay --from telemetry.jsonl --tx 42`.
 - [ ] Document redaction policy and sampling knobs.
-

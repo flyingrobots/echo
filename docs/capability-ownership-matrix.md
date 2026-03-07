@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Capability Ownership Matrix
 
 Date: 2026-01-01
@@ -33,13 +34,13 @@ Use these columns consistently:
 ## Ratings
 
 - **Determinism**
-  - `none`: may vary per run; not replayable
-  - `best-effort`: tries to be stable but not a contract
-  - `deterministic`: replayable given pinned artifacts/inputs
+    - `none`: may vary per run; not replayable
+    - `best-effort`: tries to be stable but not a contract
+    - `deterministic`: replayable given pinned artifacts/inputs
 - **Provenance**
-  - `none`: no tracking
-  - `basic`: timestamps/ids only
-  - `strong`: hash/CID-linked; replay/audit friendly
+    - `none`: no tracking
+    - `basic`: timestamps/ids only
+    - `strong`: hash/CID-linked; replay/audit friendly
 
 ---
 
@@ -76,18 +77,18 @@ Legend (compact):
 - `det/best/none`
 - `prov: strong/basic/none`
 
-| Capability ↓ \ Layer → | Platform | Kernel | Views | Tooling | Docs |
-| --- | --- | --- | --- | --- | --- |
-| **Scheduling** | owns · beta · best · prov: basic · deps: OS scheduler, tokio | owns · beta · det · prov: strong · deps: none | consumes · beta · det · prov: strong · deps: none | consumes · beta · best · prov: basic · deps: browser/event-loop | owns · stable · det · prov: strong · deps: none |
-| **Provenance** | consumes · beta · best · prov: basic · deps: FS/network | owns · beta · det · prov: strong · deps: CID/hash | consumes · beta · det · prov: strong · deps: none | consumes · beta · det · prov: strong · deps: none | owns · stable · det · prov: strong · deps: git |
-| **Schema / Interfaces** | consumes · exp · best · prov: basic · deps: serde/json | owns · exp · det · prov: strong · deps: versioned schemas | owns · exp · det · prov: strong · deps: schema hash pinning | consumes · exp · best · prov: basic · deps: UI contracts | owns · beta · det · prov: strong · deps: docs/specs |
-| **Storage / Ledger** | owns · beta · best · prov: basic · deps: FS/DB | owns · exp · det · prov: strong · deps: content hashing | consumes · beta · det · prov: strong · deps: read-only ledger | consumes · beta · best · prov: basic · deps: localStorage/IndexedDB | owns · beta · det · prov: strong · deps: docs/specs |
-| **Time / Clocks** | owns · beta · best · prov: basic · deps: HostTime | consumes · beta · det · prov: strong · deps: Decision Records | consumes · beta · det · prov: strong · deps: Clock View | consumes · beta · best · prov: basic · deps: tool clock | owns · beta · det · prov: strong · deps: paper/spec |
-| **Networking / IO** | owns · beta · best · prov: basic · deps: TCP/WS/UDS | consumes · exp · det · prov: strong · deps: recorded claims | consumes · beta · det · prov: strong · deps: stream backlog | consumes · beta · best · prov: basic · deps: Web APIs | owns · beta · det · prov: strong · deps: procedures |
-| **Auth / Trust** | owns · exp · best · prov: basic · deps: keys/tokens | consumes · exp · det · prov: strong · deps: signed claims | consumes · exp · det · prov: strong · deps: receipts | consumes · exp · best · prov: basic · deps: auth UI | owns · exp · det · prov: strong · deps: policies |
-| **Observability** | owns · beta · best · prov: basic · deps: logs/metrics | owns · beta · det · prov: strong · deps: receipts/events | owns · beta · det · prov: strong · deps: query/index | owns · beta · best · prov: basic · deps: UI | owns · beta · det · prov: strong · deps: docs |
-| **Replay / Debug** | consumes · beta · best · prov: basic · deps: host capture | owns · beta · det · prov: strong · deps: replay log | owns · beta · det · prov: strong · deps: index | owns · beta · det · prov: strong · deps: dashboard | owns · beta · det · prov: strong · deps: paper/spec |
-| **Shared Invariants** | - | - | - | - | - |
+| Capability ↓ \ Layer →  | Platform                                                     | Kernel                                                        | Views                                                         | Tooling                                                             | Docs                                                |
+| ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------- |
+| **Scheduling**          | owns · beta · best · prov: basic · deps: OS scheduler, tokio | owns · beta · det · prov: strong · deps: none                 | consumes · beta · det · prov: strong · deps: none             | consumes · beta · best · prov: basic · deps: browser/event-loop     | owns · stable · det · prov: strong · deps: none     |
+| **Provenance**          | consumes · beta · best · prov: basic · deps: FS/network      | owns · beta · det · prov: strong · deps: CID/hash             | consumes · beta · det · prov: strong · deps: none             | consumes · beta · det · prov: strong · deps: none                   | owns · stable · det · prov: strong · deps: git      |
+| **Schema / Interfaces** | consumes · exp · best · prov: basic · deps: serde/json       | owns · exp · det · prov: strong · deps: versioned schemas     | owns · exp · det · prov: strong · deps: schema hash pinning   | consumes · exp · best · prov: basic · deps: UI contracts            | owns · beta · det · prov: strong · deps: docs/specs |
+| **Storage / Ledger**    | owns · beta · best · prov: basic · deps: FS/DB               | owns · exp · det · prov: strong · deps: content hashing       | consumes · beta · det · prov: strong · deps: read-only ledger | consumes · beta · best · prov: basic · deps: localStorage/IndexedDB | owns · beta · det · prov: strong · deps: docs/specs |
+| **Time / Clocks**       | owns · beta · best · prov: basic · deps: HostTime            | consumes · beta · det · prov: strong · deps: Decision Records | consumes · beta · det · prov: strong · deps: Clock View       | consumes · beta · best · prov: basic · deps: tool clock             | owns · beta · det · prov: strong · deps: paper/spec |
+| **Networking / IO**     | owns · beta · best · prov: basic · deps: TCP/WS/UDS          | consumes · exp · det · prov: strong · deps: recorded claims   | consumes · beta · det · prov: strong · deps: stream backlog   | consumes · beta · best · prov: basic · deps: Web APIs               | owns · beta · det · prov: strong · deps: procedures |
+| **Auth / Trust**        | owns · exp · best · prov: basic · deps: keys/tokens          | consumes · exp · det · prov: strong · deps: signed claims     | consumes · exp · det · prov: strong · deps: receipts          | consumes · exp · best · prov: basic · deps: auth UI                 | owns · exp · det · prov: strong · deps: policies    |
+| **Observability**       | owns · beta · best · prov: basic · deps: logs/metrics        | owns · beta · det · prov: strong · deps: receipts/events      | owns · beta · det · prov: strong · deps: query/index          | owns · beta · best · prov: basic · deps: UI                         | owns · beta · det · prov: strong · deps: docs       |
+| **Replay / Debug**      | consumes · beta · best · prov: basic · deps: host capture    | owns · beta · det · prov: strong · deps: replay log           | owns · beta · det · prov: strong · deps: index                | owns · beta · det · prov: strong · deps: dashboard                  | owns · beta · det · prov: strong · deps: paper/spec |
+| **Shared Invariants**   | -                                                            | -                                                             | -                                                             | -                                                                   | -                                                   |
 
 ---
 

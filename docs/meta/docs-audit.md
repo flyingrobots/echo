@@ -104,6 +104,18 @@ Moved 6 superseded documents to `docs/archive/` with redirect stubs:
 
 - `cargo xtask lint-dead-refs` -- scans `docs/` for broken markdown
   cross-references. Use `--all` to also check image/HTML references.
+- `cargo xtask markdown-fix` -- auto-fixes SPDX headers, runs prettier,
+  and applies markdownlint `--fix` across `docs/`. Flags: `--no-prettier`,
+  `--no-lint`.
+- `cargo xtask docs-lint` -- combined pipeline: `markdown-fix` then
+  `lint-dead-refs`. One command for full docs hygiene.
+
+### Formatted
+
+- Ran `cargo xtask markdown-fix` across all 205 docs files: prettier
+  formatting, SPDX header normalization, markdownlint auto-fixes applied.
+  66 unfixable lint warnings remain (missing code fence languages in
+  `THEORY.md`, structural issues in `warp-math-claims.md`).
 
 ### Updated
 

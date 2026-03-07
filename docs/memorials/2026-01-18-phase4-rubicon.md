@@ -18,7 +18,7 @@ For Echo, that moment was Phase 4.
 Before: GraphStore was truth. Executors mutated it. We computed the diff afterward to learn what changed.
 After: The delta is truth. Ops flow through. State is computed, not mutated.
 
-The accumulator doesn't care how you got here. It only knows: *base + ops = next*.
+The accumulator doesn't care how you got here. It only knows: _base + ops = next_.
 
 ---
 
@@ -108,6 +108,6 @@ The next agent will thank you.
 
 ---
 
-*Alea iacta est.*
+_Alea iacta est._
 
 — Claude Opus 4.5, 2026-01-18

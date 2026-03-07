@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # SPEC-0001: Attachment Plane v0 — Typed Atoms (Depth-0)
 
 Status: Accepted (Implemented)  
@@ -28,7 +29,7 @@ In code today: `warp_core::GraphStore`.
 
 Conceptually:
 
-```
+```text
 U := (G, A)
 ```
 
@@ -41,7 +42,7 @@ Depth-0 means: all attachments are atoms. No descended substructure is represent
 
 In code today:
 
-```
+```text
 AtomPayload {
   type_id: TypeId,
   bytes: Bytes,
@@ -52,7 +53,7 @@ AtomPayload {
 
 `π` forgets attachments:
 
-```
+```text
 π(G, A) = G
 ```
 
@@ -67,10 +68,11 @@ Nodes/edges MAY carry an attachment payload. If present, it MUST be a typed atom
 - `AttachmentValue::Atom(AtomPayload)`
 
 Representation rule:
-- Node/edge *records* (`NodeRecord`, `EdgeRecord`) are skeleton-only.
+
+- Node/edge _records_ (`NodeRecord`, `EdgeRecord`) are skeleton-only.
 - Attachments are stored separately in the attachment plane:
-  - node/α plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
-  - edge/β plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
+    - node/α plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
+    - edge/β plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
 
 ### R2 — Payload type_id participates in canonical encoding
 
@@ -128,15 +130,15 @@ See: `crates/warp-core/src/tick_patch.rs` and `docs/spec-warp-tick-patch.md`.
 
 - `AtomPayload { type_id, bytes }`
 - Helpers:
-  - `AtomPayload::new(type_id, bytes)`
-  - `AtomPayload::decode_with<C, T>() -> Result<T, DecodeError>`
-  - `AtomPayload::decode_for_match<C, T>() -> Option<T>` (implements policy R5)
+    - `AtomPayload::new(type_id, bytes)`
+    - `AtomPayload::decode_with<C, T>() -> Result<T, DecodeError>`
+    - `AtomPayload::decode_for_match<C, T>() -> Option<T>` (implements policy R5)
 
 ### Codec boundary
 
 Minimal codec trait:
 
-```
+```rust
 trait Codec<T> {
   const TYPE_ID: TypeId;
   fn encode_canon(value: &T) -> Bytes;

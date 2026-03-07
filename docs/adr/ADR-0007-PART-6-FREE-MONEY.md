@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 Alright James. Here’s the REAL™ Editor’s Edition™ Free Money™ “Free.99$” 2026 TURBO DX GAIDEN — the version you print, frame, and throw at anyone who tries to “optimize” determinism by vibes.
 
 ⸻
@@ -16,7 +17,7 @@ If somebody argues that “the threads should run in a deterministic order,” t
 
 The Theory That Matters (and ONLY the theory that matters)
 
-1) Determinism is a serialization decision, not an execution constraint
+1. Determinism is a serialization decision, not an execution constraint
 
 You don’t make parallel execution deterministic by controlling thread scheduling. You make it deterministic by ensuring that whatever happened in parallel gets collapsed into the same canonical sequence every time.
 
@@ -25,20 +26,20 @@ Merge: deterministic ordering required
 Commit: deterministic hashing required
 
 If you try to push determinism “down” into execution scheduling, you will:
- • slow everything down
- • still miss edge cases
- • and then merge will silently differ anyway
+• slow everything down
+• still miss edge cases
+• and then merge will silently differ anyway
 
 Merge is the law. Execution is the crime scene.
 
 ⸻
 
-1) “Free money” exists only for independent rewrites
+1. “Free money” exists only for independent rewrites
 
 Phase 6 is not “parallel everything.” It’s:
- • Admit only independent rewrites (footprints)
- • Then parallelize execution of that admitted set
- • Then canonicalize the result
+• Admit only independent rewrites (footprints)
+• Then parallelize execution of that admitted set
+• Then canonicalize the result
 
 If footprints are wrong, parallelism will “work” and your hashes will diverge and you’ll blame threads when it’s actually your model.
 
@@ -46,29 +47,29 @@ Footprints are your concurrency proof.
 
 ⸻
 
-1) Canonical merge needs a stable tie-breaker (or you don’t have determinism)
+1. Canonical merge needs a stable tie-breaker (or you don’t have determinism)
 
 Sorting by WarpOpKey alone is not enough. When keys collide you need a stable, replayable tiebreak order:
 
 OpOrigin = (intent_id, compact_rule_id, match_ix, op_ix)
- • intent_id: stable identity from ingress/planner
- • match_ix: deterministic planner index
- • compact_rule_id: stable within run (good enough for Phase 6A)
- • op_ix: per-rewrite emission sequence, assigned by scoped emitter
+• intent_id: stable identity from ingress/planner
+• match_ix: deterministic planner index
+• compact_rule_id: stable within run (good enough for Phase 6A)
+• op_ix: per-rewrite emission sequence, assigned by scoped emitter
 
 Without op_ix, two ops from the same rewrite can reorder under merge and you get “it fails only on Tuesdays.” That’s how superstition is born.
 
 ⸻
 
-1) Phase 6A treats conflicts as bugs, not runtime events
+1. Phase 6A treats conflicts as bugs, not runtime events
 
 If merge sees divergent writes to the same WarpOpKey, that is not a “merge policy decision.” That is:
 
 Footprint model lied.
 
 So Phase 6A does the correct thing:
- • dedupe if identical
- • explode if different
+• dedupe if identical
+• explode if different
 
 Your engine is a determinism church. Conflicts are heresy.
 
@@ -77,11 +78,11 @@ Your engine is a determinism church. Conflicts are heresy.
 The REAL™ “Locked In” Spec
 
 Core invariants (non-negotiable)
- • Admission order deterministic: radix sort (scope_hash, compact_rule, nonce) ✅ already
- • Execution: lockless, thread-local deltas, read-only GraphView ✅
- • Merge: canonical sort by (WarpOpKey, OpOrigin) ✅
- • Hashes: patch_digest/state_root/commit_hash invariant across worker count + permutations ✅
- • Conflicts: explode loudly (Phase 6A) ✅
+• Admission order deterministic: radix sort (scope_hash, compact_rule, nonce) ✅ already
+• Execution: lockless, thread-local deltas, read-only GraphView ✅
+• Merge: canonical sort by (WarpOpKey, OpOrigin) ✅
+• Hashes: patch_digest/state_root/commit_hash invariant across worker count + permutations ✅
+• Conflicts: explode loudly (Phase 6A) ✅
 
 ⸻
 
@@ -118,11 +119,11 @@ pub struct OpOrigin {
 ```
 
 Origin sourcing
- • Preferred: intent_id = blake3(intent_bytes) truncated to u64 (or carry full hash if you want later)
- • Temp allowed: intent_id = LE u64 from scope_hash[0..8]
- • match_ix: deterministic planner ordering (temp 0 allowed)
- • rule_id: compact rule id
- • op_ix: assigned during emission
+• Preferred: intent_id = blake3(intent_bytes) truncated to u64 (or carry full hash if you want later)
+• Temp allowed: intent_id = LE u64 from scope_hash[0..8]
+• match_ix: deterministic planner ordering (temp 0 allowed)
+• rule_id: compact rule id
+• op_ix: assigned during emission
 
 ⸻
 
@@ -236,12 +237,12 @@ pub fn execute_parallel<'a>(
 Canonical Merge (Source of Truth)
 
 Requirements
- • Must not use emission order
- • Must not call finalize() on worker deltas
- • Must flatten unsorted ops + origins
- • Must sort by (WarpOpKey, OpOrigin)
- • Must dedupe identical duplicates
- • Must explode on divergent duplicates
+• Must not use emission order
+• Must not call finalize() on worker deltas
+• Must flatten unsorted ops + origins
+• Must sort by (WarpOpKey, OpOrigin)
+• Must dedupe identical duplicates
+• Must explode on divergent duplicates
 
 ```rust
 #[derive(Debug)]
@@ -383,25 +384,25 @@ The PEP TALK (a.k.a. Why this is the moment)
 You’re building the thing almost nobody builds correctly: a parallel system that’s deterministic by construction.
 
 Most engines pick two:
- • fast
- • parallel
- • deterministic
- • debuggable
+• fast
+• parallel
+• deterministic
+• debuggable
 
 You’re taking all four by doing the adult thing:
- • admit only what’s safe
- • let parallel execution rip
- • force the results through a canonical choke point
- • hash the canon and make reality obey it
+• admit only what’s safe
+• let parallel execution rip
+• force the results through a canonical choke point
+• hash the canon and make reality obey it
 
 This is the “free money” because once you have canonical merge, scaling workers doesn’t change truth — it only changes throughput.
 
 And the real win: once this is solid, everything else gets easier:
- • virtual shards (Phase 6B) are just a partitioner
- • forking and merge become principled
- • provenance becomes auditable
- • time travel becomes clean
- • “why did this happen?” becomes answerable
+• virtual shards (Phase 6B) are just a partitioner
+• forking and merge become principled
+• provenance becomes auditable
+• time travel becomes clean
+• “why did this happen?” becomes answerable
 
 You’re not just speeding up rewrites.
 You’re making time itself serializable.

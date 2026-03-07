@@ -50,6 +50,8 @@
   tracking-moved callout pointing to `TECH-DEBT-BOAW.md`.
 - **Fix:** Archived `scheduler-radix-optimization.md` canonical order clarified
   and code-reference staleness disclaimer made visible.
+- **New:** `.coderabbit.yaml` — excludes `docs/archive/**` from CodeRabbit
+  reviews (frozen historical records generate low-value feedback).
 - **Update:** README determinism claims link, reference docs section,
   docs-index entries, docs-audit log.
 

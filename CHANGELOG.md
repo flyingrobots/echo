@@ -5,6 +5,35 @@
 
 ## Unreleased
 
+### Added — Proof Core (P1 Milestone)
+
+- **Determinism Claims v0.1:** New `docs/determinism/DETERMINISM_CLAIMS_v0.1.md`
+  documenting five determinism claims (DET-001 through DET-005) covering
+  static inspection, float parity, parallel execution, trig oracle golden
+  vectors, and torture-rerun reproducibility.
+- **Trig Golden Vectors (DET-004):** New test
+  `crates/warp-core/tests/trig_golden_vectors.rs` with a 2048-sample golden
+  binary (`testdata/trig_golden_2048.bin`) that locks down `dfix64` sin/cos/tan
+  outputs across platforms. Runs on Linux and macOS in CI.
+- **Torture Rerun Script (DET-005):** `scripts/torture-100-reruns.sh` — turnkey
+  repro script that runs 100 sequential simulations and asserts identical hashes.
+- **CI Trig Oracle Gate:** Added trig golden vector tests to
+  `.github/workflows/det-gates.yml` for both Linux and macOS runners, with log
+  artifacts uploaded alongside existing determinism artifacts.
+- **CLAIM_MAP.yaml:** Added DET-004 and DET-005 entries with required evidence
+  pointers and owner roles.
+- **Evidence Generator:** Wired DET-004 and DET-005 into
+  `scripts/generate_evidence.cjs` so the evidence policy cross-check passes.
+- **Ban-Nondeterminism Allowlist:** Added `trig_golden_vectors.rs` to
+  `.ban-nondeterminism-allowlist` (test-only `std::fs` for reading golden
+  vector binaries).
+
+### Changed — Roadmap
+
+- Updated `docs/ROADMAP/proof-core/README.md`: checked off P1 exit criteria,
+  marked milestone as "In Progress".
+- Resequenced roadmap phases: P0 verified, P1→P2→P3 ordering clarified.
+
 ### Fixed — Self-Review (PP-1 Branch)
 
 - **Stale `warp-ffi` References:** Removed deleted crate from git hooks

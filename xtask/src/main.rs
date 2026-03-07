@@ -513,8 +513,10 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
         bail!("{} is not a directory", root.display());
     }
 
-    let link_re =
-        regex::Regex::new(r"\[(?:[^\]]*)\]\(([^)]+)\)").context("failed to compile link regex")?;
+    // Derive the VitePress docs root for root-relative link resolution.
+    // When --root is a subdirectory (e.g. docs/meta), root-relative links
+    // like `/guide/...` must still resolve against the top-level docs dir.
+    let docs_root = find_docs_root(root);
 
     let mut md_files = Vec::new();
     collect_md_files(root, &mut md_files)?;
@@ -526,38 +528,33 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
         let content = std::fs::read_to_string(file)
             .with_context(|| format!("failed to read {}", file.display()))?;
 
-        for (line_no, line) in content.lines().enumerate() {
-            for cap in link_re.captures_iter(line) {
-                let raw_target = &cap[1];
+        for (raw_target, line_no) in extract_link_targets(&content) {
+            // Skip external URLs
+            if raw_target.starts_with("http://")
+                || raw_target.starts_with("https://")
+                || raw_target.starts_with("mailto:")
+            {
+                continue;
+            }
+            // Skip pure anchors
+            if raw_target.starts_with('#') {
+                continue;
+            }
 
-                // Skip external URLs
-                if raw_target.starts_with("http://") || raw_target.starts_with("https://") {
+            // Strip fragment anchor
+            let target = raw_target.split('#').next().unwrap_or(&raw_target);
+
+            // By default, only check .md and extensionless links.
+            // With --all, check everything.
+            if !args.all {
+                let ext = Path::new(target).extension().and_then(|e| e.to_str());
+                if ext.is_some_and(|e| e != "md") {
                     continue;
                 }
-                // Skip mailto
-                if raw_target.starts_with("mailto:") {
-                    continue;
-                }
-                // Skip pure anchors
-                if raw_target.starts_with('#') {
-                    continue;
-                }
+            }
 
-                // Strip fragment anchor
-                let target = raw_target.split('#').next().unwrap_or(raw_target);
-
-                // By default, only check .md and extensionless links.
-                // With --all, check everything.
-                if !args.all {
-                    let ext = Path::new(target).extension().and_then(|e| e.to_str());
-                    if ext.is_some_and(|e| e != "md") {
-                        continue;
-                    }
-                }
-
-                if let Some(resolved) = try_resolve_link(file, target, root) {
-                    broken.push((file.clone(), line_no + 1, raw_target.to_string(), resolved));
-                }
+            if let Some(resolved) = try_resolve_link(file, target, &docs_root) {
+                broken.push((file.clone(), line_no, raw_target, resolved));
             }
         }
     }
@@ -582,6 +579,57 @@ fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
     }
 
     bail!("lint-dead-refs: {} broken link(s) found", broken.len());
+}
+
+/// Extract markdown link destinations using `pulldown-cmark`.
+///
+/// Returns `(destination, line_number)` pairs. Handles title text,
+/// balanced parentheses in URLs, and angle-bracketed links correctly.
+fn extract_link_targets(content: &str) -> Vec<(String, usize)> {
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+
+    let parser = Parser::new_ext(content, Options::all());
+    let mut results = Vec::new();
+    // Track byte offset → line number
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(content.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+
+    let mut current_offset = 0;
+    for (event, range) in parser.into_offset_iter() {
+        current_offset = range.start;
+        if let Event::Start(Tag::Link { dest_url, .. }) = event {
+            let dest = dest_url.into_string();
+            if !dest.is_empty() {
+                let line = line_starts.partition_point(|&s| s <= current_offset);
+                results.push((dest, line));
+            }
+        } else if let Event::End(TagEnd::Link) = event {
+            // nothing
+        }
+    }
+    let _ = current_offset; // suppress unused warning
+
+    results
+}
+
+/// Find the VitePress docs root directory.
+///
+/// Walks up from `start` looking for `.vitepress/config.ts`. Falls back
+/// to `start` itself if no config is found (single-level scan).
+fn find_docs_root(start: &Path) -> PathBuf {
+    let abs = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+    let mut dir = abs.as_path();
+    loop {
+        if dir.join(".vitepress/config.ts").exists() || dir.join(".vitepress/config.mts").exists() {
+            return dir.to_path_buf();
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent,
+            _ => break,
+        }
+    }
+    start.to_path_buf()
 }
 
 /// Try to resolve a link target to an existing path.
@@ -861,4 +909,107 @@ fn run_man_pages(args: ManPagesArgs) -> Result<()> {
 
     println!("Man pages generated in {}", out_dir.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // ── extract_link_targets ──────────────────────────────────────────
+
+    #[test]
+    fn extracts_plain_links() {
+        let md = "[hello](guide/start-here.md)\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "guide/start-here.md");
+    }
+
+    #[test]
+    fn handles_title_text() {
+        let md = r#"[hello](guide/start-here.md "Start here")"#;
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "guide/start-here.md");
+    }
+
+    #[test]
+    fn handles_fragment_in_url() {
+        let md = "[link](spec/SPEC-0004.md#section)\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links[0].0, "spec/SPEC-0004.md#section");
+    }
+
+    #[test]
+    fn handles_balanced_parens_in_anchor() {
+        let md = "[link](spec/SPEC-0004.md#foo(bar))\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "spec/SPEC-0004.md#foo(bar)");
+    }
+
+    #[test]
+    fn skips_images() {
+        let md = "![alt](image.png)\n[real](doc.md)\n";
+        let links = extract_link_targets(md);
+        // pulldown-cmark reports images as Image, not Link
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "doc.md");
+    }
+
+    #[test]
+    fn reports_correct_line_numbers() {
+        let md = "line one\n[a](a.md)\nline three\n[b](b.md)\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].1, 2); // 1-indexed
+        assert_eq!(links[1].1, 4);
+    }
+
+    // ── build_candidates ──────────────────────────────────────────────
+
+    #[test]
+    fn relative_link_resolves_from_source_dir() {
+        let source = Path::new("docs/guide/start-here.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "../spec.md", docs_root);
+        // ../spec.md from docs/guide/ resolves to docs/guide/../spec.md
+        assert!(candidates
+            .iter()
+            .any(|p| p == Path::new("docs/guide/../spec.md")));
+    }
+
+    #[test]
+    fn root_relative_link_resolves_against_docs_root() {
+        let source = Path::new("docs/meta/docs-index.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "/guide/start-here.md", docs_root);
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("docs/guide/start-here.md")));
+    }
+
+    #[test]
+    fn extensionless_link_tries_md_and_html() {
+        let source = Path::new("docs/index.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "guide/start-here", docs_root);
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("guide/start-here.md")));
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("guide/start-here.html")));
+    }
+
+    #[test]
+    fn public_asset_resolution() {
+        let source = Path::new("docs/index.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "/collision-dpo-tour.html", docs_root);
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("docs/public/collision-dpo-tour.html")));
+    }
 }

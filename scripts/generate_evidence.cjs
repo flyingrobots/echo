@@ -116,6 +116,16 @@ function generateEvidence(gatheredArtifactsDir) {
       evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'sec-artifacts' }
     },
     {
+      id: 'DET-004',
+      status: (checkArtifact('det-linux-artifacts') && checkArtifact('det-macos-artifacts')) ? 'VERIFIED' : 'UNVERIFIED',
+      evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'det-linux-artifacts' }
+    },
+    {
+      id: 'DET-005',
+      status: checkArtifact('det-linux-artifacts') ? 'VERIFIED' : 'UNVERIFIED',
+      evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'det-linux-artifacts' }
+    },
+    {
       id: 'REPRO-001',
       status: checkArtifact('build-repro-artifacts') ? 'VERIFIED' : 'UNVERIFIED',
       evidence: { workflow, run_id: runId, commit_sha: commitSha, artifact_name: 'build-repro-artifacts' }

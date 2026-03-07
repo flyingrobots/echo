@@ -640,16 +640,34 @@ fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<P
     candidates
 }
 
-/// Recursively collect `.md` files under `dir`.
+/// Collect `.md` files under `dir` from the git index.
+///
+/// Uses `git ls-files` so that untracked and gitignored files (e.g.
+/// build artifacts in `.vitepress/dist/`) are never included.
 fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))?;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_md_files(&path, out)?;
-        } else if path.extension().is_some_and(|ext| ext == "md") {
+    let output = Command::new("git")
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ])
+        .arg(dir)
+        .output()
+        .context("failed to run git ls-files")?;
+    if !output.status.success() {
+        bail!(
+            "git ls-files failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    for entry in output.stdout.split(|&b| b == 0) {
+        if entry.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(std::str::from_utf8(entry)?);
+        if path.extension().is_some_and(|ext| ext == "md") {
             out.push(path);
         }
     }

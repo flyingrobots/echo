@@ -243,7 +243,7 @@ n=100:   90µs             n=100:   667µs    (7x SLOWER!)
 n=1000:  1.33ms           n=1000:  1.36ms   (marginal)
 ```
 
-![Before optimization - the "flat green line" disaster](BEFORE.webp)
+![Before optimization - the "flat green line" disaster](../../notes/BEFORE.webp)
 _The benchmark graph tells the story: that flat green line at low n is 5MB of zeroing overhead dominating tiny inputs._
 
 **What went wrong?** The radix implementation zeroed a **256KB counts array 20 times per drain**:
@@ -306,7 +306,7 @@ fn cmp_thin(a: &RewriteThin, b: &RewriteThin) -> Ordering {
 - Above ~2000: radix sort wins ($O(n)$ scales)
 - **1024: conservative sweet spot** where both approaches perform similarly
 
-![After optimization - hybrid approach](AFTER.webp)
+![After optimization - hybrid approach](../../notes/AFTER.webp)
 _The fix: adaptive threshold keeps small inputs fast while unlocking $O(n)$ scaling at large $n$._
 
 ---
@@ -324,7 +324,7 @@ Final benchmark results across 6 data points (10, 100, 1k, 3k, 10k, 30k):
 | 10,000  | —              | 9.74ms       | —        | 974ns       |
 | 30,000  | —              | 29.53ms      | —        | 984ns       |
 
-![Final results - perfect linear scaling](Final.webp)
+![Final results - perfect linear scaling](../../notes/Final.webp)
 _The complete picture: purple (snapshot hash), green (scheduler total), yellow (enqueue), red (drain). Note the threshold marker at $n=1024$ and the perfectly straight lines beyond it._
 
 **Key observations:**

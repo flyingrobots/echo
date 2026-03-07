@@ -297,7 +297,7 @@ These are **not scheduled**. Only pursue if perf gate shows regression:
 
 ## References
 
-- [ADR-0007-BOAW-Storage.md](../adr/ADR-0007-BOAW-Storage.md) — Full specification
-- [TECH-DEBT-BOAW.md](../adr/TECH-DEBT-BOAW.md) — Original tracking (to be updated)
+- [ADR-0007-BOAW-Storage.md](../../adr/ADR-0007-BOAW-Storage.md) — Full specification
+- [TECH-DEBT-BOAW.md](../../adr/TECH-DEBT-BOAW.md) — Original tracking (to be updated)
 - [PR #257](https://github.com/flyingrobots/echo/pull/257) — Phase 6B implementation
 - Knowledge Graph: `BOAW_Phase_6B`, `Echo_BOAW_Architecture`

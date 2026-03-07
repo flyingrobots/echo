@@ -6380,6 +6380,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_mangen",
+ "regex",
  "serde",
  "serde_json",
  "warp-cli",

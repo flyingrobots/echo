@@ -85,6 +85,13 @@ Moved 6 superseded documents to `docs/archive/` with redirect stubs:
 - `meta/docs-index.md`: `memorial.md` -> `memorials/2026-01-18-phase4-rubicon.md`
 - `ROADMAP/ISSUE-INDEX.md`: 6 references to `streams-inspector-frame.md`
   -> `streams-inspector.md` (file never had the `-frame` suffix)
+- `architecture-outline.md`: `docs/spec/SPEC-0004...` -> `spec/SPEC-0004...`
+  (stale `docs/` prefix), nonexistent `echo-scene-port/README.md` link
+- `archive/plans/BOAW-tech-debt.md`: `../adr/` -> `../../adr/` (depth
+  changed by archival)
+- `archive/notes/scheduler-radix-optimization.md`: image paths updated
+  to point back to `../../notes/` after archival
+- `meta/docs-index.md`: `public/assets/...` -> `../public/assets/...`
 
 ### Added
 
@@ -92,6 +99,11 @@ Moved 6 superseded documents to `docs/archive/` with redirect stubs:
   constants, environment variables, channel policies
 - `docs/guide/cargo-features.md` -- all Cargo feature flags across the
   workspace (11 crates, 19 unique flags)
+
+### Added (tooling)
+
+- `cargo xtask lint-dead-refs` -- scans `docs/` for broken markdown
+  cross-references. Use `--all` to also check image/HTML references.
 
 ### Updated
 

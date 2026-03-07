@@ -14,9 +14,14 @@
 - **Consolidate:** Added "Docs Map" callouts to `SPEC_DETERMINISTIC_MATH.md`
   and `DETERMINISTIC_MATH.md` linking all 5 docs in the deterministic math
   cluster. Updated `scheduler.md` Quick Map with status labels.
-- **Fix:** Repaired 9 broken cross-references (`docs/specs/` -> `docs/spec/`,
+- **Fix:** Repaired 13 broken cross-references (`docs/specs/` -> `docs/spec/`,
   `memorial.md` -> `memorials/...`, `streams-inspector-frame.md` ->
-  `streams-inspector.md`).
+  `streams-inspector.md`, `docs/spec/SPEC-0004...` prefix, archived file
+  image paths, nonexistent README link).
+- **New:** `cargo xtask lint-dead-refs` — scans `docs/` for broken markdown
+  cross-references. Handles relative paths, VitePress root-relative links,
+  and `docs/public/` asset resolution. Use `--all` to also check non-markdown
+  file references (images, HTML).
 - **New:** Configuration reference (`docs/guide/configuration-reference.md`)
   covering engine parameters, protocol constants, and environment variables.
 - **New:** Cargo feature flags reference (`docs/guide/cargo-features.md`)

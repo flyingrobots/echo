@@ -13,6 +13,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Parser)]
@@ -34,6 +35,8 @@ enum Commands {
     Dind(DindArgs),
     /// Generate man pages for echo-cli.
     ManPages(ManPagesArgs),
+    /// Lint docs for dead cross-references (broken markdown links).
+    LintDeadRefs(LintDeadRefsArgs),
 }
 
 #[derive(Args)]
@@ -131,6 +134,7 @@ fn main() -> Result<()> {
         Commands::Dags(args) => run_dags(args),
         Commands::Dind(args) => run_dind(args),
         Commands::ManPages(args) => run_man_pages(args),
+        Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
     }
 }
 
@@ -484,6 +488,166 @@ fn load_matching_scenarios(
         .collect();
 
     Ok(filtered)
+}
+
+#[derive(Args)]
+struct LintDeadRefsArgs {
+    /// Root directory to scan (default: `docs/`).
+    #[arg(long, default_value = "docs")]
+    root: PathBuf,
+
+    /// Also check non-markdown links (images, HTML, etc.).
+    #[arg(long)]
+    all: bool,
+}
+
+fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
+    let root = &args.root;
+    if !root.is_dir() {
+        bail!("{} is not a directory", root.display());
+    }
+
+    let link_re =
+        regex::Regex::new(r"\[(?:[^\]]*)\]\(([^)]+)\)").context("failed to compile link regex")?;
+
+    let mut md_files = Vec::new();
+    collect_md_files(root, &mut md_files)?;
+    md_files.sort();
+
+    let mut broken: Vec<(PathBuf, usize, String, PathBuf)> = Vec::new();
+
+    for file in &md_files {
+        let content = std::fs::read_to_string(file)
+            .with_context(|| format!("failed to read {}", file.display()))?;
+
+        for (line_no, line) in content.lines().enumerate() {
+            for cap in link_re.captures_iter(line) {
+                let raw_target = &cap[1];
+
+                // Skip external URLs
+                if raw_target.starts_with("http://") || raw_target.starts_with("https://") {
+                    continue;
+                }
+                // Skip mailto
+                if raw_target.starts_with("mailto:") {
+                    continue;
+                }
+                // Skip pure anchors
+                if raw_target.starts_with('#') {
+                    continue;
+                }
+
+                // Strip fragment anchor
+                let target = raw_target.split('#').next().unwrap_or(raw_target);
+
+                // By default, only check .md and extensionless links.
+                // With --all, check everything.
+                if !args.all {
+                    let ext = Path::new(target).extension().and_then(|e| e.to_str());
+                    if ext.is_some_and(|e| e != "md") {
+                        continue;
+                    }
+                }
+
+                if let Some(resolved) = try_resolve_link(file, target, root) {
+                    broken.push((file.clone(), line_no + 1, raw_target.to_string(), resolved));
+                }
+            }
+        }
+    }
+
+    if broken.is_empty() {
+        println!(
+            "lint-dead-refs: scanned {} files, all links OK",
+            md_files.len()
+        );
+        return Ok(());
+    }
+
+    eprintln!(
+        "lint-dead-refs: {} broken link(s) in {} file(s):\n",
+        broken.len(),
+        md_files.len()
+    );
+    for (file, line, target, resolved) in &broken {
+        eprintln!("  {}:{}: -> {}", file.display(), line, target);
+        eprintln!("    resolved to: {} (not found)", resolved.display());
+        eprintln!();
+    }
+
+    bail!("lint-dead-refs: {} broken link(s) found", broken.len());
+}
+
+/// Try to resolve a link target to an existing path.
+///
+/// Returns `None` if the link resolves successfully (target exists).
+/// Returns `Some(best_guess_path)` if no resolution succeeded.
+fn try_resolve_link(source_file: &Path, target: &str, docs_root: &Path) -> Option<PathBuf> {
+    let candidates = build_candidates(source_file, target, docs_root);
+    for candidate in &candidates {
+        if candidate.exists() {
+            return None; // Link is valid
+        }
+    }
+    // Return the primary candidate for error reporting
+    Some(candidates.into_iter().next().unwrap_or_default())
+}
+
+/// Build candidate paths for a link target.
+///
+/// - Root-relative links (`/foo/bar`) try `docs_root/foo/bar`, then repo root.
+/// - Relative links (`../foo`) resolve from the source file's directory.
+/// - Extensionless links also try with `.md` and `.html` appended.
+fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    let primary = if target.starts_with('/') {
+        let stripped = target.trim_start_matches('/');
+        // VitePress root-relative: try docs root first
+        candidates.push(docs_root.join(stripped));
+        // VitePress serves docs/public/ at root, so /foo.html may be docs/public/foo.html
+        candidates.push(docs_root.join("public").join(stripped));
+        // Also try repo root (for links like /crates/foo/README.md)
+        if let Some(repo_root) = docs_root.parent() {
+            candidates.push(repo_root.join(stripped));
+        }
+        docs_root.join(stripped)
+    } else {
+        let p = source_file
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(target);
+        candidates.push(p.clone());
+        p
+    };
+
+    // For extensionless links, also try .md and .html
+    let has_extension = Path::new(target)
+        .extension()
+        .is_some_and(|ext| !ext.is_empty());
+    if !has_extension {
+        let stem = primary.file_name().unwrap_or_default().to_string_lossy();
+        candidates.push(primary.with_file_name(format!("{stem}.md")));
+        candidates.push(primary.with_file_name(format!("{stem}.html")));
+    }
+
+    candidates
+}
+
+/// Recursively collect `.md` files under `dir`.
+fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let entries =
+        std::fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_md_files(&path, out)?;
+        } else if path.extension().is_some_and(|ext| ext == "md") {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 fn run_man_pages(args: ManPagesArgs) -> Result<()> {

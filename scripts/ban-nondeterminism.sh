@@ -11,6 +11,9 @@ set -euo pipefail
 # Optional env:
 #   DETERMINISM_PATHS="crates/warp-core crates/warp-wasm crates/echo-wasm-abi"
 #   DETERMINISM_ALLOWLIST=".ban-nondeterminism-allowlist"
+#
+# Allowlist governance: see docs/RELEASE_POLICY.md § "Determinism Allowlist Governance"
+# for approval requirements, acceptable exemption criteria, and audit cadence.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"

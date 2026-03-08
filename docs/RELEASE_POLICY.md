@@ -69,6 +69,55 @@ A gate may be marked VERIFIED only with immutable pointers:
 
 No immutable evidence => gate must be INFERRED or UNVERIFIED.
 
+## Determinism Allowlist Governance
+
+The static inspection gate (G1 / DET-001) uses `scripts/ban-nondeterminism.sh`
+to scan DET-critical crate sources for nondeterministic API patterns. A
+file-level allowlist (`.ban-nondeterminism-allowlist`) may exempt specific paths
+from this scan.
+
+### Allowlist Location and Format
+
+- **File:** `.ban-nondeterminism-allowlist` (project root)
+- **Format:** One file path per line. Blank lines and `#`-prefixed comments are
+  ignored. Inline justifications may follow the path, separated by whitespace.
+- **Env override:** `DETERMINISM_ALLOWLIST` (defaults to
+  `.ban-nondeterminism-allowlist`).
+
+### When an Exemption Is Acceptable
+
+An allowlist entry is appropriate **only** when all of the following hold:
+
+1. The nondeterministic API is **not reachable from the WASM deterministic
+   execution path** (e.g., native-only tooling, test-only I/O, build-time
+   configuration read once at startup).
+2. The call site is **guarded** by a feature gate, `#[cfg(test)]`, or an
+   explicit runtime assertion that prevents it from executing in the
+   deterministic engine loop.
+3. Refactoring to remove the API usage would introduce **worse** architectural
+   trade-offs (e.g., duplicating an entire module to avoid a single `std::fs`
+   call in a CLI-only code path).
+
+If the API is reachable from the deterministic engine loop under any
+configuration, **do not allowlist it. Refactor instead.**
+
+### Approval Requirements
+
+- Every new allowlist entry **must** include an inline justification explaining
+  why the exemption is safe.
+- The entry must be approved by the **Architect** or **crate owner** as defined
+  in `det-policy.yaml` for the affected crate.
+- PRs adding allowlist entries must tag the determinism label and reference this
+  policy section.
+
+### Audit
+
+- Existing entries are reviewed during each milestone closeout.
+- Entries whose justification no longer holds (e.g., the guarding feature gate
+  was removed) must be deleted and the underlying code refactored.
+- The `check_task_lists.sh` pre-commit hook does **not** cover allowlist
+  auditing; this is a manual review gate.
+
 ## Escalation
 
 If staging/prod blocker state conflicts with recommendation:

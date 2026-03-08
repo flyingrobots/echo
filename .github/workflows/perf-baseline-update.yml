@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#
+# Auto-update perf-baseline.json on main after merges that touch DET-critical
+# or DET-important code. Creates a PR with the new baseline so it's reviewed
+# (never force-pushes or commits directly to main).
+name: Update perf baseline
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: perf-baseline-update
+  cancel-in-progress: true
+
+jobs:
+  update-baseline:
+    name: Update perf baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if perf-relevant files changed
+        id: changed
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1..HEAD -- 'crates/**/*.rs' 'crates/**/Cargo.toml' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No Rust source changes — skipping baseline update"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Rust
+        if: steps.changed.outputs.skip != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run benchmarks
+        if: steps.changed.outputs.skip != 'true'
+        run: |
+          cargo bench -p warp-benches --bench materialization_hotpath -- --output-format bencher | tee perf.log
+
+      - name: Generate baseline JSON
+        if: steps.changed.outputs.skip != 'true'
+        run: |
+          node scripts/generate_perf_baseline.cjs perf.log > perf-baseline-new.json
+          if diff -q perf-baseline.json perf-baseline-new.json >/dev/null 2>&1; then
+            echo "Baseline unchanged — no PR needed"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            mv perf-baseline-new.json perf-baseline.json
+          fi
+
+      - name: Create baseline PR
+        if: steps.changed.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="chore/perf-baseline-$(git rev-parse --short HEAD)"
+          git checkout -b "$BRANCH"
+          git add perf-baseline.json
+          git diff --cached --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(perf): update perf-baseline.json from $(git rev-parse --short HEAD~1)"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore(perf): update perf baseline" \
+            --body "Auto-generated baseline update from main push $(git rev-parse HEAD~1)." \
+            --base main \
+            --head "$BRANCH"

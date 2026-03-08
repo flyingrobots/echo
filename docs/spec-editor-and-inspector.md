@@ -94,12 +94,14 @@ All entries are AND-combined: a frame passes the filter only if every specified
 field matches exactly.
 
 ```ts
-// Example: subscribe to bridge frames for a specific branch
-{ op: "filter", frameType: "bridge", filter: { branch: "kairos-42" } }
+// Example: only receive bridge frames where the payload mentions entity 7
+{ op: "filter", frameType: "bridge", filter: { entityId: 7 } }
 ```
 
-Unknown field names are silently ignored (forward-compatible). An empty or
-omitted `filter` matches all frames of the given type.
+Filters match against the fields of the emitted frame (the `InspectorEnvelope`
+and its `payload`), not against the `InspectorCommand` fields. Unknown field
+names are silently ignored (forward-compatible). An empty or omitted `filter`
+matches all frames of the given type.
 
 Responses use `InspectorEnvelope`.
 

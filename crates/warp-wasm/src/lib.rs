@@ -28,7 +28,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 
 use echo_wasm_abi::kernel_port::{
-    self, AbiError, ErrEnvelope, KernelPort, OkEnvelope, RawBytesResponse, RegistryInfo,
+    self, AbiError, ErrEnvelope, KernelPort, OkEnvelope, RawBytesResponse,
 };
 
 use std::cell::RefCell;
@@ -261,8 +261,7 @@ pub fn render_snapshot(snapshot_bytes: &[u8]) -> Uint8Array {
 /// Returns CBOR-encoded [`RegistryInfo`].
 #[wasm_bindgen]
 pub fn get_registry_info() -> Uint8Array {
-    let result: Result<RegistryInfo, AbiError> = with_kernel_ref(|k| Ok(k.registry_info()));
-    encode_result(result)
+    encode_result(with_kernel_ref(|k| Ok(k.registry_info())))
 }
 
 /// Get the codec identifier from the installed registry.

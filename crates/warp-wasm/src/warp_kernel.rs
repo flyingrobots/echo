@@ -73,7 +73,6 @@ impl WarpKernel {
     /// Create a kernel with a pre-configured engine and registry metadata.
     ///
     /// Use this to inject app-specific rewrite rules and schema metadata.
-    #[allow(dead_code)] // Public API for downstream app crates
     pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Self {
         Self {
             engine,
@@ -160,6 +159,10 @@ impl KernelPort for WarpKernel {
                     self.drained = false;
                 }
                 Err(e) => {
+                    // abort is safe here: failed commit leaves the tx in
+                    // live_txs, so abort cleans it up. If commit had
+                    // succeeded the tx would already be removed, making
+                    // abort a harmless no-op (TxId is Copy).
                     self.engine.abort(tx);
                     return Err(AbiError {
                         code: error_codes::ENGINE_ERROR,

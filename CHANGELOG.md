@@ -5,6 +5,27 @@
 
 ## Unreleased
 
+### Chore: Archive ~90 stale docs, restructure docs-index
+
+- **Archived** 6 entire directories to `docs/archive/`: `notes/`, `plans/`,
+  `tasks/`, `rfc/`, `memorials/`, `jitos/` (session artifacts, completed work).
+- **Archived** `docs/study/` (51 files: LaTeX papers, build artifacts, tour
+  materials) to `docs/archive/study/`.
+- **Archived** 4 completed DIND mission docs from `docs/determinism/` and the
+  superseded `ECHO_ROADMAP.md` from `docs/ROADMAP/`.
+- **Archived** 18 stale loose docs from `docs/` root: `AGENTS.md`,
+  `ISSUES_MATRIX.md`, `code-map.md`, `phase1-plan.md`,
+  `roadmap-mwmr-mini-epic.md`, `branch-merge-playbook.md`,
+  `testing-and-replay-plan.md`, `runtime-diagnostics-plan.md`,
+  `telemetry-graph-replay.md`, `warp-demo-roadmap.md`,
+  `warp-runtime-architecture.md`, `capability-ownership-matrix.md`,
+  `ROLLBACK_TTD.md`, `aion-papers-bridge.md`, `rust-rhai-ts-division.md`,
+  `hash-graph.md`, `two-lane-abi.md`, `diagrams.md`.
+- **Archived** dead redirect `guide/collision-tour.md` (both targets missing).
+- **Rewrote** `docs/meta/docs-index.md`: curated golden-path index with clear
+  separation of implemented specs, vision specs (unimplemented), ADRs, and
+  archive. Removed broken links and stale entries.
+
 ### Chore: Clean up root directory
 
 - **Removed** stale root-level ADR duplicates (`ADR-0003` through `ADR-0006`);

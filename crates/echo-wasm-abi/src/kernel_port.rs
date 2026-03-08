@@ -152,6 +152,17 @@ pub struct OkEnvelope<T> {
     pub data: T,
 }
 
+/// Wrapper for raw CBOR byte payloads in success envelopes.
+///
+/// Used by endpoints that return pre-encoded CBOR bytes (e.g., `snapshot_at`,
+/// `execute_query`). Unlike struct responses that flatten into the envelope,
+/// raw bytes are placed in a `data` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawBytesResponse {
+    /// The raw CBOR-encoded payload.
+    pub data: Vec<u8>,
+}
+
 /// Error envelope for CBOR encoding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrEnvelope {

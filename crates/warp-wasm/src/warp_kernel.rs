@@ -24,6 +24,9 @@ pub struct WarpKernel {
     engine: Engine,
     /// Tracks the number of committed ticks for the current head.
     tick_count: u64,
+    /// Whether materialization output has been drained since the last step.
+    /// Prevents returning stale data on consecutive drain calls.
+    drained: bool,
     /// Registry metadata (injected at construction, immutable after).
     registry: RegistryInfo,
 }
@@ -56,6 +59,7 @@ impl WarpKernel {
         Self {
             engine,
             tick_count: 0,
+            drained: true,
             registry: RegistryInfo {
                 codec_id: Some("cbor-canonical-v1".into()),
                 registry_version: None,
@@ -73,6 +77,7 @@ impl WarpKernel {
         Self {
             engine,
             tick_count: 0,
+            drained: true,
             registry,
         }
     }
@@ -140,6 +145,7 @@ impl KernelPort for WarpKernel {
                 Ok(_snapshot) => {
                     self.tick_count += 1;
                     ticks_executed += 1;
+                    self.drained = false;
                 }
                 Err(e) => {
                     self.engine.abort(tx);
@@ -158,6 +164,15 @@ impl KernelPort for WarpKernel {
     }
 
     fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError> {
+        // If already drained since the last step, return empty to avoid
+        // returning stale data (the engine doesn't clear last_materialization).
+        if self.drained {
+            return Ok(DrainResponse {
+                channels: Vec::new(),
+            });
+        }
+        self.drained = true;
+
         let finalized = self.engine.last_materialization();
         let channels: Vec<ChannelData> = finalized
             .iter()
@@ -187,9 +202,18 @@ impl KernelPort for WarpKernel {
             message: format!("tick {tick} exceeds addressable range"),
         })?;
 
-        self.engine.jump_to_tick(tick_index).map_err(|e| AbiError {
-            code: error_codes::INVALID_TICK,
-            message: e.to_string(),
+        // Save current state — jump_to_tick overwrites engine state with a
+        // replayed state. We must restore afterward to keep the live engine
+        // consistent with tick_count and subsequent operations.
+        let saved_state = self.engine.state().clone();
+
+        self.engine.jump_to_tick(tick_index).map_err(|e| {
+            // Restore even on error (jump_to_tick may have partially mutated).
+            *self.engine.state_mut() = saved_state.clone();
+            AbiError {
+                code: error_codes::INVALID_TICK,
+                message: e.to_string(),
+            }
         })?;
 
         let snap = self.engine.snapshot();
@@ -198,6 +222,10 @@ impl KernelPort for WarpKernel {
             state_root: snap.state_root.to_vec(),
             commit_id: snap.hash.to_vec(),
         };
+
+        // Restore live state.
+        *self.engine.state_mut() = saved_state;
+
         echo_wasm_abi::encode_cbor(&head).map_err(|e| AbiError {
             code: error_codes::CODEC_ERROR,
             message: e.to_string(),
@@ -317,6 +345,46 @@ mod tests {
         let head: HeadInfo = echo_wasm_abi::decode_cbor(&bytes).unwrap();
         assert_eq!(head.tick, 0);
         assert_eq!(head.state_root.len(), 32);
+    }
+
+    #[test]
+    fn snapshot_at_does_not_corrupt_live_state() {
+        let mut kernel = WarpKernel::new();
+        // Step without intents — intent ingestion modifies state outside the
+        // patch system, so jump_to_tick cannot replay ticks that depend on
+        // ingested intents. This is a known engine limitation.
+        kernel.step(3).unwrap();
+
+        // Capture live head before snapshot_at
+        let head_before = kernel.get_head().unwrap();
+        assert_eq!(head_before.tick, 3);
+
+        // Replay to tick 0 — must NOT corrupt live state
+        kernel.snapshot_at(0).unwrap();
+
+        // Live head must be unchanged
+        let head_after = kernel.get_head().unwrap();
+        assert_eq!(head_after.tick, 3);
+        assert_eq!(head_after.state_root, head_before.state_root);
+        assert_eq!(head_after.commit_id, head_before.commit_id);
+
+        // Subsequent step must work correctly on live state
+        let result = kernel.step(1).unwrap();
+        assert_eq!(result.ticks_executed, 1);
+        assert_eq!(result.head.tick, 4);
+    }
+
+    #[test]
+    fn drain_returns_empty_on_second_call() {
+        let mut kernel = WarpKernel::new();
+        kernel.step(1).unwrap();
+
+        // First drain returns data (even if empty channels, the flag is set)
+        let _d1 = kernel.drain_view_ops().unwrap();
+
+        // Second drain without intervening step must return empty
+        let d2 = kernel.drain_view_ops().unwrap();
+        assert!(d2.channels.is_empty());
     }
 
     #[test]

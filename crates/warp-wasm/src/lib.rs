@@ -28,7 +28,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 
 use echo_wasm_abi::kernel_port::{
-    self, AbiError, ErrEnvelope, KernelPort, OkEnvelope, RegistryInfo,
+    self, AbiError, ErrEnvelope, KernelPort, OkEnvelope, RawBytesResponse, RegistryInfo,
 };
 
 use std::cell::RefCell;
@@ -229,38 +229,38 @@ pub fn get_head() -> Uint8Array {
 
 /// Execute a read-only query by ID with canonical vars.
 ///
-/// Returns CBOR-encoded query result or error.
+/// Returns CBOR-encoded `{ ok: true, data: <bytes> }` or error envelope.
 #[wasm_bindgen]
 pub fn execute_query(query_id: u32, vars_bytes: &[u8]) -> Uint8Array {
-    let result = with_kernel_ref(|k| k.execute_query(query_id, vars_bytes));
-    match result {
-        Ok(bytes) => bytes_to_uint8array(&bytes),
-        Err(ref err) => encode_err(err),
-    }
+    let result = with_kernel_ref(|k| {
+        k.execute_query(query_id, vars_bytes)
+            .map(|bytes| RawBytesResponse { data: bytes })
+    });
+    encode_result(result)
 }
 
 /// Replay to a specific tick and return the snapshot.
 ///
-/// Returns CBOR-encoded snapshot bytes or error.
+/// Returns CBOR-encoded `{ ok: true, data: <bytes> }` or error envelope.
 #[wasm_bindgen]
 pub fn snapshot_at(tick: u64) -> Uint8Array {
-    let result = with_kernel(|k| k.snapshot_at(tick));
-    match result {
-        Ok(bytes) => bytes_to_uint8array(&bytes),
-        Err(ref err) => encode_err(err),
-    }
+    let result = with_kernel(|k| {
+        k.snapshot_at(tick)
+            .map(|bytes| RawBytesResponse { data: bytes })
+    });
+    encode_result(result)
 }
 
 /// Render a snapshot to ViewOps for visualization.
 ///
-/// Returns CBOR-encoded ViewOps bytes or error.
+/// Returns CBOR-encoded `{ ok: true, data: <bytes> }` or error envelope.
 #[wasm_bindgen]
 pub fn render_snapshot(snapshot_bytes: &[u8]) -> Uint8Array {
-    let result = with_kernel_ref(|k| k.render_snapshot(snapshot_bytes));
-    match result {
-        Ok(bytes) => bytes_to_uint8array(&bytes),
-        Err(ref err) => encode_err(err),
-    }
+    let result = with_kernel_ref(|k| {
+        k.render_snapshot(snapshot_bytes)
+            .map(|bytes| RawBytesResponse { data: bytes })
+    });
+    encode_result(result)
 }
 
 /// Return registry metadata (schema hash, codec id, registry version).

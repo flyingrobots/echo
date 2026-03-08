@@ -44,20 +44,20 @@ but apps can implement `KernelPort` with any engine.
 All exports are `#[wasm_bindgen]` functions. Return types are CBOR-encoded
 `Uint8Array` unless noted otherwise.
 
-| Export                    | Signature                   | Returns                         |
-| ------------------------- | --------------------------- | ------------------------------- |
-| `init()`                  | `() → Uint8Array`           | `HeadInfo` envelope             |
-| `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array`      | `DispatchResponse` envelope     |
-| `step(budget)`            | `(u32) → Uint8Array`        | `StepResponse` envelope         |
-| `drain_view_ops()`        | `() → Uint8Array`           | `DrainResponse` envelope        |
-| `get_head()`              | `() → Uint8Array`           | `HeadInfo` envelope             |
-| `execute_query(id, vars)` | `(u32, &[u8]) → Uint8Array` | CBOR bytes or error envelope    |
-| `snapshot_at(tick)`       | `(u64) → Uint8Array`        | CBOR snapshot or error envelope |
-| `render_snapshot(bytes)`  | `(&[u8]) → Uint8Array`      | CBOR ViewOps or error envelope  |
-| `get_registry_info()`     | `() → Uint8Array`           | `RegistryInfo` envelope         |
-| `get_codec_id()`          | `() → JsValue`              | `string \| null`                |
-| `get_registry_version()`  | `() → JsValue`              | `string \| null`                |
-| `get_schema_sha256_hex()` | `() → JsValue`              | `string \| null`                |
+| Export                    | Signature                   | Returns                     |
+| ------------------------- | --------------------------- | --------------------------- |
+| `init()`                  | `() → Uint8Array`           | `HeadInfo` envelope         |
+| `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array`      | `DispatchResponse` envelope |
+| `step(budget)`            | `(u32) → Uint8Array`        | `StepResponse` envelope     |
+| `drain_view_ops()`        | `() → Uint8Array`           | `DrainResponse` envelope    |
+| `get_head()`              | `() → Uint8Array`           | `HeadInfo` envelope         |
+| `execute_query(id, vars)` | `(u32, &[u8]) → Uint8Array` | `RawBytesResponse` envelope |
+| `snapshot_at(tick)`       | `(u64) → Uint8Array`        | `RawBytesResponse` envelope |
+| `render_snapshot(bytes)`  | `(&[u8]) → Uint8Array`      | `RawBytesResponse` envelope |
+| `get_registry_info()`     | `() → Uint8Array`           | `RegistryInfo` envelope     |
+| `get_codec_id()`          | `() → JsValue`              | `string \| null`            |
+| `get_registry_version()`  | `() → JsValue`              | `string \| null`            |
+| `get_schema_sha256_hex()` | `() → JsValue`              | `string \| null`            |
 
 ## Wire Envelope
 
@@ -115,6 +115,16 @@ integers, no tags, definite lengths).
 | ------------ | --------- | ---------------------------------- |
 | `channel_id` | bytes(32) | Materialization channel identifier |
 | `data`       | bytes     | Raw finalized channel output       |
+
+### RawBytesResponse
+
+Used by endpoints that return pre-encoded CBOR payloads (`execute_query`,
+`snapshot_at`, `render_snapshot`). Wrapped in the standard `{ ok: true }`
+envelope like all other responses.
+
+| Field  | Type  | Description              |
+| ------ | ----- | ------------------------ |
+| `data` | bytes | Raw CBOR-encoded payload |
 
 ### RegistryInfo
 

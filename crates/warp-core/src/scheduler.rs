@@ -465,10 +465,12 @@ fn bucket16(r: &RewriteThin, pass: usize) -> u16 {
         1 => u16_from_u32_le(r.nonce, 1),
         2 => u16_from_u32_le(r.rule_id, 0),
         3 => u16_from_u32_le(r.rule_id, 1),
-        // 16 passes for scope: pairs 15 down to 0 (LSD → byte-lex)
+        // 16 passes for scope: pairs 15 down to 0 (LSD → byte-lex).
+        // LSD processes least-significant digit first. For big-endian scope,
+        // LSB = scope[30..31] (pair 15), MSB = scope[0..1] (pair 0).
+        // Pass 4 → pair 15 (LSB), pass 19 → pair 0 (MSB).
         4..=19 => {
-            let pair_from_tail = 19 - pass; // 0..15 => tail..head
-            let pair_idx_be = 15 - pair_from_tail; // 15..0 mapped to 0..15
+            let pair_idx_be = 19 - pass; // pass 4→15 (LSB), pass 19→0 (MSB)
             u16_be_from_pair32(&r.scope_be32, pair_idx_be)
         }
         _ => unreachable!("invalid radix pass"),
@@ -690,6 +692,7 @@ impl DeterministicScheduler {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)] // test-only: all values bounded within target ranges
 mod tests {
     use super::*;
     use crate::footprint::pack_port_key;
@@ -1423,5 +1426,156 @@ mod tests {
             RewritePhase::Reserved,
             "second rewrite should be reserved (not aborted)"
         );
+    }
+
+    // ========================================================================
+    // Proptest: drain_in_order determinism against BTreeMap reference
+    // ========================================================================
+
+    /// Reference: apply last-wins dedup on (scope, rule_id), then sort
+    /// survivors by (scope_be32, rule_id). Returns payloads in that order.
+    fn reference_drain(enqueues: &[([u8; 32], u32, u32)]) -> Vec<u32> {
+        // Last-wins dedup: later enqueues overwrite earlier ones for same key.
+        let mut deduped: std::collections::HashMap<([u8; 32], u32), u32> =
+            std::collections::HashMap::new();
+        for &(scope, rule, payload) in enqueues {
+            deduped.insert((scope, rule), payload);
+        }
+        let mut surviving: Vec<(([u8; 32], u32), u32)> = deduped.into_iter().collect();
+        surviving.sort_by(|a, b| (a.0).0.cmp(&(b.0).0).then((a.0).1.cmp(&(b.0).1)));
+        surviving.into_iter().map(|(_, payload)| payload).collect()
+    }
+
+    proptest::proptest! {
+        /// Fuzz drain_in_order against a BTreeMap reference across both sort
+        /// paths. The `n` range spans both the comparison-sort path (≤1024)
+        /// and the radix-sort path (>1024).
+        #[test]
+        fn proptest_drain_matches_btreemap_reference(
+            n in 1_usize..2048,
+            seed in proptest::num::u64::ANY,
+        ) {
+            // Use a simple deterministic PRNG seeded from proptest to generate
+            // entries with controlled scope/rule diversity.
+            let mut rng_state = seed;
+            let mut next = || -> u64 {
+                // xorshift64
+                rng_state ^= rng_state << 13;
+                rng_state ^= rng_state >> 7;
+                rng_state ^= rng_state << 17;
+                rng_state
+            };
+
+            let mut ptx: PendingTx<u32> = PendingTx::default();
+            let mut enqueues: Vec<([u8; 32], u32, u32)> = Vec::with_capacity(n);
+
+            for i in 0..n {
+                let mut scope = [0u8; 32];
+                // Fill only a few bytes to create realistic clustering
+                let v = next();
+                scope[0] = (v & 0xFF) as u8;
+                scope[1] = ((v >> 8) & 0xFF) as u8;
+                scope[2] = ((v >> 16) & 0x0F) as u8;
+
+                let rule_id = (next() % 16) as u32;
+                let payload = i as u32;
+
+                ptx.enqueue(scope, rule_id, payload);
+                enqueues.push((scope, rule_id, payload));
+            }
+
+            let actual: Vec<u32> = ptx.drain_in_order();
+            let expected = reference_drain(&enqueues);
+
+            proptest::prop_assert_eq!(&actual, &expected,
+                "drain_in_order diverged from reference (n={}, sort={})",
+                n, if n <= SMALL_SORT_THRESHOLD { "comparison" } else { "radix" });
+        }
+
+        /// Verify that insertion order does not affect drain output.
+        #[test]
+        fn proptest_insertion_order_independence(
+            seed in proptest::num::u64::ANY,
+        ) {
+            let mut rng_state = seed;
+            let mut next = || -> u64 {
+                rng_state ^= rng_state << 13;
+                rng_state ^= rng_state >> 7;
+                rng_state ^= rng_state << 17;
+                rng_state
+            };
+
+            // Generate entries with unique (scope, rule) pairs to avoid dedup
+            let n = 200;
+            let mut entries: Vec<([u8; 32], u32)> = Vec::with_capacity(n);
+            for i in 0..n {
+                let mut scope = [0u8; 32];
+                let v = next();
+                scope[0] = (v & 0xFF) as u8;
+                scope[1] = ((v >> 8) & 0xFF) as u8;
+                scope[31] = i as u8; // ensure uniqueness
+                let rule_id = (next() % 32) as u32;
+                entries.push((scope, rule_id));
+            }
+
+            // Forward order
+            let mut ptx_fwd: PendingTx<usize> = PendingTx::default();
+            for (i, &(scope, rule)) in entries.iter().enumerate() {
+                ptx_fwd.enqueue(scope, rule, i);
+            }
+            let fwd: Vec<usize> = ptx_fwd.drain_in_order();
+
+            // Reverse order
+            let mut ptx_rev: PendingTx<usize> = PendingTx::default();
+            for (i, &(scope, rule)) in entries.iter().enumerate().rev() {
+                ptx_rev.enqueue(scope, rule, i);
+            }
+            let rev: Vec<usize> = ptx_rev.drain_in_order();
+
+            // Both should produce the same set of payloads in the same order,
+            // because the sort key is (scope, rule, nonce) and nonce tracks
+            // insertion order within each PendingTx independently.
+            // The payloads will differ (forward vs reverse `i`), but the
+            // *scope/rule ordering* must be identical.
+            let fwd_keys: Vec<([u8; 32], u32)> = fwd.iter().map(|&i| entries[i]).collect();
+            let rev_keys: Vec<([u8; 32], u32)> = rev.iter().map(|&i| entries[i]).collect();
+            proptest::prop_assert_eq!(&fwd_keys, &rev_keys,
+                "different insertion orders produced different drain orderings");
+        }
+    }
+
+    /// Deterministic boundary test at SMALL_SORT_THRESHOLD crossover.
+    #[test]
+    fn threshold_boundary_determinism() {
+        for n in [
+            SMALL_SORT_THRESHOLD - 1,
+            SMALL_SORT_THRESHOLD,
+            SMALL_SORT_THRESHOLD + 1,
+        ] {
+            let mut ptx: PendingTx<u32> = PendingTx::default();
+            // Insert in reverse order to stress the sort
+            for i in (0..n).rev() {
+                let mut scope = [0u8; 32];
+                scope[0] = (i >> 8) as u8;
+                scope[1] = (i & 0xFF) as u8;
+                let rule_id = (i % 7) as u32;
+                ptx.enqueue(scope, rule_id, i as u32);
+            }
+            let result: Vec<u32> = ptx.drain_in_order();
+
+            // Verify monotonic ordering of (scope[0..2], rule_id)
+            for w in result.windows(2) {
+                let a = w[0] as usize;
+                let b = w[1] as usize;
+                let sa = ((a >> 8) as u8, (a & 0xFF) as u8);
+                let sb = ((b >> 8) as u8, (b & 0xFF) as u8);
+                let ra = (a % 7) as u32;
+                let rb = (b % 7) as u32;
+                assert!(
+                    (sa, ra) <= (sb, rb),
+                    "ordering violated at n={n}: ({sa:?}, {ra}) > ({sb:?}, {rb})"
+                );
+            }
+        }
     }
 }

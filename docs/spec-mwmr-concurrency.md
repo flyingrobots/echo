@@ -48,7 +48,7 @@ Independence(F1,F2) iff
 
 Ordering & determinism
 
-- Physical execution is parallel; planning/logs use a stable key `(scope_hash, rule_id, stamp)`; results are order-independent by Theorem A.
+- Physical execution is parallel; planning/logs use a stable key `(scope_hash, rule_id, stamp)`; results are order-independent by the Skeleton-plane Tick Confluence theorem (Paper II, §6, Thm. 6.1).
 
 ## Scheduler & Batching
 

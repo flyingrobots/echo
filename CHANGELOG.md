@@ -11,6 +11,17 @@
   `LicenseRef-MIND-UCAL-1.0` across 328 files to comply with SPDX
   Appendix IV (custom identifiers must use `LicenseRef-` prefix).
   Updated `ensure_spdx.sh` tooling and pre-commit hook accordingly.
+- **Fix:** Fixed radix sort scope pair index inversion in `scheduler.rs`
+  `bucket16()`. LSD passes were processing scope bytes MSB-first instead of
+  LSB-first, causing the radix-sort path (n > 1024) to produce a different
+  ordering than the comparison-sort path (n ≤ 1024). Added 3 proptests:
+  `proptest_drain_matches_btreemap_reference` (fuzzes both sort paths),
+  `proptest_insertion_order_independence`, and `threshold_boundary_determinism`.
+- **Spec:** Replaced "Theorem A" in `spec-mwmr-concurrency.md` with the
+  formal name from Paper II: "Skeleton-plane Tick Confluence theorem (§6,
+  Thm. 6.1)".
+- **Spec:** Changed `<i>Alea iacta est</i>` to semantic HTML in
+  `memorials/2026-01-18-phase4-rubicon.md` (foreign phrase italics).
 - **Spec:** Resolved 4 CRITICAL CodeRabbit items: normative frame ordering
   rule in `spec-editor-and-inspector.md` (stable sort by `(tick, frameType)`,
   UTF-8 lexicographic, insertion-order tie-break); added `getNode()` to

@@ -108,6 +108,6 @@ The next agent will thank you.
 
 ---
 
-_Alea iacta est_.
+<i>Alea iacta est</i>.
 
 — Claude Opus 4.5, 2026-01-18

@@ -54,10 +54,10 @@ Group B.
 
 - [x] **[MIN] line 111:** Emphasis half-fixed.
       **Done:** Prettier enforces underscore emphasis (`_..._`), overriding asterisks. `_Alea iacta est_.` is the correct form under this repo's prettier config.
-- [ ] **[CRIT] line ~21:** Revert underscore emphasis to asterisks.
-      **NEEDS WORK.** `_base + ops = next_` was changed to `` `base + ops = next` `` in round 1, but CR wants asterisks for non-code emphasis. Verify: if it's computational (formula), code span is correct; if it's rhetorical emphasis, use `*...*`.
-- [ ] **[MIN] line ~111:** Foreign phrase requires italics, not emphasis.
-      **NEEDS WORK.** CR wants `<i>Alea iacta est</i>.` for semantic HTML. Currently `*Alea iacta est*.` — Markdown emphasis is the pragmatic choice for this repo. Decide: keep `*...*` or use `<i>`.
+- [x] **[CRIT] line ~21:** Revert underscore emphasis to asterisks.
+      **Done:** `base + ops = next` is a computational formula — code span is correct. Kept as-is per user decision.
+- [x] **[MIN] line ~111:** Foreign phrase requires italics, not emphasis.
+      **Done:** Changed to `<i>Alea iacta est</i>.` (semantic HTML for foreign phrase, avoids prettier underscore/asterisk conflicts).
 
 ### spec-merkle-commit.md (3 items — 2 fixed, 1 partially)
 
@@ -73,15 +73,16 @@ Group B.
 - [x] **[MIN] docs/adr/ADR-0004-No-Global-State.md:178** — Over-escaped `install\_\*` in code block.
       **Done:** Prettier re-escapes underscores/asterisks inside ` ```markdown ` fences (it formats the content as markdown). The escapes are cosmetic — they render identically to unescaped versions in markdown renderers. Accepted as prettier-enforced.
 - [x] **[CRIT] docs/archive/spec-geom-collision.md:34** — Broken cross-ref `SPEC_DETERMINISTIC_MATH.md`. Fixed → `spec-deterministic-math.md`.
-- [ ] **[CRIT] docs/notes/scheduler-optimization-followups.md:30** — Proptest missing.
-      Round-1 added "future work" note. CR says that's not enough — proptest is **required** for determinism. **NEEDS WORK.** Either write the proptest or make the note stronger with a tracking issue.
+- [x] **[CRIT] docs/notes/scheduler-optimization-followups.md:30** — Proptest missing.
+      **Done:** Added 3 proptests to `scheduler.rs`: `proptest_drain_matches_btreemap_reference` (fuzzes both sort paths against BTreeMap reference, n=1..2048), `proptest_insertion_order_independence` (verifies drain output is order-invariant), `threshold_boundary_determinism` (exercises n=1023/1024/1025). Also fixed a pre-existing radix sort bug: `bucket16` scope pair index was inverted (LSD passes processed MSB-first instead of LSB-first), causing comparison-sort and radix-sort paths to produce different orderings at the SMALL_SORT_THRESHOLD boundary.
 - [ ] **[MAJ] docs/notes/scheduler-optimization-followups.md:65** — Radix sort docs incomplete.
       Round-1 added "see also" note. CR says docs are still incomplete. **NEEDS WORK.** Add the missing inline documentation to the notes file — pass sequence, digit size rationale, LSD vs MSD, thin/fat separation, histogram algorithm.
 - [x] **[MAJ] docs/notes/scheduler-optimization-followups.md:201** — Ambiguous benchmark note. Fixed.
 - [x] **[MIN] docs/spec-ecs-storage.md:6** — Root-relative link. Fixed.
 - [x] **[MIN] docs/spec-geom-collision.md:7** — Vague deferral. Fixed.
 - [x] **[MIN] docs/spec-mwmr-concurrency.md:6** — Broken link. Fixed.
-- [ ] **[MIN] docs/spec-mwmr-concurrency.md:51** — Name "Theorem A". **NEEDS WORK.** Replace with the actual theorem name from the warp-math papers.
+- [x] **[MIN] docs/spec-mwmr-concurrency.md:51** — Name "Theorem A".
+      **Done:** Replaced with "Skeleton-plane Tick Confluence theorem (Paper II, §6, Thm. 6.1)" — the formal statement that any two serialisations of a scheduler-admissible batch yield isomorphic successors.
 - [ ] **[MAJ] docs/spec-warp-confluence.md:66** — Signing canonicalization underspecified.
       Round-1 added a note. CR says it's still not enough. **NEEDS WORK.** Add a normative subsection specifying the exact field list and encoding order used for signing.
 - [x] **[MIN] docs/spec-warp-confluence.md:6** — Root-relative link. Fixed.

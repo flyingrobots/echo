@@ -29,7 +29,7 @@ This document contains prompts for future work addressing gaps identified during
 >
 > The goal is **100% confidence** that we haven't introduced any ordering divergence from the original BTreeMap semantics. Location: `crates/warp-core/src/scheduler.rs` and new test file `crates/warp-core/tests/scheduler_determinism.rs`"
 >
-> **Future work:** Property-based tests (proptest) should fuzz `drain_in_order()` against a reference implementation for edge cases at the SMALL_SORT_THRESHOLD boundary.
+> **Done:** Property-based tests (proptest) now fuzz `drain_in_order()` against a BTreeMap reference implementation across both the comparison-sort path (n ≤ 1024) and the radix-sort path (n > 1024). Tests verify: (1) output matches the reference ordering for arbitrary inputs, (2) insertion order does not affect drain output, and (3) deterministic boundary at `SMALL_SORT_THRESHOLD` (n = 1023, 1024, 1025). See `scheduler::tests::proptest_drain_matches_btreemap_reference`, `proptest_insertion_order_independence`, and `threshold_boundary_determinism` in `crates/warp-core/src/scheduler.rs`.
 
 ---
 

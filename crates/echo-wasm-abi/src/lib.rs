@@ -59,6 +59,18 @@ pub enum EnvelopeError {
     PayloadTooLarge,
 }
 
+impl core::fmt::Display for EnvelopeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidMagic => f.write_str("invalid EINT magic header"),
+            Self::TooShort => f.write_str("envelope too short"),
+            Self::LengthMismatch => f.write_str("envelope length mismatch"),
+            Self::Malformed => f.write_str("malformed envelope"),
+            Self::PayloadTooLarge => f.write_str("payload exceeds u32::MAX"),
+        }
+    }
+}
+
 /// Packs an application-blind intent envelope v1.
 /// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
 ///

@@ -94,10 +94,7 @@ where
 
 /// Encode a successful result as a CBOR Uint8Array with `{ ok: true, ...data }`.
 fn encode_ok<T: serde::Serialize>(value: &T) -> Uint8Array {
-    let envelope = OkEnvelope {
-        ok: true,
-        data: value,
-    };
+    let envelope = OkEnvelope::new(value);
     match echo_wasm_abi::encode_cbor(&envelope) {
         Ok(bytes) => bytes_to_uint8array(&bytes),
         Err(_) => encode_err_raw(
@@ -114,11 +111,7 @@ fn encode_err(err: &AbiError) -> Uint8Array {
 
 /// Low-level error encoding that cannot itself fail (falls back to empty array).
 fn encode_err_raw(code: u32, message: &str) -> Uint8Array {
-    let envelope = ErrEnvelope {
-        ok: false,
-        code,
-        message: message.into(),
-    };
+    let envelope = ErrEnvelope::new(code, message.into());
     match echo_wasm_abi::encode_cbor(&envelope) {
         Ok(bytes) => bytes_to_uint8array(&bytes),
         Err(_) => Uint8Array::new_with_length(0),

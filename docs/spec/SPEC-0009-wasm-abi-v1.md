@@ -137,15 +137,15 @@ envelope like all other responses.
 
 ## Error Codes
 
-| Code | Name              | Meaning                    |
-| ---- | ----------------- | -------------------------- |
-| 1    | `NOT_INITIALIZED` | `init()` not called        |
-| 2    | `INVALID_INTENT`  | Malformed intent payload   |
-| 3    | `ENGINE_ERROR`    | Internal engine failure    |
-| 4    | `INVALID_TICK`    | Tick index out of bounds   |
-| 5    | `NOT_SUPPORTED`   | Operation not implemented  |
-| 6    | `CODEC_ERROR`     | CBOR encode/decode failure |
-| 7    | `INVALID_PAYLOAD` | Corrupted input bytes      |
+| Code | Name              | Meaning                        |
+| ---- | ----------------- | ------------------------------ |
+| 1    | `NOT_INITIALIZED` | `init()` not called            |
+| 2    | `INVALID_INTENT`  | Malformed EINT intent envelope |
+| 3    | `ENGINE_ERROR`    | Internal engine failure        |
+| 4    | `INVALID_TICK`    | Tick index out of bounds       |
+| 5    | `NOT_SUPPORTED`   | Operation not implemented      |
+| 6    | `CODEC_ERROR`     | CBOR encode/decode failure     |
+| 7    | `INVALID_PAYLOAD` | Corrupted input bytes          |
 
 ## Versioning Strategy
 
@@ -158,6 +158,9 @@ envelope like all other responses.
   `BREAKING CHANGE` footer in the commit.
 - The `KernelPort` trait is the Rust-side contract. Adding methods to it
   is a breaking change (use default methods for additive evolution).
+- `execute_query` and `render_snapshot` have default implementations that
+  return `NOT_SUPPORTED`. Implementors only need to override them when the
+  engine supports these operations.
 
 ## Migration Notes for Host Adapters
 

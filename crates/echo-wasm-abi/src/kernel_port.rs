@@ -143,13 +143,22 @@ pub struct RegistryInfo {
 ///
 /// The `ok: true` field allows JS callers to distinguish success from error
 /// without inspecting the inner type.
+///
+/// Construct via [`OkEnvelope::new`] to guarantee `ok` is always `true`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OkEnvelope<T> {
     /// Always `true` for success responses.
-    pub ok: bool,
+    ok: bool,
     /// The response payload.
     #[serde(flatten)]
     pub data: T,
+}
+
+impl<T> OkEnvelope<T> {
+    /// Create a success envelope. Sets `ok` to `true` automatically.
+    pub fn new(data: T) -> Self {
+        Self { ok: true, data }
+    }
 }
 
 /// Wrapper for raw CBOR byte payloads in success envelopes.
@@ -164,14 +173,27 @@ pub struct RawBytesResponse {
 }
 
 /// Error envelope for CBOR encoding.
+///
+/// Construct via [`ErrEnvelope::new`] to guarantee `ok` is always `false`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrEnvelope {
     /// Always `false` for error responses.
-    pub ok: bool,
+    ok: bool,
     /// Machine-readable error code.
     pub code: u32,
     /// Human-readable error description.
     pub message: String,
+}
+
+impl ErrEnvelope {
+    /// Create an error envelope. Sets `ok` to `false` automatically.
+    pub fn new(code: u32, message: String) -> Self {
+        Self {
+            ok: false,
+            code,
+            message,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,15 +242,28 @@ pub trait KernelPort {
 
     /// Execute a read-only query against the current state.
     ///
-    /// Returns CBOR-encoded query results. Kernels that do not support
-    /// queries should return `Err(AbiError { code: NOT_SUPPORTED, .. })`.
-    fn execute_query(&self, query_id: u32, vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError>;
+    /// Returns CBOR-encoded query results. The default implementation returns
+    /// `NOT_SUPPORTED`; override when the engine has a query dispatcher.
+    fn execute_query(&self, _query_id: u32, _vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "execute_query is not supported by this kernel".into(),
+        })
+    }
 
     /// Replay to a specific tick and return the snapshot as CBOR bytes.
     fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError>;
 
     /// Render a snapshot into ViewOps for visualization.
-    fn render_snapshot(&self, snapshot_bytes: &[u8]) -> Result<Vec<u8>, AbiError>;
+    ///
+    /// The default implementation returns `NOT_SUPPORTED`; override when the
+    /// engine has snapshot rendering.
+    fn render_snapshot(&self, _snapshot_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
+        Err(AbiError {
+            code: error_codes::NOT_SUPPORTED,
+            message: "render_snapshot is not supported by this kernel".into(),
+        })
+    }
 
     /// Return registry and handshake metadata.
     fn registry_info(&self) -> RegistryInfo;

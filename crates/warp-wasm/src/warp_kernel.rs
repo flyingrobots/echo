@@ -11,6 +11,7 @@ use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, ChannelData, DispatchResponse, DrainResponse, HeadInfo, KernelPort,
     RegistryInfo, StepResponse, ABI_VERSION,
 };
+use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     inbox, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore, IngestDisposition,
     NodeRecord, SchedulerKind,
@@ -95,6 +96,14 @@ impl WarpKernel {
 
 impl KernelPort for WarpKernel {
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError> {
+        // Validate the EINT envelope before passing to the engine.
+        if let Err(e) = unpack_intent_v1(intent_bytes) {
+            return Err(AbiError {
+                code: error_codes::INVALID_INTENT,
+                message: format!("malformed EINT envelope: {e}"),
+            });
+        }
+
         match self.engine.ingest_intent(intent_bytes) {
             Ok(disposition) => {
                 let (accepted, intent_id) = match disposition {
@@ -189,13 +198,6 @@ impl KernelPort for WarpKernel {
         Ok(self.head_info())
     }
 
-    fn execute_query(&self, _query_id: u32, _vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "execute_query is not yet implemented in the engine".into(),
-        })
-    }
-
     fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError> {
         let tick_index = usize::try_from(tick).map_err(|_| AbiError {
             code: error_codes::INVALID_TICK,
@@ -229,13 +231,6 @@ impl KernelPort for WarpKernel {
         echo_wasm_abi::encode_cbor(&head).map_err(|e| AbiError {
             code: error_codes::CODEC_ERROR,
             message: e.to_string(),
-        })
-    }
-
-    fn render_snapshot(&self, _snapshot_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "render_snapshot is not yet implemented".into(),
         })
     }
 
@@ -411,6 +406,23 @@ mod tests {
         let h2 = k2.get_head().unwrap();
         assert_eq!(h1.state_root, h2.state_root);
         assert_eq!(h1.commit_id, h2.commit_id);
+    }
+
+    #[test]
+    fn dispatch_invalid_intent_returns_invalid_intent_error() {
+        let mut kernel = WarpKernel::new();
+
+        // Garbage bytes (no EINT magic)
+        let err = kernel.dispatch_intent(b"not-an-envelope").unwrap_err();
+        assert_eq!(err.code, error_codes::INVALID_INTENT);
+
+        // Truncated envelope (valid magic but too short for full header)
+        let err = kernel.dispatch_intent(b"EINT\x00\x00").unwrap_err();
+        assert_eq!(err.code, error_codes::INVALID_INTENT);
+
+        // Empty bytes
+        let err = kernel.dispatch_intent(b"").unwrap_err();
+        assert_eq!(err.code, error_codes::INVALID_INTENT);
     }
 
     #[test]

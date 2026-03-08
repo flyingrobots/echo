@@ -5,6 +5,19 @@
 
 ## Unreleased
 
+### fix(wasm): Validate intent envelopes, enforce envelope construction, add trait defaults
+
+- **Fixed** `dispatch_intent` now validates the EINT envelope before passing
+  bytes to the engine, returning `INVALID_INTENT` (code 2) for malformed
+  envelopes instead of forwarding garbage.
+- **Added** `Display` impl for `EnvelopeError` (no_std compatible).
+- **Changed** `OkEnvelope` and `ErrEnvelope` fields to private with `::new()`
+  constructors, enforcing correct `ok` field values at compile time.
+- **Added** default implementations for `KernelPort::execute_query` and
+  `KernelPort::render_snapshot` returning `NOT_SUPPORTED`, making future
+  trait evolution non-breaking.
+- **Updated** SPEC-0009 error code 2 description and versioning notes.
+
 ### feat(wasm): Ship reusable app-kernel WASM boundary with real exports (ECO-001)
 
 - **Added** `KernelPort` trait to `echo-wasm-abi` — app-agnostic byte-level

@@ -116,10 +116,14 @@ function main() {
     });
   }
 
-  // Warn about baseline benchmarks missing from current run
+  // Fail when baseline benchmarks disappear from the current run.
+  // This prevents silent bypass of regression enforcement via benchmark
+  // renames/removals. To resolve: update perf-baseline.json to remove
+  // the stale entry (via the baseline update workflow or manually).
   for (const name of Object.keys(baseline)) {
     if (current[name] == null) {
-      console.warn(`WARN: baseline benchmark "${name}" missing from current run`);
+      regressions++;
+      report.push({ name, cur: null, base: baseline[name], delta: null, status: "MISSING" });
     }
   }
 
@@ -131,9 +135,12 @@ function main() {
 
   for (const r of report) {
     const baseStr = r.base != null ? `${r.base} ns` : "—";
-    const curStr = `${r.cur} ns`;
+    const curStr = r.cur != null ? `${r.cur} ns` : "—";
     const deltaStr = r.delta != null ? `${r.delta > 0 ? "+" : ""}${r.delta.toFixed(1)}%` : "—";
-    const statusStr = r.status === "REGRESSED" ? `FAIL (>${threshold}%)` : r.status;
+    const statusStr =
+      r.status === "REGRESSED" ? `FAIL (>${threshold}%)` :
+      r.status === "MISSING" ? "FAIL (missing)" :
+      r.status;
     console.log(
       `${r.name.padEnd(nameWidth)}  ${baseStr.padStart(12)}  ${curStr.padStart(12)}  ${deltaStr.padStart(8)}  ${statusStr}`
     );

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! WarpOpKey collision safety tests for BOAW Phase 6.
+//! WarpOpKey collision safety tests for parallel execution Phase 6.
 //!
 //! These tests verify that WarpOpKey correctly distinguishes ops by warp,
 //! ensuring global merge doesn't coalesce cross-warp operations.
 //!
 //! # Feature Requirements
 //! ```sh
-//! cargo test --package warp-core --test boaw_merge_warpopkey --features delta_validate
+//! cargo test --package warp-core --test parallel_merge_warpopkey --features delta_validate
 //! ```
 
 #![cfg(feature = "delta_validate")]

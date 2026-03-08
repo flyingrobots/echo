@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Multi-warp engine integration tests for BOAW Phase 6.
+//! Multi-warp engine integration tests for parallel execution.
 #![cfg(feature = "delta_validate")]
 //!
 //! Tests warp iteration order determinism (T3.1) and apply routing (T8.1).
 //!
 //! # Feature Requirements
 //! ```sh
-//! cargo test --package warp-core --test boaw_engine_integration_multiwarp --features delta_validate
+//! cargo test --package warp-core --test parallel_engine_integration_multiwarp --features delta_validate
 //! ```
 
 use warp_core::{

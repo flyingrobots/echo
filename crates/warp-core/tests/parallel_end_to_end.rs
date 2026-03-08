@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! BOAW End-to-End Compliance Tests (ADR-0007)
+//! Parallel execution end-to-end compliance tests (ADR-0007)
 //!
 //! The "god test" that proves determinism across:
 //! - Ingress permutations
 //! - Worker counts
 //! - WSC roundtrip
 //!
-//! BOAW infrastructure is now wired - these tests verify determinism.
+//! Parallel execution infrastructure is now wired - these tests verify determinism.
 
 mod common;
 
 use common::{
-    assert_hash_eq, boaw_harness, shuffle, BoawScenario, BoawTestHarness, XorShift64, SEEDS,
-    WORKER_COUNTS,
+    assert_hash_eq, parallel_harness, shuffle, ParallelScenario, ParallelTestHarness, XorShift64,
+    SEEDS, WORKER_COUNTS,
 };
 
 /// Tick value used for end-to-end determinism tests.
@@ -23,9 +23,9 @@ const TEST_TICK: u64 = 42;
 const SHUFFLE_ITERATIONS: usize = 20;
 
 #[test]
-fn boaw_end_to_end_is_deterministic_across_permutations_and_workers() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyIndependent;
+fn parallel_end_to_end_is_deterministic_across_permutations_and_workers() {
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyIndependent;
     let base = h.build_base_snapshot(scenario);
 
     for &seed in SEEDS {
@@ -77,9 +77,9 @@ fn boaw_end_to_end_is_deterministic_across_permutations_and_workers() {
 }
 
 #[test]
-fn boaw_small_scenario_serial_parallel_equivalence() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::Small;
+fn parallel_small_scenario_serial_parallel_equivalence() {
+    let h = parallel_harness();
+    let scenario = ParallelScenario::Small;
     let base = h.build_base_snapshot(scenario);
     let tick = 1;
 
@@ -109,9 +109,9 @@ fn boaw_small_scenario_serial_parallel_equivalence() {
 }
 
 #[test]
-fn boaw_conflicts_scenario_deterministic_across_permutations() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyConflicts;
+fn parallel_conflicts_scenario_deterministic_across_permutations() {
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyConflicts;
     let base = h.build_base_snapshot(scenario);
     let tick = 7;
 

@@ -6,21 +6,21 @@
     clippy::match_same_arms,
     clippy::cast_possible_truncation
 )]
-//! Multi-warp worker-count invariance tests for BOAW Phase 6.
+//! Multi-warp worker-count invariance tests for parallel execution Phase 6.
 //!
 //! These tests verify that execution results are identical regardless of
 //! worker count - the "free money" proof that parallelism doesn't affect correctness.
 //!
 //! # Feature Requirements
 //! ```sh
-//! cargo test --package warp-core --test boaw_engine_worker_invariance --features delta_validate
+//! cargo test --package warp-core --test parallel_engine_worker_invariance --features delta_validate
 //! ```
 
 mod common;
 
 use common::{
-    assert_hash_eq, boaw_harness, shuffle, BoawScenario, BoawTestHarness, XorShift64, SEEDS,
-    WORKER_COUNTS,
+    assert_hash_eq, parallel_harness, shuffle, ParallelScenario, ParallelTestHarness, XorShift64,
+    SEEDS, WORKER_COUNTS,
 };
 
 // =============================================================================
@@ -36,8 +36,8 @@ use common::{
 /// we can scale workers without affecting correctness.
 #[test]
 fn multiwarp_worker_count_invariance() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyIndependent;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyIndependent;
     let base = h.build_base_snapshot(scenario);
     let ingress = h.make_ingress(scenario, 42);
 
@@ -72,8 +72,8 @@ fn multiwarp_worker_count_invariance() {
 /// regardless of how many workers are racing to process warps.
 #[test]
 fn multiwarp_worker_count_invariance_with_conflicts() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyConflicts;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyConflicts;
     let base = h.build_base_snapshot(scenario);
     let ingress = h.make_ingress(scenario, 42);
 
@@ -111,8 +111,8 @@ fn multiwarp_worker_count_invariance_with_conflicts() {
 /// If both hold, we have strong evidence of deterministic execution.
 #[test]
 fn multiwarp_worker_count_invariance_permuted() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyIndependent;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyIndependent;
     let base = h.build_base_snapshot(scenario);
 
     // Establish baseline with canonical ingress order, single worker
@@ -154,18 +154,18 @@ fn multiwarp_worker_count_invariance_permuted() {
 
 /// Worker count invariance across all scenarios.
 ///
-/// Iterates through all BOAW scenarios to ensure worker count invariance
+/// Iterates through all parallel scenarios to ensure worker count invariance
 /// holds universally, not just for specific workload patterns.
 #[test]
 fn multiwarp_worker_count_invariance_all_scenarios() {
-    let h = boaw_harness();
+    let h = parallel_harness();
 
     let scenarios = [
-        BoawScenario::Small,
-        BoawScenario::ManyIndependent,
-        BoawScenario::ManyConflicts,
-        BoawScenario::DeletesAndAttachments,
-        BoawScenario::PrivacyClaims,
+        ParallelScenario::Small,
+        ParallelScenario::ManyIndependent,
+        ParallelScenario::ManyConflicts,
+        ParallelScenario::DeletesAndAttachments,
+        ParallelScenario::PrivacyClaims,
     ];
 
     for scenario in scenarios {
@@ -203,8 +203,8 @@ fn multiwarp_worker_count_invariance_all_scenarios() {
 /// a range of tick values. This catches any tick-dependent ordering issues.
 #[test]
 fn multiwarp_worker_count_invariance_multi_tick() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyIndependent;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyIndependent;
     let base = h.build_base_snapshot(scenario);
 
     let ticks: &[u64] = &[0, 1, 42, 100, 1000, u64::MAX];
@@ -243,8 +243,8 @@ fn multiwarp_worker_count_invariance_multi_tick() {
 /// scheduling, memory allocation patterns, or other runtime variations.
 #[test]
 fn multiwarp_repeated_execution_determinism() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyIndependent;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyIndependent;
     let base = h.build_base_snapshot(scenario);
     let ingress = h.make_ingress(scenario, 42);
 
@@ -283,7 +283,7 @@ fn multiwarp_repeated_execution_determinism() {
 ///
 /// This test verifies that when a writer cursor advances (via Engine commit),
 /// the resulting `commit_hash` is identical regardless of worker count.
-/// This is the "free money" proof for BOAW Phase 6B: parallelism doesn't
+/// This is the "free money" proof for Phase 6B: parallelism doesn't
 /// affect correctness.
 ///
 /// # Test Strategy
@@ -295,7 +295,7 @@ fn multiwarp_repeated_execution_determinism() {
 ///
 /// # Why This Matters
 ///
-/// The Engine uses BOAW (Batch of Active Warps) for parallel rule execution.
+/// The Engine uses parallel execution for rule evaluation.
 /// `ECHO_WORKERS` (or `EngineBuilder::workers()`) controls the thread pool size.
 /// This test proves that scaling workers doesn't change the deterministic outcome.
 #[test]
@@ -306,7 +306,7 @@ fn worker_count_invariance_for_writer_advance() {
     let make_touch_rule = || make_touch_rule!("t16/touch", "t16/marker", b"touched-t16");
 
     // Build a deterministic base snapshot with 20 independent nodes
-    // (mirrors ManyIndependent scenario from BOAW tests)
+    // (mirrors ManyIndependent scenario from parallel tests)
     let node_ty = warp_core::make_type_id("t16/node");
     let mut base_store = warp_core::GraphStore::default();
 
@@ -491,8 +491,8 @@ fn worker_count_invariance_for_writer_advance_shuffled() {
 /// ordering bugs that only manifest under specific conditions.
 #[test]
 fn multiwarp_worker_count_invariance_stress() {
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyIndependent;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyIndependent;
     let base = h.build_base_snapshot(scenario);
 
     // Establish canonical baseline

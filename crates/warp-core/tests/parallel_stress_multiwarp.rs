@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! High-volume multi-warp stress tests for BOAW Phase 6.
+//! High-volume multi-warp stress tests for parallel execution Phase 6.
 #![cfg(feature = "delta_validate")]
 //!
 //! # Feature Requirements
 //! ```sh
-//! cargo test --package warp-core --test boaw_stress_multiwarp --features delta_validate
+//! cargo test --package warp-core --test parallel_stress_multiwarp --features delta_validate
 //! ```
 //!
 //! Heavy stress tests are `#[ignore]` by default:
 //! ```sh
-//! cargo test --package warp-core --test boaw_stress_multiwarp --features delta_validate -- --ignored
+//! cargo test --package warp-core --test parallel_stress_multiwarp --features delta_validate -- --ignored
 //! ```
 
 use warp_core::{

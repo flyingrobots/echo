@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Warp-scoped footprint tests for BOAW Phase 6.
+//! Warp-scoped footprint tests for parallel execution.
 //!
 //! These tests verify that footprints correctly distinguish resources by warp,
 //! preventing false conflicts when different warps touch resources with the

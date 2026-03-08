@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::unimplemented)]
-//! BOAW Collapse/Merge Tests (ADR-0007 §9)
+//! Parallel Execution Collapse/Merge Tests (ADR-0007 §9)
 //!
 //! Tests for multi-parent merge semantics:
 //! - Commutative merge parent order invariance
@@ -15,7 +15,7 @@ mod common;
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW collapse/merge not yet implemented"]
+#[ignore = "Parallel collapse/merge not yet implemented"]
 fn t6_1_commutative_merge_is_parent_order_invariant() {
     // Given: same set of parents in different orders
     // Expect: identical merge commit hash for mergeable types
@@ -28,7 +28,7 @@ fn t6_1_commutative_merge_is_parent_order_invariant() {
 }
 
 #[test]
-#[ignore = "BOAW collapse/merge not yet implemented"]
+#[ignore = "Parallel collapse/merge not yet implemented"]
 fn t6_2_order_dependent_merge_uses_canonical_parent_order() {
     // Given: order-dependent merge type
     // Expect: merge uses parent commit hash sort order and is stable
@@ -42,7 +42,7 @@ fn t6_2_order_dependent_merge_uses_canonical_parent_order() {
 }
 
 #[test]
-#[ignore = "BOAW collapse/merge not yet implemented"]
+#[ignore = "Parallel collapse/merge not yet implemented"]
 fn t6_3_irreconcilable_conflicts_produce_deterministic_conflict_artifact() {
     // Given: two parents write different non-mergeable values to same key
     // Expect: merge yields conflict artifact (bytes + hash stable)
@@ -65,7 +65,7 @@ fn t6_3_irreconcilable_conflicts_produce_deterministic_conflict_artifact() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW typed merge registry not yet implemented"]
+#[ignore = "Parallel typed merge registry not yet implemented"]
 fn merge_regime_crdt_like_is_preferred() {
     // Preferred: commutative + associative merges (CRDT-like) for mergeable types.
     // This test validates that types declaring MergeBehavior::Mergeable
@@ -77,7 +77,7 @@ fn merge_regime_crdt_like_is_preferred() {
 }
 
 #[test]
-#[ignore = "BOAW typed merge registry not yet implemented"]
+#[ignore = "Parallel typed merge registry not yet implemented"]
 fn merge_regime_lww_with_canonical_order() {
     // Allowed: order-dependent merges only with canonical parent order.
     // LWW (Last Writer Wins) uses deterministic winner by canonical ordering key.
@@ -92,7 +92,7 @@ fn merge_regime_lww_with_canonical_order() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW presence policy not yet implemented"]
+#[ignore = "Parallel presence policy not yet implemented"]
 fn presence_policy_delete_wins() {
     // For each key:
     // - Presence policy: delete-wins | add-wins | LWW
@@ -107,7 +107,7 @@ fn presence_policy_delete_wins() {
 }
 
 #[test]
-#[ignore = "BOAW presence policy not yet implemented"]
+#[ignore = "Parallel presence policy not yet implemented"]
 fn presence_policy_add_wins() {
     // Given: policy set to add-wins for a specific attachment type
     // Expect: if any parent has the key, merged view has it
@@ -122,7 +122,7 @@ fn presence_policy_add_wins() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW conflict artifacts not yet implemented"]
+#[ignore = "Parallel conflict artifacts not yet implemented"]
 fn conflict_artifact_is_first_class_and_deterministic() {
     // Conflict artifacts are first-class, deterministic, safe.
     // They contain only:
@@ -139,7 +139,7 @@ fn conflict_artifact_is_first_class_and_deterministic() {
 }
 
 #[test]
-#[ignore = "BOAW conflict artifacts not yet implemented"]
+#[ignore = "Parallel conflict artifacts not yet implemented"]
 fn conflict_artifact_contains_no_secrets() {
     // Verify that conflict artifacts never contain raw sensitive bytes.
     // Only hashes and metadata.

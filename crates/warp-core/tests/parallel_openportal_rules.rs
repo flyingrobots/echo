@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! OpenPortal rule tests for BOAW Phase 6.
+//! OpenPortal rule tests for parallel execution.
 //!
 //! These tests verify the "no same-tick new warp writes" rule - rewrites cannot
 //! target a warp that was created in the same tick.
 //!
 //! # Feature Requirements
 //! ```sh
-//! cargo test --package warp-core --test boaw_openportal_rules --features delta_validate
+//! cargo test --package warp-core --test parallel_openportal_rules --features delta_validate
 //! ```
 
 #![cfg(feature = "delta_validate")]

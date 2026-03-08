@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Merge tripwire tests for BOAW Phase 6.
+//! Merge tripwire tests for parallel execution Phase 6.
 //!
 //! These tests verify that footprint model violations are caught at merge time,
 //! proving the safety net exists.
@@ -8,7 +8,7 @@
 //!
 //! # Feature Requirements
 //! ```sh
-//! cargo test --package warp-core --test boaw_merge_tripwire --features delta_validate
+//! cargo test --package warp-core --test parallel_merge_tripwire --features delta_validate
 //! ```
 
 use warp_core::{

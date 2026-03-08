@@ -22,7 +22,7 @@ use warp_core::{
 };
 
 // =============================================================================
-// BOAW COMPLIANCE TEST UTILITIES (ADR-0007)
+// Parallel COMPLIANCE TEST UTILITIES (ADR-0007)
 // =============================================================================
 
 /// 32-byte hash type alias for clarity.
@@ -163,10 +163,10 @@ pub fn assert_hash_eq(a: &Hash32, b: &Hash32, msg: &str) {
     assert!((a == b), "{msg}\n  a: {}\n  b: {}", hex32(a), hex32(b));
 }
 
-/// Results from BOAW execution that can be compared deterministically.
+/// Results from Parallel execution that can be compared deterministically.
 #[derive(Clone)]
-pub struct BoawExecResult {
-    /// The BOAW commit identifier (hash of the commit).
+pub struct ParallelExecResult {
+    /// The Parallel commit identifier (hash of the commit).
     pub commit_hash: Hash32,
     /// The resulting state root hash after execution.
     pub state_root: Hash32,
@@ -178,7 +178,7 @@ pub struct BoawExecResult {
 
 /// Deterministic scenarios so we can scale tests without random blobs.
 #[derive(Clone, Copy, Debug)]
-pub enum BoawScenario {
+pub enum ParallelScenario {
     /// Tiny graph with edges/attachments; good for correctness.
     Small,
 
@@ -195,30 +195,30 @@ pub enum BoawScenario {
     PrivacyClaims,
 }
 
-/// Snapshot state for BOAW compliance tests.
-pub struct BoawSnapshot {
+/// Snapshot state for Parallel compliance tests.
+pub struct ParallelSnapshot {
     /// GraphStore holding the snapshot data.
     pub store: GraphStore,
     /// NodeId for the scenario root node.
     pub root: NodeId,
-    /// BoawScenario describing the BOAW test setup.
-    pub scenario: BoawScenario,
+    /// ParallelScenario describing the Parallel test setup.
+    pub scenario: ParallelScenario,
 }
 
 /// Ingress item: (rule_name, scope_node_id)
 pub type IngressItem = (&'static str, NodeId);
 
-/// A minimal test façade so tests don't hard-couple to evolving BOAW API.
+/// A minimal test façade so tests don't hard-couple to evolving Parallel API.
 /// Implement this once (or provide a real harness builder).
-pub trait BoawTestHarness {
+pub trait ParallelTestHarness {
     type Snapshot;
     type IngressItem;
 
     /// Build a base snapshot (reachable-only) from a deterministic scenario.
-    fn build_base_snapshot(&self, scenario: BoawScenario) -> Self::Snapshot;
+    fn build_base_snapshot(&self, scenario: ParallelScenario) -> Self::Snapshot;
 
     /// Generate canonical ingress for a scenario and tick.
-    fn make_ingress(&self, scenario: BoawScenario, tick: u64) -> Vec<Self::IngressItem>;
+    fn make_ingress(&self, scenario: ParallelScenario, tick: u64) -> Vec<Self::IngressItem>;
 
     /// Execute with 1 worker (serial path).
     fn execute_serial(
@@ -226,7 +226,7 @@ pub trait BoawTestHarness {
         base: &Self::Snapshot,
         ingress: &[Self::IngressItem],
         tick: u64,
-    ) -> BoawExecResult;
+    ) -> ParallelExecResult;
 
     /// Execute with N workers (parallel path).
     fn execute_parallel(
@@ -235,47 +235,49 @@ pub trait BoawTestHarness {
         ingress: &[Self::IngressItem],
         tick: u64,
         workers: usize,
-    ) -> BoawExecResult;
+    ) -> ParallelExecResult;
 
     /// Verify WSC roundtrip yields same state_root.
     fn wsc_roundtrip_state_root(&self, wsc: &[u8]) -> Hash32;
 }
 
-/// Returns the real `EngineHarness` for BOAW compliance tests.
-pub fn boaw_harness() -> impl BoawTestHarness {
+/// Returns the real `EngineHarness` for Parallel compliance tests.
+pub fn parallel_harness() -> impl ParallelTestHarness {
     EngineHarness
 }
 
-/// Real BOAW test harness backed by `warp_core::Engine`.
+/// Real Parallel test harness backed by `warp_core::Engine`.
 pub struct EngineHarness;
 
-/// Rule name used by the BOAW test harness.
-const BOAW_TOUCH_RULE_NAME: &str = "boaw/touch";
+/// Rule name used by the Parallel test harness.
+const PARALLEL_TOUCH_RULE_NAME: &str = "parallel/touch";
 
-/// Marker type ID for the BOAW touch attachment.
-fn boaw_marker_type_id() -> warp_core::TypeId {
-    make_type_id("boaw/marker")
+/// Marker type ID for the Parallel touch attachment.
+fn parallel_marker_type_id() -> warp_core::TypeId {
+    make_type_id("parallel/marker")
 }
 
-/// Create the "boaw/touch" rule that sets a marker attachment on the scope node.
-fn make_boaw_touch_rule() -> RewriteRule {
+/// Create the "parallel/touch" rule that sets a marker attachment on the scope node.
+fn make_parallel_touch_rule() -> RewriteRule {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"rule:");
-    hasher.update(BOAW_TOUCH_RULE_NAME.as_bytes());
+    hasher.update(PARALLEL_TOUCH_RULE_NAME.as_bytes());
     let id: Hash = hasher.finalize().into();
 
     RewriteRule {
         id,
-        name: BOAW_TOUCH_RULE_NAME,
+        name: PARALLEL_TOUCH_RULE_NAME,
         left: PatternGraph { nodes: vec![] },
         matcher: |view, scope| {
             // Match if the node exists
             view.node(scope).is_some()
         },
         executor: |view, scope, delta| {
-            // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
-            let marker_payload =
-                AtomPayload::new(boaw_marker_type_id(), bytes::Bytes::from_static(b"touched"));
+            // Phase 5 Parallel: read from view, emit ops to delta (no direct mutation).
+            let marker_payload = AtomPayload::new(
+                parallel_marker_type_id(),
+                bytes::Bytes::from_static(b"touched"),
+            );
             let value = Some(AttachmentValue::Atom(marker_payload));
 
             let key = AttachmentKey::node_alpha(NodeKey {
@@ -310,36 +312,36 @@ fn make_boaw_touch_rule() -> RewriteRule {
     }
 }
 
-/// Create a deterministic node ID for BOAW tests.
-fn boaw_node_id(label: &str) -> NodeId {
+/// Create a deterministic node ID for Parallel tests.
+fn parallel_node_id(label: &str) -> NodeId {
     make_node_id(label)
 }
 
-/// Create a deterministic edge ID for BOAW tests.
-fn boaw_edge_id(label: &str) -> warp_core::EdgeId {
+/// Create a deterministic edge ID for Parallel tests.
+fn parallel_edge_id(label: &str) -> warp_core::EdgeId {
     make_edge_id(label)
 }
 
-impl BoawTestHarness for EngineHarness {
-    type Snapshot = BoawSnapshot;
+impl ParallelTestHarness for EngineHarness {
+    type Snapshot = ParallelSnapshot;
     type IngressItem = IngressItem;
 
-    fn build_base_snapshot(&self, scenario: BoawScenario) -> Self::Snapshot {
-        let node_ty = make_type_id("boaw/node");
-        let edge_ty = make_type_id("boaw/edge");
-        let attachment_ty = make_type_id("boaw/attachment");
+    fn build_base_snapshot(&self, scenario: ParallelScenario) -> Self::Snapshot {
+        let node_ty = make_type_id("parallel/node");
+        let edge_ty = make_type_id("parallel/edge");
+        let attachment_ty = make_type_id("parallel/attachment");
 
         let mut store = GraphStore::default();
 
         // Create deterministic graphs based on scenario
         let root = match scenario {
-            BoawScenario::Small => {
+            ParallelScenario::Small => {
                 // 5 nodes, 4 edges, some attachments
-                let n0 = boaw_node_id("small/n0");
-                let n1 = boaw_node_id("small/n1");
-                let n2 = boaw_node_id("small/n2");
-                let n3 = boaw_node_id("small/n3");
-                let n4 = boaw_node_id("small/n4");
+                let n0 = parallel_node_id("small/n0");
+                let n1 = parallel_node_id("small/n1");
+                let n2 = parallel_node_id("small/n2");
+                let n3 = parallel_node_id("small/n3");
+                let n4 = parallel_node_id("small/n4");
 
                 store.insert_node(n0, NodeRecord { ty: node_ty });
                 store.insert_node(n1, NodeRecord { ty: node_ty });
@@ -351,7 +353,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n0,
                     EdgeRecord {
-                        id: boaw_edge_id("small/e0"),
+                        id: parallel_edge_id("small/e0"),
                         from: n0,
                         to: n1,
                         ty: edge_ty,
@@ -360,7 +362,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n1,
                     EdgeRecord {
-                        id: boaw_edge_id("small/e1"),
+                        id: parallel_edge_id("small/e1"),
                         from: n1,
                         to: n2,
                         ty: edge_ty,
@@ -369,7 +371,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n2,
                     EdgeRecord {
-                        id: boaw_edge_id("small/e2"),
+                        id: parallel_edge_id("small/e2"),
                         from: n2,
                         to: n3,
                         ty: edge_ty,
@@ -378,7 +380,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n3,
                     EdgeRecord {
-                        id: boaw_edge_id("small/e3"),
+                        id: parallel_edge_id("small/e3"),
                         from: n3,
                         to: n4,
                         ty: edge_ty,
@@ -393,22 +395,22 @@ impl BoawTestHarness for EngineHarness {
                 n0
             }
 
-            BoawScenario::ManyIndependent => {
+            ParallelScenario::ManyIndependent => {
                 // 20 disjoint nodes (no edges between them)
-                let n0 = boaw_node_id("indep/n0");
+                let n0 = parallel_node_id("indep/n0");
                 store.insert_node(n0, NodeRecord { ty: node_ty });
 
                 for i in 1..20 {
-                    let node = boaw_node_id(&format!("indep/n{i}"));
+                    let node = parallel_node_id(&format!("indep/n{i}"));
                     store.insert_node(node, NodeRecord { ty: node_ty });
                 }
 
                 n0
             }
 
-            BoawScenario::ManyConflicts => {
+            ParallelScenario::ManyConflicts => {
                 // 10 nodes all sharing attachment on node 0
-                let n0 = boaw_node_id("conflict/n0");
+                let n0 = parallel_node_id("conflict/n0");
                 store.insert_node(n0, NodeRecord { ty: node_ty });
 
                 // Add shared attachment on n0
@@ -418,12 +420,12 @@ impl BoawTestHarness for EngineHarness {
 
                 // Add 9 more nodes that point to n0
                 for i in 1..10 {
-                    let node = boaw_node_id(&format!("conflict/n{i}"));
+                    let node = parallel_node_id(&format!("conflict/n{i}"));
                     store.insert_node(node, NodeRecord { ty: node_ty });
                     store.insert_edge(
                         node,
                         EdgeRecord {
-                            id: boaw_edge_id(&format!("conflict/e{i}")),
+                            id: parallel_edge_id(&format!("conflict/e{i}")),
                             from: node,
                             to: n0,
                             ty: edge_ty,
@@ -434,13 +436,13 @@ impl BoawTestHarness for EngineHarness {
                 n0
             }
 
-            BoawScenario::DeletesAndAttachments => {
+            ParallelScenario::DeletesAndAttachments => {
                 // 5 nodes with attachments to delete
-                let n0 = boaw_node_id("delete/n0");
+                let n0 = parallel_node_id("delete/n0");
                 store.insert_node(n0, NodeRecord { ty: node_ty });
 
                 for i in 1..5 {
-                    let node = boaw_node_id(&format!("delete/n{i}"));
+                    let node = parallel_node_id(&format!("delete/n{i}"));
                     store.insert_node(node, NodeRecord { ty: node_ty });
 
                     // Each node has an attachment
@@ -454,7 +456,7 @@ impl BoawTestHarness for EngineHarness {
                     store.insert_edge(
                         n0,
                         EdgeRecord {
-                            id: boaw_edge_id(&format!("delete/e{i}")),
+                            id: parallel_edge_id(&format!("delete/e{i}")),
                             from: n0,
                             to: node,
                             ty: edge_ty,
@@ -465,13 +467,13 @@ impl BoawTestHarness for EngineHarness {
                 n0
             }
 
-            BoawScenario::PrivacyClaims => {
+            ParallelScenario::PrivacyClaims => {
                 // Same as Small for now (placeholder)
-                let n0 = boaw_node_id("privacy/n0");
-                let n1 = boaw_node_id("privacy/n1");
-                let n2 = boaw_node_id("privacy/n2");
-                let n3 = boaw_node_id("privacy/n3");
-                let n4 = boaw_node_id("privacy/n4");
+                let n0 = parallel_node_id("privacy/n0");
+                let n1 = parallel_node_id("privacy/n1");
+                let n2 = parallel_node_id("privacy/n2");
+                let n3 = parallel_node_id("privacy/n3");
+                let n4 = parallel_node_id("privacy/n4");
 
                 store.insert_node(n0, NodeRecord { ty: node_ty });
                 store.insert_node(n1, NodeRecord { ty: node_ty });
@@ -482,7 +484,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n0,
                     EdgeRecord {
-                        id: boaw_edge_id("privacy/e0"),
+                        id: parallel_edge_id("privacy/e0"),
                         from: n0,
                         to: n1,
                         ty: edge_ty,
@@ -491,7 +493,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n1,
                     EdgeRecord {
-                        id: boaw_edge_id("privacy/e1"),
+                        id: parallel_edge_id("privacy/e1"),
                         from: n1,
                         to: n2,
                         ty: edge_ty,
@@ -500,7 +502,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n2,
                     EdgeRecord {
-                        id: boaw_edge_id("privacy/e2"),
+                        id: parallel_edge_id("privacy/e2"),
                         from: n2,
                         to: n3,
                         ty: edge_ty,
@@ -509,7 +511,7 @@ impl BoawTestHarness for EngineHarness {
                 store.insert_edge(
                     n3,
                     EdgeRecord {
-                        id: boaw_edge_id("privacy/e3"),
+                        id: parallel_edge_id("privacy/e3"),
                         from: n3,
                         to: n4,
                         ty: edge_ty,
@@ -520,61 +522,71 @@ impl BoawTestHarness for EngineHarness {
             }
         };
 
-        BoawSnapshot {
+        ParallelSnapshot {
             store,
             root,
             scenario,
         }
     }
 
-    fn make_ingress(&self, scenario: BoawScenario, _tick: u64) -> Vec<Self::IngressItem> {
+    fn make_ingress(&self, scenario: ParallelScenario, _tick: u64) -> Vec<Self::IngressItem> {
         // Ignore tick for now (keep constant per scenario)
         match scenario {
-            BoawScenario::Small => {
+            ParallelScenario::Small => {
                 // Touch nodes n0, n1, n2, n3, n4
                 vec![
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("small/n0")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("small/n1")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("small/n2")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("small/n3")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("small/n4")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("small/n0")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("small/n1")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("small/n2")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("small/n3")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("small/n4")),
                 ]
             }
 
-            BoawScenario::ManyIndependent => {
+            ParallelScenario::ManyIndependent => {
                 // Touch all 20 independent nodes
                 (0..20)
-                    .map(|i| (BOAW_TOUCH_RULE_NAME, boaw_node_id(&format!("indep/n{i}"))))
-                    .collect()
-            }
-
-            BoawScenario::ManyConflicts => {
-                // Touch all 10 nodes (they all share attachment on n0)
-                (0..10)
                     .map(|i| {
                         (
-                            BOAW_TOUCH_RULE_NAME,
-                            boaw_node_id(&format!("conflict/n{i}")),
+                            PARALLEL_TOUCH_RULE_NAME,
+                            parallel_node_id(&format!("indep/n{i}")),
                         )
                     })
                     .collect()
             }
 
-            BoawScenario::DeletesAndAttachments => {
-                // Touch all 5 nodes
-                (0..5)
-                    .map(|i| (BOAW_TOUCH_RULE_NAME, boaw_node_id(&format!("delete/n{i}"))))
+            ParallelScenario::ManyConflicts => {
+                // Touch all 10 nodes (they all share attachment on n0)
+                (0..10)
+                    .map(|i| {
+                        (
+                            PARALLEL_TOUCH_RULE_NAME,
+                            parallel_node_id(&format!("conflict/n{i}")),
+                        )
+                    })
                     .collect()
             }
 
-            BoawScenario::PrivacyClaims => {
+            ParallelScenario::DeletesAndAttachments => {
+                // Touch all 5 nodes
+                (0..5)
+                    .map(|i| {
+                        (
+                            PARALLEL_TOUCH_RULE_NAME,
+                            parallel_node_id(&format!("delete/n{i}")),
+                        )
+                    })
+                    .collect()
+            }
+
+            ParallelScenario::PrivacyClaims => {
                 // Touch nodes n0, n1, n2, n3, n4
                 vec![
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("privacy/n0")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("privacy/n1")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("privacy/n2")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("privacy/n3")),
-                    (BOAW_TOUCH_RULE_NAME, boaw_node_id("privacy/n4")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("privacy/n0")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("privacy/n1")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("privacy/n2")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("privacy/n3")),
+                    (PARALLEL_TOUCH_RULE_NAME, parallel_node_id("privacy/n4")),
                 ]
             }
         }
@@ -585,17 +597,17 @@ impl BoawTestHarness for EngineHarness {
         base: &Self::Snapshot,
         ingress: &[Self::IngressItem],
         _tick: u64,
-    ) -> BoawExecResult {
+    ) -> ParallelExecResult {
         // Clone the base store
         let store = base.store.clone();
 
         // Create Engine with EngineBuilder
         let mut engine = EngineBuilder::new(store, base.root).build();
 
-        // Register the "boaw/touch" rule
+        // Register the "parallel/touch" rule
         engine
-            .register_rule(make_boaw_touch_rule())
-            .expect("failed to register boaw/touch rule");
+            .register_rule(make_parallel_touch_rule())
+            .expect("failed to register parallel/touch rule");
 
         // Begin transaction
         let tx = engine.begin();
@@ -616,7 +628,7 @@ impl BoawTestHarness for EngineHarness {
             .commit_with_receipt(tx)
             .expect("commit_with_receipt failed");
 
-        BoawExecResult {
+        ParallelExecResult {
             commit_hash: snapshot.hash,
             state_root: snapshot.state_root,
             patch_digest: snapshot.patch_digest,
@@ -632,7 +644,7 @@ impl BoawTestHarness for EngineHarness {
         ingress: &[Self::IngressItem],
         _tick: u64,
         workers: usize,
-    ) -> BoawExecResult {
+    ) -> ParallelExecResult {
         // Clone the base store
         let store = base.store.clone();
 
@@ -641,10 +653,10 @@ impl BoawTestHarness for EngineHarness {
             .workers(workers)
             .build();
 
-        // Register the "boaw/touch" rule
+        // Register the "parallel/touch" rule
         engine
-            .register_rule(make_boaw_touch_rule())
-            .expect("failed to register boaw/touch rule");
+            .register_rule(make_parallel_touch_rule())
+            .expect("failed to register parallel/touch rule");
 
         // Begin transaction
         let tx = engine.begin();
@@ -665,7 +677,7 @@ impl BoawTestHarness for EngineHarness {
             .commit_with_receipt(tx)
             .expect("commit_with_receipt failed");
 
-        BoawExecResult {
+        ParallelExecResult {
             commit_hash: snapshot.hash,
             state_root: snapshot.state_root,
             patch_digest: snapshot.patch_digest,
@@ -849,7 +861,7 @@ pub fn setup_worldline_with_ticks(
 /// Creates a "touch" rewrite rule for worker invariance tests.
 ///
 /// The rule sets a marker attachment on the scope node, exercising the
-/// BOAW parallel execution path while remaining deterministic.
+/// Parallel parallel execution path while remaining deterministic.
 ///
 /// Because `RewriteRule` fields are function pointers (not closures), parameters
 /// must be string/byte literals known at compile time. Use this macro to avoid

@@ -4,7 +4,7 @@
 // carry #[allow] (attributes on macro invocations are ignored). Crate-level
 // suppress is required for benchmark binaries using Criterion.
 #![allow(missing_docs, clippy::panic, clippy::items_after_statements)]
-//! BOAW Phase 6B performance baseline benchmarks.
+//! Parallel execution performance baseline benchmarks.
 //!
 //! Measures parallel vs serial execution across different workload sizes
 //! and worker counts. Use these baselines to detect regressions in future phases.
@@ -12,7 +12,7 @@
 //! # Running
 //!
 //! ```sh
-//! cargo +nightly bench --package warp-benches --bench boaw_baseline
+//! cargo +nightly bench --package warp-benches --bench parallel_baseline
 //! ```
 //!
 //! # What This Measures
@@ -23,7 +23,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use std::collections::BTreeMap;
 use std::time::Duration;
-use warp_core::boaw::{build_work_units, execute_work_queue, WorkerResult};
+use warp_core::parallel::{build_work_units, execute_work_queue, WorkerResult};
 use warp_core::{
     execute_parallel, execute_serial, make_node_id, make_type_id, make_warp_id, AtomPayload,
     AttachmentKey, AttachmentValue, ExecItem, GraphStore, GraphView, NodeId, NodeKey, NodeRecord,

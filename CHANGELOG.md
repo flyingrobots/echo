@@ -5,6 +5,20 @@
 
 ## Unreleased
 
+### Chore: Clean up root directory
+
+- **Removed** stale root-level ADR duplicates (`ADR-0003` through `ADR-0006`);
+  canonical copies already exist in `docs/adr/`.
+- **Removed** completed one-shot plan `MERGE_TTD_BRANCH_PLAN.md`.
+- **Moved** determinism docs (`DETERMINISM-AUDIT.md`, `DIND-MISSION*.md`) to
+  `docs/determinism/`.
+- **Moved** task trackers (`TASKS.md`, `TASKS-DAG.md`, `WASM-TASKS.md`) to
+  `docs/tasks/`.
+- **Moved** `ECHO_ROADMAP.md` to `docs/ROADMAP/`, `COMING_SOON.md` to
+  `docs/plans/`, `AGENTS.md` to `docs/`.
+- **Deleted** untracked junk files (`paper-7eee.log`, `dind-report.json`,
+  `.DS_Store`).
+
 ### CI: G3 perf regression gate (#280)
 
 - **CI:** G3 perf regression gate now compares criterion benchmark output

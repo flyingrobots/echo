@@ -17,7 +17,7 @@ This crate provides a stateful `TtdEngine` struct that wraps the TTD primitives 
 
 ## Architecture
 
-Per the TTD spec (docs/plans/ttd-app.md Part 7.1), `ttd-browser` is designed as a "pure MBUS client" - it sends EINT intents and receives TruthFrames, with minimal protocol logic. The heavier protocol logic lives in `ttd-controller` (Task 5.1).
+`ttd-browser` is designed as a "pure MBUS client" — it sends EINT intents and receives TruthFrames, with minimal protocol logic.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐

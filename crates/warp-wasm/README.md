@@ -3,14 +3,15 @@
 
 # warp-wasm
 
-wasm-bindgen bindings for the `warp-core` engine for tooling and web environments.
+wasm-bindgen bindings for Echo’s WASM ABI and registry API, targeting tooling and web environments.
 
 See the repository root `README.md` for the full overview.
 
 ## What this crate does
 
-- Wraps `warp-core` in `wasm-bindgen` bindings so Echo’s deterministic engine
-  can be used from JavaScript/TypeScript in web-based tools and playgrounds.
+- Wraps `echo-wasm-abi` and `echo-registry-api` in `wasm-bindgen` bindings so
+  Echo’s deterministic wire protocol can be used from JavaScript/TypeScript in
+  web-based tools and playgrounds.
 - Intended to power future browser-based visualizers and inspectors built on
   top of the same core engine as native tools.
 

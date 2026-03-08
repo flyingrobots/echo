@@ -32,12 +32,12 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 1. Clone the repo and run `cargo check` to ensure the Rust workspace builds.
 2. Read `docs/architecture-outline.md`.
-3. Review `AGENTS.md` for collaboration norms before touching runtime code.
+3. Review `docs/AGENTS.md` for collaboration norms before touching runtime code.
 4. Optional: develop inside the devcontainer for toolchain parity with CI.
     - Open in VS Code → "Reopen in Container" (requires the Dev Containers extension).
 
-- The container includes Rust 1.71.1 (via rust-toolchain.toml), clippy/rustfmt, Node, and gh.
-- Post-create installs toolchain 1.71.1 (no override); wasm32 target and components are added to 1.71.1.
+- The container includes Rust 1.90.0 (via `rust-toolchain.toml`), clippy/rustfmt, Node, and gh.
+- Post-create installs the pinned toolchain (no override); wasm32 target and components are added automatically.
 
 ## Branching & Workflow
 
@@ -64,7 +64,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 ## Submitting Changes
 
 1. Run `cargo fmt`, `cargo clippy`, and `cargo test`.
-2. Commit with meaningful messages (no conventional prefixes; tell the story).
+2. Commit with conventional commit messages: `type(scope): summary` (e.g., `fix(warp-core): prevent NaN propagation`).
 3. Push your branch and open a PR. Include:
     - Summary of changes and motivation.
     - Tests performed.
@@ -75,7 +75,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 - Rust code must pass `cargo fmt` and `cargo clippy` without warnings.
 - Rhai scripts should remain deterministic (no uncontrolled globals, RNG via engine services).
-- TypeScript tooling (when active) lives in `reference/typescript/`; follow local lint configs when reactivated.
+- TypeScript packages live in `packages/` and `apps/`; follow local lint configs.
 - Avoid non-deterministic APIs (no wall-clock, no uncontrolled randomness). Use Echo’s deterministic services.
 
 ### Git Hooks (recommended)

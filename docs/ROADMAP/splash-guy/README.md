@@ -3,7 +3,7 @@
 
 # Splash Guy
 
-> **Priority:** P2 | **Status:** Planned | **Est:** TBD (current skeleton ~28h)
+> **Priority:** P3 | **Status:** Planned | **Est:** TBD (current skeleton ~28h)
 
 A grid-based water balloon game demonstrating deterministic rules, lockstep networking, and intentional desync lessons. Two peers exchange inputs, per-tick fingerprints verify determinism.
 

@@ -26,6 +26,34 @@
   separation of implemented specs, vision specs (unimplemented), ADRs, and
   archive. Removed broken links and stale entries.
 
+### Docs: Fix violations found during docs sweep
+
+- **Fixed** `CONTRIBUTING.md`: Rust version 1.71.1 → 1.90.0, `AGENTS.md` path
+  to `docs/AGENTS.md`, `reference/typescript/` → `packages/` and `apps/`,
+  commit message guidance aligned with conventional commits.
+- **Fixed** `.devcontainer/post-create.sh`: reads toolchain version from
+  `rust-toolchain.toml` instead of hardcoding 1.71.1, removed stale
+  `rmg-core` crate reference.
+- **Fixed** `warp-wasm/README.md`: corrected dependency claim from `warp-core`
+  to `echo-wasm-abi` + `echo-registry-api`.
+- **Fixed** `echo-session-proto/README.md`: removed broken `docs/tex/` paths,
+  pointed to `docs/js-cbor-mapping.md` and book sections instead.
+- **Fixed** `ttd-browser/README.md`: removed broken `docs/plans/ttd-app.md`
+  reference and nonexistent `ttd-controller` crate mention.
+- **Fixed** `NOTICE`: copyright year 2025 → 2025–2026, SPDX identifier aligned
+  to `LicenseRef-MIND-UCAL-1.0`.
+- **Fixed** ROADMAP priority mismatch: 5 milestone READMEs aligned from P2 → P3
+  to match the parent index. Proof Core status downgraded from "Verified" to
+  "In Progress" (Docs Polish feature still incomplete).
+- **Fixed** `guide/cargo-features.md`: removed nonexistent `spec-000-rewrite`
+  crate section.
+- **Fixed** `guide/course/glossary.md`: corrected `ViolationKind` variant
+  `AdjacencyViolation` → `OpWarpUnknown` with full variant names.
+- **Fixed** `BENCHMARK_GUIDE.md`: updated "CI Integration (Future)" section to
+  reflect existing G3 perf gate.
+- **Fixed** `echo-session-client` and `echo-session-service` Cargo.toml
+  descriptions: removed stale "(skeleton)" qualifier.
+
 ### Chore: Clean up root directory
 
 - **Removed** stale root-level ADR duplicates (`ADR-0003` through `ADR-0006`);

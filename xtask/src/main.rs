@@ -792,9 +792,10 @@ fn run_markdown_fix(args: &MarkdownFixArgs) -> Result<()> {
 
     let file_args: Vec<&str> = md_files
         .iter()
-        .filter_map(|p| match p.to_str() {
-            Some(s) => Some(s),
-            None => {
+        .filter_map(|p| {
+            if let Some(s) = p.to_str() {
+                Some(s)
+            } else {
                 eprintln!("markdown-fix: skipping non-UTF-8 path: {}", p.display());
                 None
             }

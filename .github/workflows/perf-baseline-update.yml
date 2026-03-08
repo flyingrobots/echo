@@ -49,6 +49,7 @@ jobs:
           cargo bench -p warp-benches --bench materialization_hotpath -- --output-format bencher | tee perf.log
 
       - name: Generate baseline JSON
+        id: generate
         if: steps.changed.outputs.skip != 'true'
         run: |
           node scripts/generate_perf_baseline.cjs perf.log > perf-baseline-new.json
@@ -57,17 +58,17 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             mv perf-baseline-new.json perf-baseline.json
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create baseline PR
-        if: steps.changed.outputs.skip != 'true'
+        if: steps.changed.outputs.skip != 'true' && steps.generate.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="chore/perf-baseline-$(git rev-parse --short HEAD)"
+          BRANCH="chore/perf-baseline-$(date +%Y%m%d)-$(git rev-parse --short HEAD)"
           git checkout -b "$BRANCH"
           git add perf-baseline.json
-          git diff --cached --quiet && exit 0
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "chore(perf): update perf-baseline.json from $(git rev-parse --short HEAD~1)"

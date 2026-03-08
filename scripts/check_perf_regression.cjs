@@ -23,9 +23,8 @@
 "use strict";
 
 const fs = require("fs");
-const path = require("path");
 
-const USAGE = `Usage: node ${path.basename(__filename)} <baseline.json> <current.log> [--threshold <percent>]`;
+const USAGE = "Usage: node scripts/check_perf_regression.cjs <baseline.json> <current.log> [--threshold <percent>]";
 
 function parseArgs(argv) {
   const args = argv.slice(2);
@@ -115,6 +114,13 @@ function main() {
       delta: deltaPct,
       status: regressed ? "REGRESSED" : "OK",
     });
+  }
+
+  // Warn about baseline benchmarks missing from current run
+  for (const name of Object.keys(baseline)) {
+    if (current[name] == null) {
+      console.warn(`WARN: baseline benchmark "${name}" missing from current run`);
+    }
   }
 
   // Print table

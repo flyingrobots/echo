@@ -5404,6 +5404,7 @@ dependencies = [
  "js-sys",
  "serde",
  "serde-value",
+ "warp-core",
  "wasm-bindgen",
  "web-sys",
 ]

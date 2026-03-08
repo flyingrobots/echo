@@ -5,6 +5,30 @@
 
 ## Unreleased
 
+### feat(wasm): Ship reusable app-kernel WASM boundary with real exports (ECO-001)
+
+- **Added** `KernelPort` trait to `echo-wasm-abi` — app-agnostic byte-level
+  boundary contract for WASM host adapters. Includes ABI response DTOs
+  (`DispatchResponse`, `StepResponse`, `HeadInfo`, `DrainResponse`,
+  `RegistryInfo`), error codes, and CBOR wire envelope types.
+- **Added** `WarpKernel` to `warp-wasm` (behind `engine` feature) — wraps
+  `warp-core::Engine` implementing `KernelPort`. Registers `sys/ack_pending`
+  system rule, provides deterministic tick execution.
+- **Replaced** all placeholder WASM exports with real implementations:
+  `dispatch_intent`, `step`, `drain_view_ops`, `get_head`, `snapshot_at`,
+  `get_registry_info`, and handshake metadata getters now return live data.
+- **Added** `init()` export for kernel initialization; calling exports before
+  init returns structured error (no panics).
+- **Added** CBOR success/error envelope protocol (`{ ok: true/false, ... }`)
+  for all `Uint8Array` returns.
+- **Added** `install_kernel()` public API for app-agnostic kernel injection.
+- **Added** SPEC-0009 documenting ABI v1 contract, wire encoding, error
+  codes, versioning strategy, and migration notes.
+- **Added** 14 conformance tests covering dispatch, step, drain, snapshot,
+  determinism, error paths, and handshake metadata.
+- `execute_query` and `render_snapshot` honestly report `NOT_SUPPORTED`
+  (error code 5) until the engine query dispatcher lands.
+
 ### Refactor: Retire BOAW/JITOS/Continuum codenames
 
 - **Renamed** `warp_core::boaw` module to `warp_core::parallel` — all import

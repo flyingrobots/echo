@@ -13,15 +13,20 @@ keywords = ["echo", "wasm", "ecs", "deterministic"]
 categories = ["wasm", "game-engines"]
 
 [lib]
-crate-type = ["cdylib"]
+# cdylib for WASM; rlib allows native `cargo test` and downstream integration tests.
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
 console-panic = ["console_error_panic_hook", "web-sys"]
+# Enable the warp-core engine kernel implementation.
+# Apps compile with this feature to get a real Engine behind the WASM exports.
+engine = ["dep:warp-core"]
 
 [dependencies]
 echo-registry-api = { workspace = true }
 echo-wasm-abi = { workspace = true }
+warp-core = { workspace = true, optional = true }
 wasm-bindgen = "0.2.106"
 js-sys = "0.3.83"
 web-sys = { version = "0.3.83", optional = true, features = ["console"] }
@@ -30,6 +35,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde-value = "0.7"
 
 [dev-dependencies]
+warp-core = { workspace = true }
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 

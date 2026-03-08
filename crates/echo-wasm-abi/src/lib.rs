@@ -36,6 +36,8 @@ pub mod eintlog;
 #[cfg(feature = "std")]
 pub use eintlog::*;
 
+pub mod kernel_port;
+
 pub mod ttd;
 pub use ttd::*;
 

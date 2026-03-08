@@ -22,7 +22,7 @@ use warp_core::{
 };
 
 // =============================================================================
-// Parallel COMPLIANCE TEST UTILITIES (ADR-0007)
+// PARALLEL EXECUTION COMPLIANCE TEST UTILITIES (ADR-0007)
 // =============================================================================
 
 /// 32-byte hash type alias for clarity.
@@ -163,10 +163,10 @@ pub fn assert_hash_eq(a: &Hash32, b: &Hash32, msg: &str) {
     assert!((a == b), "{msg}\n  a: {}\n  b: {}", hex32(a), hex32(b));
 }
 
-/// Results from Parallel execution that can be compared deterministically.
+/// Results from parallel execution that can be compared deterministically.
 #[derive(Clone)]
 pub struct ParallelExecResult {
-    /// The Parallel commit identifier (hash of the commit).
+    /// The commit identifier (hash of the commit).
     pub commit_hash: Hash32,
     /// The resulting state root hash after execution.
     pub state_root: Hash32,
@@ -195,20 +195,20 @@ pub enum ParallelScenario {
     PrivacyClaims,
 }
 
-/// Snapshot state for Parallel compliance tests.
+/// Snapshot state for parallel execution compliance tests.
 pub struct ParallelSnapshot {
     /// GraphStore holding the snapshot data.
     pub store: GraphStore,
     /// NodeId for the scenario root node.
     pub root: NodeId,
-    /// ParallelScenario describing the Parallel test setup.
+    /// ParallelScenario describing the test setup.
     pub scenario: ParallelScenario,
 }
 
 /// Ingress item: (rule_name, scope_node_id)
 pub type IngressItem = (&'static str, NodeId);
 
-/// A minimal test façade so tests don't hard-couple to evolving Parallel API.
+/// A minimal test façade so tests don't hard-couple to evolving parallel execution API.
 /// Implement this once (or provide a real harness builder).
 pub trait ParallelTestHarness {
     type Snapshot;
@@ -241,18 +241,18 @@ pub trait ParallelTestHarness {
     fn wsc_roundtrip_state_root(&self, wsc: &[u8]) -> Hash32;
 }
 
-/// Returns the real `EngineHarness` for Parallel compliance tests.
+/// Returns the real `EngineHarness` for parallel execution compliance tests.
 pub fn parallel_harness() -> impl ParallelTestHarness {
     EngineHarness
 }
 
-/// Real Parallel test harness backed by `warp_core::Engine`.
+/// Real parallel execution test harness backed by `warp_core::Engine`.
 pub struct EngineHarness;
 
-/// Rule name used by the Parallel test harness.
+/// Rule name used by the parallel test harness.
 const PARALLEL_TOUCH_RULE_NAME: &str = "parallel/touch";
 
-/// Marker type ID for the Parallel touch attachment.
+/// Marker type ID for the parallel touch attachment.
 fn parallel_marker_type_id() -> warp_core::TypeId {
     make_type_id("parallel/marker")
 }
@@ -273,7 +273,7 @@ fn make_parallel_touch_rule() -> RewriteRule {
             view.node(scope).is_some()
         },
         executor: |view, scope, delta| {
-            // Phase 5 Parallel: read from view, emit ops to delta (no direct mutation).
+            // Phase 5: read from view, emit ops to delta (no direct mutation).
             let marker_payload = AtomPayload::new(
                 parallel_marker_type_id(),
                 bytes::Bytes::from_static(b"touched"),
@@ -312,12 +312,12 @@ fn make_parallel_touch_rule() -> RewriteRule {
     }
 }
 
-/// Create a deterministic node ID for Parallel tests.
+/// Create a deterministic node ID for parallel execution tests.
 fn parallel_node_id(label: &str) -> NodeId {
     make_node_id(label)
 }
 
-/// Create a deterministic edge ID for Parallel tests.
+/// Create a deterministic edge ID for parallel execution tests.
 fn parallel_edge_id(label: &str) -> warp_core::EdgeId {
     make_edge_id(label)
 }

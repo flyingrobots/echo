@@ -8,8 +8,8 @@ set -euo pipefail
 # Intended to keep living task docs unambiguous.
 
 FILES=(
-  "WASM-TASKS.md"
-  "docs/tasks.md"
+  # Add task list files here as they are created.
+  # Previously: "WASM-TASKS.md", "docs/tasks.md" (archived)
 )
 
 fail=0

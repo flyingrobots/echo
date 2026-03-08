@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Canonical delta merge for BOAW Phase 6A.
+//! Canonical delta merge for parallel execution.
 
 use std::collections::BTreeSet;
 

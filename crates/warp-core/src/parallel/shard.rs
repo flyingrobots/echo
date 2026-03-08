@@ -71,7 +71,7 @@ const SHARD_MASK: u64 = (NUM_SHARDS - 1) as u64;
 /// # Example
 ///
 /// ```
-/// use warp_core::boaw::shard::shard_of;
+/// use warp_core::parallel::shard::shard_of;
 /// use warp_core::NodeId;
 ///
 /// let bytes: [u8; 32] = [

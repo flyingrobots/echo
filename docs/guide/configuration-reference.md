@@ -53,10 +53,10 @@ u32. This placeholder will be replaced when Aion policy semantics land.
 
 These values are frozen and cannot be changed without a protocol version bump.
 
-| Constant                 | Value        | Location                             | Notes                                                                 |
-| ------------------------ | ------------ | ------------------------------------ | --------------------------------------------------------------------- |
-| `NUM_SHARDS`             | 256          | `crates/warp-core/src/boaw/shard.rs` | Must be power of two. Routing formula: `LE_u64(node_id[0..8]) & 0xFF` |
-| `POLICY_ID_NO_POLICY_V0` | `0x304F504E` | `crates/warp-core/src/constants.rs`  | Placeholder policy ID (`b"NOP0"` LE)                                  |
+| Constant                 | Value        | Location                                 | Notes                                                                 |
+| ------------------------ | ------------ | ---------------------------------------- | --------------------------------------------------------------------- |
+| `NUM_SHARDS`             | 256          | `crates/warp-core/src/parallel/shard.rs` | Must be power of two. Routing formula: `LE_u64(node_id[0..8]) & 0xFF` |
+| `POLICY_ID_NO_POLICY_V0` | `0x304F504E` | `crates/warp-core/src/constants.rs`      | Placeholder policy ID (`b"NOP0"` LE)                                  |
 
 ## Channel Policies (MaterializationBus)
 

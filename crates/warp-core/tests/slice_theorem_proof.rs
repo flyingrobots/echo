@@ -746,7 +746,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
     let warp_id = store.warp_id();
 
     // Runtime: execute R1 in tick 1 (writes B attachment), then R4 in tick 2 (reads B).
-    // BOAW uses snapshot semantics: executors within a tick read the SAME pre-tick view.
+    // Parallel execution uses snapshot semantics: executors within a tick read the SAME pre-tick view.
     // R4 can only see R1's write after it's committed to the store (separate tick).
     let mut engine = EngineBuilder::new(store, root).workers(4).build();
     engine.register_rule(r1_rule()).expect("r1");

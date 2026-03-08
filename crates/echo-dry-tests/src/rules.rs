@@ -109,13 +109,13 @@ impl NoOpRule {
     }
 }
 
-/// Type alias for Phase 5 BOAW matcher functions.
+/// Type alias for Phase 5 parallel execution matcher functions.
 pub type MatcherFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool;
 
-/// Type alias for Phase 5 BOAW executor functions.
+/// Type alias for Phase 5 parallel execution executor functions.
 pub type ExecutorFn = for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta);
 
-/// Type alias for Phase 5 BOAW footprint functions.
+/// Type alias for Phase 5 parallel execution footprint functions.
 pub type FootprintFn = for<'a> fn(GraphView<'a>, &NodeId) -> Footprint;
 
 /// Builder for creating synthetic rules in tests.

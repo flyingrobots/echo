@@ -104,17 +104,17 @@ design intent and are kept for reference, but should not be treated as current b
 
 ## ADRs
 
-| ADR                     | Title                                       |
-| ----------------------- | ------------------------------------------- |
-| `adr/ADR-0001-*`        | Two-plane WARP representation               |
-| `adr/ADR-0002-*`        | WarpInstances + descended attachments       |
-| `adr/ADR-0003-*`        | Causality-first API (MaterializationPort)   |
-| `adr/ADR-0004-*`        | No global state (DI only)                   |
-| `adr/ADR-0005-*`        | Physics as deterministic scheduled rewrites |
-| `adr/ADR-0006-*`        | Ban non-determinism                         |
-| `adr/ADR-0007-*`        | BOAW storage + parallel execution           |
-| `adr/PLAN-PHASE-6B-*`   | Virtual shards (complete)                   |
-| `adr/TECH-DEBT-BOAW.md` | Parallel execution tech debt tracker        |
+| ADR                     | Title                                                      |
+| ----------------------- | ---------------------------------------------------------- |
+| `adr/ADR-0001-*`        | Two-plane WARP representation                              |
+| `adr/ADR-0002-*`        | WarpInstances + descended attachments                      |
+| `adr/ADR-0003-*`        | Causality-first API (MaterializationPort)                  |
+| `adr/ADR-0004-*`        | No global state (DI only)                                  |
+| `adr/ADR-0005-*`        | Physics as deterministic scheduled rewrites                |
+| `adr/ADR-0006-*`        | Ban non-determinism                                        |
+| `adr/ADR-0007-*`        | Parallel execution storage + scheduling                    |
+| `adr/PLAN-PHASE-6B-*`   | Virtual shards (complete)                                  |
+| `adr/TECH-DEBT-BOAW.md` | Parallel execution tech debt tracker (historical filename) |
 
 ## Archive
 

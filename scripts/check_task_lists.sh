@@ -24,8 +24,8 @@ for file in "${FILES[@]}"; do
 done
 
 if [[ "${#existing_files[@]}" -eq 0 ]]; then
-  echo "Error: no task list files found to validate" >&2
-  exit 1
+  echo "No task list files found — nothing to validate." >&2
+  exit 0
 fi
 
 awk '

@@ -1434,16 +1434,15 @@ mod tests {
 
     /// Reference: apply last-wins dedup on (scope, rule_id), then sort
     /// survivors by (scope_be32, rule_id). Returns payloads in that order.
+    /// Uses BTreeMap for deterministic iteration (satisfies ban-nondeterminism).
     fn reference_drain(enqueues: &[([u8; 32], u32, u32)]) -> Vec<u32> {
         // Last-wins dedup: later enqueues overwrite earlier ones for same key.
-        let mut deduped: std::collections::HashMap<([u8; 32], u32), u32> =
-            std::collections::HashMap::new();
+        // BTreeMap gives us dedup + sorted output in one structure.
+        let mut deduped: BTreeMap<([u8; 32], u32), u32> = BTreeMap::new();
         for &(scope, rule, payload) in enqueues {
             deduped.insert((scope, rule), payload);
         }
-        let mut surviving: Vec<(([u8; 32], u32), u32)> = deduped.into_iter().collect();
-        surviving.sort_by(|a, b| (a.0).0.cmp(&(b.0).0).then((a.0).1.cmp(&(b.0).1)));
-        surviving.into_iter().map(|(_, payload)| payload).collect()
+        deduped.into_values().collect()
     }
 
     proptest::proptest! {

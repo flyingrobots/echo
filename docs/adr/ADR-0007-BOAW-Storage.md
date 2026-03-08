@@ -7,7 +7,7 @@
 
 - Status: Accepted
 - Date: 2026-01-17
-- Project: Echo / Continuum (warp-core)
+- Project: Echo (warp-core)
 - Decision: Replace the spike-era monolithic in-place GraphStore model with BOAW: immutable snapshots + COW overlays + lockless parallel execution via per-thread deltas, deterministic commits/hashes, explicit footprint-based independence scheduling, typed merge/collapse, and privacy-safe provenance (mind/diagnostics modes).
 
 ---

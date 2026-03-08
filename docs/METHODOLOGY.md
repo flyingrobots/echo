@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# JITOS Engineering Standard: The Living Specification
+# Echo Engineering Standard: The Living Specification
 
 **Status:** In Progress (living spec scaffold exists; certification pending)  
 **Version:** 1.0.0  
@@ -15,13 +15,13 @@
 
 ## 1. Abstract ⚠️
 
-The JITOS operating system rejects the traditional dichotomy between "code" and "documentation." Given the paradigm-shifting nature of the Causal Operating System (WARP graphs, Event Sourcing, Schrödinger Workspaces), static text is insufficient to convey system behavior.
+The Echo operating system rejects the traditional dichotomy between "code" and "documentation." Given the paradigm-shifting nature of the Causal Operating System (WARP graphs, Event Sourcing, Schrödinger Workspaces), static text is insufficient to convey system behavior.
 
-Instead, JITOS adopts the **"5x Duty" Methodology**. Every feature added to the kernel must simultaneously serve five distinct purposes through a single, unified codebase. We do not write documentation _about_ the OS; we compile the OS _into_ the documentation.
+Instead, Echo adopts the **"5x Duty" Methodology**. Every feature added to the kernel must simultaneously serve five distinct purposes through a single, unified codebase. We do not write documentation _about_ the OS; we compile the OS _into_ the documentation.
 
 ## 1.1 Current Status in This Repository (Echo) ✅
 
-This document describes the **target** JITOS workflow, but not every element is implemented yet in this repo.
+This document describes the **target** Echo workflow, but not every element is implemented yet in this repo.
 
 Last reviewed: **2026-01-16**.
 
@@ -99,7 +99,7 @@ graph TD
 Under this methodology, the "Onboarding" process is identical to the "Testing" process.
 
 1. ⚠️ **The Challenge:** A new contributor runs the current living spec locally (e.g. `make spec-000-dev`).
-2. ⚠️ **The Context:** They read the narrative explaining _why_ JITOS uses append-only storage.
+2. ⚠️ **The Context:** They read the narrative explaining _why_ Echo uses append-only storage.
 3. ⚠️ **The Interaction:** They use the embedded WASM demo to attempt a rewrite. This executes the current demo kernel logic compiled to WASM.
 4. ⚠️ **The Validation:** If they correctly perform the operation (e.g., creating a transaction rather than mutating a value), the Kernel state updates successfully.
 5. 🗺️ **The Certification:** A future UI win-condition will generate a `Completion Hash` for contributor certification.

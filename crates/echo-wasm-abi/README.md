@@ -3,7 +3,7 @@
 
 # echo-wasm-abi
 
-Shared WASM-friendly DTOs for Echo/JITOS living specs. Mirrors the minimal graph + rewrite shapes used in Spec-000 and future interactive specs.
+Shared WASM-friendly DTOs for Echo living specs. Mirrors the minimal graph + rewrite shapes used in Spec-000 and future interactive specs.
 
 ## Types
 

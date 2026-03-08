@@ -5,6 +5,25 @@
 
 ## Unreleased
 
+### Refactor: Retire BOAW/JITOS/Continuum codenames
+
+- **Renamed** `warp_core::boaw` module to `warp_core::parallel` — all import
+  paths, re-exports, and doc comments updated.
+- **Renamed** 14 `boaw_*` integration test files to `parallel_*`, updated test
+  harness types (`BoawScenario` → `ParallelScenario`, `BoawTestHarness` →
+  `ParallelTestHarness`, etc.) and string literals.
+- **Renamed** `boaw_baseline` benchmark to `parallel_baseline`, updated
+  `warp-benches/Cargo.toml` target.
+- **Annotated** 5 ADR files with deprecation notice (filenames preserved as
+  historical records).
+- **Updated** book/LaTeX sections, specs, guides, and source comments to
+  replace BOAW references with `parallel`.
+- **Replaced** "Echo/JITOS" → "Echo" in `echo-wasm-bindings`, `echo-wasm-abi`,
+  and `spec-000-rewrite` crate metadata and READMEs.
+- **Replaced** "JITOS Engineering Standard" → "Echo Engineering Standard" in
+  `METHODOLOGY.md`.
+- **Replaced** "Echo / Continuum" → "Echo" in ADR-0007.
+
 ### Chore: Archive ~90 stale docs, restructure docs-index
 
 - **Archived** 6 entire directories to `docs/archive/`: `notes/`, `plans/`,

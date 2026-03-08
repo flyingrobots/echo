@@ -3,7 +3,7 @@
 
 # Spec-000 Rewrite (Living Spec)
 
-Leptos + Trunk WASM scaffold for Spec-000: “Everything Is a Rewrite.” This page will embed the actual Echo/JITOS kernel in the browser to demonstrate rewrite-driven state.
+Leptos + Trunk WASM scaffold for Spec-000: “Everything Is a Rewrite.” This page will embed the actual Echo kernel in the browser to demonstrate rewrite-driven state.
 
 ## Dev
 

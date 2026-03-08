@@ -61,9 +61,37 @@ Each submission references hashes from local diff graphs. Deduplication occurs w
 
 ## Security
 
-- Journal entries signed (Ed25519) and capability-scoped. The signed payload is the canonical byte sequence of the journal entry excluding the signature field itself. The exact canonicalization follows the encoding rules defined in this spec. Verifiers MUST reject signatures over any other encoding.
+- Journal entries signed (Ed25519) and capability-scoped.
 - Confluence rejects blocks that conflict with capabilities or fail hash validation.
 - Audit logs allow replay of every submission.
+
+### Signing Canonicalization
+
+The signed payload for a journal entry is the canonical byte sequence of the
+entry **excluding** the `signature` field itself. Verifiers MUST reject
+signatures over any other encoding.
+
+Canonical field order (serialized sequentially, no delimiters):
+
+1. `root_hash` (32 bytes, raw BLAKE3)
+2. `parent_hash` (32 bytes, raw BLAKE3; all-zero if genesis)
+3. `diff_count` (`uint32` LE)
+4. `diff_hashes` (`diff_count` × 32 bytes, each raw BLAKE3, in submission order)
+5. `signer_id` (length-prefixed UTF-8: `uint32` LE length + bytes)
+6. `capability_count` (`uint32` LE)
+7. `capabilities` (`capability_count` × length-prefixed UTF-8 strings, sorted
+   lexicographically by UTF-8 bytes)
+8. `timestamp` (`uint64` LE, Unix epoch seconds; informational, not used for
+   determinism but committed to prevent replay)
+
+```text
+signed_bytes = concat(root_hash, parent_hash, diff_count, diff_hashes,
+                      signer_id, capability_count, capabilities, timestamp)
+signature    = Ed25519_Sign(private_key, signed_bytes)
+```
+
+Implementations MUST serialize fields in exactly this order. A signature
+computed over any other field ordering or encoding MUST be rejected.
 
 ---
 

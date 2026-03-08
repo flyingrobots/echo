@@ -43,6 +43,16 @@
   semantics, `CapabilityAssertion` with forward reference to capabilities
   spec, and `StabilityObserver` lifecycle.
 
+- **Polish:** Resolved remaining 13 Tier 2 CodeRabbit items (all 66 complete):
+  session token format (HMAC-SHA256) and filter semantics in
+  `spec-editor-and-inspector.md`; signing canonicalization subsection with
+  8-field byte layout in `spec-warp-confluence.md`; breaking-change criteria
+  and deprecation timeline in `spec-world-api.md`; `BlockManifest` section
+  encoding in `spec-serialization-protocol.md`; radix sort internals
+  documentation in `scheduler-optimization-followups.md`; enum style
+  unification in SPEC-0002; `cargo metadata` provenance command in
+  `cargo-features.md`; expanded serde acceptance criteria in
+  `issue-canonical-f32.md`.
 - **Polish:** Resolved 12 Tier 1 CodeRabbit items: `remain disjoint` →
   `are non-conflicting` in SPEC-0003, tightened subnormal definition in
   `DETERMINISTIC_MATH.md`, added Aion inline definition in

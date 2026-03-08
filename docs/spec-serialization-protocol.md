@@ -142,7 +142,17 @@ interface BlockManifest {
 }
 ```
 
-Serialized as list of section headers + counts + sorted hashes.
+Serialized in declaration order (`nodes`, `snapshots`, `diffs`, `payloads`).
+Each section is encoded as:
+
+1. `sectionTag (uint8)` — `0x01` = nodes, `0x02` = snapshots, `0x03` = diffs,
+   `0x04` = payloads.
+2. `count (uint32 LE)` — number of hashes in this section.
+3. `hashes` — `count` × 32-byte BLAKE3 hashes, sorted lexicographically.
+
+An empty section is encoded with `count = 0` and zero hash bytes (the section
+tag is always present). The manifest hash is
+`BLAKE3(concat(all section bytes))`.
 
 ---
 

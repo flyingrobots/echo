@@ -37,5 +37,8 @@ Enable the commented-out tests in `crates/warp-core/tests/determinism_policy_tes
 
 - `F32Scalar::new` implements the full sanitization logic.
 - All tests in `determinism_policy_tests.rs` are uncommented and passing.
-- [ ] Enable `test_policy_nan_canonicalization` and `test_policy_subnormal_flushing` in `determinism_policy_tests.rs`
+- [ ] Enable `test_policy_nan_canonicalization` in `determinism_policy_tests.rs` — verify positive/negative/signaling/payload NaNs all map to canonical `0x7fc00000`.
+- [ ] Enable `test_policy_subnormal_flushing` in `determinism_policy_tests.rs` — verify subnormals (exponent 0, mantissa ≠ 0) map to `+0.0`.
+- [ ] Add `test_policy_serde_nan_roundtrip` — verify that serializing a NaN via `serde` and deserializing produces the canonical NaN, not a platform-specific payload.
+- [ ] Add `test_policy_serde_subnormal_roundtrip` — verify that deserializing a subnormal value produces `+0.0`, not the raw subnormal.
 - Benchmarks confirm acceptable overhead.

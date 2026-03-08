@@ -90,7 +90,33 @@ api.emit("update", {
 
 ## Change Management
 
-This API follows [SemVer 2.0.0](https://semver.org/). Deprecated methods are retained as no-ops through the next major release. The `api.debug.*` namespace is `@unstable` with no compatibility guarantees.
+This API follows [SemVer 2.0.0](https://semver.org/). The `api.debug.*`
+namespace is `@unstable` with no compatibility guarantees.
+
+### Breaking-Change Criteria
+
+A change is **breaking** (requires a major version bump) if it:
+
+1. removes or renames a public method or type,
+2. changes the return type or required parameters of a public method,
+3. alters determinism-observable behavior (e.g., event ordering, hash output),
+4. removes or restricts a capability scope that was previously granted.
+
+Adding new optional parameters, new methods, or new `FrameType` variants is
+**non-breaking** (minor bump).
+
+### Deprecation Timeline
+
+1. **Announce:** The method is annotated `@deprecated` with a migration path
+   in the next minor release.
+2. **No-op:** The deprecated method becomes a no-op (returns a default/empty
+   value and emits a runtime warning) in the following minor release.
+3. **Remove:** The method is removed in the next major release.
+
+Minimum deprecation window: **two minor releases** or **90 calendar days**,
+whichever is longer.
+
+### Summary
 
 - API changes require a version bump.
 - Deprecated methods remain as no-ops until the next major release.

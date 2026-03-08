@@ -49,9 +49,17 @@ Provide a first-class mechanism for descended attachments (“WARPs all the way 
 
 ### Attachment identity
 
-- `AttachmentPlane = Alpha | Beta` — Alpha = vertex/node plane (`α`), Beta = edge plane (`β`)
-- `AttachmentOwner = Node(NodeKey) | Edge(EdgeKey)`
-- `AttachmentKey = { owner: AttachmentOwner, plane: AttachmentPlane }`
+`AttachmentPlane`:
+
+- `Alpha` — vertex/node plane (`α`)
+- `Beta` — edge plane (`β`)
+
+`AttachmentOwner`:
+
+- `Node(NodeKey)`
+- `Edge(EdgeKey)`
+
+`AttachmentKey = { owner: AttachmentOwner, plane: AttachmentPlane }`
 
 ### Attachment value
 
@@ -92,10 +100,10 @@ Validation invariants (post-apply):
 - `WarpInstance(child_warp).parent == Some(key)`
 - `WarpInstance(child_warp).root_node == child_root`
 
-PortalInit (v1):
+`PortalInit` (v1):
 
-- `Empty { root_record }` => create the child instance/root node if missing
-- `RequireExisting` => require that the child instance/root node already exist
+- `Empty { root_record }` — create the child instance/root node if missing
+- `RequireExisting` — require that the child instance/root node already exist
 
 ID note (recommended, not required by this spec): `child_warp` should be deterministically authorable without randomness, but MUST be recorded in the op for replay and verification.
 

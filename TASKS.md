@@ -38,10 +38,10 @@ Group B.
       Updated to name `types.ts` and `registry.ts` with specific missing types.
 - [x] **[CRIT] line 43:** Sorting algorithm for deterministic frame ordering unspecified.
       **Done:** Added normative paragraph specifying stable sort ascending by `(tick, frameType)`, unsigned integer comparison for tick, UTF-8 lexicographic comparison for frameType, stable tie-breaking by insertion order. Applies to both in-memory buffer and JSONL log.
-- [ ] **[MAJ] line 51:** "Signed session token" undefined.
-      **NEEDS WORK.** Specify token format (HMAC-SHA256 over session ID + capability set + expiry, issued by engine host) or reference a canonical token spec.
-- [ ] **[MAJ] line 62:** `filter` field structure undefined.
-      **NEEDS WORK.** Define: `filter` is a key-value map where keys are field names from the subscribed `FrameType` schema. Values are exact-match predicates. Example: `{ branchId: "kairos-42" }`.
+- [x] **[MAJ] line 51:** "Signed session token" undefined.
+      **Done:** Added "Session Token Format" subsection specifying HMAC-SHA256 over `{sessionId, capabilities, issuedAt, expiresAt}`, `base64url` wire format, and 401 rejection semantics.
+- [x] **[MAJ] line 62:** `filter` field structure undefined.
+      **Done:** Added "Filter Semantics" subsection: flat key-value map, exact-match AND-combined predicates, unknown keys silently ignored, with example.
 - [x] **[MAJ] line 96:** `producer` return type too loose.
       **Done:** Changed `producer` return type from `object` to `unknown`.
 
@@ -75,20 +75,20 @@ Group B.
 - [x] **[CRIT] docs/archive/spec-geom-collision.md:34** — Broken cross-ref `SPEC_DETERMINISTIC_MATH.md`. Fixed → `spec-deterministic-math.md`.
 - [x] **[CRIT] docs/notes/scheduler-optimization-followups.md:30** — Proptest missing.
       **Done:** Added 3 proptests to `scheduler.rs`: `proptest_drain_matches_btreemap_reference` (fuzzes both sort paths against BTreeMap reference, n=1..2048), `proptest_insertion_order_independence` (verifies drain output is order-invariant), `threshold_boundary_determinism` (exercises n=1023/1024/1025). Also fixed a pre-existing radix sort bug: `bucket16` scope pair index was inverted (LSD passes processed MSB-first instead of LSB-first), causing comparison-sort and radix-sort paths to produce different orderings at the SMALL_SORT_THRESHOLD boundary.
-- [ ] **[MAJ] docs/notes/scheduler-optimization-followups.md:65** — Radix sort docs incomplete.
-      Round-1 added "see also" note. CR says docs are still incomplete. **NEEDS WORK.** Add the missing inline documentation to the notes file — pass sequence, digit size rationale, LSD vs MSD, thin/fat separation, histogram algorithm.
+- [x] **[MAJ] docs/notes/scheduler-optimization-followups.md:65** — Radix sort docs incomplete.
+      **Done:** Added comprehensive "Radix Sort Internals" subsection documenting: `RewriteThin` layout, 20-pass rationale, 16-bit digit trade-off table, LSD stability requirement, pass sequence diagram, `bucket16` digit extraction, three-phase counting sort algorithm, ping-pong buffer pattern, and threshold justification.
 - [x] **[MAJ] docs/notes/scheduler-optimization-followups.md:201** — Ambiguous benchmark note. Fixed.
 - [x] **[MIN] docs/spec-ecs-storage.md:6** — Root-relative link. Fixed.
 - [x] **[MIN] docs/spec-geom-collision.md:7** — Vague deferral. Fixed.
 - [x] **[MIN] docs/spec-mwmr-concurrency.md:6** — Broken link. Fixed.
 - [x] **[MIN] docs/spec-mwmr-concurrency.md:51** — Name "Theorem A".
       **Done:** Replaced with "Skeleton-plane Tick Confluence theorem (Paper II, §6, Thm. 6.1)" — the formal statement that any two serialisations of a scheduler-admissible batch yield isomorphic successors.
-- [ ] **[MAJ] docs/spec-warp-confluence.md:66** — Signing canonicalization underspecified.
-      Round-1 added a note. CR says it's still not enough. **NEEDS WORK.** Add a normative subsection specifying the exact field list and encoding order used for signing.
+- [x] **[MAJ] docs/spec-warp-confluence.md:66** — Signing canonicalization underspecified.
+      **Done:** Added "Signing Canonicalization" normative subsection with exact 8-field canonical byte sequence (root_hash, parent_hash, diff_count, diff_hashes, signer_id, capability_count, capabilities, timestamp), encoding types, and MUST-reject clause.
 - [x] **[MIN] docs/spec-warp-confluence.md:6** — Root-relative link. Fixed.
 - [x] **[MAJ] docs/spec-world-api.md:6** — Broken primer link. Fixed.
-- [ ] **[MAJ] docs/spec-world-api.md:~92** — Version management too vague.
-      Round-1 added SemVer note. CR says still vague. **NEEDS WORK.** Add explicit breaking-change criteria and deprecation timeline.
+- [x] **[MAJ] docs/spec-world-api.md:~92** — Version management too vague.
+      **Done:** Added "Breaking-Change Criteria" (4 criteria) and "Deprecation Timeline" (3-phase: announce → no-op → remove, minimum 2 minor releases or 90 days).
 
 ---
 
@@ -136,8 +136,8 @@ determinism: undefined types/formulas mean implementations could diverge.
 
 - [x] **[MIN] line 6:** Root-relative link. Fix `/guide/eli5` → `guide/eli5.md`.
       **Done:** Already `guide/eli5.md` — verified correct.
-- [ ] **[MAJ] line 141:** `payloads` field semantics and serialization order incomplete.
-      Need: specify field ordering, whether payloads is length-prefixed or delimiter-separated, and how empty payloads are encoded.
+- [x] **[MAJ] line 141:** `payloads` field semantics and serialization order incomplete.
+      **Done:** Specified `BlockManifest` encoding: declaration-order sections, each with `sectionTag (uint8)` + `count (uint32 LE)` + sorted hashes. Empty sections encoded with `count = 0` and tag always present.
 
 ### spec-time-streams-and-wormholes.md (2 items)
 
@@ -148,16 +148,16 @@ determinism: undefined types/formulas mean implementations could diverge.
 
 ### SPEC-0002-descended-attachments-v1.md (5 items — formatting consistency)
 
-- [ ] **[MAJ] line 3:** Blank-line policy chaos.
-      Need: run a full formatting pass — one blank line after every heading, consistent indentation throughout.
-- [ ] **[MAJ] line 52:** AttachmentPlane consolidation inconsistency.
-      Need: propagate the inline enum variant style to ALL enum definitions, or revert to the previous sub-bullet style for all.
-- [ ] **[MAJ] line ~53:** Enum variant nesting inconsistency.
-      Same as above — pick one style and apply uniformly.
-- [ ] **[TRIV] line 192:** Algorithm formatting — verify logical structure preserved.
-      Need: manual review of step 2/step 4 after round-1 restructuring.
-- [ ] **[TRIV] line 226:** Header spacing — acceptable but inconsistent.
-      Covered by the blank-line pass above.
+- [x] **[MAJ] line 3:** Blank-line policy chaos.
+      **Done:** Ran prettier (already formatted). Verified blank lines after all headings are consistent.
+- [x] **[MAJ] line 52:** AttachmentPlane consolidation inconsistency.
+      **Done:** Unified all enum definitions to sub-bullet style: `AttachmentPlane`, `AttachmentOwner`, `AttachmentValue`, and `PortalInit` all use `name:` header + sub-bullet variants with em-dash descriptions.
+- [x] **[MAJ] line ~53:** Enum variant nesting inconsistency.
+      **Done:** Covered by the enum style unification above.
+- [x] **[TRIV] line 192:** Algorithm formatting — verify logical structure preserved.
+      **Done:** Verified S3 DAG slicing algorithm: 4 steps intact, step 2 has (a)/(b) sub-cases, step 4 has portal-chain closure. Logical structure correct.
+- [x] **[TRIV] line 226:** Header spacing — acceptable but inconsistent.
+      **Done:** Prettier confirms formatting is correct. All headings followed by blank lines.
 
 ### SPEC-0003-dpo-concurrency-litmus-v0.md (1 item)
 
@@ -176,7 +176,8 @@ determinism: undefined types/formulas mean implementations could diverge.
       **Dismissed:** Code block uses correct 4-space TypeScript indentation.
 - [x] **[MIN] docs/branch-merge-playbook.md:58** — Add brief inline definition of "Aion" (Echo's timeline concept) on first use.
       **Done:** Added parenthetical `(Echo's per-node timeline weight)` after "Aion".
-- [ ] **[MAJ] docs/guide/cargo-features.md:10** — Provenance note says "check individual crates" but doesn't give a verification command that actually works. Either provide a real command or remove the claim.
+- [x] **[MAJ] docs/guide/cargo-features.md:10** — Provenance note says "check individual crates" but doesn't give a verification command that actually works. Either provide a real command or remove the claim.
+      **Done:** Replaced vague text with a concrete `cargo metadata | jq` command that lists all workspace feature flags.
 - [x] **[MIN] docs/guide/warp-primer.md:128** — Emphasis style still inconsistent. Normalize all italic to `_underscores_` (the file's majority style) or all to `*asterisks*`.
       **Done:** Ran prettier — file already normalized (reported unchanged).
 - [x] **[MAJ] docs/notes/claude-musings-on-determinism.md:1** — SPDX `MIND-UCAL-1.0` is non-standard. This is project-wide (327 files). Decide: change all 327 to `LicenseRef-MIND-UCAL-1.0`, or document the convention and dismiss.
@@ -185,7 +186,8 @@ determinism: undefined types/formulas mean implementations could diverge.
       **Dismissed:** Blank line after copyright is repo-wide prettier convention.
 - [x] **[CRIT] docs/spec-knots-in-time.md:~75** — `SweptVolumeProxy` → `SweepProxy` and module path.
       **Done:** Round-1 fix verified. Line 75 uses `SweepProxy` (canonical name). `warp-geom/src/temporal/manifold.rs:13` matches.
-- [ ] **[MAJ] docs/tasks/issue-canonical-f32.md:41** — Expand serde acceptance criteria: add NaN canonicalization and subnormal flushing test items.
+- [x] **[MAJ] docs/tasks/issue-canonical-f32.md:41** — Expand serde acceptance criteria: add NaN canonicalization and subnormal flushing test items.
+      **Done:** Expanded single checkbox into 4 separate acceptance criteria: NaN canonicalization, subnormal flushing, serde NaN roundtrip, and serde subnormal roundtrip.
 - [x] **[MIN] docs/warp-math-claims.md:8** — Emphasis style change (asterisk → underscore). Revert to match file's dominant style.
       **Done:** Ran prettier — file already normalized (reported unchanged).
 

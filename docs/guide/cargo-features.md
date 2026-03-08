@@ -7,7 +7,13 @@ Generated from `Cargo.toml` files as of 2026-03-07. Run
 `grep -r '^\[features\]' crates/*/Cargo.toml` to verify.
 
 > **Source of truth:** Crate `Cargo.toml` manifests. This page is a curated
-> snapshot — check individual crates for the latest flags.
+> snapshot. To verify against the actual source:
+>
+> ```bash
+> # List all feature flags across the workspace
+> cargo metadata --format-version=1 --no-deps \
+>   | jq -r '.packages[] | select(.manifest_path | contains("crates/")) | "\(.name): \(.features | keys | join(", "))"'
+> ```
 
 This document lists all Cargo feature flags across the Echo workspace. For
 runtime configuration, see [configuration-reference.md](configuration-reference.md).

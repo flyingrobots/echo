@@ -63,8 +63,122 @@ This document contains prompts for future work addressing gaps identified during
 >     - How the scratch buffer enables in-place-like behavior
 >
 > Add this explanation as inline comments in `scheduler.rs` and/or as a new doc file at `docs/notes/radix-sort-internals.md`. Include diagrams (Mermaid or ASCII art) showing the pass sequence and memory layout."
->
-> **See also:** `crates/warp-core/src/scheduler.rs` contains the radix sort implementation with inline comments. A dedicated internals doc is planned.
+
+### Radix Sort Internals
+
+The implementation lives in `crates/warp-core/src/scheduler.rs`. This section
+documents the algorithm as implemented.
+
+#### Sorting key: `RewriteThin`
+
+```text
+RewriteThin (48 bytes)
+├─ scope_be32: [u8; 32]   ← BLAKE3 scope hash, byte-lexicographic
+├─ rule_id:    u32         ← compact rule identifier
+├─ nonce:      u32         ← insertion-order tie-breaker
+└─ handle:     usize       ← index into fat payload vec
+```
+
+**Thin/fat separation:** Only the 48-byte `RewriteThin` records are touched
+during sorting. Full payloads (`Option<P>`) live in a separate `fat` vector
+indexed by `handle`. This keeps sort cache lines tight — the radix passes
+never touch payload data.
+
+#### Why 20 passes?
+
+The composite sort key is `(scope_be32, rule_id, nonce)` = 32 + 4 + 4 = 40
+bytes. Each pass processes a 16-bit digit (2 bytes), so 40 / 2 = **20 passes**.
+
+#### Why 16-bit digits (not 8-bit)?
+
+| Digit size | Histogram entries | Histogram memory | Passes |
+| ---------- | ----------------: | ---------------: | -----: |
+| 8-bit      |               256 |             1 KB |     40 |
+| 16-bit     |            65,536 |           256 KB |     20 |
+
+At the target scale (n > 1024), pass count dominates. Each pass involves a
+full scan + scatter of all n records. Halving the pass count from 40 to 20
+is worth the 256 KB histogram — well within L2 cache on modern CPUs.
+
+#### Why LSD (Least Significant Digit)?
+
+- **Stable:** LSD radix sort is inherently stable. Each pass preserves the
+  relative order established by previous passes.
+- **Predictable:** Exactly k passes for k digits — no recursion, no
+  early-out variance.
+- **Required for nonce tie-breaking:** Stability ensures that when
+  `scope_be32` and `rule_id` are equal, the nonce (insertion order)
+  determines the final position — matching the comparison sort's behavior.
+
+MSD would require recursive partitioning and explicit tie-breaking logic.
+
+#### Pass sequence (LSD order)
+
+```text
+Pass  0:  nonce       low  16 bits   (least significant)
+Pass  1:  nonce       high 16 bits
+Pass  2:  rule_id     low  16 bits
+Pass  3:  rule_id     high 16 bits
+Pass  4:  scope_be32  pair 15  (bytes [30..32], scope LSB)
+Pass  5:  scope_be32  pair 14  (bytes [28..30])
+  ⋮
+Pass 19:  scope_be32  pair 0   (bytes [0..2],   scope MSB)
+```
+
+After all 20 passes, the primary sort key is `scope_be32` (most significant),
+then `rule_id`, then `nonce` — matching `cmp_thin`'s comparison order.
+
+#### Digit extraction (`bucket16`)
+
+```text
+passes 0–1:  u16_from_u32_le(nonce,   idx)     — LE decomposition
+passes 2–3:  u16_from_u32_le(rule_id, idx)     — LE decomposition
+passes 4–19: u16_be_from_pair32(scope, 19-pass) — BE pair from byte array
+```
+
+The scope uses big-endian pairs because `scope_be32` is stored in
+byte-lexicographic order. The `19 - pass` index maps LSD pass ordering
+onto big-endian byte positions (pass 4 → pair 15 = LSB, pass 19 → pair
+0 = MSB).
+
+#### Three-phase counting sort (per pass)
+
+Each of the 20 passes executes:
+
+1. **Count:** Zero the 65,536-entry histogram, then scan all n records,
+   incrementing `counts[bucket16(record, pass)]`.
+2. **Prefix sum:** Convert counts to starting positions via exclusive
+   cumulative sum: `counts[i] = sum of counts[0..i]`.
+3. **Stable scatter:** Scan records in order, placing each at
+   `dst[counts[bucket]++]`. The post-increment ensures stable ordering
+   within each bucket.
+
+#### Ping-pong buffer
+
+The sort alternates between `thin` and `scratch` vectors each pass:
+
+```text
+Pass 0:  thin → scratch
+Pass 1:  scratch → thin
+Pass 2:  thin → scratch
+  ⋮
+Pass 19: scratch → thin   (20 passes = even, result in thin)
+```
+
+Since 20 is even, the final sorted result is already in `thin`. If the
+pass count were odd, a final `copy_from_slice` would sync the result.
+
+#### Threshold: `SMALL_SORT_THRESHOLD = 1024`
+
+- **n ≤ 1024:** Use `sort_unstable_by(cmp_thin)` — Rust's pattern-defeating
+  quicksort. Avoids the fixed 256 KB histogram zeroing cost.
+- **n > 1024:** Use the 20-pass radix sort — O(n) scaling dominates the
+  O(n log n) comparison sort.
+
+The threshold was empirically determined on Apple Silicon. The histogram
+zeroing cost (~256 KB × 20 passes) is amortized at n ≈ 1024. This is a
+compile-time constant; all participants in a deterministic simulation MUST
+use the same value.
 
 ---
 

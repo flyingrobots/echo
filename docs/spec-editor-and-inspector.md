@@ -55,6 +55,26 @@ interface InspectorEnvelope {
 - CLI fallback: JSONL log for offline analysis.
 - Remote inspector requires a signed session token (`ui:inspector` capability).
 
+### Session Token Format
+
+A session token is an HMAC-SHA256 MAC over a canonical payload, issued by the
+engine host. The signed payload is:
+
+```text
+token_bytes = canonicalEncode({
+    sessionId:    string,      // unique per connection
+    capabilities: string[],    // sorted capability identifiers (e.g., ["ui:inspector"])
+    issuedAt:     uint64,      // Unix epoch seconds
+    expiresAt:    uint64,      // Unix epoch seconds; MUST be > issuedAt
+})
+mac = HMAC-SHA256(host_secret, token_bytes)
+```
+
+The token is transmitted as `base64url(token_bytes || mac)`. The engine
+verifies the MAC, checks `expiresAt > now`, and intersects `capabilities`
+with the requested operation. Expired or invalid tokens MUST be rejected
+with a `401 Unauthorized` WebSocket close frame.
+
 ### Commands
 
 ```ts
@@ -65,6 +85,21 @@ interface InspectorCommand {
     filter?: Record<string, unknown>;
 }
 ```
+
+#### Filter Semantics
+
+The `filter` field is a flat key-value map where each key is a field name from
+the subscribed `FrameType`'s schema and each value is an exact-match predicate.
+All entries are AND-combined: a frame passes the filter only if every specified
+field matches exactly.
+
+```ts
+// Example: subscribe to bridge frames for a specific branch
+{ op: "filter", frameType: "bridge", filter: { branch: "kairos-42" } }
+```
+
+Unknown field names are silently ignored (forward-compatible). An empty or
+omitted `filter` matches all frames of the given type.
 
 Responses use `InspectorEnvelope`.
 

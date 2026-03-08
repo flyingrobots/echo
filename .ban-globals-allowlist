@@ -1,0 +1,7 @@
+# Ban-globals allowlist — file-level exceptions with justification.
+# Format: <glob-pattern>\t<justification>
+#
+# The ban-globals script excludes these files from ALL global-state pattern checks.
+# Only add entries here when global state is architecturally necessary.
+
+crates/warp-wasm/src/lib.rs	WASM boundary: exports are free functions that need module-scoped kernel (thread_local + install_kernel). Single-threaded WASM has no alternative.

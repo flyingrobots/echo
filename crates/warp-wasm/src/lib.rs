@@ -170,12 +170,13 @@ pub fn init() -> Uint8Array {
     #[cfg(feature = "engine")]
     {
         let kernel = warp_kernel::WarpKernel::new();
-        install_kernel(Box::new(kernel));
-        encode_ok(&kernel_port::HeadInfo {
+        let head = kernel.get_head().unwrap_or_else(|_| kernel_port::HeadInfo {
             tick: 0,
             state_root: Vec::new(),
             commit_id: Vec::new(),
-        })
+        });
+        install_kernel(Box::new(kernel));
+        encode_ok(&head)
     }
     #[cfg(not(feature = "engine"))]
     {

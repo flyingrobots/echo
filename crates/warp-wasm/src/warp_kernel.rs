@@ -73,7 +73,13 @@ impl WarpKernel {
     /// Create a kernel with a pre-configured engine and registry metadata.
     ///
     /// Use this to inject app-specific rewrite rules and schema metadata.
-    pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Self {
+    /// The `sys/ack_pending` system rule is registered automatically if absent
+    /// (required by [`KernelPort::dispatch_intent`]).
+    pub fn with_engine(mut engine: Engine, registry: RegistryInfo) -> Self {
+        // Ensure the system inbox rule is present. If the caller already
+        // registered it, register_rule returns DuplicateRuleName — ignore.
+        let _ = engine.register_rule(inbox::ack_pending_rule());
+
         Self {
             engine,
             tick_count: 0,
@@ -429,6 +435,71 @@ mod tests {
         // Empty bytes
         let err = kernel.dispatch_intent(b"").unwrap_err();
         assert_eq!(err.code, error_codes::INVALID_INTENT);
+    }
+
+    #[test]
+    fn with_engine_auto_registers_ack_pending() {
+        // with_engine must register sys/ack_pending even if the caller omits it.
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+
+        let engine = EngineBuilder::new(store, root)
+            .scheduler(SchedulerKind::Radix)
+            .workers(1)
+            .build();
+        // Engine has NO rules — with_engine should add ack_pending.
+        let mut kernel = WarpKernel::with_engine(
+            engine,
+            RegistryInfo {
+                codec_id: None,
+                registry_version: None,
+                schema_sha256_hex: None,
+                abi_version: ABI_VERSION,
+            },
+        );
+
+        let intent = pack_intent_v1(1, b"test").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+        // step would fail with ENGINE_ERROR if ack_pending wasn't registered.
+        let result = kernel.step(1).unwrap();
+        assert_eq!(result.ticks_executed, 1);
+    }
+
+    #[test]
+    fn with_engine_tolerates_pre_registered_ack_pending() {
+        // If the caller already registered ack_pending, with_engine must not fail.
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+
+        let mut engine = EngineBuilder::new(store, root)
+            .scheduler(SchedulerKind::Radix)
+            .workers(1)
+            .build();
+        engine.register_rule(inbox::ack_pending_rule()).unwrap();
+
+        // with_engine should silently ignore the duplicate.
+        let kernel = WarpKernel::with_engine(
+            engine,
+            RegistryInfo {
+                codec_id: None,
+                registry_version: None,
+                schema_sha256_hex: None,
+                abi_version: ABI_VERSION,
+            },
+        );
+        assert_eq!(kernel.get_head().unwrap().tick, 0);
     }
 
     #[test]

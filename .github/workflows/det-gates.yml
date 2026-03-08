@@ -220,12 +220,17 @@ jobs:
       - name: Run benchmarks
         run: |
           cargo bench -p warp-benches --bench materialization_hotpath -- --output-format bencher | tee perf.log
+      - name: Check regression against baseline
+        run: |
+          node scripts/check_perf_regression.cjs perf-baseline.json perf.log --threshold 15
       - name: Upload perf artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: perf-artifacts
-          path: perf.log
+          path: |
+            perf.log
+            perf-report.json
 
   build-repro:
     name: G4 build reproducibility (wasm)

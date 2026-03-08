@@ -5,6 +5,25 @@
 
 ## Unreleased
 
+### CI: G3 perf regression gate (#280)
+
+- **CI:** G3 perf regression gate now compares criterion benchmark output
+  against a git-tracked `perf-baseline.json` and fails if any benchmark
+  regresses beyond 15% (configurable via `--threshold`). Structured
+  `perf-report.json` artifact uploaded alongside raw `perf.log`.
+- **CI:** New `perf-baseline-update.yml` workflow auto-generates baseline
+  update PRs on main pushes that touch Rust sources.
+- **Scripts:** Added `check_perf_regression.cjs` (gate comparison) and
+  `generate_perf_baseline.cjs` (baseline generation from bencher output).
+
+### Docs: Allowlist governance (#287)
+
+- **Policy:** Added "Determinism Allowlist Governance" section to
+  `docs/RELEASE_POLICY.md` documenting acceptable exemption criteria,
+  approval requirements, and audit cadence for `.ban-nondeterminism-allowlist`.
+- **Scripts:** Added cross-reference from `ban-nondeterminism.sh` header to
+  the governance policy.
+
 ### Docs Polish (#41)
 
 - **License:** Renamed SPDX identifier `MIND-UCAL-1.0` →

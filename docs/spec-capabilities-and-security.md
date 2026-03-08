@@ -17,6 +17,7 @@ Tokens grant permission to mutate specific domains.
 type Capability =
     | "world:entity" // create/destroy entities
     | "world:component" // mutate components
+    | "world:config" // mutate runtime configuration via config/update events
     | "physics:body" // modify physics bodies
     | "renderer:resource"
     | "timeline:branch"
@@ -67,6 +68,7 @@ Scope determines default tokens per subsystem:
 | Subsystem        | Tokens                                                 |
 | ---------------- | ------------------------------------------------------ |
 | ECS core         | `world:entity`, `world:component`                      |
+| Runtime config   | `world:config`                                         |
 | Physics adapter  | `physics:body`                                         |
 | Renderer adapter | `renderer:resource`                                    |
 | Codex’s Baby     | `timeline:branch`, `timeline:merge`, `cb:cross-branch` |

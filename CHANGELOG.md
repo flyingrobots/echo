@@ -11,6 +11,15 @@
   `LicenseRef-MIND-UCAL-1.0` across 328 files to comply with SPDX
   Appendix IV (custom identifiers must use `LicenseRef-` prefix).
   Updated `ensure_spdx.sh` tooling and pre-commit hook accordingly.
+- **Spec:** Resolved 4 CRITICAL CodeRabbit items: normative frame ordering
+  rule in `spec-editor-and-inspector.md` (stable sort by `(tick, frameType)`,
+  UTF-8 lexicographic, insertion-order tie-break); added `getNode()` to
+  `BridgeContext` in `spec-temporal-bridge.md` with `NodeId` disambiguation
+  note (timeline hash vs WARP graph `u64`); defined `world:config` capability
+  in `spec-capabilities-and-security.md` and removed "not yet defined" warning
+  from `spec-runtime-config.md`; verified `SweepProxy` rename in
+  `spec-knots-in-time.md`. Also changed `producer` return type from `object`
+  to `unknown` in `spec-editor-and-inspector.md`.
 - **Spec:** Rewrote `spec-branch-tree.md` to resolve all 10 CodeRabbit
   review items. Key changes: formal `ReadKey`/`WriteKey`/`QualifiedKey`
   type definitions with ECS-layer layering rationale; `MergeStrategyId`

@@ -23,6 +23,15 @@ The Temporal Bridge (TB) is the service that moves events between branches in Ec
 
 Throughout this spec, `BranchId` is the canonical type. `KairosBranchId` is a legacy alias: `type KairosBranchId = BranchId`.
 
+> **Disambiguation — `NodeId`:** In this spec, `NodeId` is a hex-encoded
+> content-addressed `Hash` identifying a `TimelineNode` in the branch tree
+> (see `spec-branch-tree.md` § `TimelineNodeCore`). This is **not** the same
+> as `echo-graph`'s `NodeId` (`u64`), which identifies a node in the WARP
+> render graph. The bridge resolves opaque `NodeId` handles to full
+> `TimelineNode` records via `BridgeContext.getNode()` when lifecycle rules
+> (LCA traversal, retro delivery, paradox pre-check, collapse handling) need
+> access to `chronos`, `parents`, or `diffId` fields.
+
 ```ts
 interface BridgeQueueEntry {
     envelope: EventEnvelope;
@@ -118,6 +127,7 @@ interface TemporalBridge {
 
 interface BridgeContext {
     readonly getBranchHead: (branch: BranchId) => NodeId;
+    readonly getNode: (id: NodeId) => TimelineNode;
     readonly forkRetro: (baseNode: NodeId, targetBranch: BranchId) => BranchId;
     readonly applyParadoxQuarantine: (
         evt: EventEnvelope,

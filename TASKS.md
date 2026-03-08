@@ -36,14 +36,14 @@ Group B.
       Changed `payload: object` → `payload: unknown`.
 - [ ] **[MAJ] line 40:** Draft note needs exact missing artifacts.
       Updated to name `types.ts` and `registry.ts` with specific missing types.
-- [ ] **[CRIT] line 43:** Sorting algorithm for deterministic frame ordering unspecified.
-      **NEEDS WORK.** Add: stable sort ascending by `(tick, frameType)` with lexicographic comparison on frameType string. Ties preserve insertion order.
+- [x] **[CRIT] line 43:** Sorting algorithm for deterministic frame ordering unspecified.
+      **Done:** Added normative paragraph specifying stable sort ascending by `(tick, frameType)`, unsigned integer comparison for tick, UTF-8 lexicographic comparison for frameType, stable tie-breaking by insertion order. Applies to both in-memory buffer and JSONL log.
 - [ ] **[MAJ] line 51:** "Signed session token" undefined.
       **NEEDS WORK.** Specify token format (HMAC-SHA256 over session ID + capability set + expiry, issued by engine host) or reference a canonical token spec.
 - [ ] **[MAJ] line 62:** `filter` field structure undefined.
       **NEEDS WORK.** Define: `filter` is a key-value map where keys are field names from the subscribed `FrameType` schema. Values are exact-match predicates. Example: `{ branchId: "kairos-42" }`.
-- [ ] **[MAJ] line 96:** `producer` return type too loose.
-      **NEEDS WORK.** Change `producer` return type from `object` to `unknown`.
+- [x] **[MAJ] line 96:** `producer` return type too loose.
+      **Done:** Changed `producer` return type from `object` to `unknown`.
 
 ### xtask/src/main.rs (1 item — locally fixed)
 
@@ -122,13 +122,13 @@ determinism: undefined types/formulas mean implementations could diverge.
 
 ### spec-temporal-bridge.md (1 item)
 
-- [ ] **[CRIT] line 115:** API exposes opaque `NodeId`s but lifecycle rules dereference them as full nodes.
-      Need: clarify whether the API returns `NodeId` (opaque handle requiring a separate lookup) or the full `TimelineNode` (data included). Update type signatures to match.
+- [x] **[CRIT] line 115:** API exposes opaque `NodeId`s but lifecycle rules dereference them as full nodes.
+      **Done:** Added `getNode(id: NodeId): TimelineNode` to `BridgeContext`. Added disambiguation note clarifying timeline `NodeId` (hex-encoded content-addressed `Hash`) vs echo-graph `NodeId` (`u64`). API keeps `NodeId` as parameter type; bridge resolves internally via `getNode()`.
 
 ### spec-runtime-config.md (1 item)
 
-- [ ] **[CRIT] line ~54:** `world:config` capability undefined.
-      Need: add `world:config` to `spec-capabilities-and-security.md` with description, required privileges, and scope.
+- [x] **[CRIT] line ~54:** `world:config` capability undefined.
+      **Done:** Added `"world:config"` to `Capability` union type and `Runtime config` row to Capability Scopes table in `spec-capabilities-and-security.md`. Removed "not yet defined" warning from `spec-runtime-config.md` line 61.
 
 ### spec-serialization-protocol.md (2 items)
 
@@ -174,8 +174,8 @@ determinism: undefined types/formulas mean implementations could diverge.
 - [x] **[MAJ] docs/notes/claude-musings-on-determinism.md:1** — SPDX `MIND-UCAL-1.0` is non-standard. This is project-wide (327 files). Decide: change all 327 to `LicenseRef-MIND-UCAL-1.0`, or document the convention and dismiss.
       **Done:** Renamed across 328 files (336 occurrences) in commit `a4d4101`.
 - [ ] **[TRIV] docs/notes/claude-musings-on-determinism.md:3** — Blank line after copyright — justified by prettier. Already verified as project-wide convention. Dismiss with explanation.
-- [ ] **[CRIT] docs/spec-knots-in-time.md:~75** — `SweptVolumeProxy` → `SweepProxy` and module path.
-      Round-1 already fixed this. Verify the fix is correct and this is a stale comment.
+- [x] **[CRIT] docs/spec-knots-in-time.md:~75** — `SweptVolumeProxy` → `SweepProxy` and module path.
+      **Done:** Round-1 fix verified. Line 75 uses `SweepProxy` (canonical name). `warp-geom/src/temporal/manifold.rs:13` matches.
 - [ ] **[MAJ] docs/tasks/issue-canonical-f32.md:41** — Expand serde acceptance criteria: add NaN canonicalization and subnormal flushing test items.
 - [ ] **[MIN] docs/warp-math-claims.md:8** — Emphasis style change (asterisk → underscore). Revert to match file's dominant style.
 

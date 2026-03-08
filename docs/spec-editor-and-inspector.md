@@ -39,8 +39,13 @@ interface InspectorEnvelope {
 > **Note:** The types above are proposed — they are not yet present in the generated protocol artifacts (`ttd-protocol-ts`): types.ts (missing: FrameType, InspectorEnvelope, InspectorCommand) and registry.ts (missing: corresponding registry entries). Treat this section as a draft contract.
 
 - Frames emitted post `timeline_flush` each tick.
-- Order stable: sorted by `(tick, frameType)`.
-- Frames written to JSONL log in deterministic mode.
+- **Frame ordering (normative):** Frames MUST be stable-sorted ascending by
+  the composite key `(tick, frameType)`. `tick` is compared as an unsigned
+  integer. `frameType` is compared lexicographically by UTF-8 byte order
+  (e.g., `"bridge" < "capability" < "core"`). When two frames share the same
+  `(tick, frameType)` pair, their relative order MUST match insertion order
+  (i.e., the sort is _stable_). This ordering applies to both the in-memory
+  frame buffer and the JSONL log written in deterministic mode.
 
 ---
 
@@ -91,7 +96,7 @@ interface InspectorExtensionManifest {
     id: string;
     frameType: FrameType;
     schema: JSONSchema;
-    producer(tick: ChronosTick): object;
+    producer(tick: ChronosTick): unknown;
 }
 ```
 

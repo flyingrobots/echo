@@ -58,7 +58,7 @@ Canonical ordering: keys sorted lexicographically, numeric fields clamped to val
 
 ## Overrides & Diff
 
-- Configuration cannot be mutated at runtime except via explicit `config/update` events (requires capability `world:config`). Note: the `world:config` capability token is proposed here but not yet defined in `spec-capabilities-and-security.md`. It MUST be added to the capabilities spec before implementation.
+- Configuration cannot be mutated at runtime except via explicit `config/update` events (requires capability `world:config`; see `spec-capabilities-and-security.md` § Capability Tokens).
 - Each update produces `ConfigDiffRecord` with old/new values; replay reproduces sequence.
 
 ---

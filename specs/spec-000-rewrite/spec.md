@@ -7,7 +7,7 @@
 
 ## Purpose
 
-Teach the core JITOS principle: all durable state evolves via immutable, semantic, reversible graph rewrites.
+Teach the core Echo principle: all durable state evolves via immutable, semantic, reversible graph rewrites.
 
 ## Concepts Demonstrated
 

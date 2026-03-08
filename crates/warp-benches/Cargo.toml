@@ -40,7 +40,7 @@ name = "scheduler_adversarial"
 harness = false
 
 [[bench]]
-name = "boaw_baseline"
+name = "parallel_baseline"
 harness = false
 
 [[bench]]

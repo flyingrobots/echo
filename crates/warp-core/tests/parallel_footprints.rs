@@ -6,7 +6,7 @@
     clippy::todo,
     clippy::cast_possible_truncation
 )]
-//! BOAW Footprint & Independence Tests (ADR-0007 §6)
+//! Parallel Execution Footprint & Independence Tests (ADR-0007 §6)
 //!
 //! Tests for footprint independence checking, bucket enforcement,
 //! and drift guards.
@@ -52,7 +52,7 @@ fn t3_1_footprint_independence_is_symmetric() {
 
 // TODO(FP-001): Implement once bucket target enforcement exists.
 #[test]
-#[ignore = "FP-001: BOAW bucket target enforcement not yet implemented"]
+#[ignore = "FP-001: Parallel bucket target enforcement not yet implemented"]
 fn t3_2_no_write_read_overlap_admitted() {
     // Given: two planned rewrites where one writes a node the other reads
     // Expect: only one admitted
@@ -64,7 +64,7 @@ fn t3_2_no_write_read_overlap_admitted() {
 
 // TODO(FP-002): Implement once bucket target enforcement exists.
 #[test]
-#[ignore = "FP-002: BOAW bucket target enforcement not yet implemented"]
+#[ignore = "FP-002: Parallel bucket target enforcement not yet implemented"]
 fn t3_3_deletes_that_share_adjacency_bucket_must_conflict() {
     // The classic race: delete e1=(A->B) and e2=(A->C) both mutate edges_from[A].
     // Your footprint model must claim the bucket target

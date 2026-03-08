@@ -82,10 +82,10 @@ proves it. See `docs/determinism/CLAIM_MAP.yaml` for the machine-readable regist
 ### DET-005: Parallel Execution Equivalence
 
 > The parallel execution engine (1, 2, 4, 8, 16, 32 workers) produces identical
-> TickDelta output as serial execution for all BOAW test scenarios.
+> TickDelta output as serial execution for all parallel execution test scenarios.
 
 - **Gate:** CI `Tests` job (warp-core test suite)
-- **Evidence:** `boaw_parallel_exec.rs` — 10 tests covering serial/parallel equivalence, insertion order independence, sharded partitioning
+- **Evidence:** `parallel_exec.rs` — 10 tests covering serial/parallel equivalence, insertion order independence, sharded partitioning
 - **Platforms:** Ubuntu, macOS (via G1), Alpine/musl
 
 ### SEC-001 through SEC-005: CBOR Decoder Security
@@ -129,7 +129,7 @@ proves it. See `docs/determinism/CLAIM_MAP.yaml` for the machine-readable regist
 3. **Canonical serialization.** CBOR encoding uses deterministic integer widths,
    float widths, and sorted map keys. No indefinite-length encodings.
 
-4. **Parallel execution is order-independent.** The BOAW scheduler partitions
+4. **Parallel execution is order-independent.** The parallel scheduler partitions
    work into non-overlapping footprints, executes in parallel, then merges
    deltas in a canonical order. The merge is associative and commutative.
 
@@ -145,8 +145,8 @@ proves it. See `docs/determinism/CLAIM_MAP.yaml` for the machine-readable regist
 | Unit        | `deterministic_sin_cos_tests` | Trig oracle accuracy + golden bits                |
 | Unit        | `trig_golden_vectors`         | 2048-angle bit-exact regression lock              |
 | Unit        | `prng_golden_regression`      | PRNG output stability                             |
-| Integration | `boaw_parallel_exec`          | Serial = Parallel across worker counts            |
-| Integration | `boaw_determinism`            | Snapshot hash invariance under permutation        |
+| Integration | `parallel_exec`               | Serial = Parallel across worker counts            |
+| Integration | `parallel_determinism`        | Snapshot hash invariance under permutation        |
 | Integration | `materialization_determinism` | Bus output confluence                             |
 | System      | DIND harness                  | End-to-end scenario replay with hash verification |
 | System      | DIND torture                  | N-rerun identical hash verification               |

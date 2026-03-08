@@ -98,7 +98,7 @@ fn motion_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
     // Build new bytes
     let new_bytes = encode_motion_payload_q32_32(new_pos_raw, vel_out_raw);
 
-    // Phase 5 BOAW: only emit delta ops, no direct mutation
+    // Phase 5 parallel execution: only emit delta ops, no direct mutation
     if payload.bytes != new_bytes {
         let key = AttachmentKey::node_alpha(NodeKey {
             warp_id,
@@ -237,7 +237,7 @@ fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
         let vel = [0.0, 0.0, 0.0];
         let new_value = Some(AttachmentValue::Atom(encode_motion_atom_payload(pos, vel)));
 
-        // Phase 5 BOAW: only emit delta ops, no direct mutation
+        // Phase 5 parallel execution: only emit delta ops, no direct mutation
         delta.push(WarpOp::SetAttachment {
             key,
             value: new_value,
@@ -256,7 +256,7 @@ fn port_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
         pos[0] += 1.0;
         let new_bytes = encode_motion_payload(pos, vel);
 
-        // Phase 5 BOAW: only emit delta ops, no direct mutation.
+        // Phase 5 parallel execution: only emit delta ops, no direct mutation.
         //
         // Guard emission by byte equality so no-op rewrites don't bloat the delta
         // stream (e.g. f32 increments that quantize to the same Q32.32 value).

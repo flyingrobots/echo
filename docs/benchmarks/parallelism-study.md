@@ -4,7 +4,7 @@
 # Executive Summary: Parallel Execution & Sharding Study
 
 **Date:** 2026-01-17  
-**Project:** Continuum (Warp Core)  
+**Project:** Echo (Warp Core)  
 **Subject:** High-Throughput Parallel Execution Feasibility
 
 ## 1. Objective
@@ -107,7 +107,7 @@ Migrate `warp-core` from a monolithic `GraphStore` to a **Partitioned Store**:
 2. **Routing:** Map `NodeId` to shards deterministically using existing BLAKE3-derived bits:
    `shard = lowbits(NodeId) & (SHARDS - 1)` where `SHARDS` is a power-of-two.
    This preserves Echo's determinism guarantee (no std::hash, no rehashing).
-   See `crates/warp-core/tests/boaw_footprints.rs` for the working pattern.
+   See `crates/warp-core/tests/parallel_footprints.rs` for the working pattern.
 3. **Scheduler:** Dispatch non-conflicting rewrites to per-shard work queues.
 4. **Execution:** Run $N$ executor threads, each processing its shard's queue exclusively and lock-free.
 

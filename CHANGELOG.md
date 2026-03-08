@@ -5,6 +5,101 @@
 
 ## Unreleased
 
+### Refactor: Retire BOAW/JITOS/Continuum codenames
+
+- **Renamed** `warp_core::boaw` module to `warp_core::parallel` — all import
+  paths, re-exports, and doc comments updated.
+- **Renamed** 14 `boaw_*` integration test files to `parallel_*`, updated test
+  harness types (`BoawScenario` → `ParallelScenario`, `BoawTestHarness` →
+  `ParallelTestHarness`, etc.) and string literals.
+- **Renamed** `boaw_baseline` benchmark to `parallel_baseline`, updated
+  `warp-benches/Cargo.toml` target.
+- **Annotated** 5 ADR files with deprecation notice (filenames preserved as
+  historical records).
+- **Updated** book/LaTeX sections, specs, guides, and source comments to
+  replace BOAW references with `parallel`.
+- **Replaced** "Echo/JITOS" → "Echo" in `echo-wasm-bindings`, `echo-wasm-abi`,
+  and `spec-000-rewrite` crate metadata and READMEs.
+- **Replaced** "JITOS Engineering Standard" → "Echo Engineering Standard" in
+  `METHODOLOGY.md`.
+- **Replaced** "Echo / Continuum" → "Echo" in ADR-0007.
+
+### Chore: Archive ~90 stale docs, restructure docs-index
+
+- **Archived** 6 entire directories to `docs/archive/`: `notes/`, `plans/`,
+  `tasks/`, `rfc/`, `memorials/`, `jitos/` (session artifacts, completed work).
+- **Archived** `docs/study/` (51 files: LaTeX papers, build artifacts, tour
+  materials) to `docs/archive/study/`.
+- **Archived** 4 completed DIND mission docs from `docs/determinism/` and the
+  superseded `ECHO_ROADMAP.md` from `docs/ROADMAP/`.
+- **Archived** 18 stale loose docs from `docs/` root: `AGENTS.md`,
+  `ISSUES_MATRIX.md`, `code-map.md`, `phase1-plan.md`,
+  `roadmap-mwmr-mini-epic.md`, `branch-merge-playbook.md`,
+  `testing-and-replay-plan.md`, `runtime-diagnostics-plan.md`,
+  `telemetry-graph-replay.md`, `warp-demo-roadmap.md`,
+  `warp-runtime-architecture.md`, `capability-ownership-matrix.md`,
+  `ROLLBACK_TTD.md`, `aion-papers-bridge.md`, `rust-rhai-ts-division.md`,
+  `hash-graph.md`, `two-lane-abi.md`, `diagrams.md`.
+- **Archived** dead redirect `guide/collision-tour.md` (both targets missing).
+- **Rewrote** `docs/meta/docs-index.md`: curated golden-path index with clear
+  separation of implemented specs, vision specs (unimplemented), ADRs, and
+  archive. Removed broken links and stale entries.
+
+### Docs: Fix violations found during docs sweep
+
+- **Fixed** `CONTRIBUTING.md`: Rust version 1.71.1 → 1.90.0, `AGENTS.md` path
+  to `docs/AGENTS.md`, `reference/typescript/` → `packages/` and `apps/`,
+  commit message guidance aligned with conventional commits.
+- **Fixed** `.devcontainer/post-create.sh`: reads toolchain version from
+  `rust-toolchain.toml` instead of hardcoding 1.71.1, removed stale
+  `rmg-core` crate reference.
+- **Fixed** `warp-wasm/README.md`: corrected dependency claim from `warp-core`
+  to `echo-wasm-abi` + `echo-registry-api`.
+- **Fixed** `echo-session-proto/README.md`: removed broken `docs/tex/` paths,
+  pointed to `docs/js-cbor-mapping.md` and book sections instead.
+- **Fixed** `ttd-browser/README.md`: removed broken `docs/plans/ttd-app.md`
+  reference and nonexistent `ttd-controller` crate mention.
+- **Fixed** `NOTICE`: copyright year 2025 → 2025–2026, SPDX identifier aligned
+  to `LicenseRef-MIND-UCAL-1.0`.
+- **Fixed** ROADMAP priority mismatch: 5 milestone READMEs aligned from P2 → P3
+  to match the parent index. Proof Core status downgraded from "Verified" to
+  "In Progress" (Docs Polish feature still incomplete).
+- **Fixed** `guide/cargo-features.md`: removed nonexistent `spec-000-rewrite`
+  crate section.
+- **Fixed** `guide/course/glossary.md`: corrected `ViolationKind` variant
+  `AdjacencyViolation` → `OpWarpUnknown` with full variant names.
+- **Fixed** `BENCHMARK_GUIDE.md`: updated "CI Integration (Future)" section to
+  reflect existing G3 perf gate.
+- **Fixed** `echo-session-client` and `echo-session-service` Cargo.toml
+  descriptions: removed stale "(skeleton)" qualifier.
+
+### Fix: Task list guard CI failure
+
+- **Fixed** `scripts/check_task_lists.sh`: accept file arguments for testability;
+  fall back to built-in `FILES` array when none are given.
+- **Fixed** `scripts/tests/check_task_lists_test.sh`: updated tests to pass file
+  arguments to the checker and match current output messages. Tests were broken
+  after the `FILES` array was emptied when task lists were archived.
+
+### Chore: Clean up root directory
+
+- **Removed** stale root-level ADR duplicates (`ADR-0003` through `ADR-0006`);
+  canonical copies already exist in `docs/adr/`.
+- **Removed** completed one-shot plan `MERGE_TTD_BRANCH_PLAN.md`.
+- **Moved** determinism docs (`DETERMINISM-AUDIT.md`, `DIND-MISSION*.md`) to
+  `docs/determinism/`.
+- **Moved** task trackers (`TASKS.md`, `TASKS-DAG.md`, `WASM-TASKS.md`) to
+  `docs/tasks/`.
+- **Moved** `ECHO_ROADMAP.md` to `docs/ROADMAP/`, `COMING_SOON.md` to
+  `docs/plans/`, `AGENTS.md` to `docs/`.
+- **Deleted** untracked junk files (`paper-7eee.log`, `dind-report.json`,
+  `.DS_Store`).
+- **Archived** 14 superseded/completed docs: redirect stubs removed,
+  canonical content already in `docs/archive/`. Updated cross-references
+  in `docs-index.md`, `code-map.md`, `DETERMINISTIC_MATH.md`, and
+  `warp-geom/README.md`.
+- **Added** `docs/archive/README.md` defining archive policy.
+
 ### CI: G3 perf regression gate (#280)
 
 - **CI:** G3 perf regression gate now compares criterion benchmark output

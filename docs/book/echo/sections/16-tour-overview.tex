@@ -25,7 +25,7 @@ A user action flows through Echo in eight stages:
     \item \textbf{Transaction Lifecycle} --- Intents are batched into transactions
     \item \textbf{Rule Matching} --- Rules produce \texttt{PendingRewrite}s
     \item \textbf{Scheduler: Drain \& Reserve} --- Radix sort + independence check
-    \item \textbf{BOAW Parallel Execution} --- Workers execute in parallel
+    \item \textbf{Parallel Execution} --- Workers execute in parallel
     \item \textbf{Delta Merge} --- Thread-local deltas merge canonically
     \item \textbf{Hash Computation} --- State root, patch digest, commit hash
     \item \textbf{Commit Orchestration} --- Final state materialization
@@ -47,8 +47,8 @@ Engine core & \texttt{crates/echo-app-core/src/engine.rs} \\
 Transaction handling & \texttt{crates/echo-app-core/src/transaction.rs} \\
 Rule matching & \texttt{crates/warp-core/src/rule.rs} \\
 Scheduler (Radix) & \texttt{crates/warp-core/src/scheduler.rs} \\
-BOAW execution & \texttt{crates/warp-core/src/boaw/exec.rs} \\
-Shard routing & \texttt{crates/warp-core/src/boaw/shard.rs} \\
+Parallel execution & \texttt{crates/warp-core/src/parallel/exec.rs} \\
+Shard routing & \texttt{crates/warp-core/src/parallel/shard.rs} \\
 Delta/merge & \texttt{crates/warp-core/src/tick\_delta.rs} \\
 Hashing & \texttt{crates/warp-core/src/snapshot.rs} \\
 \bottomrule
@@ -66,5 +66,5 @@ Each section follows a consistent format:
 \end{itemize}
 
 \begin{protip}
-Keep a terminal open with the codebase. When you see a file reference like \texttt{src/boaw/exec.rs:61-83}, jump to that location and read the actual code alongside this tour.
+Keep a terminal open with the codebase. When you see a file reference like \texttt{src/parallel/exec.rs:61-83}, jump to that location and read the actual code alongside this tour.
 \end{protip}

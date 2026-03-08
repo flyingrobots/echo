@@ -216,7 +216,7 @@ One Engine step is phased:
 - Identify cursors that seek (`Seek`/`StepBack`).
 - Build global work queue for advancing writers (warp+shard units).
 
-### Phase B: Execute (parallel BOAW)
+### Phase B: Execute (parallel execution)
 
 - Workers claim `WorkUnits`.
 - Resolve `GraphView` for writer cursor’s store (read-only).
@@ -319,7 +319,7 @@ Forking creates a new worldline from `(worldline_id, tick)`.
 ### Cursor
 
 - `seek_to(target_tick)` (using `ProvenanceStore`)
-- `advance_one_tick()` (writer-only; uses BOAW pipeline)
+- `advance_one_tick()` (writer-only; uses parallel execution pipeline)
 
 ### TruthBus
 
@@ -570,7 +570,7 @@ Provide a deterministic harness with:
 
 - `cargo test -p warp-core --features delta_validate`
 - `cargo test -p echo-dind-harness`
-- (bench later) `cargo bench -p warp-core --bench boaw_baseline`
+- (bench later) `cargo bench -p warp-core --bench parallel_baseline`
 
 ---
 
@@ -859,7 +859,7 @@ Sessions bind cursor+subs; publish frames; subscribers don’t resubscribe; writ
   - `publish_truth_frame`
 - Minimal in-memory bus for tests
 - `Writer` advance pipeline:
-  - BOAW work queue executes rules into `TickDelta`
+  - Parallel work queue executes rules into `TickDelta`
   - `merge_deltas` canonical
   - apply patch to writer cursor store
   - compute expected hashes and append to `ProvenanceStore`
@@ -943,8 +943,8 @@ Cement reducer truth semantics and open Phase 7.5/7.9 doors.
 
 ## Post-OPORD: Bench Baseline (Guardrail)
 
-- Add `crates/warp-core/benches/boaw_baseline.rs`
-- Document in `docs/notes/boaw-perf-baseline.md`
+- Add `crates/warp-core/benches/parallel_baseline.rs`
+- Document in `docs/notes/parallel-perf-baseline.md`
 ```
 
 ## Commanders’ Intent

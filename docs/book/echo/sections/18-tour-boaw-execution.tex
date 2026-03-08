@@ -1,14 +1,20 @@
 % SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-\chapter{BOAW Parallel Execution}
+\chapter{Parallel Execution}
 \label{chap:tour-boaw}
 
+\begin{quote}
+\textbf{Note:} ``BOAW'' is a retired codename. This subsystem now lives under
+\texttt{warp\_core::parallel}. The chapter title is preserved for historical
+continuity.
+\end{quote}
+
 \textbf{Entry Point:} \texttt{execute\_parallel()} \\
-\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:61-83}
+\textbf{File:} \texttt{crates/warp-core/src/parallel/exec.rs:61-83}
 
 \begin{bigpicture}
-BOAW---``Best of All Worlds''---is where Echo's determinism meets parallelism. The key insight: \textbf{execution order doesn't matter if we sort the outputs}.
+Parallel execution is where Echo's determinism meets parallelism. The key insight: \textbf{execution order doesn't matter if we sort the outputs}.
 
 Workers execute in arbitrary order on different threads, but their outputs are merged canonically. Same inputs $\rightarrow$ same outputs, regardless of thread scheduling.
 \end{bigpicture}
@@ -104,7 +110,7 @@ But if you're debugging and wondering why execution traces look different betwee
 
 \section{ExecItem Structure}
 
-\textbf{File:} \texttt{crates/warp-core/src/boaw/exec.rs:19-35}
+\textbf{File:} \texttt{crates/warp-core/src/parallel/exec.rs:19-35}
 
 \begin{lstlisting}[language=Rust]
 #[derive(Clone, Copy)]

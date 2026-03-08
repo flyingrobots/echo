@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Footprint enforcement guard for BOAW Phase 6B.
+//! Footprint enforcement guard for Phase 6B parallel execution.
 //!
 //! This module provides runtime validation that execute functions stay within
 //! their declared footprints. Violations are reported via [`std::panic::panic_any`]
@@ -56,7 +56,7 @@
 //! scope and may only emit ops targeting that warp. Attempting to emit an op
 //! targeting a different warp triggers [`ViolationKind::CrossWarpEmission`].
 //!
-//! This is a fundamental invariant of BOAW, not a temporary restriction. Inter-warp
+//! This is a fundamental invariant of parallel execution, not a temporary restriction. Inter-warp
 //! communication flows through portals (attachment-based descent), not direct writes.
 
 use std::any::Any;

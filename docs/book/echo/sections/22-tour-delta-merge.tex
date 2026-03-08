@@ -5,13 +5,13 @@
 \label{chap:tour-merge}
 
 \begin{bigpicture}
-After BOAW execution, we have $N$ worker threads each with their own \texttt{TickDelta}. The merge phase combines these into a single canonical sequence of operations. This is the ``choke point'' where parallelism meets determinism.
+After parallel execution, we have $N$ worker threads each with their own \texttt{TickDelta}. The merge phase combines these into a single canonical sequence of operations. This is the ``choke point'' where parallelism meets determinism.
 \end{bigpicture}
 
 \section{Canonical Merge}
 
 \textbf{Entry Point:} \texttt{merge\_deltas()} \\
-\textbf{File:} \texttt{crates/warp-core/src/boaw/merge.rs}
+\textbf{File:} \texttt{crates/warp-core/src/parallel/merge.rs}
 
 \begin{verbatim}
 merge_deltas(deltas: Vec<TickDelta>) → TickDelta

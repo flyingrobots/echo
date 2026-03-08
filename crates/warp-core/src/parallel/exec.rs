@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Parallel and serial execution for BOAW Phase 6B.
+//! Parallel and serial execution.
 //!
 //! Uses virtual shard partitioning (`execute_parallel_sharded`) for cache locality.
 //! Workers dynamically claim shards via atomic counter (work-stealing).

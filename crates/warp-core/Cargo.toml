@@ -63,7 +63,7 @@ footprint_enforce_release = []
 unsafe_graph = []
 
 [[test]]
-name = "boaw_parallel_exec"
+name = "parallel_parallel_exec"
 required-features = ["delta_validate"]
 
 [[test]]

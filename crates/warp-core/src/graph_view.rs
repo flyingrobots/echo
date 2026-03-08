@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Read-only view over a [`GraphStore`] for Phase 5 BOAW execution.
+//! Read-only view over a [`GraphStore`] for Phase 5 parallel execution.
 //!
 //! [`GraphView`] provides a strictly read-only interface to the graph, exposing
 //! only query methods. This ensures that execute functions cannot accidentally
@@ -8,7 +8,7 @@
 //!
 //! # Design Rationale
 //!
-//! Phase 5 of the BOAW (Bag-Of-Authoritative-Writes) architecture requires that
+//! Phase 5 of the parallel execution architecture requires that
 //! execute functions read graph state through a controlled interface that:
 //!
 //! 1. **Prevents mutation** - Execute functions must not modify the graph directly;
@@ -55,9 +55,9 @@ use crate::record::{EdgeRecord, NodeRecord};
 ///
 /// This wrapper exposes only the query methods of the underlying store,
 /// enforcing read-only access at compile time. Used by execute functions
-/// in Phase 5 BOAW to safely inspect graph state without mutation.
+/// in Phase 5 to safely inspect graph state without mutation.
 ///
-/// # BOAW Enforcement Boundary (Phase 5)
+/// # Parallel Execution Enforcement Boundary (Phase 5)
 ///
 /// **DO NOT** add any of the following to this type:
 /// - `Deref<Target=GraphStore>` or `AsRef<GraphStore>`
@@ -65,7 +65,7 @@ use crate::record::{EdgeRecord, NodeRecord};
 /// - `as_mut()` or any method returning `&mut GraphStore`
 /// - Interior mutability (`Cell`, `RefCell`, `UnsafeCell`)
 ///
-/// This type is the read-only capability that enforces the BOAW contract:
+/// This type is the read-only capability that enforces the parallel execution contract:
 /// executors observe through `GraphView`, mutate through `TickDelta`.
 ///
 /// # Adjacency Invariant (Critical)

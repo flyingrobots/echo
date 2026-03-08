@@ -190,7 +190,7 @@ A registered rule is a `RewriteRule`:
 - `id: Hash` (rule family id; stable and deterministic)
 - `name: &'static str` (human name used by `Engine::apply`)
 - `matcher: fn(GraphView<'_>, &NodeId) -> bool` (GraphView is Copy, passed by value)
-- `executor: fn(GraphView<'_>, &NodeId, &mut TickDelta)` (BOAW Phase 5: read-only execution)
+- `executor: fn(GraphView<'_>, &NodeId, &mut TickDelta)` (Phase 5 parallel execution: read-only execution)
 - `compute_footprint: fn(GraphView<'_>, &NodeId) -> Footprint` (GraphView is Copy, passed by value)
 - `factor_mask: u64` (fast prefilter; must remain conservative)
 - `conflict_policy: ConflictPolicy` (`Abort`, `Retry`, `Join`)
@@ -428,7 +428,7 @@ fn b1_rule_match(_view: GraphView<'_>, _scope: &NodeId) -> bool {
     true
 }
 
-// BOAW Phase 5: Executors receive read-only GraphView and emit ops to TickDelta.
+// Phase 5 parallel execution: Executors receive read-only GraphView and emit ops to TickDelta.
 // No GraphStore mutations during execution.
 fn b1_rule_exec(view: GraphView<'_>, _scope: &NodeId, delta: &mut TickDelta) {
     let child_node = make_node_id("child-node");

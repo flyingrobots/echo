@@ -3,6 +3,8 @@
 
 # BOAW Tech Debt & Future Work
 
+> **Naming note:** "BOAW" is a retired codename. The subsystem is now `warp_core::parallel`.
+
 **Last Updated:** 2026-01-20
 **Related:** ADR-0007-BOAW-Storage.md, PLAN-PHASE-6B-VIRTUAL-SHARDS.md
 

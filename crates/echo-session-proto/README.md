@@ -26,12 +26,10 @@ Wire schema and deterministic encoding for the Echo session hub.
 
 ## Documentation
 
-- Canonical JS-ABI v1.0 encoding and packet framing are specified in:
-    - `docs/tex/sources/adr/adr-0013-*.tex` (deterministic encoding),
-    - `docs/tex/sources/arch/arch-0013-*.tex` (wire protocol framing).
-- The Echo book’s Core booklet (`docs/book/echo/booklet-02-core.tex`) mirrors
+- The Echo book’s Core booklet (`docs/book/echo/booklet-02-core.tex`) covers
   these decisions in:
     - Section `Low-Level Networking: JS-ABI Wire Protocol`
       (`13-networking-wire-protocol.tex`),
     - Section `Consuming WARP Streams: Snapshots and Diffs`
       (`14-warp-stream-consumers.tex`).
+- JS-ABI v1.0 encoding rules: `docs/js-cbor-mapping.md`.

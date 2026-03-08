@@ -7,9 +7,6 @@ use blake3::Hasher;
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentValue};
-#[cfg(any(test, feature = "delta_validate"))]
-use crate::boaw::merge_deltas;
-use crate::boaw::{build_work_units, execute_work_queue, ExecItem, WorkerResult, NUM_SHARDS};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
 use crate::ident::{
@@ -17,6 +14,9 @@ use crate::ident::{
 };
 use crate::inbox::{INBOX_EVENT_TYPE, INBOX_PATH, INTENT_ATTACHMENT_TYPE, PENDING_EDGE_TYPE};
 use crate::materialization::{ChannelConflict, FinalizedChannel, MaterializationBus};
+#[cfg(any(test, feature = "delta_validate"))]
+use crate::parallel::merge_deltas;
+use crate::parallel::{build_work_units, execute_work_queue, ExecItem, WorkerResult, NUM_SHARDS};
 use crate::receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 use crate::record::NodeRecord;
 use crate::rule::{ConflictPolicy, RewriteRule};
@@ -1193,7 +1193,7 @@ impl Engine {
         // Defensive guardrail: clamp workers to valid range
         let workers = self.worker_count.clamp(1, NUM_SHARDS);
 
-        // Phase 6 BOAW: Group by warp_id and execute in parallel per warp.
+        // Phase 6 parallel execution: Group by warp_id and execute in parallel per warp.
         // BTreeMap ensures deterministic iteration order (WarpId: Ord from [u8; 32]).
 
         // 1. Pre-validate all rewrites and group by warp_id
@@ -1822,7 +1822,7 @@ impl Engine {
 /// Panics (via `resume_unwind`) if any delta was poisoned by an executor or enforcement panic.
 fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp>, EngineError> {
     // Convert WorkerResult to the format expected by merge paths
-    let all_deltas: Result<Vec<Result<crate::TickDelta, crate::boaw::PoisonedDelta>>, _> =
+    let all_deltas: Result<Vec<Result<crate::TickDelta, crate::parallel::PoisonedDelta>>, _> =
         worker_results
             .into_iter()
             .map(|result| match result {
@@ -1875,7 +1875,7 @@ fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp
         let ops: Vec<_> = flat.into_iter().map(|(_, op)| op).collect();
 
         // Validate no writes to warps created in the same tick.
-        if crate::boaw::check_write_to_new_warp(&ops).is_some() {
+        if crate::parallel::check_write_to_new_warp(&ops).is_some() {
             return Err(EngineError::InternalCorruption(
                 "merge_parallel_deltas: write to new warp",
             ));
@@ -1918,7 +1918,7 @@ fn collect_guard_metadata(
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
 #[cfg(not(feature = "unsafe_graph"))]
 fn attach_footprint_guards(
-    units: &mut [crate::boaw::WorkUnit],
+    units: &mut [crate::parallel::WorkUnit],
     guard_meta: &HashMap<
         (crate::tick_delta::OpOrigin, NodeKey),
         (crate::footprint::Footprint, &'static str),
@@ -1942,7 +1942,7 @@ fn attach_footprint_guards(
                         "attach_footprint_guards: missing guard metadata",
                     )
                 })?;
-                let is_system = item.kind == crate::boaw::ExecItemKind::System;
+                let is_system = item.kind == crate::parallel::ExecItemKind::System;
                 Ok(crate::footprint_guard::FootprintGuard::new(
                     &footprint,
                     unit.warp_id,
@@ -2150,7 +2150,7 @@ mod tests {
                 )
             },
             executor: |view: GraphView<'_>, scope, delta| {
-                // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+                // Phase 5: read from view, emit ops to delta (no direct mutation).
                 let warp_id = view.warp_id();
 
                 let Some(AttachmentValue::Atom(payload)) = view.node_attachment(scope) else {

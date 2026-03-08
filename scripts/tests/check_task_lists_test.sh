@@ -21,30 +21,30 @@ with_tmp() (
   "$@"
 )
 
-test_fails_when_no_files_found() {
+test_exits_cleanly_when_no_files_found() {
   with_tmp bash -c '
     set -euo pipefail
     out="$({ "'"${checker}"'" 2>&1; } || true)"
-    echo "$out" | grep -q "Error: no task list files found to validate"
+    echo "$out" | grep -q "No task list files found"
   '
 }
 
 test_passes_with_one_existing_file() {
   with_tmp bash -c '
     set -euo pipefail
-    printf "%s\n" "- [ ] Task A" > WASM-TASKS.md
-    "'"${checker}"'" >/dev/null
+    printf "%s\n" "- [ ] Task A" > tasks.md
+    "'"${checker}"'" tasks.md >/dev/null
   '
 }
 
 test_detects_case_insensitive_conflict_within_file() {
   with_tmp bash -c '
     set -euo pipefail
-    cat > WASM-TASKS.md <<EOF
+    cat > tasks.md <<EOF
 - [ ] Fix the WASM compiler
 - [x] fix the wasm compiler
 EOF
-    out="$({ "'"${checker}"'" 2>&1; } || true)"
+    out="$({ "'"${checker}"'" tasks.md 2>&1; } || true)"
     echo "$out" | grep -q "Task list conflict"
   '
 }
@@ -52,10 +52,9 @@ EOF
 test_detects_case_insensitive_conflict_across_files() {
   with_tmp bash -c '
     set -euo pipefail
-    mkdir -p docs
-    printf "%s\n" "- [ ] Fix the WASM compiler" > WASM-TASKS.md
-    printf "%s\n" "- [x] fix the wasm compiler" > docs/tasks.md
-    out="$({ "'"${checker}"'" 2>&1; } || true)"
+    printf "%s\n" "- [ ] Fix the WASM compiler" > tasks-a.md
+    printf "%s\n" "- [x] fix the wasm compiler" > tasks-b.md
+    out="$({ "'"${checker}"'" tasks-a.md tasks-b.md 2>&1; } || true)"
     echo "$out" | grep -q "Task list conflict"
   '
 }
@@ -63,7 +62,7 @@ test_detects_case_insensitive_conflict_across_files() {
 main() {
   [[ -x "$checker" ]] || fail "checker script missing or not executable: $checker"
 
-  test_fails_when_no_files_found
+  test_exits_cleanly_when_no_files_found
   test_passes_with_one_existing_file
   test_detects_case_insensitive_conflict_within_file
   test_detects_case_insensitive_conflict_across_files

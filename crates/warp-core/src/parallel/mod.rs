@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! BOAW Phase 6B: Parallel Execution with Canonical Merge.
+//! Parallel Execution with Canonical Merge.
 //!
 //! Virtual shard partitioning for cache locality + canonical merge ordering.
 

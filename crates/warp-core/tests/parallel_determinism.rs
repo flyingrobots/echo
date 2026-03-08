@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::panic)]
-//! BOAW Determinism Tests (ADR-0007 §1, §5)
+//! Parallel execution determinism tests (ADR-0007 §1, §5)
 //!
 //! Tests for snapshot hash invariance, serial vs parallel equivalence,
 //! and insertion order independence.
@@ -9,8 +9,8 @@
 mod common;
 
 use common::{
-    assert_hash_eq, boaw_harness, shuffle, BoawScenario, BoawTestHarness, XorShift64, SEEDS,
-    WORKER_COUNTS,
+    assert_hash_eq, parallel_harness, shuffle, ParallelScenario, ParallelTestHarness, XorShift64,
+    SEEDS, WORKER_COUNTS,
 };
 
 // =============================================================================
@@ -26,8 +26,8 @@ fn t1_1_snapshot_hash_is_invariant_under_insertion_order() {
     // - Shuffle op order 50 times.
     // - Materialize.
     // - Assert state_root identical across all runs.
-    let h = boaw_harness();
-    let scenario = BoawScenario::Small;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::Small;
     let base = h.build_base_snapshot(scenario);
     let tick = 1;
 
@@ -52,7 +52,7 @@ fn t1_1_snapshot_hash_is_invariant_under_insertion_order() {
 }
 
 #[test]
-#[ignore = "BOAW harness not yet wired"]
+#[ignore = "Parallel harness not yet wired"]
 fn t1_2_zero_copy_read_roundtrip_is_exact() {
     // Given: WSC produced by builder
     // Expect: WarpView sees exactly the same tables (IDs, types, ranges, blobs)
@@ -61,8 +61,8 @@ fn t1_2_zero_copy_read_roundtrip_is_exact() {
     // - Read via WscFile::from_bytes
     // - Check node_ix, edge_ix, out_edges_for_node, attachment accessors
     // - Verify blob slices match original bytes
-    let h = boaw_harness();
-    let scenario = BoawScenario::Small;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::Small;
     let base = h.build_base_snapshot(scenario);
     let tick = 1;
 
@@ -93,8 +93,8 @@ fn t5_1_parallel_equals_serial_functional_equivalence() {
     //
     // - Run execute with 1 worker and N workers
     // - Compare results byte-for-byte
-    let h = boaw_harness();
-    let scenario = BoawScenario::Small;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::Small;
     let base = h.build_base_snapshot(scenario);
     let tick = 1;
 
@@ -120,9 +120,9 @@ fn t5_2_permutation_invariance_under_parallelism() {
     // Given: shuffled ingress order + varied worker counts
     // Expect: identical commit hash
     //
-    // This is the "determinism drill sergeant" test for BOAW.
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyIndependent;
+    // This is the "determinism drill sergeant" test for parallel execution.
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyIndependent;
     let base = h.build_base_snapshot(scenario);
     let tick = 42;
 
@@ -159,11 +159,11 @@ fn t4_2_admission_does_not_depend_on_num_cpus() {
     // Expect: same admitted set, same patch_digest, same state_root
     //
     // NOTE: We use state_root and patch_digest equality as a proxy for admission
-    // invariance because BoawExecResult does not currently expose the admitted set.
+    // invariance because ParallelExecResult does not currently expose the admitted set.
     // Once admitted_items is added to ExecuteResult, update this test to directly
     // compare r_baseline.admitted vs r.admitted.
-    let h = boaw_harness();
-    let scenario = BoawScenario::ManyConflicts;
+    let h = parallel_harness();
+    let scenario = ParallelScenario::ManyConflicts;
     let base = h.build_base_snapshot(scenario);
     let tick = 5;
 

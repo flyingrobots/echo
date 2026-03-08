@@ -33,7 +33,7 @@ The course tries to introduce concepts in this same order.
 - **Tick patch**: a canonical delta artifact representing a tick's edits + read/write footprint.
 - **FootprintGuard**: runtime enforcement module (`FootprintGuard`) validating every graph access and emitted op against the declared footprint. Active by default in debug builds (`debug_assertions`), additionally gated by the `footprint_enforce_release` feature for release builds, and disabled when the `unsafe_graph` escape hatch is used.
 - **FootprintViolation**: a typed panic payload emitted when a rule breaches its declared footprint. Carries structured info: the offending op, the declared sets, and a `ViolationKind`.
-- **ViolationKind**: enum classifying footprint breaches — `NodeRead`, `NodeWrite`, `EdgeRead`, `EdgeWrite`, `AttachmentRead`, `AttachmentWrite`, `CrossWarpEmission`, `UnauthorizedInstanceOp`, `AdjacencyViolation`.
+- **ViolationKind**: enum classifying footprint breaches — `NodeReadNotDeclared`, `NodeWriteNotDeclared`, `EdgeReadNotDeclared`, `EdgeWriteNotDeclared`, `AttachmentReadNotDeclared`, `AttachmentWriteNotDeclared`, `CrossWarpEmission`, `UnauthorizedInstanceOp`, `OpWarpUnknown`.
 - **ExecItemKind**: `System` or `User` — gates whether an executor may emit warp-instance-level ops (create/delete instances, open portals). User rules are always `User`; only internal engine code creates `System` items. Unauthorized attempts raise `UnauthorizedInstanceOp`.
 
 ## Demo-Specific Terms

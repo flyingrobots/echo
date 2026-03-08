@@ -119,12 +119,6 @@ Enabling both `footprint_enforce_release` and `unsafe_graph` is a compile error.
 | ------- | ------- | -------------------------------------------------------- |
 | `wasm`  | no      | Enables `wasm-bindgen` support for WebAssembly bindings. |
 
-## spec-000-rewrite
-
-| Feature | Default | Description                                       |
-| ------- | ------- | ------------------------------------------------- |
-| `wasm`  | no      | Enables `wasm-bindgen` support for the spec demo. |
-
 ## See Also
 
 - [configuration-reference.md](configuration-reference.md) -- runtime configuration

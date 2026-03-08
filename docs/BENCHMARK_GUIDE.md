@@ -384,15 +384,12 @@ make bench-serve       # Serve dashboard at http://localhost:8000
 make bench-open-inline # Open baked report without rebuilding
 ```
 
-## CI Integration (Future)
+## CI Integration
 
-Currently benchmarks run manually. To add CI gating:
-
-1. Baseline results in version control
-2. Regression check comparing to baseline
-3. Fail CI if performance degrades >10%
-
-See TODO in `crates/warp-benches/benches/scheduler_drain.rs:11`.
+Benchmark regression gating is live via the **G3 perf gate** in
+`.github/workflows/det-gates.yml`. It compares Criterion output against a
+git-tracked `perf-baseline.json` and fails if any benchmark regresses beyond
+the configured threshold.
 
 ## Questions?
 

@@ -3,7 +3,7 @@
 
 # Tumble Tower
 
-> **Priority:** P2 | **Status:** Planned | **Est:** TBD (current skeleton ~45h)
+> **Priority:** P3 | **Status:** Planned | **Est:** TBD (current skeleton ~45h)
 
 A stacking-blocks physics game demonstrating deterministic rigid-body simulation. Progressive complexity: AABB → rotation → friction → sleeping bodies.
 

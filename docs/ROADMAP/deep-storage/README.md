@@ -3,7 +3,7 @@
 
 # Deep Storage
 
-> **Priority:** P2 | **Status:** Planned | **Est:** ~45h
+> **Priority:** P3 | **Status:** Planned | **Est:** ~45h
 
 echo-cas beyond MemoryTier. DiskTier, GC sweep, wire protocol, and API evolution.
 

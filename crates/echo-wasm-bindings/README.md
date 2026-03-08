@@ -3,7 +3,7 @@
 
 # echo-wasm-bindings
 
-Minimal WASM bindings shim for Echo/JITOS living specs. Provides `DemoKernel` with add/set/connect/delete and rewrite history, using `echo-wasm-abi` DTOs. Exports wasm-bindgen-friendly methods when built with `--features wasm`.
+Minimal WASM bindings shim for Echo living specs. Provides `DemoKernel` with add/set/connect/delete and rewrite history, using `echo-wasm-abi` DTOs. Exports wasm-bindgen-friendly methods when built with `--features wasm`.
 
 ## Dev
 

@@ -34,18 +34,18 @@ flowchart TD
 
 ## Priority / Status
 
-| Pri    | Milestone                                                              | Focus                                    | Status   |
-| ------ | ---------------------------------------------------------------------- | ---------------------------------------- | -------- |
-| **P0** | **[Lock the Hashes](ROADMAP/lock-the-hashes/README.md)**               | Canonical hash vectors & cleanup         | Verified |
-| **P0** | **[Developer CLI](ROADMAP/developer-cli/README.md)**                   | `verify`, `bench`, `inspect` tools       | Verified |
-| **P1** | **[Proof Core](ROADMAP/proof-core/README.md)**                         | Determinism claims _without_ Time Travel | Verified |
-| **P1** | **[Time Semantics Lock](ROADMAP/time-semantics-lock/README.md)**       | Frozen Time Spec (Doc only)              | Planned  |
-| **P2** | **[First Light](ROADMAP/first-light/README.md)**                       | Browser Demo (Website)                   | Planned  |
-| **P3** | **[Time Travel](ROADMAP/time-travel/README.md)**                       | Inspector & Rewind Tooling               | Planned  |
-| **P3** | **[Proof Time Convergence](ROADMAP/proof-time-convergence/README.md)** | Worldline Convergence                    | Planned  |
-| **P3** | **[Splash Guy](ROADMAP/splash-guy/README.md)**                         | Game Demo 1                              | Planned  |
-| **P3** | **[Tumble Tower](ROADMAP/tumble-tower/README.md)**                     | Game Demo 2                              | Planned  |
-| **P3** | **[Deep Storage](ROADMAP/deep-storage/README.md)**                     | Disk Tier / GC                           | Planned  |
+| Pri    | Milestone                                                              | Focus                                    | Status      |
+| ------ | ---------------------------------------------------------------------- | ---------------------------------------- | ----------- |
+| **P0** | **[Lock the Hashes](ROADMAP/lock-the-hashes/README.md)**               | Canonical hash vectors & cleanup         | Verified    |
+| **P0** | **[Developer CLI](ROADMAP/developer-cli/README.md)**                   | `verify`, `bench`, `inspect` tools       | Verified    |
+| **P1** | **[Proof Core](ROADMAP/proof-core/README.md)**                         | Determinism claims _without_ Time Travel | In Progress |
+| **P1** | **[Time Semantics Lock](ROADMAP/time-semantics-lock/README.md)**       | Frozen Time Spec (Doc only)              | Planned     |
+| **P2** | **[First Light](ROADMAP/first-light/README.md)**                       | Browser Demo (Website)                   | Planned     |
+| **P3** | **[Time Travel](ROADMAP/time-travel/README.md)**                       | Inspector & Rewind Tooling               | Planned     |
+| **P3** | **[Proof Time Convergence](ROADMAP/proof-time-convergence/README.md)** | Worldline Convergence                    | Planned     |
+| **P3** | **[Splash Guy](ROADMAP/splash-guy/README.md)**                         | Game Demo 1                              | Planned     |
+| **P3** | **[Tumble Tower](ROADMAP/tumble-tower/README.md)**                     | Game Demo 2                              | Planned     |
+| **P3** | **[Deep Storage](ROADMAP/deep-storage/README.md)**                     | Disk Tier / GC                           | Planned     |
 
 ## Milestone Directories
 

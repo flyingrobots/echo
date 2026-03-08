@@ -552,7 +552,7 @@ impl PlaybackCursor {
     /// # Note
     ///
     /// For writer cursors in `Play` mode, this is currently a stub that returns
-    /// [`StepResult::NoOp`]. Actual writer advance requires engine/BOAW integration
+    /// [`StepResult::NoOp`]. Actual writer advance requires engine/parallel integration
     /// and is handled at a higher level.
     pub fn step<P: ProvenanceStore>(
         &mut self,
@@ -572,7 +572,7 @@ impl PlaybackCursor {
                     self.seek_to(self.tick + 1, provenance, initial_store)?;
                     Ok(StepResult::Advanced)
                 } else {
-                    // Writer: stub - actual advance needs BOAW integration
+                    // Writer: stub - actual advance needs parallel execution integration
                     // For now, just return NoOp (writer advance done in engine)
                     Ok(StepResult::NoOp)
                 }

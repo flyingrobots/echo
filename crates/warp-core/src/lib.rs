@@ -33,34 +33,13 @@ pub mod math;
 pub mod wsc;
 
 mod attachment;
-/// BOAW (Best Of All Worlds) parallel execution module.
-///
-/// Provides both serial and parallel execution strategies for rewrite rules,
-/// with deterministic results guaranteed through canonical merge sorting.
-///
-/// # Key Types
-///
-/// - [`ExecItem`]: Encapsulates a single rewrite ready for execution
-/// - [`MergeConflict`]: Error type for footprint model violations
-///
-/// # Key Functions
-///
-/// - [`execute_serial`]: Baseline serial execution
-/// - [`execute_parallel`]: Parallel execution with shard partitioning
-/// - [`shard_of`]: Compute shard ID from a scope `NodeId`
-///
-/// # Determinism Guarantee
-///
-/// Execution order across workers is non-deterministic, but the final merged
-/// output is always canonical regardless of worker count or thread scheduling.
-pub mod boaw;
 mod cmd;
 mod constants;
 /// Domain separation prefixes for hashing.
 pub mod domain;
 mod engine_impl;
 mod footprint;
-/// Footprint enforcement guard for BOAW Phase 6B.
+/// Footprint enforcement guard for parallel execution.
 ///
 /// # Intent
 ///
@@ -111,6 +90,27 @@ mod ident;
 pub mod inbox;
 /// Materialization subsystem for deterministic channel-based output.
 pub mod materialization;
+/// Parallel execution module.
+///
+/// Provides both serial and parallel execution strategies for rewrite rules,
+/// with deterministic results guaranteed through canonical merge sorting.
+///
+/// # Key Types
+///
+/// - [`ExecItem`]: Encapsulates a single rewrite ready for execution
+/// - [`MergeConflict`]: Error type for footprint model violations
+///
+/// # Key Functions
+///
+/// - [`execute_serial`]: Baseline serial execution
+/// - [`execute_parallel`]: Parallel execution with shard partitioning
+/// - [`shard_of`]: Compute shard ID from a scope `NodeId`
+///
+/// # Determinism Guarantee
+///
+/// Execution order across workers is non-deterministic, but the final merged
+/// output is always canonical regardless of worker count or thread scheduling.
+pub mod parallel;
 mod payload;
 mod playback;
 mod provenance_store;
@@ -136,20 +136,6 @@ pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
-pub use boaw::{
-    execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
-    PoisonedDelta, NUM_SHARDS,
-};
-/// Delta merging functions, only available with `delta_validate` feature.
-///
-/// These functions are feature-gated because they are primarily used for testing
-/// and validation. `merge_deltas` accepts `Vec<Result<TickDelta, PoisonedDelta>>`
-/// and performs poisoned-delta rejection; `merge_deltas_ok` is a convenience wrapper
-/// that maps `Vec<TickDelta>` into `Ok` variants and delegates to `merge_deltas`.
-/// Enable `delta_validate` to access them.
-#[cfg(any(test, feature = "delta_validate"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "delta_validate")))]
-pub use boaw::{merge_deltas, merge_deltas_ok, MergeError};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
@@ -165,6 +151,20 @@ pub use ident::{
     make_edge_id, make_node_id, make_type_id, make_warp_id, EdgeId, EdgeKey, Hash, NodeId, NodeKey,
     TypeId, WarpId,
 };
+pub use parallel::{
+    execute_parallel, execute_parallel_sharded, execute_serial, shard_of, ExecItem, MergeConflict,
+    PoisonedDelta, NUM_SHARDS,
+};
+/// Delta merging functions, only available with `delta_validate` feature.
+///
+/// These functions are feature-gated because they are primarily used for testing
+/// and validation. `merge_deltas` accepts `Vec<Result<TickDelta, PoisonedDelta>>`
+/// and performs poisoned-delta rejection; `merge_deltas_ok` is a convenience wrapper
+/// that maps `Vec<TickDelta>` into `Ok` variants and delegates to `merge_deltas`.
+/// Enable `delta_validate` to access them.
+#[cfg(any(test, feature = "delta_validate"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "delta_validate")))]
+pub use parallel::{merge_deltas, merge_deltas_ok, MergeError};
 pub use payload::{
     decode_motion_atom_payload, decode_motion_atom_payload_q32_32, decode_motion_payload,
     encode_motion_atom_payload, encode_motion_atom_payload_v0, encode_motion_payload,

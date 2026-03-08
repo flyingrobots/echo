@@ -3,7 +3,7 @@
 
 # Proof Time Convergence
 
-> **Priority:** P2 | **Status:** Planned | **Est:** ~10h
+> **Priority:** P3 | **Status:** Planned | **Est:** ~10h
 
 Worldline convergence suite proving that multiple execution paths converge on identical state. Depends on both the core proof infrastructure and time travel semantics.
 

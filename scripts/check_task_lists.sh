@@ -7,10 +7,15 @@ set -euo pipefail
 # Guard against contradictory duplicated checklist items (e.g. the same task both checked and unchecked).
 # Intended to keep living task docs unambiguous.
 
-FILES=(
-  "WASM-TASKS.md"
-  "docs/tasks.md"
-)
+# Accept file arguments; fall back to the built-in list when none are given.
+if [[ $# -gt 0 ]]; then
+  FILES=("$@")
+else
+  FILES=(
+    # Add task list files here as they are created.
+    # Previously: "WASM-TASKS.md", "docs/tasks.md" (archived)
+  )
+fi
 
 fail=0
 existing_files=()
@@ -24,8 +29,8 @@ for file in "${FILES[@]}"; do
 done
 
 if [[ "${#existing_files[@]}" -eq 0 ]]; then
-  echo "Error: no task list files found to validate" >&2
-  exit 1
+  echo "No task list files found — nothing to validate." >&2
+  exit 0
 fi
 
 awk '

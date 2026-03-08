@@ -3,7 +3,7 @@
 
 # Time Travel
 
-> **Priority:** P2 | **Status:** Planned | **Est:** ~56h
+> **Priority:** P3 | **Status:** Planned | **Est:** ~56h
 
 Inspector visibility, time travel MVP, and worldline comparison. Builds on the temporal spec lock.
 

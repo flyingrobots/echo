@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #![allow(clippy::unimplemented)]
-//! BOAW Privacy Tests (ADR-0007 §10)
+//! Parallel Execution Privacy Tests (ADR-0007 §10)
 //!
 //! Tests for mind mode enforcement and claim merging:
 //! - ForbiddenInLedger atoms rejected in mind mode
@@ -17,7 +17,7 @@ mod common;
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW privacy enforcement not yet implemented"]
+#[ignore = "Parallel privacy enforcement not yet implemented"]
 fn t7_1_mind_mode_forbids_forbidden_in_ledger_atoms() {
     // Given: attempt to emit attachment bytes of forbidden type
     // Expect: deterministic rejection (error) OR forced indirection
@@ -34,7 +34,7 @@ fn t7_1_mind_mode_forbids_forbidden_in_ledger_atoms() {
 }
 
 #[test]
-#[ignore = "BOAW claim merging not yet implemented"]
+#[ignore = "Parallel claim merging not yet implemented"]
 fn t7_2_invalid_proofs_do_not_win_claim_merge() {
     // Given: same claim_key, one valid proof, one invalid
     // Expect: merge selects valid; invalid produces audit artifact or
@@ -51,7 +51,7 @@ fn t7_2_invalid_proofs_do_not_win_claim_merge() {
 }
 
 #[test]
-#[ignore = "BOAW claim merging not yet implemented"]
+#[ignore = "Parallel claim merging not yet implemented"]
 fn t7_3_conflicting_valid_claims_produce_conflict_artifact() {
     // Given: same claim_key, different statement_hash, both verify
     // Expect: conflict artifact unless policy resolves
@@ -65,7 +65,7 @@ fn t7_3_conflicting_valid_claims_produce_conflict_artifact() {
 }
 
 #[test]
-#[ignore = "BOAW commitment pepper not yet implemented"]
+#[ignore = "Parallel commitment pepper not yet implemented"]
 fn t7_4_commitment_is_dictionary_safe_with_pepper() {
     // Commitments must be dictionary-safe.
     // Never commit as H(secret) for guessable secrets.
@@ -85,7 +85,7 @@ fn t7_4_commitment_is_dictionary_safe_with_pepper() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW type registry not yet implemented"]
+#[ignore = "Parallel type registry not yet implemented"]
 fn atom_type_declares_sensitivity() {
     // Each Atom type MUST declare (via registry metadata):
     // - Sensitivity: Public | Private | ForbiddenInLedger
@@ -98,7 +98,7 @@ fn atom_type_declares_sensitivity() {
 }
 
 #[test]
-#[ignore = "BOAW type registry not yet implemented"]
+#[ignore = "Parallel type registry not yet implemented"]
 fn atom_type_declares_merge_behavior() {
     // Each Atom type MUST declare:
     // - MergeBehavior: Mergeable | LWW | ConflictOnly
@@ -109,7 +109,7 @@ fn atom_type_declares_merge_behavior() {
 }
 
 #[test]
-#[ignore = "BOAW type registry not yet implemented"]
+#[ignore = "Parallel type registry not yet implemented"]
 fn atom_type_declares_disclosure_policy() {
     // Each Atom type MUST declare:
     // - Disclosure: Never | ByConsent | ByWarrant | DiagnosticsOnly
@@ -124,7 +124,7 @@ fn atom_type_declares_disclosure_policy() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW ClaimRecord not yet implemented"]
+#[ignore = "Parallel ClaimRecord not yet implemented"]
 fn claim_record_is_canonical() {
     // We record a deterministic claim record:
     // - claim_key (stable identity of the claim)
@@ -148,7 +148,7 @@ fn claim_record_is_canonical() {
 // =============================================================================
 
 #[test]
-#[ignore = "BOAW diagnostics mode not yet implemented"]
+#[ignore = "Parallel diagnostics mode not yet implemented"]
 fn diagnostics_mode_allows_richer_introspection() {
     // Diagnostics mode: richer data MAY be permitted, but still governed by
     // type policy (no "oops logged SSN" allowed).

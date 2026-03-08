@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Direct tests for BOAW Phase 6B parallel execution.
+//! Direct tests for Phase 6B parallel execution.
 //!
 //! Tests validate sharded partitioning, canonical merge ordering, and
 //! determinism under various worker counts and input permutations.
@@ -9,7 +9,7 @@
 //!
 //! These tests require the `delta_validate` feature to be enabled:
 //! ```sh
-//! cargo test --package warp-core --test boaw_parallel_exec --features delta_validate
+//! cargo test --package warp-core --test parallel_parallel_exec --features delta_validate
 //! ```
 
 // This test file only compiles when the delta_validate feature is enabled.

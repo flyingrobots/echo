@@ -70,6 +70,8 @@ impl AttachmentOwner {
     }
 
     /// Returns the [`WarpId`] of the owner (node or edge).
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
     pub(crate) fn warp_id(self) -> WarpId {
         match self {
             Self::Node(nk) => nk.warp_id,

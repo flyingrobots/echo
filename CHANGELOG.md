@@ -5,6 +5,22 @@
 
 ## Unreleased
 
+### fix: Resolve pre-existing clippy warnings across workspace
+
+- **Fixed** `warp-core`: cfg-gate footprint enforcement internals (`FootprintGuard`,
+  `OpTargets`, `op_write_targets`, etc.) so they compile out cleanly under
+  `unsafe_graph` without dead-code warnings.
+- **Fixed** `warp-core`: add `#[allow(unused_mut)]` on cfg-conditional mutation
+  in `engine_impl.rs`.
+- **Fixed** `echo-wasm-bindings`: restructure `TtdController` WASM bindings to
+  use per-method `wasm_bindgen` with `JsValue`/`JsError` wrappers instead of
+  blanket `wasm_bindgen` on the impl block (fixes trait bound errors under
+  `--all-features`).
+- **Fixed** `echo-scene-codec`: add clippy allow attributes to test module for
+  `expect_used`, `unwrap_used`, and `float_cmp`.
+- **Fixed** `warp-core` tests: move enforcement-only imports into cfg-gated
+  `mod enforcement` in `parallel_footprints.rs`.
+
 ### fix(wasm): Validate intent envelopes, enforce envelope construction, add trait defaults
 
 - **Fixed** `dispatch_intent` now validates the EINT envelope before passing

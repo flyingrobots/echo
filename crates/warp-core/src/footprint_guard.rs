@@ -60,12 +60,22 @@
 //! communication flows through portals (attachment-based descent), not direct writes.
 
 use std::any::Any;
-use std::collections::BTreeSet;
 
-use crate::attachment::{AttachmentKey, AttachmentOwner};
-use crate::footprint::Footprint;
+use crate::attachment::AttachmentKey;
 use crate::ident::{EdgeId, NodeId, WarpId};
+
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+use crate::attachment::AttachmentOwner;
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+use crate::footprint::Footprint;
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 use crate::tick_patch::WarpOp;
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
+use std::collections::BTreeSet;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Violation types (public: integration tests + future sandboxes need these)
@@ -154,14 +164,19 @@ impl std::fmt::Debug for FootprintViolationWithPanic {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OpTargets: canonical write-target extraction from WarpOp
+// Internal enforcement machinery (only compiled when enforcement is active)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Everything below is pub(crate) and only used when enforcement cfg gates are
+// active. When `unsafe_graph` disables enforcement, these items are dead code.
 
 /// Targets that a [`WarpOp`] writes to, as local ids within a specific warp.
 ///
 /// This is the output of [`op_write_targets`] — the single source of truth for
 /// what a `WarpOp` mutates. Used by enforcement. Available as a shared primitive
 /// for future scheduling linting (but the scheduler does NOT currently use it).
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 pub(crate) struct OpTargets {
     /// Node ids that the op writes/mutates.
     pub nodes: Vec<NodeId>,
@@ -182,6 +197,8 @@ pub(crate) struct OpTargets {
     pub kind_str: &'static str,
 }
 
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 /// Returns a static string naming the [`WarpOp`] variant.
 ///
 /// Single source of truth — never manually type these strings elsewhere.
@@ -198,6 +215,8 @@ pub(crate) fn op_kind_str(op: &WarpOp) -> &'static str {
     }
 }
 
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 /// Canonical extraction of write targets from a [`WarpOp`].
 ///
 /// This is the SINGLE SOURCE OF TRUTH for what a `WarpOp` mutates.
@@ -299,6 +318,8 @@ pub(crate) fn op_write_targets(op: &WarpOp) -> OpTargets {
 // FootprintGuard: runtime enforcement of declared footprints
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 /// Runtime guard enforcing declared footprints on executor read/write access.
 ///
 /// Constructed from a [`Footprint`] by pre-filtering to local ids within the
@@ -330,6 +351,8 @@ pub(crate) struct FootprintGuard {
     is_system: bool,
 }
 
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 #[allow(clippy::panic)]
 impl FootprintGuard {
     /// Constructs a guard from a footprint, pre-filtering to local ids within `warp_id`.

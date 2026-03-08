@@ -13,16 +13,8 @@
 
 mod common;
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
-
 use common::{random_footprint, XorShift64};
-use warp_core::{
-    make_edge_id, make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload,
-    AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, EdgeRecord, EdgeSet, Engine,
-    Footprint, FootprintViolation, FootprintViolationWithPanic, GraphStore, GraphView, NodeId,
-    NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, ViolationKind,
-    WarpInstance, WarpOp,
-};
+use warp_core::NodeId;
 
 // =============================================================================
 // T3: Footprints & Independence
@@ -83,7 +75,14 @@ fn t3_3_deletes_that_share_adjacency_bucket_must_conflict() {
 #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
 #[cfg(not(feature = "unsafe_graph"))]
 mod enforcement {
-    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use warp_core::{
+        make_edge_id, make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload,
+        AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, EdgeRecord, EdgeSet, Engine,
+        Footprint, FootprintViolation, FootprintViolationWithPanic, GraphStore, GraphView, NodeId,
+        NodeKey, NodeRecord, NodeSet, PatternGraph, PortSet, RewriteRule, TickDelta, ViolationKind,
+        WarpInstance, WarpOp,
+    };
 
     // =============================================================================
     // Footprint enforcement helpers

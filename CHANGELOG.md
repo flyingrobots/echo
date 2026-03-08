@@ -43,6 +43,13 @@
   semantics, `CapabilityAssertion` with forward reference to capabilities
   spec, and `StabilityObserver` lifecycle.
 
+- **Polish:** Resolved 12 Tier 1 CodeRabbit items: `remain disjoint` →
+  `are non-conflicting` in SPEC-0003, tightened subnormal definition in
+  `DETERMINISTIC_MATH.md`, added Aion inline definition in
+  `branch-merge-playbook.md`, converted numbered narrative to bullets in
+  `spec-time-streams-and-wormholes.md`, verified 3 already-correct items
+  (serialization link, admission MUST language, musings blank line),
+  dismissed 3 prettier-enforced formatting items.
 - **Spec:** Resolved all 3 TODO comments in `spec-scheduler.md`:
   bidirectional dependency resolution rules, cleaner `registerSystem`
   pseudo-code, and a formal resource conflict detection model aligned with

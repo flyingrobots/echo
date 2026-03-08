@@ -54,7 +54,7 @@ interface MergeConflict {
     - Record decision for determinism (stored in merge log).
 
 2. **Policy-Based**
-    - Rules such as "prefer branch with higher Aion" or "prefer lower entropy".
+    - Rules such as "prefer branch with higher Aion (Echo's per-node timeline weight)" or "prefer lower entropy".
     - Configurable via merge options.
 
 3. **Blend** (future)

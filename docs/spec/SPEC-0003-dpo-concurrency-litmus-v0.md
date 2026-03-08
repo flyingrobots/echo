@@ -58,7 +58,7 @@ The litmus suite exists to keep the “DPO concurrency” claim honest by pinnin
     - Outcome is deterministic: exactly one is admitted (canonical winner), and the other is rejected with `FootprintConflict` in the receipt.
 3. **Overlapping scope but still composable**
     - Candidates share a high-level scope notion (e.g., both target the same node),
-      but their _resource footprints_ remain disjoint (e.g., disjoint boundary ports, read-only overlaps).
+      but their _resource footprints_ are non-conflicting (e.g., disjoint boundary ports, read-only overlaps).
     - Both are admitted and the terminal digest is order-independent.
 
 ## What “terminal digest” means here

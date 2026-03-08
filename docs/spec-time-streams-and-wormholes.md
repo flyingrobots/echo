@@ -483,12 +483,12 @@ Operationally, the important distinction is:
 
 One plausible event/cursor story (illustrative):
 
-1. Tick 1 — A sends M1
+- **Tick 1 — A sends M1**
     - A simulation rule decides to send:
         - worldline records a rewrite like `NetSendIntent { to=B, payload=M1 }`
     - (Optional) also append `NetTx(A)` stream event for tooling lanes (not required for determinism).
 
-2. Tick 3 — B admits observation M1
+- **Tick 3 — B admits observation M1**
     - The adapter reads OS/network and appends a new stream event:
         - `NetRx(B)[seq=42] = bytes("M1")` (plus metadata like wall time)
     - Admission policy for `NetRx(B)` is Live; at tick 3 it admits seq 42:
@@ -497,10 +497,10 @@ One plausible event/cursor story (illustrative):
             - `ObservedNetMessage { from=A, msg="M1", rx_seq=42 }`
     - Simulation rules consume `ObservedNetMessage(M1)` and produce deterministic rewrites (game logic).
 
-3. Tick 4 — B sends A1
+- **Tick 4 — B sends A1**
     - Deterministic send intent rewrite is recorded: `NetSendIntent { to=A, payload=A1 }`.
 
-4. Tick 8 — A observes A1
+- **Tick 8 — A observes A1**
     - Adapter appends `NetRx(A)[seq=99] = bytes("A1")`.
     - Admission at tick 8 admits seq 99:
         - `cursor(NetRx(A)) = 99`

@@ -134,17 +134,17 @@ determinism: undefined types/formulas mean implementations could diverge.
 
 ### spec-serialization-protocol.md (2 items)
 
-- [ ] **[MIN] line 6:** Root-relative link. Fix `/guide/eli5` → `guide/eli5.md`.
-      (Agent may have already fixed this — verify.)
+- [x] **[MIN] line 6:** Root-relative link. Fix `/guide/eli5` → `guide/eli5.md`.
+      **Done:** Already `guide/eli5.md` — verified correct.
 - [ ] **[MAJ] line 141:** `payloads` field semantics and serialization order incomplete.
       Need: specify field ordering, whether payloads is length-prefixed or delimiter-separated, and how empty payloads are encoded.
 
 ### spec-time-streams-and-wormholes.md (2 items)
 
-- [ ] **[MAJ] line 189:** StreamAdmissionDecision canonical field ordering.
-      Round-1 added a note. CR says verify it's actually specified, not just noted. Need: confirm the ordering note is normative.
-- [ ] **[TRIV] line 509:** Narrative example numbering creates maintenance burden.
-      Need: convert numbered examples to bullet list or label them semantically.
+- [x] **[MAJ] line 189:** StreamAdmissionDecision canonical field ordering.
+      **Done:** Line 192 has normative MUST language: "Implementations MUST NOT reorder fields." Verified sufficient.
+- [x] **[TRIV] line 509:** Narrative example numbering creates maintenance burden.
+      **Done:** Converted numbered steps (1–4) to bold-labeled bullets.
 
 ### SPEC-0002-descended-attachments-v1.md (5 items — formatting consistency)
 
@@ -161,25 +161,33 @@ determinism: undefined types/formulas mean implementations could diverge.
 
 ### SPEC-0003-dpo-concurrency-litmus-v0.md (1 item)
 
-- [ ] **[MIN] line 45:** Calling read/read overlap "disjoint" is wrong.
-      Need: replace "disjoint" with "non-conflicting" or "compatible" for read/read access.
+- [x] **[MIN] line 45:** Calling read/read overlap "disjoint" is wrong.
+      **Done:** Changed `remain disjoint` → `are non-conflicting` on line 61.
 
 ### Other docs (12 items)
 
-- [ ] **[TRIV] docs/DETERMINISTIC_MATH.md:52** — Tighten "very small numbers" to "subnormal values (magnitude < 2^−126)".
-- [ ] **[TRIV] docs/branch-merge-playbook.md:3** — Remove unexplained blank line or add markdownlint disable comment.
-- [ ] **[TRIV] docs/branch-merge-playbook.md:37** — Same: extra blank line before code block.
-- [ ] **[TRIV] docs/branch-merge-playbook.md:44** — Explain or revert indentation changes in code block.
-- [ ] **[MIN] docs/branch-merge-playbook.md:58** — Add brief inline definition of "Aion" (Echo's timeline concept) on first use.
+- [x] **[TRIV] docs/DETERMINISTIC_MATH.md:52** — Tighten "very small numbers" to "subnormal values (magnitude < 2^−126)".
+      **Done:** Updated line 47 with `subnormal values (magnitude < 2⁻¹²⁶)`.
+- [x] **[TRIV] docs/branch-merge-playbook.md:3** — Remove unexplained blank line or add markdownlint disable comment.
+      **Dismissed:** Blank line after SPDX header is repo-wide prettier convention.
+- [x] **[TRIV] docs/branch-merge-playbook.md:37** — Same: extra blank line before code block.
+      **Dismissed:** Blank line before code fence is standard markdown formatting.
+- [x] **[TRIV] docs/branch-merge-playbook.md:44** — Explain or revert indentation changes in code block.
+      **Dismissed:** Code block uses correct 4-space TypeScript indentation.
+- [x] **[MIN] docs/branch-merge-playbook.md:58** — Add brief inline definition of "Aion" (Echo's timeline concept) on first use.
+      **Done:** Added parenthetical `(Echo's per-node timeline weight)` after "Aion".
 - [ ] **[MAJ] docs/guide/cargo-features.md:10** — Provenance note says "check individual crates" but doesn't give a verification command that actually works. Either provide a real command or remove the claim.
-- [ ] **[MIN] docs/guide/warp-primer.md:128** — Emphasis style still inconsistent. Normalize all italic to `_underscores_` (the file's majority style) or all to `*asterisks*`.
+- [x] **[MIN] docs/guide/warp-primer.md:128** — Emphasis style still inconsistent. Normalize all italic to `_underscores_` (the file's majority style) or all to `*asterisks*`.
+      **Done:** Ran prettier — file already normalized (reported unchanged).
 - [x] **[MAJ] docs/notes/claude-musings-on-determinism.md:1** — SPDX `MIND-UCAL-1.0` is non-standard. This is project-wide (327 files). Decide: change all 327 to `LicenseRef-MIND-UCAL-1.0`, or document the convention and dismiss.
       **Done:** Renamed across 328 files (336 occurrences) in commit `a4d4101`.
-- [ ] **[TRIV] docs/notes/claude-musings-on-determinism.md:3** — Blank line after copyright — justified by prettier. Already verified as project-wide convention. Dismiss with explanation.
+- [x] **[TRIV] docs/notes/claude-musings-on-determinism.md:3** — Blank line after copyright — justified by prettier. Already verified as project-wide convention. Dismiss with explanation.
+      **Dismissed:** Blank line after copyright is repo-wide prettier convention.
 - [x] **[CRIT] docs/spec-knots-in-time.md:~75** — `SweptVolumeProxy` → `SweepProxy` and module path.
       **Done:** Round-1 fix verified. Line 75 uses `SweepProxy` (canonical name). `warp-geom/src/temporal/manifold.rs:13` matches.
 - [ ] **[MAJ] docs/tasks/issue-canonical-f32.md:41** — Expand serde acceptance criteria: add NaN canonicalization and subnormal flushing test items.
-- [ ] **[MIN] docs/warp-math-claims.md:8** — Emphasis style change (asterisk → underscore). Revert to match file's dominant style.
+- [x] **[MIN] docs/warp-math-claims.md:8** — Emphasis style change (asterisk → underscore). Revert to match file's dominant style.
+      **Done:** Ran prettier — file already normalized (reported unchanged).
 
 ---
 

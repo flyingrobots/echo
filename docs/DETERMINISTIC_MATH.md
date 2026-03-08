@@ -44,7 +44,7 @@ and a player on Windows (x86). Hashing this state (`blake3(mem)`) will result in
 
 ## 2. Subnormal Numbers (Denormals)
 
-**The Hazard:** Subnormal numbers are very small numbers close to zero (e.g., `1e-40`).
+**The Hazard:** Subnormal numbers are subnormal values (magnitude < 2⁻¹²⁶) close to zero (e.g., `1e-40`).
 
 - **Hardware Diversity:** Some CPUs (or modes like DAZ/FTZ on x86) flush these to zero for performance.
   Others (WASM, modern ARM) compute them precisely.

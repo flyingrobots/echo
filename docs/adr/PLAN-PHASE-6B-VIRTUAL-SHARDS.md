@@ -3,6 +3,8 @@
 
 # Phase 6B: Engine Integration — COMPLETE
 
+> **Naming note:** "BOAW" is a retired codename. The subsystem is now `warp_core::parallel`.
+
 **Status:** ✅ COMPLETE
 **Date:** 2026-01-19
 **Branch:** `graph-boaw`

@@ -3,6 +3,8 @@
 
 # ADR-0007: BOAW Storage + Execution + Merge + Privacy (Atom→WARP End-to-End)
 
+> **Naming note:** "BOAW" is a retired codename. The subsystem is now `warp_core::parallel`.
+
 - Status: Accepted
 - Date: 2026-01-17
 - Project: Echo / Continuum (warp-core)

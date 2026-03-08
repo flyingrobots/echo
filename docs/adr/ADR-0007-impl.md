@@ -3,6 +3,8 @@
 
 # ADR-0007-impl: warp-core Implementation of BOAW Storage + Parallel Execution
 
+> **Naming note:** "BOAW" is a retired codename. The subsystem is now `warp_core::parallel`.
+
 - **Status:** Accepted
 - **Date:** 2026-01-19
 - **Parent:** ADR-0007 (BOAW Storage + Execution + Merge + Privacy)

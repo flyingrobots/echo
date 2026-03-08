@@ -47,8 +47,8 @@ Engine core & \texttt{crates/echo-app-core/src/engine.rs} \\
 Transaction handling & \texttt{crates/echo-app-core/src/transaction.rs} \\
 Rule matching & \texttt{crates/warp-core/src/rule.rs} \\
 Scheduler (Radix) & \texttt{crates/warp-core/src/scheduler.rs} \\
-BOAW execution & \texttt{crates/warp-core/src/boaw/exec.rs} \\
-Shard routing & \texttt{crates/warp-core/src/boaw/shard.rs} \\
+Parallel execution & \texttt{crates/warp-core/src/parallel/exec.rs} \\
+Shard routing & \texttt{crates/warp-core/src/parallel/shard.rs} \\
 Delta/merge & \texttt{crates/warp-core/src/tick\_delta.rs} \\
 Hashing & \texttt{crates/warp-core/src/snapshot.rs} \\
 \bottomrule
@@ -66,5 +66,5 @@ Each section follows a consistent format:
 \end{itemize}
 
 \begin{protip}
-Keep a terminal open with the codebase. When you see a file reference like \texttt{src/boaw/exec.rs:61-83}, jump to that location and read the actual code alongside this tour.
+Keep a terminal open with the codebase. When you see a file reference like \texttt{src/parallel/exec.rs:61-83}, jump to that location and read the actual code alongside this tour.
 \end{protip}

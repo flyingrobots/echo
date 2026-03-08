@@ -4,6 +4,12 @@
 \chapter{BOAW: Best of All Worlds Storage}
 \label{chap:boaw}
 
+\begin{quote}
+\textbf{Note:} ``BOAW'' is a retired codename. This subsystem now lives under
+\texttt{warp\_core::parallel}. The chapter title is preserved for historical
+continuity.
+\end{quote}
+
 The BOAW architecture replaces the spike-era monolithic in-place mutation model with immutable snapshots, COW overlays, and lockless parallel execution. The result: deterministic convergence across platforms, massive parallel throughput without locks, and zero-copy snapshot IO.
 
 \section{The BOAW Stack}

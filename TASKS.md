@@ -99,26 +99,26 @@ These files have no local changes yet. Each needs investigation + fix.
 This spec has significant gaps that CR flagged. Every item relates to
 determinism: undefined types/formulas mean implementations could diverge.
 
-- [ ] **[MAJ] line 36:** Define `ReadKey` and `WriteKey` as formal interfaces.
-      Need: canonical type definitions with fields, ordering semantics, and serialization format.
-- [ ] **[MAJ] line 60:** Formalize `MergeStrategyId` type.
-      Need: concrete type (string enum? u32? hash?), canonical values, and how new strategies are registered.
-- [ ] **[CRIT] line 116:** Hash formula references non-existent field.
-      Need: verify the `id` formula against actual struct fields. Fix or add the missing field.
-- [ ] **[MAJ] line 177:** Define entropy formula weights.
-      Need: specify `w_M` and `w_P` default values and how they're configured.
-- [ ] **[MAJ] line 199:** Clarify byte-level encoding in seed derivation.
-      Need: specify endianness, concatenation order, and padding for `blake3(branch_id || parent_seed || epoch)`.
-- [ ] **[MAJ] line 206:** Clarify all GC modes are deterministic.
-      Need: replace ambiguous language with explicit "all GC modes MUST produce identical results given identical inputs."
-- [ ] **[MAJ] line 252:** Define `WorldView` and `GCPolicy` types.
-      Need: interfaces with fields, types, and defaults.
-- [ ] **[MIN] line 300:** Define causal relation semantics.
-      Need: clarify what "causal" means — happened-before? vector clock? Lamport timestamp?
-- [ ] **[MIN] line 373:** Specify entropy bounds and initialization.
-      Need: initial entropy value, min/max bounds, overflow behavior.
-- [ ] **[MIN] line 390:** Define capability token structure.
-      Need: specify token format or reference the capabilities spec.
+- [x] **[MAJ] line 36:** Define `ReadKey` and `WriteKey` as formal interfaces.
+      **Done:** Defined `AccessKey = { slot: u32, fieldPath?: CanonicalFieldPath }` with `ReadKey`/`WriteKey` aliases. Added `QualifiedKey` for cross-scope use. Documented layering: Aion `Del/Use` → confluence `R/W/D/A` → ECS `slot+fieldPath`.
+- [x] **[MAJ] line 60:** Formalize `MergeStrategyId` type.
+      **Done:** Extensible namespaced string (`core:lww`, `core:sum`, etc.). Non-core strategies require resolver manifest digest. Removed `domainResolver` (escape hatch, not a strategy). Plugin loading ABI deferred to post-Phase 0.
+- [x] **[CRIT] line 116:** Hash formula references non-existent field.
+      **Done:** Extracted `TimelineNodeCore` (hashable subset: `parents`, `branchId`, `chronos`, `snapshotId`, `diffId`). Replaced `parentId + mergeParents?` with `parents: Hash[]`. Moved `aionWeight`/`strainDelta` to `TimelineMetadata` sidecar. Formula: `id = BLAKE3(canonicalEncode(TimelineNodeCore))`.
+- [x] **[MAJ] line 177:** Define entropy formula weights.
+      **Done:** Renamed to "branch strain." Configurable per-world, fixed-point integers. Defaults: wF=5, wC=25, wP=50, wM=15, wX=20. Raw total in [0,∞), floor at 0. `imports` = cross-branch messages.
+- [x] **[MAJ] line 199:** Clarify byte-level encoding in seed derivation.
+      **Done:** Domain-separated canonical encoding: `BLAKE3(canonicalEncode({ domain: "echo.branch-seed.v1", seed: 32 bytes, branchId: length-prefixed UTF-8, chronos: u64 LE }))`.
+- [x] **[MAJ] line 206:** Clarify all GC modes are deterministic.
+      **Done:** Three explicit modes: `periodic`, `checkpoint`, `none`. No adaptive mode. Split "disabled" vs "deferred." Pin semantics: full transitive reachable closure.
+- [x] **[MAJ] line 252:** Define `WorldView` and `GCPolicy` types.
+      **Done:** `WorldView`: lightweight read-only handle with `chronos`, `schemaLedgerId`, `getChunkVersion()`, `readComponentCanonical()`. `GCPolicy`: `mode` + `intervalTicks` + `retainDepth` + `retainBaseSnapshots` + `respectPins`.
+- [x] **[MIN] line 300:** Define causal relation semantics.
+      **Done:** Layered model: within-node (Paper II tick-event poset), cross-tick (parents/chronos ancestry), cross-branch (merge parents). Network frontier causality out of scope. Defined all four edge relations. Added note: Chronos is per-branch, not global.
+- [x] **[MIN] line 373:** Specify entropy bounds and initialization.
+      **Done:** Renamed to "strain." Genesis at 0. Fork inherits parent total. Merge continues from target + delta. Per-node canonical, BranchRecord caches head. No reset on collapse. Saturation → gameplay policy, not scalar behavior.
+- [x] **[MIN] line 390:** Define capability token structure.
+      **Done:** Forward-reference to `spec-capabilities-and-security.md`. Branch-tree stores `CapabilityAssertion { tokenDigest, scope }`. Violations emit deterministic error nodes.
 
 ### spec-temporal-bridge.md (1 item)
 
@@ -171,7 +171,8 @@ determinism: undefined types/formulas mean implementations could diverge.
 - [ ] **[MIN] docs/branch-merge-playbook.md:58** — Add brief inline definition of "Aion" (Echo's timeline concept) on first use.
 - [ ] **[MAJ] docs/guide/cargo-features.md:10** — Provenance note says "check individual crates" but doesn't give a verification command that actually works. Either provide a real command or remove the claim.
 - [ ] **[MIN] docs/guide/warp-primer.md:128** — Emphasis style still inconsistent. Normalize all italic to `_underscores_` (the file's majority style) or all to `*asterisks*`.
-- [ ] **[MAJ] docs/notes/claude-musings-on-determinism.md:1** — SPDX `MIND-UCAL-1.0` is non-standard. This is project-wide (327 files). Decide: change all 327 to `LicenseRef-MIND-UCAL-1.0`, or document the convention and dismiss.
+- [x] **[MAJ] docs/notes/claude-musings-on-determinism.md:1** — SPDX `MIND-UCAL-1.0` is non-standard. This is project-wide (327 files). Decide: change all 327 to `LicenseRef-MIND-UCAL-1.0`, or document the convention and dismiss.
+      **Done:** Renamed across 328 files (336 occurrences) in commit `a4d4101`.
 - [ ] **[TRIV] docs/notes/claude-musings-on-determinism.md:3** — Blank line after copyright — justified by prettier. Already verified as project-wide convention. Dismiss with explanation.
 - [ ] **[CRIT] docs/spec-knots-in-time.md:~75** — `SweptVolumeProxy` → `SweepProxy` and module path.
       Round-1 already fixed this. Verify the fix is correct and this is a stale comment.

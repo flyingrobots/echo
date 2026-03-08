@@ -11,6 +11,17 @@
   `LicenseRef-MIND-UCAL-1.0` across 328 files to comply with SPDX
   Appendix IV (custom identifiers must use `LicenseRef-` prefix).
   Updated `ensure_spdx.sh` tooling and pre-commit hook accordingly.
+- **Spec:** Rewrote `spec-branch-tree.md` to resolve all 10 CodeRabbit
+  review items. Key changes: formal `ReadKey`/`WriteKey`/`QualifiedKey`
+  type definitions with ECS-layer layering rationale; `MergeStrategyId`
+  as extensible namespaced string registry; extracted `TimelineNodeCore`
+  hashable subset and replaced broken hash formula; unified `parents[]`
+  replacing `parentId + mergeParents?`; renamed entropy heuristic to
+  "branch strain" (distinguished from Aion Boltzmann entropy); defined
+  `WorldView`, `GCPolicy`, three explicit GC modes with transitive pin
+  semantics, domain-separated seed derivation, layered causal-edge
+  semantics, `CapabilityAssertion` with forward reference to capabilities
+  spec, and `StabilityObserver` lifecycle.
 
 - **Spec:** Resolved all 3 TODO comments in `spec-scheduler.md`:
   bidirectional dependency resolution rules, cleaner `registerSystem`

@@ -15,7 +15,7 @@ is largely standardized, "freaky numbers" (NaN, Subnormals, Signed Zero) introdu
 ## Docs Map
 
 > **You are here:** hazard catalog (non-normative supporting doc).
-> The mitigations below summarize requirements derived from [SPEC_DETERMINISTIC_MATH.md](SPEC_DETERMINISTIC_MATH.md); that document is the normative source.
+> The mitigations below summarize requirements derived from [SPEC_DETERMINISTIC_MATH.md](SPEC_DETERMINISTIC_MATH.md); that document is the normative source. If anything in this file conflicts with the spec, the spec wins.
 >
 > | Doc                                                                              | Role                                         |
 > | -------------------------------------------------------------------------------- | -------------------------------------------- |

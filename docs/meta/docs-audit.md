@@ -131,9 +131,6 @@ Moved 6 superseded documents to `docs/archive/` with redirect stubs:
 
 ### Merge candidates
 
-- ~~Deterministic math docs:~~ **Done (2026-03-07).** Both files now have
-  structured “Docs Map” tables cross-linking the full math cluster.
-
 - Scheduler documentation:
     - Multiple reserve/scheduler docs exist (`docs/scheduler-benchmarks.md`, `docs/scheduler-reserve-*.md`, `docs/spec-scheduler.md`).
     - Action: decide which is canonical for “how it works” vs “how we benchmark it”, and add a single landing doc (or update `docs/spec-scheduler.md`) that links the rest.

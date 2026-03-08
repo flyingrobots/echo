@@ -1,7 +1,7 @@
 % SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-\chapter{BOAW Parallel Execution}
+\chapter{Parallel Execution}
 \label{chap:tour-boaw}
 
 \begin{quote}
@@ -14,7 +14,7 @@ continuity.
 \textbf{File:} \texttt{crates/warp-core/src/parallel/exec.rs:61-83}
 
 \begin{bigpicture}
-BOAW---``Best of All Worlds''---is where Echo's determinism meets parallelism. The key insight: \textbf{execution order doesn't matter if we sort the outputs}.
+Parallel execution is where Echo's determinism meets parallelism. The key insight: \textbf{execution order doesn't matter if we sort the outputs}.
 
 Workers execute in arbitrary order on different threads, but their outputs are merged canonically. Same inputs $\rightarrow$ same outputs, regardless of thread scheduling.
 \end{bigpicture}

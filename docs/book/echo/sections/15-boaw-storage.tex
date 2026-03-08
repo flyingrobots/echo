@@ -1,7 +1,7 @@
 % SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
 % © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 
-\chapter{BOAW: Best of All Worlds Storage}
+\chapter{Parallel Execution and Storage}
 \label{chap:boaw}
 
 \begin{quote}
@@ -10,9 +10,9 @@
 continuity.
 \end{quote}
 
-The BOAW architecture replaces the spike-era monolithic in-place mutation model with immutable snapshots, COW overlays, and lockless parallel execution. The result: deterministic convergence across platforms, massive parallel throughput without locks, and zero-copy snapshot IO.
+The parallel execution architecture replaces the spike-era monolithic in-place mutation model with immutable snapshots, COW overlays, and lockless parallel execution. The result: deterministic convergence across platforms, massive parallel throughput without locks, and zero-copy snapshot IO.
 
-\section{The BOAW Stack}
+\section{The Parallel Execution Stack}
 
 \begin{enumerate}
     \item \textbf{Immutable Base} --- Snapshots are immutable and read-only (WSC-backed; optionally memory-mapped).
@@ -74,7 +74,7 @@ During a tick, nothing shared is mutated. Writes produce an overlay delta. The n
         \node[note, below=3mm of merge] {patch};
         \node[note, below=3mm of commit] {snapshot};
     \end{tikzpicture}
-    \caption{BOAW tick pipeline: ingress $\rightarrow$ plan $\rightarrow$ admit $\rightarrow$ parallel execute $\rightarrow$ merge $\rightarrow$ commit.}
+    \caption{Parallel tick pipeline: ingress $\rightarrow$ plan $\rightarrow$ admit $\rightarrow$ parallel execute $\rightarrow$ merge $\rightarrow$ commit.}
     \label{fig:boaw-pipeline}
 \end{figure}
 
@@ -106,7 +106,7 @@ See \texttt{compute\_commit\_hash\_v2()} for the authoritative implementation.
 
 The ``free money'' property: workers $\in \{1, 2, 4, 8, 16, 32\}$, any ingress permutation---\texttt{patch\_digest}, \texttt{state\_root}, \texttt{commit\_hash} are identical.
 
-This is the determinism drill sergeant for BOAW. If this invariant fails, a footprint bug exists.
+This is the determinism drill sergeant for parallel execution. If this invariant fails, a footprint bug exists.
 
 \section{FootprintGuard: Storage Access Enforcement}
 

@@ -25,7 +25,7 @@ A user action flows through Echo in eight stages:
     \item \textbf{Transaction Lifecycle} --- Intents are batched into transactions
     \item \textbf{Rule Matching} --- Rules produce \texttt{PendingRewrite}s
     \item \textbf{Scheduler: Drain \& Reserve} --- Radix sort + independence check
-    \item \textbf{BOAW Parallel Execution} --- Workers execute in parallel
+    \item \textbf{Parallel Execution} --- Workers execute in parallel
     \item \textbf{Delta Merge} --- Thread-local deltas merge canonically
     \item \textbf{Hash Computation} --- State root, patch digest, commit hash
     \item \textbf{Commit Orchestration} --- Final state materialization

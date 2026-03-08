@@ -82,7 +82,7 @@ proves it. See `docs/determinism/CLAIM_MAP.yaml` for the machine-readable regist
 ### DET-005: Parallel Execution Equivalence
 
 > The parallel execution engine (1, 2, 4, 8, 16, 32 workers) produces identical
-> TickDelta output as serial execution for all BOAW test scenarios.
+> TickDelta output as serial execution for all parallel execution test scenarios.
 
 - **Gate:** CI `Tests` job (warp-core test suite)
 - **Evidence:** `parallel_exec.rs` — 10 tests covering serial/parallel equivalence, insertion order independence, sharded partitioning
@@ -129,7 +129,7 @@ proves it. See `docs/determinism/CLAIM_MAP.yaml` for the machine-readable regist
 3. **Canonical serialization.** CBOR encoding uses deterministic integer widths,
    float widths, and sorted map keys. No indefinite-length encodings.
 
-4. **Parallel execution is order-independent.** The BOAW scheduler partitions
+4. **Parallel execution is order-independent.** The parallel scheduler partitions
    work into non-overlapping footprints, executes in parallel, then merges
    deltas in a canonical order. The merge is associative and commutative.
 

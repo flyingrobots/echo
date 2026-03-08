@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Executive Summary: Parallel Execution & Sharding Study
 
 **Date:** 2026-01-17  
@@ -20,16 +21,16 @@ The current `warp-core` implementation uses a monolithic `GraphStore` backed by 
 ### Experiments
 
 1. **Baseline (Serial):** Single-threaded iteration over a monolithic vector.
-2. **Parallel Executor (Rayon):** Parallel iteration over the vector using a work-stealing thread pool. This measures the maximum theoretical speedup of the *computation* logic.
+2. **Parallel Executor (Rayon):** Parallel iteration over the vector using a work-stealing thread pool. This measures the maximum theoretical speedup of the _computation_ logic.
 3. **Sharded Store (Queue per CPU):** Data is partitioned into $N$ shards (where $N=$ CPU cores). Each shard is assigned to a dedicated thread with its own work queue, effectively "blasting through" updates lock-free.
 
 ## 3. Findings
 
-| Strategy | Throughput (Ticks/Sec) | Total Time (100 ticks) | Speedup vs Serial |
-| :--- | :--- | :--- | :--- |
-| **Serial Baseline** | 12.18 TPS | 8.21 s | 1.0x |
-| **Parallel (Rayon)** | 57.52 TPS | 1.74 s | 4.72x |
-| **Sharded Store** | **56.92 TPS** | **1.76 s** | **4.67x** |
+| Strategy             | Throughput (Ticks/Sec) | Total Time (100 ticks) | Speedup vs Serial |
+| :------------------- | :--------------------- | :--------------------- | :---------------- |
+| **Serial Baseline**  | 12.18 TPS              | 8.21 s                 | 1.0x              |
+| **Parallel (Rayon)** | 57.52 TPS              | 1.74 s                 | 4.72x             |
+| **Sharded Store**    | **56.92 TPS**          | **1.76 s**             | **4.67x**         |
 
 **Key Insight:** The "Sharded Store" approach matches the performance of the optimized Rayon thread pool (~4.7x speedup). This confirms that explicitly partitioning the state to avoid locks is a viable and highly efficient strategy for the engine.
 
@@ -43,7 +44,7 @@ Simulates parallelizing the loop over a shared slice (requires `Sync` access).
 // crates/warp-benches/src/bin/sim_parallel_executor.rs
 fn main() {
     let mut data = vec![...]; // 1M entities
-    
+
     // Serial
     for _ in 0..100 {
         for entity in &mut data {

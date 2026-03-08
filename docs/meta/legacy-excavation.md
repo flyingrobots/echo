@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Legacy Excavation Log (Placeholder)
 
 This document is a place to record “legacy prototype” artifacts we discover (old folders, old
@@ -29,6 +30,6 @@ log when a choice affects public surface area or determinism.
 
 ## Template
 
-| Artifact | What It Was | What We Keep | Action | Notes |
-| --- | --- | --- | --- | --- |
-| `path/to/thing` | (1–2 lines) | (concepts) | keep/redesign/discard | (gotchas, deps, links) |
+| Artifact        | What It Was | What We Keep | Action                | Notes                  |
+| --------------- | ----------- | ------------ | --------------------- | ---------------------- |
+| `path/to/thing` | (1–2 lines) | (concepts)   | keep/redesign/discard | (gotchas, deps, links) |

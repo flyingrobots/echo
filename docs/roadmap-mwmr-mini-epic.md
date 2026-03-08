@@ -1,9 +1,9 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # MWMR Concurrency Mini‑Epic Roadmap (Footprints, Reserve Gate, Telemetry)
 
 Status: Active • Owner: warp-core • Created: 2025-10-27
-
 
 ## Outcomes
 
@@ -12,7 +12,6 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 - Prove commutation with property tests (N‑permutation) and add basic telemetry for conflict rates.
 
 ---
-
 
 ## Phase 0.5 — Foundations (Done / In‑Progress)
 
@@ -24,7 +23,6 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 
 ---
 
-
 ## Phase 1 — Reservation Gate & Compact IDs
 
 - [x] CompactRuleId(u32) and rule table mapping family_id → compact id (in Engine)
@@ -34,7 +32,6 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 - [ ] Use CompactRuleId in PendingRewrite and internal execution paths (leave family id for ordering/disk/wire)
 
 ---
-
 
 ## Phase 2 — Proof & Performance
 
@@ -46,7 +43,6 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 
 ---
 
-
 ## Phase 3 — Rule Identity & Hot‑Load
 
 - [x] build.rs generates const family id for `rule:motion/update` (domain‑separated)
@@ -56,7 +52,6 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 
 ---
 
-
 ## Phase 4 — Storage & Epochs (Scoping/Design)
 
 - [ ] Offset‑graph arena + mmap view (zero‑copy snapshots)
@@ -64,7 +59,6 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 - [ ] Optional Merkle overlays for partial verification
 
 ---
-
 
 ## Guardrails & Invariants
 
@@ -75,14 +69,12 @@ Status: Active • Owner: warp-core • Created: 2025-10-27
 
 ---
 
-
 ## Telemetry (dev feature)
 
 - Events: `reserved`, `conflict` (ts_micros, tx_id, rule_id_short)
 - Counters per tick: conflict_rate, retry_count, reservation_latency_ms, epoch_flip_ms, bitmap_blocks_checked
 
 ---
-
 
 ## Links
 

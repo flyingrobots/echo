@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Workflows (Contributor Playbook)
 
 This doc is the “official workflow index” for Echo: how we work, what invariants we enforce, and the blessed entrypoints/scripts.
@@ -17,10 +18,10 @@ This doc is the “official workflow index” for Echo: how we work, what invari
 
 AI agents use a **2-tier context system** for seamless handoffs. See [`AGENTS.md`](../AGENTS.md) for full details.
 
-| Tier | Store | Purpose |
-| ---- | ----- | ------- |
-| Immediate | Redis stream (`echo:agent:handoff`) | Current task state, branch, blockers |
-| Deep | Knowledge graph | Architecture decisions, patterns, entities |
+| Tier      | Store                               | Purpose                                    |
+| --------- | ----------------------------------- | ------------------------------------------ |
+| Immediate | Redis stream (`echo:agent:handoff`) | Current task state, branch, blockers       |
+| Deep      | Knowledge graph                     | Architecture decisions, patterns, entities |
 
 **Quick reference:**
 
@@ -90,13 +91,13 @@ Artifacts:
 Automation:
 
 - GitHub Action `Refresh Dependency DAGs` runs on a schedule and opens a PR only if outputs changed:
-  - workflow file: `.github/workflows/refresh-dependency-dags.yml`
-  - uses `--snapshot-label none` to avoid “date churn” diffs
+    - workflow file: `.github/workflows/refresh-dependency-dags.yml`
+    - uses `--snapshot-label none` to avoid “date churn” diffs
 
 Issue linkage for automation PRs:
 
 - If you enforce strict PR↔Issue linkage, create a single tracking issue (example: “Automate dependency DAG refresh”) and set a repository Actions variable:
-  - `DAG_REFRESH_ISSUE=<issue-number>`
+    - `DAG_REFRESH_ISSUE=<issue-number>`
 - The workflow will include `Refs #<issue-number>` in the PR body when `DAG_REFRESH_ISSUE` is set.
 
 If you add new issues/milestones that should appear in the graph, update `docs/assets/dags/deps-config.json` (and consider annotating edges with confidence).

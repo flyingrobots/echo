@@ -1,15 +1,16 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # WARP Two-Plane Law (SkeletonGraph + Attachment Plane)
 
 Echo implements WARP as a **two-plane** state object:
 
 - **Skeleton plane**: explicit graph structure (nodes, edges, ports).
-- **Attachment plane**: payloads *over* skeleton vertices/edges.
+- **Attachment plane**: payloads _over_ skeleton vertices/edges.
 
 This doc exists to prevent a recurring confusion:
 
-> “WARP” does not mean “arbitrary bytes that we *pretend* are a subgraph.”
+> “WARP” does not mean “arbitrary bytes that we _pretend_ are a subgraph.”
 >
 > WARP means “graph structure is explicit and rewrite-visible; attachments are separate, typed, and opaque by default.”
 
@@ -28,6 +29,7 @@ This doc exists to prevent a recurring confusion:
 - slicing (Paper III) over `in_slots` / `out_slots`
 
 **In code today:** the skeleton plane is stored in `warp_core::GraphStore`:
+
 - nodes: `GraphStore.nodes` (`NodeId -> NodeRecord`)
 - edges: `GraphStore.edges_from` (`NodeId -> Vec<EdgeRecord>`)
 
@@ -74,8 +76,8 @@ Where:
 
 - `NodeRecord` / `EdgeRecord` are **skeleton-plane only** (no payload fields).
 - Attachments are stored separately on `GraphStore`:
-  - node-attachment plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
-  - edge-attachment plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
+    - node-attachment plane: `GraphStore.node_attachments: BTreeMap<NodeId, AttachmentValue>`
+    - edge-attachment plane: `GraphStore.edge_attachments: BTreeMap<EdgeId, AttachmentValue>`
 - Depth-0 payloads are `AttachmentValue::Atom(AtomPayload)`.
 
 ---

@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR-000X: Causality-First API — Ingress + MaterializationPort, No Direct Graph Writes
 
 - **Status:** Accepted
@@ -24,8 +25,8 @@ We want:
 - High reliability at the boundary (retries, disconnects)
 - **Zero non-deterministic mutation paths**
 - Clean separation of concerns:
-  - **warp-core stays pure**
-  - boundary “weirdness” lives at ports/adapters
+    - **warp-core stays pure**
+    - boundary “weirdness” lives at ports/adapters
 
 We reject exposing raw engine primitives (tx/apply/insert) to tools. Tools should not mutate state “directly”. They should emit causal events.
 
@@ -62,6 +63,7 @@ We distinguish:
 - **MaterializationPort (boundary API)**: subscriptions, batching, replay(1), transport
 
 For application UI, we prefer:
+
 - “no direct reads” from WARP state (when feasible)
 - UI driven by **bus materializations** (channels)
 
@@ -126,6 +128,7 @@ This preserves determinism while supporting real-world IO.
 - `ingest_intents(batch_bytes) -> ACKI* | ERR!` (optional later)
 
 Notes:
+
 - intent must be canonical bytes (e.g. `EINT` envelope v1)
 - kernel assigns canonical `seq`
 - idempotent by `intent_id = H(intent_bytes)`
@@ -149,9 +152,11 @@ Port operations (conceptual):
 - `view_unsubscribe(sub_id)`
 
 Channel identity:
+
 - `channel_id = 32 bytes` (TypeId-derived; no strings in ABI)
 
 View ops are deterministic and coalesced (recommended):
+
 - last-write-wins per channel per tick
 
 ---
@@ -181,3 +186,4 @@ FrameV1:
   len_u32    payload byte length
   payload[len]
 (all integers little-endian)
+```

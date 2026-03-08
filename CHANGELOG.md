@@ -1,9 +1,132 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Changelog
 
 ## Unreleased
+
+### Docs Polish (#41)
+
+- **License:** Renamed SPDX identifier `MIND-UCAL-1.0` →
+  `LicenseRef-MIND-UCAL-1.0` across 328 files to comply with SPDX
+  Appendix IV (custom identifiers must use `LicenseRef-` prefix).
+  Updated `ensure_spdx.sh` tooling and pre-commit hook accordingly.
+- **Fix:** Fixed radix sort scope pair index inversion in `scheduler.rs`
+  `bucket16()`. LSD passes were processing scope bytes MSB-first instead of
+  LSB-first, causing the radix-sort path (n > 1024) to produce a different
+  ordering than the comparison-sort path (n ≤ 1024). Added 3 proptests:
+  `proptest_drain_matches_btreemap_reference` (fuzzes both sort paths),
+  `proptest_insertion_order_independence`, and `threshold_boundary_determinism`.
+- **Spec:** Replaced "Theorem A" in `spec-mwmr-concurrency.md` with the
+  formal name from Paper II: "Skeleton-plane Tick Confluence theorem (§6,
+  Thm. 6.1)".
+- **Spec:** Changed `<i>Alea iacta est</i>` to semantic HTML in
+  `memorials/2026-01-18-phase4-rubicon.md` (foreign phrase italics).
+- **Spec:** Resolved 4 CRITICAL CodeRabbit items: normative frame ordering
+  rule in `spec-editor-and-inspector.md` (stable sort by `(tick, frameType)`,
+  UTF-8 lexicographic, insertion-order tie-break); added `getNode()` to
+  `BridgeContext` in `spec-temporal-bridge.md` with `NodeId` disambiguation
+  note (timeline hash vs WARP graph `u64`); defined `world:config` capability
+  in `spec-capabilities-and-security.md` and removed "not yet defined" warning
+  from `spec-runtime-config.md`; verified `SweepProxy` rename in
+  `spec-knots-in-time.md`. Also changed `producer` return type from `object`
+  to `unknown` in `spec-editor-and-inspector.md`.
+- **Spec:** Rewrote `spec-branch-tree.md` to resolve all 10 CodeRabbit
+  review items. Key changes: formal `ReadKey`/`WriteKey`/`QualifiedKey`
+  type definitions with ECS-layer layering rationale; `MergeStrategyId`
+  as extensible namespaced string registry; extracted `TimelineNodeCore`
+  hashable subset and replaced broken hash formula; unified `parents[]`
+  replacing `parentId + mergeParents?`; renamed entropy heuristic to
+  "branch strain" (distinguished from Aion Boltzmann entropy); defined
+  `WorldView`, `GCPolicy`, three explicit GC modes with transitive pin
+  semantics, domain-separated seed derivation, layered causal-edge
+  semantics, `CapabilityAssertion` with forward reference to capabilities
+  spec, and `StabilityObserver` lifecycle.
+
+- **Polish:** Resolved remaining 13 Tier 2 CodeRabbit items (all 66 complete):
+  session token format (HMAC-SHA256) and filter semantics in
+  `spec-editor-and-inspector.md`; signing canonicalization subsection with
+  8-field byte layout in `spec-warp-confluence.md`; breaking-change criteria
+  and deprecation timeline in `spec-world-api.md`; `BlockManifest` section
+  encoding in `spec-serialization-protocol.md`; radix sort internals
+  documentation in `scheduler-optimization-followups.md`; enum style
+  unification in SPEC-0002; `cargo metadata` provenance command in
+  `cargo-features.md`; expanded serde acceptance criteria in
+  `issue-canonical-f32.md`.
+- **Polish:** Resolved 12 Tier 1 CodeRabbit items: `remain disjoint` →
+  `are non-conflicting` in SPEC-0003, tightened subnormal definition in
+  `DETERMINISTIC_MATH.md`, added Aion inline definition in
+  `branch-merge-playbook.md`, converted numbered narrative to bullets in
+  `spec-time-streams-and-wormholes.md`, verified 3 already-correct items
+  (serialization link, admission MUST language, musings blank line),
+  dismissed 3 prettier-enforced formatting items.
+- **Spec:** Resolved all 3 TODO comments in `spec-scheduler.md`:
+  bidirectional dependency resolution rules, cleaner `registerSystem`
+  pseudo-code, and a formal resource conflict detection model aligned with
+  warp-core's `Footprint`. Replaced `ComponentSignature` with `SystemFootprint`
+  (reads/writes/exclusiveTags).
+- **Review:** Addressed 69 CodeRabbit review comments across 37 files:
+    - **xtask:** Cross-platform `command_exists`, annotated UTF-8 errors, warned
+      on non-UTF-8 path drops, simplified `has_extension`, fixed doc comment.
+    - **Specs:** Hardened 15 spec docs — added error handling for branch-tree
+      commit conflicts, defined equality predicates, bounded parent counts in
+      merkle-commit, specified canonical field ordering, fixed broken cross-refs
+      and link styles, added validation rules and error codes to runtime-config,
+      unified `BranchId`/`KairosBranchId`, clarified signing payloads.
+    - **Notes/Archive:** Corrected O(n log n) cost attribution in scheduler
+      notes, fixed stale code references and branch names, expanded commit
+      hashes, added provenance blocks.
+    - **Docs:** Fixed ADR-0004 placeholder, normalized titles, corrected
+      dependency direction in ISSUES_MATRIX, fixed emphasis style, consolidated
+      repetitive bullets, added cargo-features provenance note, fixed heading
+      levels in warp-math-claims, fixed workflow artifacts in mat-bus-finish RFC.
+- **Archive:** Moved 6 superseded docs to `docs/archive/` with redirect stubs
+  (`spec-deterministic-math.md`, `spec-geom-collision.md`,
+  `notes/scheduler-radix-optimization.md`, `notes/xtask-wizard.md`,
+  `plans/cross-warp-parallelism.md`, `plans/BOAW-tech-debt.md`).
+- **Consolidate:** Added "Docs Map" callouts to `SPEC_DETERMINISTIC_MATH.md`
+  and `DETERMINISTIC_MATH.md` linking all 5 docs in the deterministic math
+  cluster. Updated `scheduler.md` Quick Map with status labels.
+- **Fix:** Repaired 13 broken cross-references (`docs/specs/` -> `docs/spec/`,
+  `memorial.md` -> `memorials/...`, `streams-inspector-frame.md` ->
+  `streams-inspector.md`, `docs/spec/SPEC-0004...` prefix, archived file
+  image paths, nonexistent README link).
+- **New:** `cargo xtask lint-dead-refs` — scans `docs/` for broken markdown
+  cross-references. Handles relative paths, VitePress root-relative links,
+  and `docs/public/` asset resolution. Use `--all` to also check non-markdown
+  file references (images, HTML).
+- **New:** `cargo xtask markdown-fix` — auto-fixes common markdown lint
+  violations: SPDX header repair, prettier formatting, and markdownlint
+  `--fix`. Supports `--no-prettier` and `--no-lint` flags.
+- **New:** `cargo xtask docs-lint` — combined pipeline that runs
+  `markdown-fix` followed by `lint-dead-refs`. Single command for full docs
+  hygiene.
+- **New:** Configuration reference (`docs/guide/configuration-reference.md`)
+  covering engine parameters, protocol constants, and environment variables.
+- **New:** Cargo feature flags reference (`docs/guide/cargo-features.md`)
+  covering all 19 features across 11 crates.
+- **Fix:** `cargo xtask lint-dead-refs` now uses `pulldown-cmark` for link
+  extraction (handles title text, balanced parens, angle-bracket URLs) and
+  separates scan scope from VitePress docs root. Includes 10 unit tests.
+- **Fix:** `det_fixed` correctly documented as a behavioral switch in
+  `cargo-features.md`; `worker_count` default now shows `NUM_SHARDS` cap.
+- **Fix:** All file collection in xtask now uses `git ls-files` instead of
+  filesystem walks (skips build artifacts like `.vitepress/dist/`).
+- **Update:** Archival stubs enriched with date, reason, and PR metadata.
+  Draft spec (`spec-scheduler.md`) marked with `[!CAUTION]` disclaimer and
+  TODO markers for unspecified sections.
+- **Update:** Math code fences converted from `text` to `math` with proper
+  LaTeX markup across `THEORY.md`, `SPEC-0001`, and scheduler notes.
+- **Fix:** Archived `cross-warp-parallelism.md` annotated with implementation
+  traceability and `WorkUnit` struct deviation (no `shard_id` in actual code).
+- **Fix:** Archived `BOAW-tech-debt.md` checklists annotated as frozen with
+  tracking-moved callout pointing to `TECH-DEBT-BOAW.md`.
+- **Fix:** Archived `scheduler-radix-optimization.md` canonical order clarified
+  and code-reference staleness disclaimer made visible.
+- **New:** `.coderabbit.yaml` — excludes `docs/archive/**` from CodeRabbit
+  reviews (frozen historical records generate low-value feedback).
+- **Update:** README determinism claims link, reference docs section,
+  docs-index entries, docs-audit log.
 
 ### Added — Proof Core (P1 Milestone)
 

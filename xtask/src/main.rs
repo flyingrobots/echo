@@ -13,6 +13,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Parser)]
@@ -34,6 +35,12 @@ enum Commands {
     Dind(DindArgs),
     /// Generate man pages for echo-cli.
     ManPages(ManPagesArgs),
+    /// Lint docs for dead cross-references (broken markdown links).
+    LintDeadRefs(LintDeadRefsArgs),
+    /// Auto-fix common markdown lint violations (SPDX headers, prettier, markdownlint).
+    MarkdownFix(MarkdownFixArgs),
+    /// Run all docs linters: markdown-fix (auto-fix) then lint-dead-refs (check).
+    DocsLint(DocsLintArgs),
 }
 
 #[derive(Args)]
@@ -125,12 +132,22 @@ struct ManPagesArgs {
 }
 
 fn main() -> Result<()> {
+    // Ensure CWD is the repo root so that relative paths like "docs/",
+    // "scripts/ensure_spdx.sh", and git-ls-files all work regardless of
+    // where `cargo xtask` is invoked from.
+    let repo_root = find_repo_root()?;
+    std::env::set_current_dir(&repo_root)
+        .with_context(|| format!("failed to chdir to {}", repo_root.display()))?;
+
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Dags(args) => run_dags(args),
         Commands::Dind(args) => run_dind(args),
         Commands::ManPages(args) => run_man_pages(args),
+        Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
+        Commands::MarkdownFix(args) => run_markdown_fix(&args),
+        Commands::DocsLint(args) => run_docs_lint(args),
     }
 }
 
@@ -486,6 +503,395 @@ fn load_matching_scenarios(
     Ok(filtered)
 }
 
+#[derive(Args)]
+struct LintDeadRefsArgs {
+    /// Root directory to scan (default: `docs/`).
+    #[arg(long, default_value = "docs")]
+    root: PathBuf,
+
+    /// Also check non-markdown links (images, HTML, etc.).
+    #[arg(long)]
+    all: bool,
+}
+
+fn run_lint_dead_refs(args: LintDeadRefsArgs) -> Result<()> {
+    let root = &args.root;
+    if !root.is_dir() {
+        bail!("{} is not a directory", root.display());
+    }
+
+    // Derive the VitePress docs root for root-relative link resolution.
+    // When --root is a subdirectory (e.g. docs/meta), root-relative links
+    // like `/guide/...` must still resolve against the top-level docs dir.
+    let docs_root = find_docs_root(root);
+
+    let mut md_files = Vec::new();
+    collect_md_files(root, &mut md_files)?;
+    md_files.sort();
+
+    let mut broken: Vec<(PathBuf, usize, String, PathBuf)> = Vec::new();
+
+    for file in &md_files {
+        let content = std::fs::read_to_string(file)
+            .with_context(|| format!("failed to read {}", file.display()))?;
+
+        for (raw_target, line_no) in extract_link_targets(&content) {
+            // Skip external URLs
+            if raw_target.starts_with("http://")
+                || raw_target.starts_with("https://")
+                || raw_target.starts_with("mailto:")
+            {
+                continue;
+            }
+            // Skip pure anchors
+            if raw_target.starts_with('#') {
+                continue;
+            }
+
+            // Strip fragment anchor
+            let target = raw_target.split('#').next().unwrap_or(&raw_target);
+
+            // By default, only check .md and extensionless links.
+            // With --all, check everything.
+            if !args.all {
+                let ext = Path::new(target).extension().and_then(|e| e.to_str());
+                if ext.is_some_and(|e| e != "md") {
+                    continue;
+                }
+            }
+
+            if let Some(resolved) = try_resolve_link(file, target, &docs_root) {
+                broken.push((file.clone(), line_no, raw_target, resolved));
+            }
+        }
+    }
+
+    if broken.is_empty() {
+        println!(
+            "lint-dead-refs: scanned {} files, all links OK",
+            md_files.len()
+        );
+        return Ok(());
+    }
+
+    eprintln!(
+        "lint-dead-refs: {} broken link(s) in {} file(s):\n",
+        broken.len(),
+        md_files.len()
+    );
+    for (file, line, target, resolved) in &broken {
+        eprintln!("  {}:{}: -> {}", file.display(), line, target);
+        eprintln!("    resolved to: {} (not found)", resolved.display());
+        eprintln!();
+    }
+
+    bail!("lint-dead-refs: {} broken link(s) found", broken.len());
+}
+
+/// Extract markdown link destinations using `pulldown-cmark`.
+///
+/// Returns `(destination, line_number)` pairs. Handles title text,
+/// balanced parentheses in URLs, and angle-bracketed links correctly.
+fn extract_link_targets(content: &str) -> Vec<(String, usize)> {
+    use pulldown_cmark::{Event, Options, Parser, Tag};
+
+    let parser = Parser::new_ext(content, Options::all());
+    let mut results = Vec::new();
+    // Track byte offset → line number
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(content.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+
+    for (event, range) in parser.into_offset_iter() {
+        if let Event::Start(Tag::Link { dest_url, .. }) = event {
+            let dest = dest_url.into_string();
+            if !dest.is_empty() {
+                let line = line_starts.partition_point(|&s| s <= range.start);
+                results.push((dest, line));
+            }
+        }
+    }
+
+    results
+}
+
+/// Find the git repository root via `git rev-parse --show-toplevel`.
+fn find_repo_root() -> Result<PathBuf> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .context("failed to run git rev-parse --show-toplevel")?;
+    if !output.status.success() {
+        bail!("not inside a git repository");
+    }
+    Ok(PathBuf::from(std::str::from_utf8(&output.stdout)?.trim()))
+}
+
+/// Find the VitePress docs root directory.
+///
+/// Walks up from `start` looking for `.vitepress/config.ts`. Falls back
+/// to `start` itself if no config is found (single-level scan).
+fn find_docs_root(start: &Path) -> PathBuf {
+    let abs = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
+    let mut dir = abs.as_path();
+    loop {
+        if dir.join(".vitepress/config.ts").exists() || dir.join(".vitepress/config.mts").exists() {
+            return dir.to_path_buf();
+        }
+        match dir.parent() {
+            Some(parent) if parent != dir => dir = parent,
+            _ => break,
+        }
+    }
+    start.to_path_buf()
+}
+
+/// Try to resolve a link target to an existing path.
+///
+/// Returns `None` if the link resolves successfully (target exists).
+/// Returns `Some(best_guess_path)` if no resolution succeeded.
+fn try_resolve_link(source_file: &Path, target: &str, docs_root: &Path) -> Option<PathBuf> {
+    let candidates = build_candidates(source_file, target, docs_root);
+    for candidate in &candidates {
+        if candidate.exists() {
+            return None; // Link is valid
+        }
+    }
+    // Return the primary candidate for error reporting
+    Some(candidates.into_iter().next().unwrap_or_default())
+}
+
+/// Build candidate paths for a link target.
+///
+/// - Root-relative links (`/foo/bar`) try `docs_root/foo/bar`, then repo root.
+/// - Relative links (`../foo`) resolve from the source file's directory.
+/// - Extensionless links also try with `.md` and `.html` appended.
+fn build_candidates(source_file: &Path, target: &str, docs_root: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    let primary = if target.starts_with('/') {
+        let stripped = target.trim_start_matches('/');
+        // VitePress root-relative: try docs root first
+        candidates.push(docs_root.join(stripped));
+        // VitePress serves docs/public/ at root, so /foo.html may be docs/public/foo.html
+        candidates.push(docs_root.join("public").join(stripped));
+        // Also try repo root (for links like /crates/foo/README.md)
+        if let Some(repo_root) = docs_root.parent() {
+            candidates.push(repo_root.join(stripped));
+        }
+        docs_root.join(stripped)
+    } else {
+        let p = source_file
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(target);
+        candidates.push(p.clone());
+        p
+    };
+
+    // For extensionless links, also try .md and .html
+    let has_extension = Path::new(target).extension().is_some();
+    if !has_extension {
+        let stem = primary.file_name().unwrap_or_default().to_string_lossy();
+        candidates.push(primary.with_file_name(format!("{stem}.md")));
+        candidates.push(primary.with_file_name(format!("{stem}.html")));
+    }
+
+    candidates
+}
+
+/// Collect `.md` files under `dir` from git-tracked and untracked (but not
+/// ignored) paths.
+///
+/// Uses `git ls-files --cached --others --exclude-standard` so that
+/// gitignored files (e.g. build artifacts in `.vitepress/dist/`) are
+/// excluded, while new files not yet staged are still picked up.
+fn collect_md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let output = Command::new("git")
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ])
+        .arg(dir)
+        .output()
+        .context("failed to run git ls-files")?;
+    if !output.status.success() {
+        bail!(
+            "git ls-files failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    for entry in output.stdout.split(|&b| b == 0) {
+        if entry.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(std::str::from_utf8(entry).with_context(|| {
+            format!(
+                "git ls-files entry is not valid UTF-8: {:?}",
+                String::from_utf8_lossy(entry)
+            )
+        })?);
+        if path.extension().is_some_and(|ext| ext == "md") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Args)]
+struct MarkdownFixArgs {
+    /// Root directory to fix (default: `docs/`).
+    #[arg(long, default_value = "docs")]
+    root: PathBuf,
+
+    /// Skip prettier formatting.
+    #[arg(long)]
+    no_prettier: bool,
+
+    /// Skip markdownlint --fix.
+    #[arg(long)]
+    no_lint: bool,
+}
+
+fn run_markdown_fix(args: &MarkdownFixArgs) -> Result<()> {
+    let root = &args.root;
+    if !root.is_dir() {
+        bail!("{} is not a directory", root.display());
+    }
+
+    let mut md_files = Vec::new();
+    collect_md_files(root, &mut md_files)?;
+    md_files.sort();
+
+    if md_files.is_empty() {
+        println!("markdown-fix: no .md files found in {}", root.display());
+        return Ok(());
+    }
+
+    println!(
+        "markdown-fix: {} file(s) in {}",
+        md_files.len(),
+        root.display()
+    );
+
+    // 1) SPDX header repair (scoped to `root` so --root is respected)
+    if Path::new("scripts/ensure_spdx.sh").exists() {
+        println!("markdown-fix: repairing SPDX headers...");
+        let spdx_paths: Vec<&str> = md_files.iter().filter_map(|p| p.to_str()).collect();
+        if !spdx_paths.is_empty() {
+            let mut cmd = Command::new("bash");
+            cmd.arg("scripts/ensure_spdx.sh")
+                .env("ECHO_AUTO_FMT", "1")
+                .args(&spdx_paths);
+            let status = cmd
+                .status()
+                .context("failed to run scripts/ensure_spdx.sh")?;
+            if !status.success() {
+                bail!("markdown-fix: SPDX header repair failed");
+            }
+        }
+    }
+
+    let file_args: Vec<&str> = md_files
+        .iter()
+        .filter_map(|p| {
+            if let Some(s) = p.to_str() {
+                Some(s)
+            } else {
+                eprintln!("markdown-fix: skipping non-UTF-8 path: {}", p.display());
+                None
+            }
+        })
+        .collect();
+
+    // 2) Prettier formatting
+    if !args.no_prettier {
+        if command_exists("npx") {
+            println!("markdown-fix: running prettier...");
+            let status = Command::new("npx")
+                .arg("prettier")
+                .arg("--write")
+                .args(&file_args)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .context("failed to run prettier")?;
+            if !status.success() {
+                bail!("markdown-fix: prettier failed");
+            }
+        } else {
+            eprintln!("markdown-fix: npx not found, skipping prettier");
+        }
+    }
+
+    // 3) markdownlint --fix
+    if !args.no_lint {
+        if command_exists("npx") {
+            println!("markdown-fix: running markdownlint --fix...");
+            let status = Command::new("npx")
+                .arg("markdownlint-cli2")
+                .arg("--fix")
+                .args(&file_args)
+                .status()
+                .context("failed to run markdownlint-cli2")?;
+            if !status.success() {
+                // markdownlint --fix returns non-zero if unfixable errors remain.
+                // This is expected — report but don't bail.
+                eprintln!(
+                    "markdown-fix: markdownlint reported errors that --fix could not resolve"
+                );
+                eprintln!("  Run `npx markdownlint-cli2 <file>` for details");
+            }
+        } else {
+            eprintln!("markdown-fix: npx not found, skipping markdownlint");
+        }
+    }
+
+    println!("markdown-fix: done");
+    Ok(())
+}
+
+fn command_exists(cmd: &str) -> bool {
+    Command::new(cmd)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+#[derive(Args)]
+struct DocsLintArgs {
+    /// Root directory to lint (default: `docs/`).
+    #[arg(long, default_value = "docs")]
+    root: PathBuf,
+
+    /// Also check non-markdown links (images, HTML, etc.) in lint-dead-refs.
+    #[arg(long)]
+    all: bool,
+}
+
+fn run_docs_lint(args: DocsLintArgs) -> Result<()> {
+    // Phase 1: auto-fix
+    let fix_args = MarkdownFixArgs {
+        root: args.root.clone(),
+        no_prettier: false,
+        no_lint: false,
+    };
+    run_markdown_fix(&fix_args)?;
+
+    println!();
+
+    // Phase 2: check dead refs
+    let refs_args = LintDeadRefsArgs {
+        root: args.root,
+        all: args.all,
+    };
+    run_lint_dead_refs(refs_args)
+}
+
 fn run_man_pages(args: ManPagesArgs) -> Result<()> {
     use clap::CommandFactory;
 
@@ -537,4 +943,107 @@ fn run_man_pages(args: ManPagesArgs) -> Result<()> {
 
     println!("Man pages generated in {}", out_dir.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // ── extract_link_targets ──────────────────────────────────────────
+
+    #[test]
+    fn extracts_plain_links() {
+        let md = "[hello](guide/start-here.md)\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "guide/start-here.md");
+    }
+
+    #[test]
+    fn handles_title_text() {
+        let md = r#"[hello](guide/start-here.md "Start here")"#;
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "guide/start-here.md");
+    }
+
+    #[test]
+    fn handles_fragment_in_url() {
+        let md = "[link](spec/SPEC-0004.md#section)\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links[0].0, "spec/SPEC-0004.md#section");
+    }
+
+    #[test]
+    fn handles_balanced_parens_in_anchor() {
+        let md = "[link](spec/SPEC-0004.md#foo(bar))\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "spec/SPEC-0004.md#foo(bar)");
+    }
+
+    #[test]
+    fn skips_images() {
+        let md = "![alt](image.png)\n[real](doc.md)\n";
+        let links = extract_link_targets(md);
+        // pulldown-cmark reports images as Image, not Link
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, "doc.md");
+    }
+
+    #[test]
+    fn reports_correct_line_numbers() {
+        let md = "line one\n[a](a.md)\nline three\n[b](b.md)\n";
+        let links = extract_link_targets(md);
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].1, 2); // 1-indexed
+        assert_eq!(links[1].1, 4);
+    }
+
+    // ── build_candidates ──────────────────────────────────────────────
+
+    #[test]
+    fn relative_link_resolves_from_source_dir() {
+        let source = Path::new("docs/guide/start-here.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "../spec.md", docs_root);
+        // ../spec.md from docs/guide/ resolves to docs/guide/../spec.md
+        assert!(candidates
+            .iter()
+            .any(|p| p == Path::new("docs/guide/../spec.md")));
+    }
+
+    #[test]
+    fn root_relative_link_resolves_against_docs_root() {
+        let source = Path::new("docs/meta/docs-index.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "/guide/start-here.md", docs_root);
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("docs/guide/start-here.md")));
+    }
+
+    #[test]
+    fn extensionless_link_tries_md_and_html() {
+        let source = Path::new("docs/index.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "guide/start-here", docs_root);
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("guide/start-here.md")));
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("guide/start-here.html")));
+    }
+
+    #[test]
+    fn public_asset_resolution() {
+        let source = Path::new("docs/index.md");
+        let docs_root = Path::new("docs");
+        let candidates = build_candidates(source, "/collision-dpo-tour.html", docs_root);
+        assert!(candidates
+            .iter()
+            .any(|p| p.ends_with("docs/public/collision-dpo-tour.html")));
+    }
 }

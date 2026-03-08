@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Legal Overview
 
 This document explains how licensing works in this repository. It is a summary
@@ -17,20 +18,20 @@ control (`LICENSE-APACHE`, `LICENSE-MIND-UCAL`).
 
 - Applies to: `docs/`, `warp-math/`, LaTeX sources, papers/notes, other written or mathematical materials.
 - License options (your choice):
-  - Apache License, Version 2.0 **OR**
-  - MIND-UCAL License v1.0
-- SPDX for these files: `SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0`
+    - Apache License, Version 2.0 **OR**
+    - MIND-UCAL License v1.0
+- SPDX for these files: `SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0`
 - If you do not wish to use MIND-UCAL, you may use all theory, math, and documentation under Apache 2.0 alone. No portion of this repository requires adopting MIND-UCAL.
 
 ## 3) SPDX Policy
 
 - All tracked source and documentation files must carry an SPDX header.
 - Enforcement:
-  - `scripts/ensure_spdx.sh` (pre-commit): inserts missing headers into staged files, restages, and aborts so you can review.
-  - `scripts/check_spdx.sh`: check-only helper (unused by default).
+    - `scripts/ensure_spdx.sh` (pre-commit): inserts missing headers into staged files, restages, and aborts so you can review.
+    - `scripts/check_spdx.sh`: check-only helper (unused by default).
 - Patterns:
-  - Code: `Apache-2.0`
-  - Docs/math: `Apache-2.0 OR MIND-UCAL-1.0`
+    - Code: `Apache-2.0`
+    - Docs/math: `Apache-2.0 OR LicenseRef-MIND-UCAL-1.0`
 - Exclusions: generated/binary assets (e.g., target/, node_modules/, PDFs, images) are not labeled.
 
 ## 4) NOTICE

@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # `echo-session-service`
@@ -13,14 +13,14 @@ Headless Echo session hub process.
 - Handles client handshakes and assigns a logical timestamp (`ts`) to every
   message using a per-hub kernel clock.
 - Maintains per-`WarpId` stream state:
-  - last epoch and optional state hash,
-  - latest snapshot (for late joiners),
-  - current producer connection,
-  - subscriber list.
+    - last epoch and optional state hash,
+    - latest snapshot (for late joiners),
+    - current producer connection,
+    - subscriber list.
 - Enforces gapless WARP diffs:
-  - accepts a `Snapshot` as a reset for a stream,
-  - accepts `Diff` frames only when `from_epoch == last_epoch` and
-    `to_epoch == from_epoch + 1`.
+    - accepts a `Snapshot` as a reset for a stream,
+    - accepts `Diff` frames only when `from_epoch == last_epoch` and
+      `to_epoch == from_epoch + 1`.
 - Fans out accepted `WarpStream` frames and `Notification` messages to all
   subscribed clients via per-connection outboxes.
 

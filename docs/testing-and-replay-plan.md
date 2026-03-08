@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Testing & Replay Plan (Phase 0.5)
 
 Defines how Echo proves determinism end-to-end: automated tests, replay tooling, and golden datasets.
@@ -17,15 +18,15 @@ Defines how Echo proves determinism end-to-end: automated tests, replay tooling,
 
 ```ts
 interface VerificationReport {
-  readonly from: NodeId;
-  readonly until: NodeId;
-  readonly success: boolean;
-  readonly mismatches?: readonly Mismatch[];
-  readonly stats: {
-    replayedDiffs: number;
-    elapsedMs: number;
-    entropyTrail: number[];
-  };
+    readonly from: NodeId;
+    readonly until: NodeId;
+    readonly success: boolean;
+    readonly mismatches?: readonly Mismatch[];
+    readonly stats: {
+        replayedDiffs: number;
+        elapsedMs: number;
+        entropyTrail: number[];
+    };
 }
 ```
 
@@ -81,7 +82,7 @@ The BOAW (Base-Overlay-Apply-Write) test harness is now implemented per ADR-0007
 
 Under the `delta_validate` feature, Phase 4 adds a second validation layer:
 
-1. **Delta-to-diff validation** (Phase 3): `delta.finalize()` ops must match `diff_state()` output *exactly* (full `WarpOp` equality, including payloads — not just `sort_key()`)
+1. **Delta-to-diff validation** (Phase 3): `delta.finalize()` ops must match `diff_state()` output _exactly_ (full `WarpOp` equality, including payloads — not just `sort_key()`)
 2. **Accumulator validation** (Phase 4): `SnapshotAccumulator` built from `base + ops` must produce the same `state_root` as legacy computation
 
 Run with: `cargo test -p warp-core --features delta_validate`

@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo, Explained Like You’re Not a Programmer
 
 This is the gentlest on‑ramp into Echo.
@@ -51,7 +52,7 @@ Echo models state as:
 - a **graph**: a set of things and the connections between them, and
 - **attachments**: the data that sits on those things (numbers, small payloads, tags).
 
-You can think of the graph as the *shape of the world*, and attachments as the *details*.
+You can think of the graph as the _shape of the world_, and attachments as the _details_.
 
 ### 2) What is a “tick”?
 
@@ -59,9 +60,9 @@ A **tick** is one step of time in the simulation.
 
 On every tick:
 
-1) Echo looks at the world.
-2) It asks which rules apply.
-3) It applies a set of changes.
+1. Echo looks at the world.
+2. It asks which rules apply.
+3. It applies a set of changes.
 
 ### 3) What is a “rewrite rule”?
 
@@ -79,7 +80,7 @@ it’s the name of this graph‑rewrite style of simulation.
 
 ## Spiral Level 2: Why Echo Cares So Much About Determinism
 
-Most simulations are *approximately the same* across machines.
+Most simulations are _approximately the same_ across machines.
 Echo aims for **exactly the same**.
 
 Echo cares because it unlocks things you can’t safely build otherwise:
@@ -153,6 +154,6 @@ If you want the formal version, see:
 This page intentionally avoids implementation terms.
 If you’re writing or editing docs, try to preserve this gradient:
 
-- this page explains *why Echo exists* and *what it feels like*,
+- this page explains _why Echo exists_ and _what it feels like_,
 - the WARP primer explains the model more precisely,
 - the specs define the contractual boundaries.

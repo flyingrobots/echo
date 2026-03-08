@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+
+language: "en-US"
+tone_instructions: >-
+  Be direct and technical. Skip compliments. Focus on correctness,
+  determinism, and security. This is a game engine — performance matters.
+
+reviews:
+  profile: "assertive"
+
+  path_filters:
+    # Archived docs are frozen historical records — don't review them.
+    - "!docs/archive/**"
+
+  path_instructions:
+    - path: "docs/spec-*.md"
+      instructions: >-
+        These are design-draft specs, not production code. Pseudo-code
+        snippets are intentionally simplified and may omit error handling.
+        Focus feedback on: correctness of the spec's intent, determinism
+        concerns, and contradictions with other specs. Do NOT flag pseudo-code
+        for missing null checks, incomplete error handling, or stylistic issues.
+        Sections marked with TODO are known gaps — do not re-flag them.
+    - path: "docs/**/*.md"
+      instructions: >-
+        Echo is a deterministic simulation engine. Documentation accuracy
+        matters — especially anything touching determinism guarantees, hash
+        stability, or canonical ordering. Flag factual errors and stale
+        cross-references. Do not flag stylistic preferences in prose.
+    - path: "crates/warp-core/**"
+      instructions: >-
+        warp-core is the deterministic kernel. Every code path must be
+        deterministic (no HashMap iteration order, no floating-point
+        platform variance, no thread-dependent ordering). Flag any
+        non-determinism risk. Performance matters — flag unnecessary
+        allocations in hot paths.
+    - path: "xtask/**"
+      instructions: >-
+        xtask is a developer tooling crate (linters, code generators).
+        It does NOT run in production or affect determinism. Review for
+        correctness and usability, not for performance micro-optimizations.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: "auto"

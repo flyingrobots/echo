@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Plugin ABI
@@ -24,7 +24,7 @@ A C-compatible plugin ABI enabling third-party extensions to hook into the Echo 
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Spec document exists at `docs/specs/SPEC-PLUGIN-ABI.md`
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-PLUGIN-ABI.md`
 - [ ] AC2: Spec covers all five requirements above
 - [ ] AC3: Spec includes at least one worked example (pseudocode or C)
 - [ ] AC4: Spec reviewed by at least one other contributor

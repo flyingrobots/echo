@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Echo Architecture Specification (Draft)
@@ -118,7 +118,7 @@ will lag behind the current Rust-first implementation; prefer WARP specs for the
 
 ## Playback & Worldlines ✅ Implemented
 
-> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](docs/spec/SPEC-0004-worldlines-playback-truthbus.md)
+> **Reference:** [SPEC-0004 (Worldlines, Playback, TruthBus)](spec/SPEC-0004-worldlines-playback-truthbus.md)
 
 SPEC-0004 introduces infrastructure for deterministic materialization, cursor-based replay, and append-only provenance tracking:
 
@@ -132,7 +132,7 @@ SPEC-0004 introduces infrastructure for deterministic materialization, cursor-ba
 
 ### Renderer Port ✅ Implemented
 
-> **Reference:** [Deterministic Scene Port](/crates/echo-scene-port/README.md)
+> **Reference:** `crates/echo-scene-port/` (see crate source and doc comments)
 
 The Renderer Port is implemented as a bit-exact, hexagonal boundary:
 

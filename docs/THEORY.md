@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Echo: Theoretical Foundations
@@ -62,10 +62,12 @@ The class **WARP** is the **least class** closed under two constructors:
 Consider a program with functions `f` and `g` and a single call `f → g`.
 
 **Skeleton S:**
+
 - Vertices: `{v_f, v_g}`
 - Edges: `{e_call: v_f → v_g}`
 
 **Attachments:**
+
 - `α(v_f)` = abstract syntax tree of function `f` (itself a WARP)
 - `α(v_g)` = abstract syntax tree of function `g` (itself a WARP)
 - `β(e_call)` = provenance graph recording optimization choices (itself a WARP)
@@ -76,11 +78,12 @@ Each of these attachments can itself have attachments (e.g., a syntax tree node 
 
 WARPs can be characterized as the **initial algebra** for a polynomial functor:
 
-```
-F(X) = P + Σ_{S ∈ Graphs} (V_S → X) × (E_S → X)
+```math
+F(X) = P + \Sigma_{S \in Graphs} (V_S \to X) \times (E_S \to X)
 ```
 
 This means: to define a function out of WARPs, it suffices to say:
+
 1. How it acts on atoms
 2. Given a skeleton S and recursively computed results for all attachments, how to combine them
 
@@ -89,22 +92,25 @@ The result is then **unique**. This gives us structural recursion and induction 
 ### Depth and Unfoldings
 
 **Depth** of a WARP X:
+
 - Atoms have depth 0
 - A composite WARP `(S, α, β)` has depth = 1 + max depth of all attachments
 
 **k-unfolding** `unf_k(X)`:
+
 - Keep all structure at depths 0, ..., k-1 unchanged
 - Replace every attachment at depth ≥ k with a placeholder atom
 
 This gives finite-depth approximations of arbitrarily deep WARPs. The **infinite unfolding** `unf_∞(X)` is the colimit of the tower:
 
-```
-unf_0(X) → unf_1(X) → unf_2(X) → ...
+```math
+unf_0(X) \to unf_1(X) \to unf_2(X) \to ...
 ```
 
 ### Category of WARPs
 
 A **WARP morphism** `f: X → Y` consists of:
+
 1. A graph homomorphism of skeletons `(f_V, f_E)`
 2. For every vertex `v`, a morphism of attachments `f_v: α(v) → α'(f_V(v))`
 3. For every edge `e`, a morphism of attachments `f_e: β(e) → β'(f_E(e))`
@@ -114,15 +120,17 @@ WARPs and their morphisms form a category **𝐖𝐀𝐑𝐏**.
 There's a **forgetful functor** `π: 𝐖𝐀𝐑𝐏 → Graph` that forgets attachments and returns just the skeleton.
 
 > [!note]
-> Echo does this differently. Echo does not currently expose “WARP morphisms” as a first-class runtime API; instead it treats *identity + hashing + replayable deltas* as the practical boundary. It works like this because the engine’s guarantees (deterministic replay, patch hashing, slicing) need stable, content-addressed artifacts, while categorical structure can be layered later as tooling/analysis atop the same boundary.
+> Echo does this differently. Echo does not currently expose “WARP morphisms” as a first-class runtime API; instead it treats _identity + hashing + replayable deltas_ as the practical boundary. It works like this because the engine’s guarantees (deterministic replay, patch hashing, slicing) need stable, content-addressed artifacts, while categorical structure can be layered later as tooling/analysis atop the same boundary.
 
 ### Relation to Ordinary Graphs
 
 **Ordinary graphs embed into WARPs:**
+
 - Any finite directed multigraph S can be viewed as a shallow WARP by attaching a constant placeholder atom to every vertex and edge
 - This is a fully faithful embedding of `Graph → 𝐖𝐀𝐑𝐏` as the subcategory of depth-1 objects
 
 **Hypergraphs embed via typed open graphs:**
+
 - Typed open graphs (category 𝐎𝐆𝐫𝐚𝐩𝐡_T) are cospans `I ↪ G ↩ O`
 - This category is **adhesive** (supports DPO rewriting)
 - WARPs whose skeletons are typed open graphs are "recursive typed open graphs"
@@ -144,6 +152,7 @@ WARPs are the **canonical state space** for Echo's execution model. They provide
 5. **Extensible** - ordinary graphs are just shallow WARPs
 
 Later papers in the AIΩN Foundations series build on this substrate to define:
+
 - Deterministic multiway DPO rewriting on WARPs
 - Holographic provenance (boundary encodes interior evolution)
 - Observer geometry (rulial distance) over WARP universes
@@ -157,7 +166,7 @@ Later papers in the AIΩN Foundations series build on this substrate to define:
 
 ## Paper II: Canonical State Evolution and Deterministic Worldlines
 
-### Source
+### Source (Paper II)
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17934512.svg)](https://doi.org/10.5281/zenodo.17934512)
 
@@ -197,6 +206,7 @@ Evolution happens on **both planes**:
 - **Skeleton-plane steps** rewrite the global wiring `G` and transport attachments along preserved structure
 
 The unit of evolution is a **tick** - an atomic commit of:
+
 1. A finite family of attachment-plane updates
 2. A scheduler-selected **batch** of independent skeleton rewrites
 
@@ -205,11 +215,13 @@ The unit of evolution is a **tick** - an atomic commit of:
 Rewriting uses **Double-Pushout with Interfaces (DPOI)** - a categorical formalism from algebraic graph transformation.
 
 A **DPOI rule** is a span of monomorphisms:
-```
-L ←ℓ K →r R
+
+```math
+L \xleftarrow{\ell} K \xrightarrow{r} R
 ```
 
 Where:
+
 - `L` = left-hand side (what to match)
 - `K` = interface (what to preserve)
 - `R` = right-hand side (what to replace it with)
@@ -225,11 +237,12 @@ This is standard categorical rewriting - the key insight is how we use it on **t
 
 A **tick** groups concurrent work into an atomic commit:
 
-```
-U = (G; α, β)  ⇒[Tick]  U' = (G'; α', β')
+```math
+U = (G; \alpha, \beta)  \Rightarrow[Tick]  U' = (G'; \alpha', \beta')
 ```
 
 **Inside a tick:**
+
 1. **Attachment updates** settle local state inside attachments
 2. **Skeleton publication** commits a batch `B` of independent skeleton rewrites
 
@@ -242,12 +255,14 @@ U = (G; α, β)  ⇒[Tick]  U' = (G'; α', β')
 Two skeleton matches are **independent** if neither deletes structure that the other uses.
 
 For each match `m: L ↪ G` with interface `K ⊆ L`, define:
+
 - **Delete set** `Del(m)` = the part of `L` not preserved by `K`
 - **Use set** `Use(m)` = the entire match `m(L)`
 
 Matches `m₁` and `m₂` are **independent** if:
-```
-Del(m₁) ∩ Use(m₂) = ∅  AND  Del(m₂) ∩ Use(m₁) = ∅
+
+```math
+Del(m_1) \cap Use(m_2) = \emptyset  AND  Del(m_2) \cap Use(m_1) = \emptyset
 ```
 
 **Translation:** Neither deletes structure that the other reads.
@@ -270,21 +285,25 @@ A **scheduler-admissible batch** `B` is a finite set of pairwise independent mat
 Tick confluence says: "given `B`, the outcome is deterministic." But how is `B` chosen?
 
 A **deterministic scheduler** is a total function:
-```
-σ: WState → Batch
+
+```math
+\sigma: WState \to Batch
 ```
 
 One canonical choice: **left-most greedy filter**
+
 1. Sort all candidate matches `Cand(U)` by a total order (e.g., lexicographic on stable IDs)
 2. Walk the list, accepting each match if it's independent of all previously accepted matches
 3. The result `B` is scheduler-admissible by construction
 
 A **tick receipt** records what happened:
-```
-ρ = (E, ≼, E_acc, E_rej, meta)
+
+```math
+\rho = (E, \preceq, E_acc, E_rej, meta)
 ```
 
 Where:
+
 - `E ⊆ Cand(U)` = candidates considered
 - `E_acc ⊆ E` = accepted matches (the batch)
 - `E_rej = E \ E_acc` = rejected matches
@@ -294,6 +313,7 @@ Where:
 **Key insight:** The receipt refines the tick without changing the committed state. It's **provenance**, not semantics.
 
 For the left-most scheduler:
+
 - When match `mᵢ` is rejected because it overlaps an already-accepted match `mⱼ` (where `j < i`), record `mⱼ ≺ mᵢ` in the poset
 - Accepted matches are unordered (they're independent)
 - Rejected matches are causally after the event that blocked them
@@ -308,6 +328,7 @@ This poset is the bridge to Paper III (provenance).
 The two planes can only commute if skeleton publication respects attachment lineage.
 
 **Invariant:** A tick satisfies **no-delete/no-clone-under-descent** if:
+
 1. **No delete under descent:** Any skeleton position `x` with `depth(x) ≥ 1` (has nontrivial attached structure) cannot be deleted
 2. **No clone under descent:** Any skeleton position `x` with `depth(x) ≥ 1` has a unique preserved image in the successor (so attachment transport is single-valued)
 
@@ -321,6 +342,7 @@ The two planes can only commute if skeleton publication respects attachment line
 **Main Result (Two Planes):** Let `U = (G; α, β)` be a WARP state.
 
 Let:
+
 - `A` be an attachment-plane step: `(G; α, β) ⇒ (G; α_A, β_A)`
 - `S` be a skeleton publication step that commits batch `B` on `G`, yielding `G'` and transported attachments `(α', β')`
 
@@ -328,7 +350,7 @@ Assume the tick satisfies no-delete/no-clone-under-descent.
 
 Then there exists an attachment-plane step `A'` over `G'` such that:
 
-```
+```text
 (G; α, β) ─A→ (G; α_A, β_A)
     │              │
     S│              │S_A
@@ -346,8 +368,8 @@ This square **commutes up to canonical isomorphism**.
 
 Given a deterministic scheduler `σ` and a deterministic policy for attachment updates, a run produces a canonical **worldline**:
 
-```
-U₀ ⇒[Tick₁, ρ₁] U₁ ⇒[Tick₂, ρ₂] U₂ ⇒[Tick₃, ρ₃] ...
+```math
+U_0 \Rightarrow[Tick_1, \rho_1] U_1 \Rightarrow[Tick_2, \rho_2] U_2 \Rightarrow[Tick_3, \rho_3] ...
 ```
 
 Each `ρᵢ` is a tick receipt recording the scheduler's choices. The global history is linear (ℕ-indexed), but each tick carries internal partial-order structure (the tick-event poset).
@@ -357,7 +379,7 @@ Each `ρᵢ` is a tick receipt recording the scheduler's choices. The global his
 
 Paper III uses these receipts as first-class provenance payloads.
 
-### Why This Matters for Echo
+### Why This Matters for Echo (Paper II)
 
 Paper II provides the **deterministic execution model**:
 
@@ -368,6 +390,7 @@ Paper II provides the **deterministic execution model**:
 5. **Ticks are atomic** - no partial effects, clean transaction semantics
 
 This is the foundation for:
+
 - Deterministic replay (required for time-travel debugging)
 - Counterfactual branching (swap scheduler policy → explore alternative worldline)
 - Provenance traces (Paper III chains tick receipts into holographic boundary)
@@ -378,7 +401,7 @@ This is the foundation for:
 
 ## Paper III: Computational Holography & Provenance Payloads
 
-### Source
+### Source (Paper III)
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17963669.svg)](https://doi.org/10.5281/zenodo.17963669)
 
@@ -409,11 +432,13 @@ For Echo, provenance is not "nice to have" - it's **structural**. We need a comp
 **Key insight:** For a deterministic computation, the **full interior volume is recoverable from a compact boundary representation**.
 
 The boundary is:
-```
-B = (U₀, P)
+
+```math
+B = (U_0, P)
 ```
 
 Where:
+
 - `U₀` = initial state
 - `P = (μ₀, μ₁, ..., μₙ₋₁)` = provenance payload (ordered sequence of **tick patches**)
 
@@ -434,6 +459,7 @@ A tick patch `μ` must be **sufficient** for deterministic replay. At minimum, i
 5. **Optional trace** - the tick-event poset `ρ` from Paper II (for explanatory audit)
 
 **Patch vs Receipt:**
+
 - **Patch (prescriptive)** - minimal witness for replay: "what happened"
 - **Receipt (descriptive)** - full causal explanation: "why it happened that way"
 
@@ -445,13 +471,15 @@ A patch may contain an embedded receipt when full audit is needed, but holograph
 ### The Apply Function
 
 There's a deterministic partial function:
-```
-Apply: WState × Labels ⇀ WState
+
+```math
+Apply: WState \times Labels \rightharpoonup WState
 ```
 
 Where `Labels` is the space of tick patches. Given a state `Uᵢ` and patch `μᵢ`, Apply produces the next state:
-```
-Uᵢ₊₁ = Apply(Uᵢ, μᵢ)
+
+```math
+U_{i+1} = Apply(U_i, \mu_i)
 ```
 
 **Key property:** For patch-deterministic worldlines, `(Uᵢ, μᵢ)` **uniquely determines** `Uᵢ₊₁` (whenever Apply is defined).
@@ -463,16 +491,19 @@ This is the interface that makes holography work.
 Provenance payloads have **algebraic structure**:
 
 **Composition (concatenation):**
-```
-P · Q = (μ₀, ..., μₘ₋₁, ν₀, ..., νₙ₋₁)
+
+```math
+P \cdot Q = (\mu_0, \ldots, \mu_{m-1}, \nu_0, \ldots, \nu_{n-1})
 ```
 
 **Identity (empty payload):**
-```
-ε = ()
+
+```math
+\varepsilon = ()
 ```
 
 **Properties:**
+
 1. **Closure:** `P · Q` is a provenance payload
 2. **Associativity:** `(P · Q) · R = P · (Q · R)`
 3. **Identity:** `ε · P = P = P · ε`
@@ -491,11 +522,13 @@ This compositionality enables wormhole compression (collapsing multi-tick segmen
 The mathematical boundary `(U₀, P)` is sufficient for replay, but real systems need more:
 
 **BTR format:**
-```
-BTR = (h_in, h_out, U₀, P, t, κ)
+
+```math
+BTR = (h_in, h_out, U_0, P, t, \kappa)
 ```
 
 Where:
+
 - `h_in` = content hash of initial state `U₀`
 - `h_out` = content hash of final state `Uₙ`
 - `U₀` = initial state
@@ -504,6 +537,7 @@ Where:
 - `κ` = authentication tag (e.g., digital signature binding everything)
 
 **Why BTRs matter:**
+
 1. **Content-addressed indexing** - deduplicate and index by boundary hashes
 2. **Checkpoint and resume** - self-contained segment you can verify independently
 3. **Tamper-evidence** - `κ` ensures any modification is detectable
@@ -515,16 +549,19 @@ Where:
 ### The Provenance Graph
 
 Tick patches declare:
+
 - `In(μ)` = inputs they read
 - `Out(μ)` = outputs they produce
 
 The **provenance graph** `𝕡 = (V, E)` is:
+
 - **Vertices** `V` = all values occurring in the replay
 - **Edges** `v → w` iff some patch `μᵢ` has `v ∈ In(μᵢ)` and `w ∈ Out(μᵢ)`
 
 Each edge carries the **tick index** of the patch that witnessed it.
 
 **Mapping to W3C PROV:**
+
 - Each tick patch `μ` = PROV Activity
 - `In(μ)` = Entities `used` by that activity
 - `Out(μ)` = Entities `generatedBy` that activity
@@ -535,6 +572,7 @@ Each edge carries the **tick index** of the patch that witnessed it.
 For any value `v`, its **derivation graph** `D(v)` is the **backward causal cone** - all vertices that can reach `v` via directed paths in `𝕡`.
 
 **Key properties:**
+
 1. **Finite** - the payload is finite, each patch has finite inputs/outputs, so `D(v)` is finite
 2. **Acyclic** - deterministic worldlines can't have cycles (causality flows forward in time)
 
@@ -572,8 +610,9 @@ The value of the analogy is explanatory, not a claim of physical equivalence.
 You often don't need the **entire** worldline - just the causal cone for a specific output value.
 
 **Slice payload:**
-```
-P|_{D(v)} = (μᵢ)_{i ∈ I(v)}
+
+```math
+P|_{D(v)} = (\mu_i)_{i \in I(v)}
 ```
 
 Where `I(v)` = tick indices whose patches contribute to `D(v)` (in increasing order).
@@ -598,10 +637,12 @@ Two worldlines that share a common prefix need only store the shared portion onc
 **Definition:** Payloads `P` and `Q` **share prefix** `(μ₀, ..., μₖ₋₁)` if they agree on the first `k` patches, then diverge at tick `k`.
 
 **Prefix-deduplicated branching:**
+
 1. Worldlines `Replay(U₀, P)` and `Replay(U₀, Q)` agree on states `U₀, ..., Uₖ`
 2. Under content-addressed storage, the shared prefix is stored **once** - only divergent suffixes require additional space
 
 **Git analogy:**
+
 - A **branch** = payload suffix starting from a shared commit
 - **Forking** = create new suffix from existing prefix (no duplication under content addressing)
 - **Merging** (when semantically meaningful) = payload concatenation `P · Q` (subject to boundary state matching)
@@ -619,18 +660,21 @@ A **wormhole** is a single edge that compresses a multi-tick segment while prese
 > Echo does this differently. Wormholes (tick-range compression edges) are a published-paper concept but are not yet implemented in `warp-core`. It works this way because correct slicing/replay and portal invariants had to land first; wormholes can then be layered as an optimization that preserves the same patch semantics.
 
 **Wormhole boundary:**
-```
-W(Uᵢ, Uᵢ₊ₖ) = P_{i:k} = (μᵢ, ..., μᵢ₊ₖ₋₁)
+
+```math
+W(U_i, U_{i+k}) = P_{i:k} = (\mu_i, \ldots, \mu_{i+k-1})
 ```
 
 **Wormhole edge:**
-```
-e = (Uᵢ, W(Uᵢ, Uᵢ₊ₖ), Uᵢ₊ₖ)
+
+```math
+e = (U_i, W(U_i, U_{i+k}), U_{i+k})
 ```
 
 This represents the compressed k-tick transition `Uᵢ ⇒ᵏ Uᵢ₊ₖ`.
 
 **Why wormholes:**
+
 - **Semantically redundant** - they don't change what happened
 - **Operationally useful** - single handle for indexing, checkpointing, replication
 - **Checkpoint carriers** - store compressed wormhole, expand only when auditing
@@ -638,7 +682,7 @@ This represents the compressed k-tick transition `Uᵢ ⇒ᵏ Uᵢ₊ₖ`.
 
 **Wormholes + prefix forks:** A shared prefix can be compressed into a single wormhole; subsequent forks attach to the wormhole's output state. Under content-addressed storage, this supports shared-prefix deduplication for worldline families with common ancestry.
 
-### Why This Matters for Echo
+### Why This Matters for Echo (Paper III)
 
 Paper III provides the **provenance substrate**:
 
@@ -651,17 +695,20 @@ Paper III provides the **provenance substrate**:
 7. **Wormhole compression** - checkpoint long segments as single edges
 
 This is the foundation for:
+
 - Time-travel debugging (replay from any checkpoint)
 - Counterfactual branching (fork at any prefix, explore alternatives)
 - Audit trails (verify specific outputs without full re-execution)
 - Distributed verification (ship slices instead of full logs)
 
 **Papers I-III together:**
+
 - **Paper I** - the state space (WARPs)
 - **Paper II** - the deterministic dynamics (ticks, two-plane semantics)
 - **Paper III** - the provenance encoding (boundary holography)
 
 With these three pieces, Echo has:
+
 - Deterministic replay (same boundary → same worldline)
 - Provenance-ready execution (tick patches = first-class objects)
 - Verifiable computation (boundary encodes interior)
@@ -672,7 +719,7 @@ With these three pieces, Echo has:
 
 ## Paper IV: Rulial Distance & Observer Geometry
 
-### Source
+### Source (Paper IV)
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18038297.svg)](https://doi.org/10.5281/zenodo.18038297)
 
@@ -698,10 +745,12 @@ The naive question is: "Which observer is right?"
 The **correct question** is: "Given two observers that emit different trace languages, what is the **cost of translating** between them under explicit resource constraints?"
 
 This cost has two components:
+
 1. **Description length** - how complex is the translator program?
 2. **Distortion** - how much information is lost in translation?
 
 For Echo, this matters because:
+
 - Verify computations without re-running them (translate boundary → bulk)
 - Compare alternative observers (which trace format should we deploy?)
 - Understand when summarization breaks verification (does distortion exceed tolerance?)
@@ -714,11 +763,13 @@ For Echo, this matters because:
 **Observers as functors:**
 
 An **observer** `O` is a functor from the history category to a trace space:
-```
-O: Hist(𝒰, R) → Tr
+
+```math
+O: Hist(\mathcal{U}, R) \to Tr
 ```
 
 Where:
+
 - `Hist(𝒰, R)` = history category (paths through the multiway graph)
 - `Tr` = trace space with a distortion metric `dist_tr`
 
@@ -734,8 +785,9 @@ An observer is **(τ, m)-bounded** if it can be implemented within time `τ` and
 ### Translators: Converting Between Trace Formats
 
 A **translator** from `O₁` to `O₂` is an algorithmic operator:
-```
-T₁₂: Tr → Tr
+
+```math
+T_{12}: Tr \to Tr
 ```
 
 Such that `T₁₂ ∘ O₁` approximates `O₂`.
@@ -743,11 +795,13 @@ Such that `T₁₂ ∘ O₁` approximates `O₂`.
 **MDL complexity:**
 
 We measure translator complexity using **Minimum Description Length (MDL)**:
+
 - `DL(T)` = length of the translator's code word (in a prefix-free code)
 
 **Key property (subadditivity):** For composable translators,
-```
-DL(T₂₃ ∘ T₁₂) ≤ DL(T₁₂) + DL(T₂₃) + c
+
+```math
+DL(T_{23} \circ T_{12}) \leq DL(T_{12}) + DL(T_{23}) + c
 ```
 
 Where `c` is a small constant (prefix-coding overhead).
@@ -755,25 +809,29 @@ Where `c` is a small constant (prefix-coding overhead).
 ### Distortion: How Much Gets Lost?
 
 Fix a metric `dist_tr` on trace space. The **lifted distortion** between observers is:
-```
-Dist(O, O') = sup_{h ∈ Hist} dist_tr(O(h), O'(h))
+
+```math
+Dist(O, O') = sup_{h \in Hist} dist_tr(O(h), O'(h))
 ```
 
 **Translation:** Worst-case trace distance over all histories.
 
 **Non-expansiveness assumption:** Post-composition by any translator is 1-Lipschitz:
-```
-Dist(T ∘ O, T ∘ O') ≤ Dist(O, O')
+
+```math
+Dist(T \circ O, T \circ O') \leq Dist(O, O')
 ```
 
 ### Directed Rulial Cost
 
 For observers `O₁, O₂`, the **directed cost** is:
-```
-→D_{τ,m}(O₁ → O₂) = inf_{T₁₂ ∈ Trans_{τ,m}(O₁, O₂)} (DL(T₁₂) + λ·Dist(O₂, T₁₂ ∘ O₁))
+
+```math
+\vec{D}_{\tau,m}(O_1 \to O_2) = \inf_{T_{12} \in Trans_{\tau,m}(O_1, O_2)} (DL(T_{12}) + \lambda \cdot Dist(O_2, T_{12} \circ O_1))
 ```
 
 Where:
+
 - `λ > 0` = weighting parameter (trade-off between description length and distortion)
 - `Trans_{τ,m}(O₁, O₂)` = translators admissible within budgets `(τ, m)`
 
@@ -784,11 +842,13 @@ If no translator exists within the budget, `→D_{τ,m} = +∞`.
 ### Rulial Distance (Symmetrized)
 
 The **rulial distance** is:
-```
-D_{τ,m}(O₁, O₂) = →D_{τ,m}(O₁ → O₂) + →D_{τ,m}(O₂ → O₁)
+
+```math
+D_{\tau,m}(O_1, O_2) = \vec{D}_{\tau,m}(O_1 \to O_2) + \vec{D}_{\tau,m}(O_2 \to O_1)
 ```
 
 **Properties:**
+
 1. **Non-negativity:** `D_{τ,m}(O₁, O₂) ≥ 0`
 2. **Symmetry:** `D_{τ,m}(O₁, O₂) = D_{τ,m}(O₂, O₁)`
 3. **Reflexivity:** `D_{τ,m}(O, O) = 0`
@@ -797,8 +857,9 @@ D_{τ,m}(O₁, O₂) = →D_{τ,m}(O₁ → O₂) + →D_{τ,m}(O₂ → O₁)
 This makes `D_{τ,m}` a **quasi-pseudometric** - it satisfies all metric axioms except the triangle inequality holds only up to additive constant `2c` (prefix-coding overhead).
 
 **Budget monotonicity:** Relaxing budgets can only decrease distance:
-```
-If (τ', m') ≥ (τ, m), then D_{τ',m'}(O₁, O₂) ≤ D_{τ,m}(O₁, O₂)
+
+```math
+If (\tau', m') \geq (\tau, m), \text{ then } D_{\tau',m'}(O_1, O_2) \leq D_{\tau,m}(O_1, O_2)
 ```
 
 ### Lawvere Metric: The Enriched Category Viewpoint
@@ -806,6 +867,7 @@ If (τ', m') ≥ (τ, m), then D_{τ',m'}(O₁, O₂) ≤ D_{τ,m}(O₁, O₂)
 The underlying translation problem is **directed** - boundary → bulk can be infeasible under strict budgets, while bulk → boundary is cheap (projection).
 
 **Lawvere metric space:** A category enriched over the monoidal poset `([0,∞], ≥, +, 0)`:
+
 - Objects = observers
 - Hom-values `d_{τ,m}(O₁, O₂)` = directed cost `→D_{τ,m}(O₁ → O₂)`
 - Composition = addition (triangle inequality)
@@ -817,15 +879,18 @@ The underlying translation problem is **directed** - boundary → bulk can be in
 ### Example: Boundary vs Bulk
 
 Let:
+
 - `O_∂` = boundary observer (outputs `(U₀, P)`)
 - `O_bulk` = bulk observer (outputs `(U₀, U₁, ..., Uₙ)`)
 
 **Forgetful projection (`O_bulk → O_∂`):**
+
 - `DL(T_forget) = O(1)` (constant description length)
 - `Dist = 0` (no information loss - boundary is already in bulk)
 - `→D_{τ,m}(O_bulk → O_∂) = O(1)` (cheap!)
 
 **Replay expansion (`O_∂ → O_bulk`):**
+
 - `DL(T_replay) = O(1)` (the interpreter is fixed)
 - `Dist = 0` (exact replay)
 - **But:** time cost grows with `|P|` (payload length)
@@ -839,6 +904,7 @@ Let:
 **Multiway graph:** The directed graph `MW(𝒰, R)` where vertices are states and edges are individual rewrite steps (including alternative matches/orderings).
 
 **History category:** `Hist(𝒰, R)` is the **path category** of the multiway graph:
+
 - Objects = states
 - Morphisms = finite directed paths
 - Composition = path concatenation
@@ -846,8 +912,9 @@ Let:
 **Deterministic worldlines as functors:** A deterministic worldline defines a functor `W: ℕ → Hist(𝒰, R)` selecting a unique path for fixed boundary data.
 
 **The Ruliad:** The large history space built from all possible computations:
-```
-Ruliad = ⨆_{(U₀, R) ∈ 𝔘 × 𝔑} Hist(𝒰_{U₀,R}, R)
+
+```math
+Ruliad = \bigsqcup_{(U_0, R) \in \mathfrak{U} \times \mathfrak{N}} Hist(\mathcal{U}_{U_0,R}, R)
 ```
 
 (Disjoint union of history categories over initial states and rule packs)
@@ -857,20 +924,24 @@ Ruliad = ⨆_{(U₀, R) ∈ 𝔘 × 𝔑} Hist(𝒰_{U₀,R}, R)
 ### Chronos, Kairos, Aion: The Three-Layer Time Model
 
 **Chronos** - linear time of a fixed worldline:
+
 - The finite linear order `0 < 1 < ... < n` on committed ticks
 - Functor `Chronos: [n] → Hist(𝒰, R)` selecting the unique replay path
 
 **Kairos** - branch events:
+
 - Points where alternative continuations exist in the multiway graph
 - Alternative matches, schedules, rule packs, or inputs
 - Within-tick conflict points (witnessed by tick-event posets from Paper II)
 
 **Aion** - the possibility space:
+
 - The full history category `Hist(𝒰, R)`
 - All finite derivations in the multiway graph
 - At largest scale: the Ruliad
 
 **Analogy:**
+
 - **Chronos** = the timeline you're on
 - **Kairos** = the moments where you could have branched
 - **Aion** = the space of all possible timelines
@@ -882,10 +953,12 @@ To reason about liveness, safety, and reconciliation properties, we introduce a 
 **Atomic propositions:** Predicates on trace space (observer-relative)
 
 **CTL\*-style language:**
+
 - State formulas: `φ ::= p | ¬φ | (φ ∧ φ) | 𝐀ψ | 𝐄ψ`
 - Path formulas: `ψ ::= φ | ¬ψ | (ψ ∧ ψ) | 𝐗ψ | 𝐅ψ | 𝐆ψ | (ψ 𝐔 ψ)`
 
 **Operators:**
+
 - `𝐀` = "for all paths" (all continuations)
 - `𝐄` = "there exists a path" (some continuation)
 - `𝐗` = "next" (one step ahead)
@@ -898,8 +971,9 @@ To reason about liveness, safety, and reconciliation properties, we introduce a 
 **Example (reconciliation):** `𝐀𝐅 p_merge` = "all branches eventually merge"
 
 **Transport lemma:** If observers `O₁, O₂` are connected by a low-distortion translator, and atomic propositions are δ-robust, then temporal formulas have the same truth values:
-```
-O₂ ⊨ φ  ⟺  (T ∘ O₁) ⊨ φ
+
+```math
+O_2 \models \varphi  \iff  (T \circ O_1) \models \varphi
 ```
 
 **Translation:** Temporal properties transport across observers when translation distortion is below the robustness threshold.
@@ -917,6 +991,7 @@ Within the Ruliad, an observer assigns traces to histories. Two observers may di
 Rulial distance is defined by an infimum over all admissible translators - like Kolmogorov complexity, it's a useful **specification** but not something we compute exactly.
 
 **Engineering approach:**
+
 1. Build explicit translators `T₁₂, T₂₁`
 2. Measure/estimate resource usage under `(τ, m)`
 3. Use `DL(T₁₂) + λ·Dist(O₂, T₁₂ ∘ O₁)` as an **upper bound** on directed cost
@@ -924,7 +999,7 @@ Rulial distance is defined by an infimum over all admissible translators - like 
 
 This turns rulial distance from an abstract infimum into an **actionable design parameter**.
 
-### Why This Matters for Echo
+### Why This Matters for Echo (Paper IV)
 
 Paper IV provides the **observer geometry**:
 
@@ -937,18 +1012,21 @@ Paper IV provides the **observer geometry**:
 7. **Three-layer time model** - Chronos (linear), Kairos (branches), Aion (possibility space)
 
 This is the foundation for:
+
 - **Observer design** - choose deployed observer `O` so required views lie in small rulial ball `B_r(O)`
 - **Trace format selection** - balance description length vs distortion for verification needs
 - **Verification cost bounds** - rulial distance predicts translation cost for compliance/debugging
 - **Counterfactual analysis** - Kairos branch points enable "what-if" exploration
 
 **Papers I-IV together:**
+
 - **Paper I** - the state space (WARPs)
 - **Paper II** - the deterministic dynamics (ticks, two-plane semantics)
 - **Paper III** - the provenance encoding (boundary holography)
 - **Paper IV** - the observer geometry (rulial distance)
 
 With these four pieces, Echo has:
+
 - A canonical state space (nested graphs)
 - Deterministic execution (scheduler-admissible batches)
 - Verifiable provenance (boundary encodings)
@@ -973,6 +1051,6 @@ When Echo diverges, it should not be a mystery or an accident.
 - When semantics genuinely diverge, document the choice and rationale.
 
 > [!note]
-> Echo does this differently (by policy). Echo prioritizes determinism + replayability *and* runtime performance. It works like this because Echo is meant to run real simulations, not just prove theorems — but every deviation from the Foundations series should be explained so readers can map paper concepts to the codebase without guesswork.
+> Echo does this differently (by policy). Echo prioritizes determinism + replayability _and_ runtime performance. It works like this because Echo is meant to run real simulations, not just prove theorems — but every deviation from the Foundations series should be explained so readers can map paper concepts to the codebase without guesswork.
 
 For canonical mappings and explicit deviation rationale, see `docs/aion-papers-bridge.md`.

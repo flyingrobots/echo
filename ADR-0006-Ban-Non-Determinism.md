@@ -1,8 +1,9 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 ## T2000 on 'em
 
-We already have the **ban-globals** drill sergeant. Now we add the rest of the “you will cry” suite: 
+We already have the **ban-globals** drill sergeant. Now we add the rest of the “you will cry” suite:
 
 - **ban nondeterministic APIs**
 - **ban unordered containers in ABI-ish structs**
@@ -136,7 +137,7 @@ echo "ban-nondeterminism: PASSED."
 
 ### `scripts/ban-unordered-abi.sh`
 
-This one is narrower: 
+This one is narrower:
 
 - **ban HashMap/HashSet inside anything that looks like ABI/codec/message structs**.
 
@@ -212,9 +213,9 @@ cargo test --all-features
 Echo is a deterministic system. We enforce this with automated bans.
 
 - **No global state**: no `OnceLock`, `LazyLock`, `lazy_static`, `thread_local`, `static mut`, or `install_*` singletons.
-  - Enforced by: `./scripts/ban-globals.sh`
+    - Enforced by: `./scripts/ban-globals.sh`
 - **No nondeterminism in core**: no time, randomness, JSON convenience layers, unordered ABI containers, or host-environment dependencies in protected crates.
-  - Enforced by: `./scripts/ban-nondeterminism.sh` and `./scripts/ban-unordered-abi.sh`
+    - Enforced by: `./scripts/ban-nondeterminism.sh` and `./scripts/ban-unordered-abi.sh`
 
 If your change trips these scripts, the fix is not “add an allowlist line.”
 The fix is **refactor the design** so determinism is true by construction.

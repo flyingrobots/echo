@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # 00 — Orientation: Shared Truth, Not Vibes
 
 This module sets the frame for the whole course.
@@ -8,9 +9,7 @@ This module sets the frame for the whole course.
 
 - What Echo is trying to be “best in class” at (determinism, replay, sync, verification).
 - What we’re proving with Demo 2 (“Splash Guy”).
-- The difference between:
-  - “the simulation is correct” and
-  - “two machines agree on what happened”.
+- The difference between “the simulation is correct” and “two machines agree on what happened”.
 
 ## The Promise (In Plain Language)
 

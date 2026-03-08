@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Procedure: GitHub Issue Dependencies (“blocked by” / “blocking”)
 
 Echo uses **native GitHub issue dependencies** (not a custom text field) for “blocked by” relationships.
@@ -31,14 +32,14 @@ gh api 'repos/OWNER/REPO/issues/N/dependencies/blocking' --jq '.[].number'
 
 Example: mark `#224` as blocked by `#223`.
 
-1) Fetch the **blocking issue’s** `issue_id`:
+1. Fetch the **blocking issue’s** `issue_id`:
 
 ```bash
 BLOCKER_ID="$(gh api 'repos/OWNER/REPO/issues/223' --jq .id)"
 echo "$BLOCKER_ID"
 ```
 
-2) Add the dependency to the **blocked issue**:
+1. Add the dependency to the **blocked issue**:
 
 ```bash
 gh api -X POST 'repos/OWNER/REPO/issues/224/dependencies/blocked_by' \

@@ -1,11 +1,12 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Demo 3 Scenario: “Tumble Tower” (Deterministic Physics)
 
 This document defines **Demo 3**: a staged, increasingly “real” physics proof that Echo can run a
 rigid-body style simulation deterministically across peers.
 
-If Demo 2 (“Splash Guy”) proves *lockstep gameplay determinism* without continuous physics, Demo 3
+If Demo 2 (“Splash Guy”) proves _lockstep gameplay determinism_ without continuous physics, Demo 3
 proves the harder claim: **deterministic physics** that stays stable over time and across machines.
 
 ---
@@ -14,10 +15,10 @@ proves the harder claim: **deterministic physics** that stays stable over time a
 
 For a fixed tick rate:
 
-1) All peers start from the same initial state (world + parameters + seed).
-2) All peers consume the same ordered input log (per tick).
-3) All peers compute a per‑tick fingerprint (hash).
-4) Fingerprints match on every tick.
+1. All peers start from the same initial state (world + parameters + seed).
+2. All peers consume the same ordered input log (per tick).
+3. All peers compute a per‑tick fingerprint (hash).
+4. Fingerprints match on every tick.
 
 If any mismatch occurs, it’s a hard failure:
 

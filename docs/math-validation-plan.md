@@ -1,9 +1,10 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Deterministic Math Validation Plan
 
 Status: this document may lag behind the current Rust-first implementation.
-Treat it as a checklist of *ideas*, not a CI contract.
+Treat it as a checklist of _ideas_, not a CI contract.
 
 If you’re looking for what we actually enforce today, start with:
 
@@ -26,12 +27,13 @@ Goal: ensure `warp-core`’s deterministic math produces **bit-identical** resul
 
 Echo currently has two deterministic-math lanes:
 
-| Lane | Build config | Target behavior |
-| ---- | ------------ | --------------- |
-| **Float lane** | default | `F32Scalar` + deterministic trig backend |
-| **Fixed lane** | `--features det_fixed` | `DFix64` (Q32.32 fixed-point) |
+| Lane           | Build config           | Target behavior                          |
+| -------------- | ---------------------- | ---------------------------------------- |
+| **Float lane** | default                | `F32Scalar` + deterministic trig backend |
+| **Fixed lane** | `--features det_fixed` | `DFix64` (Q32.32 fixed-point)            |
 
 Targets we actively care about (and already exercise in CI):
+
 - Linux glibc (default lane)
 - Linux musl (portability lane)
 - macOS (spot-check lane)
@@ -41,6 +43,7 @@ Targets we actively care about (and already exercise in CI):
 ## Validation Principles
 
 **Determinism-first (preferred):**
+
 - Use **exact** equality and bit-level checks whenever we can.
 - Treat “epsilon” tests as a last resort, and isolate them behind explicit “budget” thresholds with a stable, deterministic oracle.
 
@@ -53,12 +56,14 @@ This plan is considered “up to date” when these concrete checks exist and st
 ### 1) Scalar canonicalization invariants
 
 `F32Scalar` must enforce:
+
 - `-0.0 → +0.0`
 - NaNs canonicalized to the project’s chosen payload
 - subnormals flushed to `+0.0`
 - reflexive `Eq` (including `NaN == NaN`)
 
 See tests:
+
 - `crates/warp-core/tests/math_scalar_tests.rs`
 - `crates/warp-core/tests/determinism_policy_tests.rs`
 - `crates/warp-core/tests/nan_exhaustive_tests.rs`
@@ -66,10 +71,12 @@ See tests:
 ### 2) Deterministic transcendental surface (sin/cos)
 
 We validate two separate things:
+
 - **Bit-level stability** (golden vectors): ensure outputs don’t change across platforms.
 - **Approximation error** (budgeted audit): ensure the LUT-backed trig doesn’t drift beyond pinned error budgets.
 
 See tests:
+
 - `crates/warp-core/tests/deterministic_sin_cos_tests.rs`
 
 Note: the “audit” flavor may be `#[ignore]` depending on whether it uses a deterministic oracle; run ignored tests explicitly when present.
@@ -77,11 +84,13 @@ Note: the “audit” flavor may be `#[ignore]` depending on whether it uses a d
 ### 3) Vector/matrix/quaternion behavior
 
 We validate correctness and invariants for the math types that `warp-core` actually ships today:
+
 - `Vec3` operations (dot/cross/normalize/etc.)
 - `Mat4` rotation/multiply/transform behavior
 - `Quat` multiplication/normalization/to-mat4 behavior
 
 See tests:
+
 - `crates/warp-core/tests/math_validation.rs`
 - `crates/warp-core/tests/math_rotation_tests.rs`
 - `crates/warp-core/tests/mat4_mul_tests.rs`
@@ -89,6 +98,7 @@ See tests:
 ### 4) PRNG determinism
 
 We validate the PRNG is stable and regression-tested with golden sequences:
+
 - `crates/warp-core/tests/math_validation.rs`
 - CI also runs a targeted golden regression (see `.github/workflows/ci.yml`).
 
@@ -97,6 +107,7 @@ We validate the PRNG is stable and regression-tested with golden sequences:
 `DFix64` is feature-gated; its tests must be run under `--features det_fixed`.
 
 See tests:
+
 - `crates/warp-core/tests/dfix64_tests.rs`
 
 ---
@@ -152,6 +163,7 @@ cargo test -p warp-core --features det_fixed --target x86_64-unknown-linux-musl
 ## Guards (Non-test Determinism Enforcement)
 
 In addition to tests, we also enforce “no raw platform trig” via a repo guard script:
+
 - `scripts/check_no_raw_trig.sh`
 
 ---

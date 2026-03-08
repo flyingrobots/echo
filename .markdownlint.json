@@ -3,7 +3,7 @@
   "MD013": false,
   "MD049": false,
   "MD033": {
-    "allowed_elements": ["u8", "br", "p", "img", "a", "strong", "sub"]
+    "allowed_elements": ["u8", "br", "p", "img", "a", "strong", "sub", "i"]
   },
   "MD041": false,
   "MD046": {

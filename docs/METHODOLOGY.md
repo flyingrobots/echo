@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # JITOS Engineering Standard: The Living Specification
@@ -8,6 +8,7 @@
 **Context:** Development Methodology & Contributor Workflow
 
 > **Implementation Status Legend:**
+>
 > - ✅ **Implemented** — enforced in this repo today (CI or runtime)
 > - ⚠️ **Partial** — some pieces exist, others are in-flight
 > - 🗺️ **Planned** — vision/aspirational, not yet implemented
@@ -16,7 +17,7 @@
 
 The JITOS operating system rejects the traditional dichotomy between "code" and "documentation." Given the paradigm-shifting nature of the Causal Operating System (WARP graphs, Event Sourcing, Schrödinger Workspaces), static text is insufficient to convey system behavior.
 
-Instead, JITOS adopts the **"5x Duty" Methodology**. Every feature added to the kernel must simultaneously serve five distinct purposes through a single, unified codebase. We do not write documentation *about* the OS; we compile the OS *into* the documentation.
+Instead, JITOS adopts the **"5x Duty" Methodology**. Every feature added to the kernel must simultaneously serve five distinct purposes through a single, unified codebase. We do not write documentation _about_ the OS; we compile the OS _into_ the documentation.
 
 ## 1.1 Current Status in This Repository (Echo) ✅
 
@@ -25,12 +26,12 @@ This document describes the **target** JITOS workflow, but not every element is 
 Last reviewed: **2026-01-16**.
 
 - Implemented ✅:
-  - A living-spec scaffold exists for **Spec-000** at `specs/spec-000-rewrite/` (Leptos + Trunk).
-  - WASM-friendly DTOs live in `crates/echo-wasm-abi/` and the current “demo kernel” wrapper lives in `crates/echo-wasm-bindings/`.
+    - A living-spec scaffold exists for **Spec-000** at `specs/spec-000-rewrite/` (Leptos + Trunk).
+    - WASM-friendly DTOs live in `crates/echo-wasm-abi/` and the current “demo kernel” wrapper lives in `crates/echo-wasm-bindings/`.
 - Planned 🗺️:
-  - A `no_std` kernel crate named `crates/echo-kernel`.
-  - Hosted spec domains like `spec-001.jitos.dev`.
-  - Automatic UI-issued “Completion Hash” contributor certification.
+    - A `no_std` kernel crate named `crates/echo-kernel`.
+    - Hosted spec domains like `spec-001.jitos.dev`.
+    - Automatic UI-issued “Completion Hash” contributor certification.
 
 **Enforced today (CI)** ✅: `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings -D missing_docs`, `cargo test` (workspace + warp-core variants), `scripts/ban-globals.sh`, `scripts/ban-nondeterminism.sh`.  
 **Future vision** 🗺️: hosted spec domains, certification UI, and full `no_std` kernel split.
@@ -75,17 +76,17 @@ graph TD
 
     Source -->|Compiles| Native
     Source -->|Compiles| Wasm
-    
+
     Native --> Binary
-    
+
     Wasm --> UI
     UI -->|Embedded In| Page
     Narrative -->|Embedded In| Page
-    
+
     User((User / Dev)) -->|Reads| Narrative
     User -->|Manipulates| UI
     UI -->|Calls| Source
-    
+
     UI -->|Verifies Success| Cert
 
     style Source fill:#f96,stroke:#333,stroke-width:2px
@@ -98,7 +99,7 @@ graph TD
 Under this methodology, the "Onboarding" process is identical to the "Testing" process.
 
 1. ⚠️ **The Challenge:** A new contributor runs the current living spec locally (e.g. `make spec-000-dev`).
-2. ⚠️ **The Context:** They read the narrative explaining *why* JITOS uses append-only storage.
+2. ⚠️ **The Context:** They read the narrative explaining _why_ JITOS uses append-only storage.
 3. ⚠️ **The Interaction:** They use the embedded WASM demo to attempt a rewrite. This executes the current demo kernel logic compiled to WASM.
 4. ⚠️ **The Validation:** If they correctly perform the operation (e.g., creating a transaction rather than mutating a value), the Kernel state updates successfully.
 5. 🗺️ **The Certification:** A future UI win-condition will generate a `Completion Hash` for contributor certification.

@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo Benches (warp-benches)
 
 This crate hosts Criterion microbenchmarks for Echo’s Rust core (`warp-core`).
@@ -11,29 +12,29 @@ results. This README summarizes how to run them and read the output.
 ## What’s Here
 
 - `snapshot_hash.rs`
-  - Builds a linear chain of `n` entities reachable from `root` and measures
-    the snapshot (state_root) hash of the reachable subgraph.
-  - Throughput “elements” = nodes in the reachable set (`n` entities + 1 root).
-  - Sizes: `10`, `100`, `1000` to show order-of-magnitude scaling without long
-    runtimes.
+    - Builds a linear chain of `n` entities reachable from `root` and measures
+      the snapshot (state_root) hash of the reachable subgraph.
+    - Throughput “elements” = nodes in the reachable set (`n` entities + 1 root).
+    - Sizes: `10`, `100`, `1000` to show order-of-magnitude scaling without long
+      runtimes.
 
 - `scheduler_drain.rs`
-  - Registers a trivial no-op rule and applies it to `n` entity nodes within a
-    transaction to focus on scheduler overhead (not executor work).
-  - Throughput “elements” = rule applications (`n`). Uses `BatchSize::PerIteration`
-    so engine construction is excluded from timing.
+    - Registers a trivial no-op rule and applies it to `n` entity nodes within a
+      transaction to focus on scheduler overhead (not executor work).
+    - Throughput “elements” = rule applications (`n`). Uses `BatchSize::PerIteration`
+      so engine construction is excluded from timing.
 
 ## Run
 
 Run the full benches suite:
 
-```
+```sh
 cargo bench -p warp-benches
 ```
 
 Run a single bench target (faster dev loop):
 
-```
+```sh
 cargo bench -p warp-benches --bench snapshot_hash
 cargo bench -p warp-benches --bench scheduler_drain
 ```
@@ -44,7 +45,7 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
 
 - Live server + dashboard: `make bench-report` opens `http://localhost:8000/docs/benchmarks/`.
 - Offline static report (no server): `make bench-bake` writes `docs/benchmarks/report-inline.html` with results injected.
-  - Open the file directly (Finder or `open docs/benchmarks/report-inline.html`).
+    - Open the file directly (Finder or `open docs/benchmarks/report-inline.html`).
 
 ## Interpreting Results
 
@@ -59,7 +60,7 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
 - Dependency policy: avoid wildcards; benches use an exact patch pin for `blake3`
   with trimmed features to avoid incidental parallelism:
   `blake3 = { version = "=1.8.2", default-features = false, features = ["std"] }`.
-- Repro: keep your machine under minimal background load; prefer `--quiet` and 
+- Repro: keep your machine under minimal background load; prefer `--quiet` and
   close other apps.
 
 ## Flamegraphs (optional)
@@ -67,7 +68,7 @@ Criterion HTML reports are written under `target/criterion/<group>/report/index.
 If you have [`inferno`](https://github.com/jonhoo/inferno) or `cargo-flamegraph`
 installed, you can profile a bench locally. Example (may require sudo on Linux):
 
-```
+```sh
 cargo flamegraph -p warp-benches --bench snapshot_hash -- --sample-size 50
 ```
 

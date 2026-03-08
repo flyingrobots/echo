@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # SPEC: Worldlines, PlaybackCursors, ViewSessions, and TruthBus
@@ -751,7 +751,7 @@ Ordering is stable (bytewise).
 ## 17) OPORD: 6 Commits + Green Gates
 
 ```markdown:disable-run
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # OPORD: Implement Worldlines + PlaybackCursors + ViewSessions + TruthBus
 

@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Start Here
 
 This page is the “front door” for Echo. If you only read one guide before diving into specs or code,
@@ -14,7 +15,7 @@ Echo is a deterministic simulation core built around **WARP**:
 - Determinism is treated as a first-class feature: replay, hashing, slicing, and sync are design inputs.
 
 If you come in expecting a traditional ECS, it helps to reframe:
-ECS is a *useful storage and API layer*, but the deeper “ground truth” model is the graph rewrite system.
+ECS is a _useful storage and API layer_, but the deeper “ground truth” model is the graph rewrite system.
 
 ## Recommended Reading Paths
 
@@ -36,8 +37,7 @@ ECS is a *useful storage and API layer*, but the deeper “ground truth” model
 2. Collision tour: [/guide/collision-tour](/guide/collision-tour)
 3. Interactive collision DPO tour (static HTML): [/collision-dpo-tour.html](/collision-dpo-tour.html)
 
-### Collision DPO Tour (what to expect):
-
+### Collision DPO Tour (what to expect)
 
 - The tour shows collision + CCD as **graph rewrites** and lets you step rule-by-rule.
 - Use the World/Graph tabs in the picture-in-picture panel to compare model vs visualization.

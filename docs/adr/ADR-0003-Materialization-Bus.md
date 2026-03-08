@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR-000X: Causality-First API — Ingress + MaterializationPort, No Direct Graph Writes
 
 - **Status:** Implemented
@@ -51,7 +52,7 @@ Consumers receive `MaterializationFrame` bytes; the bus stays internal.
 **Critical distinction:**
 
 - **Determinism**: Same bytes every run (timing-independent)
-- **Confluence**: Same *meaning* regardless of rewrite order
+- **Confluence**: Same _meaning_ regardless of rewrite order
 
 The bus must satisfy both. Picking a "canonical winner" (e.g., max key) is deterministic but violates confluence by silently discarding values that should exist.
 
@@ -67,11 +68,11 @@ Where `EmitKey = (scope_hash, compact_rule_id)` — computable from executor con
 
 #### Channel Policies
 
-| Policy | Behavior | Use Case |
-| ------ | -------- | -------- |
-| `Log` (default) | All emissions in EmitKey order | Event streams, traces, multi-writer channels |
-| `StrictSingle` | Error if >1 emission | Catch bugs; enforce single-writer semantically |
-| `Reduce { join_fn }` | Merge via deterministic join function | Semantic coalescing with explicit merge logic |
+| Policy               | Behavior                              | Use Case                                       |
+| -------------------- | ------------------------------------- | ---------------------------------------------- |
+| `Log` (default)      | All emissions in EmitKey order        | Event streams, traces, multi-writer channels   |
+| `StrictSingle`       | Error if >1 emission                  | Catch bugs; enforce single-writer semantically |
+| `Reduce { join_fn }` | Merge via deterministic join function | Semantic coalescing with explicit merge logic  |
 
 **Banned:** Silent "winner picks" (e.g., max-key-wins). This violates confluence by hiding values.
 

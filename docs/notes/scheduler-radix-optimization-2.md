@@ -1,13 +1,18 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # From $O(n \log n)$ to $O(n)$: Optimizing Echo’s Deterministic Scheduler
+
+> **Provenance:** This document supersedes `docs/archive/notes/scheduler-radix-optimization.md`. See the archive for earlier analysis.
+
 **Tags:** performance, algorithms, optimization, radix-sort
 
 ---
+
 ## TL;DR
 
-- **Echo** runs at **60 fps** while processing **~5,000 DPO graph rewrites per frame**.  
-- Determinism at *game scale* is **confirmed**.  
+- **Echo** runs at **60 fps** while processing **~5,000 DPO graph rewrites per frame**.
+- Determinism at _game scale_ is **confirmed**.
 - Scheduler now **linear-time** with **zero small-$n$ regressions**.
 
 ---
@@ -18,12 +23,13 @@
 Although its applications span far beyond games, we’ll view it through the lens of a **game engine**.
 
 Traditional engines manage state via **mutable object hierarchies** and **event loops**.  
-Echo represents the *entire* simulation as a **typed graph** that evolves through **deterministic rewrite rules**—mathematical transformations that guarantee **bit-identical results** across platforms, replays, and networked peers.
+Echo represents the _entire_ simulation as a **typed graph** that evolves through **deterministic rewrite rules**—mathematical transformations that guarantee **bit-identical results** across platforms, replays, and networked peers.
 
-At Echo’s core lies the **WARP graph (WARP)**:  
-- **Nodes are graphs** (a “player” is a subgraph with its own internal structure).  
-- **Edges are graphs** (carry provenance and nested state).  
-- **Rules are graph rewrites** (pattern-match → replace).  
+At Echo’s core lies the **WARP graph (WARP)**:
+
+- **Nodes are graphs** (a “player” is a subgraph with its own internal structure).
+- **Edges are graphs** (carry provenance and nested state).
+- **Rules are graph rewrites** (pattern-match → replace).
 
 Every frame the WARP is replaced by a new WARP—an **echo** of the previous state.
 
@@ -31,10 +37,10 @@ Every frame the WARP is replaced by a new WARP—an **echo** of the previous sta
 
 They excel at **rendering** and **asset pipelines**, but their **state-management foundation** is fragile for the hardest problems in game dev:
 
-| Problem | Symptom |
-|---------|---------|
-| **Divergent state** | Rubber-banding, client-side prediction, authoritative corrections |
-| **Non-reproducible bugs** | “Works on my machine”, heisenbugs |
+| Problem                   | Symptom                                                           |
+| ------------------------- | ----------------------------------------------------------------- |
+| **Divergent state**       | Rubber-banding, client-side prediction, authoritative corrections |
+| **Non-reproducible bugs** | “Works on my machine”, heisenbugs                                 |
 
 Echo eliminates both by making **state immutable** and **updates pure functions**.
 
@@ -45,15 +51,15 @@ Echo eliminates both by making **state immutable** and **updates pure functions*
 Think of each frame as an **immutable commit** with a **cryptographic hash** over the reachable graph (canonical byte order).  
 Player inputs become **candidate rewrites**. Thanks to **confluence** (category-theory math), all inputs fold into a **single deterministic effect**.
 
-```text
-(world, inputs) → world′
+```math
+(world, inputs) \to world'
 ```
 
 No prediction. No rollback. No arbitration. If two machines disagree, a **hash mismatch at frame N+1** is an immediate, precise alarm.
 
 ### Deterministic branching & merge (ASCII)
 
-```
+```text
 Frame₀
    │
    ▼
@@ -71,13 +77,13 @@ Frame₀
 
 ## What Echo Unlocks
 
-|Feature|Traditional Engine|Echo|
-|---|---|---|
-|**Perfect replays**|Recorded inputs + heuristics|Recompute from any commit|
-|**Infinite debugger**|Breakpoints + logs|Query graph provenance|
-|**Provable fairness**|Trust server|Cryptographic hash signature|
-|**Zero silent desync**|Prediction errors|Immediate hash check|
-|**Networking**|Send world diff|Send inputs only|
+| Feature                | Traditional Engine           | Echo                         |
+| ---------------------- | ---------------------------- | ---------------------------- |
+| **Perfect replays**    | Recorded inputs + heuristics | Recompute from any commit    |
+| **Infinite debugger**  | Breakpoints + logs           | Query graph provenance       |
+| **Provable fairness**  | Trust server                 | Cryptographic hash signature |
+| **Zero silent desync** | Prediction errors            | Immediate hash check         |
+| **Networking**         | Send world diff              | Send inputs only             |
 
 ---
 
@@ -87,7 +93,7 @@ When multiple updates touch the same state, Echo **merges** them via **lattice o
 
 - **Associative**, **Commutative**, **Idempotent**
 
-**Examples**
+### Examples
 
 - Tag union: join(A, B) = A ∪ B
 - Scalar cap: join(Cap(a), Cap(b)) = Cap(max(a, b))
@@ -110,10 +116,12 @@ The full pipeline:
 2. Bucket by (scope, rule_family).
 3. **Confluence-fold** each bucket (ACI).
 4. Apply remaining rewrites in **lexicographic order**:
-```
+
+```text
 (scope_hash, rule_id, nonce)
 ```
-5. Emit snapshot & compute commit hash.
+
+1. Emit snapshot & compute commit hash.
 
 ---
 
@@ -123,7 +131,7 @@ The full pipeline:
 
 > Match: entity with position p, velocity v Replace: p′ = p + v·dt (velocity unchanged)
 
-**Cap lattice**
+### Cap lattice
 
 > join(Cap(α), Cap(β)) = Cap(max(α, β)) {Cap(2), Cap(5), Cap(3)} → Cap(5) (order-independent)
 
@@ -133,13 +141,13 @@ These primitives—**rewrites** + **lattices**—are the DNA of Echo’s determi
 
 ## Echo vs. the World
 
-|Property|Echo|
-|---|---|
-|**Determinism by design**|Same inputs → same outputs (no FP drift, no races)|
-|**Formal semantics**|DPO category theory → provable transitions|
-|**Replay from the future**|Rewind, fork, checkpoint any frame|
-|**Networked lockstep**|Send inputs only; hash verifies sync|
-|**AI training paradise**|Reproducible episodes = debuggable training|
+| Property                   | Echo                                               |
+| -------------------------- | -------------------------------------------------- |
+| **Determinism by design**  | Same inputs → same outputs (no FP drift, no races) |
+| **Formal semantics**       | DPO category theory → provable transitions         |
+| **Replay from the future** | Rewind, fork, checkpoint any frame                 |
+| **Networked lockstep**     | Send inputs only; hash verifies sync               |
+| **AI training paradise**   | Reproducible episodes = debuggable training        |
 
 Echo isn’t just another ECS—it’s a **new architectural paradigm**.
 
@@ -155,7 +163,7 @@ Initial implementation:
 pub(crate) pending: BTreeMap<(Hash, Hash), PendingRewrite>;
 ```
 
-**Bottleneck**: Draining + sorting $n$ entries → $O(n \log n)$ 256-bit comparisons.
+**Bottleneck**: Insertions into the `BTreeMap` required $O(n \log n)$ comparisons over 256-bit scope hashes; draining via `BTreeMap::drain()` was $O(n)$.
 
 | $n$   | Time        |
 | ----- | ----------- |
@@ -170,7 +178,7 @@ Curve fit: $T/n ≈ -345 + 272.7 \ln n$ → textbook $O(n \log n)$.
 
 Radix sort is **comparison-free** → $O(n)$ for fixed-width keys.
 
-**Design choices**
+### Design choices
 
 - **LSD** (least-significant digit first)
 - **16-bit digits** (big-endian)
@@ -211,11 +219,11 @@ Each pass: **count → prefix-sum → scatter → flip buffers**.
 
 Initial radix numbers were _worse_ at low $n$:
 
-|$n$|BTreeMap|Radix|Regression|
-|---|---|---|---|
-|10|7.5 µs|**687 µs**|**91× slower**|
-|100|90 µs|**667 µs**|**7× slower**|
-|1,000|1.33 ms|1.36 ms|marginal|
+| $n$   | BTreeMap | Radix      | Regression     |
+| ----- | -------- | ---------- | -------------- |
+| 10    | 7.5 µs   | **687 µs** | **91× slower** |
+| 100   | 90 µs    | **667 µs** | **7× slower**  |
+| 1,000 | 1.33 ms  | 1.36 ms    | marginal       |
 
 **Culprit**: counts.fill(0) **20 times** → **5 MiB** of writes _regardless_ of $n$. At $n=10$, sorting cost was dwarfed by memory bandwidth.
 
@@ -245,14 +253,14 @@ if n > 1 {
 
 ## The Results: Perfect $O(n)$ Scaling
 
-|$n$|Old (BTreeMap)|New (Hybrid)|Speedup|ns/rewrite|
-|---|---|---|---|---|
-|10|7.5 µs|7.6 µs|-1%|760|
-|100|90 µs|76 µs|**+16%**|760|
-|1,000|1.33 ms|**0.75 ms**|**+44%**|750|
-|3,000|—|3.03 ms|—|1,010|
-|10,000|—|9.74 ms|—|974|
-|30,000|—|29.53 ms|—|984|
+| $n$    | Old (BTreeMap) | New (Hybrid) | Speedup  | ns/rewrite |
+| ------ | -------------- | ------------ | -------- | ---------- |
+| 10     | 7.5 µs         | 7.6 µs       | -1%      | 760        |
+| 100    | 90 µs          | 76 µs        | **+16%** | 760        |
+| 1,000  | 1.33 ms        | **0.75 ms**  | **+44%** | 750        |
+| 3,000  | —              | 3.03 ms      | —        | 1,010      |
+| 10,000 | —              | 9.74 ms      | —        | 974        |
+| 30,000 | —              | 29.53 ms     | —        | 984        |
 
 _From 3 k → 30 k (10×) → **9.75×** time → textbook linear._
 
@@ -334,7 +342,7 @@ When you can execute **30,000 deterministic rewrites per frame** and still hit *
 - **Implementation**: crates/warp-core/src/scheduler.rs (see `radix_sort`, `drain_in_order`)
 - **Benchmarks**: crates/warp-benches/benches/scheduler_drain.rs
 - **Dashboard**: `docs/benchmarks/report-inline.html`
-- **PR**: pending on branch repo/tidy
+- **PR**: The radix optimization work has been merged to main.
 
 ---
 

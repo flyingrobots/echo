@@ -1,8 +1,9 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
+# WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
+
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 Status: Draft • Date: 2025-10-27 • Owner: warp-core
 
@@ -13,35 +14,41 @@ We want lock-free multi-writer/multi-reader (MWMR) deterministic rewriting. Unde
 ## Runtime Model
 
 State ⟨G, epoch_att, epoch_skel, P⟩
+
 - G: working graph (skeleton + attachments)
 - epoch_att / epoch_skel: monotonically increasing u64 counters (attachments, skeleton)
 - P: pending rewrites ⟨rule, match, footprint, stamp, phase⟩
 
 Phases
+
 - MATCH: compute monic match m: L ↪ G; gluing tests; compute footprint F; enqueue Matched
 - RESERVE (lock-free OCC): allowed iff independent(F, Y.F) for all Y with phase∈{Reserved,Committed}; then phase := Reserved
 - COMMIT (bounded CAS):
-  - (a) skeleton edits (N/E) with release-stores
-  - (b) port occupancy (B) with release-stores
-  - publish journals; if any P_write ⇒ epoch_att++; if any N/E_write ⇒ epoch_skel++
+    - (a) skeleton edits (N/E) with release-stores
+    - (b) port occupancy (B) with release-stores
+    - publish journals; if any P_write ⇒ epoch_att++; if any N/E_write ⇒ epoch_skel++
 - ABORT/RETRY/JOIN on independence failure or validation error
 
 Reader isolation
+
 - Readers acquire both epochs at entry and never see torn state; flips happen only after publication. Reclamation after a grace period.
 
 ## Footprints & Independence
 
 Footprint F = (N_read, N_write, E_read, E_write, B_in, B_out; factor_mask)
-- N_*: node bitmaps; E_*: edge bitmaps
+
+- `N_read`/`N_write`: node bitmaps; `E_read`/`E_write`: edge bitmaps
 - B_in/B_out: boundary port occupancy bitmaps; port key = `(node_id << 32) | (port_id << 2) | dir_bits`
 - factor_mask: u64 coarse partition (room/shard/system factor)
 
 Independence(F1,F2) iff
+
 - (F1.N_write ∪ F1.E_write ∪ F1.B_in ∪ F1.B_out) is disjoint from all read/write sets of F2, and symmetrically; and
 - (F1.factor_mask & F2.factor_mask) == 0
 
 Ordering & determinism
-- Physical execution is parallel; planning/logs use a stable key `(scope_hash, rule_id, stamp)`; results are order-independent by Theorem A.
+
+- Physical execution is parallel; planning/logs use a stable key `(scope_hash, rule_id, stamp)`; results are order-independent by the Skeleton-plane Tick Confluence theorem (Paper II, §6, Thm. 6.1).
 
 ## Scheduler & Batching
 
@@ -78,10 +85,12 @@ Ordering & determinism
 ## Performance Targets
 
 Baseline demo (Phase 1):
+
 - 1k nodes; 10 concurrent rewrites/tick @ 60 FPS
 - Independence + commit ≤ 2 ms; matching ≤ 8 ms (typed, local, incremental optional)
 
 Stretch demo (Phase 2):
+
 - 10k nodes; 100 concurrent rewrites/tick; SIMD bitmaps + factor masks + incremental caches
 
 ## Telemetry (JSONL)
@@ -101,19 +110,23 @@ Stretch demo (Phase 2):
 ## Roadmap & Deliverables
 
 Phase 0 (Tick determinism)
+
 - Footprint + independence (ports/nodes/edges/factor)
 - MIS batch planner; permutation test for isomorphic results
 - Two-plane commutation harness under no-delete-under-descent
 
 Phase 1 (Baseline performance)
+
 - SIMD bitmaps; factor masks; CompactRuleId(u32); basic telemetry
 - Bench 1k×10 @ 60 FPS; independence+commit ≤ 2 ms
 
 Phase 2 (Optimization)
+
 - Spatial indexing/sharding; incremental matching; join catalog; Merkle overlays
 - Bench 10k×100; independence ≤ 2 ms; matching ≤ 8 ms
 
 Phase 3 (Real demo)
+
 - Multiplayer confluence demo (zero desync), time‑travel fork/merge, inspector visualization of footprints/conflicts
 
 References: confluence skeleton v5, WARP math confluence, offset-graph arena notes, SPEC-0003 (DPO concurrency litmus)

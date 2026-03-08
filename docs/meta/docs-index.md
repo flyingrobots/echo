@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Echo Docs Map
@@ -57,7 +57,10 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `meta/docs-index.md`                                           | This index                                                                                                             |
 | `hash-graph.md`                                                | Hash relationships across subsystems                                                                                   |
 | `meta/legacy-excavation.md`                                    | Historical artifact log                                                                                                |
-| `memorial.md`                                                  | Tribute to Caverns                                                                                                     |
+| `memorials/2026-01-18-phase4-rubicon.md`                       | Phase 4 milestone retrospective (SnapshotAccumulator "Rubicon Crossing")                                               |
+| `determinism/DETERMINISM_CLAIMS_v0.1.md`                       | Verified determinism claims (DET-001 through DET-005)                                                                  |
+| `guide/configuration-reference.md`                             | Engine parameters, protocol constants, environment variables                                                           |
+| `guide/cargo-features.md`                                      | Cargo feature flags across the workspace                                                                               |
 | `release-criteria.md`                                          | Phase transition checklist                                                                                             |
 
 ## Start Here
@@ -149,13 +152,11 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`notes/project-tour-2025-12-28.md`](/notes/project-tour-2025-12-28)                                                         | Echo Project Tour (2025-12-28)                                                        |
 | [`notes/scheduler-optimization-followups.md`](/notes/scheduler-optimization-followups)                                       | Scheduler Optimization Follow-up Tasks                                                |
 | [`notes/scheduler-radix-optimization-2.md`](/notes/scheduler-radix-optimization-2)                                           | From $O(n \\log n)$ to $O(n)$: Optimizing Echo’s Deterministic Scheduler              |
-| [`notes/scheduler-radix-optimization.md`](/notes/scheduler-radix-optimization)                                               | From $O(n log n)$ to $O(n)$: Optimizing Echo's Deterministic Scheduler                |
-| [`notes/xtask-wizard.md`](/notes/xtask-wizard)                                                                               | xtask "workday wizard" — concept note                                                 |
 | [`phase1-plan.md`](/phase1-plan)                                                                                             | Phase 1 – Core Ignition Plan                                                          |
 | [`procedures/EXTRACT-PR-COMMENTS.md`](/procedures/EXTRACT-PR-COMMENTS)                                                       | Procedure: Extract Actionable Comments from PR Review Threads (CodeRabbitAI + Humans) |
 | [`procedures/ISSUE-DEPENDENCIES.md`](/procedures/ISSUE-DEPENDENCIES)                                                         | Procedure: GitHub Issue Dependencies (“blocked by” / “blocking”)                      |
 | [`procedures/PR-SUBMISSION-REVIEW-LOOP.md`](/procedures/PR-SUBMISSION-REVIEW-LOOP)                                           | Procedure: PR Submission + CodeRabbitAI Review Loop                                   |
-| [`public/assets/collision/README.md`](public/assets/collision/README.md)                                                     | Collision/CCD DPO Diagrams                                                            |
+| [`public/assets/collision/README.md`](../public/assets/collision/README.md)                                                  | Collision/CCD DPO Diagrams                                                            |
 | [`release-criteria.md`](/release-criteria)                                                                                   | Release Criteria — Phase 0.5 → Phase 1                                                |
 | [`roadmap-mwmr-mini-epic.md`](/roadmap-mwmr-mini-epic)                                                                       | MWMR Concurrency Mini‑Epic Roadmap (Footprints, Reserve Gate, Telemetry)              |
 | [`runtime-diagnostics-plan.md`](/runtime-diagnostics-plan)                                                                   | Runtime Diagnostics Plan (Phase 0.5)                                                  |
@@ -170,11 +171,11 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`spec-canonical-inbox-sequencing.md`](/spec-canonical-inbox-sequencing)                                                     | Spec: Canonical Inbox Sequencing + Deterministic Scheduler Tie-Break                  |
 | [`spec-capabilities-and-security.md`](/spec-capabilities-and-security)                                                       | Capabilities & Security Specification (Phase 0.5)                                     |
 | [`spec-concurrency-and-authoring.md`](/spec-concurrency-and-authoring)                                                       | Concurrency & Authoring Specification (Phase 0.75)                                    |
-| [`spec-deterministic-math.md`](/spec-deterministic-math)                                                                     | Deterministic Math Module Specification (Phase 0)                                     |
+| [`spec-deterministic-math.md`](/spec-deterministic-math)                                                                     | Redirect: archived (legacy Phase 0 draft)                                             |
 | [`spec-ecs-storage.md`](/spec-ecs-storage)                                                                                   | Echo ECS Storage Blueprint (Phase 0)                                                  |
 | [`spec-editor-and-inspector.md`](/spec-editor-and-inspector)                                                                 | Inspector & Editor Protocol Specification (Phase 0.75)                                |
 | [`spec-entropy-and-paradox.md`](/spec-entropy-and-paradox)                                                                   | Entropy & Paradox Specification (Phase 0.75)                                          |
-| [`spec-geom-collision.md`](/spec-geom-collision)                                                                             | Geometry & Collision (Spec Stub)                                                      |
+| [`spec-geom-collision.md`](/spec-geom-collision)                                                                             | Redirect: archived (stub with no normative content)                                   |
 | [`spec-knots-in-time.md`](/spec-knots-in-time)                                                                               | Knots In (and Over) Graphs — Time Knots for Echo                                      |
 | [`spec-merkle-commit.md`](/spec-merkle-commit)                                                                               | Snapshot Commit Spec (v2)                                                             |
 | [`spec-mwmr-concurrency.md`](/spec-mwmr-concurrency)                                                                         | WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks)                          |
@@ -199,3 +200,31 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`warp-demo-roadmap.md`](/warp-demo-roadmap)                                                                                 | WARP Demo Roadmap (Phase 1 Targets)                                                   |
 | [`warp-runtime-architecture.md`](/warp-runtime-architecture)                                                                 | WARP Runtime Architecture (Phase 1 Blueprint)                                         |
 | [`workflows.md`](/workflows)                                                                                                 | Workflows (Contributor Playbook)                                                      |
+
+## Archive
+
+Superseded and stale documents live in [`docs/archive/`](../archive/).
+
+| Redirect stub                                                                  | Status                                     |
+| ------------------------------------------------------------------------------ | ------------------------------------------ |
+| [`notes/scheduler-radix-optimization.md`](/notes/scheduler-radix-optimization) | Archived (superseded by `-2` version)      |
+| [`notes/xtask-wizard.md`](/notes/xtask-wizard)                                 | Archived (concept note, never implemented) |
+
+Each
+original location has a minimal redirect stub pointing to the archived file and
+its replacement. See the archive directory for: legacy Phase 0 specs, concept
+notes that were never implemented, and plans for features that have been
+completed.
+
+Example redirect stub:
+
+```markdown
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+
+# Title (Archived)
+
+> **Archived:** YYYY-MM-DD (PR #NNN)
+> **Reason:** Brief explanation of why this was archived.
+
+Moved to [docs/archive/...](archive/...).
+```

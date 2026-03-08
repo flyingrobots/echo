@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 <p align="center">
@@ -73,6 +73,8 @@ If you've ever built a game, simulation, or distributed system and wished state 
 >
 > If you need a plug-and-play game engine today, this isn't that (yet).
 > If you need deterministic, replayable state transitions you can prove, it is.
+>
+> See [determinism claims](docs/determinism/DETERMINISM_CLAIMS_v0.1.md) for verified guarantees.
 
 - `crates/warp-core` — deterministic rewrite engine: canonical scheduling, parallel execution with deterministic results independent of CPU count, snapshot and commit hashing. See [`docs/architecture-outline.md`](docs/architecture-outline.md) for detailed API documentation.
 - `crates/warp-geom` — geometry primitives (currently isolated).
@@ -136,6 +138,12 @@ cargo run -p warp-viewer
 # Build the docs site
 make docs
 ```
+
+## Reference Docs
+
+- [Configuration Reference](docs/guide/configuration-reference.md) — engine parameters, protocol constants, environment variables
+- [Cargo Feature Flags](docs/guide/cargo-features.md) — all compile-time features across the workspace
+- [Deterministic Math Policy](docs/SPEC_DETERMINISTIC_MATH.md) — normative rules for IEEE 754 handling
 
 ## The Stack
 

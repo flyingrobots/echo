@@ -1,17 +1,19 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # TimeStreams, Cursors, and Wormholes (Multi-Clock Time for Echo)
+
 > **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
-
 Status: Draft Spec (Phase 0.75)  
-Date: 2026-01-01  
+Date: 2026-01-01
 
 This spec formalizes “time” in Echo as **multiple independent event streams** (“clocks”) with explicit **admission policies** into a **deterministic simulation worldline**.
 
 It also clarifies how **wormholes** (reserved term: tick-range compression) enable “instant catch-up” and fast seeking without weakening provenance guarantees.
 
 Related docs:
+
 - `docs/spec-timecube.md` (Chronos × Kairos × Aion)
 - `docs/spec-networking.md` (rollback/branching networking modes)
 - `docs/spec-temporal-bridge.md` (cross-branch delivery lifecycle)
@@ -42,7 +44,7 @@ Then define the simulation as:
 - a **worldline** (Chronos over a branch) that evolves only by **journaled graph rewrites**, and
 - a set of **stream cursors** (per view / per worldline branch) that decide which stream events have been **admitted** into that worldline.
 
-“Pausing a clock” becomes: *freeze a cursor and/or change admission policy*, not “stop the world.”
+“Pausing a clock” becomes: _freeze a cursor and/or change admission policy_, not “stop the world.”
 
 ---
 
@@ -68,6 +70,7 @@ replay must not require reading the host clock.
 ### Wall Clock (`W`)
 
 The OS monotonic clock. It always moves forward and may be used for:
+
 - pacing UI and rendering,
 - timeouts/retries in adapters,
 - metadata (“this observation was read at wall time W”).
@@ -77,6 +80,7 @@ Wall clock is **not authoritative** for deterministic simulation state.
 ### Chronos Tick (`T`)
 
 Simulation time for a fixed worldline:
+
 - `Tick(u64)` (discrete)
 - optionally a derived `SimTime = Tick * dt_fixed`
 
@@ -87,11 +91,13 @@ Chronos is the index for replay, diffs, and deterministic stepping (`docs/spec-t
 An append-only log of events produced by some domain.
 
 Minimum properties:
-- Each event has a **monotonic** stream-local sequence number `seq` (no gaps in the produced ordering).
-- Each event may include `wall_time` metadata (for UX and diagnostics).
-- Each event’s payload is canonically encodable (for hashing/dedup where needed).
+
+- Events carry a monotonic stream-local sequence number (`seq`).
+- An optional `wall_time` field provides UX/diagnostic metadata.
+- The payload is canonically encodable for hashing and dedup.
 
 Examples:
+
 - `NetworkRx`: inbound bytes/messages observed from sockets
 - `NetworkTx`: outbound sends initiated by the simulation (often derivable from rewrites, but may still be useful as a stream for tooling)
 - `GameInput`: “intended player actions” admitted into the sim
@@ -120,7 +126,7 @@ This makes “consult HostTime” replay-safe: replays consume the recorded deci
 Clock decisions solve the “what time is it?” class of nondeterminism. Time travel and distributed sessions add a second class:
 
 - the OS/network can produce events at unpredictable wall times, and
-- the simulation must decide *when* those events become semantically real (admitted) for a given view/worldline.
+- the simulation must decide _when_ those events become semantically real (admitted) for a given view/worldline.
 
 To keep simulation rules pure and replayable, we treat “admission” itself as a **decision record** that is committed into history.
 
@@ -135,19 +141,19 @@ A `StreamAdmissionDecision` must pin enough information that replay can reconstr
 Minimum fields:
 
 - **Identity**
-  - `decision_id`: derived stable id for cross-references (see below; not separately encoded)
-  - `view_id`: which view/session this applies to (e.g., `ViewSim(A)` vs `ViewTool(A)`)
-  - `stream_id`: which stream (e.g., `NetRx(A)`, `ToolInput`)
+    - `decision_id`: derived stable id for cross-references (see below; not separately encoded)
+    - `view_id`: which view/session this applies to (e.g., `ViewSim(A)` vs `ViewTool(A)`)
+    - `stream_id`: which stream (e.g., `NetRx(A)`, `ToolInput`)
 - **Where in HistoryTime**
-  - `worldline_ref`: branch/worldline identifier (Kairos + Aion coordinates as needed; pinned by the snapshot header, not separately encoded in the admission digest)
-  - `admit_at_tick`: Chronos tick at which admission occurred
+    - `worldline_ref`: branch/worldline identifier (Kairos + Aion coordinates as needed; pinned by the snapshot header, not separately encoded in the admission digest)
+    - `admit_at_tick`: Chronos tick at which admission occurred
 - **What was admitted**
-  - `admitted_range`: `[from_seq, to_seq]` (inclusive) or an explicit list for sparse admission
-  - `admitted_digest`: canonical digest of the admitted event payloads (or their canonical encodings)
+    - `admitted_range`: `[from_seq, to_seq]` (inclusive) or an explicit list for sparse admission
+    - `admitted_digest`: canonical digest of the admitted event payloads (or their canonical encodings)
 - **Why / how it was chosen**
-  - `policy_hash`: stable hash of the admission policy version + parameters
-  - `budget`: the configured admission budgets for this tick (msgs/bytes/work units)
-  - `fairness_order_digest`: digest of the deterministic source ordering used for selection (e.g., connection ids)
+    - `policy_hash`: stable hash of the admission policy version + parameters
+    - `budget`: the configured admission budgets for this tick (msgs/bytes/work units)
+    - `fairness_order_digest`: digest of the deterministic source ordering used for selection (e.g., connection ids)
 
 #### Canonical schema (illustrative)
 
@@ -155,33 +161,35 @@ This is a conceptual schema; the on-wire encoding must use Echo’s canonical en
 
 ```ts
 interface StreamAdmissionDecision {
-  // Derived ID for cross-references. If serialized redundantly, it must match
-  // the deterministic derivation described below.
-  decisionId?: string;
-  viewId: string;
-  streamId: string;
+    // Derived ID for cross-references. If serialized redundantly, it must match
+    // the deterministic derivation described below.
+    decisionId?: string;
+    viewId: string;
+    streamId: string;
 
-  // Where in the replayable history this admission takes effect.
-  // Worldline reference (Kairos/Aion coordinates). This is pinned by the
-  // snapshot header in commit ancestry and may be omitted from the admission
-  // digest encoding.
-  worldlineRef: {
-    universe: string; // Aion id
-    branch: string;   // Kairos id
-  };
-  admitAtTick: number; // Chronos tick
+    // Where in the replayable history this admission takes effect.
+    // Worldline reference (Kairos/Aion coordinates). This is pinned by the
+    // snapshot header in commit ancestry and may be omitted from the admission
+    // digest encoding.
+    worldlineRef: {
+        universe: string; // Aion id
+        branch: string; // Kairos id
+    };
+    admitAtTick: number; // Chronos tick
 
-  // What was admitted from the stream.
-  admittedRange?: { fromSeq: number; toSeq: number }; // inclusive
-  admittedSeqs?: number[]; // for sparse admission
-  admittedDigest: string; // digest(canonical(event_i)) over admitted events
+    // What was admitted from the stream.
+    admittedRange?: { fromSeq: number; toSeq: number }; // inclusive
+    admittedSeqs?: number[]; // for sparse admission
+    admittedDigest: string; // digest(canonical(event_i)) over admitted events
 
-  // Determinism pins.
-  policyHash: string;
-  budget: { maxEvents?: number; maxBytes?: number; maxWorkUnits?: number };
-  fairnessOrderDigest?: string;
+    // Determinism pins.
+    policyHash: string;
+    budget: { maxEvents?: number; maxBytes?: number; maxWorkUnits?: number };
+    fairnessOrderDigest?: string;
 }
 ```
+
+The canonical serialization order follows schema declaration order as listed above. Optional fields are always serialized (with null/default values). Implementations MUST NOT reorder fields.
 
 ##### `decision_id` derivation (required for determinism)
 
@@ -190,8 +198,7 @@ interface StreamAdmissionDecision {
 - Let `decision_record_bytes_v1` be the per-decision canonical bytes used inside
   the `admission_digest` encoding (see `docs/spec-merkle-commit.md`).
 - Then:
-
-  - `decision_id = blake3( "echo:stream_admission_decision_id:v1\0" || decision_record_bytes_v1 )`
+    - `decision_id = blake3( "echo:stream_admission_decision_id:v1\0" || decision_record_bytes_v1 )`
 
 Domain separation ensures `decision_id` cannot be confused with other digests.
 
@@ -228,17 +235,17 @@ However, Echo also distinguishes between:
 
 To keep commit hash v2 stable (patch-digest-only) while still making time travel auditable and replayable:
 
-- The *semantic effect* of admitting stream events is captured by the worldline (via observation rewrites / tick patch ops).
-- The *admission decision record* itself must be persisted as a deterministic **diagnostic lane** alongside the tick patch/receipt.
+- The _semantic effect_ of admitting stream events is captured by the worldline (via observation rewrites / tick patch ops).
+- The _admission decision record_ itself must be persisted as a deterministic **diagnostic lane** alongside the tick patch/receipt.
 
 Concretely:
 
 1. Each committed tick produces (at minimum) a tick patch `μ` (`docs/spec-warp-tick-patch.md`) and a tick receipt digest (`decision_digest`) (`docs/spec-merkle-commit.md`).
 2. When stream admission is in play, the engine/tooling layer must also emit a deterministic `StreamAdmissionDecision` log for that tick.
 3. The snapshot includes an `admission_digest` (deterministic digest of those admission decision records) so tools can:
-   - verify they are present and untampered,
-   - fetch/index them for time-travel debugging,
-   - reproduce “why/how was this admitted?” narratives without consulting HostTime.
+    - verify they are present and untampered,
+    - fetch/index them for time-travel debugging,
+    - reproduce “why/how was this admitted?” narratives without consulting HostTime.
 
 This makes admission decisions part of “the history you can fold over” (HistoryTime), without forcing them into the core state delta format.
 See `docs/spec-merkle-commit.md` for `admission_digest`.
@@ -252,8 +259,9 @@ Important: the stream keeps growing even if a cursor is frozen.
 ### Admission Policy
 
 Rules that map:
+
 - “current view state” + “stream backlog” + “budgets”
-to:
+  to:
 - “which events become admitted into the simulation at this tick / step.”
 
 Admission is where “messages from the future” are handled lawfully: events can exist in a stream backlog without being admitted into the current simulation branch.
@@ -261,6 +269,7 @@ Admission is where “messages from the future” are handled lawfully: events c
 ### Worldline
 
 A worldline is a deterministic history of commits/diffs:
+
 - A Chronos sequence along a branch (Kairos dimension) with recorded rewrite decisions.
 - Replay is defined by applying the journal in order (`docs/testing-and-replay-plan.md`).
 
@@ -273,6 +282,7 @@ This spec uses “SWS” informally as “a world-view instance”:
 `View = { worldline_ref, tick_cursor, stream_cursors, admission_policy }`
 
 Multiple views may be:
+
 - **entangled** (share the same worldline + cursors), or
 - **diverged** (different worldlines and/or different stream cursors).
 
@@ -287,7 +297,8 @@ Echo’s deterministic promise is:
 > Given a starting snapshot and a recorded worldline (including all admitted observation facts), replay reconstructs the same state and produces identical hashes.
 
 Corollaries:
-- The OS/network is allowed to be nondeterministic as a *producer of stream events*.
+
+- The OS/network is allowed to be nondeterministic as a _producer of stream events_.
 - The simulation is deterministic because only **admitted** events affect it, and admission is journaled as part of the tick patches / receipts.
 - On replay, live streams are ignored; the replay consumes the journaled admissions and rewrites.
 
@@ -306,6 +317,7 @@ To align with the “rewrites are recorded by default” discipline:
 This makes “record mode” unnecessary: observation capture is just normal operation.
 
 Practical guidance:
+
 - Record at least the **semantic observation** (e.g., decoded `EventEnvelope` or message payload).
 - If debugging adapter/parsing correctness matters, also record the **raw bytes/chunks** as the “truth” and derive parsed facts deterministically inside the sim.
 
@@ -349,6 +361,7 @@ Use when you must remain connected (network) or keep tool interaction live.
 ### Rewind / Fork
 
 Rewind is a view operation, not a stream operation:
+
 - Fork a new worldline at tick `T-k` (Kairos fork).
 - Set the simulation view to the forked worldline.
 - Stream cursors may remain where they were (so future events remain buffered) or may be reset (detached analysis).
@@ -358,6 +371,7 @@ Rewind is a view operation, not a stream operation:
 Catch-up is “advance cursors (and simulation ticks) quickly until a target predicate holds.”
 
 Targets (choose explicitly):
+
 - **Backlog target**: drain buffered events until backlog < threshold.
 - **Remote tick target**: run until reaching a stamped `server_tick` (common for client/server).
 - **Budget target**: run until a fixed compute/time budget is consumed, then stop (tool remains responsive).
@@ -384,21 +398,23 @@ Catch-up is expensive when it requires replaying thousands of ticks to reach a k
 Wormholes provide two acceleration paths:
 
 1. **Checkpoint carriers**: store a materialized snapshot at the wormhole output boundary (or periodic checkpoints inside the wormhole).
-   - Fast-forward becomes: load the checkpoint and continue.
-   - Verification becomes: optionally expand/verify the wormhole offline or lazily.
+    - Fast-forward becomes: load the checkpoint and continue.
+    - Verification becomes: optionally expand/verify the wormhole offline or lazily.
 
 2. **Verified skip**: if a wormhole boundary includes hashes that pin the input/output state roots and the sub-payload digest, a tool can “skip” the interior while maintaining tamper evidence.
 
 The key insight is that “instant” is always a choice between:
-- *compute now* (expand and replay) vs
-- *trust boundary* (skip using checkpoint/hashes) vs
-- *verify later* (lazy expansion / sampling).
+
+- _compute now_ (expand and replay) vs
+- _trust boundary_ (skip using checkpoint/hashes) vs
+- _verify later_ (lazy expansion / sampling).
 
 Echo should treat this as a policy surface, not an implicit behavior.
 
 ### Tooling Implications
 
 Time-travel tooling should use wormholes for:
+
 - rapid seeking across long histories,
 - rendering timelines without loading full interior traces,
 - producing “replay cost”/“distance” metrics (wormhole expansion cost is measurable and budgetable).
@@ -408,6 +424,7 @@ Time-travel tooling should use wormholes for:
 ## Distributed Scenario: “Messages from the Future”
 
 In a connected session:
+
 - The server continues advancing its worldline.
 - The client can fork/rewind its local worldline for debugging or gameplay.
 - Network stream continues spooling incoming messages (buffer policy).
@@ -433,11 +450,11 @@ We model three things:
 
 - **Worldline**: the committed simulation history along a branch (Chronos ticks).
 - **Streams**:
-  - `NetRx(A)`: inbound network observations at client A (append-only)
-  - `NetRx(B)`: inbound network observations at client B (append-only)
-  - (Optional) `NetTx(A)` / `NetTx(B)`: outbound send intents (often derivable from world rewrites, but useful for tooling lanes)
+    - `NetRx(A)`: inbound network observations at client A (append-only)
+    - `NetRx(B)`: inbound network observations at client B (append-only)
+    - (Optional) `NetTx(A)` / `NetTx(B)`: outbound send intents (often derivable from world rewrites, but useful for tooling lanes)
 - **Cursors** (per view):
-  - `cursor(NetRx(A))`, `cursor(NetRx(B))`
+    - `cursor(NetRx(A))`, `cursor(NetRx(B))`
 
 We assume fixed-timestep ticks for simplicity; the same reasoning works if `dt` is itself a stream.
 
@@ -466,31 +483,31 @@ Operationally, the important distinction is:
 
 One plausible event/cursor story (illustrative):
 
-1) Tick 1 — A sends M1
-   - A simulation rule decides to send:
-     - worldline records a rewrite like `NetSendIntent { to=B, payload=M1 }`
-   - (Optional) also append `NetTx(A)` stream event for tooling lanes (not required for determinism).
+- **Tick 1 — A sends M1**
+    - A simulation rule decides to send:
+        - worldline records a rewrite like `NetSendIntent { to=B, payload=M1 }`
+    - (Optional) also append `NetTx(A)` stream event for tooling lanes (not required for determinism).
 
-2) Tick 3 — B admits observation M1
-   - The adapter reads OS/network and appends a new stream event:
-     - `NetRx(B)[seq=42] = bytes("M1")` (plus metadata like wall time)
-   - Admission policy for `NetRx(B)` is Live; at tick 3 it admits seq 42:
-     - cursor advances: `cursor(NetRx(B)) = 42`
-     - admission produces an observation rewrite inserting a fact:
-       - `ObservedNetMessage { from=A, msg="M1", rx_seq=42 }`
-   - Simulation rules consume `ObservedNetMessage(M1)` and produce deterministic rewrites (game logic).
+- **Tick 3 — B admits observation M1**
+    - The adapter reads OS/network and appends a new stream event:
+        - `NetRx(B)[seq=42] = bytes("M1")` (plus metadata like wall time)
+    - Admission policy for `NetRx(B)` is Live; at tick 3 it admits seq 42:
+        - cursor advances: `cursor(NetRx(B)) = 42`
+        - admission produces an observation rewrite inserting a fact:
+            - `ObservedNetMessage { from=A, msg="M1", rx_seq=42 }`
+    - Simulation rules consume `ObservedNetMessage(M1)` and produce deterministic rewrites (game logic).
 
-3) Tick 4 — B sends A1
-   - Deterministic send intent rewrite is recorded: `NetSendIntent { to=A, payload=A1 }`.
+- **Tick 4 — B sends A1**
+    - Deterministic send intent rewrite is recorded: `NetSendIntent { to=A, payload=A1 }`.
 
-4) Tick 8 — A observes A1
-   - Adapter appends `NetRx(A)[seq=99] = bytes("A1")`.
-   - Admission at tick 8 admits seq 99:
-     - `cursor(NetRx(A)) = 99`
-     - inserts `ObservedNetMessage { from=B, msg="A1", rx_seq=99 }`
-   - Simulation rules consume it.
+- **Tick 8 — A observes A1**
+    - Adapter appends `NetRx(A)[seq=99] = bytes("A1")`.
+    - Admission at tick 8 admits seq 99:
+        - `cursor(NetRx(A)) = 99`
+        - inserts `ObservedNetMessage { from=B, msg="A1", rx_seq=99 }`
+    - Simulation rules consume it.
 
-Key point: the worldline captures *the ticks where observations were admitted*, regardless of what wall clock did.
+Key point: the worldline captures _the ticks where observations were admitted_, regardless of what wall clock did.
 Replay re-applies those observation rewrites; it does not consult the network.
 
 ### Connected Time Travel: Rewind Locally While Staying Connected
@@ -503,15 +520,15 @@ We introduce two views at A:
 
 At tick 9 (on A), the user triggers rewind “100 ticks ago” (here we’ll use 7 ticks for the toy example):
 
-1) Fork a new worldline branch
-   - `W` is the current synchronized branch.
-   - Fork at tick 2 (Kairos): create `W' = Fork(W @ tick=2)`.
-   - Set `ViewSim(A).worldline = W'` and `ViewSim(A).tick = 2`.
+1. Fork a new worldline branch
+    - `W` is the current synchronized branch.
+    - Fork at tick 2 (Kairos): create `W' = Fork(W @ tick=2)`.
+    - Set `ViewSim(A).worldline = W'` and `ViewSim(A).tick = 2`.
 
-2) Apply a pause/buffer policy bundle
-   - `ToolInput`: Live (tools stay interactive)
-   - `GameInput`: PauseDrop (avoid accidental player actions while rewound)
-   - `NetRx(A)`: PauseBuffer (stay connected; keep spooling inbound data; admit nothing into `W'` for now)
+2. Apply a pause/buffer policy bundle
+    - `ToolInput`: Live (tools stay interactive)
+    - `GameInput`: PauseDrop (avoid accidental player actions while rewound)
+    - `NetRx(A)`: PauseBuffer (stay connected; keep spooling inbound data; admit nothing into `W'` for now)
 
 While A is rewound, the network continues producing stream events:
 
@@ -542,15 +559,15 @@ This is the pragmatic “snap back to the server timeline” behavior.
 
 If `W'` is a strict prefix fork (no divergent commits after the fork point) and is meant to rejoin by advancing:
 
-1) Pick a target tick `k` (e.g., tick 9 on `W`).
-2) Use a wormhole segment `P_{2:k}` (or periodic checkpoints) to skip replay work:
-   - load a checkpoint at tick `k` (wormhole output boundary),
-   - optionally verify the wormhole boundary hashes (now or later).
-3) Extend `W'` from tick 2 → `k` by applying the wormhole segment (equivalent to replaying that tick range), then set `ViewSim(A).tick = k`.
-4) Decide what to do with buffered stream backlog:
-   - **Admit and process** (may create divergence if those events were not part of the original worldline),
-   - **Drop** (if they are invalid for the rejoined regime),
-   - **Reconcile via merge** (if you want “future you sent me data while I was in the past” as gameplay).
+1. Pick a target tick `k` (e.g., tick 9 on `W`).
+2. Use a wormhole segment `P_{2:k}` (or periodic checkpoints) to skip replay work:
+    - load a checkpoint at tick `k` (wormhole output boundary),
+    - optionally verify the wormhole boundary hashes (now or later).
+3. Extend `W'` from tick 2 → `k` by applying the wormhole segment (equivalent to replaying that tick range), then set `ViewSim(A).tick = k`.
+4. Decide what to do with buffered stream backlog:
+    - **Admit and process** (may create divergence if those events were not part of the original worldline),
+    - **Drop** (if they are invalid for the rejoined regime),
+    - **Reconcile via merge** (if you want “future you sent me data while I was in the past” as gameplay).
 
 The important bit is that wormholes accelerate “move the simulation view to a known tick” without changing the admission rules.
 They do not magically resolve semantic conflicts; they just make seeking/catch-up computationally tractable.
@@ -591,9 +608,9 @@ but A’s simulation view is currently at tick 1003.
 We model this as:
 
 - Adapter appends a stream event:
-  - `NetRx(A)[seq=500] = bytes(MsgX)`
+    - `NetRx(A)[seq=500] = bytes(MsgX)`
 - Admission at client tick 1003 inserts an observation fact:
-  - `ObservedNetEnvelope { sender=S, sender_tick=1008, rx_seq=500, payload=... }`
+    - `ObservedNetEnvelope { sender=S, sender_tick=1008, rx_seq=500, payload=... }`
 
 Important: in this model, “A learned about sender_tick=1008” at tick 1003.
 That is not a contradiction; it just means A’s local worldline is now holding a fact about a remote timeline.
@@ -610,6 +627,7 @@ Catch-up predicate:
 > Keep ticking forward (admitting buffered network events) until `local_tick >= max_seen_server_tick - Δ`.
 
 Notes:
+
 - If `Δ = 0`, this is strict chase.
 - If `Δ > 0`, this resembles rollback/prediction windows: the client runs close to the leading edge but expects corrections.
 - The predicate depends only on HistoryTime facts (admitted envelopes), not HostTime.
@@ -622,11 +640,11 @@ Assume `W_A` is a strict prefix of the canonical server history projection relev
 
 Then catch-up can be implemented as:
 
-1) Switch `NetRx(A)` admission to Live (bounded) or Catch-Up (raised budgets).
-2) Tick forward quickly until the predicate holds.
-3) Use wormholes/checkpoints to avoid replaying every intermediate tick:
-   - if A has a checkpoint at tick 1007, it can jump there and then simulate 1007→1008 explicitly,
-   - or it can apply a wormhole segment `P_{1003:1007}` and then continue.
+1. Switch `NetRx(A)` admission to Live (bounded) or Catch-Up (raised budgets).
+2. Tick forward quickly until the predicate holds.
+3. Use wormholes/checkpoints to avoid replaying every intermediate tick:
+    - if A has a checkpoint at tick 1007, it can jump there and then simulate 1007→1008 explicitly,
+    - or it can apply a wormhole segment `P_{1003:1007}` and then continue.
 
 The key property is that A is not attempting to preserve a divergent local past as “equally real” in this case; it is chasing the compatible line.
 
@@ -644,15 +662,15 @@ Now A cannot “catch up” to `W_S` by fast-forwarding alone, because there is 
 
 So A must choose explicitly:
 
-1) **Resync (discard and reattach)**
-   - Keep `W_A'` as an analysis/puzzle branch if desired.
-   - Switch `ViewSim(A)` back to the canonical attachment point (`W_A := projection(W_S)`).
-   - Seek to a recent tick using a checkpoint/wormhole snapshot provided by the server (fast, practical).
+1. **Resync (discard and reattach)**
+    - Keep `W_A'` as an analysis/puzzle branch if desired.
+    - Switch `ViewSim(A)` back to the canonical attachment point (`W_A := projection(W_S)`).
+    - Seek to a recent tick using a checkpoint/wormhole snapshot provided by the server (fast, practical).
 
-2) **Merge (reconcile histories)**
-   - Treat “server canonical” and “client diverged” as Kairos branches and create an explicit merge commit.
-   - Apply merge semantics (authority policy / deterministic join rules).
-   - If admitted server events conflict with reads/writes in the diverged branch, paradox quarantine rules apply (see `docs/spec-entropy-and-paradox.md`).
+2. **Merge (reconcile histories)**
+    - Treat “server canonical” and “client diverged” as Kairos branches and create an explicit merge commit.
+    - Apply merge semantics (authority policy / deterministic join rules).
+    - If admitted server events conflict with reads/writes in the diverged branch, paradox quarantine rules apply (see `docs/spec-entropy-and-paradox.md`).
 
 This is where your “co-op time travel puzzle” idea becomes real:
 merge is a first-class gameplay mechanic rather than an error.
@@ -675,6 +693,7 @@ This gives the user a concrete mental model: “I am at tick 1003, I have eviden
 ## Tooling Hooks (Minimum)
 
 Inspector surfaces should be able to observe:
+
 - per-stream backlog size (events, bytes, age in wall time),
 - per-view cursor positions,
 - current admission policy + budgets,
@@ -687,10 +706,10 @@ These are read-only frames; mutation remains capability-guarded and explicit.
 
 ## Open Questions (Explicitly Deferred)
 
-1. **Security/capabilities** *(high; #246)*: who is allowed to fork/rewind/merge in multiplayer; how provenance sovereignty constrains tool access.
-2. **Cross-worldline merge semantics for stream facts** *(high; #245)*: when buffered “future” events are admitted into a forked branch, are they still considered valid, or must they be revalidated/reinterpreted?
-3. **`dt` policy** *(medium; #243)*: fixed timestep vs variable dt as an admitted stream. (Fixed is simpler; variable dt should be treated as a stream if allowed.)
-4. **Stream retention** *(medium; #244)*: how long spools persist; how they are compacted; how they relate to durability/WAL epochs.
+1. **Security/capabilities** _(high; #246)_: who is allowed to fork/rewind/merge in multiplayer; how provenance sovereignty constrains tool access.
+2. **Cross-worldline merge semantics for stream facts** _(high; #245)_: when buffered “future” events are admitted into a forked branch, are they still considered valid, or must they be revalidated/reinterpreted?
+3. **`dt` policy** _(medium; #243)_: fixed timestep vs variable dt as an admitted stream. (Fixed is simpler; variable dt should be treated as a stream if allowed.)
+4. **Stream retention** _(medium; #244)_: how long spools persist; how they are compacted; how they relate to durability/WAL epochs.
 
 Tracking: deferred questions are tracked in issues #243, #244, #245, and #246; they do not block TT0 spec lock but are required before the time-travel tooling MVP (#171).
 

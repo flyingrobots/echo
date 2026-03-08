@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR-0007: BOAW Storage + Execution + Merge + Privacy (Atom→WARP End-to-End)
 
 - Status: Accepted
@@ -190,9 +191,8 @@ A footprint includes:
 
 - adjacency buckets (`edges_from[node]`, `edges_to[node]`) are explicit write targets (represented via `AttachmentKey` or dedicated target keys)
 - any indexes/caches mutated during commit must be either:
-
-  - (a) derived in commit (preferred), or
-  - (b) modeled as explicit targets and shardable
+    - (a) derived in commit (preferred), or
+    - (b) modeled as explicit targets and shardable
 
 ### 6.2 Independence check semantics (snapshot reads)
 
@@ -276,9 +276,9 @@ Implementation: `crates/warp-core/src/boaw/shard.rs::shard_of()`
 
 - Build next reachable-only snapshot from previous snapshot + merged ops.
 - Compute:
-  - `state_root` (canonical hash of materialized reachable state)
-  - `patch_digest` (canonical hash of merged ops)
-  - `commit_hash = H(version_tag || parents_len || parents || state_root || patch_digest || policy_id)`
+    - `state_root` (canonical hash of materialized reachable state)
+    - `patch_digest` (canonical hash of merged ops)
+    - `commit_hash = H(version_tag || parents_len || parents || state_root || patch_digest || policy_id)`
 
 ---
 
@@ -315,16 +315,16 @@ For each key:
 When merge cannot resolve:
 
 - Emit a conflict artifact attachment/object containing only:
-  - parent commit hashes
-  - statement/value hashes
-  - type ids
-  - policy hashes
+    - parent commit hashes
+    - statement/value hashes
+    - type ids
+    - policy hashes
 
 No secrets, no raw sensitive bytes.
 
 ---
 
-## 10)  Privacy (mind vs diagnostics; claims/proofs/vault)
+## 10) Privacy (mind vs diagnostics; claims/proofs/vault)
 
 ### 10.1 Ledger stores claims, not secrets
 
@@ -332,11 +332,11 @@ In mind mode, the ledger must be publishable. Therefore:
 
 - No SSNs, credit cards, nude images, private chats, etc.
 - Only:
-  - commitments
-  - ZK proofs (or proof hashes)
-  - opaque private refs
-  - policy hashes
-  - canonical metadata
+    - commitments
+    - ZK proofs (or proof hashes)
+    - opaque private refs
+    - policy hashes
+    - canonical metadata
 
 ## 10.2 ClaimRecord (canonical)
 
@@ -373,7 +373,7 @@ During collapse for a `claim_key`:
 
 ---
 
-## 11)  Consequences
+## 11) Consequences
 
 Benefits:
 
@@ -608,12 +608,11 @@ Where to put this in the repo
 And one “god test”:
 
 - `crates/warp-core/tests/boaw_end_to_end.rs` that runs:
-
-  - ingest permutations
-  - multi-worker counts
-  - emits WSC
-  - reloads WSC zero-copy
-  - asserts final commit hash identical
+    - ingest permutations
+    - multi-worker counts
+    - emits WSC
+    - reloads WSC zero-copy
+    - asserts final commit hash identical
 
 ---
 
@@ -1065,7 +1064,7 @@ Implement TestHarness against your real engine in one place:
 
 - build a base snapshot (maybe from current GraphStore -> WSC builder)
 - generate ingress
-- call execute_*
+- call execute\_\*
 - return ExecResult with real hashes
 - implement wsc_roundtrip_state_root via WscFile/WarpView + compute_state_root
 
@@ -1075,14 +1074,13 @@ Once that’s in, the tests stop being “ideas” and start being the drill ser
 
 ## Sequencing
 
-- [x] 1) First commit: add the BOAW ADR + tests (red on purpose)
+- [x]   1. First commit: add the BOAW ADR + tests (red on purpose)
+    - [x] Add the ADR (single doc with the COW section folded in).
+    - [x] Add the test skeletons exactly like above.
+    - [x] Don't touch engine code yet.
+    - [x] Goal: establish the contract + the drill sergeant.
 
-  - [x] Add the ADR (single doc with the COW section folded in).
-  - [x] Add the test skeletons exactly like above.
-  - [x] Don't touch engine code yet.
-  - [x] Goal: establish the contract + the drill sergeant.
-
-- [x] 2) Second commit: wire the TestHarness to whatever you have now
+- [x]   2. Second commit: wire the TestHarness to whatever you have now
 
 Don't build BOAW yet. Just make the harness call your current pipeline:
 
@@ -1092,7 +1090,7 @@ Don't build BOAW yet. Just make the harness call your current pipeline:
 
 Goal: tests compile, fail only where you todo!().
 
-- [x] 3) Third commit: flip executors to "emit ops" (TickDelta)
+- [x]   3. Third commit: flip executors to "emit ops" (TickDelta)
 
 This is the real pivot:
 
@@ -1103,30 +1101,30 @@ This is the real pivot:
 
 Goal: parallelism becomes safe because writes are thread-local.
 
-- [x] 4) Fourth commit: SnapshotBuilder v0 (no segment sharing yet)
-  - [x] Apply merged ops to produce next snapshot tables.
-  - [x] Write WSC bytes.
-  - [x] Compute state_root from that snapshot.
-  - [x] Make the god test pass for Small + ManyIndependent.
+- [x]   4. Fourth commit: SnapshotBuilder v0 (no segment sharing yet)
+    - [x] Apply merged ops to produce next snapshot tables.
+    - [x] Write WSC bytes.
+    - [x] Compute state_root from that snapshot.
+    - [x] Make the god test pass for Small + ManyIndependent.
 
 Goal: you now have "immutable snapshot + delta commit" working.
 
-- [x] 5) Read-only execution (Phase 5)
-  - [x] Executors receive `GraphView` (read-only) instead of `&mut GraphStore`.
-  - [x] No GraphStore mutations during execution — emit ops only.
-  - [x] State updated after execution via `apply_to_state()`.
-  - [x] Legacy `&mut GraphStore` path removed from executor signature.
-  - [x] `#![forbid(unsafe_code)]` required in all crates containing executors.
+- [x]   5. Read-only execution (Phase 5)
+    - [x] Executors receive `GraphView` (read-only) instead of `&mut GraphStore`.
+    - [x] No GraphStore mutations during execution — emit ops only.
+    - [x] State updated after execution via `apply_to_state()`.
+    - [x] Legacy `&mut GraphStore` path removed from executor signature.
+    - [x] `#![forbid(unsafe_code)]` required in all crates containing executors.
 
 Goal: execution is pure — reads from snapshot, writes to delta.
 
-- [x] 6) Only then: parallelism + footprints + shards
-  - [x] Make admission deterministic. (RadixScheduler, Phase 5)
-  - [x] Add worker execution producing per-worker deltas. (`boaw::execute_parallel`)
-  - [x] Merge deltas canonically. (`boaw::merge_deltas` — sort by WarpOpKey, OpOrigin)
-  - [x] Prove worker-count invariance (the tests). (7 tests in `boaw_parallel_exec.rs`)
-  - [x] Wire into Engine pipeline (Phase 6B) — `apply_reserved_rewrites()` uses `execute_parallel_sharded()`
-  - [x] Virtual shards for locality (Phase 6B) — `shard_of()` + `partition_into_shards()`
+- [x]   6. Only then: parallelism + footprints + shards
+    - [x] Make admission deterministic. (RadixScheduler, Phase 5)
+    - [x] Add worker execution producing per-worker deltas. (`boaw::execute_parallel`)
+    - [x] Merge deltas canonically. (`boaw::merge_deltas` — sort by WarpOpKey, OpOrigin)
+    - [x] Prove worker-count invariance (the tests). (7 tests in `boaw_parallel_exec.rs`)
+    - [x] Wire into Engine pipeline (Phase 6B) — `apply_reserved_rewrites()` uses `execute_parallel_sharded()`
+    - [x] Virtual shards for locality (Phase 6B) — `shard_of()` + `partition_into_shards()`
 
 Goal: "free money" without compromising determinism.
 **Status: Phase 6B COMPLETE** (2026-01-19) — engine integration done, all tests pass.

@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # WARP View Protocol Demo (Hub + 2 Viewers)
 
 This guide walks through a minimal, local demo of the **WARP View Protocol (WVP)**:
@@ -17,17 +18,17 @@ For the protocol details, see `docs/spec-warp-view-protocol.md`.
 At a high level:
 
 - The publisher sends `warp_stream` frames:
-  - one `Snapshot(epoch = e)`
-  - then a sequence of `Diff(from = e, to = e + 1)` frames (gapless)
+    - one `Snapshot(epoch = e)`
+    - then a sequence of `Diff(from = e, to = e + 1)` frames (gapless)
 - The hub enforces:
-  - **single-producer authority** per `warp_id`
-  - **snapshot required** before the first diff
-  - **gapless diffs** (no epoch gaps)
+    - **single-producer authority** per `warp_id`
+    - **snapshot required** before the first diff
+    - **gapless diffs** (no epoch gaps)
 - Subscribers receive:
-  - the latest snapshot on subscribe (if known)
-  - then diffs as they arrive
+    - the latest snapshot on subscribe (if known)
+    - then diffs as they arrive
 
-In `warp-viewer`, the “publisher” demo mutation updates the *first node’s* payload with a CBOR map:
+In `warp-viewer`, the “publisher” demo mutation updates the _first node’s_ payload with a CBOR map:
 
 ```text
 { pos: [x,y,z], color: [r,g,b] }
@@ -39,8 +40,8 @@ The viewer already understands this payload shape and uses it to position/color 
 
 - Rust toolchain installed (workspace toolchain).
 - You can build and run workspace binaries:
-  - `cargo run -p echo-session-service`
-  - `cargo run -p warp-viewer`
+    - `cargo run -p echo-session-service`
+    - `cargo run -p warp-viewer`
 
 ## Step 1: Start the Session Hub
 

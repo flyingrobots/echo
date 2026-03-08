@@ -1,14 +1,16 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# WARP Confluence Specification (Phase 0.75)
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
 
+# WARP Confluence Specification (Phase 0.75)
+
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 The Confluence is the global DAG formed by interconnected WARP graphs. It defines how local stores project into a shared graph, how graph deltas propagate, and how conflicts resolve deterministically.
 
 ---
 
 ## Concept
+
 - **Local Graph** – a single WARP file representing a world, timeline, or asset bundle.
 - **Confluence** – the union of all local graphs, content-addressed by hash, forming a global Merkle DAG.
 - **Projection** – mapping a local graph into the Confluence by submitting diff blocks.
@@ -17,7 +19,8 @@ The Confluence is the global DAG formed by interconnected WARP graphs. It define
 ---
 
 ## Data Model
-```
+
+```text
 Confluence (global)
 ├─ NodeSegments (append-only)
 ├─ EdgeSegments (append-only)
@@ -33,13 +36,15 @@ Each submission references hashes from local diff graphs. Deduplication occurs w
 ## Protocol
 
 ### Submit (push)
+
 1. Client computes DiffGraph between local root and last synchronized root.
 2. For each new node/edge:
-   - Upload block (node, edge, payload) to Confluence store.
-   - Provide capability tokens and (optional) signature.
+    - Upload block (node, edge, payload) to Confluence store.
+    - Provide capability tokens and (optional) signature.
 3. Append entry to Journal: `{ root_hash, parent_hash, diff_hashes, signer }`.
 
 ### Sync (pull)
+
 1. Client reads Journal entries since last sync.
 2. Download missing blocks (by hash); append to local store.
 3. Apply merges if divergent branches exist (per Echo merge rules).
@@ -47,6 +52,7 @@ Each submission references hashes from local diff graphs. Deduplication occurs w
 ---
 
 ## Conflict Resolution
+
 - Confluence merge uses same deterministic three-way merge strategy as Echo branch tree.
 - Paradox detection occurs during merge; paradox nodes recorded in Journal.
 - Failed merges quarantine submitted diff until manual resolution (via capability `timeline:merge`).
@@ -54,13 +60,43 @@ Each submission references hashes from local diff graphs. Deduplication occurs w
 ---
 
 ## Security
+
 - Journal entries signed (Ed25519) and capability-scoped.
 - Confluence rejects blocks that conflict with capabilities or fail hash validation.
 - Audit logs allow replay of every submission.
 
+### Signing Canonicalization
+
+The signed payload for a journal entry is the canonical byte sequence of the
+entry **excluding** the `signature` field itself. Verifiers MUST reject
+signatures over any other encoding.
+
+Canonical field order (serialized sequentially, no delimiters):
+
+1. `root_hash` (32 bytes, raw BLAKE3)
+2. `parent_hash` (32 bytes, raw BLAKE3; all-zero if genesis)
+3. `diff_count` (`uint32` LE)
+4. `diff_hashes` (`diff_count` × 32 bytes, each raw BLAKE3, in submission order)
+5. `signer_id` (length-prefixed UTF-8: `uint32` LE length + bytes)
+6. `capability_count` (`uint32` LE)
+7. `capabilities` (`capability_count` × length-prefixed UTF-8 strings, sorted
+   lexicographically by UTF-8 bytes)
+8. `timestamp` (`uint64` LE, Unix epoch seconds; informational, not used for
+   determinism but committed to prevent replay)
+
+```text
+signed_bytes = concat(root_hash, parent_hash, diff_count, diff_hashes,
+                      signer_id, capability_count, capabilities, timestamp)
+signature    = Ed25519_Sign(private_key, signed_bytes)
+```
+
+Implementations MUST serialize fields in exactly this order. A signature
+computed over any other field ordering or encoding MUST be rejected.
+
 ---
 
 ## API (Rust)
+
 ```rust
 pub trait Confluence {
     fn submit(&mut self, diff: DiffGraph, signer: Signer) -> Result<RootHash>;
@@ -74,6 +110,7 @@ Local projection uses `submit`. Synchronization uses `pull` + merge.
 ---
 
 ## Determinism
+
 - Hashes guarantee identical content merges regardless of submission order (commutative under canonical merge rules).
 - Journal order provides canonical history for replay.
 - Every branch of the Confluence is just another WARP graph; local stores can fork/merge from any point.
@@ -81,6 +118,7 @@ Local projection uses `submit`. Synchronization uses `pull` + merge.
 ---
 
 ## Tooling
+
 - Confluence browser: visualize global DAG, submissions, and merges.
 - CLI: `warp confluence submit`, `warp confluence sync`, `warp confluence log`.
 

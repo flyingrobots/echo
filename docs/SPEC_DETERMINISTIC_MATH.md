@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Policy: Strictly Deterministic Math
@@ -8,47 +8,55 @@ For background hazards and motivation, see [/DETERMINISTIC_MATH](/DETERMINISTIC_
 
 All math within the simulation loop (`warp-core`) must adhere to these rules.
 
-## Related Docs
+## Docs Map
 
-- **Hazard catalog:** `docs/DETERMINISTIC_MATH.md` (supporting; non-normative)
-- **Validation & CI lanes:** `docs/math-validation-plan.md` (supporting; non-normative)
-- **Legacy Phase 0 design sketch:** `docs/spec-deterministic-math.md` (legacy; TS-oriented; non-normative)
+> **You are here:** normative policy (this document wins on conflicts).
+>
+> | Doc                                                                              | Role                                               |
+> | -------------------------------------------------------------------------------- | -------------------------------------------------- |
+> | [DETERMINISTIC_MATH.md](DETERMINISTIC_MATH.md)                                   | Hazard catalog (IEEE 754 pitfalls and mitigations) |
+> | [warp-math-claims.md](warp-math-claims.md)                                       | Claims and theory framing                          |
+> | [math-validation-plan.md](math-validation-plan.md)                               | Validation test plan and CI lanes                  |
+> | [determinism/DETERMINISM_CLAIMS_v0.1.md](determinism/DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                          |
+> | [spec-deterministic-math.md](spec-deterministic-math.md)                         | Legacy Phase 0 design sketch (archived)            |
 
 ## 1. Floating Point (f32)
 
 We wrap `f32` in `F32Scalar` to enforce these invariants.
 
-| Feature | Policy | Implementation Strategy |
-| :--- | :--- | :--- |
-| **Signed Zero** | **Strict (+0.0)** | `new()` maps `-0.0` to `+0.0`. |
-| **NaN Payloads** | **Strict (Canonical)** | All `NaN` values are mapped to `0x7fc00000` (Positive Quiet NaN). |
-| **Subnormals** | **Flush-to-Zero** | Inputs with biased exponent `0` are flushed to `+0.0`. |
-| **Rounding** | **Ties-to-Even** | Standard IEEE 754 default (Rust default). |
-| **Transcendental** | **Software / LUT** | `sin`/`cos` must use software approximation (e.g., `fdlibm` port or LUT), never hardware instructions which vary by uLP. |
+| Feature            | Policy                 | Implementation Strategy                                                                                                  |
+| :----------------- | :--------------------- | :----------------------------------------------------------------------------------------------------------------------- |
+| **Signed Zero**    | **Strict (+0.0)**      | `new()` maps `-0.0` to `+0.0`.                                                                                           |
+| **NaN Payloads**   | **Strict (Canonical)** | All `NaN` values are mapped to `0x7fc00000` (Positive Quiet NaN).                                                        |
+| **Subnormals**     | **Flush-to-Zero**      | Inputs with biased exponent `0` are flushed to `+0.0`.                                                                   |
+| **Rounding**       | **Ties-to-Even**       | Standard IEEE 754 default (Rust default).                                                                                |
+| **Transcendental** | **Software / LUT**     | `sin`/`cos` must use software approximation (e.g., `fdlibm` port or LUT), never hardware instructions which vary by uLP. |
 
 ### Reflexivity Note
+
 Implementations of `Eq` for floating-point types **must** be reflexive.
-*   `NaN == NaN` must be **TRUE**.
-*   Use `total_cmp` or check `is_nan()`.
-*   This prevents logic errors in collections (`HashSet`, `BTreeMap`) which rely on `x == x`.
+
+- `NaN == NaN` must be **TRUE**.
+- Use `total_cmp` or check `is_nan()`.
+- This prevents logic errors in collections (`HashSet`, `BTreeMap`) which rely on `x == x`.
 
 ## 2. Zerocopy & Serialization
 
-*   **No Direct Casts:** `F32Scalar` must **not** implement `zerocopy::FromBytes` blindly. Raw bytes could contain non-canonical values (`-0.0`, `sNaN`).
-*   **Deserialize:** Must route through `F32Scalar::new()` or a validator that applies canonicalization.
-*   **Serialize:** Safe to dump bytes *if* the value is already canonical.
+- **No Direct Casts:** `F32Scalar` must **not** implement `zerocopy::FromBytes` blindly. Raw bytes could contain non-canonical values (`-0.0`, `sNaN`).
+- **Deserialize:** Must route through `F32Scalar::new()` or a validator that applies canonicalization.
+- **Serialize:** Safe to dump bytes _if_ the value is already canonical.
 
 ## 3. Audit Findings (2025-11-30)
 
 An audit of `warp-core` identified the following risks:
 
-*   **Hardware Transcendentals:** `F32Scalar::sin/cos` previously delegated to `f32::sin/cos`. **Risk:** High (varies across libc/hardware implementations).
-  *   *Status:* Implemented deterministic LUT-backed trig in `warp_core::math::trig` (Issue #107).
-*   **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
-  *   *Risk:* Subnormal handling (DAZ/FTZ) depends on CPU flags.
-  *   *Status:* `F32Scalar::new` flushes subnormals to `+0.0` at construction and after operations.
-*   **NaN Propagation:** `f32` ops produce hardware-specific NaN payloads.
-  *   *Status:* `F32Scalar::new` canonicalizes NaNs to `0x7fc0_0000`.
+- **Hardware Transcendentals:** `F32Scalar::sin/cos` previously delegated to `f32::sin/cos`. **Risk:** High (varies across libc/hardware implementations).
+- _Status:_ Implemented deterministic LUT-backed trig in `warp_core::math::trig` (Issue #107).
+- **Implicit Hardware Ops:** `Add`, `Sub`, `Mul`, `Div` rely on standard `f32` ops.
+- _Risk:_ Subnormal handling (DAZ/FTZ) depends on CPU flags.
+- _Status:_ `F32Scalar::new` flushes subnormals to `+0.0` at construction and after operations.
+- **NaN Propagation:** `f32` ops produce hardware-specific NaN payloads.
+- _Status:_ `F32Scalar::new` canonicalizes NaNs to `0x7fc0_0000`.
 
 ## 4. Implementation Checklist
 

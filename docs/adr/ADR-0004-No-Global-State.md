@@ -1,6 +1,7 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-# ADR-000Y: No Global State in Echo — Dependency Injection Only
+
+# ADR-0004: No Global State in Echo — Dependency Injection Only
 
 - **Status:** Accepted
 - **Date:** 2026-01-14
@@ -16,11 +17,13 @@ Echo’s architecture benefits from explicit dependency graphs: runtime/kernel a
 ### 1) Global state is banned
 
 Forbidden in Echo/WARP runtime and core crates:
+
 - `OnceLock`, `LazyLock`, `lazy_static!`, `once_cell`, `thread_local!`
 - `static mut`
-- process-wide “install_*” patterns for runtime dependencies
+- process-wide “install\_\*” patterns for runtime dependencies
 
 Allowed:
+
 - `const` and immutable `static` data (tables, magic bytes, version tags)
 - pure functions and types
 
@@ -42,7 +45,7 @@ We add a CI ban script that fails builds if forbidden patterns appear in protect
 - Tests construct runtimes with explicit dependencies
 - WASM and native implementations share the same dependency model
 - Eliminates global init ordering bugs and accidental shared state across tools
-  
+
 ## Appendix: Ban Global State
 
 ```bash
@@ -166,11 +169,11 @@ echo "ban-globals: PASSED."
 ```markdown
 ## Determinism Doctrine: No Global State
 
-Echo forbids global mutable state. No init-once singletons, no hidden wiring, no process-wide “install_*” hooks.
+Echo forbids global mutable state. No init-once singletons, no hidden wiring, no process-wide “install\_\*” hooks.
 All dependencies (registry, codecs, ports, buses) are injected explicitly via runtime structs.
 
 Why: global state breaks provenance, complicates replay, and creates “it depends how you booted it” bugs.
 
 Enforcement: `./scripts/ban-globals.sh` runs in CI and rejects forbidden patterns (`OnceLock`, `LazyLock`, `lazy_static`, `thread_local`, `static mut`, etc.).
-See ADR-000Y: **No Global State**.
+See ADR-0004: **No Global State**.
 ```

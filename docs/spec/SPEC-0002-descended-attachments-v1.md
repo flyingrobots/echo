@@ -1,10 +1,12 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # SPEC-0002: Descended Attachments v1 — WarpInstances + Flattened Indirection
 
 Status: Draft (Implemented)  
 Date: 2025-12-30  
 Related:
+
 - `docs/adr/ADR-0002-warp-instances-descended-attachments.md`
 - `docs/spec/SPEC-0001-attachment-plane-v0-atoms.md`
 - `docs/warp-two-plane-law.md`
@@ -47,11 +49,17 @@ Provide a first-class mechanism for descended attachments (“WARPs all the way 
 
 ### Attachment identity
 
-- `AttachmentPlane = Alpha | Beta`
-  - Alpha = vertex/node plane (`α`)
-  - Beta = edge plane (`β`)
-- `AttachmentOwner = Node(NodeKey) | Edge(EdgeKey)`
-- `AttachmentKey = { owner: AttachmentOwner, plane: AttachmentPlane }`
+`AttachmentPlane`:
+
+- `Alpha` — vertex/node plane (`α`)
+- `Beta` — edge plane (`β`)
+
+`AttachmentOwner`:
+
+- `Node(NodeKey)`
+- `Edge(EdgeKey)`
+
+`AttachmentKey = { owner: AttachmentOwner, plane: AttachmentPlane }`
 
 ### Attachment value
 
@@ -67,8 +75,8 @@ Provide a first-class mechanism for descended attachments (“WARPs all the way 
 - `warp_id: WarpId`
 - `root_node: NodeId` (local id within the instance store)
 - `parent: Option<AttachmentKey>`
-  - `None` for the root instance
-  - `Some(k)` for descended instances reached via attachment slot `k`
+    - `None` for the root instance
+    - `Some(k)` for descended instances reached via attachment slot `k`
 
 The `parent` field enables deterministic “include the portal chain” slicing without searching the whole attachment plane.
 
@@ -79,29 +87,38 @@ The `parent` field enables deterministic “include the portal chain” slicing 
 `OpenPortal(key: AttachmentKey, child_warp: WarpId, child_root: NodeId, init: PortalInit)`
 
 This is the canonical atomic operation for descended attachments. It MUST:
-1) ensure `WarpInstance(child_warp)` exists with:
-   - `parent = Some(key)`
-   - `root_node = child_root`
-2) ensure the child root node exists (via `init`)
-3) set `Attachment[key] = Descend(child_warp)`
+
+1. ensure `WarpInstance(child_warp)` exists with:
+    - `parent = Some(key)`
+    - `root_node = child_root`
+2. ensure the child root node exists (via `init`)
+3. set `Attachment[key] = Descend(child_warp)`
 
 Validation invariants (post-apply):
+
 - If `Attachment[key] == Descend(child_warp)`, then `WarpInstance(child_warp)` MUST exist.
 - `WarpInstance(child_warp).parent == Some(key)`
 - `WarpInstance(child_warp).root_node == child_root`
 
-PortalInit (v1):
-- `Empty { root_record }` => create the child instance/root node if missing
-- `RequireExisting` => require that the child instance/root node already exist
+`PortalInit` (v1):
+
+- `Empty { root_record }` — create the child instance/root node if missing
+- `RequireExisting` — require that the child instance/root node already exist
 
 ID note (recommended, not required by this spec): `child_warp` should be deterministically authorable without randomness, but MUST be recorded in the op for replay and verification.
 
 ### O2: SetAttachment (atoms and clears)
 
-Attachment slots may also be updated directly:
+`SetAttachment(key: AttachmentKey, value: Option<AttachmentValue>)`
 
-- `SetAttachment(key, Some(Atom(...)))`
-- `SetAttachment(key, None)` (clears)
+This is the canonical operation for atom-level attachment writes. It MUST:
+
+1. set `Attachment[key] = value` (or clear when `value` is `None`)
+
+Variants:
+
+- `SetAttachment(key, Some(Atom(...)))` — write an atom payload
+- `SetAttachment(key, None)` — clear the attachment slot
 
 Setting `Descend(child_warp)` via a generic SetAttachment is discouraged in v1; prefer `OpenPortal` so portal creation and instance creation cannot be separated across ticks.
 
@@ -156,7 +173,7 @@ If a slice demands any slot within instance `W`, the slice must include:
 
 - producers for the demanded slots within `W`, and
 - producers for the attachment chain from root → … → `W`:
-  - the `OpenPortal(...)` ops (and/or `SetAttachment(...Descend...)` legacy) that establish each descent step.
+    - the `OpenPortal(...)` ops (and/or `SetAttachment(...Descend...)` legacy) that establish each descent step.
 
 Mechanism:
 
@@ -173,14 +190,14 @@ Worldline slicing is a fast path for single-parent history. For multi-parent his
 
 Given a target commit `C` with parents `P1..Pn` and an initial demand set `D` (unversioned slots):
 
-1) Include in the slice any ops in `C` that write slots in `D`.
-2) For each demanded slot not written in `C`, follow parent provenance:
-   - if exactly one parent can produce it, follow that parent for that slot
-   - if multiple parents can produce it, the merge patch MUST resolve it (M1); otherwise the slice is invalid
-3) For each included op, union its read-set into `D` and repeat until closure.
-4) Portal-chain closure (Stage B1):
-   - if any demanded slot is within a descendant instance `W`, include the portal chain establishing reachability (root → … → W)
-   - in practice this is achieved by the descent-chain footprint law (F2), which ensures portal slots are read and pulled into the slice.
+1. Include in the slice any ops in `C` that write slots in `D`.
+2. For each demanded slot not written in `C`, follow parent provenance:
+    - (a) if exactly one parent can produce it, follow that parent for that slot
+    - (b) if multiple parents can produce it, the merge patch MUST resolve it (M1); otherwise the slice is invalid
+3. For each included op, union its read-set into `D` and repeat until closure.
+4. Portal-chain closure (Stage B1):
+    - if any demanded slot is within a descendant instance `W`, include the portal chain establishing reachability (root → … → W)
+    - in practice this is achieved by the descent-chain footprint law (F2), which ensures portal slots are read and pulled into the slice.
 
 ## Matching / Performance Constraints
 
@@ -195,9 +212,9 @@ Tooling may provide a “state zoom” projection (Instance Graph):
 - Nodes: `WarpId` (WarpInstances)
 - Edges: derived from explicit `Descend(WarpId)` portals (e.g., via OpenPortal ops or scanning attachment slots)
 - Optional summaries (derived/cache):
-  - node/edge counts per instance
-  - root ids / root hashes
-  - latest tick touching the instance
+    - node/edge counts per instance
+    - root ids / root hashes
+    - latest tick touching the instance
 
 This is a projection of state structure, not a history compression mechanism.
 
@@ -214,18 +231,20 @@ A merge commit with parents `P1..Pn` MUST provide an explicit merge patch that r
 Definition: a slot conflict exists if two or more parents contain writes to the same `SlotId` (including `SlotId::Attachment(...)`) along the ancestry relevant to the merge.
 
 Requirement:
+
 - If a conflict exists for slot `S`, the merge patch MUST contain a final write to `S`.
 - If parents’ writes are disjoint for all slots in scope, the merge patch MAY be empty.
 
 Rationale:
+
 - We do not allow “implicit winner-by-parent-order” semantics to leak into determinism or slicing.
 - Merge is an authored event, not implicit ancestry magic.
 
 ## Acceptance Criteria
 
-1) Changing a portal slot value (including `OpenPortal` / `Descend`) invalidates previously valid matches inside descendant instances (via descent-chain reads).
-2) A slice that demands a slot inside a descendant instance includes the portal chain establishing reachability (root → … → W).
-3) Matching/indexing code paths do not decode atom bytes.
-4) Hash identity changes if `TypeId` changes even with identical bytes.
-5) OpenPortal is atomic: replay never observes `Descend(child_warp)` without a valid `WarpInstance(child_warp)` and root node.
-6) Merge commits with conflicting parent writes to the same slot are invalid unless the merge patch writes the resolved final slot value.
+1. Changing a portal slot value (including `OpenPortal` / `Descend`) invalidates previously valid matches inside descendant instances (via descent-chain reads).
+2. A slice that demands a slot inside a descendant instance includes the portal chain establishing reachability (root → … → W).
+3. Matching/indexing code paths do not decode atom bytes.
+4. Hash identity changes if `TypeId` changes even with identical bytes.
+5. OpenPortal is atomic: replay never observes `Descend(child_warp)` without a valid `WarpInstance(child_warp)` and root node.
+6. Merge commits with conflicting parent writes to the same slot are invalid unless the merge patch writes the resolved final slot value.

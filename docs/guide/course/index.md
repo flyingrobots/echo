@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Echo Course: Networking‑First (Build “Splash Guy”)
 
 This course teaches Echo by building a small game‑simulation demo that proves:
@@ -25,8 +26,8 @@ Glossary (recommended while reading):
 - Prefer short pages with a clear outcome and a verify step.
 - Introduce jargon only after the reader has used the idea.
 - Every module should include at least one of:
-  - a “verify” step (fingerprint/replay check)
-  - a “failure demo” (controlled desync)
+    - a “verify” step (fingerprint/replay check)
+    - a “failure demo” (controlled desync)
 - Rendering must be described as derived output (never authoritative).
 
 ---

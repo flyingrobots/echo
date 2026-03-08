@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR-0005: Physics as Deterministic Scheduled Rewrites (Footprints + Phases)
 
 - **Status:** Accepted
@@ -14,6 +15,7 @@ Echo runs deterministic ticks over a WARP graph. Some subsystems (physics, const
 - isolated from the public causality API (Inbox/Ingress remains sacred)
 
 Physics introduces:
+
 - broadphase candidate generation
 - narrowphase contact computation (possibly swept / TOI)
 - iterative constraint resolution
@@ -40,7 +42,8 @@ This maps directly onto Echo’s scheduler: deterministic conflict resolution an
 
 ### 3) Candidate selection is set-based, not queue-based
 
-Broadphase produces a *set* of candidates. The scheduler:
+Broadphase produces a _set_ of candidates. The scheduler:
+
 - canonicalizes ordering
 - selects a maximal independent subset (disjoint footprints)
 - applies them in deterministic order
@@ -67,11 +70,12 @@ Physics tick phase executes as:
 1. **Integrate (predict)** into working state (or `next`) deterministically.
 2. **Generate contact candidates** deterministically (broadphase + narrowphase).
 3. **Solve** using K fixed iterations:
-   - each iteration selects a maximal independent subset via footprints
-   - apply in canonical order
+    - each iteration selects a maximal independent subset via footprints
+    - apply in canonical order
 4. **Finalize (commit)**: swap/commit working state for the tick.
 
 Iteration budgets are fixed:
+
 - `K_SOLVER_ITERS` (e.g., 4–10)
 - Optional `MAX_CCD_STEPS` if swept collisions are enabled
 
@@ -98,6 +102,7 @@ No half-updated physics state is observable via materializations.
 ### 8) Inspector visibility is via trace channels, not causal ledger
 
 Optional debug-only materializations may be emitted:
+
 - `trace/physics/candidates`
 - `trace/physics/selected`
 - `trace/physics/islands`

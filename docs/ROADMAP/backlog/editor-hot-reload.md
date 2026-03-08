@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Editor Hot-Reload
@@ -24,7 +24,7 @@ File-watching and hot-reload infrastructure for the editor/dev-server workflow. 
 
 **Acceptance Criteria:**
 
-- [ ] AC1: Spec document exists at `docs/specs/SPEC-HOT-RELOAD.md`
+- [ ] AC1: Spec document exists at `docs/spec/SPEC-HOT-RELOAD.md`
 - [ ] AC2: All five requirements are addressed
 - [ ] AC3: At least two scenarios are worked through (schema change, script change)
 - [ ] AC4: Spec reviewed by at least one contributor

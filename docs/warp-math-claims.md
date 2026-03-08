@@ -1,10 +1,11 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # The Claim
 
 There is a faithful, structure‑preserving embedding of typed hypergraph rewriting (the WPP substrate) into typed open‑graph DPOI rewriting (WARP). This gives you a compositional, algebraic handle on “the space of computations” that the Ruliad gestures at. And you can actually compile and reason about it.
 
-Below, it is shown (1) how that mapping is precise (sketch, but crisp), (2) exactly why that matters for *Echo*, and (3) what we can claim now from what we’ll prove next.
+Below, it is shown (1) how that mapping is precise (sketch, but crisp), (2) exactly why that matters for _Echo_, and (3) what we can claim now from what we’ll prove next.
 
 ## 1) The formal middle: hypergraphs ↪ open graphs (WARP)
 
@@ -85,12 +86,13 @@ The embedding $J$ means: if someone ships Wolfram‑style hypergraph rules for a
 
 1. Write the encoding $J$: implement the hyperedge→edge‑node incidence gadget with typed ports; add a converter.
 2. Proof note (4–6 pages):
-- $J$ full/faithful on monos;
-- preserves pushouts along monos;
-- lifts to derivations (span/cospan bicategory).
+    - $J$ full/faithful on monos;
+    - preserves pushouts along monos;
+    - lifts to derivations (span/cospan bicategory).
 3. WPP parity demo: pick 1–2 WPP rules; generate causal/branchial graphs both ways; ship a notebook + CLI reproducer.
 4. Echo integration: add “Import WPP Rule Pack” to the toolchain; use your tick determinism + two‑plane to demonstrate hot inserts the WPP side can’t.
 5. Public phrasing (tight):
+
 - “WARP strictly generalizes hypergraph rewriting via a typed open‑graph encoding. This preserves Wolfram‑style derivations while adding compositional interfaces, atomic publishing, and deterministic parallelism.”
 
 ## 5) Answering your “Profound or Vacuous?” bluntly
@@ -109,13 +111,14 @@ Buckle up! Here’s the clean, formal core. I’ll give you three self‑contain
 2. Derivation‑level functoriality (so multiway/causal/branchial constructions transport).
 3. A bona‑fide pseudometric for “rulial distance” based on MDL translators (with triangle inequality).
 
-# 1) Hypergraphs ↪ Open graphs (WARP) — the exact mapping
+## 1) Hypergraphs ↪ Open graphs (WARP) — the exact mapping
 
 ## Typed open hypergraphs
 
 Fix vertex types $T_V$ and a signature set $\Sigma=\{(s,\operatorname{ar}(s))\}$ (each hyperedge label $s$ has a fixed arity).
 
 A typed directed hypergraph $H=(V,E,\mathrm{inc},\mathrm{type})$ has
+
 - vertices $V$ with $\mathrm{type}(v)\in T_V$,
 - hyperedges $E$ with label $s(e)\in\Sigma$,
 - ordered incidences $\mathrm{inc}(e,i)\in V for 1\le i\le \operatorname{ar}(s(e))$.
@@ -142,15 +145,15 @@ For each $H\in \mathbf{OHyp}_T$, build a typed graph $J(H)$ by:
 This extends on arrows to a functor
 $J:\ \mathbf{OHyp}T \longrightarrow \mathbf{OGraph}{T^\star}$.
 
-## Proposition 1 (full & faithful on monos).
+### Proposition 1 (full & faithful on monos)
 
 Restricted to monomorphisms, $J$ is full and faithful: a mono $m:H_1\hookrightarrow H_2$ corresponds to a unique mono $J(m):J(H_1)\hookrightarrow J(H_2)$, and conversely any mono between incidence‑respecting images comes from a unique $m$.
 
-### Sketch 
+#### Sketch (Proposition 1)
 
 > The incidence gadget makes edge‑nodes and port indices explicit; type preservation + port index preservation pins down the map on $E$ and thus on $V$. □
 
-## Proposition 2 (creates pushouts along monos).
+### Proposition 2 (creates pushouts along monos)
 
 Given a span of monos $H_1 \leftarrow K \rightarrow H_2 in \mathbf{OHyp}_T$, the pushout $H_1 +K H_2$ exists; moreover
 
@@ -158,11 +161,11 @@ $J(H_1 +K H_2) \;\cong\; J(H_1) +{J(K)} J(H_2)$
 
 (i.e., compute the pushout in $\mathbf{OGraph}{T^\star}$, it stays inside the incidence‑respecting subcategory).
 
-### Sketch 
+#### Sketch (Proposition 2)
 
 > Pushouts in adhesive categories along monos are universal and stable; port labels and types forbid “bad” identifications, so the result satisfies the incidence schema. Hence $J$ creates such pushouts. □
 
-## Theorem 1 (DPO preservation/reflection)
+### Theorem 1 (DPO preservation/reflection)
 
 For any DPOI rule $p=(L\leftarrow K\to R)$ in $\mathbf{OHyp}T$ and boundary‑preserving match $m:L\hookrightarrow H$ satisfying gluing, the DPO step $H\Rightarrow_p H’$ exists iff the DPOI step
 
@@ -170,17 +173,17 @@ $J(H)\;\Rightarrow{\,J(p)}\; J(H’)$
 
 exists in $\mathbf{OGraph}_{T^\star}$, and the results correspond up to typed‑open‑graph isomorphism.
 
-### Sketch
+#### Sketch (Theorem 1)
 
 > The DPO construction is “pushout‑complement + pushout” along monos; by Prop. 2, J creates both. □
 
 Takeaway: Wolfram‑style typed hypergraph rewriting sits inside WARP’s typed open‑graph DPOI via $J$. What WPP does implicitly with arities, WARP makes explicit as ports, and DPOI gives you the same steps—plus composition laws.
 
-# 2) Derivations, multiway, and compositionality
+## 2) Derivations, multiway, and compositionality
 
 Let $\mathrm{Der}(\mathbf{OHyp}T)$ (resp. $\mathrm{Der}(\mathbf{OGraph}{T^\star})$) be the bicategory: objects are open graphs; 1‑cells are rewrite spans; 2‑cells are commuting diagrams modulo boundary iso.
 
-## Theorem 2 (derivation functor)
+### Theorem 2 (derivation functor)
 
 $J$ lifts to a homomorphism of bicategories
 $J_\star:\ \mathrm{Der}(\mathbf{OHyp}T)\ \to\ \mathrm{Der}(\mathbf{OGraph}{T^\star})$
@@ -195,7 +198,7 @@ Consequently, multiway derivation graphs (and causal/branchial constructions) co
 
 That’s the compositional/algebraic edge WARP has over a bare “everything rewrites” slogan.
 
-# 3) Rulial distance — an actual pseudometric
+## 3) Rulial distance — an actual pseudometric
 
 I framed: “mechanisms far, outputs often close.” We can formalize it so you it can be measured.
 
@@ -211,29 +214,29 @@ Let $\mathrm{DL}(T)$ be a prefix‑code description length (MDL) of $T$, and $\$
 
 $D^{(\tau,m)}(O_1,O_2)\;=\;\inf_{T_{12},T_{21}}\ \mathrm{DL}(T_{12})+\mathrm{DL}(T_{21})\;+\;\lambda\!\left[\mathrm{Dist}(O_2,T_{12}\!\circ O_1)+\mathrm{Dist}(O_1,T_{21}\!\circ O_2)\right]$.
 
-## Proposition 3 (pseudometric)
+### Proposition 3 (pseudometric)
 
 $D^{(\tau,m)}$ is a pseudometric (nonnegative, symmetric, $D(O,O)=0$).
 
-## Theorem 3 (triangle inequality)
+### Theorem 3 (triangle inequality)
 
 If $\mathrm{Dist}$ satisfies the triangle inequality and $\mathrm{DL}$ is subadditive (up to constant $c$), then
 $D^{(\tau,m)}(O_1,O_3)\ \le\ D^{(\tau,m)}(O_1,O_2)\ +\ D^{(\tau,m)}(O_2,O_3)\ +\ 2c$.
 
-### Sketch 
+#### Sketch (Theorem 3)
 
 > Compose near‑optimal translators $T_{23}\circ T_{12}$ and $T_{21}\circ T_{32}$; subadditivity bounds $\mathrm{DL}$, the metric triangle bounds $\mathrm{Dist}$; take infima. □
 
 So “rulial distance” is not poetry: with translators as compiled WARP rule packs, $D^{(\tau,m)}$ is a well‑behaved, empirically estimable pseudometric.
 
-# Where this lands your Echo claims
+## Where this lands your Echo claims
 
 - WPP interoperability (not branding): via $J$, you can import typed hypergraph rules and get the same derivations—inside a calculus that also enforces ports, composition, atomic publish, and deterministic parallelism.
 - Deterministic netcode: your tick‑determinism theorem is exactly DPO concurrency under scheduler independence.
 - Hot‑patch safety: two‑plane commutation is a commuting square in a fibration (attachments‑first is mathematically correct).
 - Objective “alien distance” dial: $D^{(\tau,m)}$ gives you a number to report when you change observers/translators (e.g., $human ↔ AI$), per domain/budget.
 
-# Crisp statements we can ship (no overclaim)
+## Crisp statements we can ship (no overclaim)
 
 - Encoding. “There is a faithful, boundary‑preserving encoding $J$ of typed open‑hypergraph rewriting into typed open‑graph DPOI that creates pushouts along monos; hence DPO steps and derivations are preserved/reflected up to iso.”
 - Compositional edge. “Inside WARP, derivations inherit a strict symmetric monoidal/cospan structure and typed interfaces; that’s what enables compile‑time‑at‑runtime checks, deterministic ticks, and atomic publishes.”

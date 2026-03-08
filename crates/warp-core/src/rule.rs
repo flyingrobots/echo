@@ -15,7 +15,7 @@ pub struct PatternGraph {
 
 /// Function pointer used to determine whether a rule matches the provided scope.
 ///
-/// Phase 5 BOAW signature: matchers read from an immutable [`GraphView`]
+/// Phase 5 signature: matchers read from an immutable [`GraphView`]
 /// to inspect graph state without mutation.
 ///
 /// Parameters:
@@ -25,7 +25,7 @@ pub type MatchFn = for<'a> fn(GraphView<'a>, &NodeId) -> bool;
 
 /// Function pointer that applies a rewrite to the given scope.
 ///
-/// Phase 5 BOAW signature: executors read from an immutable [`GraphView`]
+/// Phase 5 signature: executors read from an immutable [`GraphView`]
 /// and emit mutations to a [`TickDelta`]. This enforces the separation
 /// between observation and mutation required by the deterministic execution model.
 ///
@@ -37,7 +37,7 @@ pub type ExecuteFn = for<'a> fn(GraphView<'a>, &NodeId, &mut TickDelta);
 
 /// Function pointer that computes a rewrite footprint at the provided scope.
 ///
-/// Phase 5 BOAW signature: footprint computation reads from an immutable
+/// Phase 5 signature: footprint computation reads from an immutable
 /// [`GraphView`] to declare the read/write sets without mutation.
 ///
 /// Parameters:

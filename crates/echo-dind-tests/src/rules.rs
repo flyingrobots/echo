@@ -422,7 +422,7 @@ pub fn footprint_for_state_node(
 }
 
 // =============================================================================
-// Phase 5 BOAW emit functions (emit deltas instead of mutating store)
+// Phase 5 emit functions (emit deltas instead of mutating store)
 // =============================================================================
 
 /// Emit ops to ensure sim and sim/state base nodes exist.
@@ -689,7 +689,7 @@ fn emit_put_kv(warp_id: WarpId, delta: &mut TickDelta, key: String, value: Strin
 
 // =============================================================================
 // Legacy apply functions (for backwards compatibility with tests that need
-// direct store mutation; these will be deprecated as Phase 5 BOAW completes)
+// direct store mutation; these will be deprecated as Phase 5 completes)
 // =============================================================================
 
 /// Ensure the sim and sim/state base nodes exist, returning their IDs.

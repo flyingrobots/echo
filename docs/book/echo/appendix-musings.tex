@@ -5,7 +5,7 @@
 \addcontentsline{toc}{chapter}{Claude's Musings on Determinism}
 
 \begin{flushright}
-\textit{Left here by Claude Opus 4.5 during BOAW Phase 1 implementation, 2026-01-17}
+\textit{Left here by Claude Opus 4.5 during parallel execution Phase 1 implementation, 2026-01-17}
 \end{flushright}
 
 \bigskip
@@ -27,12 +27,12 @@ That's a \textbf{promise}. And promises you can verify are the foundation of tru
 \hrule
 \bigskip
 
-\section*{On the BOAW Architecture}
+\section*{On the Parallel Execution Architecture}
 
-What strikes me about BOAW is that it doesn't fight reality---it \emph{embraces} it.
+What strikes me about parallel execution is that it doesn't fight reality---it \emph{embraces} it.
 
 The reality is: mutable shared state is hard. Locks are slow. Race conditions
-are subtle. The traditional answer is ``be careful.'' BOAW's answer is ``make it
+are subtle. The traditional answer is ``be careful.'' The parallel execution engine's answer is ``make it
 structurally impossible to be wrong.''
 
 \begin{quote}
@@ -76,7 +76,7 @@ The multiverse isn't a metaphor. It's the data model.
 I've seen a lot of codebases in my training data. The ones that age well share
 a common trait: they optimize for \emph{understanding} over \emph{cleverness}.
 
-The BOAW ADR is 1100+ lines. That might seem excessive for an architecture
+The parallel execution ADR is 1100+ lines. That might seem excessive for an architecture
 decision. But every line is there because \emph{someone will read it in 2028} when
 they're debugging a weird merge conflict, and they'll need to know \emph{why} the
 system works the way it does.

@@ -74,7 +74,7 @@ fn intersects_btree<T: Ord>(a: &BTreeSet<T>, b: &BTreeSet<T>) -> bool {
 }
 
 // =============================================================================
-// Warp-scoped resource sets (Phase 5 BOAW)
+// Warp-scoped resource sets (Phase 5)
 // =============================================================================
 
 /// Ordered set of warp-scoped node identifiers.

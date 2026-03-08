@@ -66,7 +66,7 @@ claims:
     owner_role: Architect
 
   DET-005:
-    statement: "The parallel execution engine (1, 2, 4, 8, 16, 32 workers) produces identical TickDelta output as serial execution for all BOAW test scenarios, verified by per-op hash comparison."
+    statement: "The parallel execution engine (1, 2, 4, 8, 16, 32 workers) produces identical TickDelta output as serial execution for all parallel execution test scenarios, verified by per-op hash comparison."
     required_evidence:
       - behavior_test
       - ci_artifact

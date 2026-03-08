@@ -111,7 +111,7 @@ fn inbox_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
     // Drain the pending set by deleting `edge:pending` edges only.
     //
     // Ledger nodes are append-only; removing pending edges is queue maintenance.
-    // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+    // Phase 5: read from view, emit ops to delta (no direct mutation).
     let warp_id = view.warp_id();
     let pending_ty = make_type_id(PENDING_EDGE_TYPE);
 
@@ -177,7 +177,7 @@ fn ack_pending_matcher(view: GraphView<'_>, scope: &NodeId) -> bool {
 }
 
 fn ack_pending_executor(view: GraphView<'_>, scope: &NodeId, delta: &mut TickDelta) {
-    // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+    // Phase 5: read from view, emit ops to delta (no direct mutation).
     let warp_id = view.warp_id();
     let inbox_id = make_node_id(INBOX_PATH);
     let edge_id = pending_edge_id(&inbox_id, &scope.0);

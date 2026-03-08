@@ -23,7 +23,7 @@ Engine::commit_with_receipt(tx: TxId) → Result<(Snapshot, Receipt, Patch), Eng
 +-- // Phase 2: Clone pre-state for delta tracking
 |   let pre_state = self.graph.clone()
 |
-+-- // Phase 3: BOAW Parallel Execution
++-- // Phase 3: Parallel Execution
 |   let view = self.graph.view()
 |   let deltas = execute_parallel(view, &reserved, self.workers)
 |

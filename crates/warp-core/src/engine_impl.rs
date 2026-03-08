@@ -1193,7 +1193,7 @@ impl Engine {
         // Defensive guardrail: clamp workers to valid range
         let workers = self.worker_count.clamp(1, NUM_SHARDS);
 
-        // Phase 6 BOAW: Group by warp_id and execute in parallel per warp.
+        // Phase 6 parallel execution: Group by warp_id and execute in parallel per warp.
         // BTreeMap ensures deterministic iteration order (WarpId: Ord from [u8; 32]).
 
         // 1. Pre-validate all rewrites and group by warp_id
@@ -2150,7 +2150,7 @@ mod tests {
                 )
             },
             executor: |view: GraphView<'_>, scope, delta| {
-                // Phase 5 BOAW: read from view, emit ops to delta (no direct mutation).
+                // Phase 5: read from view, emit ops to delta (no direct mutation).
                 let warp_id = view.warp_id();
 
                 let Some(AttachmentValue::Atom(payload)) = view.node_attachment(scope) else {

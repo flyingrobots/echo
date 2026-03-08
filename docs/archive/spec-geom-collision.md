@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Geometry & Collision (Spec Stub)
@@ -31,7 +31,7 @@ What this spec should eventually cover:
 - Deterministic broad phase + narrow phase modeled as graph rewrites (DPO).
 - Canonical IDs, stable ordering, and hashing inputs/outputs for replay.
 - Temporal proxies, CCD workflow, and event emission in a timeline-aware world.
-- See [SPEC_DETERMINISTIC_MATH.md](../SPEC_DETERMINISTIC_MATH.md) for the normative deterministic math policy.
+- See [spec-deterministic-math.md](../spec-deterministic-math.md) for the normative deterministic math policy.
 
 ## Near-Term Deliverables
 

@@ -1,9 +1,9 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks)
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 Status: Draft • Date: 2025-10-27 • Owner: warp-core
 

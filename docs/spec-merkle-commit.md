@@ -1,9 +1,9 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Snapshot Commit Spec (v2)
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 This document precisely defines the two hashes produced by the engine when recording state and provenance.
 
@@ -75,7 +75,7 @@ Header fields (v2):
 
 - version: u16 = 2
 - parents: `Vec<Hash>` (length u64 LE, then each 32-byte hash). Genesis commits
-  have zero parents (length = 0). The parent count MUST NOT exceed 16. Implementations MUST reject commits exceeding this limit.
+  have zero parents (length = 0). The parent count MUST NOT exceed 16. Implementations MUST reject commits exceeding this limit. Implementations of `compute_commit_hash_v2()` MUST validate this limit before hashing.
 - state_root: 32 bytes (from section 1)
 - patch_digest: 32 bytes (digest of the tick patch boundary delta)
 - policy_id: u32 (version pin for Aion policy)

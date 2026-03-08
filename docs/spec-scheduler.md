@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Echo Scheduler Specification (Phase 0 — not yet implemented)
@@ -47,7 +47,7 @@ Systems declare which phases they participate in (default `update`).
 interface SystemDescriptor {
     readonly id: number;
     readonly name: string;
-    readonly phases: readonly SchedulerPhase[];
+    readonly phases?: readonly SchedulerPhase[]; // defaults to ["update"]
     readonly before?: readonly number[]; // system IDs this system must run before
     readonly after?: readonly number[]; // system IDs this system must run after
     readonly unpauseable?: boolean;
@@ -126,21 +126,25 @@ function registerSystem(descriptor: SystemDescriptor): void {
         // Wire "after" edges: afterId → descriptor.id
         for (const afterId of descriptor.after ?? []) {
             const outgoing = getOrCreateEdgeSet(graph, afterId);
-            outgoing.add(descriptor.id);
-            graph.inDegree.set(
-                descriptor.id,
-                graph.inDegree.get(descriptor.id)! + 1,
-            );
+            if (!outgoing.has(descriptor.id)) {
+                outgoing.add(descriptor.id);
+                graph.inDegree.set(
+                    descriptor.id,
+                    graph.inDegree.get(descriptor.id)! + 1,
+                );
+            }
         }
 
         // Wire "before" edges: descriptor.id → beforeId
         for (const beforeId of descriptor.before ?? []) {
             const outgoing = graph.edges.get(descriptor.id)!;
-            outgoing.add(beforeId);
-            graph.inDegree.set(
-                beforeId,
-                (graph.inDegree.get(beforeId) ?? 0) + 1,
-            );
+            if (!outgoing.has(beforeId)) {
+                outgoing.add(beforeId);
+                graph.inDegree.set(
+                    beforeId,
+                    (graph.inDegree.get(beforeId) ?? 0) + 1,
+                );
+            }
         }
 
         graph.dirty = true;
@@ -177,7 +181,9 @@ function runTick(context: TickContext) {
         PRESENT,
         TIMELINE_FLUSH,
     ];
-    if (isFirstTick) runPhase(INITIALIZE, context);
+    // INITIALIZE runs every tick but only executes systems with status "pending".
+    // This ensures late-registered systems get their initialization phase.
+    runPhase(INITIALIZE, context);
     for (const phase of phases) {
         runPhase(phase, context);
     }
@@ -273,7 +279,7 @@ approach).
     1. Walk `topologyCache` in order.
     2. Maintain `readySet` of systems whose dependencies have been scheduled but not yet executed.
     3. For each system:
-        - If `descriptor.parallelizable` and not `unpauseable`, try to place into current batch.
+        - If `descriptor.parallelizable`, try to place into current batch.
         - Check for resource conflicts against all systems already in the current batch using the conflict rule above. If no conflict, add to batch.
     4. If system cannot be parallelized (not marked `parallelizable`, or conflicts with a system in the current batch), flush current batch, execute sequentially, then resume batching.
 - Implementation may begin sequential (no parallelism) and introduce batches after profiling.
@@ -402,7 +408,7 @@ Objective: validate scheduler behavior and complexity under realistic dependency
 
 - Whether phase-specific priorities should be allowed (e.g., `render_prep` custom ordering).
 - Strategy for cross-branch scheduling: separate scheduler per branch vs shared graph with branch-specific execution queues.
-- Should initialization phase run lazily when systems added mid-game, or strictly at startup?
-- Whether `SystemFootprint` should support `creates` and `deletes` sets (as warp-core's `FootprintInfo` does) for finer-grained conflict analysis, or if read/write is sufficient at the system scheduler level.
+- Should initialization phase skip systems that have already been initialized? (Current spec: yes — `runSystem` transitions status from "pending" to "active" and skips already-active systems.)
+- Whether `SystemFootprint` should support `creates` and `deletes` sets (as warp-core's `Footprint` does) for finer-grained conflict analysis, or if read/write is sufficient at the system scheduler level.
 
 Document updates feed into implementation tasks (GitHub Issues).

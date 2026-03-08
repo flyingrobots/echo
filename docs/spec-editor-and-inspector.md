@@ -1,9 +1,9 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Inspector & Editor Protocol Specification (Phase 0.75)
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 Unifies Echo’s inspector data streams, transport contracts, and extension hooks for tooling.
 
@@ -32,11 +32,11 @@ interface InspectorEnvelope {
     frameType: FrameType;
     tick: ChronosTick;
     branch: KairosBranchId;
-    payload: object;
+    payload: unknown;
 }
 ```
 
-> **Note:** The types above are proposed — they are not yet present in the generated protocol artifacts (`ttd-protocol-ts`). Treat this section as a draft contract.
+> **Note:** The types above are proposed — they are not yet present in the generated protocol artifacts (`ttd-protocol-ts`): types.ts (missing: FrameType, InspectorEnvelope, InspectorCommand) and registry.ts (missing: corresponding registry entries). Treat this section as a draft contract.
 
 - Frames emitted post `timeline_flush` each tick.
 - Order stable: sorted by `(tick, frameType)`.
@@ -72,7 +72,7 @@ Responses use `InspectorEnvelope`.
 - `BridgeInspectorFrame` – pending events, retro records, paradox counts.
 - `CapabilityInspectorFrame` – actor tokens, revocations.
 - `EntropyFrame` / `ParadoxFrame` – entropy deltas, unresolved paradoxes.
-- PLANNED: `StreamsFrame` – per-stream backlog, per-view cursors, and recent `StreamAdmissionDecision` records (see `docs/spec-time-streams-and-wormholes.md`).
+- PLANNED: `StreamsFrame` – per-stream backlog, per-view cursors, and recent `StreamAdmissionDecision` records (see `spec-time-streams-and-wormholes.md`).
 
 ---
 

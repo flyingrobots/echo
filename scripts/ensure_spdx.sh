@@ -27,7 +27,7 @@ cd "$ROOT"
 
 # License Templates
 CODE_LICENSE="SPDX-License-Identifier: Apache-2.0"
-DUAL_LICENSE="SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0"
+DUAL_LICENSE="SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0"
 COPYRIGHT="© James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>"
 
 # Stats

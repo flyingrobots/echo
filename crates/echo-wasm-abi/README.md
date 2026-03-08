@@ -1,5 +1,6 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # echo-wasm-abi
 
 Shared WASM-friendly DTOs for Echo/JITOS living specs. Mirrors the minimal graph + rewrite shapes used in Spec-000 and future interactive specs.

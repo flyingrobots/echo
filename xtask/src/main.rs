@@ -777,16 +777,21 @@ fn run_markdown_fix(args: &MarkdownFixArgs) -> Result<()> {
         root.display()
     );
 
-    // 1) SPDX header repair
+    // 1) SPDX header repair (scoped to `root` so --root is respected)
     if Path::new("scripts/ensure_spdx.sh").exists() {
         println!("markdown-fix: repairing SPDX headers...");
-        let status = Command::new("bash")
-            .args(["scripts/ensure_spdx.sh"])
-            .env("ECHO_AUTO_FMT", "1")
-            .status()
-            .context("failed to run scripts/ensure_spdx.sh")?;
-        if !status.success() {
-            bail!("markdown-fix: SPDX header repair failed");
+        let spdx_paths: Vec<&str> = md_files.iter().filter_map(|p| p.to_str()).collect();
+        if !spdx_paths.is_empty() {
+            let mut cmd = Command::new("bash");
+            cmd.arg("scripts/ensure_spdx.sh")
+                .env("ECHO_AUTO_FMT", "1")
+                .args(&spdx_paths);
+            let status = cmd
+                .status()
+                .context("failed to run scripts/ensure_spdx.sh")?;
+            if !status.success() {
+                bail!("markdown-fix: SPDX header repair failed");
+            }
         }
     }
 

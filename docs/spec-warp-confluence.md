@@ -1,9 +1,9 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # WARP Confluence Specification (Phase 0.75)
 
-> **Background:** For a gentler introduction, see [WARP Primer](/guide/warp-primer).
+> **Background:** For a gentler introduction, see [WARP Primer](guide/warp-primer.md).
 
 The Confluence is the global DAG formed by interconnected WARP graphs. It defines how local stores project into a shared graph, how graph deltas propagate, and how conflicts resolve deterministically.
 

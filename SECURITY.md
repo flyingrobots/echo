@@ -1,14 +1,18 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # Security Policy
 
 ## Supported Versions
+
 Echo Engine is under active development on the `main` branch. Until the first
 stable release, security fixes will land directly on `main` and be included in
 the next tagged version.
 
 ## Reporting a Vulnerability
-Please email **security@flyingrobots.dev** with details. Include:
+
+Please email **<security@flyingrobots.dev>** with details. Include:
+
 - Description of the issue and potential impact.
 - Steps to reproduce or proof-of-concept.
 - Suggested remediation if available.
@@ -20,7 +24,9 @@ within 7 days. Please do not disclose vulnerabilities publicly until we have
 coordinated a fix.
 
 ## Scope
+
 Echo is a deterministic engine; common vectors include:
+
 - Sandbox escapes via adapters.
 - Abuse of timeline branching APIs.
 - Denial-of-service through unbounded queue inputs.

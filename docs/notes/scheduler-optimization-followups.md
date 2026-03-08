@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Scheduler Optimization Follow-up Tasks
@@ -197,7 +197,7 @@ During the optimization process, we evaluated several alternative approaches bef
     - Real games have variable rewrite counts per frame
 - **Why rejected**:
     - Most frames have <100 rewrites, paying huge penalty for rare large frames is unacceptable
-    - "Flat green line" in benchmarks (benchmark visualization not yet generated) (see scheduler-radix-optimization-2.md)
+    - "Flat green line" in benchmarks (Benchmark visualization: see performance data in `scheduler-radix-optimization-2.md`.)
     - Cannot justify 91x regression for 90% of frames to optimize 10% of frames
 
 ---

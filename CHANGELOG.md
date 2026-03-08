@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 # Changelog
@@ -6,6 +6,11 @@
 ## Unreleased
 
 ### Docs Polish (#41)
+
+- **License:** Renamed SPDX identifier `MIND-UCAL-1.0` →
+  `LicenseRef-MIND-UCAL-1.0` across 328 files to comply with SPDX
+  Appendix IV (custom identifiers must use `LicenseRef-` prefix).
+  Updated `ensure_spdx.sh` tooling and pre-commit hook accordingly.
 
 - **Spec:** Resolved all 3 TODO comments in `spec-scheduler.md`:
   bidirectional dependency resolution rules, cleaner `registerSystem`

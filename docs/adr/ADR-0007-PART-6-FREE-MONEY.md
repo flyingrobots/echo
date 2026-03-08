@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 OR MIND-UCAL-1.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
 Alright James. Here’s the REAL™ Editor’s Edition™ Free Money™ “Free.99$” 2026 TURBO DX GAIDEN — the version you print, frame, and throw at anyone who tries to “optimize” determinism by vibes.

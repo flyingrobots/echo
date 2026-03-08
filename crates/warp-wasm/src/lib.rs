@@ -170,11 +170,10 @@ pub fn init() -> Uint8Array {
     #[cfg(feature = "engine")]
     {
         let kernel = warp_kernel::WarpKernel::new();
-        let head = kernel.get_head().unwrap_or_else(|_| kernel_port::HeadInfo {
-            tick: 0,
-            state_root: Vec::new(),
-            commit_id: Vec::new(),
-        });
+        #[allow(clippy::expect_used)] // Fresh kernel; infallible in practice.
+        let head = kernel
+            .get_head()
+            .expect("fresh kernel must have valid head");
         install_kernel(Box::new(kernel));
         encode_ok(&head)
     }

@@ -5,6 +5,29 @@
 
 ## Unreleased
 
+### fix: Ban-globals regex for macro patterns
+
+- **Fixed** `scripts/ban-globals.sh`: the `\bthread_local!\b` and
+  `\blazy_static!\b` patterns never matched because `!` is not a word
+  character in ripgrep regex, making the trailing `\b` impossible. Use
+  escaped `\!` without trailing `\b`.
+- **Added** `.ban-globals-allowlist` to exempt `warp-wasm/src/lib.rs`
+  (WASM boundary legitimately needs module-scoped `thread_local` +
+  `install_kernel`).
+
+### fix(wasm): Address PR review feedback
+
+- **Fixed** `init()` now returns real 32-byte `state_root` and
+  `commit_id` hashes from the freshly constructed kernel instead of
+  empty vecs.
+- **Fixed** `WarpKernel::with_engine()` auto-registers `sys/ack_pending`
+  if absent, silently ignoring duplicates. Prevents `ENGINE_ERROR` on
+  first dispatched intent when callers forget to register it.
+- **Removed** unnecessary `#[allow(dead_code)]` on public
+  `WarpKernel::with_engine()` method.
+- **Removed** redundant explicit type annotation on `get_registry_info()`.
+- **Fixed** broken `RegistryInfo` rustdoc link after import removal.
+
 ### fix: Resolve pre-existing clippy warnings across workspace
 
 - **Fixed** `warp-core`: cfg-gate footprint enforcement internals (`FootprintGuard`,

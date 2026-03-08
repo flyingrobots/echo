@@ -39,7 +39,7 @@
 - Scheduler — docs/spec-scheduler.md → `scheduler.rs`, `engine_impl.rs`
 - ECS storage (future) — docs/spec-ecs-storage.md → new `ecs/*` modules (TBD)
 - Serialization — docs/spec-serialization-protocol.md → `snapshot.rs` (hashing), future codecs
-- Deterministic math — docs/SPEC_DETERMINISTIC_MATH.md, docs/math-validation-plan.md → `math/*`
+- Deterministic math — docs/SPEC_DETERMINISTIC_MATH.md → `math/*`
 - Temporal bridge — docs/spec-temporal-bridge.md → future modules (TBD)
 - Worldlines & playback (SPEC-0004) — docs/spec/SPEC-0004-worldlines-playback-truthbus.md → `playback.rs`, `worldline.rs`, `provenance_store.rs`, `retention.rs`, `materialization/frame_v2.rs`
 

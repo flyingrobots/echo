@@ -18,6 +18,11 @@
   `docs/plans/`, `AGENTS.md` to `docs/`.
 - **Deleted** untracked junk files (`paper-7eee.log`, `dind-report.json`,
   `.DS_Store`).
+- **Archived** 14 superseded/completed docs: redirect stubs removed,
+  canonical content already in `docs/archive/`. Updated cross-references
+  in `docs-index.md`, `code-map.md`, `DETERMINISTIC_MATH.md`, and
+  `warp-geom/README.md`.
+- **Added** `docs/archive/README.md` defining archive policy.
 
 ### CI: G3 perf regression gate (#280)
 

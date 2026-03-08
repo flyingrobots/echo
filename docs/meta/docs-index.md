@@ -45,12 +45,8 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `spec-warp-tick-patch.md`                                      | Tick patch boundary artifact (delta ops, in/out slots, patch_digest)                                                   |
 | `spec-warp-confluence.md`                                      | Global WARP graph synchronization (Confluence)                                                                         |
 | `spec-ecs-storage.md`                                          | ECS storage (archetypes, chunks, COW)                                                                                  |
-| `math-validation-plan.md`                                      | Deterministic math coverage                                                                                            |
 | `ISSUES_MATRIX.md`                                             | Table view of active issues, milestones, and relationships                                                             |
 | `dependency-dags.md`                                           | Visual dependency sketches across issues and milestones (confidence-styled DAGs)                                       |
-| `scheduler-benchmarks.md`                                      | Redirect: scheduler benchmark plan split (see `scheduler-performance-warp-core.md`)                                    |
-| `scheduler-reserve-validation.md`                              | Redirect: merged into `scheduler-warp-core.md`                                                                         |
-| `scheduler-reserve-complexity.md`                              | Redirect: merged into `scheduler-warp-core.md`                                                                         |
 | `testing-and-replay-plan.md`                                   | Replay, golden hashes, entropy tests                                                                                   |
 | `runtime-diagnostics-plan.md`                                  | Logging, tracing, inspector streams                                                                                    |
 | `meta/docs-audit.md`                                           | Docs hygiene memo: purge/merge/splurge candidates                                                                      |
@@ -61,7 +57,6 @@ If you want the full inventory, use repo search (`rg`) and follow links outward 
 | `determinism/DETERMINISM_CLAIMS_v0.1.md`                       | Verified determinism claims (DET-001 through DET-005)                                                                  |
 | `guide/configuration-reference.md`                             | Engine parameters, protocol constants, environment variables                                                           |
 | `guide/cargo-features.md`                                      | Cargo feature flags across the workspace                                                                               |
-| `release-criteria.md`                                          | Phase transition checklist                                                                                             |
 
 ## Start Here
 
@@ -131,7 +126,7 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`capability-ownership-matrix.md`](/capability-ownership-matrix)                                                             | Capability Ownership Matrix                                                           |
 | [`code-map.md`](/code-map)                                                                                                   | Echo Code Map                                                                         |
 | [`dependency-dags.md`](/dependency-dags)                                                                                     | Dependency DAGs (Issues + Milestones)                                                 |
-| [`determinism-invariants.md`](/determinism-invariants)                                                                       | Determinism Invariants                                                                |
+| ~~`determinism-invariants.md`~~                                                                                              | **Archived.** Consolidated into warp-core spec.                                       |
 | [`diagrams.md`](/diagrams)                                                                                                   | Echo Diagram Vault                                                                    |
 | [`dind-harness.md`](/dind-harness)                                                                                           | DIND Harness (Deterministic Ironclad Nightmare Drills)                                |
 | [`meta/docs-audit.md`](/meta/docs-audit)                                                                                     | Docs Audit — Purge / Merge / Splurge                                                  |
@@ -147,7 +142,7 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`jitos/spec-0000.md`](/jitos/spec-0000)                                                                                     | SPEC-000: Everything Is a Rewrite                                                     |
 | [`js-cbor-mapping.md`](/js-cbor-mapping)                                                                                     | JS → Canonical CBOR Mapping Rules (ABI v1)                                            |
 | [`meta/legacy-excavation.md`](/meta/legacy-excavation)                                                                       | Legacy Excavation Log (Placeholder)                                                   |
-| [`notes/aion-papers-bridge.md`](/notes/aion-papers-bridge)                                                                   | Moved: AIΩN Foundations → Echo Bridge                                                 |
+| ~~`notes/aion-papers-bridge.md`~~                                                                                            | **Archived.** Content promoted to `docs/aion-papers-bridge.md`.                       |
 | [`notes/f32scalar-deterministic-trig-implementation-guide.md`](/notes/f32scalar-deterministic-trig-implementation-guide)     | Implementation Guide — Deterministic `sin/cos` for `F32Scalar` (LUT-backed)           |
 | [`notes/project-tour-2025-12-28.md`](/notes/project-tour-2025-12-28)                                                         | Echo Project Tour (2025-12-28)                                                        |
 | [`notes/scheduler-optimization-followups.md`](/notes/scheduler-optimization-followups)                                       | Scheduler Optimization Follow-up Tasks                                                |
@@ -157,25 +152,25 @@ These docs had zero or one inbound references from other docs. They are linked h
 | [`procedures/ISSUE-DEPENDENCIES.md`](/procedures/ISSUE-DEPENDENCIES)                                                         | Procedure: GitHub Issue Dependencies (“blocked by” / “blocking”)                      |
 | [`procedures/PR-SUBMISSION-REVIEW-LOOP.md`](/procedures/PR-SUBMISSION-REVIEW-LOOP)                                           | Procedure: PR Submission + CodeRabbitAI Review Loop                                   |
 | [`public/assets/collision/README.md`](../public/assets/collision/README.md)                                                  | Collision/CCD DPO Diagrams                                                            |
-| [`release-criteria.md`](/release-criteria)                                                                                   | Release Criteria — Phase 0.5 → Phase 1                                                |
+| ~~`release-criteria.md`~~                                                                                                    | **Archived.** Superseded by roadmap execution.                                        |
 | [`roadmap-mwmr-mini-epic.md`](/roadmap-mwmr-mini-epic)                                                                       | MWMR Concurrency Mini‑Epic Roadmap (Footprints, Reserve Gate, Telemetry)              |
 | [`runtime-diagnostics-plan.md`](/runtime-diagnostics-plan)                                                                   | Runtime Diagnostics Plan (Phase 0.5)                                                  |
 | [`rust-rhai-ts-division.md`](/rust-rhai-ts-division)                                                                         | Language & Responsibility Map (Phase 1)                                               |
-| [`scheduler-benchmarks.md`](/scheduler-benchmarks)                                                                           | Scheduler Benchmark Plan (Phase 0)                                                    |
+| ~~`scheduler-benchmarks.md`~~                                                                                                | **Archived.** Split into `scheduler-performance-warp-core.md`.                        |
 | [`scheduler-performance-warp-core.md`](/scheduler-performance-warp-core)                                                     | Scheduler Performance (warp-core)                                                     |
-| [`scheduler-reserve-complexity.md`](/scheduler-reserve-complexity)                                                           | Scheduler `reserve()` Time Complexity Analysis                                        |
-| [`scheduler-reserve-validation.md`](/scheduler-reserve-validation)                                                           | Scheduler `reserve()` Implementation Validation                                       |
+| ~~`scheduler-reserve-complexity.md`~~                                                                                        | **Archived.** Merged into `scheduler-warp-core.md`.                                   |
+| ~~`scheduler-reserve-validation.md`~~                                                                                        | **Archived.** Merged into `scheduler-warp-core.md`.                                   |
 | [`scheduler-warp-core.md`](/scheduler-warp-core)                                                                             | WARP Rewrite Scheduler (warp-core)                                                    |
 | [`scheduler.md`](/scheduler)                                                                                                 | Scheduling in Echo (Doc Map)                                                          |
 | [`spec-branch-tree.md`](/spec-branch-tree)                                                                                   | Branch Tree Persistence Specification (Phase 0)                                       |
 | [`spec-canonical-inbox-sequencing.md`](/spec-canonical-inbox-sequencing)                                                     | Spec: Canonical Inbox Sequencing + Deterministic Scheduler Tie-Break                  |
 | [`spec-capabilities-and-security.md`](/spec-capabilities-and-security)                                                       | Capabilities & Security Specification (Phase 0.5)                                     |
 | [`spec-concurrency-and-authoring.md`](/spec-concurrency-and-authoring)                                                       | Concurrency & Authoring Specification (Phase 0.75)                                    |
-| [`spec-deterministic-math.md`](/spec-deterministic-math)                                                                     | Redirect: archived (legacy Phase 0 draft)                                             |
+| ~~`spec-deterministic-math.md`~~                                                                                             | **Archived.** Legacy Phase 0 draft; see `SPEC_DETERMINISTIC_MATH.md`.                 |
 | [`spec-ecs-storage.md`](/spec-ecs-storage)                                                                                   | Echo ECS Storage Blueprint (Phase 0)                                                  |
 | [`spec-editor-and-inspector.md`](/spec-editor-and-inspector)                                                                 | Inspector & Editor Protocol Specification (Phase 0.75)                                |
 | [`spec-entropy-and-paradox.md`](/spec-entropy-and-paradox)                                                                   | Entropy & Paradox Specification (Phase 0.75)                                          |
-| [`spec-geom-collision.md`](/spec-geom-collision)                                                                             | Redirect: archived (stub with no normative content)                                   |
+| ~~`spec-geom-collision.md`~~                                                                                                 | **Archived.** Stub with no normative content; see `guide/collision-tour.md`.          |
 | [`spec-knots-in-time.md`](/spec-knots-in-time)                                                                               | Knots In (and Over) Graphs — Time Knots for Echo                                      |
 | [`spec-merkle-commit.md`](/spec-merkle-commit)                                                                               | Snapshot Commit Spec (v2)                                                             |
 | [`spec-mwmr-concurrency.md`](/spec-mwmr-concurrency)                                                                         | WARP MWMR Concurrency Spec (Footprints, Ports, Factor Masks)                          |

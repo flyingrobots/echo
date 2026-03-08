@@ -21,7 +21,7 @@ is largely standardized, "freaky numbers" (NaN, Subnormals, Signed Zero) introdu
 > | -------------------------------------------------------------------------------- | -------------------------------------------- |
 > | [SPEC_DETERMINISTIC_MATH.md](SPEC_DETERMINISTIC_MATH.md)                         | **Normative policy** (this doc defers to it) |
 > | [warp-math-claims.md](warp-math-claims.md)                                       | Claims and theory framing                    |
-> | [math-validation-plan.md](math-validation-plan.md)                               | Validation test plan and CI lanes            |
+> | [math-validation-plan.md](archive/math-validation-plan.md)                       | Validation test plan and CI lanes (archived) |
 > | [determinism/DETERMINISM_CLAIMS_v0.1.md](determinism/DETERMINISM_CLAIMS_v0.1.md) | Formal determinism claims                    |
 
 ## 1. NaN Payloads

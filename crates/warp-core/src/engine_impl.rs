@@ -1267,6 +1267,8 @@ impl Engine {
         });
 
         // Build (warp, shard) work units - canonical ordering preserved
+        // mut required when footprint enforcement is active (cfg-gated below).
+        #[allow(unused_mut)]
         let mut units = build_work_units(items_by_warp);
 
         // Attach guards to work units (cfg-gated)
@@ -1886,6 +1888,8 @@ fn merge_parallel_deltas(worker_results: Vec<WorkerResult>) -> Result<Vec<WarpOp
 }
 
 /// Result of validating and grouping rewrites by warp.
+#[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+#[cfg(not(feature = "unsafe_graph"))]
 type RewritesByWarp = BTreeMap<WarpId, Vec<(PendingRewrite, crate::rule::ExecuteFn, &'static str)>>;
 
 /// Collects guard metadata from grouped rewrites for footprint enforcement.
@@ -2218,6 +2222,8 @@ mod tests {
         }
     }
 
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
     fn guard_meta_rule(rule_name: &'static str) -> RewriteRule {
         let rule_id = {
             let mut hasher = blake3::Hasher::new();
@@ -2272,6 +2278,8 @@ mod tests {
         }
     }
 
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
     fn build_guard_meta_engine(scope: NodeId) -> Result<(Engine, WarpId, WarpId), EngineError> {
         let warp_a = crate::ident::make_warp_id("guard-meta-warp-a");
         let warp_b = crate::ident::make_warp_id("guard-meta-warp-b");

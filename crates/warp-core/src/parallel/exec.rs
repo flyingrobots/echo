@@ -106,6 +106,8 @@ impl std::fmt::Debug for PoisonedDelta {
 }
 
 impl PoisonedDelta {
+    #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
     pub(crate) fn new(delta: TickDelta, panic: Box<dyn Any + Send + 'static>) -> Self {
         Self {
             _delta: delta,
@@ -437,6 +439,9 @@ where
 ///
 /// When enforcement is inactive (`unsafe_graph` feature or release without
 /// `footprint_enforce_release`), executes directly without validation.
+// Result is always Ok when enforcement is compiled out (unsafe_graph), but the
+// signature must stay Result for the enforcement path.
+#[allow(clippy::unnecessary_wraps)]
 #[inline]
 fn execute_item_enforced(
     store: &GraphStore,

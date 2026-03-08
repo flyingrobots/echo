@@ -40,9 +40,9 @@ fi
 PATTERNS=(
   '\bOnceLock\b'
   '\bLazyLock\b'
-  '\blazy_static!\b'
+  '\blazy_static\!'
   '\bonce_cell\b'
-  '\bthread_local!\b'
+  '\bthread_local\!'
   '\bstatic mut\b'
   '\binstall_[a-zA-Z0-9_]*\b'
 )

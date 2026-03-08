@@ -181,6 +181,7 @@ impl TickDelta {
 
     /// Returns a shared reference to the accumulated ops (for footprint validation).
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
+    #[cfg(not(feature = "unsafe_graph"))]
     pub(crate) fn ops_ref(&self) -> &[WarpOp] {
         &self.ops
     }

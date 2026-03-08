@@ -5,6 +5,82 @@
 
 ## Unreleased
 
+### fix: Ban-globals regex for macro patterns
+
+- **Fixed** `scripts/ban-globals.sh`: the `\bthread_local!\b` and
+  `\blazy_static!\b` patterns never matched because `!` is not a word
+  character in ripgrep regex, making the trailing `\b` impossible. Use
+  escaped `\!` without trailing `\b`.
+- **Added** `.ban-globals-allowlist` to exempt `warp-wasm/src/lib.rs`
+  (WASM boundary legitimately needs module-scoped `thread_local` +
+  `install_kernel`).
+
+### fix(wasm): Address PR review feedback
+
+- **Fixed** `init()` now returns real 32-byte `state_root` and
+  `commit_id` hashes from the freshly constructed kernel instead of
+  empty vecs.
+- **Fixed** `WarpKernel::with_engine()` auto-registers `sys/ack_pending`
+  if absent, silently ignoring duplicates. Prevents `ENGINE_ERROR` on
+  first dispatched intent when callers forget to register it.
+- **Removed** unnecessary `#[allow(dead_code)]` on public
+  `WarpKernel::with_engine()` method.
+- **Removed** redundant explicit type annotation on `get_registry_info()`.
+- **Fixed** broken `RegistryInfo` rustdoc link after import removal.
+
+### fix: Resolve pre-existing clippy warnings across workspace
+
+- **Fixed** `warp-core`: cfg-gate footprint enforcement internals (`FootprintGuard`,
+  `OpTargets`, `op_write_targets`, etc.) so they compile out cleanly under
+  `unsafe_graph` without dead-code warnings.
+- **Fixed** `warp-core`: add `#[allow(unused_mut)]` on cfg-conditional mutation
+  in `engine_impl.rs`.
+- **Fixed** `echo-wasm-bindings`: restructure `TtdController` WASM bindings to
+  use per-method `wasm_bindgen` with `JsValue`/`JsError` wrappers instead of
+  blanket `wasm_bindgen` on the impl block (fixes trait bound errors under
+  `--all-features`).
+- **Fixed** `echo-scene-codec`: add clippy allow attributes to test module for
+  `expect_used`, `unwrap_used`, and `float_cmp`.
+- **Fixed** `warp-core` tests: move enforcement-only imports into cfg-gated
+  `mod enforcement` in `parallel_footprints.rs`.
+
+### fix(wasm): Validate intent envelopes, enforce envelope construction, add trait defaults
+
+- **Fixed** `dispatch_intent` now validates the EINT envelope before passing
+  bytes to the engine, returning `INVALID_INTENT` (code 2) for malformed
+  envelopes instead of forwarding garbage.
+- **Added** `Display` impl for `EnvelopeError` (no_std compatible).
+- **Changed** `OkEnvelope` and `ErrEnvelope` fields to private with `::new()`
+  constructors, enforcing correct `ok` field values at compile time.
+- **Added** default implementations for `KernelPort::execute_query` and
+  `KernelPort::render_snapshot` returning `NOT_SUPPORTED`, making future
+  trait evolution non-breaking.
+- **Updated** SPEC-0009 error code 2 description and versioning notes.
+
+### feat(wasm): Ship reusable app-kernel WASM boundary with real exports (ECO-001)
+
+- **Added** `KernelPort` trait to `echo-wasm-abi` — app-agnostic byte-level
+  boundary contract for WASM host adapters. Includes ABI response DTOs
+  (`DispatchResponse`, `StepResponse`, `HeadInfo`, `DrainResponse`,
+  `RegistryInfo`), error codes, and CBOR wire envelope types.
+- **Added** `WarpKernel` to `warp-wasm` (behind `engine` feature) — wraps
+  `warp-core::Engine` implementing `KernelPort`. Registers `sys/ack_pending`
+  system rule, provides deterministic tick execution.
+- **Replaced** all placeholder WASM exports with real implementations:
+  `dispatch_intent`, `step`, `drain_view_ops`, `get_head`, `snapshot_at`,
+  `get_registry_info`, and handshake metadata getters now return live data.
+- **Added** `init()` export for kernel initialization; calling exports before
+  init returns structured error (no panics).
+- **Added** CBOR success/error envelope protocol (`{ ok: true/false, ... }`)
+  for all `Uint8Array` returns.
+- **Added** `install_kernel()` public API for app-agnostic kernel injection.
+- **Added** SPEC-0009 documenting ABI v1 contract, wire encoding, error
+  codes, versioning strategy, and migration notes.
+- **Added** 14 conformance tests covering dispatch, step, drain, snapshot,
+  determinism, error paths, and handshake metadata.
+- `execute_query` and `render_snapshot` honestly report `NOT_SUPPORTED`
+  (error code 5) until the engine query dispatcher lands.
+
 ### Refactor: Retire BOAW/JITOS/Continuum codenames
 
 - **Renamed** `warp_core::boaw` module to `warp_core::parallel` — all import

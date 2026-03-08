@@ -1,2 +1,6 @@
 {
+  "materialization_emit_log_1000": 179422,
+  "materialization_emit_strict_1000": 248558,
+  "materialization_finalize_log_1000": 36741,
+  "materialization_finalize_strict_1000": 223198
 }

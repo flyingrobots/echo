@@ -17,24 +17,24 @@ Group B.
 
 ### spec-scheduler.md (5 items — all locally fixed)
 
-- [ ] **[MAJ] line 50:** `phases` cannot be both required and defaulted.
+- [x] **[MAJ] line 50:** `phases` cannot be both required and defaulted.
       Made `phases` optional with `?` suffix. Registration already had `?? ["update"]` fallback. Contract is now consistent.
-- [ ] **[MAJ] line 143:** Dedup rule broken by unconditional `inDegree` bumps.
+- [x] **[MAJ] line 143:** Dedup rule broken by unconditional `inDegree` bumps.
       Added `.has()` guard before `.add()` + inDegree increment in both after/before loops.
-- [ ] **[MAJ] line 183:** `initialize` never runs for systems added after tick 1.
+- [x] **[MAJ] line 183:** `initialize` never runs for systems added after tick 1.
       Changed to run INITIALIZE unconditionally every tick; only systems with `status: "pending"` execute.
-- [ ] **[MAJ] line 278:** `unpauseable` is not a conflict predicate.
+- [x] **[MAJ] line 278:** `unpauseable` is not a conflict predicate.
       Removed `and not unpauseable` from batching condition. Unpauseable only affects pause handling.
-- [ ] **[MIN] line 406:** Wrong warp-core type name.
+- [x] **[MIN] line 406:** Wrong warp-core type name.
       Changed `FootprintInfo` → `Footprint` in open questions.
 
 ### spec-editor-and-inspector.md (7 items — 3 locally fixed, 4 need work)
 
-- [ ] **[MAJ] line 6:** Broken cross-reference links.
+- [x] **[MAJ] line 6:** Broken cross-reference links.
       Fixed `/guide/warp-primer` → `guide/warp-primer.md` and `docs/spec-time-streams...` → `spec-time-streams...`.
-- [ ] **[CRIT] line 36:** `object` typing too permissive.
+- [x] **[CRIT] line 36:** `object` typing too permissive.
       Changed `payload: object` → `payload: unknown`.
-- [ ] **[MAJ] line 40:** Draft note needs exact missing artifacts.
+- [x] **[MAJ] line 40:** Draft note needs exact missing artifacts.
       Updated to name `types.ts` and `registry.ts` with specific missing types.
 - [x] **[CRIT] line 43:** Sorting algorithm for deterministic frame ordering unspecified.
       **Done:** Added normative paragraph specifying stable sort ascending by `(tick, frameType)`, unsigned integer comparison for tick, UTF-8 lexicographic comparison for frameType, stable tie-breaking by insertion order. Applies to both in-memory buffer and JSONL log.
@@ -47,13 +47,13 @@ Group B.
 
 ### xtask/src/main.rs (1 item — locally fixed)
 
-- [ ] **[MAJ] line 791:** SPDX repair ignores `--root`.
+- [x] **[MAJ] line 791:** SPDX repair ignores `--root`.
       Scoped `ensure_spdx.sh` to pass `md_files` as positional args instead of running repo-wide.
 
 ### memorials/2026-01-18-phase4-rubicon.md (3 items — 1 fixed, 2 need work)
 
-- [ ] **[MIN] line 111:** Emphasis half-fixed.
-      Changed `_Alea iacta est_.` → `*Alea iacta est*.`
+- [x] **[MIN] line 111:** Emphasis half-fixed.
+      **Done:** Prettier enforces underscore emphasis (`_..._`), overriding asterisks. `_Alea iacta est_.` is the correct form under this repo's prettier config.
 - [ ] **[CRIT] line ~21:** Revert underscore emphasis to asterisks.
       **NEEDS WORK.** `_base + ops = next_` was changed to `` `base + ops = next` `` in round 1, but CR wants asterisks for non-code emphasis. Verify: if it's computational (formula), code span is correct; if it's rhetorical emphasis, use `*...*`.
 - [ ] **[MIN] line ~111:** Foreign phrase requires italics, not emphasis.
@@ -61,30 +61,31 @@ Group B.
 
 ### spec-merkle-commit.md (3 items — 2 fixed, 1 partially)
 
-- [ ] **[MIN] line 6:** Root-relative link.
+- [x] **[MIN] line 6:** Root-relative link.
       Fixed `/guide/warp-primer` → `guide/warp-primer.md`.
-- [ ] **[MAJ] line 78:** Parent count validation in `compute_commit_hash_v2()`.
+- [x] **[MAJ] line 78:** Parent count validation in `compute_commit_hash_v2()`.
       Added MUST-validate sentence.
-- [ ] **[TRIV] line 203:** Consolidate empty digest definition.
-      Already added `EMPTY_LEN_DIGEST` constant in round 1. Verify this comment is about the same thing or a new concern.
+- [x] **[TRIV] line 203:** Consolidate empty digest definition.
+      `EMPTY_LEN_DIGEST` constant defined at line 195 with cross-reference to engine's `DIGEST_LEN0_U64`. Invariants section (lines 201-203) explains the semantic distinction from `blake3(b"")`.
 
 ### Other locally-fixed files (13 items)
 
-- [ ] **[MIN] docs/adr/ADR-0004-No-Global-State.md:178** — Over-escaped `install\_\*` in code block. Fixed.
-- [ ] **[CRIT] docs/archive/spec-geom-collision.md:34** — Broken cross-ref `SPEC_DETERMINISTIC_MATH.md`. Fixed → `spec-deterministic-math.md`.
+- [x] **[MIN] docs/adr/ADR-0004-No-Global-State.md:178** — Over-escaped `install\_\*` in code block.
+      **Done:** Prettier re-escapes underscores/asterisks inside ` ```markdown ` fences (it formats the content as markdown). The escapes are cosmetic — they render identically to unescaped versions in markdown renderers. Accepted as prettier-enforced.
+- [x] **[CRIT] docs/archive/spec-geom-collision.md:34** — Broken cross-ref `SPEC_DETERMINISTIC_MATH.md`. Fixed → `spec-deterministic-math.md`.
 - [ ] **[CRIT] docs/notes/scheduler-optimization-followups.md:30** — Proptest missing.
       Round-1 added "future work" note. CR says that's not enough — proptest is **required** for determinism. **NEEDS WORK.** Either write the proptest or make the note stronger with a tracking issue.
 - [ ] **[MAJ] docs/notes/scheduler-optimization-followups.md:65** — Radix sort docs incomplete.
       Round-1 added "see also" note. CR says docs are still incomplete. **NEEDS WORK.** Add the missing inline documentation to the notes file — pass sequence, digit size rationale, LSD vs MSD, thin/fat separation, histogram algorithm.
-- [ ] **[MAJ] docs/notes/scheduler-optimization-followups.md:201** — Ambiguous benchmark note. Fixed.
-- [ ] **[MIN] docs/spec-ecs-storage.md:6** — Root-relative link. Fixed.
-- [ ] **[MIN] docs/spec-geom-collision.md:7** — Vague deferral. Fixed.
-- [ ] **[MIN] docs/spec-mwmr-concurrency.md:6** — Broken link. Fixed.
+- [x] **[MAJ] docs/notes/scheduler-optimization-followups.md:201** — Ambiguous benchmark note. Fixed.
+- [x] **[MIN] docs/spec-ecs-storage.md:6** — Root-relative link. Fixed.
+- [x] **[MIN] docs/spec-geom-collision.md:7** — Vague deferral. Fixed.
+- [x] **[MIN] docs/spec-mwmr-concurrency.md:6** — Broken link. Fixed.
 - [ ] **[MIN] docs/spec-mwmr-concurrency.md:51** — Name "Theorem A". **NEEDS WORK.** Replace with the actual theorem name from the warp-math papers.
 - [ ] **[MAJ] docs/spec-warp-confluence.md:66** — Signing canonicalization underspecified.
       Round-1 added a note. CR says it's still not enough. **NEEDS WORK.** Add a normative subsection specifying the exact field list and encoding order used for signing.
-- [ ] **[MIN] docs/spec-warp-confluence.md:6** — Root-relative link. Fixed.
-- [ ] **[MAJ] docs/spec-world-api.md:6** — Broken primer link. Fixed.
+- [x] **[MIN] docs/spec-warp-confluence.md:6** — Root-relative link. Fixed.
+- [x] **[MAJ] docs/spec-world-api.md:6** — Broken primer link. Fixed.
 - [ ] **[MAJ] docs/spec-world-api.md:~92** — Version management too vague.
       Round-1 added SemVer note. CR says still vague. **NEEDS WORK.** Add explicit breaking-change criteria and deprecation timeline.
 

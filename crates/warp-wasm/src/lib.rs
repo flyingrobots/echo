@@ -258,7 +258,7 @@ pub fn render_snapshot(snapshot_bytes: &[u8]) -> Uint8Array {
 
 /// Return registry metadata (schema hash, codec id, registry version).
 ///
-/// Returns CBOR-encoded [`RegistryInfo`].
+/// Returns CBOR-encoded [`RegistryInfo`](kernel_port::RegistryInfo).
 #[wasm_bindgen]
 pub fn get_registry_info() -> Uint8Array {
     encode_result(with_kernel_ref(|k| Ok(k.registry_info())))

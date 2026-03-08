@@ -7,10 +7,15 @@ set -euo pipefail
 # Guard against contradictory duplicated checklist items (e.g. the same task both checked and unchecked).
 # Intended to keep living task docs unambiguous.
 
-FILES=(
-  # Add task list files here as they are created.
-  # Previously: "WASM-TASKS.md", "docs/tasks.md" (archived)
-)
+# Accept file arguments; fall back to the built-in list when none are given.
+if [[ $# -gt 0 ]]; then
+  FILES=("$@")
+else
+  FILES=(
+    # Add task list files here as they are created.
+    # Previously: "WASM-TASKS.md", "docs/tasks.md" (archived)
+  )
+fi
 
 fail=0
 existing_files=()

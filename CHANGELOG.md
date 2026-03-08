@@ -73,6 +73,14 @@
 - **Fixed** `echo-session-client` and `echo-session-service` Cargo.toml
   descriptions: removed stale "(skeleton)" qualifier.
 
+### Fix: Task list guard CI failure
+
+- **Fixed** `scripts/check_task_lists.sh`: accept file arguments for testability;
+  fall back to built-in `FILES` array when none are given.
+- **Fixed** `scripts/tests/check_task_lists_test.sh`: updated tests to pass file
+  arguments to the checker and match current output messages. Tests were broken
+  after the `FILES` array was emptied when task lists were archived.
+
 ### Chore: Clean up root directory
 
 - **Removed** stale root-level ADR duplicates (`ADR-0003` through `ADR-0006`);

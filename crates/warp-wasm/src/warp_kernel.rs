@@ -266,6 +266,25 @@ mod tests {
         assert_eq!(head.commit_id.len(), 32);
     }
 
+    /// Regression: init() must return real 32-byte hashes, not empty vecs.
+    /// The init() WASM export calls get_head() before boxing the kernel.
+    /// This test verifies the contract that get_head() upholds on a fresh kernel.
+    #[test]
+    fn fresh_kernel_head_has_real_hashes() {
+        let kernel = WarpKernel::new();
+        let head = kernel.get_head().unwrap();
+        // Must be 32 bytes (BLAKE3 hash), not empty
+        assert_eq!(head.state_root.len(), 32, "state_root must be 32 bytes");
+        assert_eq!(head.commit_id.len(), 32, "commit_id must be 32 bytes");
+        // Must not be all zeros (a real hash of graph state)
+        assert_ne!(
+            head.state_root,
+            vec![0u8; 32],
+            "state_root must not be zero"
+        );
+        assert_ne!(head.commit_id, vec![0u8; 32], "commit_id must not be zero");
+    }
+
     #[test]
     fn step_zero_is_noop() {
         let mut kernel = WarpKernel::new();

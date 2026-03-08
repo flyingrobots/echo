@@ -156,6 +156,9 @@ pub struct OkEnvelope<T> {
 
 impl<T> OkEnvelope<T> {
     /// Create a success envelope. Sets `ok` to `true` automatically.
+    ///
+    /// `T` may be a reference (e.g., `&impl Serialize`) when the envelope
+    /// is used for immediate serialization and not stored.
     pub fn new(data: T) -> Self {
         Self { ok: true, data }
     }

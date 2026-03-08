@@ -100,7 +100,10 @@ impl KernelPort for WarpKernel {
         if let Err(e) = unpack_intent_v1(intent_bytes) {
             return Err(AbiError {
                 code: error_codes::INVALID_INTENT,
-                message: format!("malformed EINT envelope: {e}"),
+                message: format!(
+                    "malformed EINT envelope ({} bytes): {e}",
+                    intent_bytes.len()
+                ),
             });
         }
 

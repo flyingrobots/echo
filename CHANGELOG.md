@@ -5,6 +5,14 @@
 
 ## Unreleased
 
+### docs(adr): ADR-0009 Inter-Worldline Communication
+
+- **Added** ADR-0009: Inter-Worldline Communication, Frontier Transport, and
+  Conflict Policy — formalizes message-passing-only communication between
+  worldlines, frontier-relative patches, suffix transport as the replication
+  primitive, four-dimensional footprint interference, explicit conflict
+  surfacing over silent LWW, and the state-vs-history convergence separation.
+
 ### docs(adr): ADR-0008 Worldline Runtime Model
 
 - **Added** ADR-0008: Worldline Runtime Model — formalizes writer/reader heads,

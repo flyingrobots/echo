@@ -283,7 +283,8 @@ impl LocalProvenanceStore {
     /// * `expected` - The expected hash triplet for verification
     /// * `outputs` - Channel outputs emitted during this tick
     /// * `atom_writes` - Atom writes for provenance tracking (rule→atom attribution).
-    ///   **Invariant**: Each `AtomWrite` must reference an atom whose slot appears in
+    ///   **Invariant**: Each entry's `tick` must equal `patch.global_tick()`, and each
+    ///   `AtomWrite` must reference an atom whose slot appears in
     ///   `patch.out_slots` (either as `SlotId::Attachment(node_alpha(atom))` or
     ///   `SlotId::Node(atom)`). Writes to atoms not declared in `out_slots` will be
     ///   stored and retrievable via [`atom_writes()`](Self::atom_writes), but will be
@@ -318,12 +319,17 @@ impl LocalProvenanceStore {
             });
         }
 
-        // Debug-only: validate that every AtomWrite references an atom declared
-        // in patch.out_slots. Violations mean atom_history() would silently miss
-        // the write. Zero cost in release builds.
+        // Debug-only: validate atom write invariants. Zero cost in release builds.
         #[cfg(debug_assertions)]
         {
             for aw in &atom_writes {
+                // Each AtomWrite.tick must match the enclosing patch tick.
+                debug_assert_eq!(
+                    aw.tick, got_tick,
+                    "AtomWrite tick {} does not match enclosing patch tick {}",
+                    aw.tick, got_tick,
+                );
+                // Each AtomWrite must reference an atom declared in out_slots.
                 let att = crate::tick_patch::SlotId::Attachment(
                     crate::attachment::AttachmentKey::node_alpha(aw.atom),
                 );
@@ -333,7 +339,7 @@ impl LocalProvenanceStore {
                     "AtomWrite for {:?} at tick {} not declared in out_slots — \
                      atom_history() will not find this write",
                     aw.atom,
-                    patch.global_tick(),
+                    got_tick,
                 );
             }
         }

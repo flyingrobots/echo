@@ -19,10 +19,12 @@ use warp_core::{
 
 // ─── Test vectors ────────────────────────────────────────────────────────────
 
-fn make_hash(n: u8) -> [u8; 32] {
-    let mut h = [0u8; 32];
-    h[0] = n;
-    h
+/// Creates a 32-byte hash where every byte position is distinguishable.
+/// This catches serializer bugs that drop, reorder, or endian-flip tail bytes
+/// (a uniform [n, 0, 0, ...] fixture would mask such issues).
+fn make_hash(seed: u8) -> [u8; 32] {
+    #[expect(clippy::cast_possible_truncation, reason = "i ∈ 0..32, fits in u8")]
+    core::array::from_fn(|i| seed.wrapping_add((i as u8).wrapping_mul(17)))
 }
 
 // ─── compute_emissions_digest ────────────────────────────────────────────────
@@ -76,7 +78,7 @@ fn op_emission_index_digest_golden_vector() {
 
     // Pinned golden value. If this changes, the op-emission-index wire format changed.
     assert_eq!(
-        hex, "162f7a1537231acd5e4138229900b46c51e6c4b5f1968c1fea1eb24c2e51a6ef",
+        hex, "cbb1f5f73d0b5da137b0bde7b7d242fb44b8b6d0f5d4f8391105b6c36aa7a974",
         "op_emission_index_digest golden vector mismatch — wire format may have changed!\nactual: {hex}"
     );
 }
@@ -112,12 +114,12 @@ fn tick_commit_hash_v2_full_chain_golden_vector() {
     let op_emission_index_digest = compute_op_emission_index_digest(&entries);
 
     // Step 3: Compute tick commit hash using the above digests
-    let schema_hash = [0xABu8; 32];
-    let worldline_id = WorldlineId([0xCDu8; 32]);
+    let schema_hash = make_hash(0xAB);
+    let worldline_id = WorldlineId(make_hash(0xCD));
     let tick = 42u64;
-    let parent = [0x11u8; 32];
-    let patch_digest = [0x22u8; 32];
-    let state_root = [0x33u8; 32];
+    let parent = make_hash(0x11);
+    let patch_digest = make_hash(0x22);
+    let state_root = make_hash(0x33);
 
     let commit_hash = compute_tick_commit_hash_v2(
         &schema_hash,
@@ -134,7 +136,7 @@ fn tick_commit_hash_v2_full_chain_golden_vector() {
     // Pinned golden value for the full chain. If this changes, any layer's
     // wire format may have changed — check individual tests above to isolate.
     assert_eq!(
-        hex, "8851ee5eada0d69032db7680e71ad1fc2c9bcf871b053b193d80dfea706eac1b",
+        hex, "8a769a8d8dd847be4ff546f1214a44d49446f05a0a10450b5d0ec21bd68613e9",
         "tick_commit_hash_v2 full-chain golden vector mismatch!\nactual: {hex}"
     );
 }

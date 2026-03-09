@@ -51,26 +51,41 @@ Every worldline may have multiple **playback heads**:
 
 - **WriterHead**: Can advance the worldline frontier by admitting and applying
   intents through deterministic commit. The scheduler owns writer-head
-  advancement.
+  advancement. A worldline MAY have multiple writer heads. Writer heads
+  targeting the same worldline MAY advance within the same SuperTick when
+  their admitted intents are footprint-independent. If admitted footprints
+  overlap, canonical ordering by `head_id` determines the absolute serial
+  order of application.
 - **ReaderHead**: Can seek and replay from provenance only. Never mutates the
-  worldline frontier. Used by debuggers, replay actors, observers.
+  worldline frontier. Seeking a ReaderHead to a tick `t` where
+  `t > frontier` MUST clamp the head to the current frontier tick and MUST
+  NOT synthesize intermediate or future state. Replay is strictly an
+  observation of existing provenance. Used by debuggers, replay actors,
+  observers.
 
 ### 3) SuperTick contract
 
 The scheduler executes one **SuperTick** per cycle:
 
-1. Determine runnable writer heads (not paused, not capability-blocked).
-2. Sort by canonical key (`worldline_id`, then `head_id`) for determinism.
-3. For each writer head in order: admit intents per policy/budget, execute
-   deterministic commit, append provenance, publish projections.
-4. Reader heads are unaffected except through explicit frontier updates and
+1. Iterate the **runnable writer set** in canonical order (`worldline_id`,
+   then `head_id`). The implementation SHOULD maintain two tiers:
+    - `PlaybackHeadRegistry`: owns all heads (writer + reader, all states).
+    - `RunnableWriterSet`: ordered live index of only runnable writer heads
+      (not paused, not capability-blocked). Maintained as a
+      `BTreeSet<WriterHeadKey>` (or equivalent permanently-sorted structure)
+      so SuperTick iteration is O(N) with zero filtering.
+      Mode transitions (`set_mode`, capability changes) insert/remove from the
+      runnable set. The hot path never scans paused or blocked heads.
+2. For each writer head in order: admit intents per policy/budget, execute
+   deterministic commit, append provenance, publish projections. Writer
+   heads targeting the same worldline with footprint-independent intents
+   MAY advance concurrently; overlapping footprints serialize by `head_id`.
+3. Reader heads are unaffected except through explicit frontier updates and
    separate replay calls.
 
 ```text
 super_tick():
-  runnable = writer_heads.filter(is_runnable)
-  ordered = sort_canonical(runnable)
-  for head in ordered:
+  for head in runnable_writer_set:  # pre-sorted, no filtering
     admitted = admit_intents(head, policy)
     if admitted.is_empty():
       continue
@@ -101,7 +116,9 @@ Wesley schema ownership follows these boundaries: `core` schema (Echo-owned),
 ### 6) Per-head operations replace global rewinds
 
 - `seek(head_id, target_tick)`: Rebuild head-local state from provenance for
-  that worldline only. Must not alter other heads or worldlines.
+  that worldline only. If `target_tick > frontier`, clamp to the current
+  frontier tick; MUST NOT synthesize intermediate or future state. Must not
+  alter other heads or worldlines.
 - `jump_to_frontier(head_id)`: Move head to current worldline frontier.
 - `fork(worldline_id, fork_tick, new_worldline_id)`: Clone prefix history
   through fork tick. New worldline has independent frontier and head set.
@@ -127,11 +144,17 @@ operation, not the default playback API.
 ### Timeline and Heads
 
 1. Every worldline has monotonically increasing `worldline_tick`.
-2. A worldline may have many heads.
+2. A worldline may have many heads, including multiple writer heads.
 3. A writer head may advance only its own worldline.
-4. Reader heads never mutate worldline frontier.
-5. Paused heads never advance.
-6. Seek/jump is head-local and never globally rewinds unrelated worldlines.
+4. Writer heads targeting the same worldline MAY advance within the same
+   SuperTick when their admitted intents are footprint-independent. If
+   admitted footprints overlap, canonical ordering by `head_id` determines
+   the absolute serial order of application.
+5. Reader heads never mutate worldline frontier.
+6. Seeking a reader head beyond frontier MUST clamp to the current frontier
+   tick and MUST NOT synthesize intermediate or future state.
+7. Paused heads never advance.
+8. Seek/jump is head-local and never globally rewinds unrelated worldlines.
 
 ### Determinism and Scheduling
 
@@ -148,16 +171,16 @@ operation, not the default playback API.
 
 ## Implementation Plan (Normative Order)
 
-| Step | Change                                                       | Current State                                    |
-| ---- | ------------------------------------------------------------ | ------------------------------------------------ |
-| 1    | First-class `WriterHead` object + `PlaybackHeadRegistry`     | `playback.rs` writer advance is stubbed          |
-| 2    | `SchedulerCoordinator` over runnable writer heads            | `warp_kernel.rs` single global step loop         |
-| 3    | Per-writer-head `IntentInbox` policy                         | `dispatch_next_intent(tx)` monolithic dequeue    |
-| 4    | Wire writer-head commit to provenance in production          | PR #298 laid atom write + causal cone groundwork |
-| 5    | Per-head `seek`/`jump` APIs; deprecate global `jump_to_tick` | `engine_impl.rs` global rewind                   |
-| 6    | Split `worldline_tick` / `global_tick` semantics             | Currently entangled in runtime + provenance APIs |
-| 7    | Multi-warp replay support policy                             | `worldline.rs` cannot replay portal/instance ops |
-| 8    | Wesley core schema + generated clients for new APIs          | Depends on all above                             |
+| Step | Change                                                                         | Current State                                    |
+| ---- | ------------------------------------------------------------------------------ | ------------------------------------------------ |
+| 1    | First-class `WriterHead` object + `PlaybackHeadRegistry` + `RunnableWriterSet` | `playback.rs` writer advance is stubbed          |
+| 2    | `SchedulerCoordinator` iterating `RunnableWriterSet`                           | `warp_kernel.rs` single global step loop         |
+| 3    | Per-writer-head `IntentInbox` policy                                           | `dispatch_next_intent(tx)` monolithic dequeue    |
+| 4    | Wire writer-head commit to provenance in production                            | PR #298 laid atom write + causal cone groundwork |
+| 5    | Per-head `seek`/`jump` APIs; deprecate global `jump_to_tick`                   | `engine_impl.rs` global rewind                   |
+| 6    | Split `worldline_tick` / `global_tick` semantics                               | Currently entangled in runtime + provenance APIs |
+| 7    | Multi-warp replay support policy                                               | `worldline.rs` cannot replay portal/instance ops |
+| 8    | Wesley core schema + generated clients for new APIs                            | Depends on all above                             |
 
 ## Key Files (Observed State as of 2026-03-09)
 
@@ -179,19 +202,23 @@ The runtime model natively supports:
 - **Speculative execution branches**: Try multiple futures, collapse to one.
 - **Process-style worldline isolation**: Independent timelines for Continuum
   runtime experiments.
+- **Multi-writer concurrency**: Multiple writer heads on a single worldline
+  handling disjoint graph regions (e.g., Physics Head vs. Logic Head) with
+  footprint-based conflict resolution.
 
 These are runtime capabilities, not debugger hacks.
 
 ## Test Requirements
 
-| Category      | What to verify                                                                   |
-| ------------- | -------------------------------------------------------------------------------- |
-| Determinism   | Same inputs + same initial state => same receipts/hashes                         |
-| Isolation     | Seeking worldline A does not mutate worldline B                                  |
-| Scheduling    | Paused writer heads never advance; runnable heads advance in canonical order     |
-| Provenance    | Append-only invariants hold; replay at tick _t_ reproduces expected hash triplet |
-| Authorization | Janus intents cannot mutate App graph directly                                   |
-| Integration   | Input routing emits intents only; UI deterministic under time-control ops        |
+| Category       | What to verify                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Determinism    | Same inputs + same initial state => same receipts/hashes                                                                              |
+| Isolation      | Seeking worldline A does not mutate worldline B                                                                                       |
+| Scheduling     | Paused writer heads never advance; runnable heads advance in canonical order; multi-writer footprint conflicts serialize by `head_id` |
+| Frontier clamp | `seek(head, t)` where `t > frontier` clamps to frontier; reader never observes unproduced state                                       |
+| Provenance     | Append-only invariants hold; replay at tick _t_ reproduces expected hash triplet                                                      |
+| Authorization  | Janus intents cannot mutate App graph directly                                                                                        |
+| Integration    | Input routing emits intents only; UI deterministic under time-control ops                                                             |
 
 ## Consequences
 

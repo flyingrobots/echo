@@ -1236,6 +1236,56 @@ mod tests {
         assert!(!noop_write.is_mutation());
     }
 
+    /// Creates a patch with `SlotId::Node(atom)` out_slots instead of
+    /// `SlotId::Attachment`. This exercises the skeleton-level provenance path
+    /// (UpsertNode/DeleteNode) as opposed to the payload-level path (SetAttachment).
+    fn test_patch_with_node_slots(tick: u64, atoms: &[NodeKey]) -> WorldlineTickPatchV1 {
+        let mut patch = test_patch(tick);
+        for atom in atoms {
+            patch.out_slots.push(SlotId::Node(*atom));
+        }
+        patch
+    }
+
+    #[test]
+    fn atom_history_via_node_slot() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let atom = test_node_key();
+
+        // Tick 0: create via SlotId::Node (skeleton-level write, e.g. UpsertNode)
+        let create_write = AtomWrite::new(atom, test_rule_id(), 0, None, vec![1]);
+        store
+            .append_with_writes(
+                w,
+                test_patch_with_node_slots(0, &[atom]),
+                test_triplet(0),
+                vec![],
+                vec![create_write.clone()],
+            )
+            .unwrap();
+
+        // Tick 1: mutate via SlotId::Node
+        let mutate_write = AtomWrite::new(atom, test_rule_id(), 1, Some(vec![1]), vec![2]);
+        store
+            .append_with_writes(
+                w,
+                test_patch_with_node_slots(1, &[atom]),
+                test_triplet(1),
+                vec![],
+                vec![mutate_write.clone()],
+            )
+            .unwrap();
+
+        // atom_history should find both writes through the SlotId::Node path
+        let history = store.atom_history(w, &atom).unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0], create_write, "oldest first: creation");
+        assert_eq!(history[1], mutate_write, "oldest first: mutation");
+    }
+
     #[test]
     fn fork_copies_atom_writes() {
         let mut store = LocalProvenanceStore::new();

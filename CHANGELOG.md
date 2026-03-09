@@ -18,8 +18,9 @@
   the atom, with early termination at creation. O(history) scan, no reverse index.
 - **Fixed** `LocalProvenanceStore::fork()` to copy `atom_writes` alongside
   patches, expected hashes, and outputs.
-- **Added** 11 tests covering atom write storage, queries, filtering, fork,
-  causal-cone walk, skip behavior, early termination, and within-tick ordering.
+- **Added** 12 tests covering atom write storage, queries, filtering, fork,
+  causal-cone walk, skip behavior, early termination, within-tick ordering,
+  and `SlotId::Node(atom)` provenance path.
 
 ### test(echo-dind-harness): Golden-vector coverage for TTD digest surface
 

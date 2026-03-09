@@ -19,6 +19,15 @@
 - **Fixed** `LocalProvenanceStore::fork()` to copy `atom_writes` alongside
   patches, expected hashes, and outputs.
 
+### test(echo-dind-harness): Golden-vector coverage for TTD digest surface
+
+- **Added** `digest_golden_vectors.rs` — DIND-level golden-hash tests that
+  exercise `compute_emissions_digest`, `compute_op_emission_index_digest`,
+  and `compute_tick_commit_hash_v2` through warp-core's crate-root re-exports.
+- **Pinned** 3 golden vectors: individual emission/op-emission-index digests
+  plus a full hash chain (emissions → op-index → tick-commit). Any wire format
+  drift in the public digest surface is now caught outside module-local tests.
+
 ### fix(warp-core): Preserve within-tick write order in atom_history
 
 - **Fixed** `atom_history()` within-tick write ordering: the backward tick

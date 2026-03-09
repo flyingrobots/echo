@@ -5,6 +5,45 @@
 
 ## Unreleased
 
+### feat(warp-core): Wire up TTD domain logic from ttd-spec branch
+
+- **Exported** `compute_tick_commit_hash_v2`, `compute_op_emission_index_digest`,
+  and `OpEmissionEntry` from `warp-core` public API (previously `dead_code`).
+- **Wired** `LocalProvenanceStore::append_with_writes()` to actually store
+  atom writes instead of discarding them.
+- **Added** `LocalProvenanceStore::atom_writes(w, tick)` — query atom writes
+  for a specific tick (TTD "Show Me Why" provenance).
+- **Added** `LocalProvenanceStore::atom_history(w, atom)` — causal cone walk
+  using `out_slots` (Paper III `Out(μ)`) to filter ticks that wrote to
+  the atom, with early termination at creation. O(history) scan, no reverse index.
+- **Fixed** `LocalProvenanceStore::fork()` to copy `atom_writes` alongside
+  patches, expected hashes, and outputs.
+- **Added** 12 tests covering atom write storage, queries, filtering, fork,
+  causal-cone walk, skip behavior, early termination, within-tick ordering,
+  and `SlotId::Node(atom)` provenance path.
+
+### test(echo-dind-harness): Golden-vector coverage for TTD digest surface
+
+- **Added** `digest_golden_vectors.rs` — DIND-level golden-hash tests that
+  exercise `compute_emissions_digest`, `compute_op_emission_index_digest`,
+  and `compute_tick_commit_hash_v2` through warp-core's crate-root re-exports.
+- **Pinned** 3 golden vectors: individual emission/op-emission-index digests
+  plus a full hash chain (emissions → op-index → tick-commit). Any wire format
+  drift in the public digest surface is now caught outside module-local tests.
+
+### fix(warp-core): Preserve within-tick write order in atom_history
+
+- **Fixed** `atom_history()` within-tick write ordering: the backward tick
+  walk collected per-tick writes in forward order, so the final `reverse()`
+  flipped within-tick execution sequence. Iterate `tick_writes.iter().rev()`
+  so the global reverse restores original order.
+- **Fixed** creation truncation: if a single tick had `[create, mutate]` for
+  the same atom, forward iteration hit `is_create()` first and returned early,
+  losing the subsequent mutation.
+- **Updated** `fork()` rustdoc to mention `atom_writes` in the copied fields.
+- **Documented** `append_with_writes()` invariant: atom writes must reference
+  atoms declared in `patch.out_slots` for `atom_history()` visibility.
+
 ### fix: Ban-globals regex for macro patterns
 
 - **Fixed** `scripts/ban-globals.sh`: the `\bthread_local!\b` and

@@ -476,7 +476,7 @@ use crate::worldline::WorldlineId;
 /// ```
 // Allow many arguments: this signature matches the TTD spec (docs/plans/ttd-app.md §3.3)
 // exactly. A builder pattern would obscure the wire format correspondence.
-#[allow(clippy::too_many_arguments, dead_code)]
+#[allow(clippy::too_many_arguments)]
 pub fn compute_tick_commit_hash_v2(
     schema_hash: &Hash,
     worldline_id: &WorldlineId,
@@ -570,7 +570,6 @@ use crate::materialization::{ChannelId, FinalizedChannel};
 /// let report = bus.finalize();
 /// let digest = compute_emissions_digest(&report.channels);
 /// ```
-#[allow(dead_code)]
 pub fn compute_emissions_digest(channels: &[FinalizedChannel]) -> Hash {
     let mut h = Hasher::new();
 
@@ -599,7 +598,6 @@ pub fn compute_emissions_digest(channels: &[FinalizedChannel]) -> Hash {
 /// This is used by [`compute_op_emission_index_digest`] to track which
 /// operations triggered which channel emissions within a tick.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub struct OpEmissionEntry {
     /// The operation ID (opcode hash) that triggered emissions.
     pub op_id: Hash,
@@ -643,7 +641,6 @@ pub struct OpEmissionEntry {
 /// ];
 /// let digest = compute_op_emission_index_digest(&entries);
 /// ```
-#[allow(dead_code)]
 pub fn compute_op_emission_index_digest(entries: &[OpEmissionEntry]) -> Hash {
     let mut h = Hasher::new();
 

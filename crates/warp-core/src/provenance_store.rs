@@ -360,19 +360,22 @@ impl LocalProvenanceStore {
             .get(&w)
             .ok_or(HistoryError::WorldlineNotFound(w))?;
 
-        history
-            .atom_writes
-            .get(tick as usize)
-            .cloned()
-            .ok_or(HistoryError::HistoryUnavailable { tick })
+        // SAFETY: cast_possible_truncation — on 32-bit targets (WASM), tick values
+        // above usize::MAX would truncate and index the wrong element. Guard with a
+        // bounds check against the actual length before casting.
+        if tick >= history.atom_writes.len() as u64 {
+            return Err(HistoryError::HistoryUnavailable { tick });
+        }
+        Ok(history.atom_writes[tick as usize].clone())
     }
 
     /// Returns the atom write history for a specific atom by walking its causal cone.
     ///
-    /// Instead of scanning every tick, this method walks backwards through the
-    /// worldline's patch history using the declared `out_slots` (Paper III's `Out(μ)`)
-    /// to find only the ticks that actually wrote to this atom. The walk terminates
-    /// early when a creation write is found (the atom's origin).
+    /// Walks backwards through the worldline's patch history, using the declared
+    /// `out_slots` (Paper III's `Out(μ)`) to filter which ticks' atom writes are
+    /// examined. Only ticks whose `out_slots` declare the atom's slot have their
+    /// writes collected. The walk terminates early when a creation write is found
+    /// (the atom's origin).
     ///
     /// This implements the derivation graph `D(v)` from Paper III (§3.2), restricted
     /// to the target atom's slot dependencies.

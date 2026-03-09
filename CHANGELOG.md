@@ -5,6 +5,12 @@
 
 ## Unreleased
 
+### docs(adr): ADR-0008 Worldline Runtime Model
+
+- **Added** ADR-0008: Worldline Runtime Model — formalizes writer/reader heads,
+  SuperTick scheduling contract, three-domain boundaries (Echo Core, App, Janus),
+  per-head seek/jump semantics, and the 8-step normative refactor plan.
+
 ### feat(warp-core): Wire up TTD domain logic from ttd-spec branch
 
 - **Exported** `compute_tick_commit_hash_v2`, `compute_op_emission_index_digest`,

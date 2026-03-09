@@ -318,6 +318,26 @@ impl LocalProvenanceStore {
             });
         }
 
+        // Debug-only: validate that every AtomWrite references an atom declared
+        // in patch.out_slots. Violations mean atom_history() would silently miss
+        // the write. Zero cost in release builds.
+        #[cfg(debug_assertions)]
+        {
+            for aw in &atom_writes {
+                let att = crate::tick_patch::SlotId::Attachment(
+                    crate::attachment::AttachmentKey::node_alpha(aw.atom),
+                );
+                let node = crate::tick_patch::SlotId::Node(aw.atom);
+                debug_assert!(
+                    patch.out_slots.contains(&att) || patch.out_slots.contains(&node),
+                    "AtomWrite for {:?} at tick {} not declared in out_slots — \
+                     atom_history() will not find this write",
+                    aw.atom,
+                    patch.global_tick(),
+                );
+            }
+        }
+
         history.patches.push(patch);
         history.expected.push(expected);
         history.outputs.push(outputs);
@@ -927,7 +947,7 @@ mod tests {
         store
             .append_with_writes(
                 w,
-                test_patch(0),
+                test_patch_with_atom_slots(0, &[test_node_key()]),
                 test_triplet(0),
                 vec![],
                 vec![atom_write.clone()],

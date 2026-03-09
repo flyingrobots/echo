@@ -13,8 +13,9 @@
   atom writes instead of discarding them.
 - **Added** `LocalProvenanceStore::atom_writes(w, tick)` — query atom writes
   for a specific tick (TTD "Show Me Why" provenance).
-- **Added** `LocalProvenanceStore::atom_history(w, atom)` — query all writes
-  for an atom across all ticks.
+- **Added** `LocalProvenanceStore::atom_history(w, atom)` — causal cone walk
+  using `out_slots` (Paper III `Out(μ)`) to find only ticks that wrote to
+  the atom, with early termination at creation. No linear scan, no reverse index.
 - **Fixed** `LocalProvenanceStore::fork()` to copy `atom_writes` alongside
   patches, expected hashes, and outputs.
 

@@ -5,6 +5,19 @@
 
 ## Unreleased
 
+### feat(warp-core): Wire up TTD domain logic from ttd-spec branch
+
+- **Exported** `compute_tick_commit_hash_v2`, `compute_op_emission_index_digest`,
+  and `OpEmissionEntry` from `warp-core` public API (previously `dead_code`).
+- **Wired** `LocalProvenanceStore::append_with_writes()` to actually store
+  atom writes instead of discarding them.
+- **Added** `LocalProvenanceStore::atom_writes(w, tick)` — query atom writes
+  for a specific tick (TTD "Show Me Why" provenance).
+- **Added** `LocalProvenanceStore::atom_history(w, atom)` — query all writes
+  for an atom across all ticks.
+- **Fixed** `LocalProvenanceStore::fork()` to copy `atom_writes` alongside
+  patches, expected hashes, and outputs.
+
 ### fix: Ban-globals regex for macro patterns
 
 - **Fixed** `scripts/ban-globals.sh`: the `\bthread_local!\b` and

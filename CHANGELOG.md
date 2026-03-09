@@ -19,6 +19,19 @@
 - **Fixed** `LocalProvenanceStore::fork()` to copy `atom_writes` alongside
   patches, expected hashes, and outputs.
 
+### fix(warp-core): Preserve within-tick write order in atom_history
+
+- **Fixed** `atom_history()` within-tick write ordering: the backward tick
+  walk collected per-tick writes in forward order, so the final `reverse()`
+  flipped within-tick execution sequence. Iterate `tick_writes.iter().rev()`
+  so the global reverse restores original order.
+- **Fixed** creation truncation: if a single tick had `[create, mutate]` for
+  the same atom, forward iteration hit `is_create()` first and returned early,
+  losing the subsequent mutation.
+- **Updated** `fork()` rustdoc to mention `atom_writes` in the copied fields.
+- **Documented** `append_with_writes()` invariant: atom writes must reference
+  atoms declared in `patch.out_slots` for `atom_history()` visibility.
+
 ### fix: Ban-globals regex for macro patterns
 
 - **Fixed** `scripts/ban-globals.sh`: the `\bthread_local!\b` and

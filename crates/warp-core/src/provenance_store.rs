@@ -282,7 +282,14 @@ impl LocalProvenanceStore {
     /// * `patch` - The tick patch data
     /// * `expected` - The expected hash triplet for verification
     /// * `outputs` - Channel outputs emitted during this tick
-    /// * `atom_writes` - Atom writes for provenance tracking (rule→atom attribution)
+    /// * `atom_writes` - Atom writes for provenance tracking (rule→atom attribution).
+    ///   **Invariant**: Each `AtomWrite` must reference an atom whose slot appears in
+    ///   `patch.out_slots` (either as `SlotId::Attachment(node_alpha(atom))` or
+    ///   `SlotId::Node(atom)`). Writes to atoms not declared in `out_slots` will be
+    ///   stored and retrievable via [`atom_writes()`](Self::atom_writes), but will be
+    ///   invisible to [`atom_history()`](Self::atom_history) which uses `out_slots` as
+    ///   its causal cone index. The engine enforces this structurally — atom writes are
+    ///   derived from the same footprint that produces `out_slots`.
     ///
     /// # Errors
     ///
@@ -391,8 +398,10 @@ impl LocalProvenanceStore {
             }
 
             // This tick wrote to the atom — collect matching AtomWrites.
+            // Iterate in reverse so the final writes_rev.reverse() preserves
+            // within-tick execution order (forward iteration would flip it).
             if let Some(tick_writes) = history.atom_writes.get(tick_idx) {
-                for aw in tick_writes {
+                for aw in tick_writes.iter().rev() {
                     if &aw.atom == atom {
                         let is_creation = aw.is_create();
                         writes_rev.push(aw.clone());
@@ -478,8 +487,8 @@ impl LocalProvenanceStore {
     /// Creates a new worldline that is a prefix-copy of the source up to `fork_tick`.
     ///
     /// The new worldline shares the same U0 reference as the source and contains
-    /// copies of all history data (patches, expected hashes, outputs, checkpoints)
-    /// from tick 0 through `fork_tick` inclusive.
+    /// copies of all history data (patches, expected hashes, outputs, atom writes,
+    /// and checkpoints) from tick 0 through `fork_tick` inclusive.
     ///
     /// # Errors
     ///
@@ -1096,6 +1105,49 @@ mod tests {
         );
         assert_eq!(history[0], write5);
         assert_eq!(history[1], write6);
+    }
+
+    #[test]
+    fn atom_history_preserves_within_tick_order() {
+        // Regression: if a single tick has [create, mutate] for the same atom,
+        // atom_history must return both in execution order (create then mutate).
+        // A naive forward iteration over tick_writes would hit is_create() first
+        // and early-return, losing the subsequent mutation.
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let atom_key = test_node_key();
+
+        // Single tick with two writes: create then mutate (same atom, same tick).
+        // This can happen when a rule creates an atom and immediately sets its value.
+        let create_write = AtomWrite::new(atom_key, test_rule_id(), 0, None, vec![1]);
+        let mutate_write = AtomWrite::new(atom_key, test_rule_id(), 0, Some(vec![1]), vec![2]);
+
+        store
+            .append_with_writes(
+                w,
+                test_patch_with_atom_slots(0, &[atom_key]),
+                test_triplet(0),
+                vec![],
+                vec![create_write.clone(), mutate_write.clone()],
+            )
+            .unwrap();
+
+        let history = store.atom_history(w, &atom_key).unwrap();
+        assert_eq!(
+            history.len(),
+            2,
+            "both create and mutate must be captured from the same tick"
+        );
+        assert_eq!(
+            history[0], create_write,
+            "create must come first (execution order)"
+        );
+        assert_eq!(
+            history[1], mutate_write,
+            "mutate must come second (execution order)"
+        );
     }
 
     #[test]

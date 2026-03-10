@@ -62,10 +62,22 @@ This preserves:
 - **Debugging clarity.** Cross-worldline interactions are visible as
   discrete events in the provenance DAG, not hidden shared-state mutations.
 
-Cross-worldline messages are themselves intents: content-addressed,
-capability-checked, and admitted through the receiver's deterministic
-ingress. The receiver's provenance records the message as a causal
-dependency.
+This ADR covers two distinct event classes that both enter through
+deterministic ingress but carry different semantics:
+
+- **Application-level cross-worldline messages** — intents authored by one
+  worldline's rules or app logic, addressed to another worldline. These are
+  semantic events: "Physics worldline tells Logic worldline that a collision
+  occurred."
+- **Replication/import of committed remote work** — frontier-relative
+  patches carrying already-committed state from another worldline or
+  replica. These are causal imports: "here is what happened on my side
+  since our last common frontier."
+
+Both are content-addressed, capability-checked, and admitted through the
+receiver's deterministic ingress. Both are recorded as causal dependencies
+in the receiver's provenance DAG. But they remain distinct provenance event
+classes — conflating them muddies provenance and ingress semantics.
 
 ### 2) Chronos is local — network patches are frontier-relative
 
@@ -80,13 +92,20 @@ A network patch carries:
   authoring time.
 - **Payload** — the replayable patch body.
 - **Footprint** — reads, writes, deletes, and preserved anchors.
-- **Precondition witness** — digest of read versions or anchor versions,
-  protecting against stale-read application.
+- **Precondition witness** (required for transport eligibility) — digest
+  of read versions or anchor versions, sufficient to validate the incoming
+  patch's read and anchor assumptions against the receiver's current state.
+  Without a valid precondition witness, transport MUST NOT proceed — this
+  is the stale-read detection mechanism.
 - **Optional audit metadata** — receipt hash, transport proof, state root
   hint, signature.
 
-The receiver uses the base frontier to compute a common frontier and
-determine what local work the sender has not yet seen.
+The receiver uses the base frontier to compute a **common frontier**: the
+greatest verified causal prefix shared by the incoming patch's base
+frontier and the receiver's current frontier, as determined by
+version-vector dominance or equivalent frontier comparison. Everything in
+the receiver's history after the common frontier is the **unseen suffix**
+— the local work the sender had not yet seen when it authored the patch.
 
 ### 3) Suffix transport is the replication primitive, not rebase
 
@@ -99,6 +118,14 @@ If the patch is **independent** of every element in the unseen suffix
 (no footprint interference), it can be **transported** to the current tip
 and appended as a merge tick. No replay from the common frontier is needed.
 Accepted history is never rewritten.
+
+Transport preserves canonical operation identity (the original `op_id`)
+but produces a receiver-local commit receipt with receiver-local causal
+metadata. State equivalence is required; receipt identity across
+worldlines is not. The transported patch, applied at the receiver's tip,
+yields the same committed state as replay from the common frontier — but
+the receiver's receipt hash will differ from the sender's because it
+reflects a different causal context.
 
 Rebase survives only as:
 
@@ -117,8 +144,11 @@ components:
 - **Reads** — objects or fields whose values were consulted.
 - **Writes** — objects or fields modified by the patch.
 - **Deletes** — identities or structures removed.
-- **Anchors** — preserved identities the patch assumes continue to exist,
-  even if not written.
+- **Anchors** — preserved identities the patch assumes remain present and
+  structurally valid across application, even when the patch does not
+  directly write them. For example, a patch that sets `node:7.color`
+  anchors `node:7` itself — if a concurrent patch deletes `node:7`, the
+  color write is invalidated even though there is no write-write conflict.
 
 Two patches **interfere** if any of the following holds:
 
@@ -144,9 +174,13 @@ Design consequence: treat **state convergence** as primary and **history
 convergence** as a separate problem addressed by canonical batching or
 DAG hashing. Do not conflate "same state" with "same log."
 
-When history convergence is also required (audit, legal provenance,
-blame), canonical batching — quotienting commuting concurrent imports into
-a deterministic batch sorted by a common total key — restores it.
+Canonical batching is an optional higher-level mechanism for deployments
+that require history-root convergence in addition to state convergence.
+When enabled (for audit, legal provenance, blame), it quotients commuting
+concurrent imports into a deterministic batch sorted by a common total
+key, restoring history convergence. It is not mandatory for correct
+operation — state convergence alone is sufficient for most runtime use
+cases.
 
 ### 6) Explicit conflict surfacing over silent last-write-wins
 
@@ -157,16 +191,27 @@ The receiver's conflict policy stack, in order of preference:
 
 1. **Datatype-specific join** — if the application datatype has a
    semantically justified algebraic join (CRDT-style), invoke it.
-2. **Explicit conflict object** — surface a conflict carrying both sides'
-   intent and witnesses. The conflict is a first-class provenance event.
+2. **Explicit conflict object** — a committed causal artifact representing
+   unresolved semantic interference between admissible work items. It
+   carries both sides' intent and witnesses. It is a first-class
+   provenance event, not an error condition or exception.
 3. **Retry** — reject the patch with a newer frontier, requesting the
-   sender to recompute.
+   sender to recompute. Retry policies MUST be bounded and
+   fairness-aware; unbounded retry under sustained contention is not a
+   valid convergence strategy.
 4. **Branch-replay** — construct a derived branch from the common frontier
    for offline or collaborative resolution.
 
 CRDTs are appropriate exactly where the application datatype already
 provides a semantically justified join. Outside those domains, the correct
-default is explicit conflict policy, not silent blanket merging.
+default is explicit conflict, never silent overwrite.
+
+Echo SHALL provide a conflict-policy interface by which applications
+declare, per datatype, field, or subgraph, whether conflicting imports are
+joinable, recomputable, branch-only, or non-mergeable. Echo defines
+transport, interference detection, and conflict surfacing as engine
+primitives; semantic conflict resolution remains application-defined except
+where a datatype declares a justified join.
 
 ### 7) No general merge after fork
 
@@ -314,6 +359,10 @@ Key correspondences:
 - The separation of state convergence from history convergence gives
   implementors a clear choice: converge state cheaply, or pay for history
   convergence with canonical batching when audit/provenance demands it.
+- Echo owns the physics of conflict; the application owns the meaning of
+  conflict. The engine provides transport, interference detection, and
+  surfacing. It does not pretend all games, services, or domains want the
+  same merge ontology.
 
 ## Non-Goals
 

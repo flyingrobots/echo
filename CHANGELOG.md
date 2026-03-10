@@ -5,6 +5,26 @@
 
 ## Unreleased
 
+### test(warp-core): Phase 0 invariant harness for ADR-0008/0009
+
+- **Added** golden vector suite (`golden_vectors_phase0.rs`) pinning commit
+  determinism, provenance replay integrity, fork reproducibility, and
+  idempotent ingress hashes before the worldline runtime refactor.
+- **Added** property test suite (`invariant_property_tests.rs`) enforcing
+  monotonic worldline ticks, idempotent ingress, cross-worldline isolation,
+  commit determinism, and provenance immutability via `proptest`.
+- **Added** ADR exceptions ledger (`docs/adr/adr-exceptions.md`) — operational
+  from Phase 0 onward, every intentional model violation must be logged with
+  owner and expiry.
+- **Added** ADR-0010: Observational Seek, Explicit Snapshots, and
+  Administrative Rewind — companion ADR clarifying the seek/rewind split
+  under the one-frontier-state-per-worldline design.
+- **Added** implementation plan for ADR-0008 and ADR-0009
+  (`docs/plans/adr-0008-and-0009.md`) — 14-phase roadmap with verification
+  matrix and exit criteria.
+- **Added** git hooks (`scripts/hooks/pre-commit`, `scripts/hooks/pre-push`)
+  for lint and test gating.
+
 ### docs(adr): ADR-0009 Inter-Worldline Communication
 
 - **Added** ADR-0009: Inter-Worldline Communication, Frontier Transport, and

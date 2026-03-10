@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+#
+# pre-commit hook: lint must pass cleanly. Zero errors, zero warnings.
+set -euo pipefail
+
+echo "pre-commit: running cargo clippy..."
+cargo clippy --all-targets -- -D warnings -D missing_docs
+echo "pre-commit: cargo clippy passed."
+
+echo "pre-commit: running cargo fmt check..."
+cargo fmt --all -- --check
+echo "pre-commit: cargo fmt passed."

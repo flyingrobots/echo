@@ -5,6 +5,16 @@
 
 ## Unreleased
 
+### feat(warp-core): Phase 2 SchedulerCoordinator for ADR-0008
+
+- **Added** `SchedulerCoordinator` — serial canonical scheduling loop that
+  iterates runnable writer heads in `(worldline_id, head_id)` order and
+  advances each worldline's frontier tick.
+- **Added** `WorldlineRuntime` — top-level runtime struct bundling worldline
+  registry, head registry, runnable set, and global tick.
+- **Added** `StepRecord` — output record documenting which heads were stepped
+  and in what order during a SuperTick.
+
 ### feat(warp-core): Phase 1 runtime primitives for ADR-0008
 
 - **Added** `HeadId`, `WriterHeadKey`, `WriterHead` — first-class head types

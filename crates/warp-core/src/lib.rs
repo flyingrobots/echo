@@ -131,7 +131,8 @@ mod tx;
 mod warp_state;
 mod worldline;
 
-// ADR-0008 runtime primitives (Phase 1)
+// ADR-0008 runtime primitives (Phase 1–2)
+mod coordinator;
 mod head;
 mod worldline_registry;
 mod worldline_state;
@@ -211,7 +212,8 @@ pub use worldline::{
     WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
 
-// ADR-0008 Phase 1: Runtime primitives
+// ADR-0008 Phase 1–2: Runtime primitives and coordinator
+pub use coordinator::{SchedulerCoordinator, StepRecord, WorldlineRuntime};
 pub use head::{
     make_head_id, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
 };

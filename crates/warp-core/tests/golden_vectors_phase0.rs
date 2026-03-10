@@ -234,6 +234,12 @@ fn gv003_fork_reproducibility() {
 fn gv004_idempotent_ingress() {
     const EXPECTED_INTENT_ID: &str =
         "b79ec7afbbe66524a17ae9bb1820f1551655ff5266bd8a3fad2dcb437ec3db5a";
+    const EXPECTED_STATE_ROOT: &str =
+        "ac7ac3aa3655a6c26de76668f4e19d562b7c48c9fa5aabfe3080fbb03d70e1c4";
+    const EXPECTED_PATCH_DIGEST: &str =
+        "b1b99e0b4ecb7f32c3bfeb335e3213593f80e98047e7e61822079953e1984ac1";
+    const EXPECTED_COMMIT_HASH: &str =
+        "33cb8f904a8c3124fd8a2b09125190d49a783c3367e1d044c6708e8015f4716d";
 
     let warp_id = test_warp_id();
     let initial_store = create_initial_store(warp_id);
@@ -273,11 +279,27 @@ fn gv004_idempotent_ingress() {
         other => panic!("expected Duplicate, got {other:?}"),
     }
 
-    // Commits from both engines must produce identical state roots
+    // Commits from both engines must produce identical pinned artifacts
     let tx1 = engine1.begin();
     let snap1 = engine1.commit(tx1).expect("commit 1");
     let tx2 = engine2.begin();
     let snap2 = engine2.commit(tx2).expect("commit 2");
+
+    assert_eq!(
+        hex(&snap1.state_root),
+        EXPECTED_STATE_ROOT,
+        "GV-004: state_root mismatch — commit semantics have changed"
+    );
+    assert_eq!(
+        hex(&snap1.patch_digest),
+        EXPECTED_PATCH_DIGEST,
+        "GV-004: patch_digest mismatch — commit semantics have changed"
+    );
+    assert_eq!(
+        hex(&snap1.hash),
+        EXPECTED_COMMIT_HASH,
+        "GV-004: commit_hash mismatch — commit semantics have changed"
+    );
     assert_eq!(
         snap1.state_root, snap2.state_root,
         "GV-004: same ingested intent must produce same state root"

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 # ADR Exceptions Ledger
 
 Use this file for any temporary implementation that knowingly violates an accepted

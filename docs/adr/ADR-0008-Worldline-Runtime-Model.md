@@ -1,12 +1,10 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
-<!-- (C) James Ross FLYING*ROBOTS <https://github.com/flyingrobots> -->
 
 # ADR-0008: Worldline Runtime Model — Heads, Scheduling, and Domain Boundaries
 
 - **Status:** Accepted
 - **Date:** 2026-03-09
-- **Canonical Source:** `~/git/james-website/docs/definitive-worldline-runtime-model.md`
 
 If another document disagrees with this one on worldline/head semantics, this
 document wins.

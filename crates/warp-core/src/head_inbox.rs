@@ -271,8 +271,9 @@ impl HeadInbox {
             }
             InboxPolicy::Budgeted { max_per_tick } => {
                 let limit = *max_per_tick as usize;
-                let mut admitted = Vec::with_capacity(limit);
-                let mut to_remove = Vec::with_capacity(limit);
+                let reserve = limit.min(self.pending.len());
+                let mut admitted = Vec::with_capacity(reserve);
+                let mut to_remove = Vec::with_capacity(reserve);
                 for (id, env) in &self.pending {
                     if admitted.len() >= limit {
                         break;

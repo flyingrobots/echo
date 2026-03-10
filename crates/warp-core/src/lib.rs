@@ -131,9 +131,10 @@ mod tx;
 mod warp_state;
 mod worldline;
 
-// ADR-0008 runtime primitives (Phase 1–2)
+// ADR-0008 runtime primitives (Phases 1–3)
 mod coordinator;
 mod head;
+mod head_inbox;
 mod worldline_registry;
 mod worldline_state;
 
@@ -212,10 +213,14 @@ pub use worldline::{
     WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
 
-// ADR-0008 Phase 1–2: Runtime primitives and coordinator
+// ADR-0008 Phases 1–3: Runtime primitives, coordinator, and ingress
 pub use coordinator::{SchedulerCoordinator, StepRecord, WorldlineRuntime};
 pub use head::{
     make_head_id, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
+};
+pub use head_inbox::{
+    make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressEnvelope, IngressPayload,
+    IngressTarget, IntentKind,
 };
 pub use worldline_registry::WorldlineRegistry;
 pub use worldline_state::{WorldlineFrontier, WorldlineState};

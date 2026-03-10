@@ -5,6 +5,21 @@
 
 ## Unreleased
 
+### feat(warp-core): Phase 3 deterministic ingress and per-head inboxes
+
+- **Added** `IntentKind` — stable, content-addressed intent kind identifier
+  using domain-separated BLAKE3 (`"intent-kind:" || label`).
+- **Added** `IngressEnvelope` — unified, content-addressed ingress model
+  with deterministic routing and idempotent deduplication.
+- **Added** `IngressTarget` — routing discriminant: `DefaultWriter`,
+  `InboxAddress`, or `ExactHead` (control/debug only).
+- **Added** `IngressPayload` — payload enum starting with `LocalIntent`,
+  extensible for cross-worldline messages (Phase 10) and imports (Phase 11).
+- **Added** `HeadInbox` — per-head inbox with `BTreeMap`-keyed pending
+  envelopes for deterministic admission order.
+- **Added** `InboxPolicy` — admission control: `AcceptAll`, `KindFilter`,
+  or `Budgeted { max_per_tick }`.
+
 ### feat(warp-core): Phase 2 SchedulerCoordinator for ADR-0008
 
 - **Added** `SchedulerCoordinator` — serial canonical scheduling loop that

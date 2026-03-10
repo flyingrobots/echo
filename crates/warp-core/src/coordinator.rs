@@ -9,8 +9,10 @@
 //! # Serial Canonical Scheduling
 //!
 //! This phase permits multiple writer heads per worldline but runs them
-//! **serially** in canonical order. Same-worldline co-advance optimization
-//! is deferred until footprint machinery (Phase 9) is in place.
+//! **serially** in canonical order. A worldline with N runnable writer heads
+//! advances its frontier by N ticks per SuperTick (each head bumps the shared
+//! frontier once). Same-worldline co-advance optimization is deferred until
+//! footprint machinery (Phase 9) is in place.
 //!
 //! # Migration
 //!
@@ -39,6 +41,9 @@ pub struct WorldlineRuntime {
     /// Ordered set of currently runnable (non-paused) writer heads.
     pub runnable: RunnableWriterSet,
     /// Global tick counter (metadata only; not per-worldline identity).
+    ///
+    /// Increments once per `super_tick()` call, even when no heads are runnable.
+    /// This counts scheduling cycles, not productive work.
     pub global_tick: u64,
 }
 
@@ -103,8 +108,8 @@ impl SchedulerCoordinator {
     pub fn super_tick(runtime: &mut WorldlineRuntime) -> Vec<StepRecord> {
         let mut records = Vec::new();
 
-        // Snapshot the runnable keys so we don't hold an immutable borrow
-        // on runtime while mutating worldline frontiers.
+        // Snapshot the runnable keys into a Vec to break the immutable borrow
+        // on `runtime.runnable` before we mutate worldline frontiers below.
         let keys: Vec<WriterHeadKey> = runtime.runnable.iter().copied().collect();
 
         for key in &keys {

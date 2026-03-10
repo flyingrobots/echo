@@ -174,7 +174,7 @@ fn gv002_provenance_replay_integrity() {
     assert_eq!(
         hex(&final_state_root),
         EXPECTED[4].0,
-        "GV-002: cursor replay state_root must match tick 4"
+        "GV-002: cursor replay state_root must match final tick (index 4)"
     );
 }
 
@@ -186,13 +186,14 @@ fn gv002_provenance_replay_integrity() {
 /// identical hash triplets for ticks 0..=5 (6 entries, fork-tick inclusive).
 #[test]
 fn gv003_fork_reproducibility() {
-    // Pinned commit hashes for ticks 0..5 of the 10-tick worldline
-    const EXPECTED_PREFIX_COMMITS: [&str; 5] = [
+    // Pinned commit hashes for ticks 0..=5 of the 10-tick worldline (fork-tick inclusive)
+    const EXPECTED_PREFIX_COMMITS: [&str; 6] = [
         "a2a95c7cf7826dd958efa34b67001cdb51ed0bdc5186e35f5801881011bdcf12",
         "17d403ac3ee32ae651b0a229829c9d498d2ca98cc5cff2ae00a36b4f3a4ee786",
         "6287d50b02bdfd201512e632ca6318f0f2df8432270e524eeeabb7312fe59785",
         "f1b9996112f2bda21c391ed68c31caca2c650f200cc8b2ead86076a9ce7ea116",
         "bb36ae47ea312a0199718bb137f508aee00fded15834f1b726c879b7a6174cda",
+        "d59644dd0529c0216dd54567fdf7f6b71c4103be17ea6eff71e2449e58a677e5",
     ];
 
     let (mut provenance, _initial_store, _warp_id, worldline_id) = setup_worldline_with_ticks(10);

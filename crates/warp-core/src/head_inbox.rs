@@ -46,7 +46,8 @@ pub fn make_intent_kind(label: &str) -> IntentKind {
 
 /// Named inbox address within a worldline.
 ///
-/// Inbox addresses allow multiple logical entry points per worldline without
+/// Inbox addresses are human-readable string aliases (not content-addressed
+/// hashes). They allow multiple logical entry points per worldline without
 /// exposing internal head identities to application code.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct InboxAddress(pub String);
@@ -155,6 +156,11 @@ impl IngressEnvelope {
 }
 
 /// Computes the content address of a local intent.
+///
+/// Hash structure: `BLAKE3("ingress:" || kind.0 || bytes)`.
+/// No length prefix is needed because `kind.0` is always exactly 32 bytes
+/// (`Hash = [u8; 32]`), so the boundary between kind and payload is
+/// unambiguous.
 fn compute_ingress_id(kind: &IntentKind, bytes: &[u8]) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"ingress:");
@@ -213,15 +219,35 @@ impl HeadInbox {
         }
     }
 
-    /// Ingests an envelope. Returns `true` if it was new, `false` if duplicate.
+    /// Ingests an envelope if it passes the inbox policy.
+    ///
+    /// Returns `true` if the envelope was newly accepted, `false` if it was
+    /// a duplicate or rejected by the policy. Envelopes that do not match a
+    /// [`InboxPolicy::KindFilter`] are rejected at ingest time (never stored).
     pub fn ingest(&mut self, envelope: IngressEnvelope) -> bool {
         use std::collections::btree_map::Entry;
+
+        // Early rejection: check policy before storing.
+        if !self.policy_accepts(&envelope) {
+            return false;
+        }
+
         match self.pending.entry(envelope.ingress_id) {
             Entry::Vacant(v) => {
                 v.insert(envelope);
                 true
             }
             Entry::Occupied(_) => false,
+        }
+    }
+
+    /// Returns `true` if the policy would accept this envelope.
+    fn policy_accepts(&self, envelope: &IngressEnvelope) -> bool {
+        match &self.policy {
+            InboxPolicy::AcceptAll | InboxPolicy::Budgeted { .. } => true,
+            InboxPolicy::KindFilter(allowed) => match &envelope.payload {
+                IngressPayload::LocalIntent { intent_kind, .. } => allowed.contains(intent_kind),
+            },
         }
     }
 
@@ -236,23 +262,11 @@ impl HeadInbox {
                 self.pending.clear();
                 admitted
             }
-            InboxPolicy::KindFilter(allowed) => {
-                let mut admitted = Vec::new();
-                let mut to_remove = Vec::new();
-                for (id, env) in &self.pending {
-                    let dominated = match &env.payload {
-                        IngressPayload::LocalIntent { intent_kind, .. } => {
-                            allowed.contains(intent_kind)
-                        }
-                    };
-                    if dominated {
-                        admitted.push(env.clone());
-                        to_remove.push(*id);
-                    }
-                }
-                for id in to_remove {
-                    self.pending.remove(&id);
-                }
+            InboxPolicy::KindFilter(_) => {
+                // Non-matching envelopes are rejected at ingest time,
+                // so all pending envelopes are already policy-compliant.
+                let admitted: Vec<_> = self.pending.values().cloned().collect();
+                self.pending.clear();
                 admitted
             }
             InboxPolicy::Budgeted { max_per_tick } => {
@@ -379,17 +393,23 @@ mod tests {
     }
 
     #[test]
-    fn kind_filter_admits_only_matching() {
+    fn kind_filter_rejects_non_matching_at_ingest() {
         let mut allowed = BTreeSet::new();
         allowed.insert(test_kind());
         let mut inbox = HeadInbox::new(InboxPolicy::KindFilter(allowed));
 
-        inbox.ingest(make_envelope(test_kind(), b"accepted"));
-        inbox.ingest(make_envelope(other_kind(), b"rejected"));
+        assert!(inbox.ingest(make_envelope(test_kind(), b"accepted")));
+        assert!(
+            !inbox.ingest(make_envelope(other_kind(), b"rejected")),
+            "non-matching kind must be rejected at ingest"
+        );
+
+        // Only the matching envelope should be pending
+        assert_eq!(inbox.pending_count(), 1);
 
         let admitted = inbox.admit();
         assert_eq!(admitted.len(), 1);
-        assert_eq!(inbox.pending_count(), 1, "rejected envelope stays pending");
+        assert!(inbox.is_empty(), "all pending admitted");
     }
 
     #[test]

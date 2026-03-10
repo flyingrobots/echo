@@ -5,6 +5,23 @@
 
 ## Unreleased
 
+### fix(warp-core): self-review fixes for Phases 0–3
+
+- **Fixed** `HeadInbox::ingest()` now rejects non-matching envelopes at ingest
+  time under `KindFilter` policy, preventing unbounded memory growth.
+- **Fixed** GV-003 golden vector now covers all 6 fork entries (ticks 0..=5),
+  closing a gap where the fork-tick itself was never verified.
+- **Added** INV-002 proptest for canonical head ordering (shuffled insertion
+  always produces canonical `(worldline_id, head_id)` order).
+- **Added** duplicate-tick detection to INV-001 (append at existing tick fails).
+- **Fixed** `heads_for_worldline()` now uses BTreeMap range queries (O(log n + k)
+  instead of O(n) full scan).
+- **Fixed** `unpause()` now debug-asserts that the mode is not `Paused`.
+- **Fixed** pre-commit hook now passes `--workspace` to clippy.
+- **Improved** documentation: multi-writer frontier semantics, `global_tick`
+  behavior on empty SuperTicks, `compute_ingress_id` length-prefix safety,
+  `InboxAddress` as human-readable alias.
+
 ### feat(warp-core): Phase 3 deterministic ingress and per-head inboxes
 
 - **Added** `IntentKind` — stable, content-addressed intent kind identifier

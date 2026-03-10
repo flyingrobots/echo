@@ -81,6 +81,78 @@ proptest! {
         };
         let result = provenance.append(worldline_id, gap_patch, gap_triplet, vec![]);
         prop_assert!(result.is_err(), "appending at tick gap must fail");
+
+        // Invariant: attempting to re-append at an existing tick must fail
+        let dup_tick = num_ticks - 1;
+        let dup_patch = create_add_node_patch(warp_id, dup_tick, &format!("node-dup-{dup_tick}"));
+        let dup_triplet = HashTriplet {
+            state_root: [0u8; 32],
+            patch_digest: dup_patch.patch_digest,
+            commit_hash: [0u8; 32],
+        };
+        let dup_result = provenance.append(worldline_id, dup_patch, dup_triplet, vec![]);
+        prop_assert!(dup_result.is_err(), "re-appending at existing tick must fail");
+    }
+}
+
+// =============================================================================
+// INV-002: Canonical head ordering (deterministic)
+// =============================================================================
+
+proptest! {
+    /// Heads inserted in any order must always iterate in canonical
+    /// `(worldline_id, head_id)` order in the RunnableWriterSet.
+    #[test]
+    fn inv002_canonical_head_ordering(
+        num_worldlines in 1usize..5,
+        num_heads_per in 1usize..5,
+        shuffle_seed in any::<u64>(),
+    ) {
+        use warp_core::{
+            make_head_id, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
+            PlaybackMode,
+        };
+
+        // Build all keys in canonical order first
+        let mut keys: Vec<WriterHeadKey> = Vec::new();
+        for w in 0..num_worldlines {
+            for h in 0..num_heads_per {
+                keys.push(WriterHeadKey {
+                    worldline_id: WorldlineId([w as u8; 32]),
+                    head_id: make_head_id(&format!("h-{h}")),
+                });
+            }
+        }
+
+        // Shuffle the insertion order deterministically
+        let mut insertion_order: Vec<usize> = (0..keys.len()).collect();
+        let mut rng = shuffle_seed;
+        for i in (1..insertion_order.len()).rev() {
+            // Simple xorshift for deterministic shuffle
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            let j = (rng as usize) % (i + 1);
+            insertion_order.swap(i, j);
+        }
+
+        // Insert in shuffled order
+        let mut reg = PlaybackHeadRegistry::new();
+        for &idx in &insertion_order {
+            reg.insert(WriterHead::new(keys[idx], PlaybackMode::Play));
+        }
+
+        let mut runnable = RunnableWriterSet::new();
+        runnable.rebuild(&reg);
+
+        // Verify canonical ordering
+        let result: Vec<_> = runnable.iter().copied().collect();
+        for i in 1..result.len() {
+            prop_assert!(
+                result[i - 1] < result[i],
+                "runnable set must be in canonical (worldline_id, head_id) order"
+            );
+        }
     }
 }
 

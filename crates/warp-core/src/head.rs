@@ -88,6 +88,10 @@ pub struct WriterHead {
 
 impl WriterHead {
     /// Creates a new writer head in the given mode.
+    ///
+    /// The head is paused if and only if `mode` is [`PlaybackMode::Paused`].
+    /// When adding new `PlaybackMode` variants, audit whether they should be
+    /// treated as paused for scheduling purposes.
     #[must_use]
     pub fn new(key: WriterHeadKey, mode: PlaybackMode) -> Self {
         let paused = matches!(mode, PlaybackMode::Paused);
@@ -107,7 +111,16 @@ impl WriterHead {
     }
 
     /// Unpauses this head and sets it to the given mode.
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserts that `mode` is not `Paused` (passing `Paused` would
+    /// create an inconsistent state). This is a programmer error.
     pub fn unpause(&mut self, mode: PlaybackMode) {
+        debug_assert!(
+            !matches!(mode, PlaybackMode::Paused),
+            "unpause() called with PlaybackMode::Paused — use pause() instead"
+        );
         self.paused = false;
         self.mode = mode;
     }
@@ -173,13 +186,21 @@ impl PlaybackHeadRegistry {
     }
 
     /// Returns all head keys for a given worldline, in canonical order.
+    ///
+    /// Uses BTreeMap range queries for O(log n + k) instead of a full scan.
     pub fn heads_for_worldline(
         &self,
         worldline_id: WorldlineId,
     ) -> impl Iterator<Item = &WriterHeadKey> {
-        self.heads
-            .keys()
-            .filter(move |k| k.worldline_id == worldline_id)
+        let start = WriterHeadKey {
+            worldline_id,
+            head_id: HeadId([0u8; 32]),
+        };
+        let end = WriterHeadKey {
+            worldline_id,
+            head_id: HeadId([0xff; 32]),
+        };
+        self.heads.range(start..=end).map(|(k, _)| k)
     }
 }
 

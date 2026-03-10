@@ -131,6 +131,11 @@ mod tx;
 mod warp_state;
 mod worldline;
 
+// ADR-0008 runtime primitives (Phase 1)
+mod head;
+mod worldline_registry;
+mod worldline_state;
+
 // Re-exports for stable public API
 pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
@@ -205,6 +210,13 @@ pub use worldline::{
     ApplyError, AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId,
     WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
+
+// ADR-0008 Phase 1: Runtime primitives
+pub use head::{
+    make_head_id, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
+};
+pub use worldline_registry::WorldlineRegistry;
+pub use worldline_state::{WorldlineFrontier, WorldlineState};
 
 /// Zero-copy typed view over an atom payload.
 pub trait AtomView<'a>: Sized {

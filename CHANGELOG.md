@@ -5,6 +5,23 @@
 
 ## Unreleased
 
+### feat(warp-core): Phase 1 runtime primitives for ADR-0008
+
+- **Added** `HeadId`, `WriterHeadKey`, `WriterHead` — first-class head types
+  for worldline-aware scheduling. Heads are control objects (identity, mode,
+  paused state), not private mutable stores.
+- **Added** `PlaybackHeadRegistry` — `BTreeMap`-backed registry providing
+  canonical `(worldline_id, head_id)` iteration order.
+- **Added** `RunnableWriterSet` — ordered live index of non-paused writer heads.
+- **Added** `WorldlineState` — broad wrapper around `WarpState` preventing API
+  calcification around `GraphStore`.
+- **Added** `WorldlineFrontier` — the single mutable frontier state per
+  worldline, owning `WorldlineState` and `frontier_tick`.
+- **Added** `WorldlineRegistry` — `BTreeMap`-backed registry of worldline
+  frontiers with deterministic iteration.
+- **Added** `make_head_id()` — domain-separated BLAKE3 identifier factory
+  (`"head:" || label`).
+
 ### test(warp-core): Phase 0 invariant harness for ADR-0008/0009
 
 - **Added** golden vector suite (`golden_vectors_phase0.rs`) pinning commit

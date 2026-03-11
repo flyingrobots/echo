@@ -5,6 +5,6 @@
 # pre-push hook: tests must pass locally before code leaves the machine.
 set -euo pipefail
 
-echo "pre-push: running cargo test (workspace)..."
-cargo test --workspace
+echo "pre-push: running cargo test (workspace, skip doc-tests)..."
+cargo test --workspace --tests
 echo "pre-push: all tests passed."

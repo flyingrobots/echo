@@ -145,15 +145,24 @@ proptest! {
         let mut runnable = RunnableWriterSet::new();
         runnable.rebuild(&reg);
 
-        // Verify set preservation: every inserted key must appear exactly once.
+        // Verify set identity: the output must contain exactly the same keys.
         let result: Vec<_> = runnable.iter().copied().collect();
+        let mut expected = keys.clone();
+        expected.sort();
+        expected.dedup();
         prop_assert_eq!(
             result.len(),
-            keys.len(),
-            "runnable set must contain every inserted head"
+            expected.len(),
+            "runnable set must contain every unique inserted head"
         );
+        for (actual, expect) in result.iter().zip(expected.iter()) {
+            prop_assert_eq!(
+                actual, expect,
+                "runnable set must contain the exact same keys as inserted"
+            );
+        }
 
-        // Verify canonical ordering
+        // Verify canonical ordering (redundant with above but explicit)
         for i in 1..result.len() {
             prop_assert!(
                 result[i - 1] < result[i],

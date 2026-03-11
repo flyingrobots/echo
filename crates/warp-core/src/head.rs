@@ -78,8 +78,11 @@ pub struct WriterHeadKey {
 /// state.
 #[derive(Clone, Debug)]
 pub struct WriterHead {
-    /// Composite key identifying this head.
-    pub key: WriterHeadKey,
+    /// Composite key identifying this head (immutable after construction).
+    ///
+    /// Private to prevent mutation via `PlaybackHeadRegistry::get_mut()`,
+    /// which would break the BTreeMap key invariant. Use [`key()`](WriterHead::key).
+    key: WriterHeadKey,
     /// Current playback mode (paused, playing, seeking, etc.).
     ///
     /// Private to enforce the invariant that `mode` and `paused` stay in sync.
@@ -100,6 +103,12 @@ impl WriterHead {
     pub fn new(key: WriterHeadKey, mode: PlaybackMode) -> Self {
         let paused = matches!(mode, PlaybackMode::Paused);
         Self { key, mode, paused }
+    }
+
+    /// Returns the composite key identifying this head.
+    #[must_use]
+    pub fn key(&self) -> &WriterHeadKey {
+        &self.key
     }
 
     /// Returns the current playback mode.

@@ -5,6 +5,17 @@
 
 ## Unreleased
 
+### fix(warp-core): address CodeRabbit round-3 PR feedback
+
+- **Fixed** `WriterHead.key` is now private with a `key()` getter, preventing
+  mutation via `PlaybackHeadRegistry::get_mut()` which would break the BTreeMap
+  key invariant.
+- **Fixed** INV-002 proptest now verifies exact key identity (sorted+deduped
+  input vs output), catching bugs where rebuild substitutes one key for another.
+- **Fixed** plan doc pseudocode updated to reflect private fields with getters
+  (`WriterHead`, `WorldlineFrontier`) and correct constructor name
+  (`IngressEnvelope::local_intent`).
+
 ### fix(warp-core): address CodeRabbit round-2 PR feedback
 
 - **Fixed** `WriterHead.mode` is now private with a `mode()` getter, preventing

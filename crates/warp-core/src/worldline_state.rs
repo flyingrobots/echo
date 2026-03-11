@@ -26,7 +26,7 @@ use crate::worldline::WorldlineId;
 #[derive(Debug, Clone, Default)]
 pub struct WorldlineState {
     /// The underlying multi-instance warp state.
-    pub warp_state: WarpState,
+    pub(crate) warp_state: WarpState,
 }
 
 impl WorldlineState {
@@ -40,6 +40,12 @@ impl WorldlineState {
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// Returns a reference to the underlying warp state.
+    #[must_use]
+    pub fn warp_state(&self) -> &WarpState {
+        &self.warp_state
     }
 }
 
@@ -67,12 +73,14 @@ impl From<WarpState> for WorldlineState {
 ///   in Phase 6).
 #[derive(Debug, Clone)]
 pub struct WorldlineFrontier {
-    /// Identity of this worldline.
-    pub worldline_id: WorldlineId,
+    /// Identity of this worldline (immutable after construction).
+    worldline_id: WorldlineId,
     /// The single mutable state for this worldline.
-    pub state: WorldlineState,
+    pub(crate) state: WorldlineState,
     /// Current frontier tick (typed in Phase 6 as `WorldlineTick`).
-    pub frontier_tick: u64,
+    ///
+    /// `pub(crate)` — only the coordinator may advance this.
+    pub(crate) frontier_tick: u64,
 }
 
 impl WorldlineFrontier {
@@ -84,6 +92,24 @@ impl WorldlineFrontier {
             state,
             frontier_tick: 0,
         }
+    }
+
+    /// Returns the identity of this worldline.
+    #[must_use]
+    pub fn worldline_id(&self) -> WorldlineId {
+        self.worldline_id
+    }
+
+    /// Returns the current frontier tick.
+    #[must_use]
+    pub fn frontier_tick(&self) -> u64 {
+        self.frontier_tick
+    }
+
+    /// Returns a reference to the worldline state.
+    #[must_use]
+    pub fn state(&self) -> &WorldlineState {
+        &self.state
     }
 
     /// Creates a frontier at a specific tick (used for fork/rebuild).
@@ -117,14 +143,14 @@ mod tests {
     #[test]
     fn worldline_frontier_starts_at_tick_zero() {
         let frontier = WorldlineFrontier::new(wl(1), WorldlineState::empty());
-        assert_eq!(frontier.frontier_tick, 0);
-        assert_eq!(frontier.worldline_id, wl(1));
+        assert_eq!(frontier.frontier_tick(), 0);
+        assert_eq!(frontier.worldline_id(), wl(1));
     }
 
     #[test]
     fn worldline_frontier_at_tick() {
         let frontier = WorldlineFrontier::at_tick(wl(1), WorldlineState::empty(), 42);
-        assert_eq!(frontier.frontier_tick, 42);
+        assert_eq!(frontier.frontier_tick(), 42);
     }
 
     #[test]

@@ -81,7 +81,11 @@ pub struct WriterHead {
     /// Composite key identifying this head.
     pub key: WriterHeadKey,
     /// Current playback mode (paused, playing, seeking, etc.).
-    pub mode: PlaybackMode,
+    ///
+    /// Private to enforce the invariant that `mode` and `paused` stay in sync.
+    /// Use [`mode()`](WriterHead::mode), [`pause()`](WriterHead::pause), and
+    /// [`unpause()`](WriterHead::unpause) to read/mutate.
+    mode: PlaybackMode,
     /// Whether this head is paused and should be skipped by the scheduler.
     paused: bool,
 }
@@ -96,6 +100,12 @@ impl WriterHead {
     pub fn new(key: WriterHeadKey, mode: PlaybackMode) -> Self {
         let paused = matches!(mode, PlaybackMode::Paused);
         Self { key, mode, paused }
+    }
+
+    /// Returns the current playback mode.
+    #[must_use]
+    pub fn mode(&self) -> &PlaybackMode {
+        &self.mode
     }
 
     /// Returns `true` if this head is paused.
@@ -257,7 +267,7 @@ impl RunnableWriterSet {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::redundant_clone)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -299,7 +309,7 @@ mod tests {
         let head = WriterHead::new(key, PlaybackMode::Play);
 
         assert!(reg.is_empty());
-        assert!(reg.insert(head.clone()).is_none());
+        assert!(reg.insert(head).is_none());
         assert_eq!(reg.len(), 1);
         assert!(reg.get(&key).is_some());
 

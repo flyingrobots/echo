@@ -7,7 +7,7 @@ ADR or an implementation-plan invariant.
 
 | Exception | ADR / Plan Section | Owner | Reason | Expiry Date | Tracking Issue / PR | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| _None_ | — | — | — | — | — | Open |
+| _(empty — no active exceptions)_ | — | — | — | — | — | N/A |
 
 ## Rules
 

@@ -105,8 +105,8 @@ mod tests {
         assert!(!reg.contains(&wl(2)));
 
         let frontier = reg.get(&wl(1)).unwrap();
-        assert_eq!(frontier.worldline_id, wl(1));
-        assert_eq!(frontier.frontier_tick, 0);
+        assert_eq!(frontier.worldline_id(), wl(1));
+        assert_eq!(frontier.frontier_tick(), 0);
     }
 
     #[test]
@@ -137,6 +137,6 @@ mod tests {
         let frontier = reg.get_mut(&wl(1)).unwrap();
         frontier.frontier_tick = 42;
 
-        assert_eq!(reg.get(&wl(1)).unwrap().frontier_tick, 42);
+        assert_eq!(reg.get(&wl(1)).unwrap().frontier_tick(), 42);
     }
 }

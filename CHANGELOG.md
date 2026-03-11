@@ -5,6 +5,28 @@
 
 ## Unreleased
 
+### fix(warp-core): address CodeRabbit round-2 PR feedback
+
+- **Fixed** `WriterHead.mode` is now private with a `mode()` getter, preventing
+  the `mode`/`paused` pair from diverging via direct field assignment.
+- **Fixed** `SchedulerCoordinator::super_tick()` now auto-refreshes the runnable
+  set at the start of each SuperTick, eliminating stale-cache scheduling bugs.
+- **Fixed** `HeadInbox::set_policy()` now revalidates pending envelopes against
+  the new policy, evicting any that no longer pass.
+- **Fixed** `HeadInbox::admit()` now uses `mem::take` + `into_values()` instead
+  of `clone()` + `clear()` for zero-copy admission in `AcceptAll`/`KindFilter`.
+- **Fixed** `HeadInbox::ingest()` now `debug_assert`s that the envelope's
+  `ingress_id` matches its payload hash, catching incorrectly-constructed envelopes.
+- **Fixed** `WorldlineState.warp_state` is now `pub(crate)` with a `warp_state()`
+  getter, and `WorldlineFrontier` fields are `pub(crate)` with public getters.
+- **Fixed** INV-002 proptest now verifies set preservation (length check) in
+  addition to canonical ordering.
+- **Fixed** removed `redundant_clone` clippy suppression from `head.rs` and
+  `coordinator.rs` test modules.
+- **Fixed** ADR exceptions ledger sentinel row no longer mimics an active entry.
+- **Fixed** verification matrix in implementation plan now matches hook-enforced
+  gate (`--workspace --all-targets -D missing_docs`).
+
 ### fix(warp-core): self-review fixes for Phases 0–3
 
 - **Fixed** `HeadInbox::ingest()` now rejects non-matching envelopes at ingest

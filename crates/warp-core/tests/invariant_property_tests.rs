@@ -145,8 +145,15 @@ proptest! {
         let mut runnable = RunnableWriterSet::new();
         runnable.rebuild(&reg);
 
-        // Verify canonical ordering
+        // Verify set preservation: every inserted key must appear exactly once.
         let result: Vec<_> = runnable.iter().copied().collect();
+        prop_assert_eq!(
+            result.len(),
+            keys.len(),
+            "runnable set must contain every inserted head"
+        );
+
+        // Verify canonical ordering
         for i in 1..result.len() {
             prop_assert!(
                 result[i - 1] < result[i],

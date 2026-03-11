@@ -227,6 +227,19 @@ impl HeadInbox {
     pub fn ingest(&mut self, envelope: IngressEnvelope) -> bool {
         use std::collections::btree_map::Entry;
 
+        // Verify the envelope's content address matches its payload.
+        // This catches manually constructed envelopes with stale/wrong ids.
+        let expected_id = match &envelope.payload {
+            IngressPayload::LocalIntent {
+                intent_kind,
+                intent_bytes,
+            } => compute_ingress_id(intent_kind, intent_bytes),
+        };
+        debug_assert_eq!(
+            envelope.ingress_id, expected_id,
+            "ingress_id does not match payload — envelope was constructed incorrectly"
+        );
+
         // Early rejection: check policy before storing.
         if !self.policy_accepts(&envelope) {
             return false;
@@ -257,17 +270,10 @@ impl HeadInbox {
     /// and removes them from the pending set.
     pub fn admit(&mut self) -> Vec<IngressEnvelope> {
         match &self.policy {
-            InboxPolicy::AcceptAll => {
-                let admitted: Vec<_> = self.pending.values().cloned().collect();
-                self.pending.clear();
-                admitted
-            }
-            InboxPolicy::KindFilter(_) => {
-                // Non-matching envelopes are rejected at ingest time,
-                // so all pending envelopes are already policy-compliant.
-                let admitted: Vec<_> = self.pending.values().cloned().collect();
-                self.pending.clear();
-                admitted
+            InboxPolicy::AcceptAll | InboxPolicy::KindFilter(_) => {
+                // Drain all pending envelopes (already policy-compliant via
+                // ingest-time filtering for KindFilter).
+                std::mem::take(&mut self.pending).into_values().collect()
             }
             InboxPolicy::Budgeted { max_per_tick } => {
                 let limit = *max_per_tick as usize;
@@ -308,8 +314,21 @@ impl HeadInbox {
     }
 
     /// Sets a new inbox policy.
+    ///
+    /// Pending envelopes that no longer pass the new policy are evicted
+    /// immediately. This prevents envelopes accepted under a permissive
+    /// policy from bypassing a stricter one.
     pub fn set_policy(&mut self, policy: InboxPolicy) {
         self.policy = policy;
+        // Revalidate pending against the new policy. Borrow `self.policy`
+        // separately from `self.pending` to satisfy the borrow checker.
+        let policy_ref = &self.policy;
+        self.pending.retain(|_, env| match policy_ref {
+            InboxPolicy::AcceptAll | InboxPolicy::Budgeted { .. } => true,
+            InboxPolicy::KindFilter(allowed) => match &env.payload {
+                IngressPayload::LocalIntent { intent_kind, .. } => allowed.contains(intent_kind),
+            },
+        });
     }
 }
 
@@ -437,6 +456,28 @@ mod tests {
             env1.ingress_id, env3.ingress_id,
             "different payload must produce different ingress_id"
         );
+    }
+
+    #[test]
+    fn policy_tightening_evicts_non_matching() {
+        let mut inbox = HeadInbox::new(InboxPolicy::AcceptAll);
+        inbox.ingest(make_envelope(test_kind(), b"kept"));
+        inbox.ingest(make_envelope(other_kind(), b"evicted"));
+        assert_eq!(inbox.pending_count(), 2);
+
+        // Tighten policy to only accept test_kind
+        let mut allowed = BTreeSet::new();
+        allowed.insert(test_kind());
+        inbox.set_policy(InboxPolicy::KindFilter(allowed));
+
+        assert_eq!(
+            inbox.pending_count(),
+            1,
+            "non-matching envelope must be evicted on policy change"
+        );
+
+        let admitted = inbox.admit();
+        assert_eq!(admitted.len(), 1);
     }
 
     #[test]

@@ -106,6 +106,9 @@ impl SchedulerCoordinator {
     /// This is a programmer error (invariant violation), not a runtime condition.
     #[allow(clippy::expect_used)]
     pub fn super_tick(runtime: &mut WorldlineRuntime) -> Vec<StepRecord> {
+        // Rebuild the runnable set so callers never step stale heads.
+        runtime.refresh_runnable();
+
         let mut records = Vec::new();
 
         // Snapshot the runnable keys into a Vec to break the immutable borrow
@@ -141,7 +144,7 @@ impl SchedulerCoordinator {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::redundant_clone)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::head::{make_head_id, WriterHead};
@@ -288,10 +291,9 @@ mod tests {
 
     #[test]
     fn peek_order_matches_super_tick_order() {
-        let runtime = setup_runtime(&[(3, &["c"]), (1, &["a"]), (2, &["b"])]);
+        let mut runtime = setup_runtime(&[(3, &["c"]), (1, &["a"]), (2, &["b"])]);
         let peeked = SchedulerCoordinator::peek_order(&runtime);
-        let mut runtime_mut = runtime.clone();
-        let stepped = SchedulerCoordinator::super_tick(&mut runtime_mut);
+        let stepped = SchedulerCoordinator::super_tick(&mut runtime);
 
         assert_eq!(peeked.len(), stepped.len());
         for (p, s) in peeked.iter().zip(stepped.iter()) {

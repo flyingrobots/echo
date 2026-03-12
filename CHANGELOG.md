@@ -5,6 +5,24 @@
 
 ## Unreleased
 
+### fix(warp-core): resolve final Phase 3 review invariants
+
+- **Fixed** `Engine` now caches canonical `cmd/*` rule order at registration
+  time instead of rebuilding and sorting that list for every admitted ingress
+  envelope.
+- **Fixed** `WorldlineRegistry::register(...)` now preserves the restored
+  frontier tick implied by `WorldlineState.tick_history` instead of rewinding
+  restored worldlines to tick 0.
+- **Fixed** `WorldlineState` root validation is now fallible and explicit:
+  callers must supply or derive the unique root instance with a backing store,
+  and the old fabricated fallback root is gone.
+- **Fixed** `WarpKernel::with_engine(...)` now returns a typed
+  `KernelInitError` for non-fresh or invalid caller-supplied engine state
+  instead of panicking through the WASM host boundary.
+- **Clarified** ADR-0008 and the Phase 3 implementation plan now describe
+  duplicate suppression as per-resolved-head, use full `head_key` values for
+  per-head APIs, and keep `WorldlineRuntime` pseudocode encapsulated.
+
 ### fix(warp-core): resolve late Phase 3 PR follow-ups
 
 - **Fixed** `WorldlineRuntime` no longer exposes raw public registries that can

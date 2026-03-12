@@ -111,24 +111,27 @@ Wesley schema ownership follows these boundaries: `core` schema (Echo-owned),
 ### 5) All mutations flow through intents
 
 - All state mutations come from admitted intents through deterministic commit.
-- Intent identity is content-addressed and deduplicated.
+- Intent identity is content-addressed.
+- Duplicate suppression is scoped to the resolved head; the same payload may be
+  admitted once per distinct resolved head, and only repeat delivery to that
+  same resolved head is suppressed.
 - No direct App or Janus mutation path may bypass intent admission.
 - Janus submits only Janus/control intents unless explicitly granted additional
   capability.
 
 ### 6) Per-head operations replace global rewinds
 
-- `seek(head_id, target_tick)`: Observational-only replay from provenance for
+- `seek(head_key, target_tick)`: Observational-only replay from provenance for
   that worldline. This is for reader/tooling views and MUST NOT reposition a
   live writer frontier. If `target_tick > frontier`, clamp to the current
   frontier tick; MUST NOT synthesize intermediate or future state. Must not
   alter other heads or worldlines.
-- `jump_to_frontier(head_id)`: Observational convenience that moves a reader or
+- `jump_to_frontier(head_key)`: Observational convenience that moves a reader or
   tool head to the current worldline frontier without mutating shared frontier
   state.
 - `fork(worldline_id, fork_tick, new_worldline_id)`: Clone prefix history
   through fork tick. New worldline has independent frontier and head set.
-- `set_mode(head_id, mode)`: Controls whether the scheduler may advance that
+- `set_mode(head_key, mode)`: Controls whether the scheduler may advance that
   writer head.
 
 Administrative rewind remains an explicit maintenance/testing operation, not the

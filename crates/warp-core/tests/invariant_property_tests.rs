@@ -32,9 +32,32 @@ use common::{create_add_node_patch, create_initial_store, test_warp_id, test_wor
 use proptest::prelude::*;
 
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, EngineBuilder, Hash, HashTriplet,
-    LocalProvenanceStore, ProvenanceStore, WorldlineId,
+    compute_commit_hash_v2, compute_state_root_for_warp_store, make_head_id, make_intent_kind,
+    EngineBuilder, Hash, HashTriplet, InboxPolicy, IngressDisposition, IngressEnvelope,
+    IngressTarget, LocalProvenanceStore, PlaybackHeadRegistry, PlaybackMode, ProvenanceStore,
+    RunnableWriterSet, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
+
+fn runtime_with_default_writer(worldline_id: WorldlineId) -> (WorldlineRuntime, WriterHeadKey) {
+    let mut runtime = WorldlineRuntime::new();
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = WriterHeadKey {
+        worldline_id,
+        head_id: make_head_id("default"),
+    };
+    runtime
+        .register_writer_head(WriterHead::with_routing(
+            head_key,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            None,
+            true,
+        ))
+        .unwrap();
+    (runtime, head_key)
+}
 
 // =============================================================================
 // INV-001: Monotonic worldline tick (append-only provenance)
@@ -108,11 +131,6 @@ proptest! {
         num_heads_per in 1usize..5,
         shuffle_seed in any::<u64>(),
     ) {
-        use warp_core::{
-            make_head_id, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
-            PlaybackMode,
-        };
-
         // Build all keys in canonical order first
         let mut keys: Vec<WriterHeadKey> = Vec::new();
         for w in 0..num_worldlines {
@@ -148,7 +166,11 @@ proptest! {
         // Verify set identity: the output must contain exactly the same keys.
         let result: Vec<_> = runnable.iter().copied().collect();
         let mut expected = keys.clone();
-        expected.sort();
+        expected.sort_by(|a, b| {
+            a.worldline_id
+                .cmp(&b.worldline_id)
+                .then_with(|| a.head_id.cmp(&b.head_id))
+        });
         expected.dedup();
         prop_assert_eq!(result, expected, "runnable set must preserve exact head identity");
     }
@@ -163,33 +185,54 @@ proptest! {
     /// the same content-addressed intent_id.
     #[test]
     fn inv003_idempotent_ingress(intent_bytes in proptest::collection::vec(any::<u8>(), 1..256)) {
-        let warp_id = test_warp_id();
-        let initial_store = create_initial_store(warp_id);
-        let root = warp_core::make_node_id("root");
+        let worldline_id = test_worldline_id();
+        let (mut runtime1, head_key_1) = runtime_with_default_writer(worldline_id);
+        let (mut runtime2, head_key_2) = runtime_with_default_writer(worldline_id);
+        let kind = make_intent_kind("test/inv003");
 
-        let mut engine1 = EngineBuilder::new(initial_store.clone(), root)
-            .workers(1)
-            .build();
-        let mut engine2 = EngineBuilder::new(initial_store, root).workers(1).build();
+        let env1 = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            intent_bytes.clone(),
+        );
+        let env2 = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            kind,
+            intent_bytes.clone(),
+        );
 
-        let disp1 = engine1.ingest_intent(&intent_bytes).unwrap();
-        let disp2 = engine2.ingest_intent(&intent_bytes).unwrap();
+        let disp1 = runtime1.ingest(env1.clone()).unwrap();
+        let disp2 = runtime2.ingest(env2.clone()).unwrap();
 
         // Both must be Accepted with the same intent_id
         match (disp1, disp2) {
             (
-                warp_core::IngestDisposition::Accepted { intent_id: id1 },
-                warp_core::IngestDisposition::Accepted { intent_id: id2 },
+                IngressDisposition::Accepted {
+                    ingress_id: id1,
+                    head_key: routed_1,
+                },
+                IngressDisposition::Accepted {
+                    ingress_id: id2,
+                    head_key: routed_2,
+                },
             ) => {
                 prop_assert_eq!(id1, id2, "same bytes must produce same intent_id");
+                prop_assert_eq!(routed_1, head_key_1);
+                prop_assert_eq!(routed_2, head_key_2);
             }
             _ => prop_assert!(false, "both should be Accepted"),
         }
 
         // Re-ingestion must be Duplicate
-        let dup = engine1.ingest_intent(&intent_bytes).unwrap();
+        let dup = runtime1.ingest(env1).unwrap();
         match dup {
-            warp_core::IngestDisposition::Duplicate { .. } => {}
+            IngressDisposition::Duplicate {
+                ingress_id,
+                head_key,
+            } => {
+                prop_assert_eq!(ingress_id, env2.ingress_id());
+                prop_assert_eq!(head_key, head_key_1);
+            }
             _ => prop_assert!(false, "re-ingestion must be Duplicate"),
         }
     }
@@ -255,7 +298,8 @@ fn inv004_no_cross_worldline_leakage() {
 
     // State roots must differ (different node names)
     let sr_a = provenance.expected(worldline_a, 4).unwrap().state_root;
-    let sr_b = provenance.expected(worldline_b, 2).unwrap().state_root;
+    let triplet_b_before = provenance.expected(worldline_b, 2).unwrap();
+    let sr_b = triplet_b_before.state_root;
     assert_ne!(
         sr_a, sr_b,
         "different worldlines must have different state roots"
@@ -276,6 +320,11 @@ fn inv004_no_cross_worldline_leakage() {
         .append(worldline_a, patch, triplet, vec![])
         .unwrap();
     assert_eq!(provenance.len(worldline_a).unwrap(), 6);
+    assert_eq!(
+        provenance.expected(worldline_b, 2).unwrap(),
+        triplet_b_before,
+        "appending to A must not mutate B's latest committed triplet"
+    );
     assert_eq!(
         provenance.len(worldline_b).unwrap(),
         3,
@@ -304,16 +353,21 @@ proptest! {
             .build();
         engine1.ingest_intent(intent_bytes.as_bytes()).unwrap();
         let tx1 = engine1.begin();
-        let snap1 = engine1.commit(tx1).expect("commit 1");
+        let (snap1, receipt1, patch1) = engine1.commit_with_receipt(tx1).expect("commit 1");
 
         let mut engine2 = EngineBuilder::new(initial_store, root).workers(1).build();
         engine2.ingest_intent(intent_bytes.as_bytes()).unwrap();
         let tx2 = engine2.begin();
-        let snap2 = engine2.commit(tx2).expect("commit 2");
+        let (snap2, receipt2, patch2) = engine2.commit_with_receipt(tx2).expect("commit 2");
 
         prop_assert_eq!(snap1.hash, snap2.hash);
         prop_assert_eq!(snap1.state_root, snap2.state_root);
+        prop_assert_eq!(snap1.plan_digest, snap2.plan_digest);
+        prop_assert_eq!(snap1.decision_digest, snap2.decision_digest);
+        prop_assert_eq!(snap1.rewrites_digest, snap2.rewrites_digest);
         prop_assert_eq!(snap1.patch_digest, snap2.patch_digest);
+        prop_assert_eq!(receipt1.digest(), receipt2.digest());
+        prop_assert_eq!(patch1.digest(), patch2.digest());
     }
 }
 

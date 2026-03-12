@@ -993,10 +993,9 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
     ) -> Result<CommitOutcome, EngineError> {
-        let state_backup = state.clone();
-
         let saved_engine_state =
             std::mem::replace(&mut self.state, std::mem::take(&mut state.warp_state));
+        let state_before_runtime_commit = self.state.clone();
         let saved_root = self.current_root;
         self.current_root = state.root;
         let saved_initial_state = std::mem::replace(
@@ -1019,7 +1018,8 @@ impl Engine {
         );
         let committed_ingress = std::mem::take(&mut state.committed_ingress);
         let saved_tx_counter = self.tx_counter;
-        self.tx_counter = state.tx_counter;
+        let original_worldline_tx_counter = state.tx_counter;
+        self.tx_counter = original_worldline_tx_counter;
         let fresh_scheduler = self.fresh_scheduler();
         let saved_scheduler = std::mem::replace(&mut self.scheduler, fresh_scheduler);
         let saved_live_txs = std::mem::take(&mut self.live_txs);
@@ -1033,45 +1033,86 @@ impl Engine {
                 let _ = self.enqueue_first_matching_command(tx, &event_id)?;
             }
 
-            let (snapshot, receipt, patch) = self.commit_with_receipt(tx)?;
+            let (mut snapshot, receipt, patch) = self.commit_with_receipt(tx)?;
+            let combined_patch = WarpTickPatchV1::new(
+                patch.policy_id(),
+                patch.rule_pack_id(),
+                patch.commit_status(),
+                patch.in_slots().to_vec(),
+                patch.out_slots().to_vec(),
+                diff_state(&state_before_runtime_commit, &self.state),
+            );
+            snapshot.patch_digest = combined_patch.digest();
+            snapshot.hash = compute_commit_hash_v2(
+                &snapshot.state_root,
+                &snapshot.parents,
+                &snapshot.patch_digest,
+                snapshot.policy_id,
+            );
+            self.last_snapshot = Some(snapshot.clone());
+            if let Some((recorded_snapshot, _recorded_receipt, recorded_patch)) =
+                self.tick_history.last_mut()
+            {
+                *recorded_snapshot = snapshot.clone();
+                *recorded_patch = combined_patch.clone();
+            }
             Ok(CommitOutcome {
                 snapshot,
                 receipt,
-                patch,
+                patch: combined_patch,
             })
         })();
 
-        let updated_state = WorldlineState {
-            warp_state: std::mem::replace(&mut self.state, saved_engine_state),
-            root: self.current_root,
-            initial_state: std::mem::replace(&mut self.initial_state, saved_initial_state),
-            last_snapshot: std::mem::replace(&mut self.last_snapshot, saved_last_snapshot),
-            tick_history: std::mem::replace(&mut self.tick_history, saved_tick_history),
-            last_materialization: std::mem::replace(
-                &mut self.last_materialization,
-                saved_last_materialization,
-            ),
-            last_materialization_errors: std::mem::replace(
-                &mut self.last_materialization_errors,
-                saved_last_materialization_errors,
-            ),
-            tx_counter: self.tx_counter,
-            committed_ingress,
-        };
-
-        self.current_root = saved_root;
-        self.tx_counter = saved_tx_counter;
-        self.scheduler = saved_scheduler;
-        self.live_txs = saved_live_txs;
-        self.bus.clear();
-
         match result {
             Ok(outcome) => {
-                *state = updated_state;
+                *state = WorldlineState {
+                    warp_state: std::mem::replace(&mut self.state, saved_engine_state),
+                    root: self.current_root,
+                    initial_state: std::mem::replace(&mut self.initial_state, saved_initial_state),
+                    last_snapshot: std::mem::replace(&mut self.last_snapshot, saved_last_snapshot),
+                    tick_history: std::mem::replace(&mut self.tick_history, saved_tick_history),
+                    last_materialization: std::mem::replace(
+                        &mut self.last_materialization,
+                        saved_last_materialization,
+                    ),
+                    last_materialization_errors: std::mem::replace(
+                        &mut self.last_materialization_errors,
+                        saved_last_materialization_errors,
+                    ),
+                    tx_counter: self.tx_counter,
+                    committed_ingress,
+                };
+                self.current_root = saved_root;
+                self.tx_counter = saved_tx_counter;
+                self.scheduler = saved_scheduler;
+                self.live_txs = saved_live_txs;
+                self.bus.clear();
                 Ok(outcome)
             }
             Err(err) => {
-                *state = state_backup;
+                *state = WorldlineState {
+                    warp_state: state_before_runtime_commit,
+                    root: self.current_root,
+                    initial_state: std::mem::replace(&mut self.initial_state, saved_initial_state),
+                    last_snapshot: std::mem::replace(&mut self.last_snapshot, saved_last_snapshot),
+                    tick_history: std::mem::replace(&mut self.tick_history, saved_tick_history),
+                    last_materialization: std::mem::replace(
+                        &mut self.last_materialization,
+                        saved_last_materialization,
+                    ),
+                    last_materialization_errors: std::mem::replace(
+                        &mut self.last_materialization_errors,
+                        saved_last_materialization_errors,
+                    ),
+                    tx_counter: original_worldline_tx_counter,
+                    committed_ingress,
+                };
+                self.state = saved_engine_state;
+                self.current_root = saved_root;
+                self.tx_counter = saved_tx_counter;
+                self.scheduler = saved_scheduler;
+                self.live_txs = saved_live_txs;
+                self.bus.clear();
                 Err(err)
             }
         }
@@ -1778,6 +1819,23 @@ impl Engine {
     #[must_use]
     pub fn state(&self) -> &WarpState {
         &self.state
+    }
+
+    /// Returns `true` when the engine has no accumulated runtime history.
+    ///
+    /// Fresh engines have no committed snapshots, no tick history, no live
+    /// transactions, no materialization residue, and a zero transaction
+    /// counter. Boundary adapters that snapshot the engine into a separate
+    /// runtime should reject non-fresh engines unless they can export and
+    /// preserve the full runtime history.
+    #[must_use]
+    pub fn is_fresh_runtime_state(&self) -> bool {
+        self.last_snapshot.is_none()
+            && self.tick_history.is_empty()
+            && self.last_materialization.is_empty()
+            && self.last_materialization_errors.is_empty()
+            && self.live_txs.is_empty()
+            && self.tx_counter == 0
     }
 
     /// Returns a mutable view of the current warp state.

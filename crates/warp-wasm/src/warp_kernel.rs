@@ -67,7 +67,15 @@ impl WarpKernel {
     /// Create a kernel with a pre-configured engine and registry metadata.
     ///
     /// Use this to inject app-specific rewrite rules and schema metadata.
+    ///
+    /// The engine must be fresh: `WarpKernel` can mirror graph state into the
+    /// default worldline runtime, but it cannot reconstruct prior tick history
+    /// or materialization state from an already-advanced engine.
     pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Self {
+        assert!(
+            engine.is_fresh_runtime_state(),
+            "WarpKernel::with_engine requires a fresh engine"
+        );
         let root = engine.root_key();
         let default_worldline = WorldlineId(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();
@@ -105,7 +113,7 @@ impl WarpKernel {
     fn head_info(&self) -> HeadInfo {
         let frontier = self
             .runtime
-            .worldlines
+            .worldlines()
             .get(&self.default_worldline)
             .expect("default worldline must exist");
         let snap = frontier
@@ -171,6 +179,9 @@ impl KernelPort for WarpKernel {
         let mut ticks_executed: u32 = 0;
 
         for _ in 0..budget {
+            // Phase 3 exposes only the default worldline/default writer through
+            // the WASM ABI, so one coordinator pass can produce at most one
+            // committed head step here.
             let records = SchedulerCoordinator::super_tick(&mut self.runtime, &mut self.engine)
                 .map_err(|e| AbiError {
                     code: error_codes::ENGINE_ERROR,
@@ -204,7 +215,7 @@ impl KernelPort for WarpKernel {
 
         let finalized = self
             .runtime
-            .worldlines
+            .worldlines()
             .get(&self.default_worldline)
             .expect("default worldline must exist")
             .state()
@@ -231,7 +242,7 @@ impl KernelPort for WarpKernel {
         })?;
         let frontier = self
             .runtime
-            .worldlines
+            .worldlines()
             .get(&self.default_worldline)
             .expect("default worldline must exist");
         let snap = self
@@ -523,6 +534,37 @@ mod tests {
             },
         );
         assert_eq!(kernel.get_head().unwrap().tick, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "WarpKernel::with_engine requires a fresh engine")]
+    fn with_engine_rejects_non_fresh_engine_state() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+
+        let mut engine = EngineBuilder::new(store, root)
+            .scheduler(SchedulerKind::Radix)
+            .workers(1)
+            .build();
+        engine.ingest_intent(b"already-committed").unwrap();
+        let tx = engine.begin();
+        let _ = engine.commit(tx).unwrap();
+
+        let _kernel = WarpKernel::with_engine(
+            engine,
+            RegistryInfo {
+                codec_id: None,
+                registry_version: None,
+                schema_sha256_hex: None,
+                abi_version: ABI_VERSION,
+            },
+        );
     }
 
     #[test]

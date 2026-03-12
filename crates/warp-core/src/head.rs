@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Writer and reader head types for worldline-aware scheduling.
+//! Writer head types for worldline-aware scheduling.
 //!
 //! A **head** is a control object describing a participant in the worldline
 //! runtime. Writer heads advance a worldline's frontier state through
-//! deterministic commit; reader heads observe historical state via replay.
+//! deterministic commit.
 //!
 //! Heads are **not** private mutable stores. A worldline owns exactly one
 //! mutable frontier state (see [`WorldlineFrontier`](super::worldline_state::WorldlineFrontier)).
 //! Multiple writer heads may target the same worldline, executing serially in
 //! canonical `(worldline_id, head_id)` order.
+//!
+//! Reader-head APIs are future work. This module intentionally exposes the
+//! writer-head surface only: identity, routing metadata, inbox ownership, and
+//! the runnable ordering primitives used by the serial canonical scheduler.
 //!
 //! # Identifier Policy
 //!

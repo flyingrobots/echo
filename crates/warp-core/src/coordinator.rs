@@ -102,17 +102,17 @@ pub enum IngressDisposition {
 #[derive(Clone, Debug, Default)]
 pub struct WorldlineRuntime {
     /// Registry of all worldline frontiers.
-    pub worldlines: WorldlineRegistry,
+    worldlines: WorldlineRegistry,
     /// Registry of all writer heads.
-    pub heads: PlaybackHeadRegistry,
+    heads: PlaybackHeadRegistry,
     /// Ordered set of currently runnable (non-paused) writer heads.
-    pub runnable: RunnableWriterSet,
+    runnable: RunnableWriterSet,
     /// Global tick counter (metadata only; not per-worldline identity).
-    pub global_tick: u64,
+    global_tick: u64,
     /// Deterministic route table for default writers.
     default_writers: BTreeMap<WorldlineId, WriterHeadKey>,
     /// Deterministic route table for named public inboxes.
-    public_inboxes: BTreeMap<(WorldlineId, InboxAddress), WriterHeadKey>,
+    public_inboxes: BTreeMap<WorldlineId, BTreeMap<InboxAddress, WriterHeadKey>>,
 }
 
 impl WorldlineRuntime {
@@ -125,6 +125,18 @@ impl WorldlineRuntime {
     /// Rebuilds the runnable set from the current head registry.
     pub fn refresh_runnable(&mut self) {
         self.runnable.rebuild(&self.heads);
+    }
+
+    /// Returns the registered worldline frontiers.
+    #[must_use]
+    pub fn worldlines(&self) -> &WorldlineRegistry {
+        &self.worldlines
+    }
+
+    /// Returns the current correlation tick.
+    #[must_use]
+    pub fn global_tick(&self) -> u64 {
+        self.global_tick
     }
 
     /// Registers a worldline frontier with the runtime.
@@ -161,8 +173,11 @@ impl WorldlineRuntime {
             return Err(RuntimeError::DuplicateDefaultWriter(key.worldline_id));
         }
         if let Some(inbox) = head.public_inbox() {
-            let route_key = (key.worldline_id, inbox.clone());
-            if self.public_inboxes.contains_key(&route_key) {
+            if self
+                .public_inboxes
+                .get(&key.worldline_id)
+                .is_some_and(|routes| routes.contains_key(inbox))
+            {
                 return Err(RuntimeError::DuplicateInboxAddress {
                     worldline_id: key.worldline_id,
                     inbox: inbox.clone(),
@@ -174,7 +189,10 @@ impl WorldlineRuntime {
             self.default_writers.insert(key.worldline_id, key);
         }
         if let Some(inbox) = head.public_inbox().cloned() {
-            self.public_inboxes.insert((key.worldline_id, inbox), key);
+            self.public_inboxes
+                .entry(key.worldline_id)
+                .or_default()
+                .insert(inbox, key);
         }
         self.heads.insert(head);
         self.refresh_runnable();
@@ -240,7 +258,8 @@ impl WorldlineRuntime {
                 inbox,
             } => self
                 .public_inboxes
-                .get(&(*worldline_id, inbox.clone()))
+                .get(worldline_id)
+                .and_then(|routes| routes.get(inbox))
                 .copied()
                 .ok_or_else(|| RuntimeError::MissingInboxAddress {
                     worldline_id: *worldline_id,
@@ -288,10 +307,32 @@ impl SchedulerCoordinator {
         runtime: &mut WorldlineRuntime,
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
+        let next_global_tick = runtime
+            .global_tick
+            .checked_add(1)
+            .ok_or(RuntimeError::GlobalTickOverflow)?;
         runtime.refresh_runnable();
 
         let mut records = Vec::new();
         let keys: Vec<WriterHeadKey> = runtime.runnable.iter().copied().collect();
+
+        for key in &keys {
+            let head = runtime
+                .heads
+                .get(key)
+                .ok_or(RuntimeError::UnknownHead(*key))?;
+            if !head.inbox().can_admit() {
+                continue;
+            }
+
+            let frontier = runtime
+                .worldlines
+                .get(&key.worldline_id)
+                .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+            if frontier.frontier_tick() == u64::MAX {
+                return Err(RuntimeError::FrontierTickOverflow(key.worldline_id));
+            }
+        }
 
         for key in &keys {
             let admitted = runtime
@@ -351,10 +392,7 @@ impl SchedulerCoordinator {
             });
         }
 
-        runtime.global_tick = runtime
-            .global_tick
-            .checked_add(1)
-            .ok_or(RuntimeError::GlobalTickOverflow)?;
+        runtime.global_tick = next_global_tick;
         Ok(records)
     }
 
@@ -873,6 +911,130 @@ mod tests {
                 .unwrap()
                 .frontier_tick(),
             0
+        );
+    }
+
+    #[test]
+    fn frontier_tick_overflow_preflight_preserves_runtime_state() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        let head_key = register_head(
+            {
+                runtime
+                    .register_worldline(worldline_id, WorldlineState::empty())
+                    .unwrap();
+                &mut runtime
+            },
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"overflow-frontier".to_vec(),
+        );
+        runtime.ingest(envelope.clone()).unwrap();
+        runtime
+            .worldlines
+            .frontier_mut(&worldline_id)
+            .unwrap()
+            .frontier_tick = u64::MAX;
+
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+        assert_eq!(
+            runtime
+                .worldlines
+                .get(&worldline_id)
+                .unwrap()
+                .frontier_tick(),
+            u64::MAX
+        );
+        assert_eq!(
+            runtime
+                .heads
+                .get(&head_key)
+                .unwrap()
+                .inbox()
+                .pending_count(),
+            1,
+            "overflow must leave the admitted envelope pending"
+        );
+        assert!(
+            runtime
+                .worldlines
+                .get(&worldline_id)
+                .unwrap()
+                .state()
+                .last_snapshot()
+                .is_none(),
+            "overflow must not record a committed snapshot"
+        );
+        assert!(
+            runtime_store(&runtime, worldline_id)
+                .node(&crate::NodeId(envelope.ingress_id()))
+                .is_none(),
+            "overflow must not mutate the worldline state"
+        );
+    }
+
+    #[test]
+    fn global_tick_overflow_preflight_preserves_runtime_state() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        let head_key = register_head(
+            {
+                runtime
+                    .register_worldline(worldline_id, WorldlineState::empty())
+                    .unwrap();
+                &mut runtime
+            },
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"overflow-global".to_vec(),
+        );
+        runtime.ingest(envelope.clone()).unwrap();
+        runtime.global_tick = u64::MAX;
+
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        assert!(matches!(err, RuntimeError::GlobalTickOverflow));
+        assert_eq!(
+            runtime
+                .heads
+                .get(&head_key)
+                .unwrap()
+                .inbox()
+                .pending_count(),
+            1,
+            "global-tick overflow must leave the envelope pending"
+        );
+        assert!(
+            runtime
+                .worldlines
+                .get(&worldline_id)
+                .unwrap()
+                .state()
+                .last_snapshot()
+                .is_none(),
+            "global-tick overflow must not record a committed snapshot"
+        );
+        assert!(
+            runtime_store(&runtime, worldline_id)
+                .node(&crate::NodeId(envelope.ingress_id()))
+                .is_none(),
+            "global-tick overflow must not mutate the worldline state"
         );
     }
 

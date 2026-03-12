@@ -53,6 +53,12 @@ pub struct WorldlineState {
     /// Monotonic transaction counter for this worldline's commit history.
     pub(crate) tx_counter: u64,
     /// Committed ingress ids scoped to the writer head that accepted them.
+    ///
+    /// This is an in-memory lifetime dedupe ledger for a live
+    /// [`WorldlineRuntime`](crate::coordinator::WorldlineRuntime). Entries live
+    /// for as long as the frontier lives and are not persisted across process
+    /// restarts; Phase 3 intentionally keeps lifetime idempotence rather than a
+    /// bounded replay horizon.
     pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
 }
 

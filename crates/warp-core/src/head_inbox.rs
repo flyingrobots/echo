@@ -360,6 +360,15 @@ impl HeadInbox {
         }
     }
 
+    /// Returns `true` if calling [`HeadInbox::admit`] would yield at least one envelope.
+    #[must_use]
+    pub fn can_admit(&self) -> bool {
+        match &self.policy {
+            InboxPolicy::AcceptAll | InboxPolicy::KindFilter(_) => !self.pending.is_empty(),
+            InboxPolicy::Budgeted { max_per_tick } => *max_per_tick > 0 && !self.pending.is_empty(),
+        }
+    }
+
     /// Re-queues previously admitted envelopes back into the pending set.
     ///
     /// This is used when a later commit stage fails after admission has

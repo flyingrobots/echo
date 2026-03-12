@@ -108,11 +108,6 @@ impl WorldlineRegistry {
     pub fn iter(&self) -> impl Iterator<Item = (&WorldlineId, &WorldlineFrontier)> {
         self.worldlines.iter()
     }
-
-    /// Iterates mutably over all worldlines in deterministic order.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&WorldlineId, &mut WorldlineFrontier)> {
-        self.worldlines.iter_mut()
-    }
 }
 
 #[cfg(test)]

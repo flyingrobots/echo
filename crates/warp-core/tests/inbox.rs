@@ -50,7 +50,7 @@ fn register_head(
 }
 
 fn runtime_store(runtime: &WorldlineRuntime, worldline_id: WorldlineId) -> &GraphStore {
-    let frontier = runtime.worldlines.get(&worldline_id).unwrap();
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
     frontier
         .state()
         .warp_state()
@@ -173,4 +173,40 @@ fn runtime_ingest_keeps_distinct_intents_as_distinct_event_nodes() {
     let store = runtime_store(&runtime, worldline_id);
     assert!(store.node(&NodeId(intent_a.ingress_id())).is_some());
     assert!(store.node(&NodeId(intent_b.ingress_id())).is_some());
+}
+
+#[test]
+fn runtime_commit_patch_replays_to_post_state() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
+
+    runtime
+        .ingest(IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test/runtime"),
+            b"patch-replay".to_vec(),
+        ))
+        .unwrap();
+
+    let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    assert_eq!(records.len(), 1);
+
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    let (snapshot, _receipt, patch) = frontier.state().tick_history().last().unwrap().clone();
+
+    let mut replay_state = frontier.state().initial_state().clone();
+    patch.apply_to_state(&mut replay_state).unwrap();
+    let replay_root = engine
+        .snapshot_for_state(&WorldlineState::new(replay_state, *frontier.state().root()))
+        .state_root;
+
+    assert_eq!(
+        replay_root, snapshot.state_root,
+        "runtime tick patch must replay to the committed post-state"
+    );
 }

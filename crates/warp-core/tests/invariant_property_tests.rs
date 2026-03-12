@@ -150,25 +150,7 @@ proptest! {
         let mut expected = keys.clone();
         expected.sort();
         expected.dedup();
-        prop_assert_eq!(
-            result.len(),
-            expected.len(),
-            "runnable set must contain every unique inserted head"
-        );
-        for (actual, expect) in result.iter().zip(expected.iter()) {
-            prop_assert_eq!(
-                actual, expect,
-                "runnable set must contain the exact same keys as inserted"
-            );
-        }
-
-        // Verify canonical ordering (redundant with above but explicit)
-        for i in 1..result.len() {
-            prop_assert!(
-                result[i - 1] < result[i],
-                "runnable set must be in canonical (worldline_id, head_id) order"
-            );
-        }
+        prop_assert_eq!(result, expected, "runnable set must preserve exact head identity");
     }
 }
 

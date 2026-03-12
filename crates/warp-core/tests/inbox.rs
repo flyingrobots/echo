@@ -76,7 +76,7 @@ fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
     assert_eq!(
         runtime.ingest(envelope.clone()).unwrap(),
         IngressDisposition::Accepted {
-            ingress_id: envelope.ingress_id,
+            ingress_id: envelope.ingress_id(),
             head_key,
         }
     );
@@ -86,7 +86,7 @@ fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
     assert_eq!(records[0].head_key, head_key);
 
     let store = runtime_store(&runtime, worldline_id);
-    assert!(store.node(&NodeId(envelope.ingress_id)).is_some());
+    assert!(store.node(&NodeId(envelope.ingress_id())).is_some());
     assert!(store.node(&make_node_id("sim")).is_none());
     assert!(store.node(&make_node_id("sim/inbox")).is_none());
 }
@@ -120,7 +120,7 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
     assert_eq!(
         runtime.ingest(default_env.clone()).unwrap(),
         IngressDisposition::Accepted {
-            ingress_id: default_env.ingress_id,
+            ingress_id: default_env.ingress_id(),
             head_key: default_key,
         }
     );
@@ -129,14 +129,14 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
     assert_eq!(
         runtime.ingest(default_env).unwrap(),
         IngressDisposition::Duplicate {
-            ingress_id: named_env.ingress_id,
+            ingress_id: named_env.ingress_id(),
             head_key: default_key,
         }
     );
     assert_eq!(
         runtime.ingest(named_env.clone()).unwrap(),
         IngressDisposition::Accepted {
-            ingress_id: named_env.ingress_id,
+            ingress_id: named_env.ingress_id(),
             head_key: named_key,
         }
     );
@@ -171,6 +171,6 @@ fn runtime_ingest_keeps_distinct_intents_as_distinct_event_nodes() {
     assert_eq!(records[0].admitted_count, 2);
 
     let store = runtime_store(&runtime, worldline_id);
-    assert!(store.node(&NodeId(intent_a.ingress_id)).is_some());
-    assert!(store.node(&NodeId(intent_b.ingress_id)).is_some());
+    assert!(store.node(&NodeId(intent_a.ingress_id())).is_some());
+    assert!(store.node(&NodeId(intent_b.ingress_id())).is_some());
 }

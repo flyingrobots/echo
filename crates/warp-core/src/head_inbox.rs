@@ -125,13 +125,13 @@ pub enum IngressPayload {
 #[derive(Clone, Debug)]
 pub struct IngressEnvelope {
     /// Content address of this envelope (BLAKE3 of payload).
-    pub ingress_id: Hash,
+    ingress_id: Hash,
     /// Routing target.
-    pub target: IngressTarget,
+    target: IngressTarget,
     /// Causal parent references (empty for local intents in early phases).
-    pub causal_parents: Vec<Hash>,
+    causal_parents: Vec<Hash>,
     /// The payload.
-    pub payload: IngressPayload,
+    payload: IngressPayload,
 }
 
 impl IngressEnvelope {
@@ -152,6 +152,47 @@ impl IngressEnvelope {
                 intent_bytes,
             },
         }
+    }
+
+    /// Returns the canonical content address of this envelope.
+    #[must_use]
+    pub fn ingress_id(&self) -> Hash {
+        self.ingress_id
+    }
+
+    /// Returns the routing target for this envelope.
+    #[must_use]
+    pub fn target(&self) -> &IngressTarget {
+        &self.target
+    }
+
+    /// Returns the payload carried by this envelope.
+    #[must_use]
+    pub fn payload(&self) -> &IngressPayload {
+        &self.payload
+    }
+
+    /// Returns the causal parents for this envelope.
+    #[must_use]
+    pub fn causal_parents(&self) -> &[Hash] {
+        &self.causal_parents
+    }
+
+    fn expected_ingress_id(&self) -> Hash {
+        match &self.payload {
+            IngressPayload::LocalIntent {
+                intent_kind,
+                intent_bytes,
+            } => compute_ingress_id(intent_kind, intent_bytes),
+        }
+    }
+
+    fn assert_canonical_ingress_id(&self) {
+        assert_eq!(
+            self.ingress_id,
+            self.expected_ingress_id(),
+            "ingress_id does not match payload — envelope was constructed incorrectly"
+        );
     }
 }
 
@@ -226,7 +267,7 @@ impl Default for HeadInbox {
         Self {
             head_key: WriterHeadKey {
                 worldline_id: WorldlineId([0u8; 32]),
-                head_id: crate::head::HeadId([0u8; 32]),
+                head_id: crate::head::HeadId::MIN,
             },
             pending: BTreeMap::new(),
             policy: InboxPolicy::AcceptAll,
@@ -259,25 +300,17 @@ impl HeadInbox {
     pub fn ingest(&mut self, envelope: IngressEnvelope) -> InboxIngestResult {
         use std::collections::btree_map::Entry;
 
-        // Verify the envelope's content address matches its payload.
-        // This catches manually constructed envelopes with stale/wrong ids.
-        let expected_id = match &envelope.payload {
-            IngressPayload::LocalIntent {
-                intent_kind,
-                intent_bytes,
-            } => compute_ingress_id(intent_kind, intent_bytes),
-        };
-        debug_assert_eq!(
-            envelope.ingress_id, expected_id,
-            "ingress_id does not match payload — envelope was constructed incorrectly"
-        );
+        // Invariant: content-addressed envelopes must remain canonical even in
+        // release builds. Invalid ids indicate a programming error upstream.
+        envelope.assert_canonical_ingress_id();
+        let ingress_id = envelope.ingress_id();
 
         // Early rejection: check policy before storing.
         if !self.policy_accepts(&envelope) {
             return InboxIngestResult::Rejected;
         }
 
-        match self.pending.entry(envelope.ingress_id) {
+        match self.pending.entry(ingress_id) {
             Entry::Vacant(v) => {
                 v.insert(envelope);
                 InboxIngestResult::Accepted
@@ -333,7 +366,7 @@ impl HeadInbox {
     /// already removed the envelopes from the inbox.
     pub(crate) fn requeue(&mut self, envelopes: Vec<IngressEnvelope>) {
         for envelope in envelopes {
-            self.pending.insert(envelope.ingress_id, envelope);
+            self.pending.insert(envelope.ingress_id(), envelope);
         }
     }
 
@@ -430,7 +463,7 @@ mod tests {
         // Must be in ingress_id order (BTreeMap guarantees this)
         for i in 1..admitted.len() {
             assert!(
-                admitted[i - 1].ingress_id < admitted[i].ingress_id,
+                admitted[i - 1].ingress_id() < admitted[i].ingress_id(),
                 "admission must be in ingress_id order"
             );
         }
@@ -516,13 +549,15 @@ mod tests {
         let env1 = make_envelope(kind, b"same-payload");
         let env2 = make_envelope(kind, b"same-payload");
         assert_eq!(
-            env1.ingress_id, env2.ingress_id,
+            env1.ingress_id(),
+            env2.ingress_id(),
             "same payload must produce same ingress_id"
         );
 
         let env3 = make_envelope(kind, b"different-payload");
         assert_ne!(
-            env1.ingress_id, env3.ingress_id,
+            env1.ingress_id(),
+            env3.ingress_id(),
             "different payload must produce different ingress_id"
         );
     }
@@ -569,5 +604,20 @@ mod tests {
 
         inbox.admit();
         assert!(inbox.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "ingress_id does not match payload")]
+    fn invalid_envelope_panics_on_ingest() {
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
+        let mut envelope = make_envelope(test_kind(), b"payload");
+        envelope.ingress_id = [0xff; 32];
+        let _ = inbox.ingest(envelope);
     }
 }

@@ -251,6 +251,17 @@ impl WorldlineFrontier {
         &self.state
     }
 
+    /// Returns a mutable reference to the worldline state for internal commit flow.
+    pub(crate) fn state_mut(&mut self) -> &mut WorldlineState {
+        &mut self.state
+    }
+
+    /// Advances the frontier tick by one, returning the new value.
+    pub(crate) fn advance_tick(&mut self) -> Option<u64> {
+        self.frontier_tick = self.frontier_tick.checked_add(1)?;
+        Some(self.frontier_tick)
+    }
+
     /// Creates a frontier at a specific tick (used for fork/rebuild).
     #[must_use]
     pub fn at_tick(worldline_id: WorldlineId, state: WorldlineState, tick: u64) -> Self {

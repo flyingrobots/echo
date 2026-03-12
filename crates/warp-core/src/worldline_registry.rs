@@ -34,6 +34,7 @@ impl WorldlineRegistry {
     /// Registers a new worldline with the given initial state.
     ///
     /// Returns `false` if a worldline with this ID already exists (no-op).
+    #[must_use]
     pub fn register(&mut self, worldline_id: WorldlineId, state: WorldlineState) -> bool {
         use std::collections::btree_map::Entry;
         match self.worldlines.entry(worldline_id) {
@@ -52,7 +53,10 @@ impl WorldlineRegistry {
     }
 
     /// Returns a mutable reference to the frontier for the given worldline.
-    pub fn get_mut(&mut self, worldline_id: &WorldlineId) -> Option<&mut WorldlineFrontier> {
+    pub(crate) fn frontier_mut(
+        &mut self,
+        worldline_id: &WorldlineId,
+    ) -> Option<&mut WorldlineFrontier> {
         self.worldlines.get_mut(worldline_id)
     }
 
@@ -121,9 +125,9 @@ mod tests {
     fn deterministic_iteration_order() {
         let mut reg = WorldlineRegistry::new();
         // Insert in non-sorted order
-        reg.register(wl(3), WorldlineState::empty());
-        reg.register(wl(1), WorldlineState::empty());
-        reg.register(wl(2), WorldlineState::empty());
+        let _ = reg.register(wl(3), WorldlineState::empty());
+        let _ = reg.register(wl(1), WorldlineState::empty());
+        let _ = reg.register(wl(2), WorldlineState::empty());
 
         let ids: Vec<_> = reg.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids, vec![wl(1), wl(2), wl(3)]);
@@ -132,9 +136,9 @@ mod tests {
     #[test]
     fn mutable_access_to_frontier() {
         let mut reg = WorldlineRegistry::new();
-        reg.register(wl(1), WorldlineState::empty());
+        let _ = reg.register(wl(1), WorldlineState::empty());
 
-        let frontier = reg.get_mut(&wl(1)).unwrap();
+        let frontier = reg.frontier_mut(&wl(1)).unwrap();
         frontier.frontier_tick = 42;
 
         assert_eq!(reg.get(&wl(1)).unwrap().frontier_tick(), 42);

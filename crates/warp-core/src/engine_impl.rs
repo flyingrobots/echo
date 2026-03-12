@@ -1919,7 +1919,7 @@ impl Engine {
         &mut self,
         envelope: &IngressEnvelope,
     ) -> Result<NodeId, EngineError> {
-        let event_id = NodeId(envelope.ingress_id);
+        let event_id = NodeId(envelope.ingress_id());
         let warp_id = self.current_root.warp_id;
         let store = self
             .state
@@ -1935,7 +1935,7 @@ impl Engine {
             );
         }
 
-        match &envelope.payload {
+        match envelope.payload() {
             IngressPayload::LocalIntent { intent_bytes, .. } => {
                 let payload = crate::attachment::AtomPayload::new(
                     make_type_id(INTENT_ATTACHMENT_TYPE),

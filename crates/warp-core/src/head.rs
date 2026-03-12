@@ -34,9 +34,14 @@ use crate::worldline::WorldlineId;
 /// (`"head:" || label`). Never derived from mutable runtime structure.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct HeadId(pub Hash);
+pub struct HeadId(Hash);
 
 impl HeadId {
+    /// Inclusive minimum key used by internal `BTreeMap` range queries.
+    pub(crate) const MIN: Self = Self([0u8; 32]);
+    /// Inclusive maximum key used by internal `BTreeMap` range queries.
+    pub(crate) const MAX: Self = Self([0xff; 32]);
+
     /// Returns the canonical byte representation of this id.
     #[must_use]
     pub fn as_bytes(&self) -> &Hash {
@@ -86,12 +91,10 @@ pub struct WriterHead {
     key: WriterHeadKey,
     /// Current playback mode (paused, playing, seeking, etc.).
     ///
-    /// Private to enforce the invariant that `mode` and `paused` stay in sync.
-    /// Use [`mode()`](WriterHead::mode), [`pause()`](WriterHead::pause), and
+    /// Private so pause state is derived from one source of truth. Use
+    /// [`mode()`](WriterHead::mode), [`pause()`](WriterHead::pause), and
     /// [`unpause()`](WriterHead::unpause) to read/mutate.
     mode: PlaybackMode,
-    /// Whether this head is paused and should be skipped by the scheduler.
-    paused: bool,
     /// Per-head deterministic ingress inbox.
     inbox: HeadInbox,
     /// Optional public inbox address for application routing.
@@ -120,11 +123,9 @@ impl WriterHead {
         public_inbox: Option<InboxAddress>,
         is_default_writer: bool,
     ) -> Self {
-        let paused = matches!(mode, PlaybackMode::Paused);
         Self {
             key,
             mode,
-            paused,
             inbox: HeadInbox::new(key, inbox_policy),
             public_inbox,
             is_default_writer,
@@ -146,7 +147,7 @@ impl WriterHead {
     /// Returns `true` if this head is paused.
     #[must_use]
     pub fn is_paused(&self) -> bool {
-        self.paused
+        matches!(self.mode, PlaybackMode::Paused)
     }
 
     /// Returns the head inbox.
@@ -174,7 +175,6 @@ impl WriterHead {
 
     /// Pauses this head. The scheduler will skip it.
     pub fn pause(&mut self) {
-        self.paused = true;
         self.mode = PlaybackMode::Paused;
     }
 
@@ -182,14 +182,13 @@ impl WriterHead {
     ///
     /// # Panics
     ///
-    /// Debug-asserts that `mode` is not `Paused` (passing `Paused` would
+    /// Panics if `mode` is `Paused` (passing `Paused` would
     /// create an inconsistent state). This is a programmer error.
     pub fn unpause(&mut self, mode: PlaybackMode) {
-        debug_assert!(
+        assert!(
             !matches!(mode, PlaybackMode::Paused),
             "unpause() called with PlaybackMode::Paused — use pause() instead"
         );
-        self.paused = false;
         self.mode = mode;
     }
 }
@@ -231,9 +230,9 @@ impl PlaybackHeadRegistry {
         self.heads.get(key)
     }
 
-    /// Returns a mutable reference to the writer head at the given key.
-    pub fn get_mut(&mut self, key: &WriterHeadKey) -> Option<&mut WriterHead> {
-        self.heads.get_mut(key)
+    /// Returns a mutable reference to the inbox for the given head.
+    pub(crate) fn inbox_mut(&mut self, key: &WriterHeadKey) -> Option<&mut HeadInbox> {
+        self.heads.get_mut(key).map(WriterHead::inbox_mut)
     }
 
     /// Returns the number of registered heads.
@@ -262,11 +261,11 @@ impl PlaybackHeadRegistry {
     ) -> impl Iterator<Item = &WriterHeadKey> {
         let start = WriterHeadKey {
             worldline_id,
-            head_id: HeadId([0u8; 32]),
+            head_id: HeadId::MIN,
         };
         let end = WriterHeadKey {
             worldline_id,
-            head_id: HeadId([0xff; 32]),
+            head_id: HeadId::MAX,
         };
         self.heads.range(start..=end).map(|(k, _)| k)
     }
@@ -354,7 +353,7 @@ mod tests {
     fn head_id_does_not_collide_with_other_id_domains() {
         use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
         let label = "collision-test";
-        let head = make_head_id(label).0;
+        let head = *make_head_id(label).as_bytes();
         assert_ne!(head, make_node_id(label).0);
         assert_ne!(head, make_type_id(label).0);
         assert_ne!(head, make_edge_id(label).0);
@@ -462,6 +461,17 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "unpause() called with PlaybackMode::Paused")]
+    fn unpause_rejects_paused_mode() {
+        let key = WriterHeadKey {
+            worldline_id: wl(1),
+            head_id: hd("writer"),
+        };
+        let mut head = make_head(key, PlaybackMode::Play);
+        head.unpause(PlaybackMode::Paused);
+    }
+
+    #[test]
     fn worldline_owns_one_frontier_state() {
         // This test documents the architectural invariant:
         // A worldline has exactly one frontier state, not per-head stores.
@@ -480,7 +490,7 @@ mod tests {
         );
 
         // WriterHead has no store field — it's a control object only
-        assert_eq!(head.key.worldline_id, wl(1));
+        assert_eq!(head.key().worldline_id, wl(1));
         assert!(!head.is_paused());
         assert!(head.is_default_writer());
         assert_eq!(

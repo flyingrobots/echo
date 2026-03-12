@@ -64,6 +64,12 @@ pub enum RuntimeError {
     /// A commit against a worldline frontier failed.
     #[error(transparent)]
     Engine(#[from] EngineError),
+    /// Attempted to advance a frontier tick past `u64::MAX`.
+    #[error("frontier tick overflow for worldline: {0:?}")]
+    FrontierTickOverflow(WorldlineId),
+    /// Attempted to advance the global tick past `u64::MAX`.
+    #[error("global tick overflow")]
+    GlobalTickOverflow,
 }
 
 /// Result of ingesting an envelope into the runtime.
@@ -186,8 +192,8 @@ impl WorldlineRuntime {
         &mut self,
         envelope: IngressEnvelope,
     ) -> Result<IngressDisposition, RuntimeError> {
-        let ingress_id = envelope.ingress_id;
-        let head_key = self.resolve_target(&envelope.target)?;
+        let ingress_id = envelope.ingress_id();
+        let head_key = self.resolve_target(envelope.target())?;
 
         if self
             .worldlines
@@ -195,7 +201,7 @@ impl WorldlineRuntime {
             .is_some_and(|frontier| {
                 frontier
                     .state()
-                    .contains_committed_ingress(&head_key, &envelope.ingress_id)
+                    .contains_committed_ingress(&head_key, &ingress_id)
             })
         {
             return Ok(IngressDisposition::Duplicate {
@@ -206,9 +212,8 @@ impl WorldlineRuntime {
 
         let outcome = self
             .heads
-            .get_mut(&head_key)
+            .inbox_mut(&head_key)
             .ok_or(RuntimeError::UnknownHead(head_key))?
-            .inbox_mut()
             .ingest(envelope);
 
         match outcome {
@@ -292,23 +297,22 @@ impl SchedulerCoordinator {
         for key in &keys {
             let admitted = runtime
                 .heads
-                .get_mut(key)
+                .inbox_mut(key)
                 .ok_or(RuntimeError::UnknownHead(*key))?
-                .inbox_mut()
                 .admit();
 
             if admitted.is_empty() {
                 continue;
             }
 
-            let outcome = if let Some(frontier) = runtime.worldlines.get_mut(&key.worldline_id) {
-                engine.commit_with_state(&mut frontier.state, &admitted)
+            let outcome = if let Some(frontier) = runtime.worldlines.frontier_mut(&key.worldline_id)
+            {
+                engine.commit_with_state(frontier.state_mut(), &admitted)
             } else {
                 runtime
                     .heads
-                    .get_mut(key)
+                    .inbox_mut(key)
                     .ok_or(RuntimeError::UnknownHead(*key))?
-                    .inbox_mut()
                     .requeue(admitted);
                 return Err(RuntimeError::UnknownWorldline(key.worldline_id));
             };
@@ -318,9 +322,8 @@ impl SchedulerCoordinator {
                 Err(err) => {
                     runtime
                         .heads
-                        .get_mut(key)
+                        .inbox_mut(key)
                         .ok_or(RuntimeError::UnknownHead(*key))?
-                        .inbox_mut()
                         .requeue(admitted);
                     return Err(err.into());
                 }
@@ -329,14 +332,15 @@ impl SchedulerCoordinator {
             let frontier_tick_after = {
                 let frontier = runtime
                     .worldlines
-                    .get_mut(&key.worldline_id)
+                    .frontier_mut(&key.worldline_id)
                     .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
-                frontier.state.record_committed_ingress(
+                frontier.state_mut().record_committed_ingress(
                     *key,
-                    admitted.iter().map(|envelope| envelope.ingress_id),
+                    admitted.iter().map(IngressEnvelope::ingress_id),
                 );
-                frontier.frontier_tick += 1;
-                frontier.frontier_tick
+                frontier
+                    .advance_tick()
+                    .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?
             };
 
             records.push(StepRecord {
@@ -348,14 +352,21 @@ impl SchedulerCoordinator {
             });
         }
 
-        runtime.global_tick += 1;
+        runtime.global_tick = runtime
+            .global_tick
+            .checked_add(1)
+            .ok_or(RuntimeError::GlobalTickOverflow)?;
         Ok(records)
     }
 
     /// Returns the canonical ordering of runnable heads without mutating state.
     #[must_use]
     pub fn peek_order(runtime: &WorldlineRuntime) -> Vec<WriterHeadKey> {
-        runtime.runnable.iter().copied().collect()
+        runtime
+            .heads
+            .iter()
+            .filter_map(|(key, head)| (!head.is_paused()).then_some(*key))
+            .collect()
     }
 }
 
@@ -465,7 +476,7 @@ mod tests {
             kind,
             b"default".to_vec(),
         )
-        .ingress_id;
+        .ingress_id();
         let named_id = IngressEnvelope::local_intent(
             IngressTarget::InboxAddress {
                 worldline_id,
@@ -474,7 +485,7 @@ mod tests {
             kind,
             b"named".to_vec(),
         )
-        .ingress_id;
+        .ingress_id();
 
         assert_eq!(
             default_result,
@@ -570,14 +581,14 @@ mod tests {
         assert_eq!(
             runtime.ingest(default_env.clone()).unwrap(),
             IngressDisposition::Accepted {
-                ingress_id: default_env.ingress_id,
+                ingress_id: default_env.ingress_id(),
                 head_key: default_key,
             }
         );
         assert_eq!(
             runtime.ingest(default_env.clone()).unwrap(),
             IngressDisposition::Duplicate {
-                ingress_id: default_env.ingress_id,
+                ingress_id: default_env.ingress_id(),
                 head_key: default_key,
             }
         );
@@ -588,14 +599,14 @@ mod tests {
         assert_eq!(
             runtime.ingest(named_env.clone()).unwrap(),
             IngressDisposition::Accepted {
-                ingress_id: named_env.ingress_id,
+                ingress_id: named_env.ingress_id(),
                 head_key: named_key,
             }
         );
         assert_eq!(
             runtime.ingest(named_env).unwrap(),
             IngressDisposition::Duplicate {
-                ingress_id: default_env.ingress_id,
+                ingress_id: default_env.ingress_id(),
                 head_key: named_key,
             }
         );
@@ -627,14 +638,14 @@ mod tests {
         assert_eq!(
             runtime.ingest(envelope.clone()).unwrap(),
             IngressDisposition::Accepted {
-                ingress_id: envelope.ingress_id,
+                ingress_id: envelope.ingress_id(),
                 head_key: exact_key,
             }
         );
         assert_eq!(
             runtime.ingest(envelope.clone()).unwrap(),
             IngressDisposition::Duplicate {
-                ingress_id: envelope.ingress_id,
+                ingress_id: envelope.ingress_id(),
                 head_key: exact_key,
             }
         );
@@ -816,24 +827,24 @@ mod tests {
             .get(&worldline_a)
             .unwrap()
             .state()
-            .contains_committed_ingress(&head_a, &env_a.ingress_id));
+            .contains_committed_ingress(&head_a, &env_a.ingress_id()));
         assert!(runtime
             .worldlines
             .get(&worldline_b)
             .unwrap()
             .state()
-            .contains_committed_ingress(&head_b, &env_b.ingress_id));
+            .contains_committed_ingress(&head_b, &env_b.ingress_id()));
         assert!(runtime_store(&runtime, worldline_a)
-            .node(&crate::NodeId(env_a.ingress_id))
+            .node(&crate::NodeId(env_a.ingress_id()))
             .is_some());
         assert!(runtime_store(&runtime, worldline_b)
-            .node(&crate::NodeId(env_b.ingress_id))
+            .node(&crate::NodeId(env_b.ingress_id()))
             .is_some());
         assert!(runtime_store(&runtime, worldline_a)
-            .node(&crate::NodeId(env_b.ingress_id))
+            .node(&crate::NodeId(env_b.ingress_id()))
             .is_none());
         assert!(runtime_store(&runtime, worldline_b)
-            .node(&crate::NodeId(env_a.ingress_id))
+            .node(&crate::NodeId(env_a.ingress_id()))
             .is_none());
     }
 
@@ -943,6 +954,82 @@ mod tests {
         let store = runtime_store(&runtime, worldline_id);
         assert!(store.node(&make_node_id("sim")).is_none());
         assert!(store.node(&make_node_id("sim/inbox")).is_none());
-        assert!(store.node(&crate::NodeId(envelope.ingress_id)).is_some());
+        assert!(store.node(&crate::NodeId(envelope.ingress_id())).is_some());
+    }
+
+    #[test]
+    fn peek_order_rebuilds_from_heads_when_cache_is_stale() {
+        let mut runtime = WorldlineRuntime::new();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        runtime.runnable = crate::head::RunnableWriterSet::new();
+
+        assert_eq!(SchedulerCoordinator::peek_order(&runtime), vec![head_key]);
+    }
+
+    #[test]
+    fn super_tick_returns_frontier_tick_overflow_error() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime
+            .ingest(IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter { worldline_id },
+                make_intent_kind("test"),
+                b"runtime".to_vec(),
+            ))
+            .unwrap();
+        runtime
+            .worldlines
+            .frontier_mut(&worldline_id)
+            .unwrap()
+            .frontier_tick = u64::MAX;
+
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
+    }
+
+    #[test]
+    fn super_tick_returns_global_tick_overflow_error() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        runtime.global_tick = u64::MAX;
+
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        assert!(matches!(err, RuntimeError::GlobalTickOverflow));
     }
 }

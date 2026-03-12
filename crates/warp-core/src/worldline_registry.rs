@@ -7,9 +7,29 @@
 //! provides deterministic iteration order via `BTreeMap`.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use crate::worldline::WorldlineId;
 use crate::worldline_state::{WorldlineFrontier, WorldlineState};
+
+/// Error returned when worldline registration conflicts with existing runtime state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegisterWorldlineError {
+    /// The runtime already owns a frontier for this worldline.
+    DuplicateWorldline(WorldlineId),
+}
+
+impl fmt::Display for RegisterWorldlineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DuplicateWorldline(worldline_id) => {
+                write!(f, "worldline already registered: {worldline_id:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RegisterWorldlineError {}
 
 // =============================================================================
 // WorldlineRegistry
@@ -33,16 +53,22 @@ impl WorldlineRegistry {
 
     /// Registers a new worldline with the given initial state.
     ///
-    /// Returns `false` if a worldline with this ID already exists (no-op).
-    #[must_use]
-    pub fn register(&mut self, worldline_id: WorldlineId, state: WorldlineState) -> bool {
+    /// # Errors
+    ///
+    /// Returns [`RegisterWorldlineError::DuplicateWorldline`] if a worldline
+    /// with this ID is already registered.
+    pub fn register(
+        &mut self,
+        worldline_id: WorldlineId,
+        state: WorldlineState,
+    ) -> Result<(), RegisterWorldlineError> {
         use std::collections::btree_map::Entry;
         match self.worldlines.entry(worldline_id) {
             Entry::Vacant(v) => {
                 v.insert(WorldlineFrontier::new(worldline_id, state));
-                true
+                Ok(())
             }
-            Entry::Occupied(_) => false,
+            Entry::Occupied(_) => Err(RegisterWorldlineError::DuplicateWorldline(worldline_id)),
         }
     }
 
@@ -103,7 +129,7 @@ mod tests {
         let mut reg = WorldlineRegistry::new();
         assert!(reg.is_empty());
 
-        assert!(reg.register(wl(1), WorldlineState::empty()));
+        reg.register(wl(1), WorldlineState::empty()).unwrap();
         assert_eq!(reg.len(), 1);
         assert!(reg.contains(&wl(1)));
         assert!(!reg.contains(&wl(2)));
@@ -114,10 +140,13 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_registration_is_noop() {
+    fn duplicate_registration_returns_error() {
         let mut reg = WorldlineRegistry::new();
-        assert!(reg.register(wl(1), WorldlineState::empty()));
-        assert!(!reg.register(wl(1), WorldlineState::empty()));
+        reg.register(wl(1), WorldlineState::empty()).unwrap();
+        assert_eq!(
+            reg.register(wl(1), WorldlineState::empty()),
+            Err(RegisterWorldlineError::DuplicateWorldline(wl(1)))
+        );
         assert_eq!(reg.len(), 1);
     }
 
@@ -125,9 +154,9 @@ mod tests {
     fn deterministic_iteration_order() {
         let mut reg = WorldlineRegistry::new();
         // Insert in non-sorted order
-        let _ = reg.register(wl(3), WorldlineState::empty());
-        let _ = reg.register(wl(1), WorldlineState::empty());
-        let _ = reg.register(wl(2), WorldlineState::empty());
+        reg.register(wl(3), WorldlineState::empty()).unwrap();
+        reg.register(wl(1), WorldlineState::empty()).unwrap();
+        reg.register(wl(2), WorldlineState::empty()).unwrap();
 
         let ids: Vec<_> = reg.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids, vec![wl(1), wl(2), wl(3)]);
@@ -136,7 +165,7 @@ mod tests {
     #[test]
     fn mutable_access_to_frontier() {
         let mut reg = WorldlineRegistry::new();
-        let _ = reg.register(wl(1), WorldlineState::empty());
+        reg.register(wl(1), WorldlineState::empty()).unwrap();
 
         let frontier = reg.frontier_mut(&wl(1)).unwrap();
         frontier.frontier_tick = 42;

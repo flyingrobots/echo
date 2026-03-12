@@ -137,10 +137,9 @@ impl WorldlineRuntime {
         worldline_id: WorldlineId,
         state: WorldlineState,
     ) -> Result<(), RuntimeError> {
-        if !self.worldlines.register(worldline_id, state) {
-            return Err(RuntimeError::DuplicateWorldline(worldline_id));
-        }
-        Ok(())
+        self.worldlines
+            .register(worldline_id, state)
+            .map_err(|_| RuntimeError::DuplicateWorldline(worldline_id))
     }
 
     /// Registers a writer head and its routing metadata with the runtime.

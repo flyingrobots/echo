@@ -72,7 +72,7 @@ fn gv001_single_commit_determinism() {
     let initial_store = create_initial_store(warp_id);
     let root = warp_core::make_node_id("root");
 
-    let mut engine = EngineBuilder::new(initial_store, root).build();
+    let mut engine = EngineBuilder::new(initial_store, root).workers(1).build();
     let tx = engine.begin();
     let snapshot = engine.commit(tx).expect("commit should succeed");
 
@@ -247,11 +247,15 @@ fn gv004_idempotent_ingress() {
     let intent_bytes = b"test-intent-payload-001";
 
     // First engine: ingest once
-    let mut engine1 = EngineBuilder::new(initial_store.clone(), root).build();
+    let mut engine1 = EngineBuilder::new(initial_store.clone(), root)
+        .workers(1)
+        .build();
     let disp1 = engine1.ingest_intent(intent_bytes).unwrap();
 
     // Second engine: ingest same bytes independently
-    let mut engine2 = EngineBuilder::new(initial_store.clone(), root).build();
+    let mut engine2 = EngineBuilder::new(initial_store.clone(), root)
+        .workers(1)
+        .build();
     let disp2 = engine2.ingest_intent(intent_bytes).unwrap();
 
     // Both must produce the same intent_id (content-addressed)
@@ -303,5 +307,28 @@ fn gv004_idempotent_ingress() {
     assert_eq!(
         snap1.state_root, snap2.state_root,
         "GV-004: same ingested intent must produce same state root"
+    );
+    assert_eq!(
+        hex(&snap2.state_root),
+        EXPECTED_STATE_ROOT,
+        "GV-004: second state_root mismatch — golden artifact drifted"
+    );
+    assert_eq!(
+        hex(&snap2.patch_digest),
+        EXPECTED_PATCH_DIGEST,
+        "GV-004: second patch_digest mismatch — golden artifact drifted"
+    );
+    assert_eq!(
+        hex(&snap2.hash),
+        EXPECTED_COMMIT_HASH,
+        "GV-004: second commit_hash mismatch — golden artifact drifted"
+    );
+    assert_eq!(
+        snap1.patch_digest, snap2.patch_digest,
+        "GV-004: same ingested intent must produce same patch digest"
+    );
+    assert_eq!(
+        snap1.hash, snap2.hash,
+        "GV-004: same ingested intent must produce same commit hash"
     );
 }

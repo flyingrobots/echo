@@ -167,8 +167,10 @@ proptest! {
         let initial_store = create_initial_store(warp_id);
         let root = warp_core::make_node_id("root");
 
-        let mut engine1 = EngineBuilder::new(initial_store.clone(), root).build();
-        let mut engine2 = EngineBuilder::new(initial_store, root).build();
+        let mut engine1 = EngineBuilder::new(initial_store.clone(), root)
+            .workers(1)
+            .build();
+        let mut engine2 = EngineBuilder::new(initial_store, root).workers(1).build();
 
         let disp1 = engine1.ingest_intent(&intent_bytes).unwrap();
         let disp2 = engine2.ingest_intent(&intent_bytes).unwrap();
@@ -297,12 +299,14 @@ proptest! {
         // Optionally ingest a deterministic intent to vary the scenario
         let intent_bytes = format!("intent-seed-{seed}");
 
-        let mut engine1 = EngineBuilder::new(initial_store.clone(), root).build();
+        let mut engine1 = EngineBuilder::new(initial_store.clone(), root)
+            .workers(1)
+            .build();
         engine1.ingest_intent(intent_bytes.as_bytes()).unwrap();
         let tx1 = engine1.begin();
         let snap1 = engine1.commit(tx1).expect("commit 1");
 
-        let mut engine2 = EngineBuilder::new(initial_store, root).build();
+        let mut engine2 = EngineBuilder::new(initial_store, root).workers(1).build();
         engine2.ingest_intent(intent_bytes.as_bytes()).unwrap();
         let tx2 = engine2.begin();
         let snap2 = engine2.commit(tx2).expect("commit 2");

@@ -39,8 +39,9 @@
 
 ### fix(warp-core): close remaining Phase 3 PR review threads
 
-- **Fixed** `WorldlineRegistry::register(...)` now fails loudly with a typed
-  duplicate-worldline error instead of returning an easy-to-ignore boolean.
+- **Fixed** duplicate worldline registration now surfaces as a typed
+  `RuntimeError::DuplicateWorldline` at the runtime boundary instead of being
+  silently ignored at the call site.
 - **Fixed** golden-vector and proptest determinism harnesses now pin
   `EngineBuilder` to a single worker so hashes do not inherit ambient
   `ECHO_WORKERS` or host core-count entropy.
@@ -90,8 +91,8 @@
 
 - **Fixed** `WriterHead.mode` is now private with a `mode()` getter, preventing
   the `mode`/`paused` pair from diverging via direct field assignment.
-- **Fixed** `SchedulerCoordinator::super_tick()` now auto-refreshes the runnable
-  set at the start of each SuperTick, eliminating stale-cache scheduling bugs.
+- **Fixed** `SchedulerCoordinator::super_tick()` now derives canonical runnable
+  order from the head registry instead of trusting stale runnable-cache state.
 - **Fixed** `HeadInbox::set_policy()` now revalidates pending envelopes against
   the new policy, evicting any that no longer pass.
 - **Fixed** `HeadInbox::admit()` now uses `mem::take` + `into_values()` instead

@@ -5,6 +5,21 @@
 
 ## Unreleased
 
+### fix(warp-core): close remaining Phase 3 PR review threads
+
+- **Fixed** `WorldlineRegistry::register(...)` now fails loudly with a typed
+  duplicate-worldline error instead of returning an easy-to-ignore boolean.
+- **Fixed** golden-vector and proptest determinism harnesses now pin
+  `EngineBuilder` to a single worker so hashes do not inherit ambient
+  `ECHO_WORKERS` or host core-count entropy.
+- **Fixed** GV-004 now pins both engines to the expected `state_root`,
+  `patch_digest`, and `commit_hash` artifacts rather than checking only one run
+  against constants and the second run for self-consistency.
+- **Clarified** hook/docs governance: `.githooks/` installed via `make hooks`
+  is canonical, `scripts/hooks/` are legacy shims, ADR-0008 now states seek is
+  observational-only, and the ADR exceptions ledger no longer uses a sentinel
+  pseudo-entry.
+
 ### fix(warp-core): harden Phase 3 runtime review follow-ups
 
 - **Fixed** `HeadId` is now opaque with internal range bounds, so public callers

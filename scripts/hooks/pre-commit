@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #
-# pre-commit hook: lint must pass cleanly. Zero errors, zero warnings.
+# Legacy compatibility shim.
+#
+# The canonical repository hooks live in `.githooks/` and are installed with
+# `make hooks`. This script remains as a minimal manual fallback for developers
+# who explicitly invoke `scripts/hooks/*` outside the configured git hook path.
 set -euo pipefail
 
 echo "pre-commit: running cargo clippy..."

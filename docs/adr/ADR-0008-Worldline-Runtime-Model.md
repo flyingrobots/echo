@@ -7,7 +7,9 @@
 - **Date:** 2026-03-09
 
 If another document disagrees with this one on worldline/head semantics, this
-document wins.
+document wins, except that seek/rewind semantics are refined here to be
+observational-only and any future operational detail must remain consistent
+with ADR-0010.
 
 ## Context
 
@@ -113,18 +115,21 @@ Wesley schema ownership follows these boundaries: `core` schema (Echo-owned),
 
 ### 6) Per-head operations replace global rewinds
 
-- `seek(head_id, target_tick)`: Rebuild head-local state from provenance for
-  that worldline only. If `target_tick > frontier`, clamp to the current
+- `seek(head_id, target_tick)`: Observational-only replay from provenance for
+  that worldline. This is for reader/tooling views and MUST NOT reposition a
+  live writer frontier. If `target_tick > frontier`, clamp to the current
   frontier tick; MUST NOT synthesize intermediate or future state. Must not
   alter other heads or worldlines.
-- `jump_to_frontier(head_id)`: Move head to current worldline frontier.
+- `jump_to_frontier(head_id)`: Observational convenience that moves a reader or
+  tool head to the current worldline frontier without mutating shared frontier
+  state.
 - `fork(worldline_id, fork_tick, new_worldline_id)`: Clone prefix history
   through fork tick. New worldline has independent frontier and head set.
 - `set_mode(head_id, mode)`: Controls whether the scheduler may advance that
   writer head.
 
-Global `jump_to_tick` is retained only as an explicit administrative/testing
-operation, not the default playback API.
+Administrative rewind remains an explicit maintenance/testing operation, not the
+default playback API. ADR-0010 is the companion document for that split.
 
 ### 7) Provenance is append-only and canonical
 

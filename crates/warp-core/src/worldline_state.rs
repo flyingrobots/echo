@@ -11,6 +11,17 @@
 //! All live mutation for a worldline goes through deterministic commit against
 //! this frontier state.
 
+use std::collections::BTreeSet;
+
+use crate::graph::GraphStore;
+use crate::head::WriterHeadKey;
+use crate::ident::{make_node_id, make_type_id, make_warp_id, Hash, NodeKey};
+use crate::materialization::{ChannelConflict, FinalizedChannel};
+use crate::receipt::TickReceipt;
+use crate::record::NodeRecord;
+use crate::snapshot::Snapshot;
+use crate::tick_patch::WarpTickPatchV1;
+use crate::warp_state::WarpInstance;
 use crate::warp_state::WarpState;
 use crate::worldline::WorldlineId;
 
@@ -23,23 +34,80 @@ use crate::worldline::WorldlineId;
 /// This wrapper exists so that public APIs don't cement around `GraphStore`
 /// or `WarpState` directly. When later phases need full `WorldlineState`
 /// replay (portals, instances), this wrapper expands without breaking callers.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WorldlineState {
     /// The underlying multi-instance warp state.
     pub(crate) warp_state: WarpState,
+    /// Root key for snapshot hashing and commit execution.
+    pub(crate) root: NodeKey,
+    /// Initial worldline state preserved for replay.
+    pub(crate) initial_state: WarpState,
+    /// Most recent snapshot committed for this worldline.
+    pub(crate) last_snapshot: Option<Snapshot>,
+    /// Sequential history of committed ticks for this worldline.
+    pub(crate) tick_history: Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>,
+    /// Last finalized materialization channels for this worldline.
+    pub(crate) last_materialization: Vec<FinalizedChannel>,
+    /// Last materialization errors for this worldline.
+    pub(crate) last_materialization_errors: Vec<ChannelConflict>,
+    /// Monotonic transaction counter for this worldline's commit history.
+    pub(crate) tx_counter: u64,
+    /// Committed ingress ids scoped to the writer head that accepted them.
+    pub(crate) committed_ingress: BTreeSet<(WriterHeadKey, Hash)>,
+}
+
+impl Default for WorldlineState {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl WorldlineState {
-    /// Creates a new worldline state from an existing warp state.
+    /// Creates a new worldline state from an existing warp state and root key.
     #[must_use]
-    pub fn new(warp_state: WarpState) -> Self {
-        Self { warp_state }
+    pub fn new(warp_state: WarpState, root: NodeKey) -> Self {
+        Self {
+            initial_state: warp_state.clone(),
+            warp_state,
+            root,
+            last_snapshot: None,
+            tick_history: Vec::new(),
+            last_materialization: Vec::new(),
+            last_materialization_errors: Vec::new(),
+            tx_counter: 0,
+            committed_ingress: BTreeSet::new(),
+        }
     }
 
-    /// Creates an empty worldline state.
+    /// Creates an empty worldline state with a canonical root instance.
     #[must_use]
     pub fn empty() -> Self {
-        Self::default()
+        let root_warp = make_warp_id("root");
+        let root_node = make_node_id("root");
+        let root = NodeKey {
+            warp_id: root_warp,
+            local_id: root_node,
+        };
+
+        let mut store = GraphStore::new(root_warp);
+        store.insert_node(
+            root_node,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+
+        let mut warp_state = WarpState::new();
+        warp_state.upsert_instance(
+            WarpInstance {
+                warp_id: root_warp,
+                root_node,
+                parent: None,
+            },
+            store,
+        );
+
+        Self::new(warp_state, root)
     }
 
     /// Returns a reference to the underlying warp state.
@@ -47,11 +115,82 @@ impl WorldlineState {
     pub fn warp_state(&self) -> &WarpState {
         &self.warp_state
     }
+
+    /// Returns the root key used for hashing and commit execution.
+    #[must_use]
+    pub fn root(&self) -> &NodeKey {
+        &self.root
+    }
+
+    /// Returns the current replay base for this worldline.
+    #[must_use]
+    pub fn initial_state(&self) -> &WarpState {
+        &self.initial_state
+    }
+
+    /// Returns the last committed snapshot for this worldline, if any.
+    #[must_use]
+    pub fn last_snapshot(&self) -> Option<&Snapshot> {
+        self.last_snapshot.as_ref()
+    }
+
+    /// Returns the committed tick history for this worldline.
+    #[must_use]
+    pub fn tick_history(&self) -> &[(Snapshot, TickReceipt, WarpTickPatchV1)] {
+        &self.tick_history
+    }
+
+    /// Returns the most recent finalized materialization channels.
+    #[must_use]
+    pub fn last_materialization(&self) -> &[FinalizedChannel] {
+        &self.last_materialization
+    }
+
+    /// Returns the most recent materialization errors.
+    #[must_use]
+    pub fn last_materialization_errors(&self) -> &[ChannelConflict] {
+        &self.last_materialization_errors
+    }
+
+    /// Returns `true` if this worldline already committed the ingress for the given head.
+    #[must_use]
+    pub(crate) fn contains_committed_ingress(
+        &self,
+        head_key: &WriterHeadKey,
+        ingress_id: &Hash,
+    ) -> bool {
+        self.committed_ingress.contains(&(*head_key, *ingress_id))
+    }
+
+    /// Records a committed ingress batch for the given writer head.
+    pub(crate) fn record_committed_ingress<I>(&mut self, head_key: WriterHeadKey, ingress_ids: I)
+    where
+        I: IntoIterator<Item = Hash>,
+    {
+        self.committed_ingress.extend(
+            ingress_ids
+                .into_iter()
+                .map(|ingress_id| (head_key, ingress_id)),
+        );
+    }
 }
 
 impl From<WarpState> for WorldlineState {
     fn from(warp_state: WarpState) -> Self {
-        Self { warp_state }
+        let root = warp_state
+            .iter_instances()
+            .find(|(_, instance)| instance.parent.is_none())
+            .map_or_else(
+                || NodeKey {
+                    warp_id: make_warp_id("root"),
+                    local_id: make_node_id("root"),
+                },
+                |(warp_id, instance)| NodeKey {
+                    warp_id: *warp_id,
+                    local_id: instance.root_node,
+                },
+            );
+        Self::new(warp_state, root)
     }
 }
 
@@ -135,9 +274,9 @@ mod tests {
     #[test]
     fn worldline_state_wraps_warp_state() {
         let warp = WarpState::new();
-        let ws = WorldlineState::new(warp);
+        let ws = WorldlineState::from(warp);
         // WorldlineState is a transparent wrapper
-        assert!(ws.warp_state.stores.is_empty());
+        assert_eq!(ws.root().local_id, make_node_id("root"));
     }
 
     #[test]
@@ -156,6 +295,7 @@ mod tests {
     #[test]
     fn from_warp_state() {
         let ws: WorldlineState = WarpState::new().into();
-        assert!(ws.warp_state.stores.is_empty());
+        assert_eq!(ws.root().warp_id, make_warp_id("root"));
+        assert!(ws.tick_history().is_empty());
     }
 }

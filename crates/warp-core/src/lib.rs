@@ -145,8 +145,8 @@ pub use attachment::{
 };
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
-    scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
-    ExistingState, FreshStore, IngestDisposition,
+    scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
+    EngineError, ExistingState, FreshStore, IngestDisposition,
 };
 pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
@@ -214,7 +214,9 @@ pub use worldline::{
 };
 
 // ADR-0008 Phases 1–3: Runtime primitives, coordinator, and ingress
-pub use coordinator::{SchedulerCoordinator, StepRecord, WorldlineRuntime};
+pub use coordinator::{
+    IngressDisposition, RuntimeError, SchedulerCoordinator, StepRecord, WorldlineRuntime,
+};
 pub use head::{
     make_head_id, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
 };

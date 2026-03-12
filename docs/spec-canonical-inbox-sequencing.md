@@ -26,7 +26,8 @@ and enumerations that influence state are canonical.
 
 - intent_bytes: canonical bytes submitted via ingress.
 - intent_id: H(intent_bytes) (content hash).
-- seq: canonical sequence number assigned by runtime/kernel.
+- seq: optional canonical sequence number assigned by runtime/kernel for audit
+  only. The current Phase 3 runtime does not require it.
 - tick: a kernel step where rewrites apply and materializations emit.
 - footprint: the read/write set (or conflict domain) used by the scheduler to detect conflicts.
 
@@ -74,12 +75,15 @@ Each pending inbox entry MUST carry:
 
 Rule: seq is NOT part of identity. Identity is intent_id.
 
-Minimal implementation model (recommended for determinism):
+Minimal implementation model (current Phase 3 runtime):
 
-- Ledger entry = immutable event node keyed by `intent_id` (or derived from it).
-- Pending membership = `edge:pending` from `sim/inbox` → `event`.
-- Applied/consumed = delete the pending edge (queue maintenance), keeping the
-  event node forever.
+- Pending membership lives in the resolved writer head's `HeadInbox.pending`
+  map, keyed by `ingress_id`.
+- Live ingress routing is owned by `WorldlineRuntime`, not by graph nodes under
+  `sim/inbox`.
+- Commits may materialize immutable runtime ingress event nodes keyed by
+  `ingress_id` for rule matching, but the live path MUST NOT depend on
+  `edge:pending` or the `sim/inbox` graph spike.
 
 ### 3.2 Tick membership (important boundary)
 
@@ -123,8 +127,9 @@ same node/edge insertion schedule, and the same full hash.
 If an intent is re-ingested:
 
 - compute intent_id
-- if already present (committed or pending), return DUPLICATE + seq_assigned and
-  DO NOT create a new inbox entry.
+- if already pending or already committed for the resolved writer head, return
+  DUPLICATE (and optional seq_assigned if your implementation records one)
+- DO NOT create a new pending entry.
 
 ## 5) Scheduler: deterministic conflict resolution
 

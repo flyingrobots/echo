@@ -22,15 +22,19 @@ This crate is the Rust core. See the repository root `README.md` for the full pr
 The `warp-core` crate also contains a small “website kernel spike” used by the
 `flyingrobots.dev` app:
 
-- `Engine::ingest_intent(intent_bytes)` ingests canonical intent envelopes into `sim/inbox`:
-    - `intent_id = H(intent_bytes)` is computed immediately.
-    - event node IDs are content-addressed by `intent_id` (arrival order is non-semantic).
-    - pending vs applied is tracked via `edge:pending` edges; ledger/event nodes are append-only.
-- `Engine::ingest_inbox_event(seq, payload)` is a legacy compatibility wrapper:
-    - `seq` is ignored for identity (content addressing is by `intent_id`).
-    - callers should prefer `ingest_intent(intent_bytes)` for causality-first semantics.
-- `sys/dispatch_inbox` drains the inbox by deleting `edge:pending` edges only (queue maintenance).
-- `sys/ack_pending` consumes exactly one pending edge for an event scope (used by canonical dispatch).
+- `WorldlineRuntime::ingest(IngressEnvelope)` is the live ingress surface:
+    - envelopes resolve deterministically to a writer head by `DefaultWriter`,
+      `InboxAddress`, or `ExactHead`,
+    - per-head inboxes dedupe by content-addressed `ingress_id`,
+    - committed duplicates are tracked per resolved writer head.
+- `SchedulerCoordinator::super_tick(...)` is the live step loop:
+    - runnable writer heads advance in canonical `(worldline_id, head_id)` order,
+    - commits run against the shared `WorldlineState` frontier for that worldline,
+    - empty inboxes do not advance frontier ticks.
+- The runtime/kernel production path no longer uses `sim/inbox`,
+  `edge:pending`, or `Engine::dispatch_next_intent(...)`.
+- `Engine::ingest_intent(intent_bytes)` and `Engine::ingest_inbox_event(seq, payload)`
+  remain legacy compatibility helpers for isolated tests and older spike call sites.
 
 ## Documentation
 

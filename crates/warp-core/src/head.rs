@@ -19,6 +19,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::head_inbox::{HeadInbox, InboxAddress, InboxPolicy};
 use crate::ident::Hash;
 use crate::playback::PlaybackMode;
 use crate::worldline::WorldlineId;
@@ -91,6 +92,12 @@ pub struct WriterHead {
     mode: PlaybackMode,
     /// Whether this head is paused and should be skipped by the scheduler.
     paused: bool,
+    /// Per-head deterministic ingress inbox.
+    inbox: HeadInbox,
+    /// Optional public inbox address for application routing.
+    public_inbox: Option<InboxAddress>,
+    /// Whether this head is the default writer for its worldline.
+    is_default_writer: bool,
 }
 
 impl WriterHead {
@@ -101,8 +108,27 @@ impl WriterHead {
     /// treated as paused for scheduling purposes.
     #[must_use]
     pub fn new(key: WriterHeadKey, mode: PlaybackMode) -> Self {
+        Self::with_routing(key, mode, InboxPolicy::AcceptAll, None, false)
+    }
+
+    /// Creates a new writer head with explicit inbox routing metadata.
+    #[must_use]
+    pub fn with_routing(
+        key: WriterHeadKey,
+        mode: PlaybackMode,
+        inbox_policy: InboxPolicy,
+        public_inbox: Option<InboxAddress>,
+        is_default_writer: bool,
+    ) -> Self {
         let paused = matches!(mode, PlaybackMode::Paused);
-        Self { key, mode, paused }
+        Self {
+            key,
+            mode,
+            paused,
+            inbox: HeadInbox::new(key, inbox_policy),
+            public_inbox,
+            is_default_writer,
+        }
     }
 
     /// Returns the composite key identifying this head.
@@ -121,6 +147,29 @@ impl WriterHead {
     #[must_use]
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    /// Returns the head inbox.
+    #[must_use]
+    pub fn inbox(&self) -> &HeadInbox {
+        &self.inbox
+    }
+
+    /// Returns a mutable reference to the head inbox.
+    pub fn inbox_mut(&mut self) -> &mut HeadInbox {
+        &mut self.inbox
+    }
+
+    /// Returns the public inbox address for this head, if one exists.
+    #[must_use]
+    pub fn public_inbox(&self) -> Option<&InboxAddress> {
+        self.public_inbox.as_ref()
+    }
+
+    /// Returns `true` if this head is the default writer for its worldline.
+    #[must_use]
+    pub fn is_default_writer(&self) -> bool {
+        self.is_default_writer
     }
 
     /// Pauses this head. The scheduler will skip it.
@@ -288,6 +337,10 @@ mod tests {
         make_head_id(label)
     }
 
+    fn make_head(key: WriterHeadKey, mode: PlaybackMode) -> WriterHead {
+        WriterHead::new(key, mode)
+    }
+
     #[test]
     fn head_id_domain_separation() {
         let a = make_head_id("foo");
@@ -315,7 +368,7 @@ mod tests {
             worldline_id: wl(1),
             head_id: hd("h1"),
         };
-        let head = WriterHead::new(key, PlaybackMode::Play);
+        let head = make_head(key, PlaybackMode::Play);
 
         assert!(reg.is_empty());
         assert!(reg.insert(head).is_none());
@@ -345,9 +398,9 @@ mod tests {
             head_id: hd("h2"),
         };
 
-        reg.insert(WriterHead::new(k3, PlaybackMode::Play));
-        reg.insert(WriterHead::new(k1, PlaybackMode::Play));
-        reg.insert(WriterHead::new(k2, PlaybackMode::Play));
+        reg.insert(make_head(k3, PlaybackMode::Play));
+        reg.insert(make_head(k1, PlaybackMode::Play));
+        reg.insert(make_head(k2, PlaybackMode::Play));
 
         let mut runnable = RunnableWriterSet::new();
         runnable.rebuild(&reg);
@@ -376,8 +429,8 @@ mod tests {
             head_id: hd("paused"),
         };
 
-        reg.insert(WriterHead::new(k1, PlaybackMode::Play));
-        reg.insert(WriterHead::new(k2, PlaybackMode::Paused));
+        reg.insert(make_head(k1, PlaybackMode::Play));
+        reg.insert(make_head(k2, PlaybackMode::Paused));
 
         let mut runnable = RunnableWriterSet::new();
         runnable.rebuild(&reg);
@@ -396,7 +449,7 @@ mod tests {
                 worldline_id: wl1,
                 head_id: hd(&format!("head-{i}")),
             };
-            reg.insert(WriterHead::new(key, PlaybackMode::Play));
+            reg.insert(make_head(key, PlaybackMode::Play));
         }
 
         let count = reg.heads_for_worldline(wl1).count();
@@ -418,10 +471,22 @@ mod tests {
             worldline_id: wl(1),
             head_id: hd("writer"),
         };
-        let head = WriterHead::new(key, PlaybackMode::Play);
+        let head = WriterHead::with_routing(
+            key,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            Some(InboxAddress("orders".to_string())),
+            true,
+        );
 
         // WriterHead has no store field — it's a control object only
         assert_eq!(head.key.worldline_id, wl(1));
         assert!(!head.is_paused());
+        assert!(head.is_default_writer());
+        assert_eq!(
+            head.public_inbox(),
+            Some(&InboxAddress("orders".to_string()))
+        );
+        assert_eq!(head.inbox().head_key(), &key);
     }
 }

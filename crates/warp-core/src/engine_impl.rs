@@ -9,6 +9,7 @@ use thiserror::Error;
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
+use crate::head_inbox::{IngressEnvelope, IngressPayload};
 use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, Hash, NodeId, NodeKey, WarpId,
 };
@@ -27,7 +28,10 @@ use crate::tick_delta::OpOrigin;
 use crate::tick_patch::{diff_state, SlotId, TickCommitStatus, WarpOp, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::warp_state::{WarpInstance, WarpState};
+use crate::worldline_state::WorldlineState;
 use std::sync::Arc;
+
+const RUNTIME_INGRESS_EVENT_TYPE: &str = "runtime/ingress/event";
 
 /// Outcome of calling [`Engine::apply`].
 ///
@@ -72,6 +76,17 @@ pub enum DispatchDisposition {
         /// Whether a command handler (`cmd/*`) matched and was enqueued.
         handler_matched: bool,
     },
+}
+
+/// Result of committing admitted ingress against a worldline frontier state.
+#[derive(Debug, Clone)]
+pub struct CommitOutcome {
+    /// Snapshot after the commit.
+    pub snapshot: Snapshot,
+    /// Tick receipt emitted by the commit.
+    pub receipt: TickReceipt,
+    /// Tick patch emitted by the commit.
+    pub patch: WarpTickPatchV1,
 }
 
 /// Errors emitted by the engine.
@@ -410,6 +425,8 @@ pub struct Engine {
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
     rules_by_compact: HashMap<CompactRuleId, &'static str>,
     scheduler: DeterministicScheduler,
+    scheduler_kind: SchedulerKind,
+    telemetry: Arc<dyn TelemetrySink>,
     /// Policy identifier committed into `patch_digest` (tick patches) and
     /// `commit_id` (commit hash v2).
     ///
@@ -454,6 +471,10 @@ struct ReserveOutcome {
 }
 
 impl Engine {
+    fn fresh_scheduler(&self) -> DeterministicScheduler {
+        DeterministicScheduler::new(self.scheduler_kind, Arc::clone(&self.telemetry))
+    }
+
     /// Constructs a new engine with the supplied backing store and root node id.
     ///
     /// Uses the default scheduler (Radix) and the default policy id
@@ -610,7 +631,9 @@ impl Engine {
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::new(kind, telemetry),
+            scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
+            scheduler_kind: kind,
+            telemetry,
             policy_id,
             worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
@@ -796,7 +819,9 @@ impl Engine {
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
-            scheduler: DeterministicScheduler::new(kind, telemetry),
+            scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
+            scheduler_kind: kind,
+            telemetry,
             policy_id,
             worker_count: worker_count.clamp(1, NUM_SHARDS),
             tx_counter: 0,
@@ -955,6 +980,101 @@ impl Engine {
     pub fn commit(&mut self, tx: TxId) -> Result<Snapshot, EngineError> {
         let (snapshot, _receipt, _patch) = self.commit_with_receipt(tx)?;
         Ok(snapshot)
+    }
+
+    /// Commits a batch of admitted ingress envelopes against a worldline frontier state.
+    ///
+    /// This uses a fresh scheduler/transaction context for the commit while
+    /// temporarily swapping the supplied worldline's mutable state into the
+    /// engine. Rules, identifiers, policy, worker configuration, and bus
+    /// configuration remain engine-owned.
+    pub fn commit_with_state(
+        &mut self,
+        state: &mut WorldlineState,
+        admitted: &[IngressEnvelope],
+    ) -> Result<CommitOutcome, EngineError> {
+        let state_backup = state.clone();
+
+        let saved_engine_state =
+            std::mem::replace(&mut self.state, std::mem::take(&mut state.warp_state));
+        let saved_root = self.current_root;
+        self.current_root = state.root;
+        let saved_initial_state = std::mem::replace(
+            &mut self.initial_state,
+            std::mem::take(&mut state.initial_state),
+        );
+        let saved_last_snapshot =
+            std::mem::replace(&mut self.last_snapshot, state.last_snapshot.take());
+        let saved_tick_history = std::mem::replace(
+            &mut self.tick_history,
+            std::mem::take(&mut state.tick_history),
+        );
+        let saved_last_materialization = std::mem::replace(
+            &mut self.last_materialization,
+            std::mem::take(&mut state.last_materialization),
+        );
+        let saved_last_materialization_errors = std::mem::replace(
+            &mut self.last_materialization_errors,
+            std::mem::take(&mut state.last_materialization_errors),
+        );
+        let committed_ingress = std::mem::take(&mut state.committed_ingress);
+        let saved_tx_counter = self.tx_counter;
+        self.tx_counter = state.tx_counter;
+        let fresh_scheduler = self.fresh_scheduler();
+        let saved_scheduler = std::mem::replace(&mut self.scheduler, fresh_scheduler);
+        let saved_live_txs = std::mem::take(&mut self.live_txs);
+        self.bus.clear();
+
+        let result = (|| {
+            let tx = self.begin();
+
+            for envelope in admitted {
+                let event_id = self.materialize_runtime_ingress_event(envelope)?;
+                let _ = self.enqueue_first_matching_command(tx, &event_id)?;
+            }
+
+            let (snapshot, receipt, patch) = self.commit_with_receipt(tx)?;
+            Ok(CommitOutcome {
+                snapshot,
+                receipt,
+                patch,
+            })
+        })();
+
+        let updated_state = WorldlineState {
+            warp_state: std::mem::replace(&mut self.state, saved_engine_state),
+            root: self.current_root,
+            initial_state: std::mem::replace(&mut self.initial_state, saved_initial_state),
+            last_snapshot: std::mem::replace(&mut self.last_snapshot, saved_last_snapshot),
+            tick_history: std::mem::replace(&mut self.tick_history, saved_tick_history),
+            last_materialization: std::mem::replace(
+                &mut self.last_materialization,
+                saved_last_materialization,
+            ),
+            last_materialization_errors: std::mem::replace(
+                &mut self.last_materialization_errors,
+                saved_last_materialization_errors,
+            ),
+            tx_counter: self.tx_counter,
+            committed_ingress,
+        };
+
+        self.current_root = saved_root;
+        self.tx_counter = saved_tx_counter;
+        self.scheduler = saved_scheduler;
+        self.live_txs = saved_live_txs;
+        self.bus.clear();
+
+        match result {
+            Ok(outcome) => {
+                *state = updated_state;
+                Ok(outcome)
+            }
+            Err(err) => {
+                *state = state_backup;
+                Err(err)
+            }
+        }
     }
 
     /// Executes all pending rewrites for the transaction, producing both a snapshot and a tick receipt.
@@ -1358,6 +1478,65 @@ impl Engine {
         }
     }
 
+    /// Returns a snapshot view over an external worldline frontier state.
+    #[must_use]
+    pub fn snapshot_for_state(&self, state: &WorldlineState) -> Snapshot {
+        let state_root = compute_state_root(&state.warp_state, &state.root);
+        let parents: Vec<Hash> = state
+            .last_snapshot
+            .as_ref()
+            .map(|s| vec![s.hash])
+            .unwrap_or_default();
+        let zero_digest: Hash = crate::constants::digest_len0_u64();
+        let patch_digest = WarpTickPatchV1::new(
+            self.policy_id,
+            self.compute_rule_pack_id(),
+            TickCommitStatus::Committed,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .digest();
+        let hash = compute_commit_hash_v2(&state_root, &parents, &patch_digest, self.policy_id);
+        Snapshot {
+            root: state.root,
+            hash,
+            state_root,
+            parents,
+            plan_digest: zero_digest,
+            decision_digest: zero_digest,
+            rewrites_digest: zero_digest,
+            patch_digest,
+            policy_id: self.policy_id,
+            tx: TxId::from_raw(state.tx_counter),
+        }
+    }
+
+    /// Returns the stored snapshot for a historical worldline tick.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::InvalidTickIndex`] if the tick does not exist in
+    /// the worldline's local history.
+    pub fn snapshot_at_state(
+        &self,
+        state: &WorldlineState,
+        tick_index: usize,
+    ) -> Result<Snapshot, EngineError> {
+        let ledger_len = state.tick_history.len();
+        state
+            .tick_history
+            .get(tick_index)
+            .map(|(snapshot, _, _)| snapshot.clone())
+            .ok_or(EngineError::InvalidTickIndex(tick_index, ledger_len))
+    }
+
+    /// Returns the root key used by the engine's default state.
+    #[must_use]
+    pub fn root_key(&self) -> NodeKey {
+        self.current_root
+    }
+
     /// Returns a cloned view of the current warp's graph store (for tests/tools).
     ///
     /// This is a snapshot-only view; mutations must go through engine APIs.
@@ -1550,24 +1729,7 @@ impl Engine {
             return Ok(DispatchDisposition::NoPending);
         };
 
-        // Deterministic handler order: rule_id ascending over cmd/* rules.
-        let mut cmd_rules: Vec<(Hash, &'static str)> = self
-            .rules
-            .values()
-            .filter(|r| r.name.starts_with("cmd/"))
-            .map(|r| (r.id, r.name))
-            .collect();
-        cmd_rules.sort_unstable_by(|(a_id, a_name), (b_id, b_name)| {
-            a_id.cmp(b_id).then_with(|| a_name.cmp(b_name))
-        });
-
-        let mut handler_matched = false;
-        for (_id, name) in cmd_rules {
-            if matches!(self.apply(tx, name, &event_id)?, ApplyResult::Applied) {
-                handler_matched = true;
-                break;
-            }
-        }
+        let handler_matched = self.enqueue_first_matching_command(tx, &event_id)?;
 
         // Always consume one pending intent per tick (queue maintenance).
         let _ = self.apply(tx, crate::inbox::ACK_PENDING_RULE_NAME, &event_id)?;
@@ -1727,6 +1889,62 @@ impl Engine {
     #[must_use]
     pub fn has_materialization_errors(&self) -> bool {
         !self.last_materialization_errors.is_empty()
+    }
+
+    fn enqueue_first_matching_command(
+        &mut self,
+        tx: TxId,
+        event_id: &NodeId,
+    ) -> Result<bool, EngineError> {
+        let mut cmd_rules: Vec<(Hash, &'static str)> = self
+            .rules
+            .values()
+            .filter(|r| r.name.starts_with("cmd/"))
+            .map(|r| (r.id, r.name))
+            .collect();
+        cmd_rules.sort_unstable_by(|(a_id, a_name), (b_id, b_name)| {
+            a_id.cmp(b_id).then_with(|| a_name.cmp(b_name))
+        });
+
+        for (_id, name) in cmd_rules {
+            if matches!(self.apply(tx, name, event_id)?, ApplyResult::Applied) {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn materialize_runtime_ingress_event(
+        &mut self,
+        envelope: &IngressEnvelope,
+    ) -> Result<NodeId, EngineError> {
+        let event_id = NodeId(envelope.ingress_id);
+        let warp_id = self.current_root.warp_id;
+        let store = self
+            .state
+            .store_mut(&warp_id)
+            .ok_or(EngineError::UnknownWarp(warp_id))?;
+
+        if store.node(&event_id).is_none() {
+            store.insert_node(
+                event_id,
+                NodeRecord {
+                    ty: make_type_id(RUNTIME_INGRESS_EVENT_TYPE),
+                },
+            );
+        }
+
+        match &envelope.payload {
+            IngressPayload::LocalIntent { intent_bytes, .. } => {
+                let payload = crate::attachment::AtomPayload::new(
+                    make_type_id(INTENT_ATTACHMENT_TYPE),
+                    bytes::Bytes::copy_from_slice(intent_bytes),
+                );
+                store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)));
+                Ok(event_id)
+            }
+        }
     }
 
     /// Returns a shared view of a node when it exists.

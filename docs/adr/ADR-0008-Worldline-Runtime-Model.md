@@ -171,20 +171,23 @@ operation, not the default playback API.
 
 | Step | Change                                                                         | Current State                                    |
 | ---- | ------------------------------------------------------------------------------ | ------------------------------------------------ |
-| 1    | First-class `WriterHead` object + `PlaybackHeadRegistry` + `RunnableWriterSet` | `playback.rs` writer advance is stubbed          |
-| 2    | `SchedulerCoordinator` iterating `RunnableWriterSet`                           | `warp_kernel.rs` single global step loop         |
-| 3    | Per-writer-head `IntentInbox` policy                                           | `dispatch_next_intent(tx)` monolithic dequeue    |
+| 1    | First-class `WriterHead` object + `PlaybackHeadRegistry` + `RunnableWriterSet` | Implemented in `head.rs` and used by runtime     |
+| 2    | `SchedulerCoordinator` iterating `RunnableWriterSet`                           | Implemented in `coordinator.rs` serial runtime   |
+| 3    | Per-writer-head `IntentInbox` policy                                           | Implemented in `head_inbox.rs` + runtime ingest  |
 | 4    | Wire writer-head commit to provenance in production                            | PR #298 laid atom write + causal cone groundwork |
 | 5    | Per-head `seek`/`jump` APIs; deprecate global `jump_to_tick`                   | `engine_impl.rs` global rewind                   |
 | 6    | Split `worldline_tick` / `global_tick` semantics                               | Currently entangled in runtime + provenance APIs |
 | 7    | Multi-warp replay support policy                                               | `worldline.rs` cannot replay portal/instance ops |
 | 8    | Wesley core schema + generated clients for new APIs                            | Depends on all above                             |
 
-## Key Files (Observed State as of 2026-03-09)
+## Key Files (Observed State as of 2026-03-12)
 
-- `crates/warp-wasm/src/warp_kernel.rs` — kernel step loop, intent dispatch
-- `crates/warp-core/src/engine_impl.rs` — global commit, `jump_to_tick`
-- `crates/warp-core/src/playback.rs` — cursor, stubbed writer advance
+- `crates/warp-core/src/head.rs` — writer-head identity, routing metadata, runnable set
+- `crates/warp-core/src/head_inbox.rs` — deterministic ingress envelopes and per-head inbox policy
+- `crates/warp-core/src/coordinator.rs` — `WorldlineRuntime`, routing tables, serial canonical SuperTick
+- `crates/warp-core/src/worldline_state.rs` — shared frontier state plus per-head committed-ingress metadata
+- `crates/warp-core/src/engine_impl.rs` — `commit_with_state(...)`, state-scoped snapshots, legacy rewind helpers
+- `crates/warp-wasm/src/warp_kernel.rs` — default-worldline runtime adapter for the WASM ABI
 - `crates/warp-core/src/provenance_store.rs` — worldline provenance, atom
   writes, causal cone walk (PR #298)
 - `crates/warp-core/src/worldline.rs` — multi-warp replay limitation

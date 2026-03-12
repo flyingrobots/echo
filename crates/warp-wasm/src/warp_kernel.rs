@@ -13,8 +13,10 @@ use echo_wasm_abi::kernel_port::{
 };
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
-    inbox, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore, IngestDisposition,
-    NodeRecord, SchedulerKind,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
+    IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, PlaybackMode,
+    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
+    WriterHeadKey,
 };
 
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
@@ -23,8 +25,8 @@ use warp_core::{
 /// [`WarpKernel::with_engine`] (pre-configured engine with rules).
 pub struct WarpKernel {
     engine: Engine,
-    /// Tracks the number of committed ticks for the current head.
-    tick_count: u64,
+    runtime: WorldlineRuntime,
+    default_worldline: WorldlineId,
     /// Whether materialization output has been drained since the last step.
     /// Prevents returning stale data on consecutive drain calls.
     drained: bool,
@@ -47,42 +49,53 @@ impl WarpKernel {
             },
         );
 
-        let mut engine = EngineBuilder::new(store, root)
+        let engine = EngineBuilder::new(store, root)
             .scheduler(SchedulerKind::Radix)
             .workers(1) // WASM is single-threaded
             .build();
-
-        // Register system inbox rule (required for dispatch_next_intent).
-        // This is safe to unwrap: fresh engine has no rules registered.
-        #[allow(clippy::unwrap_used)]
-        engine.register_rule(inbox::ack_pending_rule()).unwrap();
-
-        Self {
+        Self::with_engine(
             engine,
-            tick_count: 0,
-            drained: true,
-            registry: RegistryInfo {
+            RegistryInfo {
                 codec_id: Some("cbor-canonical-v1".into()),
                 registry_version: None,
                 schema_sha256_hex: None,
                 abi_version: ABI_VERSION,
             },
-        }
+        )
     }
 
     /// Create a kernel with a pre-configured engine and registry metadata.
     ///
     /// Use this to inject app-specific rewrite rules and schema metadata.
-    /// The `sys/ack_pending` system rule is registered automatically if absent
-    /// (required by [`KernelPort::dispatch_intent`]).
-    pub fn with_engine(mut engine: Engine, registry: RegistryInfo) -> Self {
-        // Ensure the system inbox rule is present. If the caller already
-        // registered it, register_rule returns DuplicateRuleName — ignore.
-        let _ = engine.register_rule(inbox::ack_pending_rule());
+    pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Self {
+        let root = engine.root_key();
+        let default_worldline = WorldlineId(root.warp_id.0);
+        let mut runtime = WorldlineRuntime::new();
+        #[allow(clippy::unwrap_used)]
+        runtime
+            .register_worldline(
+                default_worldline,
+                WorldlineState::from(engine.state().clone()),
+            )
+            .unwrap();
+        #[allow(clippy::unwrap_used)]
+        runtime
+            .register_writer_head(WriterHead::with_routing(
+                WriterHeadKey {
+                    worldline_id: default_worldline,
+                    head_id: make_head_id("default"),
+                },
+                PlaybackMode::Play,
+                warp_core::InboxPolicy::AcceptAll,
+                None,
+                true,
+            ))
+            .unwrap();
 
         Self {
             engine,
-            tick_count: 0,
+            runtime,
+            default_worldline,
             drained: true,
             registry,
         }
@@ -90,9 +103,18 @@ impl WarpKernel {
 
     /// Build a [`HeadInfo`] from the current engine snapshot.
     fn head_info(&self) -> HeadInfo {
-        let snap = self.engine.snapshot();
+        let frontier = self
+            .runtime
+            .worldlines
+            .get(&self.default_worldline)
+            .expect("default worldline must exist");
+        let snap = frontier
+            .state()
+            .last_snapshot()
+            .cloned()
+            .unwrap_or_else(|| self.engine.snapshot_for_state(frontier.state()));
         HeadInfo {
-            tick: self.tick_count,
+            tick: frontier.frontier_tick(),
             state_root: snap.state_root.to_vec(),
             commit_id: snap.hash.to_vec(),
         }
@@ -112,15 +134,23 @@ impl KernelPort for WarpKernel {
             });
         }
 
-        match self.engine.ingest_intent(intent_bytes) {
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: self.default_worldline,
+            },
+            make_intent_kind("echo.intent/eint-v1"),
+            intent_bytes.to_vec(),
+        );
+
+        match self.runtime.ingest(envelope) {
             Ok(disposition) => {
-                let (accepted, intent_id) = match disposition {
-                    IngestDisposition::Accepted { intent_id } => (true, intent_id),
-                    IngestDisposition::Duplicate { intent_id } => (false, intent_id),
+                let (accepted, ingress_id) = match disposition {
+                    IngressDisposition::Accepted { ingress_id, .. } => (true, ingress_id),
+                    IngressDisposition::Duplicate { ingress_id, .. } => (false, ingress_id),
                 };
                 Ok(DispatchResponse {
                     accepted,
-                    intent_id: intent_id.to_vec(),
+                    intent_id: ingress_id.to_vec(),
                 })
             }
             Err(e) => Err(AbiError {
@@ -141,41 +171,19 @@ impl KernelPort for WarpKernel {
         let mut ticks_executed: u32 = 0;
 
         for _ in 0..budget {
-            let tx = self.engine.begin();
-
-            // Dispatch one pending intent for this tick (if any).
-            // The ack_pending rewrite queued here executes during commit,
-            // so we must NOT loop — the pending edge is still visible until
-            // the transaction commits.
-            match self.engine.dispatch_next_intent(tx) {
-                Ok(_) => {}
-                Err(e) => {
-                    self.engine.abort(tx);
-                    return Err(AbiError {
-                        code: error_codes::ENGINE_ERROR,
-                        message: format!("dispatch failed: {e}"),
-                    });
-                }
+            let records = SchedulerCoordinator::super_tick(&mut self.runtime, &mut self.engine)
+                .map_err(|e| AbiError {
+                    code: error_codes::ENGINE_ERROR,
+                    message: e.to_string(),
+                })?;
+            if records.is_empty() {
+                break;
             }
-
-            match self.engine.commit(tx) {
-                Ok(_snapshot) => {
-                    self.tick_count += 1;
-                    ticks_executed += 1;
-                    self.drained = false;
-                }
-                Err(e) => {
-                    // abort is safe here: failed commit leaves the tx in
-                    // live_txs, so abort cleans it up. If commit had
-                    // succeeded the tx would already be removed, making
-                    // abort a harmless no-op (TxId is Copy).
-                    self.engine.abort(tx);
-                    return Err(AbiError {
-                        code: error_codes::ENGINE_ERROR,
-                        message: format!("commit failed: {e}"),
-                    });
-                }
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                ticks_executed += records.len() as u32;
             }
+            self.drained = false;
         }
 
         Ok(StepResponse {
@@ -194,7 +202,13 @@ impl KernelPort for WarpKernel {
         }
         self.drained = true;
 
-        let finalized = self.engine.last_materialization();
+        let finalized = self
+            .runtime
+            .worldlines
+            .get(&self.default_worldline)
+            .expect("default worldline must exist")
+            .state()
+            .last_materialization();
         let channels: Vec<ChannelData> = finalized
             .iter()
             .map(|ch| ChannelData {
@@ -215,30 +229,23 @@ impl KernelPort for WarpKernel {
             code: error_codes::INVALID_TICK,
             message: format!("tick {tick} exceeds addressable range"),
         })?;
-
-        // Save current state — jump_to_tick overwrites engine state with a
-        // replayed state. We must restore afterward to keep the live engine
-        // consistent with tick_count and subsequent operations.
-        let saved_state = self.engine.state().clone();
-
-        self.engine.jump_to_tick(tick_index).map_err(|e| {
-            // Restore even on error (jump_to_tick may have partially mutated).
-            *self.engine.state_mut() = saved_state.clone();
-            AbiError {
+        let frontier = self
+            .runtime
+            .worldlines
+            .get(&self.default_worldline)
+            .expect("default worldline must exist");
+        let snap = self
+            .engine
+            .snapshot_at_state(frontier.state(), tick_index)
+            .map_err(|e| AbiError {
                 code: error_codes::INVALID_TICK,
                 message: e.to_string(),
-            }
-        })?;
-
-        let snap = self.engine.snapshot();
+            })?;
         let head = HeadInfo {
             tick,
             state_root: snap.state_root.to_vec(),
             commit_id: snap.hash.to_vec(),
         };
-
-        // Restore live state.
-        *self.engine.state_mut() = saved_state;
 
         echo_wasm_abi::encode_cbor(&head).map_err(|e| AbiError {
             code: error_codes::CODEC_ERROR,
@@ -296,9 +303,11 @@ mod tests {
     #[test]
     fn step_executes_ticks() {
         let mut kernel = WarpKernel::new();
+        let intent = pack_intent_v1(1, b"hello").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
         let result = kernel.step(3).unwrap();
-        assert_eq!(result.ticks_executed, 3);
-        assert_eq!(result.head.tick, 3);
+        assert_eq!(result.ticks_executed, 1);
+        assert_eq!(result.head.tick, 1);
         // State root should be non-zero (deterministic hash of root node)
         assert_ne!(result.head.state_root, vec![0u8; 32]);
     }
@@ -333,9 +342,8 @@ mod tests {
 
         let result = kernel.step(1).unwrap();
         assert_eq!(result.ticks_executed, 1);
-        // State root changes after ingesting intent and stepping
-        // (the intent creates inbox nodes in the graph)
-        assert_ne!(result.head.state_root, head_before.state_root);
+        assert_eq!(result.head.tick, 1);
+        assert_ne!(result.head.tick, head_before.tick);
     }
 
     #[test]
@@ -362,9 +370,9 @@ mod tests {
     #[test]
     fn snapshot_at_valid_tick() {
         let mut kernel = WarpKernel::new();
-        // Step to create tick 0 in the ledger
-        kernel.step(2).unwrap();
-        // Now tick 0 exists in the ledger
+        let intent = pack_intent_v1(1, b"hello").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+        kernel.step(1).unwrap();
         let bytes = kernel.snapshot_at(0).unwrap();
         assert!(!bytes.is_empty());
         // Decode and verify it's valid CBOR with a HeadInfo
@@ -376,33 +384,36 @@ mod tests {
     #[test]
     fn snapshot_at_does_not_corrupt_live_state() {
         let mut kernel = WarpKernel::new();
-        // Step without intents — intent ingestion modifies state outside the
-        // patch system, so jump_to_tick cannot replay ticks that depend on
-        // ingested intents. This is a known engine limitation.
-        kernel.step(3).unwrap();
+        let intent = pack_intent_v1(1, b"hello").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+        kernel.step(1).unwrap();
 
         // Capture live head before snapshot_at
         let head_before = kernel.get_head().unwrap();
-        assert_eq!(head_before.tick, 3);
+        assert_eq!(head_before.tick, 1);
 
         // Replay to tick 0 — must NOT corrupt live state
         kernel.snapshot_at(0).unwrap();
 
         // Live head must be unchanged
         let head_after = kernel.get_head().unwrap();
-        assert_eq!(head_after.tick, 3);
+        assert_eq!(head_after.tick, 1);
         assert_eq!(head_after.state_root, head_before.state_root);
         assert_eq!(head_after.commit_id, head_before.commit_id);
 
         // Subsequent step must work correctly on live state
+        let intent2 = pack_intent_v1(2, b"second").unwrap();
+        kernel.dispatch_intent(&intent2).unwrap();
         let result = kernel.step(1).unwrap();
         assert_eq!(result.ticks_executed, 1);
-        assert_eq!(result.head.tick, 4);
+        assert_eq!(result.head.tick, 2);
     }
 
     #[test]
     fn drain_returns_empty_on_second_call() {
         let mut kernel = WarpKernel::new();
+        let intent = pack_intent_v1(1, b"hello").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
         kernel.step(1).unwrap();
 
         // First drain returns data (even if empty channels, the flag is set)
@@ -457,8 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn with_engine_auto_registers_ack_pending() {
-        // with_engine must register sys/ack_pending even if the caller omits it.
+    fn with_engine_installs_default_runtime_worldline() {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
         store.insert_node(
@@ -472,7 +482,6 @@ mod tests {
             .scheduler(SchedulerKind::Radix)
             .workers(1)
             .build();
-        // Engine has NO rules — with_engine should add ack_pending.
         let mut kernel = WarpKernel::with_engine(
             engine,
             RegistryInfo {
@@ -485,14 +494,39 @@ mod tests {
 
         let intent = pack_intent_v1(1, b"test").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
-        // step would fail with ENGINE_ERROR if ack_pending wasn't registered.
         let result = kernel.step(1).unwrap();
         assert_eq!(result.ticks_executed, 1);
     }
 
     #[test]
-    fn with_engine_tolerates_pre_registered_ack_pending() {
-        // If the caller already registered ack_pending, with_engine must not fail.
+    fn with_engine_preserves_zero_tick_without_ingress() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+
+        let engine = EngineBuilder::new(store, root)
+            .scheduler(SchedulerKind::Radix)
+            .workers(1)
+            .build();
+        let kernel = WarpKernel::with_engine(
+            engine,
+            RegistryInfo {
+                codec_id: None,
+                registry_version: None,
+                schema_sha256_hex: None,
+                abi_version: ABI_VERSION,
+            },
+        );
+        assert_eq!(kernel.get_head().unwrap().tick, 0);
+    }
+
+    #[test]
+    fn step_ignores_legacy_engine_inbox_state() {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
         store.insert_node(
@@ -506,10 +540,9 @@ mod tests {
             .scheduler(SchedulerKind::Radix)
             .workers(1)
             .build();
-        engine.register_rule(inbox::ack_pending_rule()).unwrap();
+        let _ = engine.ingest_intent(b"legacy-only").unwrap();
 
-        // with_engine should silently ignore the duplicate.
-        let kernel = WarpKernel::with_engine(
+        let mut kernel = WarpKernel::with_engine(
             engine,
             RegistryInfo {
                 codec_id: None,
@@ -518,7 +551,10 @@ mod tests {
                 abi_version: ABI_VERSION,
             },
         );
-        assert_eq!(kernel.get_head().unwrap().tick, 0);
+
+        let result = kernel.step(1).unwrap();
+        assert_eq!(result.ticks_executed, 0);
+        assert_eq!(result.head.tick, 0);
     }
 
     #[test]

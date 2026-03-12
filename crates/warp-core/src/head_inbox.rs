@@ -193,6 +193,17 @@ impl Default for InboxPolicy {
     }
 }
 
+/// Outcome of attempting to ingest an envelope into a head inbox.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InboxIngestResult {
+    /// The envelope was accepted and stored as pending.
+    Accepted,
+    /// The envelope was already pending (idempotent retry).
+    Duplicate,
+    /// The envelope was rejected by the current inbox policy.
+    Rejected,
+}
+
 // =============================================================================
 // HeadInbox
 // =============================================================================
@@ -203,28 +214,49 @@ impl Default for InboxPolicy {
 /// (content address), which provides:
 /// - deterministic iteration order,
 /// - automatic deduplication (re-ingesting the same envelope is a no-op).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct HeadInbox {
+    head_key: WriterHeadKey,
     pending: BTreeMap<Hash, IngressEnvelope>,
     policy: InboxPolicy,
+}
+
+impl Default for HeadInbox {
+    fn default() -> Self {
+        Self {
+            head_key: WriterHeadKey {
+                worldline_id: WorldlineId([0u8; 32]),
+                head_id: crate::head::HeadId([0u8; 32]),
+            },
+            pending: BTreeMap::new(),
+            policy: InboxPolicy::AcceptAll,
+        }
+    }
 }
 
 impl HeadInbox {
     /// Creates a new inbox with the given policy.
     #[must_use]
-    pub fn new(policy: InboxPolicy) -> Self {
+    pub fn new(head_key: WriterHeadKey, policy: InboxPolicy) -> Self {
         Self {
+            head_key,
             pending: BTreeMap::new(),
             policy,
         }
     }
 
+    /// Returns the writer head that owns this inbox.
+    #[must_use]
+    pub fn head_key(&self) -> &WriterHeadKey {
+        &self.head_key
+    }
+
     /// Ingests an envelope if it passes the inbox policy.
     ///
-    /// Returns `true` if the envelope was newly accepted, `false` if it was
-    /// a duplicate or rejected by the policy. Envelopes that do not match a
-    /// [`InboxPolicy::KindFilter`] are rejected at ingest time (never stored).
-    pub fn ingest(&mut self, envelope: IngressEnvelope) -> bool {
+    /// Returns the ingest outcome for this envelope. Envelopes that do not
+    /// match a [`InboxPolicy::KindFilter`] are rejected at ingest time
+    /// (never stored).
+    pub fn ingest(&mut self, envelope: IngressEnvelope) -> InboxIngestResult {
         use std::collections::btree_map::Entry;
 
         // Verify the envelope's content address matches its payload.
@@ -242,15 +274,15 @@ impl HeadInbox {
 
         // Early rejection: check policy before storing.
         if !self.policy_accepts(&envelope) {
-            return false;
+            return InboxIngestResult::Rejected;
         }
 
         match self.pending.entry(envelope.ingress_id) {
             Entry::Vacant(v) => {
                 v.insert(envelope);
-                true
+                InboxIngestResult::Accepted
             }
-            Entry::Occupied(_) => false,
+            Entry::Occupied(_) => InboxIngestResult::Duplicate,
         }
     }
 
@@ -292,6 +324,16 @@ impl HeadInbox {
                 }
                 admitted
             }
+        }
+    }
+
+    /// Re-queues previously admitted envelopes back into the pending set.
+    ///
+    /// This is used when a later commit stage fails after admission has
+    /// already removed the envelopes from the inbox.
+    pub(crate) fn requeue(&mut self, envelopes: Vec<IngressEnvelope>) {
+        for envelope in envelopes {
+            self.pending.insert(envelope.ingress_id, envelope);
         }
     }
 
@@ -368,7 +410,13 @@ mod tests {
 
     #[test]
     fn deterministic_admission_order() {
-        let mut inbox = HeadInbox::new(InboxPolicy::AcceptAll);
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
         let kind = test_kind();
 
         // Insert in non-deterministic order (content addresses will sort)
@@ -390,17 +438,29 @@ mod tests {
 
     #[test]
     fn re_ingesting_same_envelope_is_idempotent() {
-        let mut inbox = HeadInbox::new(InboxPolicy::AcceptAll);
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
         let env = make_envelope(test_kind(), b"payload");
 
-        assert!(inbox.ingest(env.clone()));
-        assert!(!inbox.ingest(env));
+        assert_eq!(inbox.ingest(env.clone()), InboxIngestResult::Accepted);
+        assert_eq!(inbox.ingest(env), InboxIngestResult::Duplicate);
         assert_eq!(inbox.pending_count(), 1);
     }
 
     #[test]
     fn budget_enforcement() {
-        let mut inbox = HeadInbox::new(InboxPolicy::Budgeted { max_per_tick: 2 });
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::Budgeted { max_per_tick: 2 },
+        );
         let kind = test_kind();
 
         inbox.ingest(make_envelope(kind, b"a"));
@@ -416,11 +476,20 @@ mod tests {
     fn kind_filter_rejects_non_matching_at_ingest() {
         let mut allowed = BTreeSet::new();
         allowed.insert(test_kind());
-        let mut inbox = HeadInbox::new(InboxPolicy::KindFilter(allowed));
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::KindFilter(allowed),
+        );
 
-        assert!(inbox.ingest(make_envelope(test_kind(), b"accepted")));
+        assert_eq!(
+            inbox.ingest(make_envelope(test_kind(), b"accepted")),
+            InboxIngestResult::Accepted
+        );
         assert!(
-            !inbox.ingest(make_envelope(other_kind(), b"rejected")),
+            inbox.ingest(make_envelope(other_kind(), b"rejected")) == InboxIngestResult::Rejected,
             "non-matching kind must be rejected at ingest"
         );
 
@@ -460,7 +529,13 @@ mod tests {
 
     #[test]
     fn policy_tightening_evicts_non_matching() {
-        let mut inbox = HeadInbox::new(InboxPolicy::AcceptAll);
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
         inbox.ingest(make_envelope(test_kind(), b"kept"));
         inbox.ingest(make_envelope(other_kind(), b"evicted"));
         assert_eq!(inbox.pending_count(), 2);
@@ -482,7 +557,13 @@ mod tests {
 
     #[test]
     fn admit_clears_pending() {
-        let mut inbox = HeadInbox::new(InboxPolicy::AcceptAll);
+        let mut inbox = HeadInbox::new(
+            WriterHeadKey {
+                worldline_id: wl(1),
+                head_id: crate::head::make_head_id("default"),
+            },
+            InboxPolicy::AcceptAll,
+        );
         inbox.ingest(make_envelope(test_kind(), b"data"));
         assert_eq!(inbox.pending_count(), 1);
 

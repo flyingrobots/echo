@@ -1,141 +1,176 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-#![allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::match_wildcard_for_single_variants
-)]
-//! Inbox ingestion scaffolding tests.
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+//! Runtime-owned ingress integration tests.
 
-use bytes::Bytes;
-use echo_dry_tests::{build_engine_with_root, make_intent_id};
-use warp_core::{make_node_id, make_type_id, AtomPayload, AttachmentValue, Hash, NodeId};
+use warp_core::{
+    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
+    InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, NodeId,
+    NodeRecord, PlaybackMode, SchedulerCoordinator, WorldlineId, WorldlineRuntime, WorldlineState,
+    WriterHead, WriterHeadKey,
+};
+
+fn wl(n: u8) -> WorldlineId {
+    WorldlineId([n; 32])
+}
+
+fn empty_engine() -> Engine {
+    let mut store = GraphStore::default();
+    let root = make_node_id("root");
+    store.insert_node(
+        root,
+        NodeRecord {
+            ty: make_type_id("world"),
+        },
+    );
+    EngineBuilder::new(store, root).build()
+}
+
+fn register_head(
+    runtime: &mut WorldlineRuntime,
+    worldline_id: WorldlineId,
+    label: &str,
+    public_inbox: Option<&str>,
+    is_default_writer: bool,
+) -> WriterHeadKey {
+    let key = WriterHeadKey {
+        worldline_id,
+        head_id: make_head_id(label),
+    };
+    runtime
+        .register_writer_head(WriterHead::with_routing(
+            key,
+            PlaybackMode::Play,
+            InboxPolicy::AcceptAll,
+            public_inbox.map(|name| InboxAddress(name.to_owned())),
+            is_default_writer,
+        ))
+        .unwrap();
+    key
+}
+
+fn runtime_store(runtime: &WorldlineRuntime, worldline_id: WorldlineId) -> &GraphStore {
+    let frontier = runtime.worldlines.get(&worldline_id).unwrap();
+    frontier
+        .state()
+        .warp_state()
+        .store(&frontier.state().root().warp_id)
+        .unwrap()
+}
 
 #[test]
-fn ingest_inbox_event_creates_path_and_pending_edge_from_opaque_intent_bytes() {
-    let root = make_node_id("root");
-    let mut engine = build_engine_with_root(root);
+fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
 
-    // Core is byte-blind: any bytes are valid intents.
-    let intent_bytes: &[u8] = b"opaque-test-intent";
-    let payload_bytes = Bytes::copy_from_slice(intent_bytes);
-    let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes.clone());
-
-    engine
-        .ingest_inbox_event(42, &payload)
-        .expect("ingest should succeed");
-
-    let store = engine.store_clone();
-
-    let sim_id = make_node_id("sim");
-    let inbox_id = make_node_id("sim/inbox");
-    let intent_id: Hash = make_intent_id(intent_bytes);
-    let event_id = NodeId(intent_id);
-
-    // Nodes exist with expected types
-    assert_eq!(store.node(&sim_id).unwrap().ty, make_type_id("sim"));
-    assert_eq!(store.node(&inbox_id).unwrap().ty, make_type_id("sim/inbox"));
+    let envelope = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"runtime-intent".to_vec(),
+    );
     assert_eq!(
-        store.node(&event_id).unwrap().ty,
-        make_type_id("sim/inbox/event")
+        runtime.ingest(envelope.clone()).unwrap(),
+        IngressDisposition::Accepted {
+            ingress_id: envelope.ingress_id,
+            head_key,
+        }
     );
 
-    // Event attachment is present and matches payload
-    let attachment = store
-        .node_attachment(&event_id)
-        .and_then(|v| match v {
-            AttachmentValue::Atom(a) => Some(a),
-            _ => None,
-        })
-        .expect("event attachment");
-    assert_eq!(attachment.type_id, make_type_id("intent"));
-    assert_eq!(attachment.bytes, payload_bytes);
+    let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].head_key, head_key);
 
-    // Pending membership is an edge from inbox → event.
-    let pending_ty = make_type_id("edge:pending");
-    assert!(
-        store
-            .edges_from(&inbox_id)
-            .any(|e| e.ty == pending_ty && e.to == event_id),
-        "expected a pending edge from sim/inbox → event"
+    let store = runtime_store(&runtime, worldline_id);
+    assert!(store.node(&NodeId(envelope.ingress_id)).is_some());
+    assert!(store.node(&make_node_id("sim")).is_none());
+    assert!(store.node(&make_node_id("sim/inbox")).is_none());
+}
+
+#[test]
+fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let default_key = register_head(&mut runtime, worldline_id, "default", None, true);
+    let named_key = register_head(&mut runtime, worldline_id, "orders", Some("orders"), false);
+
+    let kind = make_intent_kind("test/runtime");
+    let default_env = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        kind,
+        b"same-intent".to_vec(),
+    );
+    let named_env = IngressEnvelope::local_intent(
+        IngressTarget::InboxAddress {
+            worldline_id,
+            inbox: InboxAddress("orders".to_owned()),
+        },
+        kind,
+        b"same-intent".to_vec(),
+    );
+
+    assert_eq!(
+        runtime.ingest(default_env.clone()).unwrap(),
+        IngressDisposition::Accepted {
+            ingress_id: default_env.ingress_id,
+            head_key: default_key,
+        }
+    );
+    SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+
+    assert_eq!(
+        runtime.ingest(default_env).unwrap(),
+        IngressDisposition::Duplicate {
+            ingress_id: named_env.ingress_id,
+            head_key: default_key,
+        }
+    );
+    assert_eq!(
+        runtime.ingest(named_env.clone()).unwrap(),
+        IngressDisposition::Accepted {
+            ingress_id: named_env.ingress_id,
+            head_key: named_key,
+        }
     );
 }
 
 #[test]
-fn ingest_inbox_event_is_idempotent_by_intent_bytes_not_seq() {
-    let root = make_node_id("root");
-    let mut engine = build_engine_with_root(root);
+fn runtime_ingest_keeps_distinct_intents_as_distinct_event_nodes() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    register_head(&mut runtime, worldline_id, "default", None, true);
 
-    let intent_bytes: &[u8] = b"idempotent-intent";
-    let payload_bytes = Bytes::copy_from_slice(intent_bytes);
-    let payload = AtomPayload::new(make_type_id("legacy/payload"), payload_bytes);
-
-    engine.ingest_inbox_event(1, &payload).unwrap();
-    engine.ingest_inbox_event(2, &payload).unwrap();
-
-    let store = engine.store_clone();
-
-    let sim_id = make_node_id("sim");
-    let inbox_id = make_node_id("sim/inbox");
-
-    // Only one structural edge root->sim and sim->inbox should exist.
-    let root_edges: Vec<_> = store.edges_from(&root).collect();
-    assert_eq!(root_edges.len(), 1);
-    assert_eq!(root_edges[0].to, sim_id);
-
-    let sim_edges: Vec<_> = store.edges_from(&sim_id).collect();
-    assert_eq!(sim_edges.len(), 1);
-    assert_eq!(sim_edges[0].to, inbox_id);
-
-    // Ingress idempotency is keyed by intent_id, so the same intent_bytes must not create
-    // additional events or pending edges even if callers vary the seq input.
-    let pending_ty = make_type_id("edge:pending");
-    let inbox_pending_edges: Vec<_> = store
-        .edges_from(&inbox_id)
-        .filter(|e| e.ty == pending_ty)
-        .collect();
-    assert_eq!(inbox_pending_edges.len(), 1);
-
-    let intent_id: Hash = make_intent_id(intent_bytes);
-    assert!(store.node(&NodeId(intent_id)).is_some());
-}
-
-#[test]
-fn ingest_inbox_event_creates_distinct_events_for_distinct_intents() {
-    let root = make_node_id("root");
-    let mut engine = build_engine_with_root(root);
-
-    let intent_a: &[u8] = b"intent-alpha";
-    let intent_b: &[u8] = b"intent-beta";
-    let payload_a = AtomPayload::new(
-        make_type_id("legacy/payload"),
-        Bytes::copy_from_slice(intent_a),
+    let intent_a = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"intent-alpha".to_vec(),
     );
-    let payload_b = AtomPayload::new(
-        make_type_id("legacy/payload"),
-        Bytes::copy_from_slice(intent_b),
+    let intent_b = IngressEnvelope::local_intent(
+        IngressTarget::DefaultWriter { worldline_id },
+        make_intent_kind("test/runtime"),
+        b"intent-beta".to_vec(),
     );
 
-    engine.ingest_inbox_event(1, &payload_a).unwrap();
-    engine.ingest_inbox_event(2, &payload_b).unwrap();
+    runtime.ingest(intent_a.clone()).unwrap();
+    runtime.ingest(intent_b.clone()).unwrap();
 
-    let store = engine.store_clone();
-    let inbox_id = make_node_id("sim/inbox");
+    let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].admitted_count, 2);
 
-    let pending_ty = make_type_id("edge:pending");
-    let inbox_pending_edges: Vec<_> = store
-        .edges_from(&inbox_id)
-        .filter(|e| e.ty == pending_ty)
-        .collect();
-    assert_eq!(inbox_pending_edges.len(), 2);
-
-    let intent_id_a: Hash = make_intent_id(intent_a);
-    let intent_id_b: Hash = make_intent_id(intent_b);
-
-    assert!(store.node(&NodeId(intent_id_a)).is_some());
-    assert!(store.node(&NodeId(intent_id_b)).is_some());
+    let store = runtime_store(&runtime, worldline_id);
+    assert!(store.node(&NodeId(intent_a.ingress_id)).is_some());
+    assert!(store.node(&NodeId(intent_b.ingress_id)).is_some());
 }
-
-// NOTE: The `ingest_inbox_event_ignores_invalid_intent_bytes_without_mutating_graph` test
-// was removed because the core is now byte-blind: all bytes are valid intents and
-// validation is the caller's responsibility (hexagonal architecture).

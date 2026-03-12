@@ -65,7 +65,12 @@ impl WorldlineRegistry {
         use std::collections::btree_map::Entry;
         match self.worldlines.entry(worldline_id) {
             Entry::Vacant(v) => {
-                v.insert(WorldlineFrontier::new(worldline_id, state));
+                let frontier_tick = state.current_tick();
+                v.insert(WorldlineFrontier::at_tick(
+                    worldline_id,
+                    state,
+                    frontier_tick,
+                ));
                 Ok(())
             }
             Entry::Occupied(_) => Err(RegisterWorldlineError::DuplicateWorldline(worldline_id)),
@@ -114,6 +119,10 @@ impl WorldlineRegistry {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::receipt::TickReceipt;
+    use crate::snapshot::Snapshot;
+    use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
+    use crate::{blake3_empty, TxId};
 
     fn wl(n: u8) -> WorldlineId {
         WorldlineId([n; 32])
@@ -166,5 +175,39 @@ mod tests {
         frontier.frontier_tick = 42;
 
         assert_eq!(reg.get(&wl(1)).unwrap().frontier_tick(), 42);
+    }
+
+    #[test]
+    fn register_preserves_restored_frontier_tick() {
+        let mut state = WorldlineState::empty();
+        let root = *state.root();
+        state.tick_history.push((
+            Snapshot {
+                root,
+                hash: [1; 32],
+                state_root: [2; 32],
+                parents: Vec::new(),
+                plan_digest: [3; 32],
+                decision_digest: [4; 32],
+                rewrites_digest: [5; 32],
+                patch_digest: [6; 32],
+                policy_id: crate::POLICY_ID_NO_POLICY_V0,
+                tx: TxId::from_raw(1),
+            },
+            TickReceipt::new(TxId::from_raw(1), Vec::new(), Vec::new()),
+            WarpTickPatchV1::new(
+                crate::POLICY_ID_NO_POLICY_V0,
+                blake3_empty(),
+                TickCommitStatus::Committed,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+        ));
+
+        let mut reg = WorldlineRegistry::new();
+        reg.register(wl(1), state).unwrap();
+
+        assert_eq!(reg.get(&wl(1)).unwrap().frontier_tick(), 1);
     }
 }

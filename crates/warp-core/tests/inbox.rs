@@ -202,7 +202,7 @@ fn runtime_commit_patch_replays_to_post_state() {
     let mut replay_state = frontier.state().initial_state().clone();
     patch.apply_to_state(&mut replay_state).unwrap();
     let replay_root = engine
-        .snapshot_for_state(&WorldlineState::new(replay_state, *frontier.state().root()))
+        .snapshot_for_state(&WorldlineState::new(replay_state, *frontier.state().root()).unwrap())
         .state_root;
 
     assert_eq!(

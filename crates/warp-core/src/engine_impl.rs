@@ -424,6 +424,7 @@ pub struct Engine {
     rules_by_id: HashMap<Hash, &'static str>,
     compact_rule_ids: HashMap<Hash, CompactRuleId>,
     rules_by_compact: HashMap<CompactRuleId, &'static str>,
+    canonical_cmd_rules: Vec<(Hash, &'static str)>,
     scheduler: DeterministicScheduler,
     scheduler_kind: SchedulerKind,
     telemetry: Arc<dyn TelemetrySink>,
@@ -631,6 +632,7 @@ impl Engine {
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
+            canonical_cmd_rules: Vec::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
             scheduler_kind: kind,
             telemetry,
@@ -819,6 +821,7 @@ impl Engine {
             rules_by_id: HashMap::new(),
             compact_rule_ids: HashMap::new(),
             rules_by_compact: HashMap::new(),
+            canonical_cmd_rules: Vec::new(),
             scheduler: DeterministicScheduler::new(kind, Arc::clone(&telemetry)),
             scheduler_kind: kind,
             telemetry,
@@ -853,6 +856,10 @@ impl Engine {
         if matches!(rule.conflict_policy, ConflictPolicy::Join) && rule.join_fn.is_none() {
             return Err(EngineError::MissingJoinFn);
         }
+        let canonical_cmd = rule
+            .name
+            .starts_with("cmd/")
+            .then_some((rule.id, rule.name));
         self.rules_by_id.insert(rule.id, rule.name);
         debug_assert!(
             self.compact_rule_ids.len() < u32::MAX as usize,
@@ -863,6 +870,13 @@ impl Engine {
         let compact = *self.compact_rule_ids.entry(rule.id).or_insert(next);
         self.rules_by_compact.insert(compact, rule.name);
         self.rules.insert(rule.name, rule);
+        if let Some(cmd_rule) = canonical_cmd {
+            self.canonical_cmd_rules.push(cmd_rule);
+            self.canonical_cmd_rules
+                .sort_unstable_by(|(a_id, a_name), (b_id, b_name)| {
+                    a_id.cmp(b_id).then_with(|| a_name.cmp(b_name))
+                });
+        }
         Ok(())
     }
 
@@ -1954,17 +1968,8 @@ impl Engine {
         tx: TxId,
         event_id: &NodeId,
     ) -> Result<bool, EngineError> {
-        let mut cmd_rules: Vec<(Hash, &'static str)> = self
-            .rules
-            .values()
-            .filter(|r| r.name.starts_with("cmd/"))
-            .map(|r| (r.id, r.name))
-            .collect();
-        cmd_rules.sort_unstable_by(|(a_id, a_name), (b_id, b_name)| {
-            a_id.cmp(b_id).then_with(|| a_name.cmp(b_name))
-        });
-
-        for (_id, name) in cmd_rules {
+        for index in 0..self.canonical_cmd_rules.len() {
+            let (_id, name) = self.canonical_cmd_rules[index];
             if matches!(self.apply(tx, name, event_id)?, ApplyResult::Applied) {
                 return Ok(true);
             }
@@ -2635,6 +2640,54 @@ mod tests {
         assert!(
             matches!(res, Err(EngineError::MissingJoinFn)),
             "expected MissingJoinFn, got {res:?}"
+        );
+    }
+
+    #[test]
+    fn register_rule_caches_canonical_command_order() {
+        fn cmd_rule(id: u8, name: &'static str) -> RewriteRule {
+            RewriteRule {
+                id: [id; 32],
+                name,
+                left: crate::rule::PatternGraph { nodes: vec![] },
+                matcher: |_s: GraphView<'_>, _n| true,
+                executor: |_s: GraphView<'_>, _n, _delta| {},
+                compute_footprint: |_s: GraphView<'_>, _n| crate::footprint::Footprint::default(),
+                factor_mask: 0,
+                conflict_policy: crate::rule::ConflictPolicy::Abort,
+                join_fn: None,
+            }
+        }
+
+        let mut engine = Engine::new(GraphStore::default(), make_node_id("root"));
+        let register = engine.register_rule(cmd_rule(9, "cmd/zeta"));
+        assert!(
+            register.is_ok(),
+            "cmd/zeta registration failed: {register:?}"
+        );
+        let register = engine.register_rule(cmd_rule(1, "cmd/alpha"));
+        assert!(
+            register.is_ok(),
+            "cmd/alpha registration failed: {register:?}"
+        );
+        let register = engine.register_rule(cmd_rule(5, "view/not-a-command"));
+        assert!(
+            register.is_ok(),
+            "view/not-a-command registration failed: {register:?}"
+        );
+        let register = engine.register_rule(cmd_rule(2, "cmd/beta"));
+        assert!(
+            register.is_ok(),
+            "cmd/beta registration failed: {register:?}"
+        );
+
+        assert_eq!(
+            engine.canonical_cmd_rules,
+            vec![
+                ([1; 32], "cmd/alpha"),
+                ([2; 32], "cmd/beta"),
+                ([9; 32], "cmd/zeta")
+            ]
         );
     }
 

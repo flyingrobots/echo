@@ -169,13 +169,21 @@ pub fn init_console_panic_hook() {
 pub fn init() -> Uint8Array {
     #[cfg(feature = "engine")]
     {
-        let kernel = warp_kernel::WarpKernel::new();
-        #[allow(clippy::expect_used)] // Fresh kernel; infallible in practice.
-        let head = kernel
-            .get_head()
-            .expect("fresh kernel must have valid head");
-        install_kernel(Box::new(kernel));
-        encode_ok(&head)
+        match warp_kernel::WarpKernel::new() {
+            Ok(kernel) => {
+                #[allow(clippy::expect_used)]
+                // Fresh kernel just validated its own runtime install.
+                let head = kernel
+                    .get_head()
+                    .expect("fresh kernel must have valid head");
+                install_kernel(Box::new(kernel));
+                encode_ok(&head)
+            }
+            Err(err) => encode_err_raw(
+                kernel_port::error_codes::ENGINE_ERROR,
+                &format!("kernel initialization failed: {err}"),
+            ),
+        }
     }
     #[cfg(not(feature = "engine"))]
     {

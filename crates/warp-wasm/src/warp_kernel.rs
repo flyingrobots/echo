@@ -7,6 +7,8 @@
 //! into the byte-level contract expected by the WASM boundary. This module
 //! is gated behind the `engine` feature.
 
+use std::fmt;
+
 use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, ChannelData, DispatchResponse, DrainResponse, HeadInfo, KernelPort,
     RegistryInfo, StepResponse, ABI_VERSION,
@@ -14,10 +16,45 @@ use echo_wasm_abi::kernel_port::{
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
-    IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, PlaybackMode,
-    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead,
-    WriterHeadKey,
+    IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, PlaybackMode, RuntimeError,
+    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState,
+    WorldlineStateError, WriterHead, WriterHeadKey,
 };
+
+/// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
+#[derive(Debug)]
+pub enum KernelInitError {
+    /// The supplied engine has already advanced and cannot seed a fresh runtime.
+    NonFreshEngine,
+    /// The engine's backing state does not satisfy [`WorldlineState`] invariants.
+    WorldlineState(WorldlineStateError),
+    /// Runtime registration failed while installing the default worldline/head.
+    Runtime(RuntimeError),
+}
+
+impl fmt::Display for KernelInitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NonFreshEngine => write!(f, "WarpKernel::with_engine requires a fresh engine"),
+            Self::WorldlineState(err) => err.fmt(f),
+            Self::Runtime(err) => err.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for KernelInitError {}
+
+impl From<WorldlineStateError> for KernelInitError {
+    fn from(value: WorldlineStateError) -> Self {
+        Self::WorldlineState(value)
+    }
+}
+
+impl From<RuntimeError> for KernelInitError {
+    fn from(value: RuntimeError) -> Self {
+        Self::Runtime(value)
+    }
+}
 
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
 ///
@@ -39,7 +76,7 @@ impl WarpKernel {
     ///
     /// The engine has a single root node and no rewrite rules.
     /// Useful for testing the boundary or as a starting point.
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, KernelInitError> {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
         store.insert_node(
@@ -71,42 +108,35 @@ impl WarpKernel {
     /// The engine must be fresh: `WarpKernel` can mirror graph state into the
     /// default worldline runtime, but it cannot reconstruct prior tick history
     /// or materialization state from an already-advanced engine.
-    pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Self {
-        assert!(
-            engine.is_fresh_runtime_state(),
-            "WarpKernel::with_engine requires a fresh engine"
-        );
+    pub fn with_engine(engine: Engine, registry: RegistryInfo) -> Result<Self, KernelInitError> {
+        if !engine.is_fresh_runtime_state() {
+            return Err(KernelInitError::NonFreshEngine);
+        }
         let root = engine.root_key();
         let default_worldline = WorldlineId(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();
-        #[allow(clippy::unwrap_used)]
-        runtime
-            .register_worldline(
-                default_worldline,
-                WorldlineState::from(engine.state().clone()),
-            )
-            .unwrap();
-        #[allow(clippy::unwrap_used)]
-        runtime
-            .register_writer_head(WriterHead::with_routing(
-                WriterHeadKey {
-                    worldline_id: default_worldline,
-                    head_id: make_head_id("default"),
-                },
-                PlaybackMode::Play,
-                warp_core::InboxPolicy::AcceptAll,
-                None,
-                true,
-            ))
-            .unwrap();
+        runtime.register_worldline(
+            default_worldline,
+            WorldlineState::try_from(engine.state().clone())?,
+        )?;
+        runtime.register_writer_head(WriterHead::with_routing(
+            WriterHeadKey {
+                worldline_id: default_worldline,
+                head_id: make_head_id("default"),
+            },
+            PlaybackMode::Play,
+            warp_core::InboxPolicy::AcceptAll,
+            None,
+            true,
+        ))?;
 
-        Self {
+        Ok(Self {
             engine,
             runtime,
             default_worldline,
             drained: true,
             registry,
-        }
+        })
     }
 
     /// Build a [`HeadInfo`] from the current engine snapshot.
@@ -277,7 +307,7 @@ mod tests {
 
     #[test]
     fn new_kernel_has_zero_tick() {
-        let kernel = WarpKernel::new();
+        let kernel = WarpKernel::new().unwrap();
         let head = kernel.get_head().unwrap();
         assert_eq!(head.tick, 0);
         assert_eq!(head.state_root.len(), 32);
@@ -289,7 +319,7 @@ mod tests {
     /// This test verifies the contract that get_head() upholds on a fresh kernel.
     #[test]
     fn fresh_kernel_head_has_real_hashes() {
-        let kernel = WarpKernel::new();
+        let kernel = WarpKernel::new().unwrap();
         let head = kernel.get_head().unwrap();
         // Must be 32 bytes (BLAKE3 hash), not empty
         assert_eq!(head.state_root.len(), 32, "state_root must be 32 bytes");
@@ -305,7 +335,7 @@ mod tests {
 
     #[test]
     fn step_zero_is_noop() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let result = kernel.step(0).unwrap();
         assert_eq!(result.ticks_executed, 0);
         assert_eq!(result.head.tick, 0);
@@ -313,7 +343,7 @@ mod tests {
 
     #[test]
     fn step_executes_ticks() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
         let result = kernel.step(3).unwrap();
@@ -325,7 +355,7 @@ mod tests {
 
     #[test]
     fn dispatch_intent_accepted() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         let resp = kernel.dispatch_intent(&intent).unwrap();
         assert!(resp.accepted);
@@ -334,7 +364,7 @@ mod tests {
 
     #[test]
     fn dispatch_intent_duplicate() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         let r1 = kernel.dispatch_intent(&intent).unwrap();
         let r2 = kernel.dispatch_intent(&intent).unwrap();
@@ -345,7 +375,7 @@ mod tests {
 
     #[test]
     fn dispatch_then_step_changes_state() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let head_before = kernel.get_head().unwrap();
 
         let intent = pack_intent_v1(1, b"test-intent").unwrap();
@@ -359,28 +389,28 @@ mod tests {
 
     #[test]
     fn drain_empty_on_fresh_kernel() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let drain = kernel.drain_view_ops().unwrap();
         assert!(drain.channels.is_empty());
     }
 
     #[test]
     fn execute_query_returns_not_supported() {
-        let kernel = WarpKernel::new();
+        let kernel = WarpKernel::new().unwrap();
         let err = kernel.execute_query(0, &[]).unwrap_err();
         assert_eq!(err.code, error_codes::NOT_SUPPORTED);
     }
 
     #[test]
     fn snapshot_at_invalid_tick_returns_error() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let err = kernel.snapshot_at(999).unwrap_err();
         assert_eq!(err.code, error_codes::INVALID_TICK);
     }
 
     #[test]
     fn snapshot_at_valid_tick() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
         kernel.step(1).unwrap();
@@ -394,7 +424,7 @@ mod tests {
 
     #[test]
     fn snapshot_at_does_not_corrupt_live_state() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
         kernel.step(1).unwrap();
@@ -422,7 +452,7 @@ mod tests {
 
     #[test]
     fn drain_returns_empty_on_second_call() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
         kernel.step(1).unwrap();
@@ -437,14 +467,14 @@ mod tests {
 
     #[test]
     fn render_snapshot_returns_not_supported() {
-        let kernel = WarpKernel::new();
+        let kernel = WarpKernel::new().unwrap();
         let err = kernel.render_snapshot(&[]).unwrap_err();
         assert_eq!(err.code, error_codes::NOT_SUPPORTED);
     }
 
     #[test]
     fn registry_info_has_abi_version() {
-        let kernel = WarpKernel::new();
+        let kernel = WarpKernel::new().unwrap();
         let info = kernel.registry_info();
         assert_eq!(info.abi_version, ABI_VERSION);
         assert_eq!(info.codec_id.as_deref(), Some("cbor-canonical-v1"));
@@ -453,8 +483,8 @@ mod tests {
     #[test]
     fn head_state_root_is_deterministic() {
         // Two fresh kernels should produce identical state roots
-        let k1 = WarpKernel::new();
-        let k2 = WarpKernel::new();
+        let k1 = WarpKernel::new().unwrap();
+        let k2 = WarpKernel::new().unwrap();
         let h1 = k1.get_head().unwrap();
         let h2 = k2.get_head().unwrap();
         assert_eq!(h1.state_root, h2.state_root);
@@ -463,7 +493,7 @@ mod tests {
 
     #[test]
     fn dispatch_invalid_intent_returns_invalid_intent_error() {
-        let mut kernel = WarpKernel::new();
+        let mut kernel = WarpKernel::new().unwrap();
 
         // Garbage bytes (no EINT magic)
         let err = kernel.dispatch_intent(b"not-an-envelope").unwrap_err();
@@ -501,7 +531,8 @@ mod tests {
                 schema_sha256_hex: None,
                 abi_version: ABI_VERSION,
             },
-        );
+        )
+        .unwrap();
 
         let intent = pack_intent_v1(1, b"test").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
@@ -532,12 +563,12 @@ mod tests {
                 schema_sha256_hex: None,
                 abi_version: ABI_VERSION,
             },
-        );
+        )
+        .unwrap();
         assert_eq!(kernel.get_head().unwrap().tick, 0);
     }
 
     #[test]
-    #[should_panic(expected = "WarpKernel::with_engine requires a fresh engine")]
     fn with_engine_rejects_non_fresh_engine_state() {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
@@ -556,7 +587,7 @@ mod tests {
         let tx = engine.begin();
         let _ = engine.commit(tx).unwrap();
 
-        let _kernel = WarpKernel::with_engine(
+        let kernel = WarpKernel::with_engine(
             engine,
             RegistryInfo {
                 codec_id: None,
@@ -565,6 +596,8 @@ mod tests {
                 abi_version: ABI_VERSION,
             },
         );
+
+        assert!(matches!(kernel, Err(KernelInitError::NonFreshEngine)));
     }
 
     #[test]
@@ -592,7 +625,8 @@ mod tests {
                 schema_sha256_hex: None,
                 abi_version: ABI_VERSION,
             },
-        );
+        )
+        .unwrap();
 
         let result = kernel.step(1).unwrap();
         assert_eq!(result.ticks_executed, 0);
@@ -601,8 +635,8 @@ mod tests {
 
     #[test]
     fn step_produces_deterministic_commits() {
-        let mut k1 = WarpKernel::new();
-        let mut k2 = WarpKernel::new();
+        let mut k1 = WarpKernel::new().unwrap();
+        let mut k2 = WarpKernel::new().unwrap();
 
         // Same operations should produce identical state
         let intent = pack_intent_v1(42, b"determinism-test").unwrap();

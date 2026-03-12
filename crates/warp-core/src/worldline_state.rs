@@ -13,6 +13,8 @@
 
 use std::collections::BTreeSet;
 
+use thiserror::Error;
+
 use crate::graph::GraphStore;
 use crate::head::WriterHeadKey;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, Hash, NodeKey};
@@ -28,6 +30,40 @@ use crate::worldline::WorldlineId;
 // =============================================================================
 // WorldlineState
 // =============================================================================
+
+/// Error returned when a [`WorldlineState`] cannot validate its root invariant.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum WorldlineStateError {
+    /// The supplied [`WarpState`] has no parentless root instance.
+    #[error("worldline state has no parentless root instance")]
+    NoRootInstance,
+    /// The supplied [`WarpState`] has more than one parentless root instance.
+    #[error("worldline state has multiple parentless root instances")]
+    MultipleRootInstances,
+    /// The caller-supplied root warp does not match the unique root instance.
+    #[error("worldline root warp mismatch: expected {expected:?}, got {actual:?}")]
+    RootWarpMismatch {
+        /// The unique root warp discovered in the state.
+        expected: crate::ident::WarpId,
+        /// The warp id supplied by the caller.
+        actual: crate::ident::WarpId,
+    },
+    /// The caller-supplied root node does not match the unique root instance.
+    #[error(
+        "worldline root node mismatch for warp {warp_id:?}: expected {expected:?}, got {actual:?}"
+    )]
+    RootNodeMismatch {
+        /// The warp whose root node disagreed.
+        warp_id: crate::ident::WarpId,
+        /// The root node declared by the warp instance metadata.
+        expected: crate::ident::NodeId,
+        /// The root node supplied by the caller.
+        actual: crate::ident::NodeId,
+    },
+    /// The unique root instance has no backing graph store.
+    #[error("worldline root store missing for warp {0:?}")]
+    MissingRootStore(crate::ident::WarpId),
+}
 
 /// Broad worldline state abstraction wrapping [`WarpState`].
 ///
@@ -70,8 +106,18 @@ impl Default for WorldlineState {
 
 impl WorldlineState {
     /// Creates a new worldline state from an existing warp state and root key.
-    #[must_use]
-    pub fn new(warp_state: WarpState, root: NodeKey) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorldlineStateError`] if the supplied state does not contain
+    /// exactly one parentless root instance with a backing store, or if the
+    /// caller-supplied `root` does not match that unique root instance.
+    pub fn new(warp_state: WarpState, root: NodeKey) -> Result<Self, WorldlineStateError> {
+        Self::validate_root(&warp_state, root)?;
+        Ok(Self::build_validated(warp_state, root))
+    }
+
+    fn build_validated(warp_state: WarpState, root: NodeKey) -> Self {
         Self {
             initial_state: warp_state.clone(),
             warp_state,
@@ -83,6 +129,47 @@ impl WorldlineState {
             tx_counter: 0,
             committed_ingress: BTreeSet::new(),
         }
+    }
+
+    fn discovered_root(state: &WarpState) -> Result<NodeKey, WorldlineStateError> {
+        let mut parentless = state.iter_instances().filter_map(|(warp_id, instance)| {
+            instance.parent.is_none().then_some(NodeKey {
+                warp_id: *warp_id,
+                local_id: instance.root_node,
+            })
+        });
+
+        let Some(root) = parentless.next() else {
+            return Err(WorldlineStateError::NoRootInstance);
+        };
+
+        if parentless.next().is_some() {
+            return Err(WorldlineStateError::MultipleRootInstances);
+        }
+
+        if state.store(&root.warp_id).is_none() {
+            return Err(WorldlineStateError::MissingRootStore(root.warp_id));
+        }
+
+        Ok(root)
+    }
+
+    fn validate_root(state: &WarpState, root: NodeKey) -> Result<(), WorldlineStateError> {
+        let discovered = Self::discovered_root(state)?;
+        if discovered.warp_id != root.warp_id {
+            return Err(WorldlineStateError::RootWarpMismatch {
+                expected: discovered.warp_id,
+                actual: root.warp_id,
+            });
+        }
+        if discovered.local_id != root.local_id {
+            return Err(WorldlineStateError::RootNodeMismatch {
+                warp_id: root.warp_id,
+                expected: discovered.local_id,
+                actual: root.local_id,
+            });
+        }
+        Ok(())
     }
 
     /// Creates an empty worldline state with a canonical root instance.
@@ -113,7 +200,7 @@ impl WorldlineState {
             store,
         );
 
-        Self::new(warp_state, root)
+        Self::build_validated(warp_state, root)
     }
 
     /// Returns a reference to the underlying warp state.
@@ -158,6 +245,15 @@ impl WorldlineState {
         &self.last_materialization_errors
     }
 
+    /// Returns the current committed frontier tick implied by this state's history.
+    #[must_use]
+    pub fn current_tick(&self) -> u64 {
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            self.tick_history.len() as u64
+        }
+    }
+
     /// Returns `true` if this worldline already committed the ingress for the given head.
     #[must_use]
     pub(crate) fn contains_committed_ingress(
@@ -181,21 +277,11 @@ impl WorldlineState {
     }
 }
 
-impl From<WarpState> for WorldlineState {
-    fn from(warp_state: WarpState) -> Self {
-        let root = warp_state
-            .iter_instances()
-            .find(|(_, instance)| instance.parent.is_none())
-            .map_or_else(
-                || NodeKey {
-                    warp_id: make_warp_id("root"),
-                    local_id: make_node_id("root"),
-                },
-                |(warp_id, instance)| NodeKey {
-                    warp_id: *warp_id,
-                    local_id: instance.root_node,
-                },
-            );
+impl TryFrom<WarpState> for WorldlineState {
+    type Error = WorldlineStateError;
+
+    fn try_from(warp_state: WarpState) -> Result<Self, Self::Error> {
+        let root = Self::discovered_root(&warp_state)?;
         Self::new(warp_state, root)
     }
 }
@@ -282,6 +368,7 @@ impl WorldlineFrontier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentPlane};
     use crate::warp_state::WarpState;
 
     fn wl(n: u8) -> WorldlineId {
@@ -290,8 +377,7 @@ mod tests {
 
     #[test]
     fn worldline_state_wraps_warp_state() {
-        let warp = WarpState::new();
-        let ws = WorldlineState::from(warp);
+        let ws = WorldlineState::empty();
         // WorldlineState is a transparent wrapper
         assert_eq!(ws.root().local_id, make_node_id("root"));
     }
@@ -310,9 +396,117 @@ mod tests {
     }
 
     #[test]
-    fn from_warp_state() {
-        let ws: WorldlineState = WarpState::new().into();
+    fn try_from_warp_state() {
+        let result = WorldlineState::try_from(WorldlineState::empty().warp_state().clone());
+        assert!(
+            result.is_ok(),
+            "worldline state conversion failed: {result:?}"
+        );
+        let Ok(ws) = result else {
+            return;
+        };
         assert_eq!(ws.root().warp_id, make_warp_id("root"));
         assert!(ws.tick_history().is_empty());
+    }
+
+    #[test]
+    fn rejects_multiple_parentless_instances() {
+        let root_a = make_warp_id("root-a");
+        let root_b = make_warp_id("root-b");
+        let node_a = make_node_id("root-a");
+        let node_b = make_node_id("root-b");
+
+        let mut store_a = GraphStore::new(root_a);
+        store_a.insert_node(
+            node_a,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut store_b = GraphStore::new(root_b);
+        store_b.insert_node(
+            node_b,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+
+        let mut state = WarpState::new();
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: root_a,
+                root_node: node_a,
+                parent: None,
+            },
+            store_a,
+        );
+        state.upsert_instance(
+            WarpInstance {
+                warp_id: root_b,
+                root_node: node_b,
+                parent: None,
+            },
+            store_b,
+        );
+
+        let result = WorldlineState::try_from(state);
+        assert!(
+            matches!(result, Err(WorldlineStateError::MultipleRootInstances)),
+            "expected MultipleRootInstances, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_mismatched_explicit_root() {
+        let state = WorldlineState::empty().warp_state().clone();
+        let wrong_root = NodeKey {
+            warp_id: make_warp_id("root"),
+            local_id: make_node_id("wrong-root"),
+        };
+
+        let result = WorldlineState::new(state, wrong_root);
+        assert_eq!(
+            result.err(),
+            Some(WorldlineStateError::RootNodeMismatch {
+                warp_id: make_warp_id("root"),
+                expected: make_node_id("root"),
+                actual: make_node_id("wrong-root"),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_root_without_backing_store() {
+        let root_warp = make_warp_id("root");
+        let root_node = make_node_id("root");
+        let mut state = WarpState::new();
+        state.instances.insert(
+            root_warp,
+            WarpInstance {
+                warp_id: root_warp,
+                root_node,
+                parent: None,
+            },
+        );
+        state.instances.insert(
+            make_warp_id("child"),
+            WarpInstance {
+                warp_id: make_warp_id("child"),
+                root_node: make_node_id("child-root"),
+                parent: Some(AttachmentKey {
+                    owner: AttachmentOwner::Node(NodeKey {
+                        warp_id: root_warp,
+                        local_id: root_node,
+                    }),
+                    plane: AttachmentPlane::Alpha,
+                }),
+            },
+        );
+
+        let result = WorldlineState::try_from(state);
+        assert_eq!(
+            result.err(),
+            Some(WorldlineStateError::MissingRootStore(root_warp))
+        );
     }
 }

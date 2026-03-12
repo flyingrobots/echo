@@ -225,7 +225,7 @@ pub use head_inbox::{
     IngressTarget, IntentKind,
 };
 pub use worldline_registry::WorldlineRegistry;
-pub use worldline_state::{WorldlineFrontier, WorldlineState};
+pub use worldline_state::{WorldlineFrontier, WorldlineState, WorldlineStateError};
 
 /// Zero-copy typed view over an atom payload.
 pub trait AtomView<'a>: Sized {

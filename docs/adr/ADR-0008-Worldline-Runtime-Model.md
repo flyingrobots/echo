@@ -73,9 +73,12 @@ The scheduler executes one **SuperTick** per cycle:
     - `RunnableWriterSet`: ordered live index of only runnable writer heads
       (not paused, not capability-blocked). Maintained as a
       `BTreeSet<WriterHeadKey>` (or equivalent permanently-sorted structure)
-      so SuperTick iteration is O(N) with zero filtering.
-      Mode transitions (`set_mode`, capability changes) insert/remove from the
-      runnable set. The hot path never scans paused or blocked heads.
+      so SuperTick iteration is O(N) with zero filtering when the runtime owns
+      the mutable scheduling path. `PlaybackHeadRegistry` remains the
+      source-of-truth; read-only inspection helpers may derive the canonical
+      order directly from the registry when they cannot refresh the live set.
+      Mode transitions (`set_mode`, capability changes) update the runnable set
+      through runtime-owned mutation paths rather than external cache writes.
 2. For each writer head in order: admit intents per policy/budget, execute
    deterministic commit, append provenance, publish projections. Writer
    heads targeting the same worldline with footprint-independent intents
@@ -178,7 +181,7 @@ default playback API. ADR-0010 is the companion document for that split.
 | ---- | ------------------------------------------------------------------------------ | ------------------------------------------------ |
 | 1    | First-class `WriterHead` object + `PlaybackHeadRegistry` + `RunnableWriterSet` | Implemented in `head.rs` and used by runtime     |
 | 2    | `SchedulerCoordinator` iterating `RunnableWriterSet`                           | Implemented in `coordinator.rs` serial runtime   |
-| 3    | Per-writer-head `IntentInbox` policy                                           | Implemented in `head_inbox.rs` + runtime ingest  |
+| 3    | Per-writer-head `HeadInbox` policy                                             | Implemented in `head_inbox.rs` + runtime ingest  |
 | 4    | Wire writer-head commit to provenance in production                            | PR #298 laid atom write + causal cone groundwork |
 | 5    | Per-head `seek`/`jump` APIs; deprecate global `jump_to_tick`                   | `engine_impl.rs` global rewind                   |
 | 6    | Split `worldline_tick` / `global_tick` semantics                               | Currently entangled in runtime + provenance APIs |

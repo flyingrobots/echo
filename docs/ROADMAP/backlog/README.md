@@ -3,7 +3,7 @@
 
 # Backlog
 
-> **Priority:** Unscheduled | **Est:** ~187h
+> **Priority:** Unscheduled | **Est:** ~209h
 
 Unscheduled work across all projects. Items here have no committed timeline and can be picked up opportunistically. git-mind NEXUS (formerly its own milestone) has been demoted here because it runs independently of Echo's critical path.
 

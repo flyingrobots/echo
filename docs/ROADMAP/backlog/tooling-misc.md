@@ -143,8 +143,8 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 **Requirements:**
 
 - R1: Add a single local entry point for the current Rustdoc gate commands on the critical crates
-- R2: Ensure the command runs with `RUSTDOCFLAGS="-D warnings"` so it matches CI exactly
-- R3: Document when contributors should run it and how it differs from plain `cargo doc`
+- R2: Ensure the command runs with `RUSTDOCFLAGS="-D warnings"` so it matches the CI rustdoc gate
+- R3: Document when contributors should run it, how it differs from plain `cargo doc`, and which broader compile/doc gates remain separate (`RUSTFLAGS="-Dwarnings"`, `cargo clippy --all-targets -- -D missing_docs`, `cargo test`)
 - R4: Keep the crate list aligned with the CI rustdoc gate
 
 **Acceptance Criteria:**
@@ -160,14 +160,14 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** Local tooling, contributor docs, Rustdoc parity with CI.
-**Out of Scope:** Changing which crates the CI rustdoc job covers.
+**Scope:** Local tooling, contributor docs, and parity with the CI Rustdoc warnings gate only.
+**Out of Scope:** Changing which crates the CI rustdoc job covers, or replacing the repo's separate compile/clippy/test gates.
 
 **Test Plan:**
 
 - **Goldens:** n/a
 - **Failures:** Intentionally introduce a rustdoc warning and verify the local gate fails
-- **Edges:** Private intra-doc links, missing docs, crate not present
+- **Edges:** Private intra-doc links, crate not present, contributors confusing this gate with the separate `RUSTFLAGS` / clippy / test checks
 - **Fuzz/Stress:** n/a
 
 **Blocked By:** none
@@ -207,10 +207,10 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Test Plan:**
 
-- **Goldens:** Existing golden vector suite still passes unchanged
+- **Goldens:** Run the DIND (Deterministic Ironclad Nightmare Drills) golden hash-chain harness plus the existing golden vector suite unchanged
 - **Failures:** Helper misuse should be caught by determinism/property tests
 - **Edges:** Tests that intentionally vary worker count remain explicit
-- **Fuzz/Stress:** Existing proptests
+- **Fuzz/Stress:** Existing proptests; determinism-sensitive helper changes must include DIND coverage so canonical outputs cannot drift silently
 
 **Blocked By:** none
 **Blocking:** none

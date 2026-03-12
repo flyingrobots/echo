@@ -5,6 +5,20 @@
 
 ## Unreleased
 
+### fix(warp-core): resolve late Phase 3 PR follow-ups
+
+- **Fixed** `WorldlineRuntime` no longer exposes raw public registries that can
+  desynchronize the default-writer / named-inbox route tables; named inbox
+  lookup is now allocation-free on the live ingress path.
+- **Fixed** `SchedulerCoordinator::super_tick()` now preflights
+  `global_tick`/`frontier_tick` overflow before draining inboxes or mutating
+  worldline state.
+- **Fixed** runtime ingress event materialization is now folded back into the
+  recorded tick patch boundary, so replaying `initial_state + tick_history`
+  matches the committed post-state.
+- **Fixed** `WarpKernel::with_engine(...)` now rejects non-fresh engines
+  instead of silently dropping runtime history that it cannot preserve.
+
 ### fix(warp-core): close remaining Phase 3 PR review threads
 
 - **Fixed** `WorldlineRegistry::register(...)` now fails loudly with a typed
@@ -140,9 +154,10 @@
 - **Added** golden vector suite (`golden_vectors_phase0.rs`) pinning commit
   determinism, provenance replay integrity, fork reproducibility, and
   idempotent ingress hashes before the worldline runtime refactor.
-- **Added** property test suite (`invariant_property_tests.rs`) enforcing
+- **Added** invariant test suite (`invariant_property_tests.rs`) enforcing
   monotonic worldline ticks, idempotent ingress, cross-worldline isolation,
-  commit determinism, and provenance immutability via `proptest`.
+  commit determinism, and provenance immutability; INV-001/002/003/005 use
+  `proptest`, while INV-004/006 are fixed regression tests.
 - **Added** ADR exceptions ledger (`docs/adr/adr-exceptions.md`) — operational
   from Phase 0 onward, every intentional model violation must be logged with
   owner and expiry.

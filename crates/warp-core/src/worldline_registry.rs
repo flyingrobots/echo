@@ -55,8 +55,8 @@ impl WorldlineRegistry {
     ///
     /// # Errors
     ///
-    /// Returns [`RegisterWorldlineError::DuplicateWorldline`] if a worldline
-    /// with this ID is already registered.
+    /// Returns a `DuplicateWorldline` registration error if a worldline with
+    /// this ID is already registered.
     pub fn register(
         &mut self,
         worldline_id: WorldlineId,

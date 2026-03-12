@@ -5,6 +5,29 @@
 
 ## Unreleased
 
+### fix(warp-core): harden Phase 3 runtime review follow-ups
+
+- **Fixed** `HeadId` is now opaque with internal range bounds, so public callers
+  cannot fabricate arbitrary head identities while `heads_for_worldline()` still
+  keeps its `BTreeMap` range-query fast path.
+- **Fixed** `WriterHead` now derives pause state from `mode`, and
+  `unpause(PlaybackMode::Paused)` panics in all builds instead of only under
+  `debug_assert!`.
+- **Fixed** `PlaybackHeadRegistry` and `WorldlineRegistry` no longer expose raw
+  public mutable access to stored heads/frontiers; runtime code uses targeted
+  internal inbox/frontier mutation instead.
+- **Fixed** `IngressEnvelope` fields are now private and `HeadInbox::ingest()`
+  enforces the canonical content hash in release builds too, closing the
+  debug-only invariant hole.
+- **Fixed** `SchedulerCoordinator::peek_order()` now derives runnable order from
+  the head registry instead of trusting cached state, and tick counters now fail
+  deterministically on overflow.
+- **Fixed** INV-002 now asserts exact head-key equality against the canonical
+  expected order, not just length plus pairwise zip checks.
+- **Fixed** the ADR implementation plan now shows private-field pseudocode for
+  worldline frontiers and the stronger verification matrix, including the
+  `RUSTFLAGS="-Dwarnings"` determinism gate.
+
 ### fix(warp-core): address CodeRabbit round-3 PR feedback
 
 - **Fixed** `WriterHead.key` is now private with a `key()` getter, preventing

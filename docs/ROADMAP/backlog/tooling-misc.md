@@ -184,17 +184,21 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Requirements:**
 
-- R1: Introduce a shared helper for single-worker deterministic test engines
-- R2: Migrate the determinism-sensitive tests that currently hand-roll `.workers(1)`
+- R1: Introduce a shared helper for the remaining single-worker deterministic test engines
+- R2: Migrate the remaining determinism-sensitive tests that still hand-roll `.workers(1)`
 - R3: Document when tests should use the helper versus explicit multi-worker coverage
 - R4: Keep the helper narrow enough that test intent stays obvious
+
+**Completed already:**
+
+- Determinism proptests and golden-vector harnesses are pinned to single-worker builders.
 
 **Acceptance Criteria:**
 
 - [ ] AC1: Determinism-sensitive tests use a shared helper instead of repeated `.workers(1)` chains
 - [ ] AC2: Multi-worker invariance tests still opt into explicit worker counts directly
 - [ ] AC3: A short contributor note explains which path to use
-- [ ] AC4: No golden/property harness depends on host default worker count
+- [x] AC4: No golden/property harness depends on host default worker count
 
 **Definition of Done:**
 
@@ -202,7 +206,7 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** Test helper extraction and migration for determinism-sensitive harnesses.
+**Scope:** Test helper extraction plus migration of the remaining determinism-sensitive harnesses.
 **Out of Scope:** Changing production engine defaults.
 
 **Test Plan:**

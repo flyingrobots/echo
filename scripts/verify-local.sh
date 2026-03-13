@@ -90,6 +90,17 @@ readonly FULL_LOCAL_PACKAGES=(
   "xtask"
 )
 
+readonly FULL_LOCAL_TEST_PACKAGES=(
+  "warp-core"
+  "warp-geom"
+  "warp-wasm"
+  "echo-wasm-abi"
+  "echo-scene-port"
+  "echo-scene-codec"
+  "echo-graph"
+  "echo-ttd"
+)
+
 ensure_command() {
   local cmd="$1"
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -331,15 +342,17 @@ run_full_checks() {
 
   local full_args=()
   mapfile -t full_args < <(package_args "${FULL_LOCAL_PACKAGES[@]}")
+  local full_test_args=()
+  mapfile -t full_test_args < <(package_args "${FULL_LOCAL_TEST_PACKAGES[@]}")
 
   echo "[verify-local] cargo clippy on critical packages"
   cargo +"$PINNED" clippy "${full_args[@]}" -- -D warnings -D missing_docs
 
   echo "[verify-local] tests on critical packages"
   if use_nextest; then
-    cargo +"$PINNED" nextest run "${full_args[@]}"
+    cargo +"$PINNED" nextest run "${full_test_args[@]}"
   else
-    cargo +"$PINNED" test "${full_args[@]}"
+    cargo +"$PINNED" test "${full_test_args[@]}"
   fi
 
   echo "[verify-local] PRNG golden regression (warp-core)"

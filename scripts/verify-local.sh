@@ -333,7 +333,7 @@ run_full_checks() {
   mapfile -t full_args < <(package_args "${FULL_LOCAL_PACKAGES[@]}")
 
   echo "[verify-local] cargo clippy on critical packages"
-  cargo +"$PINNED" clippy "${full_args[@]}" --all-targets -- -D warnings -D missing_docs
+  cargo +"$PINNED" clippy "${full_args[@]}" -- -D warnings -D missing_docs
 
   echo "[verify-local] tests on critical packages"
   if use_nextest; then

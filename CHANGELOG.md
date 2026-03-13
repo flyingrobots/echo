@@ -14,8 +14,8 @@
   `make verify-pr`, and `make verify-full` so local verification can scale with
   the change set and reuse a same-`HEAD` success stamp.
 - **Changed** the canonical pre-push hook now classifies docs-only, reduced,
-  and full verification paths, escalating to the full workspace gate only for
-  determinism-critical, CI, hook, and build-system changes.
+  and critical verification paths, escalating to a determinism/tooling-focused
+  local gate only for determinism-critical, CI, hook, and build-system changes.
 - **Changed** the main CI workflow no longer runs on `push` for `feat/**`
   branches, leaving `pull_request` as the authoritative branch-validation lane
   while `main` retains push-time protection.

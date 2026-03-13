@@ -74,6 +74,22 @@ readonly FULL_CRITICAL_EXACT=(
   "Makefile"
 )
 
+readonly FULL_LOCAL_PACKAGES=(
+  "warp-core"
+  "warp-geom"
+  "warp-wasm"
+  "echo-wasm-abi"
+  "echo-scene-port"
+  "echo-scene-codec"
+  "echo-graph"
+  "echo-ttd"
+  "echo-dind-harness"
+  "echo-dind-tests"
+  "ttd-protocol-rs"
+  "ttd-manifest"
+  "xtask"
+)
+
 ensure_command() {
   local cmd="$1"
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -260,10 +276,84 @@ run_targeted_checks() {
   run_docs_lint
 }
 
+package_args() {
+  local pkg
+  for pkg in "$@"; do
+    printf '%s\n' "-p" "$pkg"
+  done
+}
+
+run_pattern_guards() {
+  ensure_command rg
+
+  echo "[verify-local] scanning banned patterns"
+  local match_output
+  if match_output=$(rg -n '#!\[allow\([^]]*missing_docs[^]]*\)\]' \
+    crates \
+    --glob 'crates/**/src/**/*.rs' \
+    --glob '!**/telemetry.rs' \
+    --glob '!**/tests/**' \
+    --glob '!**/build.rs' \
+    --glob '!**/*.generated.rs' 2>&1); then
+    echo "pre-push: crate-level allow(missing_docs) is forbidden (except telemetry.rs and *.generated.rs)." >&2
+    echo "$match_output" >&2
+    exit 1
+  fi
+  if match_output=$(rg -n "\\#\[unsafe\(no_mangle\)\]" crates 2>&1); then
+    echo "pre-push: #[unsafe(no_mangle)] is invalid; use #[no_mangle]." >&2
+    echo "$match_output" >&2
+    exit 1
+  fi
+}
+
+run_spdx_check() {
+  echo "[verify-local] checking SPDX headers"
+  if [[ -x scripts/check_spdx.sh ]]; then
+    scripts/check_spdx.sh || {
+      echo "[verify-local] SPDX check failed. Run ./scripts/ensure_spdx.sh --all to fix." >&2
+      exit 1
+    }
+  fi
+}
+
+run_determinism_guard() {
+  if [[ -x scripts/ban-nondeterminism.sh ]]; then
+    echo "[verify-local] determinism guard"
+    scripts/ban-nondeterminism.sh
+  fi
+}
+
 run_full_checks() {
   ensure_toolchain
-  echo "[verify-local] full workspace gate"
-  "$REPO_ROOT/.githooks/pre-push-sequential"
+  echo "[verify-local] critical local gate"
+  echo "[verify-local] cargo fmt --all -- --check"
+  cargo +"$PINNED" fmt --all -- --check
+
+  local full_args=()
+  mapfile -t full_args < <(package_args "${FULL_LOCAL_PACKAGES[@]}")
+
+  echo "[verify-local] cargo clippy on critical packages"
+  cargo +"$PINNED" clippy "${full_args[@]}" --all-targets -- -D warnings -D missing_docs
+
+  echo "[verify-local] tests on critical packages"
+  if use_nextest; then
+    cargo +"$PINNED" nextest run "${full_args[@]}"
+  else
+    cargo +"$PINNED" test "${full_args[@]}"
+  fi
+
+  echo "[verify-local] PRNG golden regression (warp-core)"
+  cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression
+
+  local doc_pkg
+  for doc_pkg in warp-core warp-geom warp-wasm; do
+    echo "[verify-local] rustdoc warnings gate (${doc_pkg})"
+    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${doc_pkg}" --no-deps
+  done
+
+  run_pattern_guards
+  run_spdx_check
+  run_determinism_guard
   run_docs_lint
 }
 

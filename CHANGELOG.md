@@ -5,6 +5,21 @@
 
 ## Unreleased
 
+### fix(tooling): reduce duplicate local and feature-branch verification
+
+- **Changed** `scripts/hooks/pre-commit` and `scripts/hooks/pre-push` now
+  delegate to the canonical `.githooks/` implementations instead of enforcing a
+  stale parallel local policy.
+- **Added** `scripts/verify-local.sh` plus `make verify-fast`,
+  `make verify-pr`, and `make verify-full` so local verification can scale with
+  the change set and reuse a same-`HEAD` success stamp.
+- **Changed** the canonical pre-push hook now classifies docs-only, reduced,
+  and full verification paths, escalating to the full workspace gate only for
+  determinism-critical, CI, hook, and build-system changes.
+- **Changed** the main CI workflow no longer runs on `push` for `feat/**`
+  branches, leaving `pull_request` as the authoritative branch-validation lane
+  while `main` retains push-time protection.
+
 ### fix(warp-core): resolve final Phase 3 review invariants
 
 - **Fixed** `Engine` now caches canonical `cmd/*` rule order at registration

@@ -2,17 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 #
-# Legacy compatibility shim.
-#
-# The canonical repository hooks live in `.githooks/` and are installed with
-# `make hooks`. This script remains as a minimal manual fallback for developers
-# who explicitly invoke `scripts/hooks/*` outside the configured git hook path.
+# Compatibility shim: delegate to the canonical hook implementation.
 set -euo pipefail
 
-echo "pre-commit: running cargo clippy..."
-cargo clippy --workspace --all-targets -- -D warnings -D missing_docs
-echo "pre-commit: cargo clippy passed."
-
-echo "pre-commit: running cargo fmt check..."
-cargo fmt --all -- --check
-echo "pre-commit: cargo fmt passed."
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+exec "$REPO_ROOT/.githooks/pre-commit"

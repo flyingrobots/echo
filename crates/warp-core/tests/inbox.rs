@@ -119,11 +119,12 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
         kind,
         b"same-intent".to_vec(),
     );
+    let default_ingress_id = default_env.ingress_id();
 
     assert_eq!(
         runtime.ingest(default_env.clone()).unwrap(),
         IngressDisposition::Accepted {
-            ingress_id: default_env.ingress_id(),
+            ingress_id: default_ingress_id,
             head_key: default_key,
         }
     );
@@ -132,7 +133,7 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
     assert_eq!(
         runtime.ingest(default_env).unwrap(),
         IngressDisposition::Duplicate {
-            ingress_id: named_env.ingress_id(),
+            ingress_id: default_ingress_id,
             head_key: default_key,
         }
     );

@@ -303,6 +303,10 @@ pub struct SchedulerCoordinator;
 impl SchedulerCoordinator {
     /// Executes one SuperTick: admits inbox work in canonical head order and
     /// commits each non-empty head against its worldline frontier.
+    ///
+    /// The SuperTick is failure-atomic with respect to runtime state: if any
+    /// head commit fails, all prior runtime mutations from this pass are
+    /// discarded and the runtime is restored to its pre-SuperTick state.
     pub fn super_tick(
         runtime: &mut WorldlineRuntime,
         engine: &mut Engine,
@@ -334,6 +338,8 @@ impl SchedulerCoordinator {
             }
         }
 
+        let runtime_before = runtime.clone();
+
         for key in &keys {
             let admitted = runtime
                 .heads
@@ -349,22 +355,14 @@ impl SchedulerCoordinator {
             {
                 engine.commit_with_state(frontier.state_mut(), &admitted)
             } else {
-                runtime
-                    .heads
-                    .inbox_mut(key)
-                    .ok_or(RuntimeError::UnknownHead(*key))?
-                    .requeue(admitted);
+                *runtime = runtime_before;
                 return Err(RuntimeError::UnknownWorldline(key.worldline_id));
             };
 
             let CommitOutcome { snapshot, .. } = match outcome {
                 Ok(outcome) => outcome,
                 Err(err) => {
-                    runtime
-                        .heads
-                        .inbox_mut(key)
-                        .ok_or(RuntimeError::UnknownHead(*key))?
-                        .requeue(admitted);
+                    *runtime = runtime_before;
                     return Err(err.into());
                 }
             };
@@ -1035,6 +1033,133 @@ mod tests {
                 .node(&crate::NodeId(envelope.ingress_id()))
                 .is_none(),
             "global-tick overflow must not mutate the worldline state"
+        );
+    }
+
+    #[test]
+    fn super_tick_rolls_back_earlier_head_commits_when_a_later_head_fails() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env_a = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_a,
+            },
+            make_intent_kind("test"),
+            b"commit-a".to_vec(),
+        );
+        let env_b = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_b,
+            },
+            make_intent_kind("test"),
+            b"commit-b".to_vec(),
+        );
+        let env_a_ingress_id = env_a.ingress_id();
+        runtime.ingest(env_a).unwrap();
+        runtime.ingest(env_b).unwrap();
+
+        {
+            let frontier = runtime.worldlines.frontier_mut(&worldline_b).unwrap();
+            let broken_root = frontier.state.root.warp_id;
+            assert!(frontier.state.warp_state.delete_instance(&broken_root));
+        }
+
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        assert!(matches!(
+            err,
+            RuntimeError::Engine(EngineError::UnknownWarp(warp_id))
+                if warp_id == runtime
+                    .worldlines
+                    .get(&worldline_b)
+                    .unwrap()
+                    .state()
+                    .root()
+                    .warp_id
+        ));
+
+        assert_eq!(
+            runtime.global_tick(),
+            0,
+            "failed SuperTick must not advance global tick"
+        );
+        assert_eq!(
+            runtime.heads.get(&head_a).unwrap().inbox().pending_count(),
+            1,
+            "rollback must restore the earlier head inbox"
+        );
+        assert_eq!(
+            runtime.heads.get(&head_b).unwrap().inbox().pending_count(),
+            1,
+            "rollback must preserve the failing head inbox contents"
+        );
+        assert!(
+            runtime
+                .worldlines
+                .get(&worldline_a)
+                .unwrap()
+                .state()
+                .last_snapshot()
+                .is_none(),
+            "rollback must discard snapshots from earlier successful heads"
+        );
+        assert!(
+            runtime
+                .worldlines
+                .get(&worldline_b)
+                .unwrap()
+                .state()
+                .last_snapshot()
+                .is_none(),
+            "the failing head must not record a committed snapshot"
+        );
+        assert!(
+            runtime_store(&runtime, worldline_a)
+                .node(&crate::NodeId(env_a_ingress_id))
+                .is_none(),
+            "rollback must discard earlier runtime ingress materialization"
+        );
+        assert!(
+            runtime
+                .worldlines
+                .get(&worldline_b)
+                .unwrap()
+                .state()
+                .warp_state()
+                .store(
+                    &runtime
+                        .worldlines
+                        .get(&worldline_b)
+                        .unwrap()
+                        .state()
+                        .root()
+                        .warp_id
+                )
+                .is_none(),
+            "rollback must restore the failing worldline to its pre-SuperTick state"
         );
     }
 

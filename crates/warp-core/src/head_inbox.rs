@@ -377,16 +377,6 @@ impl HeadInbox {
         }
     }
 
-    /// Re-queues previously admitted envelopes back into the pending set.
-    ///
-    /// This is used when a later commit stage fails after admission has
-    /// already removed the envelopes from the inbox.
-    pub(crate) fn requeue(&mut self, envelopes: Vec<IngressEnvelope>) {
-        for envelope in envelopes {
-            self.pending.insert(envelope.ingress_id(), envelope);
-        }
-    }
-
     /// Returns the number of pending envelopes.
     #[must_use]
     pub fn pending_count(&self) -> usize {

@@ -131,6 +131,7 @@ readonly FULL_LOCAL_PACKAGES=(
   "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
+  "ttd-browser"
   "ttd-protocol-rs"
   "ttd-manifest"
   "xtask"
@@ -144,6 +145,7 @@ readonly FULL_LOCAL_TEST_PACKAGES=(
   "echo-ttd"
   "echo-dind-harness"
   "echo-dind-tests"
+  "ttd-browser"
 )
 
 ensure_command() {

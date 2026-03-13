@@ -102,6 +102,50 @@ else
   printf '%s\n' "$exact_output"
 fi
 
+coverage_output="$(python3 - <<'PY'
+from pathlib import Path
+import re
+
+text = Path("scripts/verify-local.sh").read_text()
+
+def parse_array(name: str) -> list[str]:
+    match = re.search(rf'readonly {name}=\((.*?)\n\)', text, re.S)
+    if not match:
+        raise SystemExit(f"missing array: {name}")
+    items: list[str] = []
+    for line in match.group(1).splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        items.append(line.strip('"'))
+    return items
+
+critical_crates = {
+    prefix[len("crates/"):-1]
+    for prefix in parse_array("FULL_CRITICAL_PREFIXES")
+    if prefix.startswith("crates/")
+}
+full_packages = set(parse_array("FULL_LOCAL_PACKAGES"))
+full_test_packages = set(parse_array("FULL_LOCAL_TEST_PACKAGES"))
+
+missing_build = sorted(critical_crates - full_packages)
+print("missing_build=" + ",".join(missing_build))
+print("ttd_browser_tested=" + str("ttd-browser" in full_test_packages).lower())
+PY
+)"
+if printf '%s\n' "$coverage_output" | grep -q '^missing_build=$'; then
+  pass "every full-critical crate is included in the full build/clippy package set"
+else
+  fail "full-critical crates must all be present in FULL_LOCAL_PACKAGES"
+  printf '%s\n' "$coverage_output"
+fi
+if printf '%s\n' "$coverage_output" | grep -q '^ttd_browser_tested=true$'; then
+  pass "ttd-browser is covered by the full local test lane"
+else
+  fail "ttd-browser must be exercised by the full local test lane"
+  printf '%s\n' "$coverage_output"
+fi
+
 echo "PASS: $PASS"
 echo "FAIL: $FAIL"
 

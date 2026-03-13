@@ -101,7 +101,7 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
   expected order, not just length plus pairwise zip checks.
 - **Fixed** the ADR implementation plan now shows private-field pseudocode for
   worldline frontiers and the stronger verification matrix, including the
-  `RUSTFLAGS="-Dwarnings"` determinism gate.
+  rustdoc warnings gate (`RUSTDOCFLAGS="-D warnings" cargo doc ... --no-deps`).
 
 ### fix(warp-core): address CodeRabbit round-3 PR feedback
 

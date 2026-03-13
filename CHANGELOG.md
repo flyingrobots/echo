@@ -28,6 +28,9 @@
 - **Changed** the CI `Tests` gate now fans in from parallel `workspace sans
 warp-core` and `warp-core` shards, preserving the required `Tests` status
   while cutting PR wall-clock time spent waiting on one serialized workspace job.
+- **Changed** the `warp-core` CI shard now uses `cargo nextest` for the main
+  test inventory and keeps `cargo test --doc` as a separate step so the heavy
+  crate runs faster without dropping its doctest coverage.
 
 ### fix(warp-core): resolve final Phase 3 review invariants
 

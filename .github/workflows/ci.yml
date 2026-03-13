@@ -85,8 +85,14 @@ jobs:
         with:
           workspaces: |
             .
-      - name: cargo test (warp-core)
-        run: cargo test -p warp-core
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: cargo nextest run (warp-core)
+        run: cargo nextest run -p warp-core
+      - name: cargo test --doc (warp-core)
+        run: cargo test -p warp-core --doc
       - name: PRNG golden regression (warp-core)
         run: cargo test -p warp-core --features golden_prng --test prng_golden_regression
 

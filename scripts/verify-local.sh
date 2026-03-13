@@ -17,6 +17,7 @@ PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev
 PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
 VERIFY_FORCE="${VERIFY_FORCE:-0}"
 STAMP_DIR="${VERIFY_STAMP_DIR:-.git/verify-local}"
+VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
 
 sha256_file() {
   local file="$1"
@@ -120,7 +121,7 @@ ensure_toolchain() {
 }
 
 use_nextest() {
-  command -v cargo-nextest >/dev/null 2>&1
+  [[ "$VERIFY_USE_NEXTEST" == "1" ]] && command -v cargo-nextest >/dev/null 2>&1
 }
 
 list_changed_files() {

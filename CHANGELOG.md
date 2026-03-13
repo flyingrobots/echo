@@ -25,6 +25,9 @@
 - **Changed** the main CI workflow no longer runs on `push` for `feat/**`
   branches, leaving `pull_request` as the authoritative branch-validation lane
   while `main` retains push-time protection.
+- **Changed** the CI `Tests` gate now fans in from parallel `workspace sans
+warp-core` and `warp-core` shards, preserving the required `Tests` status
+  while cutting PR wall-clock time spent waiting on one serialized workspace job.
 
 ### fix(warp-core): resolve final Phase 3 review invariants
 

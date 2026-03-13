@@ -58,8 +58,8 @@ jobs:
       - name: cargo clippy (warp-core, det_fixed)
         run: cargo clippy -p warp-core --all-targets --features det_fixed -- -D warnings -D missing_docs
 
-  test:
-    name: Tests
+  test-workspace:
+    name: Tests (workspace sans warp-core)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,10 +70,49 @@ jobs:
         with:
           workspaces: |
             .
-      - name: cargo test (workspace)
-        run: cargo test --workspace
+      - name: cargo test (workspace sans warp-core)
+        run: cargo test --workspace --exclude warp-core
+
+  test-warp-core:
+    name: Tests (warp-core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+      - name: cargo test (warp-core)
+        run: cargo test -p warp-core
       - name: PRNG golden regression (warp-core)
         run: cargo test -p warp-core --features golden_prng --test prng_golden_regression
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs:
+      - test-workspace
+      - test-warp-core
+    if: always()
+    steps:
+      - name: Require test shard success
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace_result="${{ needs.test-workspace.result }}"
+          warp_core_result="${{ needs.test-warp-core.result }}"
+          if [[ "$workspace_result" != "success" ]]; then
+            echo "workspace shard result: $workspace_result" >&2
+            exit 1
+          fi
+          if [[ "$warp_core_result" != "success" ]]; then
+            echo "warp-core shard result: $warp_core_result" >&2
+            exit 1
+          fi
+          echo "All test shards passed."
 
   test-musl:
     name: Tests (musl)

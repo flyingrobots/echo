@@ -10,6 +10,7 @@ set -euo pipefail
 MODE="${1:-auto}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VERIFY_REPORT_TIMING="${VERIFY_REPORT_TIMING:-1}"
 
 cd "$REPO_ROOT"
 
@@ -18,6 +19,50 @@ PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
 VERIFY_FORCE="${VERIFY_FORCE:-0}"
 STAMP_DIR="${VERIFY_STAMP_DIR:-.git/verify-local}"
 VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
+SECONDS=0
+
+format_elapsed() {
+  local total_seconds="$1"
+  local hours=$((total_seconds / 3600))
+  local minutes=$(((total_seconds % 3600) / 60))
+  local seconds=$((total_seconds % 60))
+
+  if [[ $hours -gt 0 ]]; then
+    printf '%dh%02dm%02ds' "$hours" "$minutes" "$seconds"
+    return
+  fi
+
+  if [[ $minutes -gt 0 ]]; then
+    printf '%dm%02ds' "$minutes" "$seconds"
+    return
+  fi
+
+  printf '%ds' "$seconds"
+}
+
+report_timing() {
+  local status="$1"
+  if [[ "$VERIFY_REPORT_TIMING" != "1" ]]; then
+    return
+  fi
+
+  local elapsed
+  elapsed="$(format_elapsed "$SECONDS")"
+  if [[ "$status" -eq 0 ]]; then
+    echo "[verify-local] completed in ${elapsed}"
+  else
+    echo "[verify-local] failed after ${elapsed}" >&2
+  fi
+}
+
+on_exit() {
+  local status="$?"
+  trap - EXIT
+  report_timing "$status"
+  exit "$status"
+}
+
+trap on_exit EXIT
 
 sha256_file() {
   local file="$1"
@@ -195,6 +240,20 @@ list_changed_crates() {
   printf '%s\n' "$CHANGED_FILES" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u
 }
 
+stamp_suite_for_classification() {
+  local classification="$1"
+
+  case "$classification" in
+    docs|reduced|full)
+      printf '%s\n' "$classification"
+      ;;
+    *)
+      echo "verify-local: unknown stamp suite classification: $classification" >&2
+      exit 1
+      ;;
+  esac
+}
+
 stamp_key() {
   local suite="$1"
   local head_sha
@@ -346,8 +405,8 @@ run_full_checks() {
   echo "[verify-local] cargo clippy on critical packages"
   cargo +"$PINNED" clippy "${full_args[@]}" -- -D warnings -D missing_docs
 
-  echo "[verify-local] tests on critical packages"
-  cargo +"$PINNED" test "${full_test_args[@]}"
+  echo "[verify-local] tests on critical packages (lib + integration targets)"
+  cargo +"$PINNED" test "${full_test_args[@]}" --lib --tests
   cargo +"$PINNED" test -p warp-wasm --features engine --lib
   cargo +"$PINNED" test -p echo-wasm-abi --lib
   cargo +"$PINNED" test -p warp-core --lib
@@ -373,7 +432,8 @@ run_full_checks() {
 
 run_auto_mode() {
   local classification="$1"
-  local suite="auto-${classification}"
+  local suite
+  suite="$(stamp_suite_for_classification "$classification")"
 
   if should_skip_via_stamp "$suite"; then
     echo "[verify-local] reusing cached ${classification} verification for HEAD $(git rev-parse --short HEAD)"
@@ -408,7 +468,9 @@ CLASSIFICATION="$(classify_change_set)"
 
 case "$MODE" in
   detect)
+    VERIFY_REPORT_TIMING=0
     printf 'classification=%s\n' "$CLASSIFICATION"
+    printf 'stamp_suite=%s\n' "$(stamp_suite_for_classification "$CLASSIFICATION")"
     printf 'changed_files=%s\n' "$(printf '%s' "$CHANGED_FILES" | awk 'NF {count++} END {print count+0}')"
     printf 'changed_crates=%s\n' "$(list_changed_crates | paste -sd, -)"
     ;;
@@ -420,12 +482,12 @@ case "$MODE" in
     run_auto_mode "$CLASSIFICATION"
     ;;
   full)
-    if should_skip_via_stamp "manual-full"; then
+    if should_skip_via_stamp "full"; then
       echo "[verify-local] reusing cached full verification for HEAD $(git rev-parse --short HEAD)"
       exit 0
     fi
     run_full_checks
-    write_stamp "manual-full"
+    write_stamp "full"
     ;;
   *)
     echo "usage: scripts/verify-local.sh [detect|fast|pr|full|auto|pre-push]" >&2

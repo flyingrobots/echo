@@ -35,12 +35,24 @@ else
   fail "docs-only changes should classify as docs"
   printf '%s\n' "$docs_output"
 fi
+if printf '%s\n' "$docs_output" | grep -q '^stamp_suite=docs$'; then
+  pass "docs-only changes use the shared docs stamp suite"
+else
+  fail "docs-only changes should map to the docs stamp suite"
+  printf '%s\n' "$docs_output"
+fi
 
 reduced_output="$(run_detect crates/warp-cli/src/main.rs crates/echo-app-core/src/lib.rs)"
 if printf '%s\n' "$reduced_output" | grep -q '^classification=reduced$'; then
   pass "non-critical crate changes use reduced mode"
 else
   fail "non-critical crate changes should classify as reduced"
+  printf '%s\n' "$reduced_output"
+fi
+if printf '%s\n' "$reduced_output" | grep -q '^stamp_suite=reduced$'; then
+  pass "non-critical crate changes use the shared reduced stamp suite"
+else
+  fail "non-critical crate changes should map to the reduced stamp suite"
   printf '%s\n' "$reduced_output"
 fi
 if printf '%s\n' "$reduced_output" | grep -q '^changed_crates=echo-app-core,warp-cli$'; then
@@ -55,6 +67,12 @@ if printf '%s\n' "$full_output" | grep -q '^classification=full$'; then
   pass "warp-core changes force full verification"
 else
   fail "warp-core changes should classify as full"
+  printf '%s\n' "$full_output"
+fi
+if printf '%s\n' "$full_output" | grep -q '^stamp_suite=full$'; then
+  pass "critical changes use the shared full stamp suite"
+else
+  fail "critical changes should map to the full stamp suite"
   printf '%s\n' "$full_output"
 fi
 

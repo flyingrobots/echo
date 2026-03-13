@@ -16,6 +16,12 @@
 - **Changed** the canonical pre-push hook now classifies docs-only, reduced,
   and critical verification paths, escalating to a determinism/tooling-focused
   local gate only for determinism-critical, CI, hook, and build-system changes.
+- **Fixed** manual `make verify-full` runs and the canonical pre-push full gate
+  now share the same success stamp, so an explicit clean full pass suppresses
+  the identical hook rerun for the same `HEAD`.
+- **Changed** the curated local full test lane now runs library and integration
+  targets only for the small non-core confidence crates, cutting doc-test-only
+  churn while the script reports total elapsed time on completion or failure.
 - **Changed** the main CI workflow no longer runs on `push` for `feat/**`
   branches, leaving `pull_request` as the authoritative branch-validation lane
   while `main` retains push-time protection.

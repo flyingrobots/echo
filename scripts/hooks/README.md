@@ -14,4 +14,7 @@ implementations in [`.githooks/`](../../.githooks) so a repo configured with
 
 Authoritative behavior lives in `.githooks/pre-commit` and
 `.githooks/pre-push`. For explicit local runs outside git hooks, prefer the
-`make verify-fast`, `make verify-pr`, and `make verify-full` entry points.
+`make verify-fast`, `make verify-pr`, and `make verify-full` entry points. A
+successful `make verify-full` run now shares the same success stamp as the
+canonical pre-push full gate, so pushing the same `HEAD` does not rerun that
+identical full verification locally.

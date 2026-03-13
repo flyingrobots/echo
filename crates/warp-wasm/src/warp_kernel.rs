@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn step_ignores_legacy_engine_inbox_state() {
+    fn with_engine_rejects_legacy_engine_inbox_state() {
         let mut store = GraphStore::default();
         let root = make_node_id("root");
         store.insert_node(
@@ -617,7 +617,7 @@ mod tests {
             .build();
         let _ = engine.ingest_intent(b"legacy-only").unwrap();
 
-        let mut kernel = WarpKernel::with_engine(
+        let kernel = WarpKernel::with_engine(
             engine,
             RegistryInfo {
                 codec_id: None,
@@ -625,12 +625,9 @@ mod tests {
                 schema_sha256_hex: None,
                 abi_version: ABI_VERSION,
             },
-        )
-        .unwrap();
+        );
 
-        let result = kernel.step(1).unwrap();
-        assert_eq!(result.ticks_executed, 0);
-        assert_eq!(result.head.tick, 0);
+        assert!(matches!(kernel, Err(KernelInitError::NonFreshEngine)));
     }
 
     #[test]

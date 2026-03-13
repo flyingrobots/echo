@@ -8,8 +8,9 @@ and should be installed with `make hooks`, which configures `core.hooksPath`
 to point to that repository-relative directory.
 
 The scripts in this directory are compatibility shims for manual invocation or
-older local workflows. They now delegate directly to the canonical hook
-implementations in [`.githooks/`](../../.githooks) so a repo configured with
+older local workflows. Both [`scripts/hooks/pre-commit`](./pre-commit) and
+[`scripts/hooks/pre-push`](./pre-push) now delegate directly to
+[`.githooks/`](../../.githooks), so a repo configured with
 `core.hooksPath=scripts/hooks` does not drift from the documented policy.
 
 Authoritative behavior lives in `.githooks/pre-commit` and

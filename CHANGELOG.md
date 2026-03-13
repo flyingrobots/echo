@@ -118,14 +118,16 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
 
 - **Fixed** `WriterHead.mode` is now private with a `mode()` getter, preventing
   the `mode`/`paused` pair from diverging via direct field assignment.
-- **Fixed** `SchedulerCoordinator::super_tick()` now derives canonical runnable
-  order from the head registry instead of trusting stale runnable-cache state.
+- **Fixed** `SchedulerCoordinator::super_tick()` now uses canonical runnable
+  order derived from the head registry via `peek_order()` instead of trusting
+  stale runnable-cache state.
 - **Fixed** `HeadInbox::set_policy()` now revalidates pending envelopes against
   the new policy, evicting any that no longer pass.
 - **Fixed** `HeadInbox::admit()` now uses `mem::take` + `into_values()` instead
   of `clone()` + `clear()` for zero-copy admission in `AcceptAll`/`KindFilter`.
-- **Fixed** `HeadInbox::ingest()` now `debug_assert`s that the envelope's
-  `ingress_id` matches its payload hash, catching incorrectly-constructed envelopes.
+- **Fixed** `HeadInbox::ingest()` added envelope hash invariant checks; later
+  hardening enforces the canonical `ingress_id`/payload-hash match in release
+  builds as well.
 - **Fixed** `WorldlineState.warp_state` is now `pub(crate)` with a `warp_state()`
   getter, and `WorldlineFrontier` fields are `pub(crate)` with public getters.
 - **Fixed** INV-002 proptest now verifies set preservation (length check) in
@@ -468,7 +470,7 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
 - **Fix:** Fixed radix sort scope pair index inversion in `scheduler.rs`
   `bucket16()`. LSD passes were processing scope bytes MSB-first instead of
   LSB-first, causing the radix-sort path (n > 1024) to produce a different
-  ordering than the comparison-sort path (n ≤ 1024). Added 3 proptests:
+  ordering than the comparison-sort path (n ≤ 1024). Added 3 property tests:
   `proptest_drain_matches_btreemap_reference` (fuzzes both sort paths),
   `proptest_insertion_order_independence`, and `threshold_boundary_determinism`.
 - **Spec:** Replaced "Theorem A" in `spec-mwmr-concurrency.md` with the

@@ -142,6 +142,8 @@ readonly FULL_LOCAL_TEST_PACKAGES=(
   "echo-scene-port"
   "echo-scene-codec"
   "echo-ttd"
+  "echo-dind-harness"
+  "echo-dind-tests"
 )
 
 ensure_command() {
@@ -367,8 +369,8 @@ run_pattern_guards() {
     echo "$match_output" >&2
     exit 1
   fi
-  if match_output=$(rg -n "\\#\[unsafe\(no_mangle\)\]" crates 2>&1); then
-    echo "pre-push: #[unsafe(no_mangle)] is invalid; use #[no_mangle]." >&2
+  if match_output=$(rg -n "\\#\\[\\s*no_mangle\\s*\\]" crates 2>&1); then
+    echo "pre-push: #[no_mangle] is invalid; use #[unsafe(no_mangle)]." >&2
     echo "$match_output" >&2
     exit 1
   fi
@@ -403,7 +405,7 @@ run_full_checks() {
   mapfile -t full_test_args < <(package_args "${FULL_LOCAL_TEST_PACKAGES[@]}")
 
   echo "[verify-local] cargo clippy on critical packages"
-  cargo +"$PINNED" clippy "${full_args[@]}" -- -D warnings -D missing_docs
+  cargo +"$PINNED" clippy "${full_args[@]}" --all-targets -- -D warnings -D missing_docs
 
   echo "[verify-local] tests on critical packages (lib + integration targets)"
   cargo +"$PINNED" test "${full_test_args[@]}" --lib --tests

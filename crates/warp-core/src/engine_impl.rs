@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::attachment::{AttachmentKey, AttachmentValue};
 use crate::graph::GraphStore;
 use crate::graph_view::GraphView;
-use crate::head_inbox::{IngressEnvelope, IngressPayload};
+use crate::head_inbox::{IngressEnvelope, IngressPayload, IntentKind};
 use crate::ident::{
     make_edge_id, make_node_id, make_type_id, CompactRuleId, Hash, NodeId, NodeKey, WarpId,
 };
@@ -32,6 +32,8 @@ use crate::worldline_state::WorldlineState;
 use std::sync::Arc;
 
 const RUNTIME_INGRESS_EVENT_TYPE: &str = "runtime/ingress/event";
+const RUNTIME_INGRESS_KIND_EDGE_TYPE: &str = "runtime/ingress/intent_kind";
+const RUNTIME_INGRESS_KIND_NODE_TYPE: &str = "runtime/ingress/intent_kind_node";
 
 /// Outcome of calling [`Engine::apply`].
 ///
@@ -1839,10 +1841,10 @@ impl Engine {
     /// Returns `true` when the engine has no accumulated runtime history.
     ///
     /// Fresh engines have no committed snapshots, no tick history, no live
-    /// transactions, no materialization residue, and a zero transaction
-    /// counter. Boundary adapters that snapshot the engine into a separate
-    /// runtime should reject non-fresh engines unless they can export and
-    /// preserve the full runtime history.
+    /// transactions, no materialization residue, no legacy inbox ingress, and
+    /// a zero transaction counter. Boundary adapters that snapshot the engine
+    /// into a separate runtime should reject non-fresh engines unless they can
+    /// export and preserve the full runtime history.
     #[must_use]
     pub fn is_fresh_runtime_state(&self) -> bool {
         self.last_snapshot.is_none()
@@ -1850,6 +1852,8 @@ impl Engine {
             && self.last_materialization.is_empty()
             && self.last_materialization_errors.is_empty()
             && self.live_txs.is_empty()
+            && self.intent_log.is_empty()
+            && !self.has_legacy_pending_ingress()
             && self.tx_counter == 0
     }
 
@@ -2000,15 +2004,40 @@ impl Engine {
         }
 
         match envelope.payload() {
-            IngressPayload::LocalIntent { intent_bytes, .. } => {
+            IngressPayload::LocalIntent {
+                intent_kind,
+                intent_bytes,
+            } => {
                 let payload = crate::attachment::AtomPayload::new(
                     make_type_id(INTENT_ATTACHMENT_TYPE),
                     bytes::Bytes::copy_from_slice(intent_bytes),
                 );
                 store.set_node_attachment(event_id, Some(AttachmentValue::Atom(payload)));
+                let kind_node_id = runtime_ingress_kind_node_id(intent_kind);
+                if store.node(&kind_node_id).is_none() {
+                    store.insert_node(
+                        kind_node_id,
+                        NodeRecord {
+                            ty: make_type_id(RUNTIME_INGRESS_KIND_NODE_TYPE),
+                        },
+                    );
+                }
+                store.insert_edge(
+                    event_id,
+                    crate::record::EdgeRecord {
+                        id: runtime_ingress_kind_edge_id(&event_id, &kind_node_id),
+                        from: event_id,
+                        to: kind_node_id,
+                        ty: make_type_id(RUNTIME_INGRESS_KIND_EDGE_TYPE),
+                    },
+                );
                 Ok(event_id)
             }
         }
+    }
+
+    fn has_legacy_pending_ingress(&self) -> bool {
+        self.pending_intent_count().is_ok_and(|count| count > 0)
     }
 
     /// Returns a shared view of a node when it exists.
@@ -2407,6 +2436,18 @@ fn extend_slots_from_footprint(
         in_slots.insert(SlotId::Port(*port_key));
         out_slots.insert(SlotId::Port(*port_key));
     }
+}
+
+fn runtime_ingress_kind_node_id(intent_kind: &IntentKind) -> NodeId {
+    NodeId(*intent_kind.as_hash())
+}
+
+fn runtime_ingress_kind_edge_id(event_id: &NodeId, kind_node_id: &NodeId) -> crate::ident::EdgeId {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"runtime/ingress/intent_kind:");
+    hasher.update(event_id.as_bytes());
+    hasher.update(kind_node_id.as_bytes());
+    crate::ident::EdgeId(hasher.finalize().into())
 }
 
 #[cfg(test)]
@@ -2858,6 +2899,187 @@ mod tests {
             *state.root(),
             original_worldline_root,
             "test precondition: the temporary worldline root must differ from the original root"
+        );
+    }
+
+    #[test]
+    fn fresh_runtime_state_rejects_legacy_ingest_paths() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = Engine::new(store, root);
+        assert!(
+            engine.is_fresh_runtime_state(),
+            "fresh engine should start clean"
+        );
+
+        let ingest = engine.ingest_intent(b"legacy-pending");
+        assert!(matches!(ingest, Ok(IngestDisposition::Accepted { .. })));
+        assert!(
+            !engine.is_fresh_runtime_state(),
+            "legacy pending intents must block runtime migration"
+        );
+
+        let mut store = GraphStore::default();
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = Engine::new(store, root);
+        let payload = AtomPayload::new(
+            make_type_id(INTENT_ATTACHMENT_TYPE),
+            bytes::Bytes::from_static(b"legacy-envelope"),
+        );
+        let ingest = engine.ingest_inbox_event(7, &payload);
+        assert!(
+            ingest.is_ok(),
+            "legacy inbox event should ingest: {ingest:?}"
+        );
+        assert!(
+            !engine.is_fresh_runtime_state(),
+            "legacy inbox events must block runtime migration"
+        );
+    }
+
+    #[test]
+    fn commit_with_state_persists_runtime_intent_kind_metadata() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = Engine::new(store, root);
+        let state_result = WorldlineState::try_from(engine.state().clone());
+        let state_err = state_result.as_ref().err();
+        assert!(
+            state_err.is_none(),
+            "engine state should convert to worldline state: {state_err:?}"
+        );
+        let Ok(mut state) = state_result else {
+            return;
+        };
+        let worldline_id = crate::worldline::WorldlineId([9; 32]);
+        let kind_a = crate::head_inbox::make_intent_kind("test/runtime-a");
+        let kind_b = crate::head_inbox::make_intent_kind("test/runtime-b");
+        let bytes = b"same-bytes".to_vec();
+        let env_a = IngressEnvelope::local_intent(
+            crate::head_inbox::IngressTarget::DefaultWriter { worldline_id },
+            kind_a,
+            bytes.clone(),
+        );
+        let env_b = IngressEnvelope::local_intent(
+            crate::head_inbox::IngressTarget::DefaultWriter { worldline_id },
+            kind_b,
+            bytes.clone(),
+        );
+
+        let outcome = engine.commit_with_state(&mut state, &[env_a.clone(), env_b.clone()]);
+        assert!(
+            outcome.is_ok(),
+            "runtime commit should succeed for same bytes / different kinds: {outcome:?}"
+        );
+
+        let store_option = state.warp_state().store(&state.root().warp_id);
+        assert!(
+            store_option.is_some(),
+            "worldline store should exist for runtime metadata inspection"
+        );
+        let Some(store) = store_option else {
+            return;
+        };
+        let kind_edge_ty = make_type_id(RUNTIME_INGRESS_KIND_EDGE_TYPE);
+        let kind_node_ty = make_type_id(RUNTIME_INGRESS_KIND_NODE_TYPE);
+
+        for (env, expected_kind) in [(&env_a, kind_a), (&env_b, kind_b)] {
+            let event_id = NodeId(env.ingress_id());
+            let attachment_option = store.node_attachment(&event_id);
+            assert!(
+                attachment_option.is_some(),
+                "runtime event should retain intent attachment"
+            );
+            assert!(
+                matches!(attachment_option, Some(AttachmentValue::Atom(_))),
+                "runtime ingress attachment must stay atom payload"
+            );
+            let Some(AttachmentValue::Atom(payload)) = attachment_option else {
+                return;
+            };
+            assert_eq!(
+                payload.type_id,
+                make_type_id(INTENT_ATTACHMENT_TYPE),
+                "runtime ingress should preserve the intent attachment type"
+            );
+            assert_eq!(
+                payload.bytes.as_ref(),
+                bytes.as_slice(),
+                "runtime ingress should preserve raw intent bytes"
+            );
+
+            let kind_edges: Vec<_> = store
+                .edges_from(&event_id)
+                .filter(|edge| edge.ty == kind_edge_ty)
+                .collect();
+            assert_eq!(
+                kind_edges.len(),
+                1,
+                "runtime ingress event should expose exactly one intent-kind edge"
+            );
+            let kind_node_id = runtime_ingress_kind_node_id(&expected_kind);
+            assert_eq!(
+                kind_edges[0].to, kind_node_id,
+                "runtime ingress event should point at the canonical intent-kind node"
+            );
+            let kind_node_option = store.node(&kind_node_id);
+            assert!(
+                kind_node_option.is_some(),
+                "intent-kind node should exist for runtime ingress"
+            );
+            let Some(kind_node) = kind_node_option else {
+                return;
+            };
+            assert_eq!(
+                kind_node.ty, kind_node_ty,
+                "intent-kind metadata should be materialized as a typed node"
+            );
+        }
+
+        let event_a = NodeId(env_a.ingress_id());
+        let event_b = NodeId(env_b.ingress_id());
+        let kind_a_edge = store
+            .edges_from(&event_a)
+            .find(|edge| edge.ty == kind_edge_ty);
+        assert!(
+            kind_a_edge.is_some(),
+            "event a should expose a runtime intent-kind edge"
+        );
+        let Some(kind_a_edge) = kind_a_edge else {
+            return;
+        };
+        let kind_b_edge = store
+            .edges_from(&event_b)
+            .find(|edge| edge.ty == kind_edge_ty);
+        assert!(
+            kind_b_edge.is_some(),
+            "event b should expose a runtime intent-kind edge"
+        );
+        let Some(kind_b_edge) = kind_b_edge else {
+            return;
+        };
+        let kind_a_to = kind_a_edge.to;
+        let kind_b_to = kind_b_edge.to;
+        assert_ne!(
+            kind_a_to, kind_b_to,
+            "same bytes with different kinds must remain distinguishable after materialization"
         );
     }
 }

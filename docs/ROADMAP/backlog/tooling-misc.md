@@ -191,7 +191,7 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Completed already:**
 
-- Determinism proptests and golden-vector harnesses are pinned to single-worker builders.
+- Determinism property tests and golden-vector harnesses are pinned to single-worker builders.
 
 **Acceptance Criteria:**
 
@@ -214,7 +214,7 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 - **Goldens:** Run the DIND (Deterministic Ironclad Nightmare Drills) golden hash-chain harness plus the existing golden vector suite unchanged
 - **Failures:** Helper misuse should be caught by determinism/property tests
 - **Edges:** Tests that intentionally vary worker count remain explicit
-- **Fuzz/Stress:** Existing proptests; determinism-sensitive helper changes must include DIND coverage so canonical outputs cannot drift silently
+- **Fuzz/Stress:** Existing property tests; determinism-sensitive helper changes must include DIND coverage so canonical outputs cannot drift silently
 
 **Blocked By:** none
 **Blocking:** none

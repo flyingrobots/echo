@@ -42,7 +42,11 @@ else
   printf '%s\n' "$docs_output"
 fi
 
-reduced_output="$(run_detect crates/warp-cli/src/main.rs crates/echo-app-core/src/lib.rs)"
+reduced_output="$(run_detect \
+  crates/warp-cli/src/main.rs \
+  crates/warp-cli/src/main.rs \
+  crates/echo-app-core/src/lib.rs \
+)"
 if printf '%s\n' "$reduced_output" | grep -q '^classification=reduced$'; then
   pass "non-critical crate changes use reduced mode"
 else
@@ -82,6 +86,20 @@ if printf '%s\n' "$workflow_output" | grep -q '^classification=full$'; then
 else
   fail "workflow changes should classify as full"
   printf '%s\n' "$workflow_output"
+fi
+
+exact_output="$(run_detect Cargo.toml)"
+if printf '%s\n' "$exact_output" | grep -q '^classification=full$'; then
+  pass "exact critical paths force full verification"
+else
+  fail "exact critical paths should classify as full"
+  printf '%s\n' "$exact_output"
+fi
+if printf '%s\n' "$exact_output" | grep -q '^stamp_suite=full$'; then
+  pass "exact critical paths use the shared full stamp suite"
+else
+  fail "exact critical paths should map to the full stamp suite"
+  printf '%s\n' "$exact_output"
 fi
 
 echo "PASS: $PASS"

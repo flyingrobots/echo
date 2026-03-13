@@ -1010,6 +1010,7 @@ impl Engine {
         let saved_engine_state =
             std::mem::replace(&mut self.state, std::mem::take(&mut state.warp_state));
         let state_before_runtime_commit = self.state.clone();
+        let saved_state_root = state.root;
         let saved_root = self.current_root;
         self.current_root = state.root;
         let saved_initial_state = std::mem::replace(
@@ -1106,7 +1107,7 @@ impl Engine {
             Err(err) => {
                 *state = WorldlineState {
                     warp_state: state_before_runtime_commit,
-                    root: self.current_root,
+                    root: saved_state_root,
                     initial_state: std::mem::replace(&mut self.initial_state, saved_initial_state),
                     last_snapshot: std::mem::replace(&mut self.last_snapshot, saved_last_snapshot),
                     tick_history: std::mem::replace(&mut self.tick_history, saved_tick_history),
@@ -2805,5 +2806,58 @@ mod tests {
         }));
         assert!(patch.in_slots().contains(&slot));
         assert!(patch.out_slots().contains(&slot));
+    }
+
+    #[test]
+    fn commit_with_state_error_preserves_worldline_root() {
+        let mut store = GraphStore::default();
+        let engine_root = make_node_id("engine-root");
+        store.insert_node(
+            engine_root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = Engine::new(store, engine_root);
+
+        let mut state = WorldlineState::empty();
+        let original_worldline_root = *state.root();
+        let missing_worldline_root = NodeKey {
+            warp_id: crate::ident::make_warp_id("missing-worldline"),
+            local_id: make_node_id("missing-root"),
+        };
+        state.root = missing_worldline_root;
+
+        let admitted = [IngressEnvelope::local_intent(
+            crate::head_inbox::IngressTarget::DefaultWriter {
+                worldline_id: crate::worldline::WorldlineId([7; 32]),
+            },
+            crate::head_inbox::make_intent_kind("test/runtime"),
+            b"rollback-root".to_vec(),
+        )];
+
+        let result = engine.commit_with_state(&mut state, &admitted);
+        assert!(
+            matches!(
+                result,
+                Err(EngineError::UnknownWarp(warp_id)) if warp_id == missing_worldline_root.warp_id
+            ),
+            "expected UnknownWarp for the temporary worldline root, got {result:?}"
+        );
+        assert_eq!(
+            *state.root(),
+            missing_worldline_root,
+            "rollback must preserve the worldline root key that was supplied for the runtime commit"
+        );
+        assert_eq!(
+            engine.root_key().local_id,
+            engine_root,
+            "engine root must be restored after a failed runtime commit"
+        );
+        assert_ne!(
+            *state.root(),
+            original_worldline_root,
+            "test precondition: the temporary worldline root must differ from the original root"
+        );
     }
 }

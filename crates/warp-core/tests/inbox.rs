@@ -6,8 +6,8 @@
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
     InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, NodeId,
-    NodeRecord, PlaybackMode, SchedulerCoordinator, WorldlineId, WorldlineRuntime, WorldlineState,
-    WriterHead, WriterHeadKey,
+    NodeRecord, PlaybackMode, SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime,
+    WorldlineState, WriterHead, WriterHeadKey,
 };
 
 fn wl(n: u8) -> WorldlineId {
@@ -23,7 +23,10 @@ fn empty_engine() -> Engine {
             ty: make_type_id("world"),
         },
     );
-    EngineBuilder::new(store, root).build()
+    EngineBuilder::new(store, root)
+        .scheduler(SchedulerKind::Radix)
+        .workers(1)
+        .build()
 }
 
 fn register_head(
@@ -137,6 +140,15 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
         runtime.ingest(named_env.clone()).unwrap(),
         IngressDisposition::Accepted {
             ingress_id: named_env.ingress_id(),
+            head_key: named_key,
+        }
+    );
+    SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    let named_ingress_id = named_env.ingress_id();
+    assert_eq!(
+        runtime.ingest(named_env).unwrap(),
+        IngressDisposition::Duplicate {
+            ingress_id: named_ingress_id,
             head_key: named_key,
         }
     );

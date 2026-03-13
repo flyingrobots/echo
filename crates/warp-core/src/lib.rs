@@ -86,7 +86,12 @@ pub mod footprint_guard;
 mod graph;
 mod graph_view;
 mod ident;
-/// Canonical inbox management for deterministic intent sequencing.
+/// Legacy graph-backed inbox helpers for compatibility and older tests.
+///
+/// New runtime-owned ingress code should prefer [`WorldlineRuntime`],
+/// [`IngressEnvelope`], and [`HeadInbox`]. This module remains available for
+/// legacy tests and transitional callers, but it is no longer the primary live
+/// ingress path in Phase 3.
 pub mod inbox;
 /// Materialization subsystem for deterministic channel-based output.
 pub mod materialization;
@@ -213,13 +218,21 @@ pub use worldline::{
     WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
 
-// ADR-0008 Phases 1–3: Runtime primitives, coordinator, and ingress
+/// Phase 3 runtime-owned scheduler and ingress surface.
+///
+/// Prefer this coordinator/runtime API for new stepping and routing code.
 pub use coordinator::{
     IngressDisposition, RuntimeError, SchedulerCoordinator, StepRecord, WorldlineRuntime,
 };
+/// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{
     make_head_id, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
 };
+/// Primary ingress-envelope and per-head inbox types for the live runtime path.
+///
+/// Compatibility note: [`crate::inbox`] remains available for legacy tests and
+/// transitional callers, but new code should route ingress via
+/// [`WorldlineRuntime::ingest`] with these types.
 pub use head_inbox::{
     make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressEnvelope, IngressPayload,
     IngressTarget, IntentKind,

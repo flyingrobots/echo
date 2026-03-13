@@ -29,7 +29,15 @@ use crate::worldline::WorldlineId;
 /// the intent kind label, ensuring stability across compiler versions and
 /// platforms.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct IntentKind(pub Hash);
+pub struct IntentKind(Hash);
+
+impl IntentKind {
+    /// Returns the canonical hash backing this stable intent-kind identifier.
+    #[must_use]
+    pub fn as_hash(&self) -> &Hash {
+        &self.0
+    }
+}
 
 /// Produces a stable, domain-separated intent kind identifier.
 #[must_use]
@@ -198,14 +206,14 @@ impl IngressEnvelope {
 
 /// Computes the content address of a local intent.
 ///
-/// Hash structure: `BLAKE3("ingress:" || kind.0 || bytes)`.
-/// No length prefix is needed because `kind.0` is always exactly 32 bytes
+/// Hash structure: `BLAKE3("ingress:" || kind_hash || bytes)`.
+/// No length prefix is needed because the kind hash is always exactly 32 bytes
 /// (`Hash = [u8; 32]`), so the boundary between kind and payload is
 /// unambiguous.
 fn compute_ingress_id(kind: &IntentKind, bytes: &[u8]) -> Hash {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"ingress:");
-    hasher.update(&kind.0);
+    hasher.update(kind.as_hash());
     hasher.update(bytes);
     hasher.finalize().into()
 }

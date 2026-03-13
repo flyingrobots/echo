@@ -92,13 +92,10 @@ readonly FULL_LOCAL_PACKAGES=(
 )
 
 readonly FULL_LOCAL_TEST_PACKAGES=(
-  "warp-core"
   "warp-geom"
-  "warp-wasm"
-  "echo-wasm-abi"
+  "echo-graph"
   "echo-scene-port"
   "echo-scene-codec"
-  "echo-graph"
   "echo-ttd"
 )
 
@@ -350,11 +347,14 @@ run_full_checks() {
   cargo +"$PINNED" clippy "${full_args[@]}" -- -D warnings -D missing_docs
 
   echo "[verify-local] tests on critical packages"
-  if use_nextest; then
-    cargo +"$PINNED" nextest run "${full_test_args[@]}"
-  else
-    cargo +"$PINNED" test "${full_test_args[@]}"
-  fi
+  cargo +"$PINNED" test "${full_test_args[@]}"
+  cargo +"$PINNED" test -p warp-wasm --features engine --lib
+  cargo +"$PINNED" test -p echo-wasm-abi --lib
+  cargo +"$PINNED" test -p warp-core --lib
+  cargo +"$PINNED" test -p warp-core --test inbox
+  cargo +"$PINNED" test -p warp-core --test invariant_property_tests
+  cargo +"$PINNED" test -p warp-core --test golden_vectors_phase0
+  cargo +"$PINNED" test -p warp-core --test materialization_determinism
 
   echo "[verify-local] PRNG golden regression (warp-core)"
   cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression

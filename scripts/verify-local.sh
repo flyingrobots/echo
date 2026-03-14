@@ -170,12 +170,7 @@ use_nextest() {
   [[ "$VERIFY_USE_NEXTEST" == "1" ]] && command -v cargo-nextest >/dev/null 2>&1
 }
 
-list_changed_files() {
-  if [[ -n "${VERIFY_CHANGED_FILES_FILE:-}" ]]; then
-    cat "$VERIFY_CHANGED_FILES_FILE"
-    return
-  fi
-
+list_changed_branch_files() {
   if git rev-parse --verify '@{upstream}' >/dev/null 2>&1; then
     git diff --name-only --diff-filter=ACMRTUXB '@{upstream}...HEAD'
     return
@@ -192,6 +187,37 @@ list_changed_files() {
   done
 
   git diff-tree --root --no-commit-id --name-only -r --diff-filter=ACMRTUXB HEAD
+}
+
+list_changed_index_files() {
+  git diff --cached --name-only --diff-filter=ACMRTUXB
+}
+
+mode_context() {
+  case "$1" in
+    pre-commit|detect-pre-commit)
+      printf 'pre-commit\n'
+      ;;
+    *)
+      printf '%s\n' "$1"
+      ;;
+  esac
+}
+
+list_changed_files() {
+  local context="$1"
+
+  if [[ -n "${VERIFY_CHANGED_FILES_FILE:-}" ]]; then
+    cat "$VERIFY_CHANGED_FILES_FILE"
+    return
+  fi
+
+  if [[ "$context" == "pre-commit" ]]; then
+    list_changed_index_files
+    return
+  fi
+
+  list_changed_branch_files
 }
 
 is_full_path() {
@@ -260,9 +286,12 @@ stamp_suite_for_classification() {
 
 stamp_key() {
   local suite="$1"
-  local head_sha
-  head_sha="$(git rev-parse HEAD)"
-  printf '%s-%s-%s-%s' "$suite" "$PINNED" "$head_sha" "$SCRIPT_HASH"
+  printf '%s-%s-%s-%s-%s' \
+    "$suite" \
+    "$PINNED" \
+    "$VERIFY_MODE_CONTEXT" \
+    "$VERIFY_STAMP_SUBJECT" \
+    "$SCRIPT_HASH"
 }
 
 stamp_path() {
@@ -319,23 +348,7 @@ run_targeted_checks() {
   echo "[verify-local] cargo fmt --all -- --check"
   cargo +"$PINNED" fmt --all -- --check
 
-  for crate in "${crates[@]}"; do
-    if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
-      echo "[verify-local] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
-      continue
-    fi
-    echo "[verify-local] cargo clippy -p ${crate} --all-targets"
-    cargo +"$PINNED" clippy -p "$crate" --all-targets -- -D warnings -D missing_docs
-    echo "[verify-local] cargo check -p ${crate}"
-    cargo +"$PINNED" check -p "$crate" --quiet
-    if use_nextest; then
-      echo "[verify-local] cargo nextest run -p ${crate}"
-      cargo +"$PINNED" nextest run -p "$crate"
-    else
-      echo "[verify-local] cargo test -p ${crate}"
-      cargo +"$PINNED" test -p "$crate"
-    fi
-  done
+  run_crate_lint_and_check "${crates[@]}"
 
   local public_doc_crates=("warp-core" "warp-geom" "warp-wasm")
   for crate in "${public_doc_crates[@]}"; do
@@ -345,7 +358,48 @@ run_targeted_checks() {
     fi
   done
 
+  for crate in "${crates[@]}"; do
+    if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
+      continue
+    fi
+    if use_nextest; then
+      echo "[verify-local] cargo nextest run -p ${crate}"
+      cargo +"$PINNED" nextest run -p "$crate"
+    else
+      echo "[verify-local] cargo test -p ${crate}"
+      cargo +"$PINNED" test -p "$crate"
+    fi
+  done
+
   run_docs_lint
+}
+
+run_crate_lint_and_check() {
+  local crates=("$@")
+  local crate
+
+  for crate in "${crates[@]}"; do
+    if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
+      echo "[verify-local] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
+      continue
+    fi
+    echo "[verify-local] cargo clippy -p ${crate} --all-targets"
+    cargo +"$PINNED" clippy -p "$crate" --all-targets -- -D warnings -D missing_docs
+    echo "[verify-local] cargo check -p ${crate}"
+    cargo +"$PINNED" check -p "$crate" --quiet
+  done
+}
+
+run_pre_commit_checks() {
+  mapfile -t changed_crates < <(list_changed_crates)
+  if [[ ${#changed_crates[@]} -eq 0 ]]; then
+    echo "[verify-local] pre-commit: no staged crates detected"
+    return
+  fi
+
+  ensure_toolchain
+  echo "[verify-local] pre-commit verification for staged crates: ${changed_crates[*]}"
+  run_crate_lint_and_check "${changed_crates[@]}"
 }
 
 package_args() {
@@ -467,20 +521,39 @@ run_auto_mode() {
   write_stamp "$suite"
 }
 
-CHANGED_FILES="$(list_changed_files)"
+VERIFY_MODE_CONTEXT="$(mode_context "$MODE")"
+if [[ -n "${VERIFY_STAMP_SUBJECT:-}" ]]; then
+  :
+elif [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" ]]; then
+  VERIFY_STAMP_SUBJECT="$(git write-tree)"
+else
+  VERIFY_STAMP_SUBJECT="$(git rev-parse HEAD)"
+fi
+readonly VERIFY_MODE_CONTEXT VERIFY_STAMP_SUBJECT
+
+CHANGED_FILES="$(list_changed_files "$VERIFY_MODE_CONTEXT")"
 CLASSIFICATION="$(classify_change_set)"
 
 case "$MODE" in
-  detect)
+  detect|detect-pre-commit)
     VERIFY_REPORT_TIMING=0
     printf 'classification=%s\n' "$CLASSIFICATION"
     printf 'stamp_suite=%s\n' "$(stamp_suite_for_classification "$CLASSIFICATION")"
+    printf 'stamp_context=%s\n' "$VERIFY_MODE_CONTEXT"
     printf 'changed_files=%s\n' "$(printf '%s' "$CHANGED_FILES" | awk 'NF {count++} END {print count+0}')"
     printf 'changed_crates=%s\n' "$(list_changed_crates | paste -sd, -)"
     ;;
   fast)
     mapfile -t changed_crates < <(list_changed_crates)
     run_targeted_checks "${changed_crates[@]}"
+    ;;
+  pre-commit)
+    if should_skip_via_stamp "$(stamp_suite_for_classification "$CLASSIFICATION")"; then
+      echo "[verify-local] reusing cached pre-commit verification for index $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
+      exit 0
+    fi
+    run_pre_commit_checks
+    write_stamp "$(stamp_suite_for_classification "$CLASSIFICATION")"
     ;;
   pr|auto|pre-push)
     run_auto_mode "$CLASSIFICATION"
@@ -494,7 +567,7 @@ case "$MODE" in
     write_stamp "full"
     ;;
   *)
-    echo "usage: scripts/verify-local.sh [detect|fast|pr|full|auto|pre-push]" >&2
+    echo "usage: scripts/verify-local.sh [detect|detect-pre-commit|fast|pre-commit|pr|full|auto|pre-push]" >&2
     exit 1
     ;;
 esac

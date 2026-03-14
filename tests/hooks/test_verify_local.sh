@@ -26,6 +26,14 @@ run_detect() {
   rm -f "$tmp"
 }
 
+run_detect_pre_commit() {
+  local tmp
+  tmp="$(mktemp)"
+  printf '%s\n' "$@" >"$tmp"
+  VERIFY_CHANGED_FILES_FILE="$tmp" VERIFY_STAMP_SUBJECT="test-index-tree" scripts/verify-local.sh detect-pre-commit
+  rm -f "$tmp"
+}
+
 echo "=== verify-local classification ==="
 
 docs_output="$(run_detect docs/plans/adr-0008-and-0009.md docs/ROADMAP/backlog/tooling-misc.md)"
@@ -100,6 +108,26 @@ if printf '%s\n' "$exact_output" | grep -q '^stamp_suite=full$'; then
 else
   fail "exact critical paths should map to the full stamp suite"
   printf '%s\n' "$exact_output"
+fi
+
+pre_commit_output="$(run_detect_pre_commit crates/warp-core/src/lib.rs)"
+if printf '%s\n' "$pre_commit_output" | grep -q '^classification=full$'; then
+  pass "pre-commit classification uses staged files"
+else
+  fail "pre-commit detection should classify staged critical paths as full"
+  printf '%s\n' "$pre_commit_output"
+fi
+if printf '%s\n' "$pre_commit_output" | grep -q '^stamp_context=pre-commit$'; then
+  pass "pre-commit uses the index-backed stamp context"
+else
+  fail "pre-commit detection should report the pre-commit stamp context"
+  printf '%s\n' "$pre_commit_output"
+fi
+
+if rg -q 'scripts/verify-local\.sh pre-commit' .githooks/pre-commit; then
+  pass "canonical pre-commit hook delegates staged crate verification to verify-local"
+else
+  fail "canonical pre-commit hook should delegate staged crate verification to verify-local"
 fi
 
 coverage_output="$(python3 - <<'PY'

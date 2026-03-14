@@ -6,6 +6,7 @@
 //! per-head inboxes, deterministic routing, and canonical SuperTick stepping.
 
 use std::collections::BTreeMap;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
 use thiserror::Error;
 
@@ -307,6 +308,11 @@ impl SchedulerCoordinator {
     /// The SuperTick is failure-atomic with respect to runtime state: if any
     /// head commit fails, all prior runtime mutations from this pass are
     /// discarded and the runtime is restored to its pre-SuperTick state.
+    ///
+    /// # Panics
+    ///
+    /// Re-raises any panic from rule execution after restoring the runtime to
+    /// its pre-SuperTick state.
     pub fn super_tick(
         runtime: &mut WorldlineRuntime,
         engine: &mut Engine,
@@ -351,19 +357,25 @@ impl SchedulerCoordinator {
                 continue;
             }
 
-            let outcome = if let Some(frontier) = runtime.worldlines.frontier_mut(&key.worldline_id)
-            {
-                engine.commit_with_state(frontier.state_mut(), &admitted)
-            } else {
-                *runtime = runtime_before;
-                return Err(RuntimeError::UnknownWorldline(key.worldline_id));
-            };
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                let frontier = runtime
+                    .worldlines
+                    .frontier_mut(&key.worldline_id)
+                    .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                engine
+                    .commit_with_state(frontier.state_mut(), &admitted)
+                    .map_err(RuntimeError::from)
+            }));
 
             let CommitOutcome { snapshot, .. } = match outcome {
-                Ok(outcome) => outcome,
-                Err(err) => {
+                Ok(Ok(outcome)) => outcome,
+                Ok(Err(err)) => {
                     *runtime = runtime_before;
-                    return Err(err.into());
+                    return Err(err);
+                }
+                Err(payload) => {
+                    *runtime = runtime_before;
+                    resume_unwind(payload);
                 }
             };
 
@@ -412,8 +424,11 @@ mod tests {
     use crate::head::{make_head_id, WriterHead};
     use crate::head_inbox::{make_intent_kind, InboxPolicy};
     use crate::playback::PlaybackMode;
+    use crate::rule::{ConflictPolicy, PatternGraph, RewriteRule};
     use crate::worldline::WorldlineId;
-    use crate::{make_node_id, make_type_id, EngineBuilder, GraphStore, NodeRecord};
+    use crate::{
+        make_node_id, make_type_id, EngineBuilder, GraphStore, GraphView, NodeId, NodeRecord,
+    };
 
     fn wl(n: u8) -> WorldlineId {
         WorldlineId([n; 32])
@@ -462,6 +477,49 @@ mod tests {
             .warp_state()
             .store(&frontier.state().root().warp_id)
             .unwrap()
+    }
+
+    fn runtime_marker_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+        matches!(
+            view.node_attachment(scope),
+            Some(crate::AttachmentValue::Atom(payload)) if payload.bytes.as_ref() == b"commit-a"
+        )
+    }
+
+    fn runtime_panic_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+        matches!(
+            view.node_attachment(scope),
+            Some(crate::AttachmentValue::Atom(payload)) if payload.bytes.as_ref() == b"panic-b"
+        )
+    }
+
+    fn noop_runtime_rule(rule_name: &'static str) -> RewriteRule {
+        RewriteRule {
+            id: [1; 32],
+            name: rule_name,
+            left: PatternGraph { nodes: vec![] },
+            matcher: runtime_marker_matches,
+            executor: |_view, _scope, _delta| {},
+            compute_footprint: |_view, _scope| crate::Footprint::default(),
+            factor_mask: 0,
+            conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
+    #[allow(clippy::panic)]
+    fn panic_runtime_rule(rule_name: &'static str) -> RewriteRule {
+        RewriteRule {
+            id: [2; 32],
+            name: rule_name,
+            left: PatternGraph { nodes: vec![] },
+            matcher: runtime_panic_matches,
+            executor: |_view, _scope, _delta| std::panic::panic_any("runtime-commit-panic"),
+            compute_footprint: |_view, _scope| crate::Footprint::default(),
+            factor_mask: 0,
+            conflict_policy: ConflictPolicy::Abort,
+            join_fn: None,
+        }
     }
 
     #[test]
@@ -1160,6 +1218,101 @@ mod tests {
                 )
                 .is_none(),
             "rollback must restore the failing worldline to its pre-SuperTick state"
+        );
+    }
+
+    #[test]
+    fn super_tick_restores_runtime_before_resuming_a_later_head_panic() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_a = wl(1);
+        let worldline_b = wl(2);
+        runtime
+            .register_worldline(worldline_a, WorldlineState::empty())
+            .unwrap();
+        runtime
+            .register_worldline(worldline_b, WorldlineState::empty())
+            .unwrap();
+        let register_ok = engine.register_rule(noop_runtime_rule("cmd/runtime-ok"));
+        assert!(register_ok.is_ok(), "runtime ok rule should register");
+        let register_panic = engine.register_rule(panic_runtime_rule("cmd/runtime-panic"));
+        assert!(register_panic.is_ok(), "runtime panic rule should register");
+        let head_a = register_head(
+            &mut runtime,
+            worldline_a,
+            "default-a",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let head_b = register_head(
+            &mut runtime,
+            worldline_b,
+            "default-b",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+        let env_a = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_a,
+            },
+            make_intent_kind("test"),
+            b"commit-a".to_vec(),
+        );
+        let env_b = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter {
+                worldline_id: worldline_b,
+            },
+            make_intent_kind("test"),
+            b"panic-b".to_vec(),
+        );
+        let env_a_ingress_id = env_a.ingress_id();
+        runtime.ingest(env_a).unwrap();
+        runtime.ingest(env_b).unwrap();
+
+        let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut engine);
+        }));
+        let Err(payload) = panic_result else {
+            unreachable!("later head panic should resume through coordinator");
+        };
+        let panic_message = payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str));
+        assert_eq!(panic_message, Some("runtime-commit-panic"));
+
+        assert_eq!(
+            runtime.global_tick(),
+            0,
+            "panic unwind must not advance global tick"
+        );
+        assert_eq!(
+            runtime.heads.get(&head_a).unwrap().inbox().pending_count(),
+            1,
+            "panic rollback must restore the earlier head inbox"
+        );
+        assert_eq!(
+            runtime.heads.get(&head_b).unwrap().inbox().pending_count(),
+            1,
+            "panic rollback must preserve the failing head inbox"
+        );
+        assert!(
+            runtime
+                .worldlines
+                .get(&worldline_a)
+                .unwrap()
+                .state()
+                .last_snapshot()
+                .is_none(),
+            "panic rollback must discard earlier committed snapshots"
+        );
+        assert!(
+            runtime_store(&runtime, worldline_a)
+                .node(&crate::NodeId(env_a_ingress_id))
+                .is_none(),
+            "panic rollback must discard earlier runtime ingress materialization"
         );
     }
 

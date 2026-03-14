@@ -86,7 +86,12 @@ pub mod footprint_guard;
 mod graph;
 mod graph_view;
 mod ident;
-/// Canonical inbox management for deterministic intent sequencing.
+/// Legacy graph-backed inbox helpers for compatibility and older tests.
+///
+/// New runtime-owned ingress code should prefer [`WorldlineRuntime`],
+/// [`IngressEnvelope`], and [`HeadInbox`]. This module remains available for
+/// legacy tests and transitional callers, but it is no longer the primary live
+/// ingress path in Phase 3.
 pub mod inbox;
 /// Materialization subsystem for deterministic channel-based output.
 pub mod materialization;
@@ -131,6 +136,13 @@ mod tx;
 mod warp_state;
 mod worldline;
 
+// ADR-0008 runtime primitives (Phases 1–3)
+mod coordinator;
+mod head;
+mod head_inbox;
+mod worldline_registry;
+mod worldline_state;
+
 // Re-exports for stable public API
 pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
@@ -138,8 +150,8 @@ pub use attachment::{
 };
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
-    scope_hash, ApplyResult, DispatchDisposition, Engine, EngineBuilder, EngineError,
-    ExistingState, FreshStore, IngestDisposition,
+    scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
+    EngineError, ExistingState, FreshStore, IngestDisposition,
 };
 pub use footprint::{
     pack_port_key, AttachmentSet, EdgeSet, Footprint, NodeSet, PortKey, PortSet, WarpScopedPortKey,
@@ -205,6 +217,28 @@ pub use worldline::{
     ApplyError, AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId,
     WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
+
+/// Phase 3 runtime-owned scheduler and ingress surface.
+///
+/// Prefer this coordinator/runtime API for new stepping and routing code.
+pub use coordinator::{
+    IngressDisposition, RuntimeError, SchedulerCoordinator, StepRecord, WorldlineRuntime,
+};
+/// Writer-head registry and routing primitives used by the runtime-owned ingress path.
+pub use head::{
+    make_head_id, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
+};
+/// Primary ingress-envelope and per-head inbox types for the live runtime path.
+///
+/// Compatibility note: [`crate::inbox`] remains available for legacy tests and
+/// transitional callers, but new code should route ingress via
+/// [`WorldlineRuntime::ingest`] with these types.
+pub use head_inbox::{
+    make_intent_kind, HeadInbox, InboxAddress, InboxPolicy, IngressEnvelope, IngressPayload,
+    IngressTarget, IntentKind,
+};
+pub use worldline_registry::WorldlineRegistry;
+pub use worldline_state::{WorldlineFrontier, WorldlineState, WorldlineStateError};
 
 /// Zero-copy typed view over an atom payload.
 pub trait AtomView<'a>: Sized {

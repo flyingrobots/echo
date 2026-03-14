@@ -7,11 +7,20 @@ SHELL := /bin/bash
 PORT ?= 5173
 BENCH_PORT ?= 8000
 
-.PHONY: hooks docs docs-build docs-ci
+.PHONY: hooks verify-fast verify-pr verify-full docs docs-build docs-ci
 hooks:
 	@git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
 	@echo "[hooks] Installed git hooks from .githooks (core.hooksPath)"
+
+verify-fast:
+	@./scripts/verify-local.sh fast
+
+verify-pr:
+	@./scripts/verify-local.sh pr
+
+verify-full:
+	@./scripts/verify-local.sh full
 
 .PHONY: dags dags-fetch
 dags:

@@ -133,3 +133,175 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Est. Hours:** 4h
 **Expected Complexity:** ~300 lines (markdown + diagrams)
+
+---
+
+## T-10-8-4: Local Rustdoc Warning Gate
+
+**User Story:** As a contributor, I want the Rustdoc warnings gate available locally so that private intra-doc link failures and other doc regressions are caught before CI.
+
+**Requirements:**
+
+- R1: Add a single local entry point for the current Rustdoc gate commands on the critical crates
+- R2: Ensure the command runs with `RUSTDOCFLAGS="-D warnings"` so it matches the CI rustdoc gate
+- R3: Document when contributors should run it, how it differs from plain `cargo doc`, and which broader compile/doc gates remain separate (`RUSTFLAGS="-Dwarnings"`, `cargo clippy --all-targets -- -D missing_docs`, `cargo test`)
+- R4: Keep the crate list aligned with the CI rustdoc gate
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One documented command runs the Rustdoc gate locally
+- [ ] AC2: The command fails on intentional intra-doc link / warning regressions
+- [ ] AC3: Contributor-facing docs mention the gate and its purpose
+- [ ] AC4: The local crate list matches the CI rustdoc job
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Local tooling, contributor docs, and parity with the CI Rustdoc warnings gate only.
+**Out of Scope:** Changing which crates the CI rustdoc job covers, or replacing the repo's separate compile/clippy/test gates.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Intentionally introduce a rustdoc warning and verify the local gate fails
+- **Edges:** Private intra-doc links, crate not present, contributors confusing this gate with the separate `RUSTFLAGS` / clippy / test checks
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 2h
+**Expected Complexity:** ~40 LoC (script/xtask + docs)
+
+---
+
+## T-10-8-5: Deterministic Test Engine Helper
+
+**User Story:** As a test author, I want one shared deterministic engine-builder helper so that golden/property tests do not silently inherit ambient worker-count entropy.
+
+**Requirements:**
+
+- R1: Introduce a shared helper for single-worker deterministic test engines
+- R2: Migrate the remaining determinism-sensitive tests that still hand-roll `.workers(1)`
+- R3: Document when tests should use the helper versus explicit multi-worker coverage
+- R4: Keep the helper narrow enough that test intent stays obvious
+
+**Completed already:**
+
+- Determinism property tests and golden-vector harnesses are pinned to single-worker builders.
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Determinism-sensitive tests use a shared helper instead of repeated `.workers(1)` chains
+- [ ] AC2: Multi-worker invariance tests still opt into explicit worker counts directly
+- [ ] AC3: A short contributor note explains which path to use
+- [x] AC4: No golden/property harness depends on host default worker count
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Test helper extraction plus migration of the remaining determinism-sensitive harnesses.
+**Out of Scope:** Changing production engine defaults.
+
+**Test Plan:**
+
+- **Goldens:** Run the DIND (Deterministic Ironclad Nightmare Drills) golden hash-chain harness plus the existing golden vector suite unchanged
+- **Failures:** Helper misuse should be caught by determinism/property tests
+- **Edges:** Tests that intentionally vary worker count remain explicit
+- **Fuzz/Stress:** Existing property tests; determinism-sensitive helper changes must include DIND coverage so canonical outputs cannot drift silently
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 3h
+**Expected Complexity:** ~80 LoC (helper + test migrations)
+
+---
+
+## T-10-8-6: PR Review Triage Summary Tool
+
+**User Story:** As a reviewer, I want a lightweight PR triage summary so that unresolved threads, failing checks, and stale review state are visible before push/merge decisions.
+
+**Requirements:**
+
+- R1: Add a small script or xtask that summarizes unresolved review-thread counts for a PR
+- R2: Include failing/pending check names and the current head SHA
+- R3: Make the output fast to scan in terminal use
+- R4: Keep the tool read-only; it should not mutate PR state
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One command prints unresolved thread counts, key checks, and head SHA for a PR
+- [ ] AC2: Output distinguishes pending vs failing vs passing checks
+- [ ] AC3: The summary is useful before merge or review-follow-up pushes
+- [ ] AC4: Tool works with the existing `gh`-based workflow
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** CLI/script support for review-state summarization.
+**Out of Scope:** Auto-replying to review comments, auto-merging.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Simulate missing `gh` auth / bad PR number handling
+- **Edges:** PR with zero threads, PR with only pending checks, mixed push+PR runs
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 3h
+**Expected Complexity:** ~120 LoC (script + docs)
+
+---
+
+## T-10-8-7: CI Trigger Rationalization
+
+**User Story:** As a contributor, I want less duplicated CI noise so that I can interpret check state quickly without sifting through redundant push/pull_request runs.
+
+**Requirements:**
+
+- R1: Audit which jobs truly need both `push` and `pull_request` triggers
+- R2: Preserve required branch-protection coverage while reducing redundant executions
+- R3: Document the final trigger policy so future workflows follow the same pattern
+- R4: Verify that status checks remain stable from GitHub’s perspective after the cleanup
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Duplicated jobs are reduced where they do not add signal
+- [ ] AC2: Required checks still appear reliably on PRs
+- [ ] AC3: Workflow docs explain the trigger policy
+- [ ] AC4: Contributors can tell which run is authoritative for merge readiness
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Workflow trigger cleanup and documentation.
+**Out of Scope:** Rewriting the CI matrix logic or changing branch-protection policy itself.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Verify required checks still report on PRs
+- **Edges:** Branch pushes without PRs, PR updates, workflow-dispatch/manual flows
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~60 LoC (workflow edits + docs)

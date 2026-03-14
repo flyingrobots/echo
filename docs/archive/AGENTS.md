@@ -169,7 +169,8 @@ The 2-tier system means handoffs are seamless—no context is lost between agent
 - SPDX header policy (source): every source file must start with exactly:
     - `// SPDX-License-Identifier: Apache-2.0`
     - `// © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>`
-      Use the repository scripts/hooks; do not add dual-license headers to code.
+      Use the repository `.githooks/` installed by `make hooks`; `scripts/hooks/`
+      are legacy compatibility shims only. Do not add dual-license headers to code.
 
 ## Git Real
 

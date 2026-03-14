@@ -107,16 +107,8 @@ if [[ -f Cargo.lock ]]; then
   fi
 fi
 
-# 7) Targeted clippy + check for changed crates (fast-ish)
-CRATES=$(echo "$STAGED" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u)
-for c in $CRATES; do
-  if [[ -f "crates/${c}/Cargo.toml" ]]; then
-    cargo clippy -p "$c" --all-targets -- -D warnings -D missing_docs
-    cargo check -p "$c" --quiet
-  else
-    echo "pre-commit: skipping ${c}: missing crates/${c}/Cargo.toml" >&2
-  fi
-done
+# 7) Targeted Rust verification for staged crates
+scripts/verify-local.sh pre-commit
 
 # 8) SPDX header enforcement (code = Apache-2.0; docs/math = Apache-2.0 OR LicenseRef-MIND-UCAL-1.0)
 if [[ -x scripts/ensure_spdx.sh ]]; then

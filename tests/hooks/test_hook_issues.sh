@@ -36,7 +36,8 @@ echo
 
 # Issue 2: trap kills background processes
 echo "[Issue 2] pre-push-parallel: trap should kill background processes"
-if grep -E "jobs -p.*xargs.*kill|pkill -P" .githooks/pre-push-parallel >/dev/null 2>&1; then
+if grep -q 'jobs -p' .githooks/pre-push-parallel && \
+   grep -q 'xargs kill' .githooks/pre-push-parallel; then
   pass "trap kills background jobs"
 else
   fail "trap doesn't kill background jobs"

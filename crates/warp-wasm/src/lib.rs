@@ -27,6 +27,8 @@ use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsValue;
 
+#[cfg(feature = "engine")]
+use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
     self, AbiError, ErrEnvelope, KernelPort, OkEnvelope, RawBytesResponse,
 };
@@ -52,6 +54,14 @@ thread_local! {
 pub fn install_kernel(kernel: Box<dyn KernelPort>) {
     KERNEL.with(|cell| {
         *cell.borrow_mut() = Some(kernel);
+    });
+}
+
+/// Remove any installed kernel from the WASM boundary.
+#[cfg(feature = "engine")]
+fn clear_kernel() {
+    KERNEL.with(|cell| {
+        *cell.borrow_mut() = None;
     });
 }
 
@@ -145,6 +155,55 @@ fn bytes_to_uint8array(bytes: &[u8]) -> Uint8Array {
 #[cfg(feature = "engine")]
 mod warp_kernel;
 
+#[cfg(feature = "engine")]
+fn build_kernel_head<F>(make_kernel: F) -> Result<(warp_kernel::WarpKernel, HeadInfo), AbiError>
+where
+    F: FnOnce() -> Result<warp_kernel::WarpKernel, warp_kernel::KernelInitError>,
+{
+    match make_kernel() {
+        Ok(kernel) => match kernel.get_head() {
+            Ok(head) => Ok((kernel, head)),
+            Err(err) => {
+                clear_kernel();
+                Err(err)
+            }
+        },
+        Err(err) => {
+            clear_kernel();
+            Err(AbiError {
+                code: kernel_port::error_codes::ENGINE_ERROR,
+                message: format!("kernel initialization failed: {err}"),
+            })
+        }
+    }
+}
+
+#[cfg(feature = "engine")]
+fn init_with_factory<F>(make_kernel: F) -> Uint8Array
+where
+    F: FnOnce() -> Result<warp_kernel::WarpKernel, warp_kernel::KernelInitError>,
+{
+    match build_kernel_head(make_kernel) {
+        Ok((kernel, head)) => {
+            let envelope = OkEnvelope::new(&head);
+            match echo_wasm_abi::encode_cbor(&envelope) {
+                Ok(bytes) => {
+                    install_kernel(Box::new(kernel));
+                    bytes_to_uint8array(&bytes)
+                }
+                Err(_) => {
+                    clear_kernel();
+                    encode_err_raw(
+                        kernel_port::error_codes::CODEC_ERROR,
+                        "failed to encode response",
+                    )
+                }
+            }
+        }
+        Err(err) => encode_err(&err),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Console panic hook
 // ---------------------------------------------------------------------------
@@ -169,13 +228,7 @@ pub fn init_console_panic_hook() {
 pub fn init() -> Uint8Array {
     #[cfg(feature = "engine")]
     {
-        let kernel = warp_kernel::WarpKernel::new();
-        #[allow(clippy::expect_used)] // Fresh kernel; infallible in practice.
-        let head = kernel
-            .get_head()
-            .expect("fresh kernel must have valid head");
-        install_kernel(Box::new(kernel));
-        encode_ok(&head)
+        init_with_factory(warp_kernel::WarpKernel::new)
     }
     #[cfg(not(feature = "engine"))]
     {
@@ -495,5 +548,87 @@ mod schema_validation_tests {
             &args,
             &enums_theme(),
         ));
+    }
+}
+
+#[cfg(all(test, feature = "engine"))]
+mod init_tests {
+    use super::*;
+    use echo_wasm_abi::kernel_port::{
+        ChannelData, DispatchResponse, DrainResponse, HeadInfo, RegistryInfo, StepResponse,
+        ABI_VERSION,
+    };
+
+    struct StubKernel;
+
+    impl KernelPort for StubKernel {
+        fn dispatch_intent(&mut self, _intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError> {
+            Ok(DispatchResponse {
+                accepted: true,
+                intent_id: vec![0; 32],
+            })
+        }
+
+        fn step(&mut self, _budget: u32) -> Result<StepResponse, AbiError> {
+            Ok(StepResponse {
+                ticks_executed: 0,
+                head: self.get_head()?,
+            })
+        }
+
+        fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError> {
+            Ok(DrainResponse {
+                channels: vec![ChannelData {
+                    channel_id: vec![1; 32],
+                    data: Vec::new(),
+                }],
+            })
+        }
+
+        fn get_head(&self) -> Result<HeadInfo, AbiError> {
+            Ok(HeadInfo {
+                tick: 0,
+                state_root: vec![2; 32],
+                commit_id: vec![3; 32],
+            })
+        }
+
+        fn snapshot_at(&mut self, _tick: u64) -> Result<Vec<u8>, AbiError> {
+            Ok(Vec::new())
+        }
+
+        fn registry_info(&self) -> RegistryInfo {
+            RegistryInfo {
+                codec_id: Some("stub".into()),
+                registry_version: None,
+                schema_sha256_hex: None,
+                abi_version: ABI_VERSION,
+            }
+        }
+    }
+
+    #[test]
+    fn clear_kernel_removes_previously_installed_kernel() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        assert!(with_kernel_ref(|k| k.get_head()).is_ok());
+
+        clear_kernel();
+        let err = with_kernel_ref(|k| k.get_head()).unwrap_err();
+        assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
+    }
+
+    #[test]
+    fn init_failure_clears_preexisting_kernel() {
+        clear_kernel();
+        install_kernel(Box::new(StubKernel));
+        let result = build_kernel_head(|| Err(warp_kernel::KernelInitError::NonFreshEngine));
+        match result {
+            Ok(_) => panic!("build_kernel_head unexpectedly succeeded"),
+            Err(err) => assert_eq!(err.code, kernel_port::error_codes::ENGINE_ERROR),
+        }
+
+        let err = with_kernel_ref(|k| k.get_head()).unwrap_err();
+        assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
     }
 }

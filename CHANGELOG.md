@@ -5,6 +5,247 @@
 
 ## Unreleased
 
+### fix(warp-core): close final Phase 3 PR review threads
+
+- **Fixed** `Engine::commit_with_state()` now restores both the engine-owned
+  runtime metadata and the borrowed `WorldlineState` even if rule execution
+  unwinds, and duplicate admitted ingress is deduplicated by `ingress_id`
+  before command enqueue.
+- **Fixed** the canonical pre-commit hook now routes staged crate verification
+  through `scripts/verify-local.sh pre-commit`, which uses index-scoped changed
+  files plus an index-tree stamp instead of branch-`HEAD` reuse.
+- **Clarified** cumulative `unpause(PlaybackMode::Paused)` notes now describe
+  the shipped deterministic all-build failure instead of mixing final behavior
+  with the earlier debug-only guard.
+
+### fix(tooling): reduce duplicate local and feature-branch verification
+
+- **Changed** `scripts/hooks/pre-commit` and `scripts/hooks/pre-push` now
+  delegate to the canonical `.githooks/` implementations instead of enforcing a
+  stale parallel local policy.
+- **Added** `scripts/verify-local.sh` plus `make verify-fast`,
+  `make verify-pr`, and `make verify-full` so local verification can scale with
+  the change set and reuse a same-`HEAD` success stamp.
+- **Changed** the canonical pre-push hook now classifies docs-only, reduced,
+  and critical verification paths, escalating to a determinism/tooling-focused
+  local gate only for determinism-critical, CI, hook, and build-system changes.
+- **Fixed** manual `make verify-full` runs and the canonical pre-push full gate
+  now share the same success stamp, so an explicit clean full pass suppresses
+  the identical hook rerun for the same `HEAD`.
+- **Changed** the curated local full test lane now runs library and integration
+  targets only for the small non-core confidence crates, cutting doc-test-only
+  churn while the script reports total elapsed time on completion or failure.
+- **Changed** the main CI workflow no longer runs on `push` for `feat/**`
+  branches, leaving `pull_request` as the authoritative branch-validation lane
+  while `main` retains push-time protection.
+- **Changed** the CI `Tests` gate now fans in from parallel `workspace sans
+warp-core` and `warp-core` shards, preserving the required `Tests` status
+  while cutting PR wall-clock time spent waiting on one serialized workspace job.
+- **Changed** the `warp-core` CI shard now uses `cargo nextest` for the main
+  test inventory and keeps `cargo test --doc` as a separate step so the heavy
+  crate runs faster without dropping its doctest coverage.
+
+### fix(warp-core): resolve final Phase 3 review invariants
+
+- **Fixed** `Engine` now caches canonical `cmd/*` rule order at registration
+  time instead of rebuilding and sorting that list for every admitted ingress
+  envelope.
+- **Fixed** `WorldlineRegistry::register(...)` now preserves the restored
+  frontier tick implied by `WorldlineState.tick_history` instead of rewinding
+  restored worldlines to tick 0.
+- **Fixed** `WorldlineState` root validation is now fallible and explicit:
+  callers must supply or derive the unique root instance with a backing store,
+  and the old fabricated fallback root is gone.
+- **Fixed** `WarpKernel::with_engine(...)` now returns a typed
+  `KernelInitError` for non-fresh or invalid caller-supplied engine state
+  instead of panicking through the WASM host boundary.
+- **Clarified** ADR-0008 and the Phase 3 implementation plan now describe
+  duplicate suppression as per-resolved-head, use full `head_key` values for
+  per-head APIs, and keep `WorldlineRuntime` pseudocode encapsulated.
+
+### fix(warp-core): resolve late Phase 3 PR follow-ups
+
+- **Fixed** `WorldlineRuntime` no longer exposes raw public registries that can
+  desynchronize the default-writer / named-inbox route tables; named inbox
+  lookup is now allocation-free on the live ingress path.
+- **Fixed** `SchedulerCoordinator::super_tick()` now preflights
+  `global_tick`/`frontier_tick` overflow before draining inboxes or mutating
+  worldline state.
+- **Fixed** runtime ingress event materialization is now folded back into the
+  recorded tick patch boundary, so replaying `initial_state + tick_history`
+  matches the committed post-state.
+- **Fixed** `WarpKernel::with_engine(...)` now rejects non-fresh engines
+  instead of silently dropping runtime history that it cannot preserve.
+
+### fix(warp-core): close remaining Phase 3 PR review threads
+
+- **Fixed** duplicate worldline registration now surfaces as a typed
+  `RuntimeError::DuplicateWorldline` at the runtime boundary instead of being
+  silently ignored at the call site.
+- **Fixed** golden-vector and proptest determinism harnesses now pin
+  `EngineBuilder` to a single worker so hashes do not inherit ambient
+  `ECHO_WORKERS` or host core-count entropy.
+- **Fixed** GV-004 now pins both engines to the expected `state_root`,
+  `patch_digest`, and `commit_hash` artifacts rather than checking only one run
+  against constants and the second run for self-consistency.
+- **Clarified** hook/docs governance: `.githooks/` installed via `make hooks`
+  is canonical, `scripts/hooks/` are legacy shims, ADR-0008 now states seek is
+  observational-only, and the ADR exceptions ledger no longer uses a sentinel
+  pseudo-entry.
+
+### fix(warp-core): harden Phase 3 runtime review follow-ups
+
+- **Fixed** `HeadId` is now opaque with internal range bounds, so public callers
+  cannot fabricate arbitrary head identities while `heads_for_worldline()` still
+  keeps its `BTreeMap` range-query fast path.
+- **Fixed** `WriterHead` now derives pause state from `mode`, and
+  `unpause(PlaybackMode::Paused)` now fails deterministically in all builds
+  instead of only under `debug_assert!`.
+- **Fixed** `PlaybackHeadRegistry` and `WorldlineRegistry` no longer expose raw
+  public mutable access to stored heads/frontiers; runtime code uses targeted
+  internal inbox/frontier mutation instead.
+- **Fixed** `IngressEnvelope` fields are now private and `HeadInbox::ingest()`
+  enforces the canonical content hash in release builds too, closing the
+  debug-only invariant hole.
+- **Fixed** `SchedulerCoordinator::peek_order()` now derives runnable order from
+  the head registry instead of trusting cached state, and tick counters now fail
+  deterministically on overflow.
+- **Fixed** INV-002 now asserts exact head-key equality against the canonical
+  expected order, not just length plus pairwise zip checks.
+- **Fixed** the ADR implementation plan now shows private-field pseudocode for
+  worldline frontiers and the stronger verification matrix, including the
+  rustdoc warnings gate (`RUSTDOCFLAGS="-D warnings" cargo doc ... --no-deps`).
+
+### fix(warp-core): address CodeRabbit round-3 PR feedback
+
+- **Fixed** `WriterHead.key` is now private with a `key()` getter, preventing
+  mutation via `PlaybackHeadRegistry::get_mut()` which would break the BTreeMap
+  key invariant.
+- **Fixed** INV-002 proptest now verifies exact key identity (sorted+deduped
+  input vs output), catching bugs where rebuild substitutes one key for another.
+- **Fixed** plan doc pseudocode updated to reflect private fields with getters
+  (`WriterHead`, `WorldlineFrontier`) and correct constructor name
+  (`IngressEnvelope::local_intent`).
+
+### fix(warp-core): address CodeRabbit round-2 PR feedback
+
+- **Fixed** `WriterHead.mode` is now private with a `mode()` getter, preventing
+  the `mode`/`paused` pair from diverging via direct field assignment.
+- **Fixed** `SchedulerCoordinator::super_tick()` now uses canonical runnable
+  order derived from the head registry via `peek_order()` instead of trusting
+  stale runnable-cache state.
+- **Fixed** `HeadInbox::set_policy()` now revalidates pending envelopes against
+  the new policy, evicting any that no longer pass.
+- **Fixed** `HeadInbox::admit()` now uses `mem::take` + `into_values()` instead
+  of `clone()` + `clear()` for zero-copy admission in `AcceptAll`/`KindFilter`.
+- **Fixed** `HeadInbox::ingest()` added envelope hash invariant checks; later
+  hardening enforces the canonical `ingress_id`/payload-hash match in release
+  builds as well.
+- **Fixed** `WorldlineState.warp_state` is now `pub(crate)` with a `warp_state()`
+  getter, and `WorldlineFrontier` fields are `pub(crate)` with public getters.
+- **Fixed** INV-002 proptest now verifies set preservation (length check) in
+  addition to canonical ordering.
+- **Fixed** removed `redundant_clone` clippy suppression from `head.rs` and
+  `coordinator.rs` test modules.
+- **Fixed** ADR exceptions ledger sentinel row no longer mimics an active entry.
+- **Fixed** verification matrix in implementation plan now matches hook-enforced
+  gate (`--workspace --all-targets -D missing_docs`).
+
+### fix(warp-core): self-review fixes for Phases 0–3
+
+- **Fixed** `HeadInbox::ingest()` now rejects non-matching envelopes at ingest
+  time under `KindFilter` policy, preventing unbounded memory growth.
+- **Fixed** GV-003 golden vector now covers all 6 fork entries (ticks 0..=5),
+  closing a gap where the fork-tick itself was never verified.
+- **Added** INV-002 proptest for canonical head ordering (shuffled insertion
+  always produces canonical `(worldline_id, head_id)` order).
+- **Added** duplicate-tick detection to INV-001 (append at existing tick fails).
+- **Fixed** `heads_for_worldline()` now uses BTreeMap range queries (O(log n + k)
+  instead of O(n) full scan).
+- **Fixed** `unpause()` initially added a debug-only guard for `Paused`; later
+  hardening made the failure deterministic in all build configurations.
+- **Fixed** pre-commit hook now passes `--workspace` to clippy.
+- **Improved** documentation: multi-writer frontier semantics, `global_tick`
+  behavior on empty SuperTicks, `compute_ingress_id` length-prefix safety,
+  `InboxAddress` as human-readable alias.
+
+### feat(warp-core): Phase 3 deterministic ingress and per-head inboxes
+
+- **Added** `IntentKind` — stable, content-addressed intent kind identifier
+  using domain-separated BLAKE3 (`"intent-kind:" || label`).
+- **Added** `IngressEnvelope` — unified, content-addressed ingress model
+  with deterministic routing and idempotent deduplication.
+- **Added** `IngressTarget` — routing discriminant: `DefaultWriter`,
+  `InboxAddress`, or `ExactHead` (control/debug only).
+- **Added** `IngressPayload` — payload enum starting with `LocalIntent`,
+  extensible for cross-worldline messages (Phase 10) and imports (Phase 11).
+- **Added** `HeadInbox` — per-head inbox with `BTreeMap`-keyed pending
+  envelopes for deterministic admission order.
+- **Added** `InboxPolicy` — admission control: `AcceptAll`, `KindFilter`,
+  or `Budgeted { max_per_tick }`.
+
+### feat(warp-core): Phase 2 SchedulerCoordinator for ADR-0008
+
+- **Added** `SchedulerCoordinator` — serial canonical scheduling loop that
+  iterates runnable writer heads in `(worldline_id, head_id)` order and
+  advances each worldline's frontier tick.
+- **Added** `WorldlineRuntime` — top-level runtime struct bundling worldline
+  registry, head registry, runnable set, and global tick.
+- **Added** `StepRecord` — output record documenting which heads were stepped
+  and in what order during a SuperTick.
+
+### feat(warp-core): Phase 1 runtime primitives for ADR-0008
+
+- **Added** `HeadId`, `WriterHeadKey`, `WriterHead` — first-class head types
+  for worldline-aware scheduling. Heads are control objects (identity, mode,
+  paused state), not private mutable stores.
+- **Added** `PlaybackHeadRegistry` — `BTreeMap`-backed registry providing
+  canonical `(worldline_id, head_id)` iteration order.
+- **Added** `RunnableWriterSet` — ordered live index of non-paused writer heads.
+- **Added** `WorldlineState` — broad wrapper around `WarpState` preventing API
+  calcification around `GraphStore`.
+- **Added** `WorldlineFrontier` — the single mutable frontier state per
+  worldline, owning `WorldlineState` and `frontier_tick`.
+- **Added** `WorldlineRegistry` — `BTreeMap`-backed registry of worldline
+  frontiers with deterministic iteration.
+- **Added** `make_head_id()` — domain-separated BLAKE3 identifier factory
+  (`"head:" || label`).
+
+### test(warp-core): Phase 0 invariant harness for ADR-0008/0009
+
+- **Added** golden vector suite (`golden_vectors_phase0.rs`) pinning commit
+  determinism, provenance replay integrity, fork reproducibility, and
+  idempotent ingress hashes before the worldline runtime refactor.
+- **Added** invariant test suite (`invariant_property_tests.rs`) enforcing
+  monotonic worldline ticks, idempotent ingress, cross-worldline isolation,
+  commit determinism, and provenance immutability; INV-001/002/003/005 use
+  `proptest`, while INV-004/006 are fixed regression tests.
+- **Added** ADR exceptions ledger (`docs/adr/adr-exceptions.md`) — operational
+  from Phase 0 onward, every intentional model violation must be logged with
+  owner and expiry.
+- **Added** ADR-0010: Observational Seek, Explicit Snapshots, and
+  Administrative Rewind — companion ADR clarifying the seek/rewind split
+  under the one-frontier-state-per-worldline design.
+- **Added** implementation plan for ADR-0008 and ADR-0009
+  (`docs/plans/adr-0008-and-0009.md`) — 14-phase roadmap with verification
+  matrix and exit criteria.
+- **Added** git hooks (`scripts/hooks/pre-commit`, `scripts/hooks/pre-push`)
+  for lint and test gating.
+
+### docs(adr): ADR-0009 Inter-Worldline Communication
+
+- **Added** ADR-0009: Inter-Worldline Communication, Frontier Transport, and
+  Conflict Policy — formalizes message-passing-only communication between
+  worldlines, frontier-relative patches, suffix transport as the replication
+  primitive, four-dimensional footprint interference, explicit conflict
+  surfacing over silent LWW, and the state-vs-history convergence separation.
+
+### docs(adr): ADR-0008 Worldline Runtime Model
+
+- **Added** ADR-0008: Worldline Runtime Model — formalizes writer/reader heads,
+  SuperTick scheduling contract, three-domain boundaries (Echo Core, App, Janus),
+  per-head seek/jump semantics, and the 8-step normative refactor plan.
+
 ### feat(warp-core): Wire up TTD domain logic from ttd-spec branch
 
 - **Exported** `compute_tick_commit_hash_v2`, `compute_op_emission_index_digest`,
@@ -243,7 +484,7 @@
 - **Fix:** Fixed radix sort scope pair index inversion in `scheduler.rs`
   `bucket16()`. LSD passes were processing scope bytes MSB-first instead of
   LSB-first, causing the radix-sort path (n > 1024) to produce a different
-  ordering than the comparison-sort path (n ≤ 1024). Added 3 proptests:
+  ordering than the comparison-sort path (n ≤ 1024). Added 3 property tests:
   `proptest_drain_matches_btreemap_reference` (fuzzes both sort paths),
   `proptest_insertion_order_independence`, and `threshold_boundary_determinism`.
 - **Spec:** Replaced "Theorem A" in `spec-mwmr-concurrency.md` with the

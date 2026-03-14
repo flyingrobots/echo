@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 //! Core rewrite engine implementation.
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use blake3::Hasher;
 use thiserror::Error;
@@ -471,6 +471,224 @@ struct ReserveOutcome {
     reserved: Vec<PendingRewrite>,
     in_slots: std::collections::BTreeSet<SlotId>,
     out_slots: std::collections::BTreeSet<SlotId>,
+}
+
+enum SavedField<T> {
+    Present(T),
+    Taken,
+}
+
+impl<T> SavedField<T> {
+    fn new(value: T) -> Self {
+        Self::Present(value)
+    }
+
+    fn take(&mut self, label: &'static str) -> T {
+        match std::mem::replace(self, Self::Taken) {
+            Self::Present(value) => value,
+            Self::Taken => unreachable!("{label}"),
+        }
+    }
+
+    fn as_ref(&self, label: &'static str) -> &T {
+        match self {
+            Self::Present(value) => value,
+            Self::Taken => unreachable!("{label}"),
+        }
+    }
+}
+
+struct RuntimeCommitStateGuard<'a> {
+    engine: &'a mut Engine,
+    state: &'a mut WorldlineState,
+    saved_engine_state: SavedField<WarpState>,
+    state_before_runtime_commit: SavedField<WarpState>,
+    saved_state_root: NodeKey,
+    saved_root: NodeKey,
+    saved_initial_state: SavedField<WarpState>,
+    saved_last_snapshot: SavedField<Option<Snapshot>>,
+    saved_tick_history: SavedField<Vec<(Snapshot, TickReceipt, WarpTickPatchV1)>>,
+    saved_last_materialization: SavedField<Vec<FinalizedChannel>>,
+    saved_last_materialization_errors: SavedField<Vec<ChannelConflict>>,
+    committed_ingress: SavedField<BTreeSet<(crate::head::WriterHeadKey, Hash)>>,
+    saved_tx_counter: u64,
+    original_worldline_tx_counter: u64,
+    saved_scheduler: SavedField<DeterministicScheduler>,
+    saved_live_txs: SavedField<HashSet<u64>>,
+    armed: bool,
+}
+
+impl<'a> RuntimeCommitStateGuard<'a> {
+    fn enter(engine: &'a mut Engine, state: &'a mut WorldlineState) -> Self {
+        let saved_engine_state =
+            std::mem::replace(&mut engine.state, std::mem::take(&mut state.warp_state));
+        let state_before_runtime_commit = engine.state.clone();
+        let saved_state_root = state.root;
+        let saved_root = engine.current_root;
+        engine.current_root = state.root;
+        let saved_initial_state = std::mem::replace(
+            &mut engine.initial_state,
+            std::mem::take(&mut state.initial_state),
+        );
+        let saved_last_snapshot =
+            std::mem::replace(&mut engine.last_snapshot, state.last_snapshot.take());
+        let saved_tick_history = std::mem::replace(
+            &mut engine.tick_history,
+            std::mem::take(&mut state.tick_history),
+        );
+        let saved_last_materialization = std::mem::replace(
+            &mut engine.last_materialization,
+            std::mem::take(&mut state.last_materialization),
+        );
+        let saved_last_materialization_errors = std::mem::replace(
+            &mut engine.last_materialization_errors,
+            std::mem::take(&mut state.last_materialization_errors),
+        );
+        let committed_ingress = std::mem::take(&mut state.committed_ingress);
+        let saved_tx_counter = engine.tx_counter;
+        let original_worldline_tx_counter = state.tx_counter;
+        engine.tx_counter = original_worldline_tx_counter;
+        let fresh_scheduler = engine.fresh_scheduler();
+        let saved_scheduler = std::mem::replace(&mut engine.scheduler, fresh_scheduler);
+        let saved_live_txs = std::mem::take(&mut engine.live_txs);
+        engine.bus.clear();
+
+        Self {
+            engine,
+            state,
+            saved_engine_state: SavedField::new(saved_engine_state),
+            state_before_runtime_commit: SavedField::new(state_before_runtime_commit),
+            saved_state_root,
+            saved_root,
+            saved_initial_state: SavedField::new(saved_initial_state),
+            saved_last_snapshot: SavedField::new(saved_last_snapshot),
+            saved_tick_history: SavedField::new(saved_tick_history),
+            saved_last_materialization: SavedField::new(saved_last_materialization),
+            saved_last_materialization_errors: SavedField::new(saved_last_materialization_errors),
+            committed_ingress: SavedField::new(committed_ingress),
+            saved_tx_counter,
+            original_worldline_tx_counter,
+            saved_scheduler: SavedField::new(saved_scheduler),
+            saved_live_txs: SavedField::new(saved_live_txs),
+            armed: true,
+        }
+    }
+
+    fn state_before_runtime_commit(&self) -> &WarpState {
+        self.state_before_runtime_commit
+            .as_ref("runtime commit guard missing pre-commit state")
+    }
+
+    fn finish_success(&mut self) {
+        *self.state = WorldlineState {
+            warp_state: std::mem::replace(
+                &mut self.engine.state,
+                self.saved_engine_state
+                    .take("runtime commit guard missing saved engine state"),
+            ),
+            root: self.engine.current_root,
+            initial_state: std::mem::replace(
+                &mut self.engine.initial_state,
+                self.saved_initial_state
+                    .take("runtime commit guard missing saved initial state"),
+            ),
+            last_snapshot: std::mem::replace(
+                &mut self.engine.last_snapshot,
+                self.saved_last_snapshot
+                    .take("runtime commit guard missing saved last snapshot"),
+            ),
+            tick_history: std::mem::replace(
+                &mut self.engine.tick_history,
+                self.saved_tick_history
+                    .take("runtime commit guard missing saved tick history"),
+            ),
+            last_materialization: std::mem::replace(
+                &mut self.engine.last_materialization,
+                self.saved_last_materialization
+                    .take("runtime commit guard missing saved materialization"),
+            ),
+            last_materialization_errors: std::mem::replace(
+                &mut self.engine.last_materialization_errors,
+                self.saved_last_materialization_errors
+                    .take("runtime commit guard missing saved materialization errors"),
+            ),
+            tx_counter: self.engine.tx_counter,
+            committed_ingress: self
+                .committed_ingress
+                .take("runtime commit guard missing committed ingress"),
+        };
+        self.engine.current_root = self.saved_root;
+        self.engine.tx_counter = self.saved_tx_counter;
+        self.engine.scheduler = self
+            .saved_scheduler
+            .take("runtime commit guard missing saved scheduler");
+        self.engine.live_txs = self
+            .saved_live_txs
+            .take("runtime commit guard missing saved live transactions");
+        self.engine.bus.clear();
+        self.armed = false;
+    }
+
+    fn restore_error(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        *self.state = WorldlineState {
+            warp_state: self
+                .state_before_runtime_commit
+                .take("runtime commit guard missing pre-commit state"),
+            root: self.saved_state_root,
+            initial_state: std::mem::replace(
+                &mut self.engine.initial_state,
+                self.saved_initial_state
+                    .take("runtime commit guard missing saved initial state"),
+            ),
+            last_snapshot: std::mem::replace(
+                &mut self.engine.last_snapshot,
+                self.saved_last_snapshot
+                    .take("runtime commit guard missing saved last snapshot"),
+            ),
+            tick_history: std::mem::replace(
+                &mut self.engine.tick_history,
+                self.saved_tick_history
+                    .take("runtime commit guard missing saved tick history"),
+            ),
+            last_materialization: std::mem::replace(
+                &mut self.engine.last_materialization,
+                self.saved_last_materialization
+                    .take("runtime commit guard missing saved materialization"),
+            ),
+            last_materialization_errors: std::mem::replace(
+                &mut self.engine.last_materialization_errors,
+                self.saved_last_materialization_errors
+                    .take("runtime commit guard missing saved materialization errors"),
+            ),
+            tx_counter: self.original_worldline_tx_counter,
+            committed_ingress: self
+                .committed_ingress
+                .take("runtime commit guard missing committed ingress"),
+        };
+        self.engine.state = self
+            .saved_engine_state
+            .take("runtime commit guard missing saved engine state");
+        self.engine.current_root = self.saved_root;
+        self.engine.tx_counter = self.saved_tx_counter;
+        self.engine.scheduler = self
+            .saved_scheduler
+            .take("runtime commit guard missing saved scheduler");
+        self.engine.live_txs = self
+            .saved_live_txs
+            .take("runtime commit guard missing saved live transactions");
+        self.engine.bus.clear();
+        self.armed = false;
+    }
+}
+
+impl Drop for RuntimeCommitStateGuard<'_> {
+    fn drop(&mut self) {
+        self.restore_error();
+    }
 }
 
 impl Engine {
@@ -1009,55 +1227,28 @@ impl Engine {
         state: &mut WorldlineState,
         admitted: &[IngressEnvelope],
     ) -> Result<CommitOutcome, EngineError> {
-        let saved_engine_state =
-            std::mem::replace(&mut self.state, std::mem::take(&mut state.warp_state));
-        let state_before_runtime_commit = self.state.clone();
-        let saved_state_root = state.root;
-        let saved_root = self.current_root;
-        self.current_root = state.root;
-        let saved_initial_state = std::mem::replace(
-            &mut self.initial_state,
-            std::mem::take(&mut state.initial_state),
-        );
-        let saved_last_snapshot =
-            std::mem::replace(&mut self.last_snapshot, state.last_snapshot.take());
-        let saved_tick_history = std::mem::replace(
-            &mut self.tick_history,
-            std::mem::take(&mut state.tick_history),
-        );
-        let saved_last_materialization = std::mem::replace(
-            &mut self.last_materialization,
-            std::mem::take(&mut state.last_materialization),
-        );
-        let saved_last_materialization_errors = std::mem::replace(
-            &mut self.last_materialization_errors,
-            std::mem::take(&mut state.last_materialization_errors),
-        );
-        let committed_ingress = std::mem::take(&mut state.committed_ingress);
-        let saved_tx_counter = self.tx_counter;
-        let original_worldline_tx_counter = state.tx_counter;
-        self.tx_counter = original_worldline_tx_counter;
-        let fresh_scheduler = self.fresh_scheduler();
-        let saved_scheduler = std::mem::replace(&mut self.scheduler, fresh_scheduler);
-        let saved_live_txs = std::mem::take(&mut self.live_txs);
-        self.bus.clear();
+        let mut guard = RuntimeCommitStateGuard::enter(self, state);
 
         let result = (|| {
-            let tx = self.begin();
+            let tx = guard.engine.begin();
+            let mut seen_ingress = BTreeSet::new();
 
             for envelope in admitted {
-                let event_id = self.materialize_runtime_ingress_event(envelope)?;
-                let _ = self.enqueue_first_matching_command(tx, &event_id)?;
+                if !seen_ingress.insert(envelope.ingress_id()) {
+                    continue;
+                }
+                let event_id = guard.engine.materialize_runtime_ingress_event(envelope)?;
+                let _ = guard.engine.enqueue_first_matching_command(tx, &event_id)?;
             }
 
-            let (mut snapshot, receipt, patch) = self.commit_with_receipt(tx)?;
+            let (mut snapshot, receipt, patch) = guard.engine.commit_with_receipt(tx)?;
             let combined_patch = WarpTickPatchV1::new(
                 patch.policy_id(),
                 patch.rule_pack_id(),
                 patch.commit_status(),
                 patch.in_slots().to_vec(),
                 patch.out_slots().to_vec(),
-                diff_state(&state_before_runtime_commit, &self.state),
+                diff_state(guard.state_before_runtime_commit(), &guard.engine.state),
             );
             snapshot.patch_digest = combined_patch.digest();
             snapshot.hash = compute_commit_hash_v2(
@@ -1066,9 +1257,9 @@ impl Engine {
                 &snapshot.patch_digest,
                 snapshot.policy_id,
             );
-            self.last_snapshot = Some(snapshot.clone());
+            guard.engine.last_snapshot = Some(snapshot.clone());
             if let Some((recorded_snapshot, _recorded_receipt, recorded_patch)) =
-                self.tick_history.last_mut()
+                guard.engine.tick_history.last_mut()
             {
                 *recorded_snapshot = snapshot.clone();
                 *recorded_patch = combined_patch.clone();
@@ -1082,56 +1273,10 @@ impl Engine {
 
         match result {
             Ok(outcome) => {
-                *state = WorldlineState {
-                    warp_state: std::mem::replace(&mut self.state, saved_engine_state),
-                    root: self.current_root,
-                    initial_state: std::mem::replace(&mut self.initial_state, saved_initial_state),
-                    last_snapshot: std::mem::replace(&mut self.last_snapshot, saved_last_snapshot),
-                    tick_history: std::mem::replace(&mut self.tick_history, saved_tick_history),
-                    last_materialization: std::mem::replace(
-                        &mut self.last_materialization,
-                        saved_last_materialization,
-                    ),
-                    last_materialization_errors: std::mem::replace(
-                        &mut self.last_materialization_errors,
-                        saved_last_materialization_errors,
-                    ),
-                    tx_counter: self.tx_counter,
-                    committed_ingress,
-                };
-                self.current_root = saved_root;
-                self.tx_counter = saved_tx_counter;
-                self.scheduler = saved_scheduler;
-                self.live_txs = saved_live_txs;
-                self.bus.clear();
+                guard.finish_success();
                 Ok(outcome)
             }
-            Err(err) => {
-                *state = WorldlineState {
-                    warp_state: state_before_runtime_commit,
-                    root: saved_state_root,
-                    initial_state: std::mem::replace(&mut self.initial_state, saved_initial_state),
-                    last_snapshot: std::mem::replace(&mut self.last_snapshot, saved_last_snapshot),
-                    tick_history: std::mem::replace(&mut self.tick_history, saved_tick_history),
-                    last_materialization: std::mem::replace(
-                        &mut self.last_materialization,
-                        saved_last_materialization,
-                    ),
-                    last_materialization_errors: std::mem::replace(
-                        &mut self.last_materialization_errors,
-                        saved_last_materialization_errors,
-                    ),
-                    tx_counter: original_worldline_tx_counter,
-                    committed_ingress,
-                };
-                self.state = saved_engine_state;
-                self.current_root = saved_root;
-                self.tx_counter = saved_tx_counter;
-                self.scheduler = saved_scheduler;
-                self.live_txs = saved_live_txs;
-                self.bus.clear();
-                Err(err)
-            }
+            Err(err) => Err(err),
         }
     }
 
@@ -2545,6 +2690,82 @@ mod tests {
         }
     }
 
+    fn runtime_cmd_rule_id(name: &'static str) -> Hash {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rule:runtime:");
+        hasher.update(name.as_bytes());
+        hasher.finalize().into()
+    }
+
+    fn runtime_event_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
+        matches!(view.node_attachment(scope), Some(AttachmentValue::Atom(_)))
+    }
+
+    fn runtime_event_attachment_footprint(view: GraphView<'_>, scope: &NodeId) -> crate::Footprint {
+        let mut a_read = crate::AttachmentSet::default();
+        let mut a_write = crate::AttachmentSet::default();
+        if view.node(scope).is_some() {
+            let key = AttachmentKey::node_alpha(NodeKey {
+                warp_id: view.warp_id(),
+                local_id: *scope,
+            });
+            a_read.insert(key);
+            a_write.insert(key);
+        }
+        crate::Footprint {
+            n_read: crate::NodeSet::default(),
+            n_write: crate::NodeSet::default(),
+            e_read: crate::EdgeSet::default(),
+            e_write: crate::EdgeSet::default(),
+            a_read,
+            a_write,
+            b_in: crate::PortSet::default(),
+            b_out: crate::PortSet::default(),
+            factor_mask: 0,
+        }
+    }
+
+    fn runtime_marker_rule(rule_name: &'static str) -> RewriteRule {
+        RewriteRule {
+            id: runtime_cmd_rule_id(rule_name),
+            name: rule_name,
+            left: crate::rule::PatternGraph { nodes: vec![] },
+            matcher: runtime_event_matches,
+            executor: |view, scope, delta| {
+                let key = AttachmentKey::node_alpha(NodeKey {
+                    warp_id: view.warp_id(),
+                    local_id: *scope,
+                });
+                delta.push(WarpOp::SetAttachment {
+                    key,
+                    value: Some(AttachmentValue::Atom(AtomPayload::new(
+                        make_type_id("test/runtime-marker"),
+                        bytes::Bytes::from_static(b"marker"),
+                    ))),
+                });
+            },
+            compute_footprint: runtime_event_attachment_footprint,
+            factor_mask: 0,
+            conflict_policy: crate::rule::ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
+    #[allow(clippy::panic)]
+    fn runtime_panicking_rule(rule_name: &'static str) -> RewriteRule {
+        RewriteRule {
+            id: runtime_cmd_rule_id(rule_name),
+            name: rule_name,
+            left: crate::rule::PatternGraph { nodes: vec![] },
+            matcher: runtime_event_matches,
+            executor: |_view, _scope, _delta| std::panic::panic_any("runtime-commit-panic"),
+            compute_footprint: runtime_event_attachment_footprint,
+            factor_mask: 0,
+            conflict_policy: crate::rule::ConflictPolicy::Abort,
+            join_fn: None,
+        }
+    }
+
     #[cfg(any(debug_assertions, feature = "footprint_enforce_release"))]
     #[cfg(not(feature = "unsafe_graph"))]
     fn guard_meta_rule(rule_name: &'static str) -> RewriteRule {
@@ -2899,6 +3120,164 @@ mod tests {
             *state.root(),
             original_worldline_root,
             "test precondition: the temporary worldline root must differ from the original root"
+        );
+    }
+
+    #[test]
+    fn commit_with_state_panics_restore_engine_and_worldline_state() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut engine = EngineBuilder::new(store, root).workers(1).build();
+        let register = engine.register_rule(runtime_panicking_rule("cmd/runtime-panic"));
+        assert!(register.is_ok(), "rule registration failed: {register:?}");
+        let state_result = WorldlineState::try_from(engine.state().clone());
+        assert!(
+            state_result.is_ok(),
+            "engine state should convert to worldline state: {state_result:?}"
+        );
+        let Ok(mut state) = state_result else {
+            return;
+        };
+        let original_root = *state.root();
+        let env = IngressEnvelope::local_intent(
+            crate::head_inbox::IngressTarget::DefaultWriter {
+                worldline_id: crate::worldline::WorldlineId([5; 32]),
+            },
+            crate::head_inbox::make_intent_kind("test/runtime-panic"),
+            b"panic".to_vec(),
+        );
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = engine.commit_with_state(&mut state, std::slice::from_ref(&env));
+        }));
+        assert!(
+            result.is_err(),
+            "runtime commit should panic through the rule"
+        );
+        assert_eq!(
+            *state.root(),
+            original_root,
+            "panic unwind must restore the original worldline root"
+        );
+        assert!(
+            state.last_snapshot().is_none(),
+            "panic unwind must not leave a committed worldline snapshot behind"
+        );
+        assert!(
+            state.tick_history().is_empty(),
+            "panic unwind must restore the worldline tick history"
+        );
+        let store = state.warp_state().store(&state.root().warp_id);
+        assert!(
+            store.is_some(),
+            "worldline store should remain available after panic rollback"
+        );
+        let Some(store) = store else {
+            return;
+        };
+        assert!(
+            store.node(&NodeId(env.ingress_id())).is_none(),
+            "panic unwind must roll back the materialized runtime ingress event"
+        );
+        assert!(
+            engine.is_fresh_runtime_state(),
+            "engine-owned runtime metadata must be restored after panic unwind"
+        );
+        assert_eq!(
+            engine.root_key().local_id,
+            root,
+            "engine root must be restored after panic unwind"
+        );
+    }
+
+    #[test]
+    fn commit_with_state_deduplicates_duplicate_admitted_ingress() {
+        let mut store = GraphStore::default();
+        let root = make_node_id("root");
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let mut single_engine = EngineBuilder::new(store.clone(), root).workers(1).build();
+        let register_single =
+            single_engine.register_rule(runtime_marker_rule("cmd/runtime-marker"));
+        assert!(
+            register_single.is_ok(),
+            "single-engine rule registration failed: {register_single:?}"
+        );
+        let single_state_result = WorldlineState::try_from(single_engine.state().clone());
+        assert!(
+            single_state_result.is_ok(),
+            "single-engine state should convert to worldline state: {single_state_result:?}"
+        );
+        let Ok(mut single_state) = single_state_result else {
+            return;
+        };
+
+        let mut duplicate_engine = EngineBuilder::new(store, root).workers(1).build();
+        let register_duplicate =
+            duplicate_engine.register_rule(runtime_marker_rule("cmd/runtime-marker"));
+        assert!(
+            register_duplicate.is_ok(),
+            "duplicate-engine rule registration failed: {register_duplicate:?}"
+        );
+        let duplicate_state_result = WorldlineState::try_from(duplicate_engine.state().clone());
+        assert!(
+            duplicate_state_result.is_ok(),
+            "duplicate-engine state should convert to worldline state: {duplicate_state_result:?}"
+        );
+        let Ok(mut duplicate_state) = duplicate_state_result else {
+            return;
+        };
+
+        let env = IngressEnvelope::local_intent(
+            crate::head_inbox::IngressTarget::DefaultWriter {
+                worldline_id: crate::worldline::WorldlineId([6; 32]),
+            },
+            crate::head_inbox::make_intent_kind("test/runtime-marker"),
+            b"duplicate-ingress".to_vec(),
+        );
+
+        let single = single_engine.commit_with_state(&mut single_state, std::slice::from_ref(&env));
+        assert!(
+            single.is_ok(),
+            "single runtime commit should succeed: {single:?}"
+        );
+        let Ok(single) = single else {
+            return;
+        };
+
+        let duplicate =
+            duplicate_engine.commit_with_state(&mut duplicate_state, &[env.clone(), env.clone()]);
+        assert!(
+            duplicate.is_ok(),
+            "duplicate runtime commit should succeed: {duplicate:?}"
+        );
+        let Ok(duplicate) = duplicate else {
+            return;
+        };
+
+        assert_eq!(
+            duplicate.receipt.entries().len(),
+            1,
+            "duplicate admitted ingress must enqueue at most one candidate"
+        );
+        assert_eq!(
+            duplicate.receipt.digest(),
+            single.receipt.digest(),
+            "duplicate admitted ingress must preserve receipt determinism"
+        );
+        assert_eq!(
+            duplicate.snapshot.patch_digest, single.snapshot.patch_digest,
+            "duplicate admitted ingress must not perturb the committed patch"
         );
     }
 

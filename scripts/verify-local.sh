@@ -172,7 +172,7 @@ use_nextest() {
 
 list_changed_branch_files() {
   if git rev-parse --verify '@{upstream}' >/dev/null 2>&1; then
-    git diff --name-only --diff-filter=ACMRTUXB '@{upstream}...HEAD'
+    git diff --name-only --diff-filter=ACMRTUXBD '@{upstream}...HEAD'
     return
   fi
 
@@ -181,16 +181,16 @@ list_changed_branch_files() {
   for candidate in origin/main main origin/master master; do
     if git rev-parse --verify "$candidate" >/dev/null 2>&1; then
       merge_base="$(git merge-base HEAD "$candidate")"
-      git diff --name-only --diff-filter=ACMRTUXB "${merge_base}...HEAD"
+      git diff --name-only --diff-filter=ACMRTUXBD "${merge_base}...HEAD"
       return
     fi
   done
 
-  git diff-tree --root --no-commit-id --name-only -r --diff-filter=ACMRTUXB HEAD
+  git diff-tree --root --no-commit-id --name-only -r --diff-filter=ACMRTUXBD HEAD
 }
 
 list_changed_index_files() {
-  git diff --cached --name-only --diff-filter=ACMRTUXB
+  git diff --cached --name-only --diff-filter=ACMRTUXBD
 }
 
 mode_context() {
@@ -284,12 +284,34 @@ stamp_suite_for_classification() {
   esac
 }
 
+stamp_context_for_suite() {
+  local suite="$1"
+
+  if [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" ]]; then
+    printf 'pre-commit\n'
+    return
+  fi
+
+  case "$suite" in
+    full)
+      printf 'full\n'
+      ;;
+    docs|reduced)
+      printf '%s\n' "$VERIFY_MODE_CONTEXT"
+      ;;
+    *)
+      echo "verify-local: unknown stamp context suite: $suite" >&2
+      exit 1
+      ;;
+  esac
+}
+
 stamp_key() {
   local suite="$1"
   printf '%s-%s-%s-%s-%s' \
     "$suite" \
     "$PINNED" \
-    "$VERIFY_MODE_CONTEXT" \
+    "$(stamp_context_for_suite "$suite")" \
     "$VERIFY_STAMP_SUBJECT" \
     "$SCRIPT_HASH"
 }
@@ -539,7 +561,7 @@ case "$MODE" in
     VERIFY_REPORT_TIMING=0
     printf 'classification=%s\n' "$CLASSIFICATION"
     printf 'stamp_suite=%s\n' "$(stamp_suite_for_classification "$CLASSIFICATION")"
-    printf 'stamp_context=%s\n' "$VERIFY_MODE_CONTEXT"
+    printf 'stamp_context=%s\n' "$(stamp_context_for_suite "$(stamp_suite_for_classification "$CLASSIFICATION")")"
     printf 'changed_files=%s\n' "$(printf '%s' "$CHANGED_FILES" | awk 'NF {count++} END {print count+0}')"
     printf 'changed_crates=%s\n' "$(list_changed_crates | paste -sd, -)"
     ;;

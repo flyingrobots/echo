@@ -34,6 +34,51 @@ run_detect_pre_commit() {
   rm -f "$tmp"
 }
 
+run_fixture_detect() {
+  local mode="$1"
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts" "$tmp/crates/warp-core/src"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  (
+    cd "$tmp"
+    git init -q
+    git config user.name "verify-local-test"
+    git config user.email "verify-local-test@example.com"
+    git branch -M main
+    printf '%s\n' 'pub fn anchor() {}' > crates/warp-core/src/lib.rs
+    git add rust-toolchain.toml crates/warp-core/src/lib.rs
+    git commit -qm "base"
+
+    case "$mode" in
+      branch-delete)
+        git checkout -qb feat/delete
+        git rm -q crates/warp-core/src/lib.rs
+        git commit -qm "delete critical file"
+        ./scripts/verify-local.sh detect
+        ;;
+      pre-commit-delete)
+        git checkout -qb feat/delete
+        git rm -q crates/warp-core/src/lib.rs
+        ./scripts/verify-local.sh detect-pre-commit
+        ;;
+      *)
+        echo "unknown fixture mode: $mode" >&2
+        exit 1
+        ;;
+    esac
+  )
+
+  rm -rf "$tmp"
+}
+
 echo "=== verify-local classification ==="
 
 docs_output="$(run_detect docs/plans/adr-0008-and-0009.md docs/ROADMAP/backlog/tooling-misc.md)"
@@ -87,6 +132,12 @@ else
   fail "critical changes should map to the full stamp suite"
   printf '%s\n' "$full_output"
 fi
+if printf '%s\n' "$full_output" | grep -q '^stamp_context=full$'; then
+  pass "full verification uses the shared full stamp context"
+else
+  fail "full verification should normalize to the shared full stamp context"
+  printf '%s\n' "$full_output"
+fi
 
 workflow_output="$(run_detect .github/workflows/ci.yml)"
 if printf '%s\n' "$workflow_output" | grep -q '^classification=full$'; then
@@ -122,6 +173,28 @@ if printf '%s\n' "$pre_commit_output" | grep -q '^stamp_context=pre-commit$'; th
 else
   fail "pre-commit detection should report the pre-commit stamp context"
   printf '%s\n' "$pre_commit_output"
+fi
+
+deleted_branch_output="$(run_fixture_detect branch-delete)"
+if printf '%s\n' "$deleted_branch_output" | grep -q '^classification=full$'; then
+  pass "deleting a critical path still forces full branch verification"
+else
+  fail "critical-path deletions should classify as full in branch detection"
+  printf '%s\n' "$deleted_branch_output"
+fi
+
+deleted_pre_commit_output="$(run_fixture_detect pre-commit-delete)"
+if printf '%s\n' "$deleted_pre_commit_output" | grep -q '^classification=full$'; then
+  pass "staged deletion of a critical path forces full pre-commit verification"
+else
+  fail "critical-path staged deletions should classify as full in pre-commit detection"
+  printf '%s\n' "$deleted_pre_commit_output"
+fi
+if printf '%s\n' "$deleted_pre_commit_output" | grep -q '^stamp_context=pre-commit$'; then
+  pass "critical-path staged deletions keep the pre-commit stamp context"
+else
+  fail "critical-path staged deletions should report the pre-commit stamp context"
+  printf '%s\n' "$deleted_pre_commit_output"
 fi
 
 if rg -q 'scripts/verify-local\.sh pre-commit' .githooks/pre-commit; then

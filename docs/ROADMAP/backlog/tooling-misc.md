@@ -184,7 +184,7 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Requirements:**
 
-- R1: Introduce a shared helper for the remaining single-worker deterministic test engines
+- R1: Introduce a shared helper for single-worker deterministic test engines
 - R2: Migrate the remaining determinism-sensitive tests that still hand-roll `.workers(1)`
 - R3: Document when tests should use the helper versus explicit multi-worker coverage
 - R4: Keep the helper narrow enough that test intent stays obvious

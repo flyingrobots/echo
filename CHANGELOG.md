@@ -5,6 +5,19 @@
 
 ## Unreleased
 
+### fix(warp-core): close final Phase 3 PR review threads
+
+- **Fixed** `Engine::commit_with_state()` now restores both the engine-owned
+  runtime metadata and the borrowed `WorldlineState` even if rule execution
+  unwinds, and duplicate admitted ingress is deduplicated by `ingress_id`
+  before command enqueue.
+- **Fixed** the canonical pre-commit hook now routes staged crate verification
+  through `scripts/verify-local.sh pre-commit`, which uses index-scoped changed
+  files plus an index-tree stamp instead of branch-`HEAD` reuse.
+- **Clarified** cumulative `unpause(PlaybackMode::Paused)` notes now describe
+  the shipped deterministic all-build failure instead of mixing final behavior
+  with the earlier debug-only guard.
+
 ### fix(tooling): reduce duplicate local and feature-branch verification
 
 - **Changed** `scripts/hooks/pre-commit` and `scripts/hooks/pre-push` now
@@ -86,8 +99,8 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
   cannot fabricate arbitrary head identities while `heads_for_worldline()` still
   keeps its `BTreeMap` range-query fast path.
 - **Fixed** `WriterHead` now derives pause state from `mode`, and
-  `unpause(PlaybackMode::Paused)` panics in all builds instead of only under
-  `debug_assert!`.
+  `unpause(PlaybackMode::Paused)` now fails deterministically in all builds
+  instead of only under `debug_assert!`.
 - **Fixed** `PlaybackHeadRegistry` and `WorldlineRegistry` no longer expose raw
   public mutable access to stored heads/frontiers; runtime code uses targeted
   internal inbox/frontier mutation instead.
@@ -149,7 +162,8 @@ warp-core` and `warp-core` shards, preserving the required `Tests` status
 - **Added** duplicate-tick detection to INV-001 (append at existing tick fails).
 - **Fixed** `heads_for_worldline()` now uses BTreeMap range queries (O(log n + k)
   instead of O(n) full scan).
-- **Fixed** `unpause()` now debug-asserts that the mode is not `Paused`.
+- **Fixed** `unpause()` initially added a debug-only guard for `Paused`; later
+  hardening made the failure deterministic in all build configurations.
 - **Fixed** pre-commit hook now passes `--workspace` to clippy.
 - **Improved** documentation: multi-writer frontier semantics, `global_tick`
   behavior on empty SuperTicks, `compute_ingress_id` length-prefix safety,

@@ -6,8 +6,9 @@
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
     InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, NodeId,
-    NodeRecord, PlaybackMode, ProvenanceService, SchedulerCoordinator, SchedulerKind, WorldlineId,
-    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    NodeRecord, PlaybackMode, ProvenanceEventKind, ProvenanceService, ProvenanceStore,
+    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState,
+    WorldlineTickPatchV1, WriterHead, WriterHeadKey,
 };
 
 fn wl(n: u8) -> WorldlineId {
@@ -239,4 +240,69 @@ fn runtime_commit_patch_replays_to_post_state() {
         replay_root, snapshot.state_root,
         "runtime tick patch must replay to the committed post-state"
     );
+}
+
+#[test]
+fn runtime_commit_provenance_matches_worldline_state_mirror() {
+    let mut runtime = WorldlineRuntime::new();
+    let mut engine = empty_engine();
+    let worldline_id = wl(1);
+    runtime
+        .register_worldline(worldline_id, WorldlineState::empty())
+        .unwrap();
+    let head_key = register_head(&mut runtime, worldline_id, "default", None, true);
+
+    runtime
+        .ingest(IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test/runtime"),
+            b"mirror-consistency".to_vec(),
+        ))
+        .unwrap();
+
+    let mut provenance = mirrored_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+    assert_eq!(records.len(), 1);
+
+    let frontier = runtime.worldlines().get(&worldline_id).unwrap();
+    let state = frontier.state();
+    let (snapshot, _receipt, patch) = state.tick_history().last().unwrap().clone();
+    let entry = provenance.entry(worldline_id, 0).unwrap();
+    let expected_outputs = state
+        .last_materialization()
+        .iter()
+        .map(|channel| (channel.channel, channel.data.clone()))
+        .collect::<Vec<_>>();
+
+    assert_eq!(entry.worldline_id, worldline_id);
+    assert_eq!(entry.worldline_tick, 0);
+    assert_eq!(entry.global_tick, runtime.global_tick());
+    assert_eq!(entry.head_key, Some(head_key));
+    assert!(matches!(entry.event_kind, ProvenanceEventKind::LocalCommit));
+    assert!(
+        entry.parents.is_empty(),
+        "first local commit should be parentless"
+    );
+    assert_eq!(entry.expected.state_root, snapshot.state_root);
+    assert_eq!(entry.expected.patch_digest, snapshot.patch_digest);
+    assert_eq!(entry.expected.commit_hash, snapshot.hash);
+    assert_eq!(entry.outputs, expected_outputs);
+
+    let expected_patch = WorldlineTickPatchV1 {
+        header: warp_core::WorldlineTickHeaderV1 {
+            global_tick: runtime.global_tick(),
+            policy_id: patch.policy_id(),
+            rule_pack_id: patch.rule_pack_id(),
+            plan_digest: snapshot.plan_digest,
+            decision_digest: snapshot.decision_digest,
+            rewrites_digest: snapshot.rewrites_digest,
+        },
+        warp_id: snapshot.root.warp_id,
+        ops: patch.ops().to_vec(),
+        in_slots: patch.in_slots().to_vec(),
+        out_slots: patch.out_slots().to_vec(),
+        patch_digest: patch.digest(),
+    };
+    assert_eq!(entry.patch, Some(expected_patch));
 }

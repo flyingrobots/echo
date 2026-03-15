@@ -806,6 +806,54 @@ impl ProvenanceService {
         )
     }
 
+    /// Records a checkpoint for a worldline.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    pub fn add_checkpoint(
+        &mut self,
+        worldline_id: WorldlineId,
+        checkpoint: CheckpointRef,
+    ) -> Result<(), HistoryError> {
+        self.store.add_checkpoint(worldline_id, checkpoint)
+    }
+
+    /// Creates a checkpoint at the given tick using the provided state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    pub fn checkpoint(
+        &mut self,
+        worldline_id: WorldlineId,
+        tick: u64,
+        state: &GraphStore,
+    ) -> Result<CheckpointRef, HistoryError> {
+        self.store.checkpoint(worldline_id, tick, state)
+    }
+
+    /// Returns the largest checkpoint with `checkpoint.tick < tick`, if any.
+    #[must_use]
+    pub fn checkpoint_before(&self, worldline_id: WorldlineId, tick: u64) -> Option<CheckpointRef> {
+        self.store.checkpoint_before(worldline_id, tick)
+    }
+
+    /// Creates a new worldline that is a prefix-copy of the source up to `fork_tick`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError`] if the source is missing, the target exists, or
+    /// `fork_tick` is out of range.
+    pub fn fork(
+        &mut self,
+        source: WorldlineId,
+        fork_tick: u64,
+        new_id: WorldlineId,
+    ) -> Result<(), HistoryError> {
+        self.store.fork(source, fork_tick, new_id)
+    }
+
     /// Returns the deterministic tip ref for a worldline, if any.
     ///
     /// # Errors
@@ -1405,6 +1453,114 @@ mod tests {
         assert_eq!(btr.payload.start_tick, 0);
         assert_eq!(btr.payload.entries.len(), 2);
         service.validate_btr(&btr).unwrap();
+    }
+
+    #[test]
+    fn build_btr_preserves_parent_refs_and_head_attribution() {
+        let mut service = ProvenanceService::new();
+        let w = test_worldline_id();
+        let state = WorldlineState::empty();
+        service.register_worldline(w, &state).unwrap();
+
+        let first = test_entry(0);
+        let first_ref = first.as_ref();
+        let second = ProvenanceEntry::local_commit(
+            w,
+            1,
+            1,
+            test_head_key(),
+            vec![first_ref],
+            test_triplet(1),
+            test_patch(1),
+            vec![(make_channel_id("test:ok"), b"ok".to_vec())],
+            Vec::new(),
+        );
+
+        service.append_local_commit(first).unwrap();
+        service.append_local_commit(second.clone()).unwrap();
+
+        let btr = service.build_btr(w, 0, 2, 9, b"auth".to_vec()).unwrap();
+        assert_eq!(btr.logical_counter, 9);
+        assert_eq!(btr.payload.entries[1].head_key, Some(test_head_key()));
+        assert_eq!(btr.payload.entries[1].parents, vec![first_ref]);
+        assert_eq!(btr.payload.entries[1], second);
+    }
+
+    #[test]
+    fn service_fork_copies_entry_prefix_and_checkpoints() {
+        let mut service = ProvenanceService::new();
+        let source = test_worldline_id();
+        let target = WorldlineId([99u8; 32]);
+        let state = WorldlineState::empty();
+
+        service.register_worldline(source, &state).unwrap();
+        service.append_local_commit(test_entry(0)).unwrap();
+        service.append_local_commit(test_entry(1)).unwrap();
+        service
+            .add_checkpoint(
+                source,
+                CheckpointRef {
+                    tick: 1,
+                    state_hash: [1u8; 32],
+                },
+            )
+            .unwrap();
+
+        service.fork(source, 0, target).unwrap();
+
+        assert_eq!(service.len(target).unwrap(), 1);
+        assert_eq!(service.entry(target, 0).unwrap().expected, test_triplet(0));
+        assert!(service.checkpoint_before(target, 1).is_none());
+    }
+
+    #[test]
+    fn btr_validation_rejects_non_contiguous_ticks() {
+        let payload = BtrPayload {
+            worldline_id: test_worldline_id(),
+            start_tick: 0,
+            entries: vec![test_entry(0), test_entry(2)],
+        };
+        assert!(matches!(
+            payload.validate(),
+            Err(BtrError::NonContiguousTicks {
+                expected: 1,
+                got: 2
+            })
+        ));
+    }
+
+    #[test]
+    fn validate_btr_rejects_bad_input_boundary_hash() {
+        let mut service = ProvenanceService::new();
+        let w = test_worldline_id();
+        let state = WorldlineState::empty();
+        service.register_worldline(w, &state).unwrap();
+        service.append_local_commit(test_entry(0)).unwrap();
+
+        let mut btr = service.build_btr(w, 0, 1, 3, b"auth".to_vec()).unwrap();
+        btr.input_boundary_hash = [9u8; 32];
+
+        assert!(matches!(
+            service.validate_btr(&btr),
+            Err(BtrError::InputBoundaryHashMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_btr_rejects_bad_output_boundary_hash() {
+        let mut service = ProvenanceService::new();
+        let w = test_worldline_id();
+        let state = WorldlineState::empty();
+        service.register_worldline(w, &state).unwrap();
+        service.append_local_commit(test_entry(0)).unwrap();
+
+        let mut btr = service.build_btr(w, 0, 1, 3, b"auth".to_vec()).unwrap();
+        btr.output_boundary_hash = [7u8; 32];
+
+        assert!(matches!(
+            service.validate_btr(&btr),
+            Err(BtrError::OutputBoundaryHashMismatch { .. })
+        ));
     }
 
     #[test]

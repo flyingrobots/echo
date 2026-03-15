@@ -230,13 +230,13 @@ mod tests {
     #[test]
     fn empty_input_others_return_empty() {
         let empty: Vec<Vec<u8>> = vec![];
-        assert_eq!(ReduceOp::Max.apply(empty.clone()), vec![]);
-        assert_eq!(ReduceOp::Min.apply(empty.clone()), vec![]);
-        assert_eq!(ReduceOp::First.apply(empty.clone()), vec![]);
-        assert_eq!(ReduceOp::Last.apply(empty.clone()), vec![]);
-        assert_eq!(ReduceOp::BitOr.apply(empty.clone()), vec![]);
-        assert_eq!(ReduceOp::BitAnd.apply(empty.clone()), vec![]);
-        assert_eq!(ReduceOp::Concat.apply(empty), vec![]);
+        assert_eq!(ReduceOp::Max.apply(empty.clone()), Vec::<u8>::new());
+        assert_eq!(ReduceOp::Min.apply(empty.clone()), Vec::<u8>::new());
+        assert_eq!(ReduceOp::First.apply(empty.clone()), Vec::<u8>::new());
+        assert_eq!(ReduceOp::Last.apply(empty.clone()), Vec::<u8>::new());
+        assert_eq!(ReduceOp::BitOr.apply(empty.clone()), Vec::<u8>::new());
+        assert_eq!(ReduceOp::BitAnd.apply(empty.clone()), Vec::<u8>::new());
+        assert_eq!(ReduceOp::Concat.apply(empty), Vec::<u8>::new());
     }
 
     // ─── SUM ───────────────────────────────────────────────────────────

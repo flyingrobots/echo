@@ -6,8 +6,8 @@
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
     InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, NodeId,
-    NodeRecord, PlaybackMode, SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime,
-    WorldlineState, WriterHead, WriterHeadKey,
+    NodeRecord, PlaybackMode, ProvenanceService, SchedulerCoordinator, SchedulerKind, WorldlineId,
+    WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
 };
 
 fn wl(n: u8) -> WorldlineId {
@@ -61,6 +61,16 @@ fn runtime_store(runtime: &WorldlineRuntime, worldline_id: WorldlineId) -> &Grap
         .unwrap()
 }
 
+fn mirrored_provenance(runtime: &WorldlineRuntime) -> ProvenanceService {
+    let mut provenance = ProvenanceService::new();
+    for (worldline_id, frontier) in runtime.worldlines().iter() {
+        provenance
+            .register_worldline(*worldline_id, frontier.state())
+            .unwrap();
+    }
+    provenance
+}
+
 #[test]
 fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
     let mut runtime = WorldlineRuntime::new();
@@ -84,7 +94,9 @@ fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
         }
     );
 
-    let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    let mut provenance = mirrored_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].head_key, head_key);
 
@@ -128,7 +140,8 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
             head_key: default_key,
         }
     );
-    SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    let mut provenance = mirrored_provenance(&runtime);
+    SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
 
     assert_eq!(
         runtime.ingest(default_env).unwrap(),
@@ -144,7 +157,7 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
             head_key: named_key,
         }
     );
-    SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     let named_ingress_id = named_env.ingress_id();
     assert_eq!(
         runtime.ingest(named_env).unwrap(),
@@ -179,7 +192,9 @@ fn runtime_ingest_keeps_distinct_intents_as_distinct_event_nodes() {
     runtime.ingest(intent_a.clone()).unwrap();
     runtime.ingest(intent_b.clone()).unwrap();
 
-    let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    let mut provenance = mirrored_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].admitted_count, 2);
 
@@ -206,7 +221,9 @@ fn runtime_commit_patch_replays_to_post_state() {
         ))
         .unwrap();
 
-    let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+    let mut provenance = mirrored_provenance(&runtime);
+    let records =
+        SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     assert_eq!(records.len(), 1);
 
     let frontier = runtime.worldlines().get(&worldline_id).unwrap();

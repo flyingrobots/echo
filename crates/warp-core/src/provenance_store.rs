@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
-//! Provenance store trait and implementations for SPEC-0004.
+//! Entry-oriented provenance store and BTR helpers for SPEC-0004.
 //!
-//! The provenance store provides the historical data needed for worldline replay:
-//! patches, expected hashes, recorded outputs, and checkpoints. This module defines
-//! the trait interface (seam for future wormhole integration) and a simple in-memory
-//! implementation for local use.
+//! Phase 4 replaces the old aligned side arrays with a single entry model that
+//! is structurally ready for DAG parents, richer event kinds, and deterministic
+//! export packaging.
 //!
 //! # Key Types
 //!
-//! - [`ProvenanceStore`]: Trait defining the provenance data access interface.
-//! - [`LocalProvenanceStore`]: In-memory Vec-backed implementation.
+//! - [`ProvenanceStore`]: Trait defining the authoritative provenance access API.
+//! - [`LocalProvenanceStore`]: In-memory entry-backed implementation.
+//! - [`ProvenanceService`]: Standalone multi-worldline provenance subsystem.
+//! - [`ProvenanceEntry`]: Single source of truth for one recorded provenance step.
+//! - [`BoundaryTransitionRecord`]: Deterministic contiguous provenance segment.
 //! - [`HistoryError`]: Error type for history access failures.
-//! - [`CheckpointRef`]: Reference to a checkpoint for fast seek.
 //!
 //! # `U0Ref` = `WarpId`
 //!
@@ -20,8 +21,6 @@
 //! simply the `WarpId`. The engine's `initial_state` for a warp serves as the U0
 //! starting point for replay.
 
-// The crate uses u64 ticks but Vec lengths are usize; on 64-bit platforms these
-// are the same size, and we don't support 32-bit targets for this crate.
 #![allow(clippy::cast_possible_truncation)]
 
 use std::collections::BTreeMap;
@@ -29,8 +28,10 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::graph::GraphStore;
+use crate::head::WriterHeadKey;
 use crate::ident::{Hash, WarpId};
-use crate::snapshot::compute_state_root_for_warp_store;
+use crate::snapshot::{compute_state_root_for_warp_state, compute_state_root_for_warp_store};
+use crate::worldline_state::WorldlineState;
 
 use super::worldline::{
     AtomWrite, AtomWriteSet, HashTriplet, OutputFrameSet, WorldlineId, WorldlineTickPatchV1,
@@ -40,9 +41,6 @@ use super::worldline::{
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HistoryError {
     /// The requested tick is not available in the store.
-    ///
-    /// This can occur when seeking beyond recorded history or when
-    /// retention policy has pruned older ticks.
     #[error("history unavailable for tick {tick}")]
     HistoryUnavailable {
         /// The tick that was requested but not found.
@@ -58,9 +56,6 @@ pub enum HistoryError {
     WorldlineAlreadyExists(WorldlineId),
 
     /// The provided tick does not match the expected next tick (append-only invariant).
-    ///
-    /// This occurs when attempting to append a tick that would create a gap or
-    /// overlap in the history sequence.
     #[error("tick gap: expected tick {expected}, got {got}")]
     TickGap {
         /// The tick that was expected (current history length).
@@ -68,17 +63,118 @@ pub enum HistoryError {
         /// The tick that was provided.
         got: u64,
     },
+
+    /// The entry worldline does not match the destination worldline.
+    #[error("entry worldline mismatch: expected {expected:?}, got {got:?}")]
+    EntryWorldlineMismatch {
+        /// The registered worldline that was being appended.
+        expected: WorldlineId,
+        /// The worldline encoded in the entry.
+        got: WorldlineId,
+    },
+
+    /// A local commit entry must carry the committing writer head.
+    #[error("local commit missing head attribution for tick {tick}")]
+    LocalCommitMissingHeadKey {
+        /// The entry tick.
+        tick: u64,
+    },
+
+    /// A local commit entry must carry a replay patch.
+    #[error("local commit missing patch for tick {tick}")]
+    LocalCommitMissingPatch {
+        /// The entry tick.
+        tick: u64,
+    },
+
+    /// The local commit head must belong to the same worldline as the entry.
+    #[error("local commit head/worldline mismatch: entry {entry_worldline:?}, head {head_key:?}")]
+    HeadWorldlineMismatch {
+        /// Worldline encoded in the entry.
+        entry_worldline: WorldlineId,
+        /// Head key carried by the entry.
+        head_key: WriterHeadKey,
+    },
+
+    /// Parent references must already be stored in canonical commit-hash order.
+    #[error("parent refs must be in canonical commit-hash order at tick {tick}")]
+    NonCanonicalParents {
+        /// The entry tick whose parent refs were non-canonical.
+        tick: u64,
+    },
+}
+
+/// Errors that can occur when constructing or validating a BTR.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum BtrError {
+    /// Wrapped history lookup failure.
+    #[error(transparent)]
+    History(#[from] HistoryError),
+
+    /// A BTR must carry at least one provenance entry.
+    #[error("BTR payload cannot be empty")]
+    EmptyPayload,
+
+    /// The record worldline must match the payload worldline.
+    #[error("BTR worldline mismatch: expected {expected:?}, got {got:?}")]
+    WorldlineMismatch {
+        /// Worldline claimed by the record.
+        expected: WorldlineId,
+        /// Worldline found in payload content.
+        got: WorldlineId,
+    },
+
+    /// A payload entry belonged to a different worldline.
+    #[error("BTR payload mixed worldlines: expected {expected:?}, got {got:?}")]
+    MixedWorldline {
+        /// The payload worldline that all entries must match.
+        expected: WorldlineId,
+        /// The mismatching entry worldline.
+        got: WorldlineId,
+    },
+
+    /// Payload ticks must form one contiguous run.
+    #[error("BTR payload is not contiguous: expected tick {expected}, got {got}")]
+    NonContiguousTicks {
+        /// The next expected tick.
+        expected: u64,
+        /// The observed tick.
+        got: u64,
+    },
+
+    /// The record worldline was not registered in the provenance service.
+    #[error("BTR references unknown worldline: {0:?}")]
+    UnknownWorldline(WorldlineId),
+
+    /// The record `u0_ref` does not match the registered worldline.
+    #[error("BTR u0_ref mismatch: expected {expected:?}, got {got:?}")]
+    U0RefMismatch {
+        /// Registered value.
+        expected: WarpId,
+        /// Value carried by the BTR.
+        got: WarpId,
+    },
+
+    /// The input boundary hash does not match the worldline prefix before the payload.
+    #[error("BTR input boundary hash mismatch")]
+    InputBoundaryHashMismatch {
+        /// Expected deterministic input boundary.
+        expected: Hash,
+        /// Value carried by the BTR.
+        got: Hash,
+    },
+
+    /// The output boundary hash does not match the payload tip.
+    #[error("BTR output boundary hash mismatch")]
+    OutputBoundaryHashMismatch {
+        /// Expected deterministic output boundary.
+        expected: Hash,
+        /// Value carried by the BTR.
+        got: Hash,
+    },
 }
 
 /// Reference to a checkpoint within the provenance store.
-///
-/// Checkpoints enable fast seeking by providing a known-good state snapshot
-/// at a specific tick. Instead of replaying from U0, cursors can replay
-/// from the nearest checkpoint before the target tick.
-///
-/// This type is only meaningful within the provenance/checkpoint subsystem.
-/// It is created via [`LocalProvenanceStore::add_checkpoint`] and consumed
-/// by [`ProvenanceStore::checkpoint_before`] during cursor seek operations.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CheckpointRef {
@@ -88,79 +184,249 @@ pub struct CheckpointRef {
     pub state_hash: Hash,
 }
 
-/// Trait for accessing worldline provenance data.
-///
-/// This trait defines the seam for provenance data access, allowing different
-/// backing stores (local memory, disk, wormhole network) to provide the same
-/// interface for cursor replay operations.
-///
-/// # Thread Safety
-///
-/// Implementations should be thread-safe (`Send + Sync`) to allow concurrent
-/// cursor access from multiple sessions.
-///
-/// # `U0Ref` = `WarpId`
-///
-/// The `u0` method returns a `WarpId` which serves as a handle to the engine's
-/// `initial_state` for the warp. This is the MVP approach; future versions may
-/// return a richer checkpoint reference.
-pub trait ProvenanceStore: Send + Sync {
-    /// Returns the U0 reference (initial state handle) for a worldline.
-    ///
-    /// For MVP, this is the `WarpId` that can be used to retrieve the initial
-    /// state from the engine.
+/// Reference to a parent provenance commit.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ProvenanceRef {
+    /// Parent worldline.
+    pub worldline_id: WorldlineId,
+    /// Parent tick identity.
+    pub worldline_tick: u64,
+    /// Parent commit hash.
+    pub commit_hash: Hash,
+}
+
+/// Event kind recorded by a provenance entry.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ProvenanceEventKind {
+    /// A local writer-head commit produced by the live runtime.
+    LocalCommit,
+    /// Placeholder for a future cross-worldline message delivery.
+    CrossWorldlineMessage {
+        /// Source worldline.
+        source_worldline: WorldlineId,
+        /// Source tick.
+        source_tick: u64,
+        /// Stable message id.
+        message_id: Hash,
+    },
+    /// Placeholder for a future merge/import event.
+    MergeImport {
+        /// Source worldline.
+        source_worldline: WorldlineId,
+        /// Source tick.
+        source_tick: u64,
+        /// Stable imported op id.
+        op_id: Hash,
+    },
+    /// Placeholder for a future conflict artifact.
+    ConflictArtifact {
+        /// Stable conflict artifact id.
+        artifact_id: Hash,
+    },
+}
+
+/// Single authoritative provenance record for one worldline step.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ProvenanceEntry {
+    /// Worldline that owns this entry.
+    pub worldline_id: WorldlineId,
+    /// Append identity within the worldline (0-based).
+    pub worldline_tick: u64,
+    /// Correlation metadata from the runtime SuperTick.
+    pub global_tick: u64,
+    /// Writer head that produced this entry, when applicable.
+    pub head_key: Option<WriterHeadKey>,
+    /// Explicit parent refs in canonical stored order.
+    pub parents: Vec<ProvenanceRef>,
+    /// Recorded event kind.
+    pub event_kind: ProvenanceEventKind,
+    /// Recorded state/patch/commit commitments.
+    pub expected: HashTriplet,
+    /// Replay patch for this entry, when applicable.
+    pub patch: Option<WorldlineTickPatchV1>,
+    /// Recorded materialization outputs.
+    pub outputs: OutputFrameSet,
+    /// Recorded atom-write provenance.
+    pub atom_writes: AtomWriteSet,
+}
+
+impl ProvenanceEntry {
+    /// Returns the commit reference for this entry.
+    #[must_use]
+    pub fn as_ref(&self) -> ProvenanceRef {
+        ProvenanceRef {
+            worldline_id: self.worldline_id,
+            worldline_tick: self.worldline_tick,
+            commit_hash: self.expected.commit_hash,
+        }
+    }
+
+    /// Constructs a local commit provenance entry.
+    #[must_use]
+    #[allow(clippy::too_many_arguments)]
+    pub fn local_commit(
+        worldline_id: WorldlineId,
+        worldline_tick: u64,
+        global_tick: u64,
+        head_key: WriterHeadKey,
+        parents: Vec<ProvenanceRef>,
+        expected: HashTriplet,
+        patch: WorldlineTickPatchV1,
+        outputs: OutputFrameSet,
+        atom_writes: AtomWriteSet,
+    ) -> Self {
+        Self {
+            worldline_id,
+            worldline_tick,
+            global_tick,
+            head_key: Some(head_key),
+            parents,
+            event_kind: ProvenanceEventKind::LocalCommit,
+            expected,
+            patch: Some(patch),
+            outputs,
+            atom_writes,
+        }
+    }
+}
+
+/// Single-worldline contiguous provenance payload.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct BtrPayload {
+    /// Worldline represented by this payload.
+    pub worldline_id: WorldlineId,
+    /// First worldline tick included in `entries`.
+    pub start_tick: u64,
+    /// Contiguous entries in append order.
+    pub entries: Vec<ProvenanceEntry>,
+}
+
+impl BtrPayload {
+    /// Returns the exclusive end tick for the payload.
+    #[must_use]
+    pub fn end_tick_exclusive(&self) -> u64 {
+        self.start_tick + self.entries.len() as u64
+    }
+
+    /// Validates structural payload invariants.
     ///
     /// # Errors
     ///
-    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
+    /// Returns [`BtrError`] if the payload is empty, mixes worldlines, or is
+    /// not contiguous by `worldline_tick`.
+    pub fn validate(&self) -> Result<(), BtrError> {
+        let Some(first) = self.entries.first() else {
+            return Err(BtrError::EmptyPayload);
+        };
+        if first.worldline_id != self.worldline_id {
+            return Err(BtrError::MixedWorldline {
+                expected: self.worldline_id,
+                got: first.worldline_id,
+            });
+        }
+        if first.worldline_tick != self.start_tick {
+            return Err(BtrError::NonContiguousTicks {
+                expected: self.start_tick,
+                got: first.worldline_tick,
+            });
+        }
+
+        let mut expected_tick = self.start_tick;
+        for entry in &self.entries {
+            if entry.worldline_id != self.worldline_id {
+                return Err(BtrError::MixedWorldline {
+                    expected: self.worldline_id,
+                    got: entry.worldline_id,
+                });
+            }
+            if entry.worldline_tick != expected_tick {
+                return Err(BtrError::NonContiguousTicks {
+                    expected: expected_tick,
+                    got: entry.worldline_tick,
+                });
+            }
+            expected_tick += 1;
+        }
+
+        Ok(())
+    }
+}
+
+/// Boundary Transition Record (BTR) for a contiguous provenance segment.
+#[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct BoundaryTransitionRecord {
+    /// Worldline carried by this record.
+    pub worldline_id: WorldlineId,
+    /// Initial worldline state handle.
+    pub u0_ref: WarpId,
+    /// State boundary hash before the payload begins.
+    pub input_boundary_hash: Hash,
+    /// State boundary hash after the payload ends.
+    pub output_boundary_hash: Hash,
+    /// Contiguous payload entries.
+    pub payload: BtrPayload,
+    /// Deterministic monotone counter. No wall-clock semantics.
+    pub logical_counter: u64,
+    /// Opaque auth payload reserved for later phases.
+    pub auth_tag: Vec<u8>,
+}
+
+impl BoundaryTransitionRecord {
+    /// Validates self-contained BTR invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BtrError`] if the payload is malformed, worldline ids disagree,
+    /// or the output boundary does not match the payload tip.
+    pub fn validate(&self) -> Result<(), BtrError> {
+        self.payload.validate()?;
+        if self.payload.worldline_id != self.worldline_id {
+            return Err(BtrError::WorldlineMismatch {
+                expected: self.worldline_id,
+                got: self.payload.worldline_id,
+            });
+        }
+        let Some(last) = self.payload.entries.last() else {
+            return Err(BtrError::EmptyPayload);
+        };
+        if self.output_boundary_hash != last.expected.state_root {
+            return Err(BtrError::OutputBoundaryHashMismatch {
+                expected: last.expected.state_root,
+                got: self.output_boundary_hash,
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Trait for accessing worldline provenance data.
+pub trait ProvenanceStore: Send + Sync {
+    /// Returns the U0 reference (initial state handle) for a worldline.
     fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError>;
 
     /// Returns the number of recorded ticks for a worldline.
-    ///
-    /// This is the length of the patch history, not the current tick number
-    /// (which may be `len() - 1` if 0-indexed).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
     fn len(&self, w: WorldlineId) -> Result<u64, HistoryError>;
 
-    /// Returns the patch for a specific tick.
-    ///
-    /// # Errors
-    ///
-    /// - [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
-    /// - [`HistoryError::HistoryUnavailable`] if the tick is out of range or pruned.
-    fn patch(&self, w: WorldlineId, tick: u64) -> Result<WorldlineTickPatchV1, HistoryError>;
+    /// Returns the entry for a specific tick.
+    fn entry(&self, w: WorldlineId, tick: u64) -> Result<ProvenanceEntry, HistoryError>;
 
-    /// Returns the expected hash triplet for verification at a specific tick.
-    ///
-    /// Cursors use this to verify their replayed state matches the recorded
-    /// state root, patch digest, and commit hash.
-    ///
-    /// # Errors
-    ///
-    /// - [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
-    /// - [`HistoryError::HistoryUnavailable`] if the tick is out of range or pruned.
-    fn expected(&self, w: WorldlineId, tick: u64) -> Result<HashTriplet, HistoryError>;
+    /// Returns the stored parent refs for a specific tick.
+    fn parents(&self, w: WorldlineId, tick: u64) -> Result<Vec<ProvenanceRef>, HistoryError>;
 
-    /// Returns the recorded channel outputs for a specific tick.
-    ///
-    /// These are the materialization bus outputs that were emitted during
-    /// the original tick execution. Playback uses these for truth frame
-    /// delivery rather than re-executing rules.
+    /// Appends a local commit entry.
     ///
     /// # Errors
     ///
-    /// - [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
-    /// - [`HistoryError::HistoryUnavailable`] if the tick is out of range or pruned.
-    fn outputs(&self, w: WorldlineId, tick: u64) -> Result<OutputFrameSet, HistoryError>;
+    /// Returns [`HistoryError`] if the worldline does not exist, the tick is not
+    /// append-only, or the entry violates local-commit invariants.
+    fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError>;
 
     /// Returns the nearest checkpoint before a given tick, if any.
-    ///
-    /// This enables fast seeking by starting replay from a checkpoint rather
-    /// than from U0. Returns `None` if no checkpoint exists before the given
-    /// tick, or if the worldline doesn't exist in the store.
     fn checkpoint_before(&self, w: WorldlineId, tick: u64) -> Option<CheckpointRef>;
 
     /// Returns whether the worldline has any recorded history.
@@ -173,36 +439,17 @@ pub trait ProvenanceStore: Send + Sync {
     }
 }
 
-// Per-worldline history storage.
 #[derive(Debug, Clone)]
 struct WorldlineHistory {
-    // U0 reference (`WarpId` for MVP).
     u0_ref: WarpId,
-    // Patches in tick order.
-    patches: Vec<WorldlineTickPatchV1>,
-    // Expected hash triplets in tick order.
-    expected: Vec<HashTriplet>,
-    // Recorded outputs in tick order.
-    outputs: Vec<OutputFrameSet>,
-    // Atom writes in tick order (for provenance tracking).
-    atom_writes: Vec<AtomWriteSet>,
-    // Checkpoints for fast seeking.
+    initial_boundary_hash: Hash,
+    entries: Vec<ProvenanceEntry>,
     checkpoints: Vec<CheckpointRef>,
 }
 
 /// In-memory provenance store backed by `Vec`s.
-///
-/// This is the simplest implementation suitable for testing and single-process
-/// scenarios. For production use with large histories, consider a disk-backed
-/// or network-backed implementation.
-///
-/// # Invariant
-///
-/// For each worldline: `patches.len() == expected.len() == outputs.len() == atom_writes.len()`.
-/// This maintains index alignment so tick N's data is at index N.
 #[derive(Debug, Clone, Default)]
 pub struct LocalProvenanceStore {
-    /// Per-worldline history, keyed by worldline ID.
     worldlines: BTreeMap<WorldlineId, WorldlineHistory>,
 }
 
@@ -215,9 +462,10 @@ impl LocalProvenanceStore {
 
     /// Registers a new worldline with its U0 reference.
     ///
-    /// This must be called before appending any history for a worldline.
-    /// Re-registering with the same `u0_ref` is a no-op. Re-registering with
-    /// a different `u0_ref` returns an error to prevent integrity bugs.
+    /// This convenience helper uses a deterministic zero digest as the initial
+    /// boundary. [`ProvenanceService`] should prefer
+    /// [`Self::register_worldline_with_boundary`] so BTR construction can use the
+    /// real genesis boundary hash.
     ///
     /// # Errors
     ///
@@ -228,22 +476,38 @@ impl LocalProvenanceStore {
         id: WorldlineId,
         u0_ref: WarpId,
     ) -> Result<(), HistoryError> {
+        self.register_worldline_with_boundary(id, u0_ref, crate::constants::digest_len0_u64())
+    }
+
+    /// Registers a new worldline with its U0 reference and initial boundary hash.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineAlreadyExists`] if the worldline is already
+    /// registered with a different configuration.
+    pub fn register_worldline_with_boundary(
+        &mut self,
+        id: WorldlineId,
+        u0_ref: WarpId,
+        initial_boundary_hash: Hash,
+    ) -> Result<(), HistoryError> {
         use std::collections::btree_map::Entry;
+
         match self.worldlines.entry(id) {
             Entry::Occupied(existing) => {
-                if existing.get().u0_ref != u0_ref {
+                let existing = existing.get();
+                if existing.u0_ref != u0_ref
+                    || existing.initial_boundary_hash != initial_boundary_hash
+                {
                     return Err(HistoryError::WorldlineAlreadyExists(id));
                 }
-                // Same u0_ref: idempotent no-op
                 Ok(())
             }
             Entry::Vacant(vacant) => {
                 vacant.insert(WorldlineHistory {
                     u0_ref,
-                    patches: Vec::new(),
-                    expected: Vec::new(),
-                    outputs: Vec::new(),
-                    atom_writes: Vec::new(),
+                    initial_boundary_hash,
+                    entries: Vec::new(),
                     checkpoints: Vec::new(),
                 });
                 Ok(())
@@ -251,142 +515,73 @@ impl LocalProvenanceStore {
         }
     }
 
-    /// Appends a tick's data to a worldline's history.
-    ///
-    /// The tick number must equal the current length (append-only, no gaps).
-    /// This method stores an empty atom write set; use [`Self::append_with_writes`]
-    /// to include provenance metadata.
-    ///
-    /// # Errors
-    ///
-    /// - Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
-    /// - Returns [`HistoryError::TickGap`] if the patch's `global_tick` doesn't equal the
-    ///   current history length (the expected next tick).
-    pub fn append(
-        &mut self,
-        w: WorldlineId,
-        patch: WorldlineTickPatchV1,
-        expected: HashTriplet,
-        outputs: OutputFrameSet,
-    ) -> Result<(), HistoryError> {
-        self.append_with_writes(w, patch, expected, outputs, Vec::new())
+    fn history(&self, w: WorldlineId) -> Result<&WorldlineHistory, HistoryError> {
+        self.worldlines
+            .get(&w)
+            .ok_or(HistoryError::WorldlineNotFound(w))
     }
 
-    /// Appends a tick's data to a worldline's history, including atom write provenance.
-    ///
-    /// The tick number must equal the current length (append-only, no gaps).
-    ///
-    /// # Arguments
-    ///
-    /// * `w` - The worldline to append to
-    /// * `patch` - The tick patch data
-    /// * `expected` - The expected hash triplet for verification
-    /// * `outputs` - Channel outputs emitted during this tick
-    /// * `atom_writes` - Atom writes for provenance tracking (rule→atom attribution).
-    ///   **Invariant**: Each entry's `tick` must equal `patch.global_tick()`, and each
-    ///   `AtomWrite` must reference an atom whose slot appears in
-    ///   `patch.out_slots` (either as `SlotId::Attachment(node_alpha(atom))` or
-    ///   `SlotId::Node(atom)`). Writes to atoms not declared in `out_slots` will be
-    ///   stored and retrievable via [`atom_writes()`](Self::atom_writes), but will be
-    ///   invisible to [`atom_history()`](Self::atom_history) which uses `out_slots` as
-    ///   its causal cone index. The engine enforces this structurally — atom writes are
-    ///   derived from the same footprint that produces `out_slots`.
-    ///
-    /// # Errors
-    ///
-    /// - Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
-    /// - Returns [`HistoryError::TickGap`] if the patch's `global_tick` doesn't equal the
-    ///   current history length (the expected next tick).
-    pub fn append_with_writes(
-        &mut self,
-        w: WorldlineId,
-        patch: WorldlineTickPatchV1,
-        expected: HashTriplet,
-        outputs: OutputFrameSet,
-        atom_writes: AtomWriteSet,
-    ) -> Result<(), HistoryError> {
-        let history = self
-            .worldlines
+    fn history_mut(&mut self, w: WorldlineId) -> Result<&mut WorldlineHistory, HistoryError> {
+        self.worldlines
             .get_mut(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
+            .ok_or(HistoryError::WorldlineNotFound(w))
+    }
 
-        let expected_tick = history.patches.len() as u64;
-        let got_tick = patch.global_tick();
-        if got_tick != expected_tick {
-            return Err(HistoryError::TickGap {
-                expected: expected_tick,
-                got: got_tick,
+    fn validate_local_commit_entry(
+        worldline_id: WorldlineId,
+        expected_tick: u64,
+        entry: &ProvenanceEntry,
+    ) -> Result<(), HistoryError> {
+        if entry.worldline_id != worldline_id {
+            return Err(HistoryError::EntryWorldlineMismatch {
+                expected: worldline_id,
+                got: entry.worldline_id,
             });
         }
-
-        // Debug-only: validate atom write invariants. Zero cost in release builds.
-        #[cfg(debug_assertions)]
-        {
-            for aw in &atom_writes {
-                // Each AtomWrite.tick must match the enclosing patch tick.
-                debug_assert_eq!(
-                    aw.tick, got_tick,
-                    "AtomWrite tick {} does not match enclosing patch tick {}",
-                    aw.tick, got_tick,
-                );
-                // Each AtomWrite must reference an atom declared in out_slots.
-                let att = crate::tick_patch::SlotId::Attachment(
-                    crate::attachment::AttachmentKey::node_alpha(aw.atom),
-                );
-                let node = crate::tick_patch::SlotId::Node(aw.atom);
-                debug_assert!(
-                    patch.out_slots.contains(&att) || patch.out_slots.contains(&node),
-                    "AtomWrite for {:?} at tick {} not declared in out_slots — \
-                     atom_history() will not find this write",
-                    aw.atom,
-                    got_tick,
-                );
-            }
+        if entry.worldline_tick != expected_tick {
+            return Err(HistoryError::TickGap {
+                expected: expected_tick,
+                got: entry.worldline_tick,
+            });
         }
-
-        history.patches.push(patch);
-        history.expected.push(expected);
-        history.outputs.push(outputs);
-        history.atom_writes.push(atom_writes);
+        let Some(head_key) = entry.head_key else {
+            return Err(HistoryError::LocalCommitMissingHeadKey {
+                tick: entry.worldline_tick,
+            });
+        };
+        if head_key.worldline_id != entry.worldline_id {
+            return Err(HistoryError::HeadWorldlineMismatch {
+                entry_worldline: entry.worldline_id,
+                head_key,
+            });
+        }
+        if entry.patch.is_none() {
+            return Err(HistoryError::LocalCommitMissingPatch {
+                tick: entry.worldline_tick,
+            });
+        }
+        if !entry
+            .parents
+            .windows(2)
+            .all(|pair| pair[0].commit_hash <= pair[1].commit_hash)
+        {
+            return Err(HistoryError::NonCanonicalParents {
+                tick: entry.worldline_tick,
+            });
+        }
         Ok(())
     }
 
     /// Returns the atom writes for a specific tick.
     ///
-    /// This enables the TTD "Show Me Why" provenance feature: tracing which
-    /// rules wrote which atoms during a tick.
-    ///
     /// # Errors
     ///
-    /// - [`HistoryError::WorldlineNotFound`] if the worldline doesn't exist.
-    /// - [`HistoryError::HistoryUnavailable`] if the tick is out of range or pruned.
+    /// Returns [`HistoryError`] if the worldline or tick is unavailable.
     pub fn atom_writes(&self, w: WorldlineId, tick: u64) -> Result<AtomWriteSet, HistoryError> {
-        let history = self
-            .worldlines
-            .get(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
-
-        // SAFETY: cast_possible_truncation — on 32-bit targets (WASM), tick values
-        // above usize::MAX would truncate and index the wrong element. Guard with a
-        // bounds check against the actual length before casting.
-        if tick >= history.atom_writes.len() as u64 {
-            return Err(HistoryError::HistoryUnavailable { tick });
-        }
-        Ok(history.atom_writes[tick as usize].clone())
+        Ok(self.entry(w, tick)?.atom_writes)
     }
 
     /// Returns the atom write history for a specific atom by walking its causal cone.
-    ///
-    /// Walks backwards through the worldline's patch history, using the declared
-    /// `out_slots` (Paper III's `Out(μ)`) to filter which ticks' atom writes are
-    /// examined. Only ticks whose `out_slots` declare the atom's slot have their
-    /// writes collected. The walk terminates early when a creation write is found
-    /// (the atom's origin).
-    ///
-    /// This implements the derivation graph `D(v)` from Paper III (§3.2), restricted
-    /// to the target atom's slot dependencies.
-    ///
-    /// The returned writes are in tick order (oldest first).
     ///
     /// # Errors
     ///
@@ -396,49 +591,34 @@ impl LocalProvenanceStore {
         w: WorldlineId,
         atom: &crate::ident::NodeKey,
     ) -> Result<Vec<AtomWrite>, HistoryError> {
-        let history = self
-            .worldlines
-            .get(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
-
-        // The atom's attachment slot — this is what Out(μ) contains when a
-        // tick writes to an atom's payload (SetAttachment on the node's α plane).
+        let history = self.history(w)?;
         let attachment_slot = crate::tick_patch::SlotId::Attachment(
             crate::attachment::AttachmentKey::node_alpha(*atom),
         );
-        // The node skeleton slot — Out(μ) contains this for UpsertNode/DeleteNode.
         let node_slot = crate::tick_patch::SlotId::Node(*atom);
 
-        // Walk backwards from tip, collecting writes in reverse chronological order.
         let mut writes_rev: Vec<AtomWrite> = Vec::new();
-        let len = history.patches.len();
 
-        for tick_idx in (0..len).rev() {
-            let patch = &history.patches[tick_idx];
+        for entry in history.entries.iter().rev() {
+            let Some(patch) = entry.patch.as_ref() else {
+                continue;
+            };
 
-            // Check Out(μ): did this tick produce the atom's slot?
             let touched = patch
                 .out_slots
                 .iter()
-                .any(|s| *s == attachment_slot || *s == node_slot);
-
+                .any(|slot| *slot == attachment_slot || *slot == node_slot);
             if !touched {
                 continue;
             }
 
-            // This tick wrote to the atom — collect matching AtomWrites.
-            // Iterate in reverse so the final writes_rev.reverse() preserves
-            // within-tick execution order (forward iteration would flip it).
-            if let Some(tick_writes) = history.atom_writes.get(tick_idx) {
-                for aw in tick_writes.iter().rev() {
-                    if &aw.atom == atom {
-                        let is_creation = aw.is_create();
-                        writes_rev.push(aw.clone());
-                        if is_creation {
-                            // Reached the atom's origin — stop walking.
-                            writes_rev.reverse();
-                            return Ok(writes_rev);
-                        }
+            for aw in entry.atom_writes.iter().rev() {
+                if &aw.atom == atom {
+                    let is_creation = aw.is_create();
+                    writes_rev.push(aw.clone());
+                    if is_creation {
+                        writes_rev.reverse();
+                        return Ok(writes_rev);
                     }
                 }
             }
@@ -450,8 +630,6 @@ impl LocalProvenanceStore {
 
     /// Records a checkpoint for a worldline.
     ///
-    /// Checkpoints are stored in tick order for efficient binary search.
-    ///
     /// # Errors
     ///
     /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
@@ -460,13 +638,7 @@ impl LocalProvenanceStore {
         w: WorldlineId,
         checkpoint: CheckpointRef,
     ) -> Result<(), HistoryError> {
-        let history = self
-            .worldlines
-            .get_mut(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
-
-        // Maintain sorted order by tick; replace if a checkpoint at this tick
-        // already exists (prevents duplicate ticks breaking "before" semantics).
+        let history = self.history_mut(w)?;
         match history
             .checkpoints
             .binary_search_by_key(&checkpoint.tick, |c| c.tick)
@@ -479,10 +651,6 @@ impl LocalProvenanceStore {
 
     /// Creates a checkpoint at the given tick by computing the state hash.
     ///
-    /// This computes the canonical state hash for the given `GraphStore` and
-    /// records a checkpoint at the specified tick. The checkpoint enables fast
-    /// seeking during cursor replay.
-    ///
     /// # Errors
     ///
     /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
@@ -492,16 +660,9 @@ impl LocalProvenanceStore {
         tick: u64,
         state: &GraphStore,
     ) -> Result<CheckpointRef, HistoryError> {
-        let history = self
-            .worldlines
-            .get_mut(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
-
+        let history = self.history_mut(w)?;
         let state_hash = compute_state_root_for_warp_store(state, history.u0_ref);
         let checkpoint_ref = CheckpointRef { tick, state_hash };
-
-        // Insert in sorted order by tick; replace existing checkpoint at this
-        // tick to prevent duplicates (same semantics as add_checkpoint).
         match history
             .checkpoints
             .binary_search_by_key(&checkpoint_ref.tick, |c| c.tick)
@@ -509,22 +670,15 @@ impl LocalProvenanceStore {
             Ok(index) => history.checkpoints[index] = checkpoint_ref,
             Err(pos) => history.checkpoints.insert(pos, checkpoint_ref),
         }
-
         Ok(checkpoint_ref)
     }
 
     /// Creates a new worldline that is a prefix-copy of the source up to `fork_tick`.
     ///
-    /// The new worldline shares the same U0 reference as the source and contains
-    /// copies of all history data (patches, expected hashes, outputs, atom writes,
-    /// and checkpoints) from tick 0 through `fork_tick` inclusive.
-    ///
     /// # Errors
     ///
-    /// - Returns [`HistoryError::WorldlineAlreadyExists`] if `new_id` is already registered.
-    /// - Returns [`HistoryError::WorldlineNotFound`] if the source worldline doesn't exist.
-    /// - Returns [`HistoryError::HistoryUnavailable`] if `fork_tick` is beyond the
-    ///   available history in the source worldline.
+    /// Returns [`HistoryError`] if the source is missing, the target exists, or
+    /// `fork_tick` is out of range.
     pub fn fork(
         &mut self,
         source: WorldlineId,
@@ -535,29 +689,17 @@ impl LocalProvenanceStore {
             return Err(HistoryError::WorldlineAlreadyExists(new_id));
         }
 
-        let source_history = self
-            .worldlines
-            .get(&source)
-            .ok_or(HistoryError::WorldlineNotFound(source))?;
-
-        // Validate fork_tick is within available history
-        let source_len = source_history.patches.len();
-        // SAFETY: cast_possible_truncation — history length fits in u64 because Vec
-        // cannot exceed isize::MAX elements, and on 64-bit platforms usize == u64.
+        let source_history = self.history(source)?;
+        let source_len = source_history.entries.len();
         if fork_tick >= source_len as u64 {
             return Err(HistoryError::HistoryUnavailable { tick: fork_tick });
         }
 
-        // Copy prefix data up to and including fork_tick
-        // SAFETY: cast_possible_truncation — fork_tick < source_len (checked above),
-        // so fork_tick + 1 <= source_len <= usize::MAX; the cast back to usize is lossless.
         let end_idx = (fork_tick + 1) as usize;
         let new_history = WorldlineHistory {
             u0_ref: source_history.u0_ref,
-            patches: source_history.patches[..end_idx].to_vec(),
-            expected: source_history.expected[..end_idx].to_vec(),
-            outputs: source_history.outputs[..end_idx].to_vec(),
-            atom_writes: source_history.atom_writes[..end_idx].to_vec(),
+            initial_boundary_hash: source_history.initial_boundary_hash,
+            entries: source_history.entries[..end_idx].to_vec(),
             checkpoints: source_history
                 .checkpoints
                 .iter()
@@ -565,75 +707,64 @@ impl LocalProvenanceStore {
                 .copied()
                 .collect(),
         };
-
         self.worldlines.insert(new_id, new_history);
         Ok(())
+    }
+
+    /// Returns the initial boundary hash registered for this worldline.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    pub fn initial_boundary_hash(&self, w: WorldlineId) -> Result<Hash, HistoryError> {
+        Ok(self.history(w)?.initial_boundary_hash)
+    }
+
+    /// Returns the tip ref for a worldline, if any.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline hasn't been registered.
+    pub fn tip_ref(&self, w: WorldlineId) -> Result<Option<ProvenanceRef>, HistoryError> {
+        Ok(self.history(w)?.entries.last().map(ProvenanceEntry::as_ref))
     }
 }
 
 impl ProvenanceStore for LocalProvenanceStore {
     fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError> {
-        self.worldlines
-            .get(&w)
-            .map(|h| h.u0_ref)
-            .ok_or(HistoryError::WorldlineNotFound(w))
+        Ok(self.history(w)?.u0_ref)
     }
 
     fn len(&self, w: WorldlineId) -> Result<u64, HistoryError> {
-        self.worldlines
-            .get(&w)
-            .map(|h| h.patches.len() as u64)
-            .ok_or(HistoryError::WorldlineNotFound(w))
+        Ok(self.history(w)?.entries.len() as u64)
     }
 
-    fn patch(&self, w: WorldlineId, tick: u64) -> Result<WorldlineTickPatchV1, HistoryError> {
-        let history = self
-            .worldlines
-            .get(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
-
-        history
-            .patches
+    fn entry(&self, w: WorldlineId, tick: u64) -> Result<ProvenanceEntry, HistoryError> {
+        self.history(w)?
+            .entries
             .get(tick as usize)
             .cloned()
             .ok_or(HistoryError::HistoryUnavailable { tick })
     }
 
-    fn expected(&self, w: WorldlineId, tick: u64) -> Result<HashTriplet, HistoryError> {
-        let history = self
-            .worldlines
-            .get(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
-
-        history
-            .expected
-            .get(tick as usize)
-            .copied()
-            .ok_or(HistoryError::HistoryUnavailable { tick })
+    fn parents(&self, w: WorldlineId, tick: u64) -> Result<Vec<ProvenanceRef>, HistoryError> {
+        Ok(self.entry(w, tick)?.parents)
     }
 
-    fn outputs(&self, w: WorldlineId, tick: u64) -> Result<OutputFrameSet, HistoryError> {
-        let history = self
-            .worldlines
-            .get(&w)
-            .ok_or(HistoryError::WorldlineNotFound(w))?;
-
-        history
-            .outputs
-            .get(tick as usize)
-            .cloned()
-            .ok_or(HistoryError::HistoryUnavailable { tick })
+    fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        let history = self.history_mut(entry.worldline_id)?;
+        let expected_tick = history.entries.len() as u64;
+        Self::validate_local_commit_entry(entry.worldline_id, expected_tick, &entry)?;
+        history.entries.push(entry);
+        Ok(())
     }
 
     fn checkpoint_before(&self, w: WorldlineId, tick: u64) -> Option<CheckpointRef> {
         let history = self.worldlines.get(&w)?;
-
-        // Binary search for the largest checkpoint tick < target tick
         let pos = history
             .checkpoints
             .binary_search_by_key(&tick, |c| c.tick)
             .unwrap_or_else(|e| e);
-
         if pos == 0 {
             None
         } else {
@@ -642,16 +773,214 @@ impl ProvenanceStore for LocalProvenanceStore {
     }
 }
 
+/// Standalone multi-worldline provenance subsystem.
+#[derive(Debug, Clone, Default)]
+pub struct ProvenanceService {
+    store: LocalProvenanceStore,
+}
+
+impl ProvenanceService {
+    /// Creates an empty provenance service.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers a worldline using its deterministic replay base.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineAlreadyExists`] if the worldline is already
+    /// registered with different U0 or boundary metadata.
+    pub fn register_worldline(
+        &mut self,
+        worldline_id: WorldlineId,
+        state: &WorldlineState,
+    ) -> Result<(), HistoryError> {
+        let initial_boundary_hash =
+            compute_state_root_for_warp_state(state.initial_state(), state.root());
+        self.store.register_worldline_with_boundary(
+            worldline_id,
+            state.root().warp_id,
+            initial_boundary_hash,
+        )
+    }
+
+    /// Returns the deterministic tip ref for a worldline, if any.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if the worldline isn't registered.
+    pub fn tip_ref(
+        &self,
+        worldline_id: WorldlineId,
+    ) -> Result<Option<ProvenanceRef>, HistoryError> {
+        self.store.tip_ref(worldline_id)
+    }
+
+    /// Builds a contiguous BTR from the registered provenance history.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BtrError`] if the selected range is malformed or the worldline
+    /// is unknown.
+    pub fn build_btr(
+        &self,
+        worldline_id: WorldlineId,
+        start_tick: u64,
+        end_tick_exclusive: u64,
+        logical_counter: u64,
+        auth_tag: Vec<u8>,
+    ) -> Result<BoundaryTransitionRecord, BtrError> {
+        let history_len = self.store.len(worldline_id)?;
+        if start_tick >= end_tick_exclusive || end_tick_exclusive > history_len {
+            return Err(BtrError::EmptyPayload);
+        }
+
+        let entries = (start_tick..end_tick_exclusive)
+            .map(|tick| self.store.entry(worldline_id, tick))
+            .collect::<Result<Vec<_>, _>>()?;
+        let payload = BtrPayload {
+            worldline_id,
+            start_tick,
+            entries,
+        };
+        payload.validate()?;
+
+        let input_boundary_hash = if start_tick == 0 {
+            self.store.initial_boundary_hash(worldline_id)?
+        } else {
+            self.store
+                .entry(worldline_id, start_tick - 1)?
+                .expected
+                .state_root
+        };
+        let output_boundary_hash = payload
+            .entries
+            .last()
+            .ok_or(BtrError::EmptyPayload)?
+            .expected
+            .state_root;
+        let record = BoundaryTransitionRecord {
+            worldline_id,
+            u0_ref: self.store.u0(worldline_id)?,
+            input_boundary_hash,
+            output_boundary_hash,
+            payload,
+            logical_counter,
+            auth_tag,
+        };
+        self.validate_btr(&record)?;
+        Ok(record)
+    }
+
+    /// Validates a BTR against the registered provenance history.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BtrError`] if the record is structurally invalid or does not
+    /// match the registered worldline history.
+    pub fn validate_btr(&self, record: &BoundaryTransitionRecord) -> Result<(), BtrError> {
+        record.validate()?;
+
+        let history = self
+            .store
+            .worldlines
+            .get(&record.worldline_id)
+            .ok_or(BtrError::UnknownWorldline(record.worldline_id))?;
+        if record.u0_ref != history.u0_ref {
+            return Err(BtrError::U0RefMismatch {
+                expected: history.u0_ref,
+                got: record.u0_ref,
+            });
+        }
+
+        let expected_input = if record.payload.start_tick == 0 {
+            history.initial_boundary_hash
+        } else {
+            self.store
+                .entry(record.worldline_id, record.payload.start_tick - 1)?
+                .expected
+                .state_root
+        };
+        if record.input_boundary_hash != expected_input {
+            return Err(BtrError::InputBoundaryHashMismatch {
+                expected: expected_input,
+                got: record.input_boundary_hash,
+            });
+        }
+
+        let expected_output = record
+            .payload
+            .entries
+            .last()
+            .ok_or(BtrError::EmptyPayload)?
+            .expected
+            .state_root;
+        if record.output_boundary_hash != expected_output {
+            return Err(BtrError::OutputBoundaryHashMismatch {
+                expected: expected_output,
+                got: record.output_boundary_hash,
+            });
+        }
+
+        for entry in &record.payload.entries {
+            let stored = self
+                .store
+                .entry(record.worldline_id, entry.worldline_tick)?;
+            if &stored != entry {
+                return Err(BtrError::OutputBoundaryHashMismatch {
+                    expected: stored.expected.state_root,
+                    got: entry.expected.state_root,
+                });
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl ProvenanceStore for ProvenanceService {
+    fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError> {
+        self.store.u0(w)
+    }
+
+    fn len(&self, w: WorldlineId) -> Result<u64, HistoryError> {
+        self.store.len(w)
+    }
+
+    fn entry(&self, w: WorldlineId, tick: u64) -> Result<ProvenanceEntry, HistoryError> {
+        self.store.entry(w, tick)
+    }
+
+    fn parents(&self, w: WorldlineId, tick: u64) -> Result<Vec<ProvenanceRef>, HistoryError> {
+        self.store.parents(w, tick)
+    }
+
+    fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        self.store.append_local_commit(entry)
+    }
+
+    fn checkpoint_before(&self, w: WorldlineId, tick: u64) -> Option<CheckpointRef> {
+        self.store.checkpoint_before(w, tick)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
-    #![allow(clippy::expect_used)]
     #![allow(clippy::cast_possible_truncation)]
+    #![allow(clippy::expect_used)]
     #![allow(clippy::redundant_clone)]
+    #![allow(clippy::unwrap_used)]
 
     use super::*;
-    use crate::ident::WarpId;
-    use crate::worldline::WorldlineTickHeaderV1;
+    use crate::attachment::AttachmentKey;
+    use crate::graph::GraphStore;
+    use crate::head::{make_head_id, WriterHeadKey};
+    use crate::ident::{make_node_id, NodeKey, WarpId};
+    use crate::materialization::make_channel_id;
+    use crate::tick_patch::SlotId;
+    use crate::worldline::{AtomWrite, WorldlineTickHeaderV1};
 
     fn test_worldline_id() -> WorldlineId {
         WorldlineId([1u8; 32])
@@ -659,6 +988,13 @@ mod tests {
 
     fn test_warp_id() -> WarpId {
         WarpId([2u8; 32])
+    }
+
+    fn test_head_key() -> WriterHeadKey {
+        WriterHeadKey {
+            worldline_id: test_worldline_id(),
+            head_id: make_head_id("default"),
+        }
     }
 
     fn test_patch(tick: u64) -> WorldlineTickPatchV1 {
@@ -687,6 +1023,98 @@ mod tests {
         }
     }
 
+    fn test_node_key() -> NodeKey {
+        NodeKey {
+            warp_id: test_warp_id(),
+            local_id: make_node_id("test-atom"),
+        }
+    }
+
+    fn test_rule_id() -> [u8; 32] {
+        [42u8; 32]
+    }
+
+    fn test_entry(tick: u64) -> ProvenanceEntry {
+        ProvenanceEntry::local_commit(
+            test_worldline_id(),
+            tick,
+            tick,
+            test_head_key(),
+            if tick == 0 {
+                Vec::new()
+            } else {
+                vec![ProvenanceRef {
+                    worldline_id: test_worldline_id(),
+                    worldline_tick: tick - 1,
+                    commit_hash: test_triplet(tick - 1).commit_hash,
+                }]
+            },
+            test_triplet(tick),
+            test_patch(tick),
+            vec![],
+            Vec::new(),
+        )
+    }
+
+    fn append_test_entry(
+        store: &mut LocalProvenanceStore,
+        worldline_id: WorldlineId,
+        patch: WorldlineTickPatchV1,
+        expected: HashTriplet,
+        outputs: OutputFrameSet,
+        atom_writes: AtomWriteSet,
+    ) {
+        let tick = patch.global_tick();
+        let parents = store
+            .tip_ref(worldline_id)
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let entry = ProvenanceEntry::local_commit(
+            worldline_id,
+            tick,
+            tick,
+            WriterHeadKey {
+                worldline_id,
+                head_id: make_head_id("fixture"),
+            },
+            parents,
+            expected,
+            patch,
+            outputs,
+            atom_writes,
+        );
+        store.append_local_commit(entry).unwrap();
+    }
+
+    fn test_patch_with_atom_slots(tick: u64, atoms: &[NodeKey]) -> WorldlineTickPatchV1 {
+        let mut patch = test_patch(tick);
+        for atom in atoms {
+            patch
+                .out_slots
+                .push(SlotId::Attachment(AttachmentKey::node_alpha(*atom)));
+        }
+        patch
+    }
+
+    fn test_patch_with_atom_mutation(tick: u64, atoms: &[NodeKey]) -> WorldlineTickPatchV1 {
+        let mut patch = test_patch(tick);
+        for atom in atoms {
+            let slot = SlotId::Attachment(AttachmentKey::node_alpha(*atom));
+            patch.in_slots.push(slot);
+            patch.out_slots.push(slot);
+        }
+        patch
+    }
+
+    fn test_patch_with_node_slots(tick: u64, atoms: &[NodeKey]) -> WorldlineTickPatchV1 {
+        let mut patch = test_patch(tick);
+        for atom in atoms {
+            patch.out_slots.push(SlotId::Node(*atom));
+        }
+        patch
+    }
+
     #[test]
     fn worldline_not_found() {
         let store = LocalProvenanceStore::new();
@@ -708,38 +1136,49 @@ mod tests {
     }
 
     #[test]
-    fn append_and_query() {
+    fn append_and_query_entry_api() {
         let mut store = LocalProvenanceStore::new();
         let w = test_worldline_id();
-        let warp = test_warp_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
 
-        store.register_worldline(w, warp).unwrap();
-
-        let patch = test_patch(0);
-        let triplet = test_triplet(0);
-        let outputs = vec![];
-
-        store.append(w, patch, triplet, outputs.clone()).unwrap();
+        let entry = test_entry(0);
+        store.append_local_commit(entry.clone()).unwrap();
 
         assert_eq!(store.len(w).unwrap(), 1);
-        assert!(!store.is_empty(w).unwrap());
-        assert_eq!(store.patch(w, 0).unwrap().global_tick(), 0);
-        assert_eq!(store.expected(w, 0).unwrap(), triplet);
-        assert_eq!(store.outputs(w, 0).unwrap(), outputs);
+        assert_eq!(store.entry(w, 0).unwrap(), entry);
+        assert!(store.parents(w, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn entry_round_trips_patch_expected_outputs() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        let outputs = vec![(make_channel_id("test:ok"), b"ok".to_vec())];
+
+        store.register_worldline(w, test_warp_id()).unwrap();
+        append_test_entry(
+            &mut store,
+            w,
+            test_patch(0),
+            test_triplet(0),
+            outputs.clone(),
+            Vec::new(),
+        );
+
+        let entry = store.entry(w, 0).unwrap();
+        assert_eq!(entry.patch.unwrap().global_tick(), 0);
+        assert_eq!(entry.expected, test_triplet(0));
+        assert_eq!(entry.outputs, outputs);
     }
 
     #[test]
     fn history_unavailable_for_missing_tick() {
         let mut store = LocalProvenanceStore::new();
         let w = test_worldline_id();
-        let warp = test_warp_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+        store.append_local_commit(test_entry(0)).unwrap();
 
-        store.register_worldline(w, warp).unwrap();
-        store
-            .append(w, test_patch(0), test_triplet(0), vec![])
-            .unwrap();
-
-        let result = store.patch(w, 1);
+        let result = store.entry(w, 1);
         assert!(matches!(
             result,
             Err(HistoryError::HistoryUnavailable { tick: 1 })
@@ -747,14 +1186,43 @@ mod tests {
     }
 
     #[test]
+    fn append_tick_gap_returns_error() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        store.append_local_commit(test_entry(0)).unwrap();
+        let result = store.append_local_commit(test_entry(2));
+        assert!(matches!(
+            result,
+            Err(HistoryError::TickGap {
+                expected: 1,
+                got: 2
+            })
+        ));
+    }
+
+    #[test]
+    fn append_local_commit_rejects_missing_head_key() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let mut entry = test_entry(0);
+        entry.head_key = None;
+        let result = store.append_local_commit(entry);
+        assert!(matches!(
+            result,
+            Err(HistoryError::LocalCommitMissingHeadKey { tick: 0 })
+        ));
+    }
+
+    #[test]
     fn checkpoint_before() {
         let mut store = LocalProvenanceStore::new();
         let w = test_worldline_id();
-        let warp = test_warp_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
 
-        store.register_worldline(w, warp).unwrap();
-
-        // Add checkpoints at ticks 0, 5, 10
         store
             .add_checkpoint(
                 w,
@@ -783,160 +1251,51 @@ mod tests {
             )
             .unwrap();
 
-        // No checkpoint before tick 0
         assert!(store.checkpoint_before(w, 0).is_none());
-
-        // Checkpoint at 0 is before tick 1
         assert_eq!(store.checkpoint_before(w, 1).unwrap().tick, 0);
-
-        // Checkpoint at 5 is before tick 7
         assert_eq!(store.checkpoint_before(w, 7).unwrap().tick, 5);
-
-        // Checkpoint at 10 is before tick 15
         assert_eq!(store.checkpoint_before(w, 15).unwrap().tick, 10);
-
-        // Checkpoint at 5 is before tick 10 (not inclusive)
         assert_eq!(store.checkpoint_before(w, 10).unwrap().tick, 5);
     }
 
     #[test]
-    fn register_worldline_duplicate_same_u0_ref_is_noop() {
-        let mut store = LocalProvenanceStore::new();
-        let wl = WorldlineId([1u8; 32]);
-        let warp = WarpId([2u8; 32]);
-        store.register_worldline(wl, warp).unwrap();
-        store.register_worldline(wl, warp).unwrap(); // same u0_ref: ok
-    }
-
-    #[test]
-    fn register_worldline_duplicate_different_u0_ref_errors() {
-        let mut store = LocalProvenanceStore::new();
-        let wl = WorldlineId([1u8; 32]);
-        let warp_a = WarpId([2u8; 32]);
-        let warp_b = WarpId([3u8; 32]);
-        store.register_worldline(wl, warp_a).unwrap();
-        let err = store.register_worldline(wl, warp_b).unwrap_err();
-        assert!(matches!(err, HistoryError::WorldlineAlreadyExists(_)));
-    }
-
-    #[test]
-    fn append_tick_gap_returns_error() {
-        let mut store = LocalProvenanceStore::new();
-        let w = test_worldline_id();
-        store.register_worldline(w, test_warp_id()).unwrap();
-
-        // Append tick 0 successfully
-        store
-            .append(w, test_patch(0), test_triplet(0), vec![])
-            .unwrap();
-
-        // Skip tick 1 → append tick 2 should fail with TickGap
-        let result = store.append(w, test_patch(2), test_triplet(2), vec![]);
-        assert!(
-            matches!(
-                result,
-                Err(HistoryError::TickGap {
-                    expected: 1,
-                    got: 2
-                })
-            ),
-            "expected TickGap, got {result:?}"
-        );
-    }
-
-    #[test]
-    fn fork_collision_returns_worldline_already_exists() {
-        let mut store = LocalProvenanceStore::new();
-        let source = test_worldline_id();
-        let target = WorldlineId([99u8; 32]);
-        let warp = test_warp_id();
-
-        // Register source with one patch so fork has history to copy
-        store.register_worldline(source, warp).unwrap();
-        store
-            .append(source, test_patch(0), test_triplet(0), vec![])
-            .unwrap();
-
-        // Register target worldline (collision target)
-        store.register_worldline(target, warp).unwrap();
-
-        // Fork into already-registered target should fail
-        let result = store.fork(source, 0, target);
-        assert!(
-            matches!(result, Err(HistoryError::WorldlineAlreadyExists(id)) if id == target),
-            "expected WorldlineAlreadyExists, got {result:?}"
-        );
-    }
-
-    #[test]
     fn checkpoint_convenience_records_and_is_visible() {
-        use crate::graph::GraphStore;
-
         let mut store = LocalProvenanceStore::new();
         let w = test_worldline_id();
         let warp = test_warp_id();
         store.register_worldline(w, warp).unwrap();
 
-        // Create a GraphStore so checkpoint() can compute the state hash
         let graph_store = GraphStore::new(warp);
-
-        // Record a checkpoint at tick 5
         let cp = store.checkpoint(w, 5, &graph_store).unwrap();
-
-        // The checkpoint should be visible via checkpoint_before(tick > 5)
         let found = store.checkpoint_before(w, 6);
         assert_eq!(found.unwrap().tick, 5);
         assert_eq!(found.unwrap().state_hash, cp.state_hash);
-
-        // checkpoint_before(5) should NOT return the checkpoint at tick 5 (strict <)
-        let before_5 = store.checkpoint_before(w, 5);
-        assert!(
-            before_5.is_none() || before_5.unwrap().tick < 5,
-            "checkpoint_before should be strictly less than the query tick"
-        );
     }
 
-    // ─── AtomWrite Tests ─────────────────────────────────────────────────────
+    #[test]
+    fn fork_copies_entry_prefix_and_checkpoints() {
+        let mut store = LocalProvenanceStore::new();
+        let source = test_worldline_id();
+        let target = WorldlineId([99u8; 32]);
+        let warp = test_warp_id();
 
-    use crate::attachment::AttachmentKey;
-    use crate::ident::{make_node_id, NodeKey};
-    use crate::tick_patch::SlotId;
-    use crate::worldline::AtomWrite;
+        store.register_worldline(source, warp).unwrap();
+        store.append_local_commit(test_entry(0)).unwrap();
+        store.append_local_commit(test_entry(1)).unwrap();
+        store
+            .add_checkpoint(
+                source,
+                CheckpointRef {
+                    tick: 1,
+                    state_hash: [1u8; 32],
+                },
+            )
+            .unwrap();
 
-    fn test_node_key() -> NodeKey {
-        NodeKey {
-            warp_id: test_warp_id(),
-            local_id: make_node_id("test-atom"),
-        }
-    }
-
-    fn test_rule_id() -> [u8; 32] {
-        [42u8; 32]
-    }
-
-    /// Creates a patch with out_slots declaring which atoms were written.
-    /// This mirrors how the engine populates Out(μ) from footprints.
-    fn test_patch_with_atom_slots(tick: u64, atoms: &[NodeKey]) -> WorldlineTickPatchV1 {
-        let mut patch = test_patch(tick);
-        for atom in atoms {
-            // Atom values are attachments on the node's α plane (Paper III: Out(μ))
-            patch
-                .out_slots
-                .push(SlotId::Attachment(AttachmentKey::node_alpha(*atom)));
-        }
-        patch
-    }
-
-    /// Creates a patch with both in_slots and out_slots for a mutation.
-    /// A mutation reads (In) the previous value and writes (Out) the new one.
-    fn test_patch_with_atom_mutation(tick: u64, atoms: &[NodeKey]) -> WorldlineTickPatchV1 {
-        let mut patch = test_patch(tick);
-        for atom in atoms {
-            let slot = SlotId::Attachment(AttachmentKey::node_alpha(*atom));
-            patch.in_slots.push(slot);
-            patch.out_slots.push(slot);
-        }
-        patch
+        store.fork(source, 0, target).unwrap();
+        assert_eq!(store.len(target).unwrap(), 1);
+        assert_eq!(store.entry(target, 0).unwrap().expected, test_triplet(0));
+        assert!(store.checkpoint_before(target, 1).is_none());
     }
 
     #[test]
@@ -945,40 +1304,20 @@ mod tests {
         let w = test_worldline_id();
         store.register_worldline(w, test_warp_id()).unwrap();
 
-        let atom_write = AtomWrite::new(
-            test_node_key(),
-            test_rule_id(),
-            0,
-            None, // create
-            vec![1, 2, 3],
-        );
+        let atom_write = AtomWrite::new(test_node_key(), test_rule_id(), 0, None, vec![1, 2, 3]);
 
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_slots(0, &[test_node_key()]),
-                test_triplet(0),
-                vec![],
-                vec![atom_write.clone()],
-            )
-            .unwrap();
+        append_test_entry(
+            &mut store,
+            w,
+            test_patch_with_atom_slots(0, &[test_node_key()]),
+            test_triplet(0),
+            vec![],
+            vec![atom_write.clone()],
+        );
 
         let writes = store.atom_writes(w, 0).unwrap();
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0], atom_write);
-    }
-
-    #[test]
-    fn atom_writes_unavailable_for_missing_tick() {
-        let mut store = LocalProvenanceStore::new();
-        let w = test_worldline_id();
-        store.register_worldline(w, test_warp_id()).unwrap();
-
-        let result = store.atom_writes(w, 0);
-        assert!(matches!(
-            result,
-            Err(HistoryError::HistoryUnavailable { tick: 0 })
-        ));
     }
 
     #[test]
@@ -988,263 +1327,37 @@ mod tests {
         store.register_worldline(w, test_warp_id()).unwrap();
 
         let atom_key = test_node_key();
-
-        // Tick 0: create atom (Out(μ) declares the atom slot)
         let write0 = AtomWrite::new(atom_key, test_rule_id(), 0, None, vec![1]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_slots(0, &[atom_key]),
-                test_triplet(0),
-                vec![],
-                vec![write0.clone()],
-            )
-            .unwrap();
-
-        // Tick 1: mutate atom (In + Out declare read-then-write)
         let write1 = AtomWrite::new(atom_key, test_rule_id(), 1, Some(vec![1]), vec![2]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_mutation(1, &[atom_key]),
-                test_triplet(1),
-                vec![],
-                vec![write1.clone()],
-            )
-            .unwrap();
-
-        // Tick 2: mutate atom again
         let write2 = AtomWrite::new(atom_key, test_rule_id(), 2, Some(vec![2]), vec![3]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_mutation(2, &[atom_key]),
-                test_triplet(2),
-                vec![],
-                vec![write2.clone()],
-            )
-            .unwrap();
+
+        append_test_entry(
+            &mut store,
+            w,
+            test_patch_with_atom_slots(0, &[atom_key]),
+            test_triplet(0),
+            vec![],
+            vec![write0.clone()],
+        );
+        append_test_entry(
+            &mut store,
+            w,
+            test_patch_with_atom_mutation(1, &[atom_key]),
+            test_triplet(1),
+            vec![],
+            vec![write1.clone()],
+        );
+        append_test_entry(
+            &mut store,
+            w,
+            test_patch_with_atom_mutation(2, &[atom_key]),
+            test_triplet(2),
+            vec![],
+            vec![write2.clone()],
+        );
 
         let history = store.atom_history(w, &atom_key).unwrap();
-        assert_eq!(history.len(), 3);
-        assert_eq!(history[0], write0);
-        assert_eq!(history[1], write1);
-        assert_eq!(history[2], write2);
-    }
-
-    #[test]
-    fn atom_history_skips_ticks_not_in_causal_cone() {
-        let mut store = LocalProvenanceStore::new();
-        let w = test_worldline_id();
-        store.register_worldline(w, test_warp_id()).unwrap();
-
-        let atom_a = test_node_key();
-        let atom_b = NodeKey {
-            warp_id: test_warp_id(),
-            local_id: make_node_id("other-atom"),
-        };
-
-        // Tick 0: create atom_a (Out(μ) = {atom_a})
-        let write_a = AtomWrite::new(atom_a, test_rule_id(), 0, None, vec![1]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_slots(0, &[atom_a]),
-                test_triplet(0),
-                vec![],
-                vec![write_a.clone()],
-            )
-            .unwrap();
-
-        // Tick 1: only touches atom_b — atom_a's causal cone skips this tick
-        let write_b = AtomWrite::new(atom_b, test_rule_id(), 1, None, vec![100]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_slots(1, &[atom_b]),
-                test_triplet(1),
-                vec![],
-                vec![write_b],
-            )
-            .unwrap();
-
-        // Tick 2: mutate atom_a again (Out(μ) = {atom_a})
-        let write_a2 = AtomWrite::new(atom_a, test_rule_id(), 2, Some(vec![1]), vec![2]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_mutation(2, &[atom_a]),
-                test_triplet(2),
-                vec![],
-                vec![write_a2.clone()],
-            )
-            .unwrap();
-
-        // atom_a's history should skip tick 1 entirely
-        let history_a = store.atom_history(w, &atom_a).unwrap();
-        assert_eq!(history_a.len(), 2);
-        assert_eq!(history_a[0], write_a);
-        assert_eq!(history_a[1], write_a2);
-    }
-
-    #[test]
-    fn atom_history_terminates_at_creation() {
-        let mut store = LocalProvenanceStore::new();
-        let w = test_worldline_id();
-        store.register_worldline(w, test_warp_id()).unwrap();
-
-        let atom_key = test_node_key();
-
-        // Ticks 0-4: unrelated work (no atom_key in out_slots)
-        for tick in 0..5 {
-            store
-                .append_with_writes(w, test_patch(tick), test_triplet(tick), vec![], Vec::new())
-                .unwrap();
-        }
-
-        // Tick 5: create atom_key
-        let write5 = AtomWrite::new(atom_key, test_rule_id(), 5, None, vec![1]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_slots(5, &[atom_key]),
-                test_triplet(5),
-                vec![],
-                vec![write5.clone()],
-            )
-            .unwrap();
-
-        // Tick 6: mutate atom_key
-        let write6 = AtomWrite::new(atom_key, test_rule_id(), 6, Some(vec![1]), vec![2]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_mutation(6, &[atom_key]),
-                test_triplet(6),
-                vec![],
-                vec![write6.clone()],
-            )
-            .unwrap();
-
-        let history = store.atom_history(w, &atom_key).unwrap();
-        assert_eq!(
-            history.len(),
-            2,
-            "should find creation at tick 5 and mutation at tick 6"
-        );
-        assert_eq!(history[0], write5);
-        assert_eq!(history[1], write6);
-    }
-
-    #[test]
-    fn atom_history_preserves_within_tick_order() {
-        // Regression: if a single tick has [create, mutate] for the same atom,
-        // atom_history must return both in execution order (create then mutate).
-        // A naive forward iteration over tick_writes would hit is_create() first
-        // and early-return, losing the subsequent mutation.
-        let mut store = LocalProvenanceStore::new();
-        let w = test_worldline_id();
-        store.register_worldline(w, test_warp_id()).unwrap();
-
-        let atom_key = test_node_key();
-
-        // Single tick with two writes: create then mutate (same atom, same tick).
-        // This can happen when a rule creates an atom and immediately sets its value.
-        let create_write = AtomWrite::new(atom_key, test_rule_id(), 0, None, vec![1]);
-        let mutate_write = AtomWrite::new(atom_key, test_rule_id(), 0, Some(vec![1]), vec![2]);
-
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_slots(0, &[atom_key]),
-                test_triplet(0),
-                vec![],
-                vec![create_write.clone(), mutate_write.clone()],
-            )
-            .unwrap();
-
-        let history = store.atom_history(w, &atom_key).unwrap();
-        assert_eq!(
-            history.len(),
-            2,
-            "both create and mutate must be captured from the same tick"
-        );
-        assert_eq!(
-            history[0], create_write,
-            "create must come first (execution order)"
-        );
-        assert_eq!(
-            history[1], mutate_write,
-            "mutate must come second (execution order)"
-        );
-    }
-
-    #[test]
-    fn atom_history_filters_by_atom() {
-        let mut store = LocalProvenanceStore::new();
-        let w = test_worldline_id();
-        store.register_worldline(w, test_warp_id()).unwrap();
-
-        let atom_a = test_node_key();
-        let atom_b = NodeKey {
-            warp_id: test_warp_id(),
-            local_id: make_node_id("other-atom"),
-        };
-
-        // Both atoms written at tick 0 (both in Out(μ))
-        let write_a = AtomWrite::new(atom_a, test_rule_id(), 0, None, vec![1]);
-        let write_b = AtomWrite::new(atom_b, test_rule_id(), 0, None, vec![100]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_atom_slots(0, &[atom_a, atom_b]),
-                test_triplet(0),
-                vec![],
-                vec![write_a.clone(), write_b],
-            )
-            .unwrap();
-
-        // Query only atom_a's history
-        let history_a = store.atom_history(w, &atom_a).unwrap();
-        assert_eq!(history_a.len(), 1);
-        assert_eq!(history_a[0], write_a);
-    }
-
-    #[test]
-    fn atom_write_is_create() {
-        let create_write = AtomWrite::new(test_node_key(), test_rule_id(), 0, None, vec![1]);
-        assert!(create_write.is_create());
-
-        let mutation_write =
-            AtomWrite::new(test_node_key(), test_rule_id(), 1, Some(vec![1]), vec![2]);
-        assert!(!mutation_write.is_create());
-    }
-
-    #[test]
-    fn atom_write_is_mutation() {
-        // Create is a mutation (value changed from nothing to something)
-        let create_write = AtomWrite::new(test_node_key(), test_rule_id(), 0, None, vec![1]);
-        assert!(create_write.is_mutation());
-
-        // Actual value change
-        let change_write =
-            AtomWrite::new(test_node_key(), test_rule_id(), 1, Some(vec![1]), vec![2]);
-        assert!(change_write.is_mutation());
-
-        // No-op (same value)
-        let noop_write = AtomWrite::new(test_node_key(), test_rule_id(), 2, Some(vec![1]), vec![1]);
-        assert!(!noop_write.is_mutation());
-    }
-
-    /// Creates a patch with `SlotId::Node(atom)` out_slots instead of
-    /// `SlotId::Attachment`. This exercises the skeleton-level provenance path
-    /// (UpsertNode/DeleteNode) as opposed to the payload-level path (SetAttachment).
-    fn test_patch_with_node_slots(tick: u64, atoms: &[NodeKey]) -> WorldlineTickPatchV1 {
-        let mut patch = test_patch(tick);
-        for atom in atoms {
-            patch.out_slots.push(SlotId::Node(*atom));
-        }
-        patch
+        assert_eq!(history, vec![write0, write1, write2]);
     }
 
     #[test]
@@ -1254,64 +1367,70 @@ mod tests {
         store.register_worldline(w, test_warp_id()).unwrap();
 
         let atom = test_node_key();
-
-        // Tick 0: create via SlotId::Node (skeleton-level write, e.g. UpsertNode)
         let create_write = AtomWrite::new(atom, test_rule_id(), 0, None, vec![1]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_node_slots(0, &[atom]),
-                test_triplet(0),
-                vec![],
-                vec![create_write.clone()],
-            )
-            .unwrap();
-
-        // Tick 1: mutate via SlotId::Node
         let mutate_write = AtomWrite::new(atom, test_rule_id(), 1, Some(vec![1]), vec![2]);
-        store
-            .append_with_writes(
-                w,
-                test_patch_with_node_slots(1, &[atom]),
-                test_triplet(1),
-                vec![],
-                vec![mutate_write.clone()],
-            )
-            .unwrap();
 
-        // atom_history should find both writes through the SlotId::Node path
+        append_test_entry(
+            &mut store,
+            w,
+            test_patch_with_node_slots(0, &[atom]),
+            test_triplet(0),
+            vec![],
+            vec![create_write.clone()],
+        );
+        append_test_entry(
+            &mut store,
+            w,
+            test_patch_with_node_slots(1, &[atom]),
+            test_triplet(1),
+            vec![],
+            vec![mutate_write.clone()],
+        );
+
         let history = store.atom_history(w, &atom).unwrap();
-        assert_eq!(history.len(), 2);
-        assert_eq!(history[0], create_write, "oldest first: creation");
-        assert_eq!(history[1], mutate_write, "oldest first: mutation");
+        assert_eq!(history, vec![create_write, mutate_write]);
     }
 
     #[test]
-    fn fork_copies_atom_writes() {
-        let mut store = LocalProvenanceStore::new();
-        let source = test_worldline_id();
-        let target = WorldlineId([99u8; 32]);
-        let warp = test_warp_id();
+    fn build_btr_round_trips_contiguous_segment() {
+        let mut service = ProvenanceService::new();
+        let w = test_worldline_id();
+        let state = WorldlineState::empty();
+        service.register_worldline(w, &state).unwrap();
+        service.append_local_commit(test_entry(0)).unwrap();
+        service.append_local_commit(test_entry(1)).unwrap();
 
-        store.register_worldline(source, warp).unwrap();
+        let btr = service.build_btr(w, 0, 2, 7, b"auth".to_vec()).unwrap();
+        assert_eq!(btr.logical_counter, 7);
+        assert_eq!(btr.payload.start_tick, 0);
+        assert_eq!(btr.payload.entries.len(), 2);
+        service.validate_btr(&btr).unwrap();
+    }
 
-        let atom_write = AtomWrite::new(test_node_key(), test_rule_id(), 0, None, vec![1, 2, 3]);
-        store
-            .append_with_writes(
-                source,
-                test_patch_with_atom_slots(0, &[test_node_key()]),
-                test_triplet(0),
-                vec![],
-                vec![atom_write.clone()],
-            )
-            .unwrap();
-
-        // Fork at tick 0
-        store.fork(source, 0, target).unwrap();
-
-        // Target should have the same atom writes
-        let target_writes = store.atom_writes(target, 0).unwrap();
-        assert_eq!(target_writes.len(), 1);
-        assert_eq!(target_writes[0], atom_write);
+    #[test]
+    fn btr_validation_rejects_mixed_worldlines() {
+        let entry = ProvenanceEntry::local_commit(
+            WorldlineId([2u8; 32]),
+            0,
+            0,
+            WriterHeadKey {
+                worldline_id: WorldlineId([2u8; 32]),
+                head_id: make_head_id("b"),
+            },
+            Vec::new(),
+            test_triplet(0),
+            test_patch(0),
+            Vec::new(),
+            Vec::new(),
+        );
+        let payload = BtrPayload {
+            worldline_id: test_worldline_id(),
+            start_tick: 0,
+            entries: vec![entry],
+        };
+        assert!(matches!(
+            payload.validate(),
+            Err(BtrError::MixedWorldline { .. })
+        ));
     }
 }

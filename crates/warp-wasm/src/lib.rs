@@ -186,18 +186,15 @@ where
     match build_kernel_head(make_kernel) {
         Ok((kernel, head)) => {
             let envelope = OkEnvelope::new(&head);
-            match echo_wasm_abi::encode_cbor(&envelope) {
-                Ok(bytes) => {
-                    install_kernel(Box::new(kernel));
-                    bytes_to_uint8array(&bytes)
-                }
-                Err(_) => {
-                    clear_kernel();
-                    encode_err_raw(
-                        kernel_port::error_codes::CODEC_ERROR,
-                        "failed to encode response",
-                    )
-                }
+            if let Ok(bytes) = echo_wasm_abi::encode_cbor(&envelope) {
+                install_kernel(Box::new(kernel));
+                bytes_to_uint8array(&bytes)
+            } else {
+                clear_kernel();
+                encode_err_raw(
+                    kernel_port::error_codes::CODEC_ERROR,
+                    "failed to encode response",
+                )
             }
         }
         Err(err) => encode_err(&err),
@@ -614,7 +611,11 @@ mod init_tests {
         assert!(with_kernel_ref(|k| k.get_head()).is_ok());
 
         clear_kernel();
-        let err = with_kernel_ref(|k| k.get_head()).unwrap_err();
+        let result = with_kernel_ref(|k| k.get_head());
+        assert!(result.is_err());
+        let Err(err) = result else {
+            unreachable!("get_head should fail after clear_kernel");
+        };
         assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
     }
 
@@ -623,12 +624,17 @@ mod init_tests {
         clear_kernel();
         install_kernel(Box::new(StubKernel));
         let result = build_kernel_head(|| Err(warp_kernel::KernelInitError::NonFreshEngine));
-        match result {
-            Ok(_) => panic!("build_kernel_head unexpectedly succeeded"),
-            Err(err) => assert_eq!(err.code, kernel_port::error_codes::ENGINE_ERROR),
-        }
+        assert!(result.is_err());
+        let Err(err) = result else {
+            unreachable!("build_kernel_head unexpectedly succeeded");
+        };
+        assert_eq!(err.code, kernel_port::error_codes::ENGINE_ERROR);
 
-        let err = with_kernel_ref(|k| k.get_head()).unwrap_err();
+        let result = with_kernel_ref(|k| k.get_head());
+        assert!(result.is_err());
+        let Err(err) = result else {
+            unreachable!("get_head should fail after init failure");
+        };
         assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
     }
 }

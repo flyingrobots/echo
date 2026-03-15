@@ -27,7 +27,10 @@
 )]
 
 mod common;
-use common::{create_add_node_patch, create_initial_store, test_warp_id, test_worldline_id};
+use common::{
+    append_fixture_entry, create_add_node_patch, create_initial_store, test_warp_id,
+    test_worldline_id,
+};
 
 use proptest::prelude::*;
 
@@ -87,7 +90,7 @@ proptest! {
             );
             let triplet = HashTriplet { state_root, patch_digest: patch.patch_digest, commit_hash };
 
-            provenance.append(worldline_id, patch, triplet, vec![]).unwrap();
+            append_fixture_entry(&mut provenance, worldline_id, patch, triplet, vec![]).unwrap();
             parents = vec![commit_hash];
 
             // Invariant: length must equal tick + 1
@@ -102,7 +105,8 @@ proptest! {
             patch_digest: gap_patch.patch_digest,
             commit_hash: [0u8; 32],
         };
-        let result = provenance.append(worldline_id, gap_patch, gap_triplet, vec![]);
+        let result =
+            append_fixture_entry(&mut provenance, worldline_id, gap_patch, gap_triplet, vec![]);
         prop_assert!(result.is_err(), "appending at tick gap must fail");
 
         // Invariant: attempting to re-append at an existing tick must fail
@@ -113,7 +117,8 @@ proptest! {
             patch_digest: dup_patch.patch_digest,
             commit_hash: [0u8; 32],
         };
-        let dup_result = provenance.append(worldline_id, dup_patch, dup_triplet, vec![]);
+        let dup_result =
+            append_fixture_entry(&mut provenance, worldline_id, dup_patch, dup_triplet, vec![]);
         prop_assert!(dup_result.is_err(), "re-appending at existing tick must fail");
     }
 }
@@ -267,9 +272,7 @@ fn inv004_no_cross_worldline_leakage() {
             patch_digest: patch.patch_digest,
             commit_hash: ch,
         };
-        provenance
-            .append(worldline_a, patch, triplet, vec![])
-            .unwrap();
+        append_fixture_entry(&mut provenance, worldline_a, patch, triplet, vec![]).unwrap();
         parents_a = vec![ch];
     }
 
@@ -286,9 +289,7 @@ fn inv004_no_cross_worldline_leakage() {
             patch_digest: patch.patch_digest,
             commit_hash: ch,
         };
-        provenance
-            .append(worldline_b, patch, triplet, vec![])
-            .unwrap();
+        append_fixture_entry(&mut provenance, worldline_b, patch, triplet, vec![]).unwrap();
         parents_b = vec![ch];
     }
 
@@ -297,8 +298,12 @@ fn inv004_no_cross_worldline_leakage() {
     assert_eq!(provenance.len(worldline_b).unwrap(), 3);
 
     // State roots must differ (different node names)
-    let sr_a = provenance.expected(worldline_a, 4).unwrap().state_root;
-    let triplet_b_before = provenance.expected(worldline_b, 2).unwrap();
+    let sr_a = provenance
+        .entry(worldline_a, 4)
+        .unwrap()
+        .expected
+        .state_root;
+    let triplet_b_before = provenance.entry(worldline_b, 2).unwrap().expected;
     let sr_b = triplet_b_before.state_root;
     assert_ne!(
         sr_a, sr_b,
@@ -316,12 +321,10 @@ fn inv004_no_cross_worldline_leakage() {
         patch_digest: patch.patch_digest,
         commit_hash: ch,
     };
-    provenance
-        .append(worldline_a, patch, triplet, vec![])
-        .unwrap();
+    append_fixture_entry(&mut provenance, worldline_a, patch, triplet, vec![]).unwrap();
     assert_eq!(provenance.len(worldline_a).unwrap(), 6);
     assert_eq!(
-        provenance.expected(worldline_b, 2).unwrap(),
+        provenance.entry(worldline_b, 2).unwrap().expected,
         triplet_b_before,
         "appending to A must not mutate B's latest committed triplet"
     );
@@ -402,15 +405,16 @@ fn inv006_provenance_immutable_after_append() {
             commit_hash: ch,
         };
         recorded_triplets.push(triplet.clone());
-        provenance
-            .append(worldline_id, patch, triplet, vec![])
-            .unwrap();
+        append_fixture_entry(&mut provenance, worldline_id, patch, triplet, vec![]).unwrap();
         parents = vec![ch];
     }
 
     // Verify all triplets remain unchanged after all appends
     for (tick, expected) in recorded_triplets.iter().enumerate() {
-        let actual = provenance.expected(worldline_id, tick as u64).unwrap();
+        let actual = provenance
+            .entry(worldline_id, tick as u64)
+            .unwrap()
+            .expected;
         assert_eq!(
             actual, *expected,
             "tick {tick}: triplet must not change after append"

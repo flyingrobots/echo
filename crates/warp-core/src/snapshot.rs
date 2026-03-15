@@ -162,6 +162,12 @@ pub(crate) fn compute_state_root(state: &WarpState, root: &NodeKey) -> Hash {
     hasher.finalize().into()
 }
 
+/// Computes the canonical state root for a full [`WarpState`] rooted at `root`.
+#[must_use]
+pub(crate) fn compute_state_root_for_warp_state(state: &WarpState, root: &NodeKey) -> Hash {
+    compute_state_root(state, root)
+}
+
 fn collect_reachable_graph(
     state: &WarpState,
     root: &NodeKey,

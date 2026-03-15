@@ -16,9 +16,9 @@ use echo_wasm_abi::kernel_port::{
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
-    IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, PlaybackMode, RuntimeError,
-    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState,
-    WorldlineStateError, WriterHead, WriterHeadKey,
+    HistoryError, IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, PlaybackMode,
+    ProvenanceService, RuntimeError, SchedulerCoordinator, SchedulerKind, WorldlineId,
+    WorldlineRuntime, WorldlineState, WorldlineStateError, WriterHead, WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -28,6 +28,8 @@ pub enum KernelInitError {
     NonFreshEngine,
     /// The engine's backing state does not satisfy [`WorldlineState`] invariants.
     WorldlineState(WorldlineStateError),
+    /// Provenance registration failed while installing the default worldline.
+    Provenance(HistoryError),
     /// Runtime registration failed while installing the default worldline/head.
     Runtime(RuntimeError),
 }
@@ -37,6 +39,7 @@ impl fmt::Display for KernelInitError {
         match self {
             Self::NonFreshEngine => write!(f, "WarpKernel::with_engine requires a fresh engine"),
             Self::WorldlineState(err) => err.fmt(f),
+            Self::Provenance(err) => err.fmt(f),
             Self::Runtime(err) => err.fmt(f),
         }
     }
@@ -56,6 +59,12 @@ impl From<RuntimeError> for KernelInitError {
     }
 }
 
+impl From<HistoryError> for KernelInitError {
+    fn from(value: HistoryError) -> Self {
+        Self::Provenance(value)
+    }
+}
+
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
 ///
 /// Constructed via [`WarpKernel::new`] (default empty engine) or
@@ -63,6 +72,7 @@ impl From<RuntimeError> for KernelInitError {
 pub struct WarpKernel {
     engine: Engine,
     runtime: WorldlineRuntime,
+    provenance: ProvenanceService,
     default_worldline: WorldlineId,
     /// Whether materialization output has been drained since the last step.
     /// Prevents returning stale data on consecutive drain calls.
@@ -115,10 +125,10 @@ impl WarpKernel {
         let root = engine.root_key();
         let default_worldline = WorldlineId(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();
-        runtime.register_worldline(
-            default_worldline,
-            WorldlineState::try_from(engine.state().clone())?,
-        )?;
+        let default_state = WorldlineState::try_from(engine.state().clone())?;
+        let mut provenance = ProvenanceService::new();
+        provenance.register_worldline(default_worldline, &default_state)?;
+        runtime.register_worldline(default_worldline, default_state)?;
         runtime.register_writer_head(WriterHead::with_routing(
             WriterHeadKey {
                 worldline_id: default_worldline,
@@ -133,6 +143,7 @@ impl WarpKernel {
         Ok(Self {
             engine,
             runtime,
+            provenance,
             default_worldline,
             drained: true,
             registry,
@@ -141,11 +152,10 @@ impl WarpKernel {
 
     /// Build a [`HeadInfo`] from the current engine snapshot.
     fn head_info(&self) -> HeadInfo {
-        let frontier = self
-            .runtime
-            .worldlines()
-            .get(&self.default_worldline)
-            .expect("default worldline must exist");
+        let frontier = match self.runtime.worldlines().get(&self.default_worldline) {
+            Some(frontier) => frontier,
+            None => unreachable!("default worldline must exist"),
+        };
         let snap = frontier
             .state()
             .last_snapshot()
@@ -212,11 +222,15 @@ impl KernelPort for WarpKernel {
             // Phase 3 exposes only the default worldline/default writer through
             // the WASM ABI, so one coordinator pass can produce at most one
             // committed head step here.
-            let records = SchedulerCoordinator::super_tick(&mut self.runtime, &mut self.engine)
-                .map_err(|e| AbiError {
-                    code: error_codes::ENGINE_ERROR,
-                    message: e.to_string(),
-                })?;
+            let records = SchedulerCoordinator::super_tick(
+                &mut self.runtime,
+                &mut self.provenance,
+                &mut self.engine,
+            )
+            .map_err(|e| AbiError {
+                code: error_codes::ENGINE_ERROR,
+                message: e.to_string(),
+            })?;
             if records.is_empty() {
                 break;
             }
@@ -243,13 +257,11 @@ impl KernelPort for WarpKernel {
         }
         self.drained = true;
 
-        let finalized = self
-            .runtime
-            .worldlines()
-            .get(&self.default_worldline)
-            .expect("default worldline must exist")
-            .state()
-            .last_materialization();
+        let frontier = match self.runtime.worldlines().get(&self.default_worldline) {
+            Some(frontier) => frontier,
+            None => unreachable!("default worldline must exist"),
+        };
+        let finalized = frontier.state().last_materialization();
         let channels: Vec<ChannelData> = finalized
             .iter()
             .map(|ch| ChannelData {
@@ -270,11 +282,10 @@ impl KernelPort for WarpKernel {
             code: error_codes::INVALID_TICK,
             message: format!("tick {tick} exceeds addressable range"),
         })?;
-        let frontier = self
-            .runtime
-            .worldlines()
-            .get(&self.default_worldline)
-            .expect("default worldline must exist");
+        let frontier = match self.runtime.worldlines().get(&self.default_worldline) {
+            Some(frontier) => frontier,
+            None => unreachable!("default worldline must exist"),
+        };
         let snap = self
             .engine
             .snapshot_at_state(frontier.state(), tick_index)

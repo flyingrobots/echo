@@ -191,7 +191,11 @@ pub use playback::{
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
-pub use provenance_store::{CheckpointRef, HistoryError, LocalProvenanceStore, ProvenanceStore};
+pub use provenance_store::{
+    BoundaryTransitionRecord, BtrError, BtrPayload, CheckpointRef, HistoryError,
+    LocalProvenanceStore, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef, ProvenanceService,
+    ProvenanceStore,
+};
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};
 pub use rule::{ConflictPolicy, ExecuteFn, MatchFn, PatternGraph, RewriteRule};

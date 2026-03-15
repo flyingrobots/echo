@@ -90,7 +90,7 @@ pub struct WorldlineTickHeaderV1 {
 /// Unlike [`WarpTickPatchV1`](crate::tick_patch::WarpTickPatchV1) which is the
 /// engine's internal format, this type is designed for external worldline storage
 /// and includes the header context needed for independent replay.
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldlineTickPatchV1 {
     /// Shared tick header metadata.

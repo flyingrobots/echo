@@ -422,7 +422,8 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
+            .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         Ok(hash_to_uint8array(&expected.state_root))
@@ -449,7 +450,8 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
+            .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         Ok(hash_to_uint8array(&expected.commit_hash))
@@ -479,7 +481,8 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
+            .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         // Return patch_digest as a proxy; actual emissions_digest would need
@@ -729,14 +732,10 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
             .map_err(|e| e.to_string())?;
-
-        // Retrieve recorded outputs for this tick to compute emissions_digest
-        let outputs = self
-            .provenance
-            .outputs(cursor.worldline_id, cursor.tick - 1)
-            .map_err(|e| e.to_string())?;
+        let outputs = expected.outputs.clone();
+        let expected = expected.expected;
 
         let finalized_channels: Vec<FinalizedChannel> = outputs
             .into_iter()
@@ -1340,7 +1339,8 @@ mod tests {
     #[test]
     fn regression_commit_populates_emissions_digest() {
         use warp_core::{
-            HashTriplet, TypeId, WarpId, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+            make_head_id, HashTriplet, ProvenanceEntry, TypeId, WarpId, WorldlineId,
+            WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
         };
 
         let mut engine = TtdEngine::new();
@@ -1372,11 +1372,23 @@ mod tests {
         };
 
         let outputs = vec![(TypeId([10u8; 32]), vec![1, 2, 3])];
+        let head_key = WriterHeadKey {
+            worldline_id: wl_id,
+            head_id: make_head_id("ttd-browser-test"),
+        };
+        let entry = ProvenanceEntry::local_commit(
+            wl_id,
+            0,
+            0,
+            head_key,
+            Vec::new(),
+            expected,
+            patch,
+            outputs,
+            Vec::new(),
+        );
 
-        engine
-            .provenance
-            .append_with_writes(wl_id, patch, expected, outputs, vec![])
-            .unwrap();
+        engine.provenance.append_local_commit(entry).unwrap();
 
         let cursor_id = engine.create_cursor(&wl_id.0).unwrap();
         // Advance cursor to tick 1 so we can commit (cannot commit at tick 0)

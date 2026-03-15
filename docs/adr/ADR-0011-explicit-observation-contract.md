@@ -3,7 +3,7 @@
 
 # ADR-0011: Explicit Observation Contract
 
-- **Status:** Proposed
+- **Status:** Implemented
 - **Date:** 2026-03-15
 - **Amends:** ADR-0008, ADR-0010
 - **Related:** ADR-0009

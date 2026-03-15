@@ -96,11 +96,40 @@ pub enum HistoryError {
         head_key: WriterHeadKey,
     },
 
+    /// `append_local_commit(...)` only admits local-commit provenance entries.
+    #[error("append_local_commit rejected non-local event kind {got:?} at tick {tick}")]
+    InvalidLocalCommitEventKind {
+        /// The entry tick.
+        tick: u64,
+        /// The unexpected event kind.
+        got: ProvenanceEventKind,
+    },
+
     /// Parent references must already be stored in canonical commit-hash order.
     #[error("parent refs must be in canonical commit-hash order at tick {tick}")]
     NonCanonicalParents {
         /// The entry tick whose parent refs were non-canonical.
         tick: u64,
+    },
+
+    /// A parent ref must resolve to an already-recorded provenance entry.
+    #[error("missing parent ref {parent:?} for tick {tick}")]
+    MissingParentRef {
+        /// The entry tick carrying the invalid parent ref.
+        tick: u64,
+        /// The missing parent ref.
+        parent: ProvenanceRef,
+    },
+
+    /// A parent ref must match the stored commit hash at its referenced coordinate.
+    #[error("parent ref commit hash mismatch at tick {tick}: parent {parent:?}, stored {stored_commit_hash:?}")]
+    ParentCommitHashMismatch {
+        /// The entry tick carrying the invalid parent ref.
+        tick: u64,
+        /// The provided parent ref.
+        parent: ProvenanceRef,
+        /// The stored commit hash at the referenced coordinate.
+        stored_commit_hash: Hash,
     },
 }
 
@@ -171,6 +200,13 @@ pub enum BtrError {
         expected: Hash,
         /// Value carried by the BTR.
         got: Hash,
+    },
+
+    /// A payload entry diverges from the authoritative stored history.
+    #[error("BTR payload entry mismatch at tick {tick}")]
+    EntryMismatch {
+        /// The mismatching entry tick.
+        tick: u64,
     },
 }
 
@@ -528,6 +564,7 @@ impl LocalProvenanceStore {
     }
 
     fn validate_local_commit_entry(
+        worldlines: &BTreeMap<WorldlineId, WorldlineHistory>,
         worldline_id: WorldlineId,
         expected_tick: u64,
         entry: &ProvenanceEntry,
@@ -560,14 +597,36 @@ impl LocalProvenanceStore {
                 tick: entry.worldline_tick,
             });
         }
+        if !matches!(entry.event_kind, ProvenanceEventKind::LocalCommit) {
+            return Err(HistoryError::InvalidLocalCommitEventKind {
+                tick: entry.worldline_tick,
+                got: entry.event_kind.clone(),
+            });
+        }
         if !entry
             .parents
             .windows(2)
-            .all(|pair| pair[0].commit_hash <= pair[1].commit_hash)
+            .all(|pair| pair[0].commit_hash < pair[1].commit_hash)
         {
             return Err(HistoryError::NonCanonicalParents {
                 tick: entry.worldline_tick,
             });
+        }
+        for parent in &entry.parents {
+            let stored = worldlines
+                .get(&parent.worldline_id)
+                .and_then(|history| history.entries.get(parent.worldline_tick as usize))
+                .ok_or(HistoryError::MissingParentRef {
+                    tick: entry.worldline_tick,
+                    parent: *parent,
+                })?;
+            if stored.expected.commit_hash != parent.commit_hash {
+                return Err(HistoryError::ParentCommitHashMismatch {
+                    tick: entry.worldline_tick,
+                    parent: *parent,
+                    stored_commit_hash: stored.expected.commit_hash,
+                });
+            }
         }
         Ok(())
     }
@@ -752,9 +811,14 @@ impl ProvenanceStore for LocalProvenanceStore {
     }
 
     fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        let expected_tick = self.history(entry.worldline_id)?.entries.len() as u64;
+        Self::validate_local_commit_entry(
+            &self.worldlines,
+            entry.worldline_id,
+            expected_tick,
+            &entry,
+        )?;
         let history = self.history_mut(entry.worldline_id)?;
-        let expected_tick = history.entries.len() as u64;
-        Self::validate_local_commit_entry(entry.worldline_id, expected_tick, &entry)?;
         history.entries.push(entry);
         Ok(())
     }
@@ -977,9 +1041,8 @@ impl ProvenanceService {
                 .store
                 .entry(record.worldline_id, entry.worldline_tick)?;
             if &stored != entry {
-                return Err(BtrError::OutputBoundaryHashMismatch {
-                    expected: stored.expected.state_root,
-                    got: entry.expected.state_root,
+                return Err(BtrError::EntryMismatch {
+                    tick: entry.worldline_tick,
                 });
             }
         }
@@ -1262,6 +1325,73 @@ mod tests {
         assert!(matches!(
             result,
             Err(HistoryError::LocalCommitMissingHeadKey { tick: 0 })
+        ));
+    }
+
+    #[test]
+    fn append_local_commit_rejects_non_local_event_kind() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let mut entry = test_entry(0);
+        entry.event_kind = ProvenanceEventKind::ConflictArtifact {
+            artifact_id: [9u8; 32],
+        };
+        let result = store.append_local_commit(entry);
+        assert!(matches!(
+            result,
+            Err(HistoryError::InvalidLocalCommitEventKind {
+                tick: 0,
+                got: ProvenanceEventKind::ConflictArtifact { .. }
+            })
+        ));
+    }
+
+    #[test]
+    fn append_local_commit_rejects_missing_parent_ref() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+
+        let mut entry = test_entry(0);
+        let missing_parent = ProvenanceRef {
+            worldline_id: w,
+            worldline_tick: 99,
+            commit_hash: [7u8; 32],
+        };
+        entry.parents = vec![missing_parent];
+
+        let result = store.append_local_commit(entry);
+        assert!(matches!(
+            result,
+            Err(HistoryError::MissingParentRef { tick: 0, parent }) if parent == missing_parent
+        ));
+    }
+
+    #[test]
+    fn append_local_commit_rejects_parent_commit_hash_mismatch() {
+        let mut store = LocalProvenanceStore::new();
+        let w = test_worldline_id();
+        store.register_worldline(w, test_warp_id()).unwrap();
+        store.append_local_commit(test_entry(0)).unwrap();
+
+        let mut entry = test_entry(1);
+        let bad_parent = ProvenanceRef {
+            worldline_id: w,
+            worldline_tick: 0,
+            commit_hash: [8u8; 32],
+        };
+        entry.parents = vec![bad_parent];
+
+        let result = store.append_local_commit(entry);
+        assert!(matches!(
+            result,
+            Err(HistoryError::ParentCommitHashMismatch {
+                tick: 1,
+                parent,
+                stored_commit_hash
+            }) if parent == bad_parent && stored_commit_hash == test_triplet(0).commit_hash
         ));
     }
 
@@ -1560,6 +1690,26 @@ mod tests {
         assert!(matches!(
             service.validate_btr(&btr),
             Err(BtrError::OutputBoundaryHashMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_btr_rejects_payload_entry_mismatch() {
+        let mut service = ProvenanceService::new();
+        let w = test_worldline_id();
+        let state = WorldlineState::empty();
+        service.register_worldline(w, &state).unwrap();
+        service.append_local_commit(test_entry(0)).unwrap();
+
+        let mut btr = service.build_btr(w, 0, 1, 3, b"auth".to_vec()).unwrap();
+        btr.payload.entries[0].head_key = Some(WriterHeadKey {
+            worldline_id: w,
+            head_id: make_head_id("mismatch"),
+        });
+
+        assert!(matches!(
+            service.validate_btr(&btr),
+            Err(BtrError::EntryMismatch { tick: 0 })
         ));
     }
 

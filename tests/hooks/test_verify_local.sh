@@ -79,6 +79,95 @@ EOF
   rm -rf "$tmp"
 }
 
+run_fake_verify() {
+  local mode="$1"
+  local changed_file="$2"
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts" "$tmp/bin" "$tmp/.git"
+  mkdir -p "$tmp/crates/warp-core/src"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/crates/warp-core/Cargo.toml" <<'EOF'
+[package]
+name = "warp-core"
+version = "0.0.0"
+edition = "2021"
+EOF
+  printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf 'test-head\n'
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
+  printf 'test-head\n'
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  local changed
+  changed="$(mktemp)"
+  printf '%s\n' "$changed_file" >"$changed"
+  local cargo_log
+  cargo_log="$(mktemp)"
+
+  local output
+  output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_STAMP_SUBJECT="test-head" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    ./scripts/verify-local.sh "$mode"
+  )"
+
+  printf '%s\n' "$output"
+  echo "--- cargo-log ---"
+  cat "$cargo_log"
+
+  rm -f "$changed" "$cargo_log"
+  rm -rf "$tmp"
+}
+
 echo "=== verify-local classification ==="
 
 docs_output="$(run_detect docs/plans/adr-0008-and-0009.md docs/ROADMAP/backlog/tooling-misc.md)"
@@ -227,11 +316,18 @@ critical_crates = {
     if prefix.startswith("crates/")
 }
 full_packages = set(parse_array("FULL_LOCAL_PACKAGES"))
+full_clippy_core = set(parse_array("FULL_LOCAL_CLIPPY_CORE_PACKAGES"))
+full_clippy_support = set(parse_array("FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES"))
+full_clippy_bins = set(parse_array("FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES"))
 full_test_packages = set(parse_array("FULL_LOCAL_TEST_PACKAGES"))
+fast_lib_only = set(parse_array("FAST_CLIPPY_LIB_ONLY_PACKAGES"))
 
 missing_build = sorted(critical_crates - full_packages)
+missing_clippy = sorted(critical_crates - (full_clippy_core | full_clippy_support | full_clippy_bins))
 print("missing_build=" + ",".join(missing_build))
+print("missing_clippy=" + ",".join(missing_clippy))
 print("ttd_browser_tested=" + str("ttd-browser" in full_test_packages).lower())
+print("warp_core_fast_lib_only=" + str("warp-core" in fast_lib_only).lower())
 PY
 )"
 if printf '%s\n' "$coverage_output" | grep -q '^missing_build=$'; then
@@ -240,11 +336,63 @@ else
   fail "full-critical crates must all be present in FULL_LOCAL_PACKAGES"
   printf '%s\n' "$coverage_output"
 fi
+if printf '%s\n' "$coverage_output" | grep -q '^missing_clippy=$'; then
+  pass "every full-critical crate is covered by one of the curated local clippy lanes"
+else
+  fail "full-critical crates must all be present in the local clippy lane package sets"
+  printf '%s\n' "$coverage_output"
+fi
 if printf '%s\n' "$coverage_output" | grep -q '^ttd_browser_tested=true$'; then
   pass "ttd-browser is covered by the full local test lane"
 else
   fail "ttd-browser must be exercised by the full local test lane"
   printf '%s\n' "$coverage_output"
+fi
+if printf '%s\n' "$coverage_output" | grep -q '^warp_core_fast_lib_only=true$'; then
+  pass "warp-core uses the narrowed fast local clippy scope"
+else
+  fail "warp-core should stay in the narrowed fast local clippy package set"
+  printf '%s\n' "$coverage_output"
+fi
+
+if grep -q '^verify-full-sequential:' Makefile; then
+  pass "Makefile exposes a sequential fallback for the parallel full verifier"
+else
+  fail "Makefile should expose verify-full-sequential as a fallback path"
+fi
+
+fake_full_output="$(run_fake_verify full crates/warp-core/src/lib.rs)"
+if printf '%s\n' "$fake_full_output" | grep -q '\[verify-local\] full: launching 9 local lanes'; then
+  pass "full verification fans out into explicit parallel lanes"
+else
+  fail "full verification should launch the curated local lane set"
+  printf '%s\n' "$fake_full_output"
+fi
+if printf '%s\n' "$fake_full_output" | grep -q 'target/verify-lanes/full-clippy-core'; then
+  pass "full verification isolates clippy into its own target dir"
+else
+  fail "full verification should route clippy through an isolated target dir"
+  printf '%s\n' "$fake_full_output"
+fi
+if printf '%s\n' "$fake_full_output" | grep -q 'target/verify-lanes/full-tests-warp-core'; then
+  pass "full verification isolates warp-core tests into their own target dir"
+else
+  fail "full verification should route warp-core tests through an isolated target dir"
+  printf '%s\n' "$fake_full_output"
+fi
+
+fake_fast_output="$(run_fake_verify fast crates/warp-core/src/lib.rs)"
+if printf '%s\n' "$fake_fast_output" | grep -q 'clippy -p warp-core --lib -- -D warnings -D missing_docs'; then
+  pass "fast verification uses the narrowed warp-core clippy scope"
+else
+  fail "fast verification should run warp-core clippy on the narrowed local target set"
+  printf '%s\n' "$fake_fast_output"
+fi
+if printf '%s\n' "$fake_fast_output" | grep -vq 'clippy -p warp-core --all-targets'; then
+  pass "fast verification no longer uses warp-core all-targets clippy"
+else
+  fail "fast verification must not fall back to warp-core all-targets clippy"
+  printf '%s\n' "$fake_fast_output"
 fi
 
 echo "PASS: $PASS"

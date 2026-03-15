@@ -15,7 +15,15 @@ older local workflows. Both [`scripts/hooks/pre-commit`](./pre-commit) and
 
 Authoritative behavior lives in `.githooks/pre-commit` and
 `.githooks/pre-push`. For explicit local runs outside git hooks, prefer the
-`make verify-fast`, `make verify-pr`, and `make verify-full` entry points. A
-successful `make verify-full` run now shares the same success stamp as the
+`make verify-fast`, `make verify-pr`, and `make verify-full` entry points.
+
+The local full gate now runs as curated parallel lanes with isolated
+`CARGO_TARGET_DIR`s, which keeps expensive cargo invocations from serializing on
+the same target lock. `make verify-full-sequential` remains available as a
+fallback if you need to debug the lane runner itself.
+
+A successful `make verify-full` run still shares the same success stamp as the
 canonical pre-push full gate, so pushing the same `HEAD` does not rerun that
-identical full verification locally.
+identical full verification locally. The staged and reduced local Rust paths are
+also intentionally narrower than CI: heavy all-target clippy coverage stays in
+CI, while local hooks bias toward faster iteration on the current work surface.

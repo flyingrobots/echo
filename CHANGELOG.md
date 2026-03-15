@@ -5,6 +5,18 @@
 
 ## Unreleased
 
+### feat(tooling): split local verification into parallel lanes
+
+- **Changed** the local full verifier now runs as curated parallel lanes with
+  isolated `CARGO_TARGET_DIR`s for clippy, tests, rustdoc, and guard checks,
+  which cuts local wall-clock time by avoiding one giant serialized cargo
+  invocation.
+- **Changed** staged and reduced local Rust checks now use a narrower fast-path
+  target surface, keeping the heaviest all-target clippy drag in CI instead of
+  every local iteration loop.
+- **Added** `make verify-full-sequential` as an explicit fallback when the lane
+  runner itself needs debugging.
+
 ### feat(warp-core): close Phase 4 and pivot reads to observe
 
 - **Changed** Phase 4 provenance/BTR work is now the documented substrate

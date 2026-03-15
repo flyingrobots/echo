@@ -31,8 +31,17 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
     - runnable writer heads advance in canonical `(worldline_id, head_id)` order,
     - commits run against the shared `WorldlineState` frontier for that worldline,
     - empty inboxes do not advance frontier ticks.
+- `ObservationService::observe(...)` is the canonical read path:
+    - every read names an explicit worldline, coordinate, frame, and projection,
+    - commit-boundary reads and recorded-truth reads share one deterministic
+      artifact model,
+    - observation is read-only and does not mutate runtime, provenance, inboxes,
+      or compatibility mirrors.
 - The runtime/kernel production path no longer uses `sim/inbox`,
   `edge:pending`, or `Engine::dispatch_next_intent(...)`.
+- Legacy read surfaces such as `get_head()`, `snapshot_at()`, and
+  `drain_view_ops()` now exist only as one-phase adapters above `observe(...)`
+  and are scheduled for deletion at the start of Phase 6 / ABI v2.
 - `Engine::ingest_intent(intent_bytes)` and `Engine::ingest_inbox_event(seq, payload)`
   remain legacy compatibility helpers for isolated tests and older spike call sites.
 

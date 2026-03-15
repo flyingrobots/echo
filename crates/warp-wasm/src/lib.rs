@@ -30,7 +30,7 @@ use wasm_bindgen::JsValue;
 #[cfg(feature = "engine")]
 use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
-    self, AbiError, ErrEnvelope, KernelPort, OkEnvelope, RawBytesResponse,
+    self, AbiError, ErrEnvelope, KernelPort, ObservationRequest, OkEnvelope, RawBytesResponse,
 };
 
 use std::cell::RefCell;
@@ -280,6 +280,23 @@ pub fn execute_query(query_id: u32, vars_bytes: &[u8]) -> Uint8Array {
             .map(|bytes| RawBytesResponse { data: bytes })
     });
     encode_result(result)
+}
+
+/// Observe a worldline at an explicit coordinate, frame, and projection.
+///
+/// The request bytes must decode as canonical-CBOR `ObservationRequest`.
+#[wasm_bindgen]
+pub fn observe(request_bytes: &[u8]) -> Uint8Array {
+    let request = match echo_wasm_abi::decode_cbor::<ObservationRequest>(request_bytes) {
+        Ok(request) => request,
+        Err(err) => {
+            return encode_err(&AbiError {
+                code: kernel_port::error_codes::INVALID_PAYLOAD,
+                message: format!("invalid observation request payload: {err}"),
+            })
+        }
+    };
+    encode_result(with_kernel_ref(|k| k.observe(request)))
 }
 
 /// Replay to a specific tick and return the snapshot.

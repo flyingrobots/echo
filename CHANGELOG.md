@@ -5,6 +5,23 @@
 
 ## Unreleased
 
+### feat(warp-core): close Phase 4 and pivot reads to observe
+
+- **Changed** Phase 4 provenance/BTR work is now the documented substrate
+  baseline: provenance is entry-based, parent refs are stored explicitly, and
+  the standalone `ProvenanceService` owns authoritative worldline history.
+- **Added** `ObservationService::observe(...)` as the canonical internal read
+  path with explicit worldline, coordinate, frame, and projection semantics.
+- **Added** deterministic observation artifacts and error mapping:
+  `INVALID_WORLDLINE`, `INVALID_TICK`, `UNSUPPORTED_FRAME_PROJECTION`,
+  `UNSUPPORTED_QUERY`, and `OBSERVATION_UNAVAILABLE`.
+- **Changed** `WarpKernel` and the WASM ABI now expose `observe(...)`, while
+  `get_head`, `snapshot_at`, `execute_query`, and `drain_view_ops` are thin
+  one-phase adapters over the observation contract.
+- **Changed** `drain_view_ops()` is now legacy adapter/debug behavior only: it
+  reads recorded truth through `observe(...)` and tracks only adapter-local
+  drain state instead of mutating runtime-owned materialization state.
+
 ### fix(warp-core): close final Phase 3 PR review threads
 
 - **Fixed** `Engine::commit_with_state()` now restores both the engine-owned

@@ -95,6 +95,7 @@ mod ident;
 pub mod inbox;
 /// Materialization subsystem for deterministic channel-based output.
 pub mod materialization;
+mod observation;
 /// Parallel execution module.
 ///
 /// Provides both serial and parallel execution strategies for rewrite rules,
@@ -190,6 +191,11 @@ pub use playback::{
 // --- Session types ---
 pub use playback::{SessionId, ViewSession};
 // --- Truth delivery ---
+pub use observation::{
+    HeadObservation, ObservationArtifact, ObservationAt, ObservationCoordinate, ObservationError,
+    ObservationFrame, ObservationPayload, ObservationProjection, ObservationProjectionKind,
+    ObservationRequest, ObservationService, ResolvedObservationCoordinate, WorldlineSnapshot,
+};
 pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{
     BoundaryTransitionRecord, BtrError, BtrPayload, CheckpointRef, HistoryError,

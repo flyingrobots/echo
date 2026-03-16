@@ -220,6 +220,8 @@ FULL_SCOPE_RUSTDOC_PACKAGES=()
 FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
 FULL_SCOPE_RUN_WARP_WASM_RUNTIME=0
 FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=0
+FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
+FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
 ensure_command() {
   local cmd="$1"
@@ -325,6 +327,15 @@ array_contains() {
     fi
   done
   return 1
+}
+
+append_unique() {
+  local value="$1"
+  local array_name="$2"
+  local -n array_ref="$array_name"
+  if ! array_contains "$value" "${array_ref[@]}"; then
+    array_ref+=("$value")
+  fi
 }
 
 is_tooling_full_path() {
@@ -701,6 +712,37 @@ filter_package_set_by_selection() {
   done
 }
 
+prepare_warp_core_scope() {
+  FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
+  FULL_SCOPE_WARP_CORE_RUN_PRNG=0
+
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/warp-core/tests/*.rs)
+        append_unique "$(basename "$file" .rs)" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
+      crates/warp-core/src/coordinator.rs|\
+      crates/warp-core/src/engine_impl.rs|\
+      crates/warp-core/src/head.rs|\
+      crates/warp-core/src/head_inbox.rs|\
+      crates/warp-core/src/worldline_state.rs|\
+      crates/warp-core/src/worldline_registry.rs|\
+      crates/warp-core/src/runtime*.rs)
+        append_unique "inbox" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
+      crates/warp-core/src/playback.rs)
+        append_unique "playback_cursor_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "outputs_playback_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
+      crates/warp-core/src/math/prng.rs)
+        FULL_SCOPE_WARP_CORE_RUN_PRNG=1
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+}
+
 prepare_full_scope() {
   local broad_rust_change=0
   local tooling_change=0
@@ -749,9 +791,12 @@ prepare_full_scope() {
   FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
   FULL_SCOPE_RUN_WARP_WASM_RUNTIME=0
   FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=0
+  FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
+  FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
   if array_contains "warp-core" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
     FULL_SCOPE_RUN_WARP_CORE_SMOKE=1
+    prepare_warp_core_scope
   fi
   if array_contains "warp-wasm" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
     FULL_SCOPE_RUN_WARP_WASM_RUNTIME=1
@@ -871,7 +916,13 @@ run_full_lane_tests_warp_core() {
   fi
   echo "[verify-local][tests-warp-core] local warp-core smoke suite"
   lane_cargo "full-tests-warp-core" test -p warp-core --lib
-  lane_cargo "full-tests-warp-core" test -p warp-core --test inbox
+  local test_target
+  for test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
+    lane_cargo "full-tests-warp-core" test -p warp-core --test "$test_target"
+  done
+  if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
+    lane_cargo "full-tests-warp-core" test -p warp-core --features golden_prng --test prng_golden_regression
+  fi
 }
 
 run_full_lane_rustdoc() {

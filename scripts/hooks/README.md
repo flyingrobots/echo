@@ -27,6 +27,11 @@ every kind of full change.” Tooling-only full changes stay tooling-local, whil
 critical Rust changes run a local smoke lane and leave the exhaustive all-target
 proof to CI.
 
+That local smoke path is also file-family aware for `warp-core`: ordinary source
+edits stay on the library test lane, while runtime/inbox, playback, and PRNG
+touches pull the specific extra smoke checks they need instead of one fixed
+bundle every time.
+
 A successful `make verify-full` run still shares the same success stamp as the
 canonical pre-push full gate, so pushing the same `HEAD` does not rerun that
 identical full verification locally. The staged and reduced local Rust paths are

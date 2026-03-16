@@ -17,6 +17,10 @@
 - **Changed** full local verification is now scope-aware: tooling-only full
   changes stay tooling-local, while critical Rust changes run local smoke lanes
   and defer exhaustive proof to CI.
+- **Changed** local `warp-core` smoke selection is now file-family aware:
+  default source edits stay on `--lib`, runtime/inbox files pull `inbox`,
+  playback files pull playback-smoke tests, and PRNG edits pull the golden
+  regression.
 - **Added** `make verify-full-sequential` as an explicit fallback when the lane
   runner itself needs debugging.
 

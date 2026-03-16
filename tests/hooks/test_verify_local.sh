@@ -414,6 +414,50 @@ else
   printf '%s\n' "$fake_fast_output"
 fi
 
+fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"
+if printf '%s\n' "$fake_warp_core_default_output" | grep -q 'test -p warp-core --lib'; then
+  pass "warp-core default smoke keeps the lib test lane"
+else
+  fail "warp-core default smoke should keep the lib test lane"
+  printf '%s\n' "$fake_warp_core_default_output"
+fi
+if printf '%s\n' "$fake_warp_core_default_output" | grep -q -- '--test inbox'; then
+  fail "warp-core default smoke should not always pull inbox"
+  printf '%s\n' "$fake_warp_core_default_output"
+else
+  pass "warp-core default smoke avoids inbox when the file family does not need it"
+fi
+
+fake_warp_core_runtime_output="$(run_fake_verify full crates/warp-core/src/coordinator.rs)"
+if printf '%s\n' "$fake_warp_core_runtime_output" | grep -q -- '--test inbox'; then
+  pass "runtime-facing warp-core changes pull the inbox smoke test"
+else
+  fail "runtime-facing warp-core changes should pull the inbox smoke test"
+  printf '%s\n' "$fake_warp_core_runtime_output"
+fi
+
+fake_warp_core_playback_output="$(run_fake_verify full crates/warp-core/src/playback.rs)"
+if printf '%s\n' "$fake_warp_core_playback_output" | grep -q -- '--test playback_cursor_tests'; then
+  pass "playback changes pull the playback cursor smoke test"
+else
+  fail "playback changes should pull the playback cursor smoke test"
+  printf '%s\n' "$fake_warp_core_playback_output"
+fi
+if printf '%s\n' "$fake_warp_core_playback_output" | grep -q -- '--test outputs_playback_tests'; then
+  pass "playback changes pull the outputs playback smoke test"
+else
+  fail "playback changes should pull the outputs playback smoke test"
+  printf '%s\n' "$fake_warp_core_playback_output"
+fi
+
+fake_warp_core_prng_output="$(run_fake_verify full crates/warp-core/src/math/prng.rs)"
+if printf '%s\n' "$fake_warp_core_prng_output" | grep -q -- '--features golden_prng --test prng_golden_regression'; then
+  pass "PRNG changes pull the golden regression smoke test"
+else
+  fail "PRNG changes should pull the golden regression smoke test"
+  printf '%s\n' "$fake_warp_core_prng_output"
+fi
+
 fake_tooling_output="$(run_fake_verify full scripts/verify-local.sh)"
 if printf '%s\n' "$fake_tooling_output" | grep -q 'critical local gate (tooling-only)'; then
   pass "tooling-only full verification uses the tooling-only scope"

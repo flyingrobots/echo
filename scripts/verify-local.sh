@@ -122,6 +122,28 @@ readonly FULL_CRITICAL_EXACT=(
   "Makefile"
 )
 
+readonly FULL_TOOLING_PREFIXES=(
+  ".github/workflows/"
+  ".githooks/"
+  "scripts/"
+)
+
+readonly FULL_TOOLING_EXACT=(
+  "Makefile"
+  "package.json"
+  "pnpm-lock.yaml"
+  "pnpm-workspace.yaml"
+  "deny.toml"
+  "audit.toml"
+  "det-policy.yaml"
+)
+
+readonly FULL_BROAD_RUST_EXACT=(
+  "Cargo.toml"
+  "Cargo.lock"
+  "rust-toolchain.toml"
+)
+
 readonly FULL_LOCAL_PACKAGES=(
   "warp-core"
   "warp-geom"
@@ -186,6 +208,18 @@ readonly FAST_CLIPPY_LIB_ONLY_PACKAGES=(
   "echo-dind-harness"
   "echo-dind-tests"
 )
+
+FULL_SCOPE_MODE=""
+FULL_SCOPE_HAS_TOOLING=0
+FULL_SCOPE_SELECTED_CRATES=()
+FULL_SCOPE_CLIPPY_CORE_PACKAGES=()
+FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES=()
+FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES=()
+FULL_SCOPE_TEST_SUPPORT_PACKAGES=()
+FULL_SCOPE_RUSTDOC_PACKAGES=()
+FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
+FULL_SCOPE_RUN_WARP_WASM_RUNTIME=0
+FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=0
 
 ensure_command() {
   local cmd="$1"
@@ -281,6 +315,46 @@ is_docs_only_path() {
   [[ "$file" == docs/* || "$file" == *.md ]]
 }
 
+array_contains() {
+  local needle="$1"
+  shift
+  local item
+  for item in "$@"; do
+    if [[ "$item" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_tooling_full_path() {
+  local file="$1"
+  local prefix
+  for prefix in "${FULL_TOOLING_PREFIXES[@]}"; do
+    if [[ "$file" == "$prefix"* ]]; then
+      return 0
+    fi
+  done
+  local exact
+  for exact in "${FULL_TOOLING_EXACT[@]}"; do
+    if [[ "$file" == "$exact" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_broad_rust_full_path() {
+  local file="$1"
+  local exact
+  for exact in "${FULL_BROAD_RUST_EXACT[@]}"; do
+    if [[ "$file" == "$exact" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 classify_change_set() {
   local had_files=0
   local classification="docs"
@@ -307,6 +381,16 @@ classify_change_set() {
 
 list_changed_crates() {
   printf '%s\n' "$CHANGED_FILES" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u
+}
+
+list_changed_critical_crates() {
+  local crate
+  while IFS= read -r crate; do
+    [[ -z "$crate" ]] && continue
+    if array_contains "$crate" "${FULL_LOCAL_PACKAGES[@]}"; then
+      printf '%s\n' "$crate"
+    fi
+  done < <(list_changed_crates)
 }
 
 stamp_suite_for_classification() {
@@ -514,6 +598,7 @@ run_parallel_lanes() {
   done
 
   echo "[verify-local] ${suite}: launching ${#lane_names[@]} local lanes"
+  echo "[verify-local] ${suite}: lanes=${lane_names[*]}"
   for i in "${!lane_names[@]}"; do
     (
       set -euo pipefail
@@ -602,6 +687,80 @@ targeted_test_args_for_crate() {
   printf '%s\n' "--tests"
 }
 
+filter_package_set_by_selection() {
+  local selection_name="$1"
+  local candidate_name="$2"
+  local pkg
+  local -n selection_ref="$selection_name"
+  local -n candidate_ref="$candidate_name"
+
+  for pkg in "${candidate_ref[@]}"; do
+    if array_contains "$pkg" "${selection_ref[@]}"; then
+      printf '%s\n' "$pkg"
+    fi
+  done
+}
+
+prepare_full_scope() {
+  local broad_rust_change=0
+  local tooling_change=0
+  local file
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    if is_broad_rust_full_path "$file"; then
+      broad_rust_change=1
+    fi
+    if is_tooling_full_path "$file"; then
+      tooling_change=1
+    fi
+  done <<< "${CHANGED_FILES}"
+
+  FULL_SCOPE_HAS_TOOLING=$tooling_change
+
+  if [[ $broad_rust_change -eq 1 ]]; then
+    FULL_SCOPE_MODE="broad-rust"
+    FULL_SCOPE_SELECTED_CRATES=("${FULL_LOCAL_PACKAGES[@]}")
+  else
+    mapfile -t FULL_SCOPE_SELECTED_CRATES < <(list_changed_critical_crates)
+    if [[ ${#FULL_SCOPE_SELECTED_CRATES[@]} -gt 0 ]]; then
+      FULL_SCOPE_MODE="targeted-rust"
+    else
+      FULL_SCOPE_MODE="tooling-only"
+    fi
+  fi
+
+  mapfile -t FULL_SCOPE_CLIPPY_CORE_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_CLIPPY_CORE_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_TEST_SUPPORT_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_TEST_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_RUSTDOC_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_RUSTDOC_PACKAGES
+  )
+
+  FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
+  FULL_SCOPE_RUN_WARP_WASM_RUNTIME=0
+  FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=0
+
+  if array_contains "warp-core" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
+    FULL_SCOPE_RUN_WARP_CORE_SMOKE=1
+  fi
+  if array_contains "warp-wasm" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
+    FULL_SCOPE_RUN_WARP_WASM_RUNTIME=1
+  fi
+  if array_contains "echo-wasm-abi" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
+    FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=1
+  fi
+}
+
 run_pattern_guards() {
   ensure_command rg
 
@@ -648,57 +807,98 @@ run_full_lane_fmt() {
 }
 
 run_full_lane_clippy_core() {
+  if [[ ${#FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][clippy-core] no selected core packages"
+    return
+  fi
   local args=()
-  mapfile -t args < <(package_args "${FULL_LOCAL_CLIPPY_CORE_PACKAGES[@]}")
-  echo "[verify-local][clippy-core] curated clippy on core packages"
+  mapfile -t args < <(package_args "${FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]}")
+  echo "[verify-local][clippy-core] curated clippy on selected core packages"
   lane_cargo "full-clippy-core" clippy "${args[@]}" --lib -- -D warnings -D missing_docs
 }
 
 run_full_lane_clippy_support() {
+  if [[ ${#FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][clippy-support] no selected support packages"
+    return
+  fi
   local args=()
-  mapfile -t args < <(package_args "${FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES[@]}")
-  echo "[verify-local][clippy-support] curated clippy on support packages"
+  mapfile -t args < <(package_args "${FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES[@]}")
+  echo "[verify-local][clippy-support] curated clippy on selected support packages"
   lane_cargo "full-clippy-support" clippy "${args[@]}" --lib --tests -- -D warnings -D missing_docs
 }
 
 run_full_lane_clippy_bins() {
+  if [[ ${#FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][clippy-bins] no selected binary-only packages"
+    return
+  fi
   local args=()
-  mapfile -t args < <(package_args "${FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES[@]}")
-  echo "[verify-local][clippy-bins] curated clippy on binary-only packages"
+  mapfile -t args < <(package_args "${FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES[@]}")
+  echo "[verify-local][clippy-bins] curated clippy on selected binary-only packages"
   lane_cargo "full-clippy-bins" clippy "${args[@]}" --bins -- -D warnings -D missing_docs
 }
 
 run_full_lane_tests_support() {
+  if [[ ${#FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][tests-support] no selected support-package tests"
+    return
+  fi
   local args=()
-  mapfile -t args < <(package_args "${FULL_LOCAL_TEST_PACKAGES[@]}")
-  echo "[verify-local][tests-support] critical support-package tests"
+  mapfile -t args < <(package_args "${FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]}")
+  echo "[verify-local][tests-support] selected support-package tests"
   lane_cargo "full-tests-support" test "${args[@]}" --lib --tests
 }
 
 run_full_lane_tests_runtime() {
-  echo "[verify-local][tests-runtime] warp-wasm + ABI runtime checks"
-  lane_cargo "full-tests-runtime" test -p warp-wasm --features engine --lib
-  lane_cargo "full-tests-runtime" test -p echo-wasm-abi --lib
+  if [[ "$FULL_SCOPE_RUN_WARP_WASM_RUNTIME" != "1" && "$FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME" != "1" ]]; then
+    echo "[verify-local][tests-runtime] no selected runtime packages"
+    return
+  fi
+  echo "[verify-local][tests-runtime] selected runtime checks"
+  if [[ "$FULL_SCOPE_RUN_WARP_WASM_RUNTIME" == "1" ]]; then
+    lane_cargo "full-tests-runtime" test -p warp-wasm --features engine --lib
+  fi
+  if [[ "$FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME" == "1" ]]; then
+    lane_cargo "full-tests-runtime" test -p echo-wasm-abi --lib
+  fi
 }
 
 run_full_lane_tests_warp_core() {
-  echo "[verify-local][tests-warp-core] curated warp-core suite"
+  if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" != "1" ]]; then
+    echo "[verify-local][tests-warp-core] warp-core not selected"
+    return
+  fi
+  echo "[verify-local][tests-warp-core] local warp-core smoke suite"
   lane_cargo "full-tests-warp-core" test -p warp-core --lib
   lane_cargo "full-tests-warp-core" test -p warp-core --test inbox
-  lane_cargo "full-tests-warp-core" test -p warp-core --test invariant_property_tests
-  lane_cargo "full-tests-warp-core" test -p warp-core --test golden_vectors_phase0
-  lane_cargo "full-tests-warp-core" test -p warp-core --test materialization_determinism
-  lane_cargo "full-tests-warp-core" test -p warp-core --features golden_prng --test prng_golden_regression
 }
 
 run_full_lane_rustdoc() {
+  if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][rustdoc] no selected public-doc crates"
+    return
+  fi
   local doc_pkg
-  for doc_pkg in "${FULL_LOCAL_RUSTDOC_PACKAGES[@]}"; do
+  for doc_pkg in "${FULL_SCOPE_RUSTDOC_PACKAGES[@]}"; do
     echo "[verify-local][rustdoc] ${doc_pkg}"
     CARGO_TARGET_DIR="$(lane_target_dir "full-rustdoc")" \
       RUSTDOCFLAGS="-D warnings" \
       cargo +"$PINNED" doc -p "${doc_pkg}" --no-deps
   done
+}
+
+run_full_lane_hook_tests() {
+  if [[ "$FULL_SCOPE_HAS_TOOLING" != "1" ]]; then
+    echo "[verify-local][hook-tests] no tooling changes detected"
+    return
+  fi
+  if [[ ! -f tests/hooks/test_verify_local.sh ]]; then
+    echo "[verify-local][hook-tests] tests/hooks/test_verify_local.sh not present"
+    return
+  fi
+  echo "[verify-local][hook-tests] hook regression coverage"
+  bash tests/hooks/test_verify_local.sh
 }
 
 run_full_lane_guards() {
@@ -709,8 +909,9 @@ run_full_lane_guards() {
 }
 
 run_full_checks_sequential() {
-  echo "[verify-local] critical local gate"
+  echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
   run_full_lane_fmt
+  run_full_lane_hook_tests
   run_full_lane_clippy_core
   run_full_lane_clippy_support
   run_full_lane_clippy_bins
@@ -722,22 +923,41 @@ run_full_checks_sequential() {
 }
 
 run_full_checks_parallel() {
-  echo "[verify-local] critical local gate"
-  run_parallel_lanes \
-    "full" \
-    "fmt" run_full_lane_fmt \
-    "clippy-core" run_full_lane_clippy_core \
-    "clippy-support" run_full_lane_clippy_support \
-    "clippy-bins" run_full_lane_clippy_bins \
-    "tests-support" run_full_lane_tests_support \
-    "tests-runtime" run_full_lane_tests_runtime \
-    "tests-warp-core" run_full_lane_tests_warp_core \
-    "rustdoc" run_full_lane_rustdoc \
-    "guards" run_full_lane_guards
+  local -a lanes=("full" "fmt" run_full_lane_fmt "guards" run_full_lane_guards)
+
+  echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
+
+  if [[ "$FULL_SCOPE_HAS_TOOLING" == "1" ]]; then
+    lanes+=("hook-tests" run_full_lane_hook_tests)
+  fi
+  if [[ ${#FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("clippy-core" run_full_lane_clippy_core)
+  fi
+  if [[ ${#FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("clippy-support" run_full_lane_clippy_support)
+  fi
+  if [[ ${#FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("clippy-bins" run_full_lane_clippy_bins)
+  fi
+  if [[ ${#FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("tests-support" run_full_lane_tests_support)
+  fi
+  if [[ "$FULL_SCOPE_RUN_WARP_WASM_RUNTIME" == "1" || "$FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME" == "1" ]]; then
+    lanes+=("tests-runtime" run_full_lane_tests_runtime)
+  fi
+  if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
+    lanes+=("tests-warp-core" run_full_lane_tests_warp_core)
+  fi
+  if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("rustdoc" run_full_lane_rustdoc)
+  fi
+
+  run_parallel_lanes "${lanes[@]}"
 }
 
 run_full_checks() {
   ensure_toolchain
+  prepare_full_scope
   if should_run_parallel_lanes; then
     run_full_checks_parallel
     return

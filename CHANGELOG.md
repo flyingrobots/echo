@@ -14,6 +14,9 @@
 - **Changed** staged and reduced local Rust checks now use a narrower fast-path
   target surface, keeping the heaviest all-target clippy drag in CI instead of
   every local iteration loop.
+- **Changed** full local verification is now scope-aware: tooling-only full
+  changes stay tooling-local, while critical Rust changes run local smoke lanes
+  and defer exhaustive proof to CI.
 - **Added** `make verify-full-sequential` as an explicit fallback when the lane
   runner itself needs debugging.
 

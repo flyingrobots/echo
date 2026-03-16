@@ -85,7 +85,7 @@ run_fake_verify() {
   local tmp
   tmp="$(mktemp -d)"
 
-  mkdir -p "$tmp/scripts" "$tmp/bin" "$tmp/.git"
+  mkdir -p "$tmp/scripts" "$tmp/bin" "$tmp/.git" "$tmp/tests/hooks"
   mkdir -p "$tmp/crates/warp-core/src"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
@@ -142,6 +142,13 @@ fi
 exit 0
 EOF
   chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
 
   local changed
   changed="$(mktemp)"
@@ -362,10 +369,16 @@ else
 fi
 
 fake_full_output="$(run_fake_verify full crates/warp-core/src/lib.rs)"
-if printf '%s\n' "$fake_full_output" | grep -q '\[verify-local\] full: launching 9 local lanes'; then
+if printf '%s\n' "$fake_full_output" | grep -q '\[verify-local\] full: launching '; then
   pass "full verification fans out into explicit parallel lanes"
 else
   fail "full verification should launch the curated local lane set"
+  printf '%s\n' "$fake_full_output"
+fi
+if printf '%s\n' "$fake_full_output" | grep -q 'critical local gate (targeted-rust)'; then
+  pass "critical crate changes use the targeted-rust full scope"
+else
+  fail "critical crate changes should use the targeted-rust full scope"
   printf '%s\n' "$fake_full_output"
 fi
 if printf '%s\n' "$fake_full_output" | grep -q 'target/verify-lanes/full-clippy-core'; then
@@ -380,6 +393,12 @@ else
   fail "full verification should route warp-core tests through an isolated target dir"
   printf '%s\n' "$fake_full_output"
 fi
+if printf '%s\n' "$fake_full_output" | grep -q -- '--test invariant_property_tests'; then
+  fail "local warp-core full verification should stay on the smoke suite"
+  printf '%s\n' "$fake_full_output"
+else
+  pass "local warp-core full verification stays on the smoke suite"
+fi
 
 fake_fast_output="$(run_fake_verify fast crates/warp-core/src/lib.rs)"
 if printf '%s\n' "$fake_fast_output" | grep -q 'clippy -p warp-core --lib -- -D warnings -D missing_docs'; then
@@ -393,6 +412,26 @@ if printf '%s\n' "$fake_fast_output" | grep -vq 'clippy -p warp-core --all-targe
 else
   fail "fast verification must not fall back to warp-core all-targets clippy"
   printf '%s\n' "$fake_fast_output"
+fi
+
+fake_tooling_output="$(run_fake_verify full scripts/verify-local.sh)"
+if printf '%s\n' "$fake_tooling_output" | grep -q 'critical local gate (tooling-only)'; then
+  pass "tooling-only full verification uses the tooling-only scope"
+else
+  fail "tooling-only full verification should stay in tooling-only scope"
+  printf '%s\n' "$fake_tooling_output"
+fi
+if printf '%s\n' "$fake_tooling_output" | grep -q 'lanes=fmt guards hook-tests'; then
+  pass "tooling-only full verification runs hook regression coverage"
+else
+  fail "tooling-only full verification should run hook regression coverage"
+  printf '%s\n' "$fake_tooling_output"
+fi
+if printf '%s\n' "$fake_tooling_output" | grep -q 'target/verify-lanes/full-clippy-core'; then
+  fail "tooling-only full verification should not launch core Rust lanes"
+  printf '%s\n' "$fake_tooling_output"
+else
+  pass "tooling-only full verification skips core Rust lanes"
 fi
 
 echo "PASS: $PASS"

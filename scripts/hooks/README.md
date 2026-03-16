@@ -22,6 +22,11 @@ The local full gate now runs as curated parallel lanes with isolated
 the same target lock. `make verify-full-sequential` remains available as a
 fallback if you need to debug the lane runner itself.
 
+A critical path no longer means “run the same local Rust cargo gauntlet for
+every kind of full change.” Tooling-only full changes stay tooling-local, while
+critical Rust changes run a local smoke lane and leave the exhaustive all-target
+proof to CI.
+
 A successful `make verify-full` run still shares the same success stamp as the
 canonical pre-push full gate, so pushing the same `HEAD` does not rerun that
 identical full verification locally. The staged and reduced local Rust paths are

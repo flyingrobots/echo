@@ -41,7 +41,12 @@ frame and projection.
 The canonical internal entrypoint is:
 
 ```rust
-observe(request: ObservationRequest) -> Result<ObservationArtifact, ObservationError>
+ObservationService::observe(
+    runtime: &WorldlineRuntime,
+    provenance: &ProvenanceService,
+    engine: &Engine,
+    request: ObservationRequest,
+) -> Result<ObservationArtifact, ObservationError>
 ```
 
 All meaningful reads must flow through this path.

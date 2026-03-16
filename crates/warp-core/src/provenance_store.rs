@@ -171,6 +171,10 @@ pub enum BtrError {
         got: u64,
     },
 
+    /// Payload tick arithmetic overflowed `u64`.
+    #[error("BTR payload tick arithmetic overflowed")]
+    TickOverflow,
+
     /// The record worldline was not registered in the provenance service.
     #[error("BTR references unknown worldline: {0:?}")]
     UnknownWorldline(WorldlineId),
@@ -343,9 +347,15 @@ pub struct BtrPayload {
 
 impl BtrPayload {
     /// Returns the exclusive end tick for the payload.
-    #[must_use]
-    pub fn end_tick_exclusive(&self) -> u64 {
-        self.start_tick + self.entries.len() as u64
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BtrError::TickOverflow`] if the payload length cannot be added
+    /// to `start_tick` without overflowing `u64`.
+    pub fn end_tick_exclusive(&self) -> Result<u64, BtrError> {
+        self.start_tick
+            .checked_add(self.entries.len() as u64)
+            .ok_or(BtrError::TickOverflow)
     }
 
     /// Validates structural payload invariants.
@@ -385,7 +395,7 @@ impl BtrPayload {
                     got: entry.worldline_tick,
                 });
             }
-            expected_tick += 1;
+            expected_tick = expected_tick.checked_add(1).ok_or(BtrError::TickOverflow)?;
         }
 
         Ok(())
@@ -1772,6 +1782,34 @@ mod tests {
                 got: 2
             })
         ));
+    }
+
+    #[test]
+    fn btr_validation_rejects_tick_overflow() {
+        let head_key = WriterHeadKey {
+            worldline_id: test_worldline_id(),
+            head_id: make_head_id("overflow"),
+        };
+        let payload = BtrPayload {
+            worldline_id: test_worldline_id(),
+            start_tick: u64::MAX,
+            entries: vec![ProvenanceEntry::local_commit(
+                test_worldline_id(),
+                u64::MAX,
+                0,
+                head_key,
+                Vec::new(),
+                test_triplet(0),
+                test_patch(0),
+                Vec::new(),
+                Vec::new(),
+            )],
+        };
+        assert!(matches!(
+            payload.end_tick_exclusive(),
+            Err(BtrError::TickOverflow)
+        ));
+        assert!(matches!(payload.validate(), Err(BtrError::TickOverflow)));
     }
 
     #[test]

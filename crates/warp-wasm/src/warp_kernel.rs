@@ -295,6 +295,16 @@ impl WarpKernel {
             message: e.to_string(),
         })
     }
+
+    fn map_legacy_snapshot_error(err: AbiError) -> AbiError {
+        if err.code == error_codes::INVALID_TICK {
+            return AbiError {
+                code: error_codes::LEGACY_INVALID_TICK,
+                message: err.message,
+            };
+        }
+        err
+    }
 }
 
 impl KernelPort for WarpKernel {
@@ -471,14 +481,17 @@ impl KernelPort for WarpKernel {
     }
 
     fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError> {
-        Self::snapshot_bytes_from_observation(self.observe_core(ObservationRequest {
-            coordinate: ObservationCoordinate {
-                worldline_id: self.default_worldline,
-                at: ObservationAt::Tick(tick),
-            },
-            frame: ObservationFrame::CommitBoundary,
-            projection: ObservationProjection::Snapshot,
-        })?)
+        let artifact = self
+            .observe_core(ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: self.default_worldline,
+                    at: ObservationAt::Tick(tick),
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Snapshot,
+            })
+            .map_err(Self::map_legacy_snapshot_error)?;
+        Self::snapshot_bytes_from_observation(artifact)
     }
 
     fn registry_info(&self) -> RegistryInfo {
@@ -601,6 +614,22 @@ mod tests {
     fn snapshot_at_invalid_tick_returns_error() {
         let mut kernel = WarpKernel::new().unwrap();
         let err = kernel.snapshot_at(999).unwrap_err();
+        assert_eq!(err.code, error_codes::LEGACY_INVALID_TICK);
+    }
+
+    #[test]
+    fn observe_invalid_tick_returns_observation_error_code() {
+        let kernel = WarpKernel::new().unwrap();
+        let err = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Tick { tick: 999 },
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Snapshot,
+            })
+            .unwrap_err();
         assert_eq!(err.code, error_codes::INVALID_TICK);
     }
 

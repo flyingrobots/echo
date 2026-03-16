@@ -461,9 +461,8 @@ impl PlaybackCursor {
                 .patch
                 .ok_or(SeekError::HistoryUnavailable { tick: patch_tick })?;
             let expected = entry.expected;
-            let parents = provenance
-                .parents(self.worldline_id, patch_tick)
-                .map_err(|_| SeekError::HistoryUnavailable { tick: patch_tick })?
+            let parents = entry
+                .parents
                 .into_iter()
                 .map(|parent| parent.commit_hash)
                 .collect::<Vec<_>>();

@@ -1384,7 +1384,7 @@ mod tests {
             Vec::new(),
             expected,
             patch,
-            outputs,
+            outputs.clone(),
             Vec::new(),
         );
 
@@ -1396,29 +1396,16 @@ mod tests {
 
         let tx_id = engine.begin(cursor_id).unwrap();
         let receipt_bytes = engine.commit_inner(tx_id).unwrap();
+        let (frame, consumed) = echo_session_proto::decode_ttdr_v2(&receipt_bytes).unwrap();
+        assert_eq!(consumed, receipt_bytes.len());
 
-        // Parse receipt to check emissions_digest.
-        // TTDR v2 header starts with magic "TTDR" (4 bytes) + version (2 bytes) + flags (2 bytes)
-        // emissions_digest is at offset 104 in the header (v2):
-        // magic(4) + ver(2) + flags(2) + schema(32) + wl(32) + tick(8) + commit(32) + state(32) + patch(32) = 176?
-        // Let's check echo-session-proto for the offset.
-
-        // Actually, let's just assert the receipt is non-empty and trust the logic,
-        // or check that it's NOT all zeros at the expected position.
-        // Header:
-        // version: 2
-        // flags: 2
-        // schema_hash: 32
-        // worldline_id: 32
-        // tick: 8
-        // commit_hash: 32
-        // state_root: 32
-        // patch_digest: 32
-        // emissions_digest: 32  <-- offset = 2 + 2 + 32 + 32 + 8 + 32 + 32 + 32 = 172
-        // Wait, TTDR v2 frame encoding might be CBOR or raw.
-        // echo-session-proto says it's a TtdrFrame struct.
-
-        assert!(!receipt_bytes.is_empty());
-        // If we want to be sure, we'd need to decode it.
+        let finalized_channels: Vec<FinalizedChannel> = outputs
+            .into_iter()
+            .map(|(channel, data)| FinalizedChannel { channel, data })
+            .collect();
+        assert_eq!(
+            frame.header.emissions_digest,
+            compute_emissions_digest(&finalized_channels)
+        );
     }
 }

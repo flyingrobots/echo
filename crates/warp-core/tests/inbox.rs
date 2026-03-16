@@ -62,7 +62,7 @@ fn runtime_store(runtime: &WorldlineRuntime, worldline_id: WorldlineId) -> &Grap
         .unwrap()
 }
 
-fn mirrored_provenance(runtime: &WorldlineRuntime) -> ProvenanceService {
+fn registered_worldlines_provenance(runtime: &WorldlineRuntime) -> ProvenanceService {
     let mut provenance = ProvenanceService::new();
     for (worldline_id, frontier) in runtime.worldlines().iter() {
         provenance
@@ -95,7 +95,7 @@ fn runtime_ingest_commits_without_legacy_graph_inbox_nodes() {
         }
     );
 
-    let mut provenance = mirrored_provenance(&runtime);
+    let mut provenance = registered_worldlines_provenance(&runtime);
     let records =
         SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     assert_eq!(records.len(), 1);
@@ -141,7 +141,7 @@ fn runtime_ingest_is_idempotent_per_resolved_head_after_commit() {
             head_key: default_key,
         }
     );
-    let mut provenance = mirrored_provenance(&runtime);
+    let mut provenance = registered_worldlines_provenance(&runtime);
     SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
 
     assert_eq!(
@@ -193,7 +193,7 @@ fn runtime_ingest_keeps_distinct_intents_as_distinct_event_nodes() {
     runtime.ingest(intent_a.clone()).unwrap();
     runtime.ingest(intent_b.clone()).unwrap();
 
-    let mut provenance = mirrored_provenance(&runtime);
+    let mut provenance = registered_worldlines_provenance(&runtime);
     let records =
         SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     assert_eq!(records.len(), 1);
@@ -222,7 +222,7 @@ fn runtime_commit_patch_replays_to_post_state() {
         ))
         .unwrap();
 
-    let mut provenance = mirrored_provenance(&runtime);
+    let mut provenance = registered_worldlines_provenance(&runtime);
     let records =
         SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     assert_eq!(records.len(), 1);
@@ -260,7 +260,7 @@ fn runtime_commit_provenance_matches_worldline_state_mirror() {
         ))
         .unwrap();
 
-    let mut provenance = mirrored_provenance(&runtime);
+    let mut provenance = registered_worldlines_provenance(&runtime);
     let records =
         SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
     assert_eq!(records.len(), 1);

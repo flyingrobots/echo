@@ -90,6 +90,11 @@ pub enum ObservationProjectionKind {
 }
 
 impl ObservationProjectionKind {
+    /// Converts a validated internal projection into the ABI form.
+    ///
+    /// This helper is only valid when `self` and `projection` are matching
+    /// variants. Reaching the fallback arm is a programmer error in the
+    /// observation service, not a recoverable runtime condition.
     fn to_abi(self, projection: &ObservationProjection) -> abi::ObservationProjection {
         match (self, projection) {
             (Self::Head, ObservationProjection::Head) => abi::ObservationProjection::Head,
@@ -115,7 +120,15 @@ impl ObservationProjectionKind {
                 query_id: *query_id,
                 vars_bytes: vars_bytes.clone(),
             },
-            _ => unreachable!("projection kind and projection must agree"),
+            _ => {
+                debug_assert!(
+                    false,
+                    "ObservationProjectionKind::to_abi requires matching kind/projection variants"
+                );
+                unreachable!(
+                    "ObservationProjectionKind::to_abi requires matching kind/projection variants"
+                )
+            }
         }
     }
 }

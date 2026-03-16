@@ -483,6 +483,18 @@ struct WorldlineHistory {
     checkpoints: Vec<CheckpointRef>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ProvenanceWorldlineCheckpoint {
+    entry_len: usize,
+    checkpoint_len: usize,
+}
+
+/// Lightweight rollback marker for touched provenance worldlines.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProvenanceCheckpoint {
+    worldlines: BTreeMap<WorldlineId, ProvenanceWorldlineCheckpoint>,
+}
+
 /// In-memory provenance store backed by `Vec`s.
 #[derive(Debug, Clone, Default)]
 pub struct LocalProvenanceStore {
@@ -810,6 +822,35 @@ impl LocalProvenanceStore {
     pub fn tip_ref(&self, w: WorldlineId) -> Result<Option<ProvenanceRef>, HistoryError> {
         Ok(self.history(w)?.entries.last().map(ProvenanceEntry::as_ref))
     }
+
+    fn checkpoint_for<I>(&self, worldline_ids: I) -> Result<ProvenanceCheckpoint, HistoryError>
+    where
+        I: IntoIterator<Item = WorldlineId>,
+    {
+        let mut worldlines = BTreeMap::new();
+        for worldline_id in worldline_ids {
+            let history = self.history(worldline_id)?;
+            worldlines.insert(
+                worldline_id,
+                ProvenanceWorldlineCheckpoint {
+                    entry_len: history.entries.len(),
+                    checkpoint_len: history.checkpoints.len(),
+                },
+            );
+        }
+        Ok(ProvenanceCheckpoint { worldlines })
+    }
+
+    fn restore(&mut self, checkpoint: &ProvenanceCheckpoint) {
+        for (worldline_id, marker) in &checkpoint.worldlines {
+            if let Some(history) = self.worldlines.get_mut(worldline_id) {
+                history.entries.truncate(marker.entry_len);
+                history.checkpoints.truncate(marker.checkpoint_len);
+            } else {
+                debug_assert!(false, "provenance checkpoint referenced unknown worldline");
+            }
+        }
+    }
 }
 
 impl ProvenanceStore for LocalProvenanceStore {
@@ -951,6 +992,24 @@ impl ProvenanceService {
         worldline_id: WorldlineId,
     ) -> Result<Option<ProvenanceRef>, HistoryError> {
         self.store.tip_ref(worldline_id)
+    }
+
+    /// Creates a lightweight rollback checkpoint for touched worldlines.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HistoryError::WorldlineNotFound`] if any listed worldline has
+    /// not been registered.
+    pub fn checkpoint_for<I>(&self, worldline_ids: I) -> Result<ProvenanceCheckpoint, HistoryError>
+    where
+        I: IntoIterator<Item = WorldlineId>,
+    {
+        self.store.checkpoint_for(worldline_ids)
+    }
+
+    /// Restores touched worldlines to a previously captured rollback checkpoint.
+    pub fn restore(&mut self, checkpoint: &ProvenanceCheckpoint) {
+        self.store.restore(checkpoint);
     }
 
     /// Builds a contiguous BTR from the registered provenance history.

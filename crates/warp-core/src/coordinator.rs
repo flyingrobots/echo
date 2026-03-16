@@ -14,10 +14,12 @@ use crate::engine_impl::{CommitOutcome, Engine, EngineError};
 use crate::head::{PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey};
 use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
 use crate::ident::Hash;
-use crate::provenance_store::{HistoryError, ProvenanceEntry, ProvenanceService, ProvenanceStore};
+use crate::provenance_store::{
+    HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+};
 use crate::worldline::WorldlineId;
 use crate::worldline_registry::WorldlineRegistry;
-use crate::worldline_state::WorldlineState;
+use crate::worldline_state::{WorldlineFrontier, WorldlineState};
 
 // =============================================================================
 // Runtime Errors and Ingress Disposition
@@ -120,6 +122,13 @@ pub struct WorldlineRuntime {
     public_inboxes: BTreeMap<WorldlineId, BTreeMap<InboxAddress, WriterHeadKey>>,
 }
 
+#[derive(Clone, Debug)]
+struct RuntimeCheckpoint {
+    global_tick: u64,
+    heads: BTreeMap<WriterHeadKey, WriterHead>,
+    frontiers: BTreeMap<WorldlineId, WorldlineFrontier>,
+}
+
 impl WorldlineRuntime {
     /// Creates an empty runtime.
     #[must_use]
@@ -130,6 +139,42 @@ impl WorldlineRuntime {
     /// Rebuilds the runnable set from the current head registry.
     pub fn refresh_runnable(&mut self) {
         self.runnable.rebuild(&self.heads);
+    }
+
+    fn checkpoint_for(&self, keys: &[WriterHeadKey]) -> Result<RuntimeCheckpoint, RuntimeError> {
+        let mut heads = BTreeMap::new();
+        let mut frontiers = BTreeMap::new();
+
+        for key in keys {
+            let head = self.heads.get(key).ok_or(RuntimeError::UnknownHead(*key))?;
+            heads.insert(*key, head.clone());
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                frontiers.entry(key.worldline_id)
+            {
+                let frontier = self
+                    .worldlines
+                    .get(&key.worldline_id)
+                    .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                slot.insert(frontier.clone());
+            }
+        }
+
+        Ok(RuntimeCheckpoint {
+            global_tick: self.global_tick,
+            heads,
+            frontiers,
+        })
+    }
+
+    fn restore(&mut self, checkpoint: RuntimeCheckpoint) {
+        self.global_tick = checkpoint.global_tick;
+        for head in checkpoint.heads.into_values() {
+            self.heads.insert(head);
+        }
+        for frontier in checkpoint.frontiers.into_values() {
+            self.worldlines.replace_frontier(frontier);
+        }
+        self.refresh_runnable();
     }
 
     /// Returns the registered worldline frontiers.
@@ -350,8 +395,9 @@ impl SchedulerCoordinator {
             }
         }
 
-        let runtime_before = runtime.clone();
-        let provenance_before = provenance.clone();
+        let runtime_before = runtime.checkpoint_for(&keys)?;
+        let provenance_before: ProvenanceCheckpoint =
+            provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
 
         for key in &keys {
             let admitted = runtime
@@ -450,13 +496,13 @@ impl SchedulerCoordinator {
             let record = match outcome {
                 Ok(Ok(record)) => record,
                 Ok(Err(err)) => {
-                    *runtime = runtime_before;
-                    *provenance = provenance_before;
+                    runtime.restore(runtime_before);
+                    provenance.restore(&provenance_before);
                     return Err(err);
                 }
                 Err(payload) => {
-                    *runtime = runtime_before;
-                    *provenance = provenance_before;
+                    runtime.restore(runtime_before);
+                    provenance.restore(&provenance_before);
                     resume_unwind(payload);
                 }
             };

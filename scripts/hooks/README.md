@@ -15,7 +15,8 @@ older local workflows. Both [`scripts/hooks/pre-commit`](./pre-commit) and
 
 Authoritative behavior lives in `.githooks/pre-commit` and
 `.githooks/pre-push`. For explicit local runs outside git hooks, prefer the
-`make verify-fast`, `make verify-pr`, and `make verify-full` entry points.
+`make verify-ultra-fast`, `make verify-fast`, `make verify-pr`, and
+`make verify-full` entry points.
 
 The local full gate now runs as curated parallel lanes with isolated
 `CARGO_TARGET_DIR`s, which keeps expensive cargo invocations from serializing on
@@ -36,6 +37,13 @@ The same principle now applies to the WASM boundary crates: `warp-wasm`
 distinguishes plain lib work from `warp_kernel` engine work, `echo-wasm-abi`
 pulls targeted canonical/codec vectors when those surfaces move, and README-only
 or other non-Rust crate changes do not wake the Rust smoke lanes.
+
+`make verify-ultra-fast` is now the shortest edit-loop lane. It stays
+compile-first: Rust changes get `cargo check` on changed Rust crates plus the
+same targeted critical smoke selection used by the full gate, while clippy,
+rustdoc, guard scans, and exhaustive local proof stay on the heavier paths and
+in CI. Tooling-only changes stay on a syntax/smoke path instead of inheriting
+the full hook regression suite.
 
 A successful `make verify-full` run still shares the same success stamp as the
 canonical pre-push full gate, so pushing the same `HEAD` does not rerun that

@@ -269,10 +269,20 @@ list_changed_index_files() {
   git diff --cached --name-only --diff-filter=ACMRTUXBD
 }
 
+list_changed_worktree_files() {
+  {
+    git diff --name-only --diff-filter=ACMRTUXBD HEAD
+    git ls-files --others --exclude-standard
+  } | awk 'NF' | sort -u
+}
+
 mode_context() {
   case "$1" in
     pre-commit|detect-pre-commit)
       printf 'pre-commit\n'
+      ;;
+    fast|ultra-fast)
+      printf 'working-tree\n'
       ;;
     *)
       printf '%s\n' "$1"
@@ -290,6 +300,11 @@ list_changed_files() {
 
   if [[ "$context" == "pre-commit" ]]; then
     list_changed_index_files
+    return
+  fi
+
+  if [[ "$context" == "working-tree" ]]; then
+    list_changed_worktree_files
     return
   fi
 
@@ -393,6 +408,20 @@ classify_change_set() {
 
 list_changed_crates() {
   printf '%s\n' "$CHANGED_FILES" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u
+}
+
+list_changed_rust_crates() {
+  local file crate
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/*/Cargo.toml|crates/*/build.rs|crates/*/src/*|crates/*/tests/*)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        printf '%s\n' "$crate"
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}" | sort -u
 }
 
 list_changed_critical_crates() {
@@ -564,9 +593,9 @@ run_crate_lint_and_check() {
 }
 
 run_pre_commit_checks() {
-  mapfile -t changed_crates < <(list_changed_crates)
+  mapfile -t changed_crates < <(list_changed_rust_crates)
   if [[ ${#changed_crates[@]} -eq 0 ]]; then
-    echo "[verify-local] pre-commit: no staged crates detected"
+    echo "[verify-local] pre-commit: no staged Rust crates detected"
     return
   fi
 
@@ -1027,6 +1056,14 @@ run_full_lane_hook_tests() {
   bash tests/hooks/test_verify_local.sh
 }
 
+run_ultra_fast_tooling_smoke() {
+  if [[ "$FULL_SCOPE_HAS_TOOLING" != "1" ]]; then
+    return
+  fi
+  echo "[verify-local][ultra-fast] tooling smoke"
+  bash -n scripts/verify-local.sh tests/hooks/test_verify_local.sh
+}
+
 run_full_lane_guards() {
   run_pattern_guards
   run_spdx_check
@@ -1091,6 +1128,87 @@ run_full_checks() {
   run_full_checks_sequential
 }
 
+run_ultra_fast_smoke() {
+  prepare_full_scope
+
+  echo "[verify-local] ultra-fast critical smoke (${FULL_SCOPE_MODE})"
+
+  if [[ "$FULL_SCOPE_HAS_TOOLING" == "1" ]]; then
+    run_ultra_fast_tooling_smoke
+  fi
+
+  if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
+    echo "[verify-local][ultra-fast] warp-core smoke"
+    cargo +"$PINNED" test -p warp-core --lib
+    local warp_core_test_target
+    for warp_core_test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
+      cargo +"$PINNED" test -p warp-core --test "$warp_core_test_target"
+    done
+    if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
+      cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression
+    fi
+  fi
+
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "plain-lib" ]]; then
+    echo "[verify-local][ultra-fast] warp-wasm plain lib smoke"
+    cargo +"$PINNED" test -p warp-wasm --lib
+  fi
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "engine-lib" ]]; then
+    echo "[verify-local][ultra-fast] warp-wasm engine lib smoke"
+    cargo +"$PINNED" test -p warp-wasm --features engine --lib
+  fi
+  if [[ "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" ]]; then
+    echo "[verify-local][ultra-fast] echo-wasm-abi lib smoke"
+    cargo +"$PINNED" test -p echo-wasm-abi --lib
+  fi
+  local abi_test_target
+  for abi_test_target in "${FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]}"; do
+    echo "[verify-local][ultra-fast] echo-wasm-abi --test ${abi_test_target}"
+    cargo +"$PINNED" test -p echo-wasm-abi --test "$abi_test_target"
+  done
+}
+
+run_ultra_fast_checks() {
+  local classification="$1"
+  local -a changed_crates=()
+
+  if [[ "$classification" == "docs" ]]; then
+    echo "[verify-local] ultra-fast docs-only change set"
+    run_docs_lint
+    return
+  fi
+
+  mapfile -t changed_crates < <(list_changed_rust_crates)
+  if [[ ${#changed_crates[@]} -eq 0 ]]; then
+    if [[ "$classification" == "full" ]]; then
+      run_ultra_fast_smoke
+      return
+    fi
+    echo "[verify-local] ultra-fast: no changed Rust crates detected"
+    run_docs_lint
+    return
+  fi
+
+  ensure_toolchain
+  echo "[verify-local] ultra-fast verification for changed Rust crates: ${changed_crates[*]}"
+  echo "[verify-local] cargo fmt --all -- --check"
+  cargo +"$PINNED" fmt --all -- --check
+
+  local crate
+  for crate in "${changed_crates[@]}"; do
+    if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
+      echo "[verify-local] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
+      continue
+    fi
+    echo "[verify-local] cargo check -p ${crate}"
+    cargo +"$PINNED" check -p "$crate" --quiet
+  done
+
+  if [[ "$classification" == "full" ]]; then
+    run_ultra_fast_smoke
+  fi
+}
+
 run_auto_mode() {
   local classification="$1"
   local suite
@@ -1147,8 +1265,11 @@ case "$MODE" in
     printf 'changed_crates=%s\n' "$(list_changed_crates | paste -sd, -)"
     ;;
   fast)
-    mapfile -t changed_crates < <(list_changed_crates)
+    mapfile -t changed_crates < <(list_changed_rust_crates)
     run_targeted_checks "${changed_crates[@]}"
+    ;;
+  ultra-fast)
+    run_ultra_fast_checks "$CLASSIFICATION"
     ;;
   pre-commit)
     if should_skip_via_stamp "$(stamp_suite_for_classification "$CLASSIFICATION")"; then
@@ -1170,7 +1291,7 @@ case "$MODE" in
     write_stamp "full"
     ;;
   *)
-    echo "usage: scripts/verify-local.sh [detect|detect-pre-commit|fast|pre-commit|pr|full|auto|pre-push]" >&2
+    echo "usage: scripts/verify-local.sh [detect|detect-pre-commit|ultra-fast|fast|pre-commit|pr|full|auto|pre-push]" >&2
     exit 1
     ;;
 esac

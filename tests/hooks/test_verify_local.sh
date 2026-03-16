@@ -362,6 +362,12 @@ else
   printf '%s\n' "$coverage_output"
 fi
 
+if grep -q '^verify-ultra-fast:' Makefile; then
+  pass "Makefile exposes an ultra-fast edit-loop lane"
+else
+  fail "Makefile should expose verify-ultra-fast for the shortest local loop"
+fi
+
 if grep -q '^verify-full-sequential:' Makefile; then
   pass "Makefile exposes a sequential fallback for the parallel full verifier"
 else
@@ -412,6 +418,68 @@ if printf '%s\n' "$fake_fast_output" | grep -vq 'clippy -p warp-core --all-targe
 else
   fail "fast verification must not fall back to warp-core all-targets clippy"
   printf '%s\n' "$fake_fast_output"
+fi
+
+fake_ultra_fast_output="$(run_fake_verify ultra-fast crates/warp-core/src/coordinator.rs)"
+if printf '%s\n' "$fake_ultra_fast_output" | grep -q 'ultra-fast verification for changed Rust crates: warp-core'; then
+  pass "ultra-fast reports the narrowed changed Rust crate set"
+else
+  fail "ultra-fast should report the narrowed changed Rust crate set"
+  printf '%s\n' "$fake_ultra_fast_output"
+fi
+if printf '%s\n' "$fake_ultra_fast_output" | grep -q 'cargo check -p warp-core'; then
+  pass "ultra-fast runs cargo check on changed Rust crates"
+else
+  fail "ultra-fast should run cargo check on changed Rust crates"
+  printf '%s\n' "$fake_ultra_fast_output"
+fi
+if printf '%s\n' "$fake_ultra_fast_output" | grep -q -- '--test inbox'; then
+  pass "ultra-fast still pulls targeted runtime smoke for critical warp-core changes"
+else
+  fail "ultra-fast should keep targeted runtime smoke for critical warp-core changes"
+  printf '%s\n' "$fake_ultra_fast_output"
+fi
+if printf '%s\n' "$fake_ultra_fast_output" | grep -q 'clippy -p warp-core'; then
+  fail "ultra-fast should skip clippy to stay compile-first"
+  printf '%s\n' "$fake_ultra_fast_output"
+else
+  pass "ultra-fast skips clippy"
+fi
+if printf '%s\n' "$fake_ultra_fast_output" | grep -q 'doc -p warp-core'; then
+  fail "ultra-fast should skip rustdoc gates"
+  printf '%s\n' "$fake_ultra_fast_output"
+else
+  pass "ultra-fast skips rustdoc gates"
+fi
+
+fake_ultra_fast_warp_wasm_output="$(run_fake_verify ultra-fast crates/warp-wasm/src/warp_kernel.rs)"
+if printf '%s\n' "$fake_ultra_fast_warp_wasm_output" | grep -q -- 'test -p warp-wasm --features engine --lib'; then
+  pass "ultra-fast preserves warp-wasm engine smoke selection"
+else
+  fail "ultra-fast should preserve warp-wasm engine smoke selection"
+  printf '%s\n' "$fake_ultra_fast_warp_wasm_output"
+fi
+
+fake_ultra_fast_readme_output="$(run_fake_verify ultra-fast crates/warp-wasm/README.md)"
+if printf '%s\n' "$fake_ultra_fast_readme_output" | grep -q 'cargo check -p warp-wasm'; then
+  fail "ultra-fast should not wake Rust cargo for non-Rust critical crate docs"
+  printf '%s\n' "$fake_ultra_fast_readme_output"
+else
+  pass "ultra-fast keeps non-Rust critical crate docs off Rust cargo"
+fi
+
+fake_ultra_fast_tooling_output="$(run_fake_verify ultra-fast scripts/verify-local.sh)"
+if printf '%s\n' "$fake_ultra_fast_tooling_output" | grep -q '\[verify-local\]\[ultra-fast\] tooling smoke'; then
+  pass "ultra-fast tooling changes stay on the tooling smoke lane"
+else
+  fail "ultra-fast tooling changes should stay on the tooling smoke lane"
+  printf '%s\n' "$fake_ultra_fast_tooling_output"
+fi
+if printf '%s\n' "$fake_ultra_fast_tooling_output" | grep -q 'hook regression coverage'; then
+  fail "ultra-fast tooling changes should not inherit the full hook regression suite"
+  printf '%s\n' "$fake_ultra_fast_tooling_output"
+else
+  pass "ultra-fast tooling changes avoid the full hook regression suite"
 fi
 
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"

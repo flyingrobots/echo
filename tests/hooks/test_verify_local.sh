@@ -82,6 +82,7 @@ EOF
 run_fake_verify() {
   local mode="$1"
   local changed_file="$2"
+  local lane_mode="${3:-parallel}"
   local tmp
   tmp="$(mktemp -d)"
 
@@ -171,6 +172,7 @@ EOF
     cd "$tmp" && \
     PATH="$tmp/bin:$PATH" \
     VERIFY_FORCE=1 \
+    VERIFY_LANE_MODE="$lane_mode" \
     VERIFY_STAMP_SUBJECT="test-head" \
     VERIFY_CHANGED_FILES_FILE="$changed" \
     VERIFY_FAKE_CARGO_LOG="$cargo_log" \
@@ -409,6 +411,14 @@ else
   fail "full verification should route warp-core tests through an isolated target dir"
   printf '%s\n' "$fake_full_output"
 fi
+
+fake_full_seq_output="$(run_fake_verify full crates/warp-core/src/lib.rs sequential)"
+if printf '%s\n' "$fake_full_seq_output" | grep -q '\[verify-local\] full: launching '; then
+  fail "sequential fallback should not launch parallel lanes"
+  printf '%s\n' "$fake_full_seq_output"
+else
+  pass "sequential fallback dispatches through the non-parallel runner"
+fi
 if printf '%s\n' "$fake_full_output" | grep -q -- '--test invariant_property_tests'; then
   fail "local warp-core full verification should stay on the smoke suite"
   printf '%s\n' "$fake_full_output"
@@ -615,7 +625,9 @@ else
   fail "tooling-only full verification should stay in tooling-only scope"
   printf '%s\n' "$fake_tooling_output"
 fi
-if printf '%s\n' "$fake_tooling_output" | grep -q 'lanes=fmt guards hook-tests'; then
+if printf '%s\n' "$fake_tooling_output" | grep -q 'fmt' \
+  && printf '%s\n' "$fake_tooling_output" | grep -q 'guards' \
+  && printf '%s\n' "$fake_tooling_output" | grep -q 'hook-tests'; then
   pass "tooling-only full verification runs hook regression coverage"
 else
   fail "tooling-only full verification should run hook regression coverage"

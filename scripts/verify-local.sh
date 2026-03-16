@@ -349,7 +349,7 @@ append_unique() {
   local value="$1"
   local array_name="$2"
   local -n array_ref="$array_name"
-  if ! array_contains "$value" "${array_ref[@]}"; then
+  if ! array_contains "$value" ${array_ref[@]+"${array_ref[@]}"}; then
     array_ref+=("$value")
   fi
 }
@@ -446,7 +446,7 @@ list_changed_critical_crates() {
       crates/*/Cargo.toml|crates/*/build.rs|crates/*/src/*|crates/*/tests/*)
         crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
         [[ -z "$crate" ]] && continue
-        if array_contains "$crate" "${FULL_LOCAL_PACKAGES[@]}"; then
+        if array_contains "$crate" ${FULL_LOCAL_PACKAGES[@]+"${FULL_LOCAL_PACKAGES[@]}"}; then
           printf '%s\n' "$crate"
         fi
         ;;
@@ -638,7 +638,18 @@ lane_cargo() {
 }
 
 should_run_parallel_lanes() {
-  [[ "$VERIFY_LANE_MODE" == "parallel" ]]
+  case "$VERIFY_LANE_MODE" in
+    parallel)
+      return 0
+      ;;
+    sequential|serial)
+      return 1
+      ;;
+    *)
+      echo "[verify-local] invalid VERIFY_LANE_MODE: $VERIFY_LANE_MODE" >&2
+      exit 1
+      ;;
+  esac
 }
 
 run_parallel_lanes() {
@@ -651,6 +662,19 @@ run_parallel_lanes() {
   local -a lane_funcs=()
   local -a lane_pids=()
   local i
+
+  cleanup_parallel_lanes() {
+    local pid
+    for pid in "${lane_pids[@]}"; do
+      kill "$pid" 2>/dev/null || true
+    done
+    for pid in "${lane_pids[@]}"; do
+      wait "$pid" 2>/dev/null || true
+    done
+    rm -rf "$logdir"
+  }
+
+  trap 'cleanup_parallel_lanes; trap - INT TERM; exit 130' INT TERM
 
   while [[ $# -gt 0 ]]; do
     lane_names+=("$1")
@@ -691,16 +715,39 @@ run_parallel_lanes() {
       echo "--- ${lane_names[$i]} ---" >&2
       cat "$logfile" >&2
     done
+    trap - INT TERM
     rm -rf "$logdir"
     exit 1
   fi
 
+  trap - INT TERM
   rm -rf "$logdir"
 }
 
 crate_supports_lib_target() {
   local crate="$1"
-  [[ "$crate" != "xtask" ]]
+  local crate_dir="crates/${crate}"
+  local manifest="${crate_dir}/Cargo.toml"
+
+  if [[ ! -f "$manifest" ]]; then
+    return 1
+  fi
+
+  [[ -f "${crate_dir}/src/lib.rs" ]] && return 0
+  grep -Eq '^\[lib\]' "$manifest"
+}
+
+crate_supports_bin_target() {
+  local crate="$1"
+  local crate_dir="crates/${crate}"
+  local manifest="${crate_dir}/Cargo.toml"
+
+  if [[ ! -f "$manifest" ]]; then
+    return 1
+  fi
+
+  [[ -f "${crate_dir}/src/main.rs" ]] && return 0
+  grep -Eq '^\[\[bin\]\]' "$manifest"
 }
 
 crate_is_fast_clippy_lib_only() {
@@ -728,8 +775,16 @@ clippy_target_args_for_scope() {
     return
   fi
 
-  printf '%s\n' "--lib"
-  if ! crate_is_fast_clippy_lib_only "$crate"; then
+  if crate_supports_lib_target "$crate"; then
+    printf '%s\n' "--lib"
+  elif crate_supports_bin_target "$crate"; then
+    printf '%s\n' "--bins"
+  else
+    printf '%s\n' "--all-targets"
+    return
+  fi
+
+  if crate_supports_lib_target "$crate" && ! crate_is_fast_clippy_lib_only "$crate"; then
     printf '%s\n' "--tests"
   fi
 }
@@ -744,6 +799,8 @@ targeted_test_args_for_crate() {
 
   if crate_supports_lib_target "$crate"; then
     printf '%s\n' "--lib"
+  elif crate_supports_bin_target "$crate"; then
+    printf '%s\n' "--bins"
   fi
   printf '%s\n' "--tests"
 }
@@ -756,7 +813,7 @@ filter_package_set_by_selection() {
   local -n candidate_ref="$candidate_name"
 
   for pkg in "${candidate_ref[@]}"; do
-    if array_contains "$pkg" "${selection_ref[@]}"; then
+    if array_contains "$pkg" ${selection_ref[@]+"${selection_ref[@]}"}; then
       printf '%s\n' "$pkg"
     fi
   done
@@ -905,14 +962,14 @@ prepare_full_scope() {
   FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
   FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
-  if array_contains "warp-core" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
+  if array_contains "warp-core" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
     FULL_SCOPE_RUN_WARP_CORE_SMOKE=1
     prepare_warp_core_scope
   fi
-  if array_contains "warp-wasm" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
+  if array_contains "warp-wasm" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
     prepare_warp_wasm_scope
   fi
-  if array_contains "echo-wasm-abi" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
+  if array_contains "echo-wasm-abi" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
     prepare_echo_wasm_abi_scope
   fi
 }

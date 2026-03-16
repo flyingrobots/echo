@@ -32,6 +32,11 @@ edits stay on the library test lane, while runtime/inbox, playback, and PRNG
 touches pull the specific extra smoke checks they need instead of one fixed
 bundle every time.
 
+The same principle now applies to the WASM boundary crates: `warp-wasm`
+distinguishes plain lib work from `warp_kernel` engine work, `echo-wasm-abi`
+pulls targeted canonical/codec vectors when those surfaces move, and README-only
+or other non-Rust crate changes do not wake the Rust smoke lanes.
+
 A successful `make verify-full` run still shares the same success stamp as the
 canonical pre-push full gate, so pushing the same `HEAD` does not rerun that
 identical full verification locally. The staged and reduced local Rust paths are

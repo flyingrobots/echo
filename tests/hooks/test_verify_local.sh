@@ -458,6 +458,70 @@ else
   printf '%s\n' "$fake_warp_core_prng_output"
 fi
 
+fake_warp_wasm_lib_output="$(run_fake_verify full crates/warp-wasm/src/lib.rs)"
+if printf '%s\n' "$fake_warp_wasm_lib_output" | grep -q 'test -p warp-wasm --lib'; then
+  pass "warp-wasm lib changes use the plain lib smoke lane"
+else
+  fail "warp-wasm lib changes should use the plain lib smoke lane"
+  printf '%s\n' "$fake_warp_wasm_lib_output"
+fi
+if printf '%s\n' "$fake_warp_wasm_lib_output" | grep -q -- '--features engine --lib'; then
+  fail "warp-wasm lib changes should not force the engine smoke lane"
+  printf '%s\n' "$fake_warp_wasm_lib_output"
+else
+  pass "warp-wasm lib changes avoid the engine smoke lane"
+fi
+
+fake_warp_wasm_kernel_output="$(run_fake_verify full crates/warp-wasm/src/warp_kernel.rs)"
+if printf '%s\n' "$fake_warp_wasm_kernel_output" | grep -q -- 'test -p warp-wasm --features engine --lib'; then
+  pass "warp-kernel changes use the engine-enabled lib smoke lane"
+else
+  fail "warp-kernel changes should use the engine-enabled lib smoke lane"
+  printf '%s\n' "$fake_warp_wasm_kernel_output"
+fi
+
+fake_echo_wasm_abi_kernel_port_output="$(run_fake_verify full crates/echo-wasm-abi/src/kernel_port.rs)"
+if printf '%s\n' "$fake_echo_wasm_abi_kernel_port_output" | grep -q -- 'test -p echo-wasm-abi --lib'; then
+  pass "echo-wasm-abi kernel-port changes keep the lib smoke lane"
+else
+  fail "echo-wasm-abi kernel-port changes should keep the lib smoke lane"
+  printf '%s\n' "$fake_echo_wasm_abi_kernel_port_output"
+fi
+
+fake_echo_wasm_abi_canonical_output="$(run_fake_verify full crates/echo-wasm-abi/src/canonical.rs)"
+if printf '%s\n' "$fake_echo_wasm_abi_canonical_output" | grep -q -- '--test canonical_vectors'; then
+  pass "canonical ABI changes pull canonical vector coverage"
+else
+  fail "canonical ABI changes should pull canonical vector coverage"
+  printf '%s\n' "$fake_echo_wasm_abi_canonical_output"
+fi
+if printf '%s\n' "$fake_echo_wasm_abi_canonical_output" | grep -q -- '--test non_canonical_floats'; then
+  pass "canonical ABI changes pull non-canonical float coverage"
+else
+  fail "canonical ABI changes should pull non-canonical float coverage"
+  printf '%s\n' "$fake_echo_wasm_abi_canonical_output"
+fi
+if printf '%s\n' "$fake_echo_wasm_abi_canonical_output" | grep -q -- 'test -p echo-wasm-abi --lib'; then
+  fail "canonical ABI changes should not always force the lib smoke lane"
+  printf '%s\n' "$fake_echo_wasm_abi_canonical_output"
+else
+  pass "canonical ABI changes avoid the generic lib smoke lane"
+fi
+
+fake_warp_wasm_readme_output="$(run_fake_verify full crates/warp-wasm/README.md)"
+if printf '%s\n' "$fake_warp_wasm_readme_output" | grep -q 'critical local gate (tooling-only)'; then
+  pass "non-rust critical crate docs stay off the Rust smoke lanes"
+else
+  fail "non-rust critical crate docs should stay off the Rust smoke lanes"
+  printf '%s\n' "$fake_warp_wasm_readme_output"
+fi
+if printf '%s\n' "$fake_warp_wasm_readme_output" | grep -q 'tests-runtime'; then
+  fail "non-rust critical crate docs should not launch runtime smoke lanes"
+  printf '%s\n' "$fake_warp_wasm_readme_output"
+else
+  pass "non-rust critical crate docs skip runtime smoke lanes"
+fi
+
 fake_tooling_output="$(run_fake_verify full scripts/verify-local.sh)"
 if printf '%s\n' "$fake_tooling_output" | grep -q 'critical local gate (tooling-only)'; then
   pass "tooling-only full verification uses the tooling-only scope"

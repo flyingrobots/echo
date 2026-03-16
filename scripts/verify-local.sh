@@ -218,8 +218,9 @@ FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES=()
 FULL_SCOPE_TEST_SUPPORT_PACKAGES=()
 FULL_SCOPE_RUSTDOC_PACKAGES=()
 FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
-FULL_SCOPE_RUN_WARP_WASM_RUNTIME=0
-FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=0
+FULL_SCOPE_WARP_WASM_TEST_MODE="none"
+FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
+FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
 FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
 FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
@@ -395,13 +396,19 @@ list_changed_crates() {
 }
 
 list_changed_critical_crates() {
-  local crate
-  while IFS= read -r crate; do
-    [[ -z "$crate" ]] && continue
-    if array_contains "$crate" "${FULL_LOCAL_PACKAGES[@]}"; then
-      printf '%s\n' "$crate"
-    fi
-  done < <(list_changed_crates)
+  local file crate
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/*/Cargo.toml|crates/*/build.rs|crates/*/src/*|crates/*/tests/*)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        if array_contains "$crate" "${FULL_LOCAL_PACKAGES[@]}"; then
+          printf '%s\n' "$crate"
+        fi
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}" | sort -u
 }
 
 stamp_suite_for_classification() {
@@ -743,6 +750,66 @@ prepare_warp_core_scope() {
   done <<< "${CHANGED_FILES}"
 }
 
+prepare_warp_wasm_scope() {
+  FULL_SCOPE_WARP_WASM_TEST_MODE="none"
+
+  if [[ "$FULL_SCOPE_MODE" == "broad-rust" ]]; then
+    FULL_SCOPE_WARP_WASM_TEST_MODE="engine-lib"
+    return
+  fi
+
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/warp-wasm/Cargo.toml|crates/warp-wasm/src/warp_kernel.rs)
+        FULL_SCOPE_WARP_WASM_TEST_MODE="engine-lib"
+        return
+        ;;
+      crates/warp-wasm/src/lib.rs)
+        if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "none" ]]; then
+          FULL_SCOPE_WARP_WASM_TEST_MODE="plain-lib"
+        fi
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+}
+
+prepare_echo_wasm_abi_scope() {
+  FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
+  FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
+
+  if [[ "$FULL_SCOPE_MODE" == "broad-rust" ]]; then
+    FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=1
+    return
+  fi
+
+  local file test_name
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/echo-wasm-abi/Cargo.toml|\
+      crates/echo-wasm-abi/src/lib.rs|\
+      crates/echo-wasm-abi/src/kernel_port.rs|\
+      crates/echo-wasm-abi/src/eintlog.rs|\
+      crates/echo-wasm-abi/src/ttd.rs)
+        FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=1
+        ;;
+      crates/echo-wasm-abi/src/canonical.rs)
+        append_unique "canonical_vectors" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        append_unique "non_canonical_floats" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        ;;
+      crates/echo-wasm-abi/src/codec.rs)
+        append_unique "codec" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        ;;
+      crates/echo-wasm-abi/tests/*.rs)
+        test_name="$(basename "$file" .rs)"
+        append_unique "$test_name" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+}
+
 prepare_full_scope() {
   local broad_rust_change=0
   local tooling_change=0
@@ -789,8 +856,9 @@ prepare_full_scope() {
   )
 
   FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
-  FULL_SCOPE_RUN_WARP_WASM_RUNTIME=0
-  FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=0
+  FULL_SCOPE_WARP_WASM_TEST_MODE="none"
+  FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
+  FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
   FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
   FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
@@ -799,10 +867,10 @@ prepare_full_scope() {
     prepare_warp_core_scope
   fi
   if array_contains "warp-wasm" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
-    FULL_SCOPE_RUN_WARP_WASM_RUNTIME=1
+    prepare_warp_wasm_scope
   fi
   if array_contains "echo-wasm-abi" "${FULL_SCOPE_SELECTED_CRATES[@]}"; then
-    FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME=1
+    prepare_echo_wasm_abi_scope
   fi
 }
 
@@ -896,17 +964,24 @@ run_full_lane_tests_support() {
 }
 
 run_full_lane_tests_runtime() {
-  if [[ "$FULL_SCOPE_RUN_WARP_WASM_RUNTIME" != "1" && "$FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME" != "1" ]]; then
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "none" && "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" != "1" && ${#FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]} -eq 0 ]]; then
     echo "[verify-local][tests-runtime] no selected runtime packages"
     return
   fi
   echo "[verify-local][tests-runtime] selected runtime checks"
-  if [[ "$FULL_SCOPE_RUN_WARP_WASM_RUNTIME" == "1" ]]; then
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "plain-lib" ]]; then
+    lane_cargo "full-tests-runtime" test -p warp-wasm --lib
+  fi
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "engine-lib" ]]; then
     lane_cargo "full-tests-runtime" test -p warp-wasm --features engine --lib
   fi
-  if [[ "$FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME" == "1" ]]; then
+  if [[ "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" ]]; then
     lane_cargo "full-tests-runtime" test -p echo-wasm-abi --lib
   fi
+  local test_target
+  for test_target in "${FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]}"; do
+    lane_cargo "full-tests-runtime" test -p echo-wasm-abi --test "$test_target"
+  done
 }
 
 run_full_lane_tests_warp_core() {
@@ -993,7 +1068,7 @@ run_full_checks_parallel() {
   if [[ ${#FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]} -gt 0 ]]; then
     lanes+=("tests-support" run_full_lane_tests_support)
   fi
-  if [[ "$FULL_SCOPE_RUN_WARP_WASM_RUNTIME" == "1" || "$FULL_SCOPE_RUN_ECHO_WASM_ABI_RUNTIME" == "1" ]]; then
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" != "none" || "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" || ${#FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]} -gt 0 ]]; then
     lanes+=("tests-runtime" run_full_lane_tests_runtime)
   fi
   if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then

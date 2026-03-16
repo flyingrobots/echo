@@ -21,6 +21,11 @@
   default source edits stay on `--lib`, runtime/inbox files pull `inbox`,
   playback files pull playback-smoke tests, and PRNG edits pull the golden
   regression.
+- **Changed** local `warp-wasm` and `echo-wasm-abi` smoke selection is now
+  file-family aware too: `warp-wasm/src/lib.rs` stays on plain lib smoke,
+  `warp_kernel.rs` pulls the engine-enabled lane, canonical ABI work pulls only
+  canonical/floating-point vectors, and non-Rust crate docs no longer wake Rust
+  lanes at all.
 - **Added** `make verify-full-sequential` as an explicit fallback when the lane
   runner itself needs debugging.
 

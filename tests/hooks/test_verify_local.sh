@@ -85,7 +85,7 @@ run_fake_verify() {
   local tmp
   tmp="$(mktemp -d)"
 
-  mkdir -p "$tmp/scripts" "$tmp/bin" "$tmp/.git" "$tmp/tests/hooks"
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
   mkdir -p "$tmp/crates/warp-core/src"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
@@ -148,7 +148,17 @@ EOF
 set -euo pipefail
 echo "fake hook coverage"
 EOF
-  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
+  cat >"$tmp/.githooks/pre-push" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake canonical pre-push"
+EOF
+  cat >"$tmp/scripts/hooks/pre-commit" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake legacy pre-commit shim"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh" "$tmp/.githooks/pre-push" "$tmp/scripts/hooks/pre-commit"
 
   local changed
   changed="$(mktemp)"
@@ -480,6 +490,14 @@ if printf '%s\n' "$fake_ultra_fast_tooling_output" | grep -q 'hook regression co
   printf '%s\n' "$fake_ultra_fast_tooling_output"
 else
   pass "ultra-fast tooling changes avoid the full hook regression suite"
+fi
+
+fake_ultra_fast_hook_output="$(run_fake_verify ultra-fast .githooks/pre-push)"
+if printf '%s\n' "$fake_ultra_fast_hook_output" | grep -q '\[verify-local\]\[ultra-fast\] bash -n \.githooks/pre-push'; then
+  pass "ultra-fast syntax-checks changed canonical hook entrypoints"
+else
+  fail "ultra-fast should syntax-check changed canonical hook entrypoints"
+  printf '%s\n' "$fake_ultra_fast_hook_output"
 fi
 
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"

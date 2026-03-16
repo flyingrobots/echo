@@ -424,6 +424,20 @@ list_changed_rust_crates() {
   done <<< "${CHANGED_FILES}" | sort -u
 }
 
+list_changed_tooling_shell_files() {
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      .githooks/*|scripts/*.sh|scripts/hooks/*|tests/hooks/*.sh)
+        if [[ -f "$file" ]]; then
+          printf '%s\n' "$file"
+        fi
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}" | sort -u
+}
+
 list_changed_critical_crates() {
   local file crate
   while IFS= read -r file; do
@@ -1061,7 +1075,16 @@ run_ultra_fast_tooling_smoke() {
     return
   fi
   echo "[verify-local][ultra-fast] tooling smoke"
-  bash -n scripts/verify-local.sh tests/hooks/test_verify_local.sh
+  mapfile -t shell_files < <(list_changed_tooling_shell_files)
+  if [[ ${#shell_files[@]} -eq 0 ]]; then
+    echo "[verify-local][ultra-fast] no changed shell tooling files"
+    return
+  fi
+  local file
+  for file in "${shell_files[@]}"; do
+    echo "[verify-local][ultra-fast] bash -n ${file}"
+    bash -n "$file"
+  done
 }
 
 run_full_lane_guards() {

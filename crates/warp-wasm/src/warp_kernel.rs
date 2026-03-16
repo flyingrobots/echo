@@ -400,28 +400,40 @@ impl KernelPort for WarpKernel {
             Err(err) => return Err(err),
         };
 
-        if self.last_drained_commit_tick == Some(artifact.resolved.resolved_tick) {
+        let latest_commit_tick = artifact.resolved.resolved_tick;
+        if self.last_drained_commit_tick == Some(latest_commit_tick) {
             return Ok(DrainResponse {
                 channels: Vec::new(),
             });
         }
-        self.last_drained_commit_tick = Some(artifact.resolved.resolved_tick);
+        let start_tick = self.last_drained_commit_tick.map_or(0, |tick| tick + 1);
+        let mut channels = Vec::new();
+        for tick in start_tick..=latest_commit_tick {
+            let artifact = self.observe_core(ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: self.default_worldline,
+                    at: ObservationAt::Tick(tick),
+                },
+                frame: ObservationFrame::RecordedTruth,
+                projection: ObservationProjection::TruthChannels { channels: None },
+            })?;
 
-        let channels = match artifact.payload {
-            ObservationPayload::TruthChannels(channels) => channels
-                .into_iter()
-                .map(|(channel, data)| ChannelData {
-                    channel_id: channel.0.to_vec(),
-                    data,
-                })
-                .collect(),
-            _ => {
+            let ObservationPayload::TruthChannels(tick_channels) = artifact.payload else {
                 return Err(AbiError {
                     code: error_codes::ENGINE_ERROR,
                     message: "observe returned non-truth payload for drain adapter".into(),
-                })
-            }
-        };
+                });
+            };
+            channels.extend(
+                tick_channels
+                    .into_iter()
+                    .map(|(channel, data)| ChannelData {
+                        channel_id: channel.0.to_vec(),
+                        data,
+                    }),
+            );
+        }
+        self.last_drained_commit_tick = Some(latest_commit_tick);
 
         Ok(DrainResponse { channels })
     }
@@ -487,6 +499,7 @@ mod tests {
         },
         pack_intent_v1,
     };
+    use warp_core::{materialization::make_channel_id, ProvenanceStore};
 
     #[test]
     fn new_kernel_has_zero_tick() {
@@ -718,6 +731,47 @@ mod tests {
         let head_after = kernel.get_head().unwrap();
 
         assert_eq!(head_before, head_after);
+    }
+
+    #[test]
+    fn drain_view_ops_returns_all_committed_outputs_since_last_drain() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent_a = pack_intent_v1(1, b"hello").unwrap();
+        let intent_b = pack_intent_v1(2, b"world").unwrap();
+        kernel.dispatch_intent(&intent_a).unwrap();
+        kernel.step(1).unwrap();
+        kernel.dispatch_intent(&intent_b).unwrap();
+        kernel.step(1).unwrap();
+
+        let worldline_id = kernel.default_worldline;
+        let frontier_state = kernel
+            .runtime
+            .worldlines()
+            .get(&worldline_id)
+            .unwrap()
+            .state();
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(worldline_id, frontier_state)
+            .unwrap();
+
+        for tick in 0..kernel.provenance.len(worldline_id).unwrap() {
+            let mut entry = kernel.provenance.entry(worldline_id, tick).unwrap();
+            entry.outputs = vec![(
+                make_channel_id("test:truth"),
+                format!("tick-{tick}").into_bytes(),
+            )];
+            provenance.append_local_commit(entry).unwrap();
+        }
+        kernel.provenance = provenance;
+
+        let drain = kernel.drain_view_ops().unwrap();
+        assert_eq!(drain.channels.len(), 2);
+        assert_eq!(drain.channels[0].data, b"tick-0".to_vec());
+        assert_eq!(drain.channels[1].data, b"tick-1".to_vec());
+
+        let drain_again = kernel.drain_view_ops().unwrap();
+        assert!(drain_again.channels.is_empty());
     }
 
     #[test]

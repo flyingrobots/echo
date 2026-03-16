@@ -758,7 +758,11 @@ impl LocalProvenanceStore {
         let new_history = WorldlineHistory {
             u0_ref: source_history.u0_ref,
             initial_boundary_hash: source_history.initial_boundary_hash,
-            entries: source_history.entries[..end_idx].to_vec(),
+            entries: source_history.entries[..end_idx]
+                .iter()
+                .cloned()
+                .map(|entry| Self::rewrite_entry_for_fork(entry, source, new_id))
+                .collect(),
             checkpoints: source_history
                 .checkpoints
                 .iter()
@@ -768,6 +772,25 @@ impl LocalProvenanceStore {
         };
         self.worldlines.insert(new_id, new_history);
         Ok(())
+    }
+
+    fn rewrite_entry_for_fork(
+        mut entry: ProvenanceEntry,
+        source: WorldlineId,
+        new_id: WorldlineId,
+    ) -> ProvenanceEntry {
+        entry.worldline_id = new_id;
+        if let Some(head_key) = entry.head_key.as_mut() {
+            if head_key.worldline_id == source {
+                head_key.worldline_id = new_id;
+            }
+        }
+        for parent in &mut entry.parents {
+            if parent.worldline_id == source {
+                parent.worldline_id = new_id;
+            }
+        }
+        entry
     }
 
     /// Returns the initial boundary hash registered for this worldline.
@@ -1472,8 +1495,35 @@ mod tests {
 
         store.fork(source, 0, target).unwrap();
         assert_eq!(store.len(target).unwrap(), 1);
-        assert_eq!(store.entry(target, 0).unwrap().expected, test_triplet(0));
+        let forked_entry = store.entry(target, 0).unwrap();
+        assert_eq!(forked_entry.worldline_id, target);
+        assert_eq!(forked_entry.head_key.unwrap().worldline_id, target);
+        assert_eq!(forked_entry.expected, test_triplet(0));
         assert!(store.checkpoint_before(target, 1).is_none());
+    }
+
+    #[test]
+    fn fork_rewrites_same_worldline_parent_refs_to_target_worldline() {
+        let mut store = LocalProvenanceStore::new();
+        let source = test_worldline_id();
+        let target = WorldlineId([99u8; 32]);
+        let warp = test_warp_id();
+
+        store.register_worldline(source, warp).unwrap();
+        store.append_local_commit(test_entry(0)).unwrap();
+        store.append_local_commit(test_entry(1)).unwrap();
+
+        store.fork(source, 1, target).unwrap();
+
+        let forked_entry = store.entry(target, 1).unwrap();
+        assert_eq!(
+            forked_entry.parents,
+            vec![ProvenanceRef {
+                worldline_id: target,
+                worldline_tick: 0,
+                commit_hash: test_triplet(0).commit_hash,
+            }]
+        );
     }
 
     #[test]
@@ -1639,8 +1689,14 @@ mod tests {
         service.fork(source, 0, target).unwrap();
 
         assert_eq!(service.len(target).unwrap(), 1);
-        assert_eq!(service.entry(target, 0).unwrap().expected, test_triplet(0));
+        let forked_entry = service.entry(target, 0).unwrap();
+        assert_eq!(forked_entry.worldline_id, target);
+        assert_eq!(forked_entry.head_key.unwrap().worldline_id, target);
+        assert_eq!(forked_entry.expected, test_triplet(0));
         assert!(service.checkpoint_before(target, 1).is_none());
+        service
+            .build_btr(target, 0, 1, 7, b"auth".to_vec())
+            .unwrap();
     }
 
     #[test]

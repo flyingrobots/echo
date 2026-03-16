@@ -232,7 +232,9 @@ envelope like all other responses.
 
 ## Not Yet Implemented
 
-These are honestly reported as `NOT_SUPPORTED` (error code 5):
+These are honestly reported as transitional, endpoint-specific errors:
 
-- `execute_query`: Lowered through `observe(...)`, but real query evaluation is not yet built.
+- `execute_query`: Lowered through `observe(...)`; returns `UNSUPPORTED_QUERY`
+  (error code `11`) until real query evaluation lands.
 - `render_snapshot`: Snapshot-to-ViewOps projection not yet built.
+  Returns `NOT_SUPPORTED` (error code `5`).

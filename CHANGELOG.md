@@ -32,6 +32,10 @@
   clippy/rustdoc/guard scans stay on heavier local paths and CI.
 - **Added** `make verify-full-sequential` as an explicit fallback when the lane
   runner itself needs debugging.
+- **Fixed** ultra-fast tooling smoke now detects actual shell tooling files by
+  extension or shebang, so extensionless hook entrypoints stay covered while
+  non-shell files like hook docs or timing logs do not false-fail under
+  `bash -n`.
 
 ### feat(warp-core): close Phase 4 and pivot reads to observe
 

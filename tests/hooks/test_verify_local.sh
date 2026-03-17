@@ -52,6 +52,7 @@ EOF
     git init -q
     git config user.name "verify-local-test"
     git config user.email "verify-local-test@example.com"
+    git config commit.gpgsign false
     git branch -M main
     printf '%s\n' 'pub fn anchor() {}' > crates/warp-core/src/lib.rs
     git add rust-toolchain.toml crates/warp-core/src/lib.rs

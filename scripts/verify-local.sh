@@ -21,6 +21,9 @@ STAMP_DIR="${VERIFY_STAMP_DIR:-.git/verify-local}"
 VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
 VERIFY_LANE_MODE="${VERIFY_LANE_MODE:-parallel}"
 VERIFY_LANE_ROOT="${VERIFY_LANE_ROOT:-target/verify-lanes}"
+VERIFY_TIMING_FILE="${VERIFY_TIMING_FILE:-$STAMP_DIR/timing.jsonl}"
+VERIFY_RUN_CACHE_STATE="${VERIFY_RUN_CACHE_STATE:-fresh}"
+VERIFY_CLASSIFICATION="${VERIFY_CLASSIFICATION:-unknown}"
 SECONDS=0
 
 format_elapsed() {
@@ -42,6 +45,48 @@ format_elapsed() {
   printf '%ds' "$seconds"
 }
 
+utc_timestamp() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+now_seconds() {
+  date +%s
+}
+
+append_timing_record() {
+  local record_type="$1"
+  local name="$2"
+  local elapsed_seconds="$3"
+  local exit_status="$4"
+
+  mkdir -p "$(dirname "$VERIFY_TIMING_FILE")"
+  printf \
+    '{"ts":"%s","record_type":"%s","mode":"%s","context":"%s","classification":"%s","name":"%s","elapsed_seconds":%s,"exit_status":%s,"cache":"%s","subject":"%s"}\n' \
+    "$(utc_timestamp)" \
+    "$record_type" \
+    "$MODE" \
+    "${VERIFY_MODE_CONTEXT:-unknown}" \
+    "${VERIFY_CLASSIFICATION:-unknown}" \
+    "$name" \
+    "$elapsed_seconds" \
+    "$exit_status" \
+    "${VERIFY_RUN_CACHE_STATE:-fresh}" \
+    "${VERIFY_STAMP_SUBJECT:-unknown}" >>"$VERIFY_TIMING_FILE"
+}
+
+report_lane_timing() {
+  local lane="$1"
+  local elapsed_seconds="$2"
+  local exit_status="$3"
+  local lane_status="pass"
+
+  if [[ "$exit_status" -ne 0 ]]; then
+    lane_status="fail"
+  fi
+
+  echo "[verify-local][timing] lane=${lane} status=${lane_status} elapsed=$(format_elapsed "$elapsed_seconds")"
+}
+
 report_timing() {
   local status="$1"
   if [[ "$VERIFY_REPORT_TIMING" != "1" ]]; then
@@ -50,10 +95,11 @@ report_timing() {
 
   local elapsed
   elapsed="$(format_elapsed "$SECONDS")"
+  append_timing_record "run" "$MODE" "$SECONDS" "$status"
   if [[ "$status" -eq 0 ]]; then
-    echo "[verify-local] completed in ${elapsed}"
+    echo "[verify-local] completed in ${elapsed} (${VERIFY_RUN_CACHE_STATE})"
   else
-    echo "[verify-local] failed after ${elapsed}" >&2
+    echo "[verify-local] failed after ${elapsed} (${VERIFY_RUN_CACHE_STATE})" >&2
   fi
 }
 
@@ -524,9 +570,10 @@ write_stamp() {
   cat >"$path" <<EOF
 suite=$suite
 head=$(git rev-parse HEAD)
+subject=$VERIFY_STAMP_SUBJECT
 toolchain=$PINNED
 script_hash=$SCRIPT_HASH
-timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+timestamp=$(utc_timestamp)
 EOF
 }
 
@@ -583,12 +630,12 @@ run_targeted_checks() {
     if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
       continue
     fi
+    local -a test_args=()
+    mapfile -t test_args < <(targeted_test_args_for_crate "$crate")
     if use_nextest; then
-      echo "[verify-local] cargo nextest run -p ${crate} --lib --tests"
-      cargo +"$PINNED" nextest run -p "$crate" --lib --tests
+      echo "[verify-local] cargo nextest run -p ${crate} ${test_args[*]}"
+      cargo +"$PINNED" nextest run -p "$crate" "${test_args[@]}"
     else
-      local -a test_args=()
-      mapfile -t test_args < <(targeted_test_args_for_crate "$crate")
       echo "[verify-local] cargo test -p ${crate} ${test_args[*]}"
       cargo +"$PINNED" test -p "$crate" "${test_args[@]}"
     fi
@@ -627,6 +674,32 @@ run_pre_commit_checks() {
   ensure_toolchain
   echo "[verify-local] pre-commit verification for staged crates: ${changed_crates[*]}"
   run_crate_lint_and_check pre-commit "${changed_crates[@]}"
+}
+
+run_timed_step() {
+  local lane="$1"
+  local step_func="$2"
+  shift 2
+
+  local started_at
+  started_at="$(now_seconds)"
+  local rc=0
+
+  set +e
+  "$step_func" "$@"
+  rc=$?
+  set -e
+
+  local finished_at
+  finished_at="$(now_seconds)"
+  local elapsed_seconds=$((finished_at - started_at))
+
+  report_lane_timing "$lane" "$elapsed_seconds" "$rc"
+  append_timing_record "lane" "$lane" "$elapsed_seconds" "$rc"
+
+  if [[ "$rc" -ne 0 ]]; then
+    exit "$rc"
+  fi
 }
 
 package_args() {
@@ -697,18 +770,30 @@ run_parallel_lanes() {
   echo "[verify-local] ${suite}: lanes=${lane_names[*]}"
   for i in "${!lane_names[@]}"; do
     (
-      set -euo pipefail
-      "${lane_funcs[$i]}"
+      set -uo pipefail
+      started_at="$(now_seconds)"
+      rc=0
+      "${lane_funcs[$i]}" || rc=$?
+      finished_at="$(now_seconds)"
+      printf '%s\n' "$((finished_at - started_at))" >"${logdir}/${lane_names[$i]}.elapsed"
+      exit "$rc"
     ) >"${logdir}/${lane_names[$i]}.log" 2>&1 &
     lane_pids+=("$!")
   done
 
   local failed=0
   local rc
+  local elapsed_seconds
   set +e
   for i in "${!lane_names[@]}"; do
     wait "${lane_pids[$i]}"
     rc=$?
+    elapsed_seconds=0
+    if [[ -f "${logdir}/${lane_names[$i]}.elapsed" ]]; then
+      elapsed_seconds="$(<"${logdir}/${lane_names[$i]}.elapsed")"
+    fi
+    report_lane_timing "${lane_names[$i]}" "$elapsed_seconds" "$rc"
+    append_timing_record "lane" "${lane_names[$i]}" "$elapsed_seconds" "$rc"
     if [[ $rc -ne 0 ]]; then
       failed=1
       echo "[verify-local] lane failed: ${lane_names[$i]}" >&2
@@ -1130,12 +1215,18 @@ run_full_lane_hook_tests() {
     echo "[verify-local][hook-tests] no tooling changes detected"
     return
   fi
-  if [[ ! -f tests/hooks/test_verify_local.sh ]]; then
-    echo "[verify-local][hook-tests] tests/hooks/test_verify_local.sh not present"
+  shopt -s nullglob
+  local -a hook_tests=(tests/hooks/test_*.sh)
+  shopt -u nullglob
+  if [[ ${#hook_tests[@]} -eq 0 ]]; then
+    echo "[verify-local][hook-tests] no hook regression scripts present"
     return
   fi
   echo "[verify-local][hook-tests] hook regression coverage"
-  bash tests/hooks/test_verify_local.sh
+  local hook_test
+  for hook_test in "${hook_tests[@]}"; do
+    bash "$hook_test"
+  done
 }
 
 run_ultra_fast_tooling_smoke() {
@@ -1164,16 +1255,16 @@ run_full_lane_guards() {
 
 run_full_checks_sequential() {
   echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
-  run_full_lane_fmt
-  run_full_lane_hook_tests
-  run_full_lane_clippy_core
-  run_full_lane_clippy_support
-  run_full_lane_clippy_bins
-  run_full_lane_tests_support
-  run_full_lane_tests_runtime
-  run_full_lane_tests_warp_core
-  run_full_lane_rustdoc
-  run_full_lane_guards
+  run_timed_step "fmt" run_full_lane_fmt
+  run_timed_step "hook-tests" run_full_lane_hook_tests
+  run_timed_step "clippy-core" run_full_lane_clippy_core
+  run_timed_step "clippy-support" run_full_lane_clippy_support
+  run_timed_step "clippy-bins" run_full_lane_clippy_bins
+  run_timed_step "tests-support" run_full_lane_tests_support
+  run_timed_step "tests-runtime" run_full_lane_tests_runtime
+  run_timed_step "tests-warp-core" run_full_lane_tests_warp_core
+  run_timed_step "rustdoc" run_full_lane_rustdoc
+  run_timed_step "guards" run_full_lane_guards
 }
 
 run_full_checks_parallel() {
@@ -1306,7 +1397,8 @@ run_auto_mode() {
   suite="$(stamp_suite_for_classification "$classification")"
 
   if should_skip_via_stamp "$suite"; then
-    echo "[verify-local] reusing cached ${classification} verification for HEAD $(git rev-parse --short HEAD)"
+    VERIFY_RUN_CACHE_STATE="cached"
+    echo "[verify-local] reusing cached ${classification} verification for tree $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
     return
   fi
 
@@ -1336,15 +1428,16 @@ run_auto_mode() {
 VERIFY_MODE_CONTEXT="$(mode_context "$MODE")"
 if [[ -n "${VERIFY_STAMP_SUBJECT:-}" ]]; then
   :
-elif [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" ]]; then
+elif [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" || "$VERIFY_MODE_CONTEXT" == "working-tree" ]]; then
   VERIFY_STAMP_SUBJECT="$(git write-tree)"
 else
-  VERIFY_STAMP_SUBJECT="$(git rev-parse HEAD)"
+  VERIFY_STAMP_SUBJECT="$(git rev-parse HEAD^{tree})"
 fi
 readonly VERIFY_MODE_CONTEXT VERIFY_STAMP_SUBJECT
 
 CHANGED_FILES="$(list_changed_files "$VERIFY_MODE_CONTEXT")"
 CLASSIFICATION="$(classify_change_set)"
+VERIFY_CLASSIFICATION="$CLASSIFICATION"
 
 case "$MODE" in
   detect|detect-pre-commit)
@@ -1364,6 +1457,7 @@ case "$MODE" in
     ;;
   pre-commit)
     if should_skip_via_stamp "$(stamp_suite_for_classification "$CLASSIFICATION")"; then
+      VERIFY_RUN_CACHE_STATE="cached"
       echo "[verify-local] reusing cached pre-commit verification for index $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
       exit 0
     fi
@@ -1375,7 +1469,8 @@ case "$MODE" in
     ;;
   full)
     if should_skip_via_stamp "full"; then
-      echo "[verify-local] reusing cached full verification for HEAD $(git rev-parse --short HEAD)"
+      VERIFY_RUN_CACHE_STATE="cached"
+      echo "[verify-local] reusing cached full verification for tree $(printf '%.12s' "$VERIFY_STAMP_SUBJECT")"
       exit 0
     fi
     run_full_checks

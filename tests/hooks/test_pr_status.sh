@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
+
+PASS=0
+FAIL=0
+
+pass() {
+  echo "  PASS: $1"
+  PASS=$((PASS + 1))
+}
+
+fail() {
+  echo "  FAIL: $1"
+  FAIL=$((FAIL + 1))
+}
+
+run_with_fake_gh() {
+  local fixture="$1"
+  local tmp
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/bin"
+
+  case "$fixture" in
+    success)
+      cat >"$tmp/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+  cat <<'JSON'
+{"number":302,"url":"https://github.com/flyingrobots/echo/pull/302","headRefOid":"123456789abcdeffedcba9876543210abcdef123","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN"}
+JSON
+  exit 0
+fi
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" ]]; then
+  cat <<'JSON'
+[{"name":"Tests","bucket":"pass","state":"SUCCESS"},{"name":"Clippy","bucket":"pending","state":"PENDING"},{"name":"Determinism Guards","bucket":"fail","state":"FAILURE"}]
+JSON
+  exit 0
+fi
+if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
+  cat <<'JSON'
+{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true},{"isResolved":false},{"isResolved":false}]}}}}}
+JSON
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+EOF
+      ;;
+    auth-error)
+      cat >"$tmp/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "gh: authentication required" >&2
+exit 1
+EOF
+      ;;
+    *)
+      echo "unknown fixture: $fixture" >&2
+      rm -rf "$tmp"
+      exit 1
+      ;;
+  esac
+
+  chmod +x "$tmp/bin/gh"
+  (
+    cd /Users/james/git/echo
+    PATH="$tmp/bin:$PATH" ./scripts/pr-status.sh 302 2>&1
+  )
+
+  rm -rf "$tmp"
+}
+
+echo "=== Testing pr-status helper ==="
+echo
+
+status_output="$(run_with_fake_gh success)"
+if printf '%s\n' "$status_output" | grep -q '^PR #302$'; then
+  pass "pr-status reports the PR number"
+else
+  fail "pr-status should report the PR number"
+  printf '%s\n' "$status_output"
+fi
+if printf '%s\n' "$status_output" | grep -q '^Head SHA: 123456789abc$'; then
+  pass "pr-status truncates the head SHA consistently"
+else
+  fail "pr-status should print a 12-character head SHA"
+  printf '%s\n' "$status_output"
+fi
+if printf '%s\n' "$status_output" | grep -q '^Unresolved threads: 2$'; then
+  pass "pr-status reports unresolved review threads"
+else
+  fail "pr-status should count unresolved review threads"
+  printf '%s\n' "$status_output"
+fi
+if printf '%s\n' "$status_output" | grep -q '^Review decision: APPROVED$'; then
+  pass "pr-status reports review decision"
+else
+  fail "pr-status should report the review decision"
+  printf '%s\n' "$status_output"
+fi
+if printf '%s\n' "$status_output" | grep -q '^Merge state: CLEAN$'; then
+  pass "pr-status reports merge state"
+else
+  fail "pr-status should report merge state"
+  printf '%s\n' "$status_output"
+fi
+if printf '%s\n' "$status_output" | grep -q '^- Tests$' && \
+   printf '%s\n' "$status_output" | grep -q '^- Clippy$' && \
+   printf '%s\n' "$status_output" | grep -q '^- Determinism Guards$'; then
+  pass "pr-status groups checks by bucket"
+else
+  fail "pr-status should group checks by bucket"
+  printf '%s\n' "$status_output"
+fi
+
+auth_output="$(run_with_fake_gh auth-error || true)"
+if printf '%s\n' "$auth_output" | grep -q 'Auth error—run `gh auth login` and retry\.'; then
+  pass "pr-status reports auth failures clearly"
+else
+  fail "pr-status should emit the auth guidance message"
+  printf '%s\n' "$auth_output"
+fi
+
+echo
+echo "PASS: $PASS"
+echo "FAIL: $FAIL"
+
+if [[ "$FAIL" -ne 0 ]]; then
+  exit 1
+fi

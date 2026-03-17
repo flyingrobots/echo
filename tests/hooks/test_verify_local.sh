@@ -83,11 +83,12 @@ run_fake_verify() {
   local mode="$1"
   local changed_file="$2"
   local lane_mode="${3:-parallel}"
+  local use_nextest="${4:-0}"
   local tmp
   tmp="$(mktemp -d)"
 
   mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
-  mkdir -p "$tmp/crates/warp-core/src"
+  mkdir -p "$tmp/crates/warp-core/src" "$tmp/crates/bin-only/src"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
 
@@ -103,6 +104,126 @@ version = "0.0.0"
 edition = "2021"
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+
+  cat >"$tmp/crates/bin-only/Cargo.toml" <<'EOF'
+[package]
+name = "bin-only"
+version = "0.0.0"
+edition = "2021"
+EOF
+  cat >"$tmp/crates/bin-only/src/main.rs" <<'EOF'
+fn main() {}
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
+exit 0
+EOF
+  cat >"$tmp/bin/cargo-nextest" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
+  printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/cargo-nextest" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  cat >"$tmp/.githooks/pre-push" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake canonical pre-push"
+EOF
+  cat >"$tmp/scripts/hooks/pre-commit" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake legacy pre-commit shim"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh" "$tmp/.githooks/pre-push" "$tmp/scripts/hooks/pre-commit"
+
+  local changed
+  changed="$(mktemp)"
+  printf '%s\n' "$changed_file" >"$changed"
+  local cargo_log
+  cargo_log="$(mktemp)"
+
+  local output
+  output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_USE_NEXTEST="$use_nextest" \
+    VERIFY_LANE_MODE="$lane_mode" \
+    VERIFY_STAMP_SUBJECT="test-head" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    ./scripts/verify-local.sh "$mode"
+  )"
+
+  printf '%s\n' "$output"
+  echo "--- cargo-log ---"
+  cat "$cargo_log"
+
+  rm -f "$changed" "$cargo_log"
+  rm -rf "$tmp"
+}
+
+run_fake_full_stamp_sequence() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
 
   cat >"$tmp/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
@@ -133,11 +254,15 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
-  printf 'test-head\n'
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
   exit 0
 fi
 if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
-  printf 'test-head\n'
+  printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
   exit 0
 fi
 exit 0
@@ -149,37 +274,48 @@ EOF
 set -euo pipefail
 echo "fake hook coverage"
 EOF
-  cat >"$tmp/.githooks/pre-push" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "fake canonical pre-push"
-EOF
-  cat >"$tmp/scripts/hooks/pre-commit" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "fake legacy pre-commit shim"
-EOF
-  chmod +x "$tmp/tests/hooks/test_verify_local.sh" "$tmp/.githooks/pre-push" "$tmp/scripts/hooks/pre-commit"
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
 
   local changed
   changed="$(mktemp)"
-  printf '%s\n' "$changed_file" >"$changed"
+  printf '%s\n' 'scripts/verify-local.sh' >"$changed"
   local cargo_log
   cargo_log="$(mktemp)"
 
-  local output
-  output="$(
+  local first_output second_output third_output
+  first_output="$(
     cd "$tmp" && \
     PATH="$tmp/bin:$PATH" \
-    VERIFY_FORCE=1 \
-    VERIFY_LANE_MODE="$lane_mode" \
-    VERIFY_STAMP_SUBJECT="test-head" \
     VERIFY_CHANGED_FILES_FILE="$changed" \
     VERIFY_FAKE_CARGO_LOG="$cargo_log" \
-    ./scripts/verify-local.sh "$mode"
+    VERIFY_FAKE_GIT_HEAD="commit-a" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh full
+  )"
+  second_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-b" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh full
+  )"
+  third_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-c" \
+    VERIFY_FAKE_GIT_TREE="tree-bbbbbbbbbbbb" \
+    ./scripts/verify-local.sh full
   )"
 
-  printf '%s\n' "$output"
+  printf '%s\n' "$first_output"
+  echo "--- second ---"
+  printf '%s\n' "$second_output"
+  echo "--- third ---"
+  printf '%s\n' "$third_output"
   echo "--- cargo-log ---"
   cat "$cargo_log"
 
@@ -426,6 +562,20 @@ else
   pass "local warp-core full verification stays on the smoke suite"
 fi
 
+fake_full_stamp_output="$(run_fake_full_stamp_sequence)"
+if printf '%s\n' "$fake_full_stamp_output" | grep -q 'reusing cached full verification for tree tree-aaaaaaa'; then
+  pass "full verification stamp reuse keys off the committed tree instead of HEAD"
+else
+  fail "full verification should reuse the cache for a different commit with the same tree"
+  printf '%s\n' "$fake_full_stamp_output"
+fi
+if [[ "$(printf '%s\n' "$fake_full_stamp_output" | awk '/--- cargo-log ---/{flag=1; next} flag && NF {count++} END {print count+0}')" == "2" ]]; then
+  pass "same-tree cache reuse suppresses the duplicate full rerun"
+else
+  fail "same-tree cache reuse should skip the duplicate full cargo invocation"
+  printf '%s\n' "$fake_full_stamp_output"
+fi
+
 fake_fast_output="$(run_fake_verify fast crates/warp-core/src/lib.rs)"
 if printf '%s\n' "$fake_fast_output" | grep -q 'clippy -p warp-core --lib -- -D warnings -D missing_docs'; then
   pass "fast verification uses the narrowed warp-core clippy scope"
@@ -438,6 +588,20 @@ if printf '%s\n' "$fake_fast_output" | grep -vq 'clippy -p warp-core --all-targe
 else
   fail "fast verification must not fall back to warp-core all-targets clippy"
   printf '%s\n' "$fake_fast_output"
+fi
+
+fake_fast_nextest_output="$(run_fake_verify fast crates/bin-only/src/main.rs parallel 1)"
+if printf '%s\n' "$fake_fast_nextest_output" | grep -q 'nextest run -p bin-only --bins'; then
+  pass "nextest uses target-aware args for bin-only crates"
+else
+  fail "nextest should use --bins for bin-only crates instead of hardcoded lib/test flags"
+  printf '%s\n' "$fake_fast_nextest_output"
+fi
+if printf '%s\n' "$fake_fast_nextest_output" | grep -q 'nextest run -p bin-only --lib --tests'; then
+  fail "nextest must not hardcode --lib --tests for bin-only crates"
+  printf '%s\n' "$fake_fast_nextest_output"
+else
+  pass "nextest avoids invalid lib/test flags for bin-only crates"
 fi
 
 fake_ultra_fast_output="$(run_fake_verify ultra-fast crates/warp-core/src/coordinator.rs)"

@@ -6,11 +6,11 @@
 //! This module defines the contract between a WASM host adapter and a
 //! deterministic simulation kernel. The [`KernelPort`] trait is byte-oriented
 //! and app-agnostic: any engine that can ingest intents, execute ticks, and
-//! drain materialized output can implement it.
+//! serve observation-backed reads can implement it.
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (1). All response types are
+//! The current ABI version is [`ABI_VERSION`] (2). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -48,7 +48,7 @@ pub mod error_codes {
     pub const INVALID_INTENT: u32 = 2;
     /// An internal engine error occurred during processing.
     pub const ENGINE_ERROR: u32 = 3;
-    /// Legacy snapshot/history tick index is out of bounds.
+    /// Reserved for the removed v1 snapshot adapter.
     pub const LEGACY_INVALID_TICK: u32 = 4;
     /// The requested operation is not yet supported by this kernel.
     pub const NOT_SUPPORTED: u32 = 5;
@@ -288,13 +288,6 @@ pub struct ObservationArtifact {
     pub payload: ObservationPayload,
 }
 
-/// Response from [`KernelPort::drain_view_ops`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DrainResponse {
-    /// Finalized channel outputs since the last drain.
-    pub channels: Vec<ChannelData>,
-}
-
 /// Registry and handshake metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryInfo {
@@ -337,17 +330,6 @@ impl<T> OkEnvelope<T> {
     }
 }
 
-/// Wrapper for raw CBOR byte payloads in success envelopes.
-///
-/// Used by endpoints that return pre-encoded CBOR bytes (e.g., `snapshot_at`,
-/// `execute_query`). Unlike struct responses that flatten into the envelope,
-/// raw bytes are placed in a `data` field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RawBytesResponse {
-    /// The raw CBOR-encoded payload.
-    pub data: Vec<u8>,
-}
-
 /// Error envelope for CBOR encoding.
 ///
 /// Construct via [`ErrEnvelope::new`] to guarantee `ok` is always `false`.
@@ -386,8 +368,8 @@ impl ErrEnvelope {
 ///
 /// The trait makes no assumptions about what rules the engine runs, what
 /// schema is installed, or what domain the simulation models. It operates
-/// purely on canonical intent bytes, tick budgets, and materialized channel
-/// outputs. App-specific behavior is injected by the kernel implementation,
+/// purely on canonical intent bytes, tick budgets, and explicit observation
+/// requests. App-specific behavior is injected by the kernel implementation,
 /// not by the boundary.
 ///
 /// # Thread Safety
@@ -409,46 +391,13 @@ pub trait KernelPort {
 
     /// Observe a worldline at an explicit coordinate and frame.
     ///
-    /// The default implementation reports that the observation contract is not
+    /// This is the only canonical public read entrypoint in ABI v2. The
+    /// default implementation reports that the observation contract is not
     /// supported by this kernel implementation.
     fn observe(&self, _request: ObservationRequest) -> Result<ObservationArtifact, AbiError> {
         Err(AbiError {
             code: error_codes::NOT_SUPPORTED,
             message: "observe is not supported by this kernel".into(),
-        })
-    }
-
-    /// Drain materialized ViewOps channels since the last drain.
-    ///
-    /// Returns finalized channel data. Calling drain twice without an
-    /// intervening step returns empty channels.
-    fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError>;
-
-    /// Get the current head state (tick, state_root, commit_id).
-    fn get_head(&self) -> Result<HeadInfo, AbiError>;
-
-    /// Execute a read-only query against the current state.
-    ///
-    /// Returns CBOR-encoded query results. The default implementation returns
-    /// `NOT_SUPPORTED`; override when the engine has a query dispatcher.
-    fn execute_query(&self, _query_id: u32, _vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "execute_query is not supported by this kernel".into(),
-        })
-    }
-
-    /// Replay to a specific tick and return the snapshot as CBOR bytes.
-    fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError>;
-
-    /// Render a snapshot into ViewOps for visualization.
-    ///
-    /// The default implementation returns `NOT_SUPPORTED`; override when the
-    /// engine has snapshot rendering.
-    fn render_snapshot(&self, _snapshot_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "render_snapshot is not supported by this kernel".into(),
         })
     }
 

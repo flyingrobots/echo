@@ -178,17 +178,17 @@ No future query API may bypass `observe(...)`.
 
 The internal read pivot is a hard break.
 
-Externally, one adapter phase is allowed:
+During ABI v1, one adapter phase was allowed:
 
 - `get_head()` lowers to `observe(Frontier, CommitBoundary, Head)`
 - `snapshot_at(t)` lowers to `observe(Tick(t), CommitBoundary, Snapshot)`
 - `execute_query(...)` lowers to `observe(..., QueryView, Query { ... })`
 - `drain_view_ops()` is a legacy adapter over `RecordedTruth`
 
-`drain_view_ops()` is legacy/debug-only in this phase. It must not gain new
-product semantics.
+`drain_view_ops()` was legacy/debug-only in that phase. It was not allowed to
+gain new product semantics.
 
-At the start of Phase 6:
+At the start of Phase 6 / ABI v2:
 
 - `get_head`
 - `snapshot_at`
@@ -197,7 +197,8 @@ At the start of Phase 6:
 - `render_snapshot`
 
 are removed from the public boundary, and the WASM ABI version is bumped to 2
-before other Phase 6 work proceeds.
+before other Phase 6 work proceeds. After that slice lands, `observe(...)`
+remains the only canonical public read entrypoint.
 
 ## Consequences
 
@@ -214,8 +215,8 @@ before other Phase 6 work proceeds.
 - Kernel and ABI adapters must be rewritten now instead of later.
 - Some existing cursor/session helpers remain as accelerators but lose their
   status as the conceptual public read model.
-- A compatibility layer still exists for one phase and must be actively
-  deleted on schedule.
+- The v1 compatibility layer is intentionally temporary and must be deleted on
+  schedule instead of being allowed to fossilize.
 
 ## Non-Goals
 

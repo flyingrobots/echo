@@ -1,16 +1,20 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# SPEC-0009: WASM ABI Contract v1
+# SPEC-0009: WASM ABI Contract v2
 
-> **Status:** Active | **ABI Version:** 1 | **Crate:** `warp-wasm`
+> **Status:** Active | **ABI Version:** 2 | **Crate:** `warp-wasm`
 
 ## Overview
 
-This document specifies the WASM export surface, wire encoding, and error
-protocol for the Echo deterministic simulation boundary. The ABI is
-**app-agnostic**: it operates on opaque intent bytes, tick budgets, and
-materialized channel outputs without assuming any domain-specific schema.
+This document specifies the Phase 6 Slice A WASM export surface, wire
+encoding, and error protocol for the Echo deterministic simulation boundary.
+The ABI remains app-agnostic, but the public read surface is now explicitly
+observation-first:
+
+- `observe(request)` is the only public read export.
+- `dispatch_intent(...)` and `step(...)` remain the write / advance boundary.
+- legacy read adapters from ABI v1 are removed from the public boundary.
 
 ## Architecture
 
@@ -28,37 +32,33 @@ materialized channel outputs without assuming any domain-specific schema.
                     │  KernelPort trait
 ┌───────────────────▼─────────────────────────────┐
 │           WarpKernel (engine feature)            │
-│  Wraps warp-core::Engine, registers sys rules   │
+│  Wraps warp-core::Engine and ObservationService │
 └─────────────────────────────────────────────────┘
 ```
-
-### App-Agnostic Injection
-
-The boundary stores its kernel in a module-scoped `RefCell`. Any type
-implementing `KernelPort` can be installed via `install_kernel()`. The
-`engine` feature provides `WarpKernel` (wrapping `warp-core::Engine`),
-but apps can implement `KernelPort` with any engine.
 
 ## Exports
 
 All exports are `#[wasm_bindgen]` functions. Return types are CBOR-encoded
 `Uint8Array` unless noted otherwise.
 
-| Export                    | Signature                   | Returns                        |
-| ------------------------- | --------------------------- | ------------------------------ |
-| `init()`                  | `() → Uint8Array`           | `HeadInfo` envelope            |
-| `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array`      | `DispatchResponse` envelope    |
-| `step(budget)`            | `(u32) → Uint8Array`        | `StepResponse` envelope        |
-| `observe(request)`        | `(&[u8]) → Uint8Array`      | `ObservationArtifact` envelope |
-| `drain_view_ops()`        | `() → Uint8Array`           | `DrainResponse` envelope       |
-| `get_head()`              | `() → Uint8Array`           | `HeadInfo` envelope            |
-| `execute_query(id, vars)` | `(u32, &[u8]) → Uint8Array` | `RawBytesResponse` envelope    |
-| `snapshot_at(tick)`       | `(u64) → Uint8Array`        | `RawBytesResponse` envelope    |
-| `render_snapshot(bytes)`  | `(&[u8]) → Uint8Array`      | `RawBytesResponse` envelope    |
-| `get_registry_info()`     | `() → Uint8Array`           | `RegistryInfo` envelope        |
-| `get_codec_id()`          | `() → JsValue`              | `string \| null`               |
-| `get_registry_version()`  | `() → JsValue`              | `string \| null`               |
-| `get_schema_sha256_hex()` | `() → JsValue`              | `string \| null`               |
+| Export                    | Signature              | Returns                        |
+| ------------------------- | ---------------------- | ------------------------------ |
+| `init()`                  | `() → Uint8Array`      | `HeadInfo` envelope            |
+| `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
+| `step(budget)`            | `(u32) → Uint8Array`   | `StepResponse` envelope        |
+| `observe(request)`        | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
+| `get_registry_info()`     | `() → Uint8Array`      | `RegistryInfo` envelope        |
+| `get_codec_id()`          | `() → JsValue`         | `string \| null`               |
+| `get_registry_version()`  | `() → JsValue`         | `string \| null`               |
+| `get_schema_sha256_hex()` | `() → JsValue`         | `string \| null`               |
+
+Removed in ABI v2:
+
+- `drain_view_ops()`
+- `get_head()`
+- `execute_query(id, vars)`
+- `snapshot_at(tick)`
+- `render_snapshot(bytes)`
 
 ## Wire Envelope
 
@@ -76,23 +76,20 @@ All `Uint8Array` returns use a CBOR envelope with an `ok` discriminator:
 { "ok": false, "code": <u32>, "message": <string> }
 ```
 
-JS callers check `ok` before decoding the rest. The CBOR encoding follows
-the canonical rules in `docs/js-cbor-mapping.md` (sorted keys, shortest
-integers, no tags, definite lengths).
+JS callers check `ok` before decoding the rest. The CBOR encoding follows the
+canonical rules in `docs/js-cbor-mapping.md`.
 
 ## Response Types
 
 ### ObservationRequest
 
-The request payload for `observe(request)` is itself canonical-CBOR bytes that
-decode to:
+The request payload for `observe(request)` is canonical-CBOR bytes that decode
+to:
 
 - `coordinate.worldline_id: bytes(32)`
 - `coordinate.at: frontier | tick`
 - `frame: commit_boundary | recorded_truth | query_view`
 - `projection: head | snapshot | truth_channels | query`
-
-This makes worldline, time, frame, and projection explicit on every read.
 
 ### ObservationArtifact
 
@@ -127,11 +124,13 @@ This makes worldline, time, frame, and projection explicit on every read.
 
 ### HeadInfo
 
+Returned by `init()` and nested inside `StepResponse`.
+
 | Field        | Type      | Description                  |
 | ------------ | --------- | ---------------------------- |
 | `tick`       | u64       | Number of committed ticks    |
 | `state_root` | bytes(32) | Graph-only BLAKE3 state hash |
-| `commit_id`  | bytes(32) | Canonical commit hash (v2)   |
+| `commit_id`  | bytes(32) | Canonical commit hash        |
 
 ### DispatchResponse
 
@@ -147,12 +146,6 @@ This makes worldline, time, frame, and projection explicit on every read.
 | `ticks_executed` | u32      | Ticks actually executed (≤ budget) |
 | `head`           | HeadInfo | Post-step head state               |
 
-### DrainResponse
-
-| Field      | Type  | Description           |
-| ---------- | ----- | --------------------- |
-| `channels` | array | List of `ChannelData` |
-
 ### ChannelData
 
 | Field        | Type      | Description                        |
@@ -160,24 +153,14 @@ This makes worldline, time, frame, and projection explicit on every read.
 | `channel_id` | bytes(32) | Materialization channel identifier |
 | `data`       | bytes     | Raw finalized channel output       |
 
-### RawBytesResponse
-
-Used by endpoints that return pre-encoded CBOR payloads (`execute_query`,
-`snapshot_at`, `render_snapshot`). Wrapped in the standard `{ ok: true }`
-envelope like all other responses.
-
-| Field  | Type  | Description              |
-| ------ | ----- | ------------------------ |
-| `data` | bytes | Raw CBOR-encoded payload |
-
 ### RegistryInfo
 
-| Field               | Type    | Description                                    |
-| ------------------- | ------- | ---------------------------------------------- |
-| `codec_id`          | string? | Codec identifier (e.g., `"cbor-canonical-v1"`) |
-| `registry_version`  | string? | Registry version                               |
-| `schema_sha256_hex` | string? | Schema hash (hex)                              |
-| `abi_version`       | u32     | ABI contract version (currently `1`)           |
+| Field               | Type    | Description                                   |
+| ------------------- | ------- | --------------------------------------------- |
+| `codec_id`          | string? | Codec identifier (e.g. `"cbor-canonical-v1"`) |
+| `registry_version`  | string? | Registry version                              |
+| `schema_sha256_hex` | string? | Schema hash (hex)                             |
+| `abi_version`       | u32     | ABI contract version (currently `2`)          |
 
 ## Error Codes
 
@@ -186,7 +169,7 @@ envelope like all other responses.
 | 1    | `NOT_INITIALIZED`              | `init()` not called                                        |
 | 2    | `INVALID_INTENT`               | Malformed EINT intent envelope                             |
 | 3    | `ENGINE_ERROR`                 | Internal engine failure                                    |
-| 4    | `LEGACY_INVALID_TICK`          | Legacy snapshot/history tick out of bounds                 |
+| 4    | `LEGACY_INVALID_TICK`          | Reserved for the removed v1 snapshot adapter               |
 | 5    | `NOT_SUPPORTED`                | Operation not implemented                                  |
 | 6    | `CODEC_ERROR`                  | CBOR encode/decode failure                                 |
 | 7    | `INVALID_PAYLOAD`              | Corrupted input bytes                                      |
@@ -196,45 +179,35 @@ envelope like all other responses.
 | 11   | `UNSUPPORTED_QUERY`            | Query observation not yet implemented                      |
 | 12   | `OBSERVATION_UNAVAILABLE`      | Valid request but no observation exists at that coordinate |
 
-## Versioning Strategy
+## Rust Boundary
 
-- The ABI version is exposed via `RegistryInfo.abi_version` and the
-  constant `echo_wasm_abi::kernel_port::ABI_VERSION`.
-- **Additive changes** (new optional fields, new exports such as `observe`) do NOT bump the
-  ABI version.
-- **Breaking changes** (removed fields, changed semantics, new required
-  fields, changed error codes) require an ABI version bump and a
-  `BREAKING CHANGE` footer in the commit.
-- The `KernelPort` trait is the Rust-side contract. Adding methods to it
-  is a breaking change (use default methods for additive evolution).
-- `execute_query` and `render_snapshot` have default implementations that
-  return `NOT_SUPPORTED`. Implementors only need to override them when the
-  engine supports these operations.
+`KernelPort` is the Rust-side ABI contract for `warp-wasm`.
+
+- `dispatch_intent(...)`
+- `step(...)`
+- `observe(...)`
+- `registry_info()`
+
+The trait no longer exposes the removed v1 read adapters. Implementors that
+need head or snapshot data must derive them from their own observation-backed
+internals rather than adding parallel public read methods.
 
 ## Migration Notes for Host Adapters
 
-### From placeholder exports (v0.1.0) to ABI v1
+### From ABI v1 to ABI v2
 
-1. **All exports now return CBOR envelopes**, not empty bytes. Check `ok`
-   field before processing.
-2. **`init()` must be called** before any other export. Previous stubs
-   silently returned empty bytes; now they return error code `1`.
-3. **`dispatch_intent` returns data**. Previously a no-op void function;
-   now returns `DispatchResponse` with the intent hash.
-4. **`observe(request)`** is the canonical read boundary. Legacy read exports
-   remain one-phase adapters above it.
-5. **`execute_query`** currently lowers to `observe(..., query_view, query)`
-   and returns error code `11` (`UNSUPPORTED_QUERY`) until real query support lands.
-6. **`render_snapshot`** still returns error code `5`
-   (`NOT_SUPPORTED`).
-7. **JsValue exports unchanged**: `get_codec_id`, `get_registry_version`,
-   `get_schema_sha256_hex` still return `JsValue` (`string | null`).
+1. Replace any direct use of `get_head()`, `snapshot_at()`, `drain_view_ops()`,
+   `execute_query(...)`, and `render_snapshot(...)` with `observe(request)`.
+2. Treat `observe(request)` as the only canonical public read boundary.
+3. Continue decoding `init()` and `step()` exactly as before; both still return
+   head metadata envelopes.
+4. Read `RegistryInfo.abi_version` and reject hosts that still expect the
+   removed v1 exports.
+5. Expect query-shaped observations to continue returning
+   `UNSUPPORTED_QUERY` until a real observation-backed query implementation
+   lands.
 
-## Not Yet Implemented
+## Compatibility Note
 
-These are honestly reported as transitional, endpoint-specific errors:
-
-- `execute_query`: Lowered through `observe(...)`; returns `UNSUPPORTED_QUERY`
-  (error code `11`) until real query evaluation lands.
-- `render_snapshot`: Snapshot-to-ViewOps projection not yet built.
-  Returns `NOT_SUPPORTED` (error code `5`).
+ABI v2 is intentionally breaking. The removed v1 exports are absent, not
+deprecated, and hosts must migrate to explicit observation requests.

@@ -12,6 +12,9 @@ See the repository root `README.md` for the full overview.
 - Wraps `echo-wasm-abi` and `echo-registry-api` in `wasm-bindgen` bindings so
   Echo’s deterministic wire protocol can be used from JavaScript/TypeScript in
   web-based tools and playgrounds.
+- Exposes the ABI v2 observation-first read surface:
+  `observe(...)` is the only public read export, while `dispatch_intent(...)`
+  and `step(...)` remain the write/advance boundary.
 - Intended to power future browser-based visualizers and inspectors built on
   top of the same core engine as native tools.
 

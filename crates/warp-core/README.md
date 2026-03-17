@@ -39,9 +39,9 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
       or compatibility mirrors.
 - The runtime/kernel production path no longer uses `sim/inbox`,
   `edge:pending`, or `Engine::dispatch_next_intent(...)`.
-- Legacy read surfaces such as `get_head()`, `snapshot_at()`, and
-  `drain_view_ops()` now exist only as one-phase adapters above `observe(...)`
-  and are scheduled for deletion at the start of Phase 6 / ABI v2.
+- Phase 6 / ABI v2 removes legacy public read adapters such as `get_head()`,
+  `snapshot_at()`, and `drain_view_ops()` from the WASM boundary.
+- `observe(...)` is now the only canonical public read entrypoint.
 - `Engine::ingest_intent(intent_bytes)` and `Engine::ingest_inbox_event(seq, payload)`
   remain legacy compatibility helpers for isolated tests and older spike call sites.
 

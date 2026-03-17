@@ -17,6 +17,10 @@ Foundations) into concrete Echo types. It defines the data structures needed
 to answer "show me why" queries — tracing any observed state back through the
 causal chain of tick patches that produced it.
 
+> **Phase 5 note:** provenance payloads and BTRs are substrate packaging and
+> replay artifacts. They are not themselves the public read contract; that role
+> now belongs to the explicit observation API.
+
 ### Scope
 
 - **In scope:** Type definitions, wire format, composition rules, bridge to

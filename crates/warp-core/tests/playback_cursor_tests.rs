@@ -8,8 +8,8 @@
 mod common;
 
 use common::{
-    create_add_node_patch, create_initial_store, setup_worldline_with_ticks, test_cursor_id,
-    test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_store, setup_worldline_with_ticks,
+    test_cursor_id, test_warp_id, test_worldline_id,
 };
 use warp_core::{
     compute_commit_hash_v2, compute_state_root_for_warp_store, CursorRole, Hash, HashTriplet,
@@ -69,8 +69,7 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
             commit_hash,
         };
 
-        provenance
-            .append(worldline_id, patch, triplet, vec![])
+        append_fixture_entry(&mut provenance, worldline_id, patch, triplet, vec![])
             .expect("append should succeed");
 
         parents = vec![commit_hash];
@@ -382,8 +381,7 @@ fn duplicate_worldline_registration_is_idempotent() {
         patch_digest: patch.patch_digest,
         commit_hash,
     };
-    provenance
-        .append(worldline_id, patch, triplet, vec![])
+    append_fixture_entry(&mut provenance, worldline_id, patch, triplet, vec![])
         .expect("append should succeed");
 
     // Verify history length is 1

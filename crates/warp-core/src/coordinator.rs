@@ -14,9 +14,12 @@ use crate::engine_impl::{CommitOutcome, Engine, EngineError};
 use crate::head::{PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey};
 use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
 use crate::ident::Hash;
+use crate::provenance_store::{
+    HistoryError, ProvenanceCheckpoint, ProvenanceEntry, ProvenanceService, ProvenanceStore,
+};
 use crate::worldline::WorldlineId;
 use crate::worldline_registry::WorldlineRegistry;
-use crate::worldline_state::WorldlineState;
+use crate::worldline_state::{WorldlineFrontier, WorldlineState};
 
 // =============================================================================
 // Runtime Errors and Ingress Disposition
@@ -65,6 +68,9 @@ pub enum RuntimeError {
     /// A commit against a worldline frontier failed.
     #[error(transparent)]
     Engine(#[from] EngineError),
+    /// Provenance append or lookup failed during a runtime step.
+    #[error(transparent)]
+    Provenance(#[from] HistoryError),
     /// Attempted to advance a frontier tick past `u64::MAX`.
     #[error("frontier tick overflow for worldline: {0:?}")]
     FrontierTickOverflow(WorldlineId),
@@ -116,6 +122,13 @@ pub struct WorldlineRuntime {
     public_inboxes: BTreeMap<WorldlineId, BTreeMap<InboxAddress, WriterHeadKey>>,
 }
 
+#[derive(Clone, Debug)]
+struct RuntimeCheckpoint {
+    global_tick: u64,
+    heads: BTreeMap<WriterHeadKey, WriterHead>,
+    frontiers: BTreeMap<WorldlineId, WorldlineFrontier>,
+}
+
 impl WorldlineRuntime {
     /// Creates an empty runtime.
     #[must_use]
@@ -126,6 +139,42 @@ impl WorldlineRuntime {
     /// Rebuilds the runnable set from the current head registry.
     pub fn refresh_runnable(&mut self) {
         self.runnable.rebuild(&self.heads);
+    }
+
+    fn checkpoint_for(&self, keys: &[WriterHeadKey]) -> Result<RuntimeCheckpoint, RuntimeError> {
+        let mut heads = BTreeMap::new();
+        let mut frontiers = BTreeMap::new();
+
+        for key in keys {
+            let head = self.heads.get(key).ok_or(RuntimeError::UnknownHead(*key))?;
+            heads.insert(*key, head.clone());
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                frontiers.entry(key.worldline_id)
+            {
+                let frontier = self
+                    .worldlines
+                    .get(&key.worldline_id)
+                    .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                slot.insert(frontier.clone());
+            }
+        }
+
+        Ok(RuntimeCheckpoint {
+            global_tick: self.global_tick,
+            heads,
+            frontiers,
+        })
+    }
+
+    fn restore(&mut self, checkpoint: RuntimeCheckpoint) {
+        self.global_tick = checkpoint.global_tick;
+        for head in checkpoint.heads.into_values() {
+            self.heads.insert(head);
+        }
+        for frontier in checkpoint.frontiers.into_values() {
+            self.worldlines.replace_frontier(frontier);
+        }
+        self.refresh_runnable();
     }
 
     /// Returns the registered worldline frontiers.
@@ -306,8 +355,9 @@ impl SchedulerCoordinator {
     /// commits each non-empty head against its worldline frontier.
     ///
     /// The SuperTick is failure-atomic with respect to runtime state: if any
-    /// head commit fails, all prior runtime mutations from this pass are
-    /// discarded and the runtime is restored to its pre-SuperTick state.
+    /// head commit fails, all prior runtime and provenance mutations from this
+    /// pass are discarded and both subsystems are restored to their
+    /// pre-SuperTick state.
     ///
     /// # Panics
     ///
@@ -315,6 +365,7 @@ impl SchedulerCoordinator {
     /// its pre-SuperTick state.
     pub fn super_tick(
         runtime: &mut WorldlineRuntime,
+        provenance: &mut ProvenanceService,
         engine: &mut Engine,
     ) -> Result<Vec<StepRecord>, RuntimeError> {
         let next_global_tick = runtime
@@ -344,7 +395,9 @@ impl SchedulerCoordinator {
             }
         }
 
-        let runtime_before = runtime.clone();
+        let runtime_before = runtime.checkpoint_for(&keys)?;
+        let provenance_before: ProvenanceCheckpoint =
+            provenance.checkpoint_for(keys.iter().map(|key| key.worldline_id))?;
 
         for key in &keys {
             let admitted = runtime
@@ -357,49 +410,104 @@ impl SchedulerCoordinator {
                 continue;
             }
 
-            let outcome = catch_unwind(AssertUnwindSafe(|| {
-                let frontier = runtime
+            let outcome = catch_unwind(AssertUnwindSafe(|| -> Result<StepRecord, RuntimeError> {
+                let worldline_tick = runtime
                     .worldlines
-                    .frontier_mut(&key.worldline_id)
-                    .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
-                engine
-                    .commit_with_state(frontier.state_mut(), &admitted)
-                    .map_err(RuntimeError::from)
+                    .get(&key.worldline_id)
+                    .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?
+                    .frontier_tick();
+                let parents = provenance.tip_ref(key.worldline_id)?.into_iter().collect();
+
+                let CommitOutcome {
+                    snapshot,
+                    patch,
+                    receipt: _,
+                } = {
+                    let frontier = runtime
+                        .worldlines
+                        .frontier_mut(&key.worldline_id)
+                        .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                    engine
+                        .commit_with_state(frontier.state_mut(), &admitted)
+                        .map_err(RuntimeError::from)?
+                };
+
+                let (state_root, frontier_tick_after) = {
+                    let frontier = runtime
+                        .worldlines
+                        .frontier_mut(&key.worldline_id)
+                        .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
+                    let outputs = frontier
+                        .state()
+                        .last_materialization()
+                        .iter()
+                        .map(|channel| (channel.channel, channel.data.clone()))
+                        .collect();
+                    let worldline_patch = crate::worldline::WorldlineTickPatchV1 {
+                        header: crate::worldline::WorldlineTickHeaderV1 {
+                            global_tick: next_global_tick,
+                            policy_id: patch.policy_id(),
+                            rule_pack_id: patch.rule_pack_id(),
+                            plan_digest: snapshot.plan_digest,
+                            decision_digest: snapshot.decision_digest,
+                            rewrites_digest: snapshot.rewrites_digest,
+                        },
+                        warp_id: snapshot.root.warp_id,
+                        ops: patch.ops().to_vec(),
+                        in_slots: patch.in_slots().to_vec(),
+                        out_slots: patch.out_slots().to_vec(),
+                        patch_digest: patch.digest(),
+                    };
+                    let entry = ProvenanceEntry::local_commit(
+                        key.worldline_id,
+                        worldline_tick,
+                        next_global_tick,
+                        *key,
+                        parents,
+                        crate::worldline::HashTriplet {
+                            state_root: snapshot.state_root,
+                            patch_digest: snapshot.patch_digest,
+                            commit_hash: snapshot.hash,
+                        },
+                        worldline_patch,
+                        outputs,
+                        Vec::new(),
+                    );
+                    provenance.append_local_commit(entry)?;
+                    frontier.state_mut().record_committed_ingress(
+                        *key,
+                        admitted.iter().map(IngressEnvelope::ingress_id),
+                    );
+                    let frontier_tick_after = frontier
+                        .advance_tick()
+                        .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?;
+                    (snapshot.state_root, frontier_tick_after)
+                };
+
+                Ok(StepRecord {
+                    head_key: *key,
+                    admitted_count: admitted.len(),
+                    frontier_tick_after,
+                    state_root,
+                    commit_hash: snapshot.hash,
+                })
             }));
 
-            let CommitOutcome { snapshot, .. } = match outcome {
-                Ok(Ok(outcome)) => outcome,
+            let record = match outcome {
+                Ok(Ok(record)) => record,
                 Ok(Err(err)) => {
-                    *runtime = runtime_before;
+                    runtime.restore(runtime_before);
+                    provenance.restore(&provenance_before);
                     return Err(err);
                 }
                 Err(payload) => {
-                    *runtime = runtime_before;
+                    runtime.restore(runtime_before);
+                    provenance.restore(&provenance_before);
                     resume_unwind(payload);
                 }
             };
 
-            let frontier_tick_after = {
-                let frontier = runtime
-                    .worldlines
-                    .frontier_mut(&key.worldline_id)
-                    .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
-                frontier.state_mut().record_committed_ingress(
-                    *key,
-                    admitted.iter().map(IngressEnvelope::ingress_id),
-                );
-                frontier
-                    .advance_tick()
-                    .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?
-            };
-
-            records.push(StepRecord {
-                head_key: *key,
-                admitted_count: admitted.len(),
-                frontier_tick_after,
-                state_root: snapshot.state_root,
-                commit_hash: snapshot.hash,
-            });
+            records.push(record);
         }
 
         runtime.global_tick = next_global_tick;
@@ -477,6 +585,16 @@ mod tests {
             .warp_state()
             .store(&frontier.state().root().warp_id)
             .unwrap()
+    }
+
+    fn mirrored_provenance(runtime: &WorldlineRuntime) -> ProvenanceService {
+        let mut provenance = ProvenanceService::new();
+        for (worldline_id, frontier) in runtime.worldlines().iter() {
+            provenance
+                .register_worldline(*worldline_id, frontier.state())
+                .unwrap();
+        }
+        provenance
     }
 
     fn runtime_marker_matches(view: GraphView<'_>, scope: &NodeId) -> bool {
@@ -686,7 +804,9 @@ mod tests {
             }
         );
 
-        let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         assert_eq!(records.len(), 1);
 
         assert_eq!(
@@ -838,7 +958,9 @@ mod tests {
             .unwrap();
 
         let expected_order = SchedulerCoordinator::peek_order(&runtime);
-        let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
 
         assert_eq!(
             records
@@ -848,6 +970,15 @@ mod tests {
             expected_order
         );
         assert!(records.iter().all(|record| record.admitted_count == 1));
+        assert_eq!(provenance.len(worldline_id).unwrap(), 2);
+        assert_eq!(
+            provenance.entry(worldline_id, 0).unwrap().head_key,
+            Some(first)
+        );
+        assert_eq!(
+            provenance.entry(worldline_id, 1).unwrap().head_key,
+            Some(second)
+        );
     }
 
     #[test]
@@ -897,8 +1028,20 @@ mod tests {
         runtime.ingest(env_a.clone()).unwrap();
         runtime.ingest(env_b.clone()).unwrap();
 
-        let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         assert_eq!(records.len(), 2);
+        assert_eq!(provenance.len(worldline_a).unwrap(), 1);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 1);
+        assert_eq!(
+            provenance.entry(worldline_a, 0).unwrap().head_key,
+            Some(head_a)
+        );
+        assert_eq!(
+            provenance.entry(worldline_b, 0).unwrap().head_key,
+            Some(head_b)
+        );
         assert_eq!(
             runtime
                 .worldlines
@@ -958,8 +1101,11 @@ mod tests {
             InboxPolicy::AcceptAll,
         );
 
-        let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         assert!(records.is_empty());
+        assert_eq!(provenance.len(worldline_id).unwrap(), 0);
         assert_eq!(
             runtime
                 .worldlines
@@ -1000,7 +1146,9 @@ mod tests {
             .unwrap()
             .frontier_tick = u64::MAX;
 
-        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
         assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
         assert_eq!(
             runtime
@@ -1064,7 +1212,9 @@ mod tests {
         runtime.ingest(envelope.clone()).unwrap();
         runtime.global_tick = u64::MAX;
 
-        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
         assert!(matches!(err, RuntimeError::GlobalTickOverflow));
         assert_eq!(
             runtime
@@ -1146,7 +1296,9 @@ mod tests {
             assert!(frontier.state.warp_state.delete_instance(&broken_root));
         }
 
-        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
         assert!(matches!(
             err,
             RuntimeError::Engine(EngineError::UnknownWarp(warp_id))
@@ -1200,6 +1352,8 @@ mod tests {
                 .is_none(),
             "rollback must discard earlier runtime ingress materialization"
         );
+        assert_eq!(provenance.len(worldline_a).unwrap(), 0);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
         assert!(
             runtime
                 .worldlines
@@ -1270,9 +1424,10 @@ mod tests {
         let env_a_ingress_id = env_a.ingress_id();
         runtime.ingest(env_a).unwrap();
         runtime.ingest(env_b).unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
 
         let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut engine);
+            let _ = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine);
         }));
         let Err(payload) = panic_result else {
             unreachable!("later head panic should resume through coordinator");
@@ -1314,6 +1469,8 @@ mod tests {
                 .is_none(),
             "panic rollback must discard earlier runtime ingress materialization"
         );
+        assert_eq!(provenance.len(worldline_a).unwrap(), 0);
+        assert_eq!(provenance.len(worldline_b).unwrap(), 0);
     }
 
     #[test]
@@ -1344,9 +1501,12 @@ mod tests {
                 .unwrap();
         }
 
-        let first = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let first =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         assert_eq!(first.len(), 1);
         assert_eq!(first[0].admitted_count, 2);
+        assert_eq!(provenance.len(worldline_id).unwrap(), 1);
         assert_eq!(
             runtime
                 .heads
@@ -1357,9 +1517,11 @@ mod tests {
             1
         );
 
-        let second = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+        let second =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         assert_eq!(second.len(), 1);
         assert_eq!(second[0].admitted_count, 1);
+        assert_eq!(provenance.len(worldline_id).unwrap(), 2);
         assert!(runtime.heads.get(&budget_key).unwrap().inbox().is_empty());
     }
 
@@ -1387,7 +1549,9 @@ mod tests {
         );
         runtime.ingest(envelope.clone()).unwrap();
 
-        let records = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap();
+        let mut provenance = mirrored_provenance(&runtime);
+        let records =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
         assert_eq!(records.len(), 1);
 
         let store = runtime_store(&runtime, worldline_id);
@@ -1446,7 +1610,9 @@ mod tests {
             .unwrap()
             .frontier_tick = u64::MAX;
 
-        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
         assert!(matches!(err, RuntimeError::FrontierTickOverflow(id) if id == worldline_id));
     }
 
@@ -1468,7 +1634,9 @@ mod tests {
         );
         runtime.global_tick = u64::MAX;
 
-        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut engine).unwrap_err();
+        let mut provenance = mirrored_provenance(&runtime);
+        let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
+            .unwrap_err();
         assert!(matches!(err, RuntimeError::GlobalTickOverflow));
     }
 }

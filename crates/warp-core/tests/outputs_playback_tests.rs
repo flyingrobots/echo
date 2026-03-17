@@ -16,8 +16,8 @@
 
 mod common;
 use common::{
-    create_add_node_patch, create_initial_store, setup_worldline_with_ticks, test_cursor_id,
-    test_session_id, test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_store, setup_worldline_with_ticks,
+    test_cursor_id, test_session_id, test_warp_id, test_worldline_id,
 };
 
 use warp_core::materialization::{
@@ -93,8 +93,7 @@ fn setup_worldline_with_outputs(
             (velocity_channel, vec![(tick * 2) as u8]),
         ];
 
-        provenance
-            .append(worldline_id, patch, triplet, outputs)
+        append_fixture_entry(&mut provenance, worldline_id, patch, triplet, outputs)
             .expect("append should succeed");
 
         // Advance parent chain
@@ -355,8 +354,9 @@ fn outputs_match_recorded_bytes_for_same_tick() {
     // publish_truth queries prov_tick = cursor.tick - 1 (0-based index of last applied patch).
     let prov_tick = k - 1;
     let recorded_outputs = provenance
-        .outputs(worldline_id, prov_tick)
-        .expect("outputs should exist");
+        .entry(worldline_id, prov_tick)
+        .expect("outputs should exist")
+        .outputs;
 
     // Get published frames
     let frames = sink.collect_frames(session_id);
@@ -691,7 +691,8 @@ fn publish_truth_returns_error_for_unavailable_tick() {
 /// T1: Simulate a writer advancing and recording outputs via hexagonal architecture.
 ///
 /// This test demonstrates that we can simulate the engine's write behavior by manually
-/// calling `provenance.append()`. The ProvenanceStore trait (port) allows us to test
+/// appending [`warp_core::ProvenanceEntry`] values through the entry-based provenance
+/// surface. The provenance port allows us to test
 /// the write side of the provenance contract without needing the real engine.
 #[test]
 fn writer_play_advances_and_records_outputs() {
@@ -738,9 +739,7 @@ fn writer_play_advances_and_records_outputs() {
         // Create outputs with deterministic values: (channel, vec![tick as u8])
         let outputs = vec![(output_channel, vec![tick as u8])];
 
-        // Call provenance.append() - this is the hexagonal architecture pattern
-        provenance
-            .append(worldline_id, patch, triplet, outputs)
+        append_fixture_entry(&mut provenance, worldline_id, patch, triplet, outputs)
             .expect("append should succeed");
 
         // Advance parent chain for next iteration's Merkle computation
@@ -754,19 +753,18 @@ fn writer_play_advances_and_records_outputs() {
         "provenance should have 10 entries"
     );
 
-    // Assert: provenance.expected(worldline, t) exists for t in 0..10
+    // Assert: provenance.entry(worldline, t) exists for t in 0..10
     // Recompute the Merkle chain to verify stored commit_hashes match
     let mut verify_store = initial_store;
     let mut verify_parents: Vec<warp_core::Hash> = Vec::new();
     for tick in 0..10u64 {
-        let triplet = provenance
-            .expected(worldline_id, tick)
-            .expect("expected should exist for tick");
+        let entry = provenance
+            .entry(worldline_id, tick)
+            .expect("entry should exist for tick");
+        let triplet = entry.expected;
 
         // Recompute commit_hash from scratch to verify Merkle chain integrity
-        let patch = provenance
-            .patch(worldline_id, tick)
-            .expect("patch should exist");
+        let patch = entry.patch.expect("patch should exist");
         patch
             .apply_to_store(&mut verify_store)
             .expect("apply should succeed");
@@ -785,11 +783,12 @@ fn writer_play_advances_and_records_outputs() {
         verify_parents = vec![expected_commit];
     }
 
-    // Assert: provenance.outputs(worldline, t) contains expected values
+    // Assert: provenance.entry(worldline, t).outputs contains expected values
     for tick in 0..10u64 {
         let outputs = provenance
-            .outputs(worldline_id, tick)
-            .expect("outputs should exist for tick");
+            .entry(worldline_id, tick)
+            .expect("outputs should exist for tick")
+            .outputs;
 
         assert_eq!(outputs.len(), 1, "should have 1 output for tick {tick}");
         assert_eq!(
@@ -852,18 +851,20 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
 
     // publish_truth queries prov_tick = cursor.tick - 1 = 2
     let expected_triplet_3 = provenance
-        .expected(worldline_id, 2)
-        .expect("expected triplet for prov_tick 2 should exist");
+        .entry(worldline_id, 2)
+        .expect("expected triplet for prov_tick 2 should exist")
+        .expected;
     assert_eq!(
         receipt_3.commit_hash, expected_triplet_3.commit_hash,
-        "receipt commit_hash should match provenance.expected(worldline, 2)"
+        "receipt commit_hash should match provenance.entry(worldline, 2).expected"
     );
 
-    // Verify frame values match provenance.outputs(worldline, 2) (prov_tick = cursor.tick - 1)
+    // Verify frame values match provenance.entry(worldline, 2).outputs (prov_tick = cursor.tick - 1)
     let frames_3 = sink.collect_frames(session_id);
     let recorded_outputs_3 = provenance
-        .outputs(worldline_id, 2)
-        .expect("outputs for prov_tick 2 should exist");
+        .entry(worldline_id, 2)
+        .expect("outputs for prov_tick 2 should exist")
+        .outputs;
 
     let position_output_3 = recorded_outputs_3
         .iter()
@@ -905,18 +906,20 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
 
     // publish_truth queries prov_tick = cursor.tick - 1 = 6
     let expected_triplet_7 = provenance
-        .expected(worldline_id, 6)
-        .expect("expected triplet for prov_tick 6 should exist");
+        .entry(worldline_id, 6)
+        .expect("expected triplet for prov_tick 6 should exist")
+        .expected;
     assert_eq!(
         receipt_7.commit_hash, expected_triplet_7.commit_hash,
-        "receipt commit_hash should match provenance.expected(worldline, 6)"
+        "receipt commit_hash should match provenance.entry(worldline, 6).expected"
     );
 
-    // Verify frame values match provenance.outputs(worldline, 6) (prov_tick = cursor.tick - 1)
+    // Verify frame values match provenance.entry(worldline, 6).outputs (prov_tick = cursor.tick - 1)
     let frames_7 = sink.collect_frames(session_id);
     let recorded_outputs_7 = provenance
-        .outputs(worldline_id, 6)
-        .expect("outputs for prov_tick 6 should exist");
+        .entry(worldline_id, 6)
+        .expect("outputs for prov_tick 6 should exist")
+        .outputs;
 
     let position_output_7 = recorded_outputs_7
         .iter()

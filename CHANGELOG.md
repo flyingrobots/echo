@@ -5,6 +5,61 @@
 
 ## Unreleased
 
+### feat(tooling): split local verification into parallel lanes
+
+- **Changed** the local full verifier now runs as curated parallel lanes with
+  isolated `CARGO_TARGET_DIR`s for clippy, tests, rustdoc, and guard checks,
+  which cuts local wall-clock time by avoiding one giant serialized cargo
+  invocation.
+- **Changed** staged and reduced local Rust checks now use a narrower fast-path
+  target surface, keeping the heaviest all-target clippy drag in CI instead of
+  every local iteration loop.
+- **Changed** full local verification is now scope-aware: tooling-only full
+  changes stay tooling-local, while critical Rust changes run local smoke lanes
+  and defer exhaustive proof to CI.
+- **Changed** local `warp-core` smoke selection is now file-family aware:
+  default source edits stay on `--lib`, runtime/inbox files pull `inbox`,
+  playback files pull playback-smoke tests, and PRNG edits pull the golden
+  regression.
+- **Changed** local `warp-wasm` and `echo-wasm-abi` smoke selection is now
+  file-family aware too: `warp-wasm/src/lib.rs` stays on plain lib smoke,
+  `warp_kernel.rs` pulls the engine-enabled lane, canonical ABI work pulls only
+  canonical/floating-point vectors, and non-Rust crate docs no longer wake Rust
+  lanes at all.
+- **Added** `make verify-ultra-fast` as the shortest local edit-loop lane:
+  changed Rust crates get `cargo check`, critical runtime surfaces still pull
+  targeted smoke tests, tooling-only changes stay on a syntax/smoke path, and
+  clippy/rustdoc/guard scans stay on heavier local paths and CI.
+- **Added** `make verify-full-sequential` as an explicit fallback when the lane
+  runner itself needs debugging.
+- **Fixed** ultra-fast tooling smoke now detects actual shell tooling files by
+  extension or shebang, so extensionless hook entrypoints stay covered while
+  non-shell files like hook docs or timing logs do not false-fail under
+  `bash -n`.
+
+### feat(warp-core): close Phase 4 and pivot reads to observe
+
+- **Added** ADR-0011 documenting the explicit observation contract with
+  worldline, coordinate, frame, and projection semantics.
+- **Changed** Phase 4 provenance/BTR work is now the documented substrate
+  baseline: provenance is entry-based, parent refs are stored explicitly, and
+  the standalone `ProvenanceService` owns authoritative worldline history.
+- **Added** `ObservationService::observe(...)` as the canonical internal read
+  path with explicit worldline, coordinate, frame, and projection semantics.
+- **Added** deterministic observation artifacts and error mapping:
+  `INVALID_WORLDLINE`, `INVALID_TICK`, `UNSUPPORTED_FRAME_PROJECTION`,
+  `UNSUPPORTED_QUERY`, and `OBSERVATION_UNAVAILABLE`.
+- **Changed** `WarpKernel` and the WASM ABI now expose `observe(...)`, while
+  `get_head`, `snapshot_at`, and `drain_view_ops` are thin one-phase adapters
+  over the observation contract. `execute_query(...)` currently lowers through
+  observation semantics and returns deterministic `UNSUPPORTED_QUERY` until full
+  query support is implemented.
+- **Changed** `drain_view_ops()` is now legacy adapter/debug behavior only: it
+  reads recorded truth through `observe(...)` and tracks only adapter-local
+  drain state instead of mutating runtime-owned materialization state.
+- **Changed** `ttd-browser` migrated to the entry-based provenance API after
+  the Phase 4 hard cut removed the old provenance convenience methods.
+
 ### fix(warp-core): close final Phase 3 PR review threads
 
 - **Fixed** `Engine::commit_with_state()` now restores both the engine-owned

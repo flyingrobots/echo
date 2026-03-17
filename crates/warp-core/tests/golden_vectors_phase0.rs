@@ -137,8 +137,9 @@ fn gv002_provenance_replay_integrity() {
     // Verify each tick's hash triplet against pinned values
     for (tick, (exp_sr, exp_pd, exp_ch)) in EXPECTED.iter().enumerate() {
         let triplet = provenance
-            .expected(worldline_id, tick as u64)
-            .unwrap_or_else(|e| panic!("tick {tick}: {e}"));
+            .entry(worldline_id, tick as u64)
+            .unwrap_or_else(|e| panic!("tick {tick}: {e}"))
+            .expected;
 
         assert_eq!(
             hex(&triplet.state_root),
@@ -209,8 +210,11 @@ fn gv003_fork_reproducibility() {
 
     // Prefix ticks 0..5 must be identical between original and fork
     for (tick, exp_ch) in EXPECTED_PREFIX_COMMITS.iter().enumerate() {
-        let original = provenance.expected(worldline_id, tick as u64).unwrap();
-        let forked = provenance.expected(forked_id, tick as u64).unwrap();
+        let original = provenance
+            .entry(worldline_id, tick as u64)
+            .unwrap()
+            .expected;
+        let forked = provenance.entry(forked_id, tick as u64).unwrap().expected;
 
         assert_eq!(
             original, forked,

@@ -13,12 +13,13 @@
 )]
 
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_node_id,
-    make_type_id, make_warp_id, ApplyResult, AtomPayload, AttachmentKey, AttachmentSet,
-    AttachmentValue, ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder,
-    Footprint, GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey, NodeRecord,
-    PatternGraph, RewriteRule, SessionId, WarpId, WarpOp, WorldlineId, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1,
+    compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_head_id,
+    make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload, AtomWriteSet,
+    AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, CursorId, EdgeId, EdgeRecord,
+    Engine, EngineBuilder, Footprint, GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId,
+    NodeKey, NodeRecord, OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore,
+    RewriteRule, SessionId, WarpId, WarpOp, WorldlineId, WorldlineTickHeaderV1,
+    WorldlineTickPatchV1, WriterHeadKey,
 };
 
 // =============================================================================
@@ -847,8 +848,7 @@ pub fn setup_worldline_with_ticks(
             commit_hash,
         };
 
-        provenance
-            .append(worldline_id, patch, triplet, vec![])
+        append_fixture_entry(&mut provenance, worldline_id, patch, triplet, vec![])
             .expect("append should succeed");
 
         // Advance parent chain
@@ -856,6 +856,80 @@ pub fn setup_worldline_with_ticks(
     }
 
     (provenance, initial_store, warp_id, worldline_id)
+}
+
+/// Returns the canonical writer head key used by provenance test fixtures.
+#[must_use]
+pub fn fixture_head_key(worldline_id: WorldlineId) -> WriterHeadKey {
+    WriterHeadKey {
+        worldline_id,
+        head_id: make_head_id("fixture"),
+    }
+}
+
+/// Builds a fixture provenance entry from a worldline patch/triplet pair.
+///
+/// Parent refs are derived from the current provenance tip so the resulting
+/// entry forms a valid deterministic linear history for test replay.
+pub fn fixture_entry(
+    provenance: &LocalProvenanceStore,
+    worldline_id: WorldlineId,
+    patch: WorldlineTickPatchV1,
+    expected: HashTriplet,
+    outputs: OutputFrameSet,
+    atom_writes: AtomWriteSet,
+) -> Result<ProvenanceEntry, warp_core::HistoryError> {
+    let tick = patch.global_tick();
+    let parents = provenance.tip_ref(worldline_id)?.into_iter().collect();
+    Ok(ProvenanceEntry::local_commit(
+        worldline_id,
+        tick,
+        tick,
+        fixture_head_key(worldline_id),
+        parents,
+        expected,
+        patch,
+        outputs,
+        atom_writes,
+    ))
+}
+
+/// Appends a fixture provenance entry using the entry-based Phase 4 API.
+pub fn append_fixture_entry(
+    provenance: &mut LocalProvenanceStore,
+    worldline_id: WorldlineId,
+    patch: WorldlineTickPatchV1,
+    expected: HashTriplet,
+    outputs: OutputFrameSet,
+) -> Result<(), warp_core::HistoryError> {
+    append_fixture_entry_with_writes(
+        provenance,
+        worldline_id,
+        patch,
+        expected,
+        outputs,
+        Vec::new(),
+    )
+}
+
+/// Appends a fixture provenance entry with explicit atom-write provenance.
+pub fn append_fixture_entry_with_writes(
+    provenance: &mut LocalProvenanceStore,
+    worldline_id: WorldlineId,
+    patch: WorldlineTickPatchV1,
+    expected: HashTriplet,
+    outputs: OutputFrameSet,
+    atom_writes: AtomWriteSet,
+) -> Result<(), warp_core::HistoryError> {
+    let entry = fixture_entry(
+        provenance,
+        worldline_id,
+        patch,
+        expected,
+        outputs,
+        atom_writes,
+    )?;
+    provenance.append_local_commit(entry)
 }
 
 /// Creates a "touch" rewrite rule for worker invariance tests.

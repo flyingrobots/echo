@@ -25,7 +25,7 @@ mod common;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use common::XorShift64;
+use common::{append_fixture_entry, XorShift64};
 use warp_core::{
     compute_commit_hash_v2, compute_state_root_for_warp_store, HashTriplet, LocalProvenanceStore,
     WorldlineTickHeaderV1, WorldlineTickPatchV1,
@@ -610,8 +610,7 @@ fn phase_2_and_3_playback_replay_matches_execution() {
             commit_hash,
         };
 
-        provenance
-            .append(worldline_id, wl_patch, triplet, vec![])
+        append_fixture_entry(&mut provenance, worldline_id, wl_patch, triplet, vec![])
             .expect("append");
         parents = vec![commit_hash];
     }
@@ -836,9 +835,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
         commit_hash,
     };
 
-    provenance
-        .append(worldline_id, wl_patch, triplet, vec![])
-        .expect("append");
+    append_fixture_entry(&mut provenance, worldline_id, wl_patch, triplet, vec![]).expect("append");
 
     let mut cursor = PlaybackCursor::new(
         cursor_id,

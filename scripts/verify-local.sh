@@ -19,6 +19,8 @@ PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
 VERIFY_FORCE="${VERIFY_FORCE:-0}"
 STAMP_DIR="${VERIFY_STAMP_DIR:-.git/verify-local}"
 VERIFY_USE_NEXTEST="${VERIFY_USE_NEXTEST:-0}"
+VERIFY_LANE_MODE="${VERIFY_LANE_MODE:-parallel}"
+VERIFY_LANE_ROOT="${VERIFY_LANE_ROOT:-target/verify-lanes}"
 SECONDS=0
 
 format_elapsed() {
@@ -120,6 +122,28 @@ readonly FULL_CRITICAL_EXACT=(
   "Makefile"
 )
 
+readonly FULL_TOOLING_PREFIXES=(
+  ".github/workflows/"
+  ".githooks/"
+  "scripts/"
+)
+
+readonly FULL_TOOLING_EXACT=(
+  "Makefile"
+  "package.json"
+  "pnpm-lock.yaml"
+  "pnpm-workspace.yaml"
+  "deny.toml"
+  "audit.toml"
+  "det-policy.yaml"
+)
+
+readonly FULL_BROAD_RUST_EXACT=(
+  "Cargo.toml"
+  "Cargo.lock"
+  "rust-toolchain.toml"
+)
+
 readonly FULL_LOCAL_PACKAGES=(
   "warp-core"
   "warp-geom"
@@ -147,6 +171,58 @@ readonly FULL_LOCAL_TEST_PACKAGES=(
   "echo-dind-tests"
   "ttd-browser"
 )
+
+readonly FULL_LOCAL_CLIPPY_CORE_PACKAGES=(
+  "warp-core"
+  "warp-geom"
+  "warp-wasm"
+  "echo-wasm-abi"
+)
+
+readonly FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES=(
+  "echo-scene-port"
+  "echo-scene-codec"
+  "echo-graph"
+  "echo-ttd"
+  "echo-dind-harness"
+  "echo-dind-tests"
+  "ttd-browser"
+  "ttd-protocol-rs"
+  "ttd-manifest"
+)
+
+readonly FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES=(
+  "xtask"
+)
+
+readonly FULL_LOCAL_RUSTDOC_PACKAGES=(
+  "warp-core"
+  "warp-geom"
+  "warp-wasm"
+)
+
+readonly FAST_CLIPPY_LIB_ONLY_PACKAGES=(
+  "warp-core"
+  "warp-wasm"
+  "ttd-browser"
+  "echo-dind-harness"
+  "echo-dind-tests"
+)
+
+FULL_SCOPE_MODE=""
+FULL_SCOPE_HAS_TOOLING=0
+FULL_SCOPE_SELECTED_CRATES=()
+FULL_SCOPE_CLIPPY_CORE_PACKAGES=()
+FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES=()
+FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES=()
+FULL_SCOPE_TEST_SUPPORT_PACKAGES=()
+FULL_SCOPE_RUSTDOC_PACKAGES=()
+FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
+FULL_SCOPE_WARP_WASM_TEST_MODE="none"
+FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
+FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
+FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
+FULL_SCOPE_WARP_CORE_RUN_PRNG=0
 
 ensure_command() {
   local cmd="$1"
@@ -193,10 +269,20 @@ list_changed_index_files() {
   git diff --cached --name-only --diff-filter=ACMRTUXBD
 }
 
+list_changed_worktree_files() {
+  {
+    git diff --name-only --diff-filter=ACMRTUXBD HEAD
+    git ls-files --others --exclude-standard
+  } | awk 'NF' | sort -u
+}
+
 mode_context() {
   case "$1" in
     pre-commit|detect-pre-commit)
       printf 'pre-commit\n'
+      ;;
+    fast|ultra-fast)
+      printf 'working-tree\n'
       ;;
     *)
       printf '%s\n' "$1"
@@ -214,6 +300,11 @@ list_changed_files() {
 
   if [[ "$context" == "pre-commit" ]]; then
     list_changed_index_files
+    return
+  fi
+
+  if [[ "$context" == "working-tree" ]]; then
+    list_changed_worktree_files
     return
   fi
 
@@ -242,6 +333,55 @@ is_docs_only_path() {
   [[ "$file" == docs/* || "$file" == *.md ]]
 }
 
+array_contains() {
+  local needle="$1"
+  shift
+  local item
+  for item in "$@"; do
+    if [[ "$item" == "$needle" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+append_unique() {
+  local value="$1"
+  local array_name="$2"
+  local -n array_ref="$array_name"
+  if ! array_contains "$value" ${array_ref[@]+"${array_ref[@]}"}; then
+    array_ref+=("$value")
+  fi
+}
+
+is_tooling_full_path() {
+  local file="$1"
+  local prefix
+  for prefix in "${FULL_TOOLING_PREFIXES[@]}"; do
+    if [[ "$file" == "$prefix"* ]]; then
+      return 0
+    fi
+  done
+  local exact
+  for exact in "${FULL_TOOLING_EXACT[@]}"; do
+    if [[ "$file" == "$exact" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_broad_rust_full_path() {
+  local file="$1"
+  local exact
+  for exact in "${FULL_BROAD_RUST_EXACT[@]}"; do
+    if [[ "$file" == "$exact" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 classify_change_set() {
   local had_files=0
   local classification="docs"
@@ -268,6 +408,61 @@ classify_change_set() {
 
 list_changed_crates() {
   printf '%s\n' "$CHANGED_FILES" | sed -n 's#^crates/\([^/]*\)/.*#\1#p' | sort -u
+}
+
+list_changed_rust_crates() {
+  local file crate
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/*/Cargo.toml|crates/*/build.rs|crates/*/src/*|crates/*/tests/*)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        printf '%s\n' "$crate"
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}" | sort -u
+}
+
+list_changed_tooling_shell_files() {
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      .githooks/*|scripts/*.sh|scripts/hooks/*|tests/hooks/*.sh)
+        if is_shell_tooling_file "$file"; then
+          printf '%s\n' "$file"
+        fi
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}" | sort -u
+}
+
+is_shell_tooling_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  case "$file" in
+    *.sh) return 0 ;;
+  esac
+  local first_line=""
+  IFS= read -r first_line < "$file" || true
+  [[ "$first_line" =~ ^#!.*(^|[[:space:]/])(ba|z)?sh([[:space:]]|$) ]]
+}
+
+list_changed_critical_crates() {
+  local file crate
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/*/Cargo.toml|crates/*/build.rs|crates/*/src/*|crates/*/tests/*)
+        crate="$(printf '%s\n' "$file" | sed -n 's#^crates/\([^/]*\)/.*#\1#p')"
+        [[ -z "$crate" ]] && continue
+        if array_contains "$crate" ${FULL_LOCAL_PACKAGES[@]+"${FULL_LOCAL_PACKAGES[@]}"}; then
+          printf '%s\n' "$crate"
+        fi
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}" | sort -u
 }
 
 stamp_suite_for_classification() {
@@ -359,6 +554,7 @@ run_docs_lint() {
 run_targeted_checks() {
   local crates=("$@")
   local crate
+  local rustdoc_crates=()
 
   if [[ ${#crates[@]} -eq 0 ]]; then
     echo "[verify-local] no changed crates detected; running docs-only checks"
@@ -370,14 +566,17 @@ run_targeted_checks() {
   echo "[verify-local] cargo fmt --all -- --check"
   cargo +"$PINNED" fmt --all -- --check
 
-  run_crate_lint_and_check "${crates[@]}"
+  run_crate_lint_and_check targeted "${crates[@]}"
 
-  local public_doc_crates=("warp-core" "warp-geom" "warp-wasm")
-  for crate in "${public_doc_crates[@]}"; do
+  for crate in "${FULL_LOCAL_RUSTDOC_PACKAGES[@]}"; do
     if printf '%s\n' "${crates[@]}" | grep -qx "$crate"; then
-      echo "[verify-local] rustdoc warnings gate (${crate})"
-      RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$crate" --no-deps
+      rustdoc_crates+=("$crate")
     fi
+  done
+
+  for crate in "${rustdoc_crates[@]}"; do
+    echo "[verify-local] rustdoc warnings gate (${crate})"
+    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "$crate" --no-deps
   done
 
   for crate in "${crates[@]}"; do
@@ -385,11 +584,13 @@ run_targeted_checks() {
       continue
     fi
     if use_nextest; then
-      echo "[verify-local] cargo nextest run -p ${crate}"
-      cargo +"$PINNED" nextest run -p "$crate"
+      echo "[verify-local] cargo nextest run -p ${crate} --lib --tests"
+      cargo +"$PINNED" nextest run -p "$crate" --lib --tests
     else
-      echo "[verify-local] cargo test -p ${crate}"
-      cargo +"$PINNED" test -p "$crate"
+      local -a test_args=()
+      mapfile -t test_args < <(targeted_test_args_for_crate "$crate")
+      echo "[verify-local] cargo test -p ${crate} ${test_args[*]}"
+      cargo +"$PINNED" test -p "$crate" "${test_args[@]}"
     fi
   done
 
@@ -397,6 +598,8 @@ run_targeted_checks() {
 }
 
 run_crate_lint_and_check() {
+  local scope="$1"
+  shift
   local crates=("$@")
   local crate
 
@@ -405,23 +608,25 @@ run_crate_lint_and_check() {
       echo "[verify-local] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
       continue
     fi
-    echo "[verify-local] cargo clippy -p ${crate} --all-targets"
-    cargo +"$PINNED" clippy -p "$crate" --all-targets -- -D warnings -D missing_docs
+    local -a clippy_args=()
+    mapfile -t clippy_args < <(clippy_target_args_for_scope "$crate" "$scope")
+    echo "[verify-local] cargo clippy -p ${crate} ${clippy_args[*]}"
+    cargo +"$PINNED" clippy -p "$crate" "${clippy_args[@]}" -- -D warnings -D missing_docs
     echo "[verify-local] cargo check -p ${crate}"
     cargo +"$PINNED" check -p "$crate" --quiet
   done
 }
 
 run_pre_commit_checks() {
-  mapfile -t changed_crates < <(list_changed_crates)
+  mapfile -t changed_crates < <(list_changed_rust_crates)
   if [[ ${#changed_crates[@]} -eq 0 ]]; then
-    echo "[verify-local] pre-commit: no staged crates detected"
+    echo "[verify-local] pre-commit: no staged Rust crates detected"
     return
   fi
 
   ensure_toolchain
   echo "[verify-local] pre-commit verification for staged crates: ${changed_crates[*]}"
-  run_crate_lint_and_check "${changed_crates[@]}"
+  run_crate_lint_and_check pre-commit "${changed_crates[@]}"
 }
 
 package_args() {
@@ -429,6 +634,355 @@ package_args() {
   for pkg in "$@"; do
     printf '%s\n' "-p" "$pkg"
   done
+}
+
+lane_target_dir() {
+  local lane="$1"
+  printf '%s/%s' "$VERIFY_LANE_ROOT" "$lane"
+}
+
+lane_cargo() {
+  local lane="$1"
+  shift
+  mkdir -p "$VERIFY_LANE_ROOT"
+  CARGO_TARGET_DIR="$(lane_target_dir "$lane")" cargo +"$PINNED" "$@"
+}
+
+should_run_parallel_lanes() {
+  case "$VERIFY_LANE_MODE" in
+    parallel)
+      return 0
+      ;;
+    sequential|serial)
+      return 1
+      ;;
+    *)
+      echo "[verify-local] invalid VERIFY_LANE_MODE: $VERIFY_LANE_MODE" >&2
+      exit 1
+      ;;
+  esac
+}
+
+run_parallel_lanes() {
+  local suite="$1"
+  shift
+
+  local logdir
+  logdir="$(mktemp -d "${TMPDIR:-/tmp}/verify-local-${suite}.XXXXXX")"
+  local -a lane_names=()
+  local -a lane_funcs=()
+  local -a lane_pids=()
+  local i
+
+  cleanup_parallel_lanes() {
+    local pid
+    for pid in "${lane_pids[@]}"; do
+      kill "$pid" 2>/dev/null || true
+    done
+    for pid in "${lane_pids[@]}"; do
+      wait "$pid" 2>/dev/null || true
+    done
+    rm -rf "$logdir"
+  }
+
+  trap 'cleanup_parallel_lanes; trap - INT TERM; exit 130' INT TERM
+
+  while [[ $# -gt 0 ]]; do
+    lane_names+=("$1")
+    lane_funcs+=("$2")
+    shift 2
+  done
+
+  echo "[verify-local] ${suite}: launching ${#lane_names[@]} local lanes"
+  echo "[verify-local] ${suite}: lanes=${lane_names[*]}"
+  for i in "${!lane_names[@]}"; do
+    (
+      set -euo pipefail
+      "${lane_funcs[$i]}"
+    ) >"${logdir}/${lane_names[$i]}.log" 2>&1 &
+    lane_pids+=("$!")
+  done
+
+  local failed=0
+  local rc
+  set +e
+  for i in "${!lane_names[@]}"; do
+    wait "${lane_pids[$i]}"
+    rc=$?
+    if [[ $rc -ne 0 ]]; then
+      failed=1
+      echo "[verify-local] lane failed: ${lane_names[$i]}" >&2
+    fi
+  done
+  set -e
+
+  if [[ $failed -ne 0 ]]; then
+    for i in "${!lane_names[@]}"; do
+      local logfile="${logdir}/${lane_names[$i]}.log"
+      if [[ ! -s "$logfile" ]]; then
+        continue
+      fi
+      echo
+      echo "--- ${lane_names[$i]} ---" >&2
+      cat "$logfile" >&2
+    done
+    trap - INT TERM
+    rm -rf "$logdir"
+    exit 1
+  fi
+
+  trap - INT TERM
+  rm -rf "$logdir"
+}
+
+crate_supports_lib_target() {
+  local crate="$1"
+  local crate_dir="crates/${crate}"
+  local manifest="${crate_dir}/Cargo.toml"
+
+  if [[ ! -f "$manifest" ]]; then
+    return 1
+  fi
+
+  [[ -f "${crate_dir}/src/lib.rs" ]] && return 0
+  grep -Eq '^\[lib\]' "$manifest"
+}
+
+crate_supports_bin_target() {
+  local crate="$1"
+  local crate_dir="crates/${crate}"
+  local manifest="${crate_dir}/Cargo.toml"
+
+  if [[ ! -f "$manifest" ]]; then
+    return 1
+  fi
+
+  [[ -f "${crate_dir}/src/main.rs" ]] && return 0
+  grep -Eq '^\[\[bin\]\]' "$manifest"
+}
+
+crate_is_fast_clippy_lib_only() {
+  local crate="$1"
+  local candidate
+  for candidate in "${FAST_CLIPPY_LIB_ONLY_PACKAGES[@]}"; do
+    if [[ "$crate" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+clippy_target_args_for_scope() {
+  local crate="$1"
+  local scope="$2"
+
+  if [[ "$crate" == "xtask" ]]; then
+    printf '%s\n' "--bins"
+    return
+  fi
+
+  if [[ "$scope" == "full" ]]; then
+    printf '%s\n' "--all-targets"
+    return
+  fi
+
+  if crate_supports_lib_target "$crate"; then
+    printf '%s\n' "--lib"
+  elif crate_supports_bin_target "$crate"; then
+    printf '%s\n' "--bins"
+  else
+    printf '%s\n' "--all-targets"
+    return
+  fi
+
+  if crate_supports_lib_target "$crate" && ! crate_is_fast_clippy_lib_only "$crate"; then
+    printf '%s\n' "--tests"
+  fi
+}
+
+targeted_test_args_for_crate() {
+  local crate="$1"
+
+  if [[ "$crate" == "xtask" ]]; then
+    printf '%s\n' "--bins"
+    return
+  fi
+
+  if crate_supports_lib_target "$crate"; then
+    printf '%s\n' "--lib"
+  elif crate_supports_bin_target "$crate"; then
+    printf '%s\n' "--bins"
+  fi
+  printf '%s\n' "--tests"
+}
+
+filter_package_set_by_selection() {
+  local selection_name="$1"
+  local candidate_name="$2"
+  local pkg
+  local -n selection_ref="$selection_name"
+  local -n candidate_ref="$candidate_name"
+
+  for pkg in "${candidate_ref[@]}"; do
+    if array_contains "$pkg" ${selection_ref[@]+"${selection_ref[@]}"}; then
+      printf '%s\n' "$pkg"
+    fi
+  done
+}
+
+prepare_warp_core_scope() {
+  FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
+  FULL_SCOPE_WARP_CORE_RUN_PRNG=0
+
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/warp-core/tests/*.rs)
+        append_unique "$(basename "$file" .rs)" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
+      crates/warp-core/src/coordinator.rs|\
+      crates/warp-core/src/engine_impl.rs|\
+      crates/warp-core/src/head.rs|\
+      crates/warp-core/src/head_inbox.rs|\
+      crates/warp-core/src/worldline_state.rs|\
+      crates/warp-core/src/worldline_registry.rs|\
+      crates/warp-core/src/runtime*.rs)
+        append_unique "inbox" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
+      crates/warp-core/src/playback.rs)
+        append_unique "playback_cursor_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        append_unique "outputs_playback_tests" FULL_SCOPE_WARP_CORE_EXTRA_TESTS
+        ;;
+      crates/warp-core/src/math/prng.rs)
+        FULL_SCOPE_WARP_CORE_RUN_PRNG=1
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+}
+
+prepare_warp_wasm_scope() {
+  FULL_SCOPE_WARP_WASM_TEST_MODE="none"
+
+  if [[ "$FULL_SCOPE_MODE" == "broad-rust" ]]; then
+    FULL_SCOPE_WARP_WASM_TEST_MODE="engine-lib"
+    return
+  fi
+
+  local file
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/warp-wasm/Cargo.toml|crates/warp-wasm/src/warp_kernel.rs)
+        FULL_SCOPE_WARP_WASM_TEST_MODE="engine-lib"
+        return
+        ;;
+      crates/warp-wasm/src/lib.rs)
+        if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "none" ]]; then
+          FULL_SCOPE_WARP_WASM_TEST_MODE="plain-lib"
+        fi
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+}
+
+prepare_echo_wasm_abi_scope() {
+  FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
+  FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
+
+  if [[ "$FULL_SCOPE_MODE" == "broad-rust" ]]; then
+    FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=1
+    return
+  fi
+
+  local file test_name
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    case "$file" in
+      crates/echo-wasm-abi/Cargo.toml|\
+      crates/echo-wasm-abi/src/lib.rs|\
+      crates/echo-wasm-abi/src/kernel_port.rs|\
+      crates/echo-wasm-abi/src/eintlog.rs|\
+      crates/echo-wasm-abi/src/ttd.rs)
+        FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=1
+        ;;
+      crates/echo-wasm-abi/src/canonical.rs)
+        append_unique "canonical_vectors" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        append_unique "non_canonical_floats" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        ;;
+      crates/echo-wasm-abi/src/codec.rs)
+        append_unique "codec" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        ;;
+      crates/echo-wasm-abi/tests/*.rs)
+        test_name="$(basename "$file" .rs)"
+        append_unique "$test_name" FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS
+        ;;
+    esac
+  done <<< "${CHANGED_FILES}"
+}
+
+prepare_full_scope() {
+  local broad_rust_change=0
+  local tooling_change=0
+  local file
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    if is_broad_rust_full_path "$file"; then
+      broad_rust_change=1
+    fi
+    if is_tooling_full_path "$file"; then
+      tooling_change=1
+    fi
+  done <<< "${CHANGED_FILES}"
+
+  FULL_SCOPE_HAS_TOOLING=$tooling_change
+
+  if [[ $broad_rust_change -eq 1 ]]; then
+    FULL_SCOPE_MODE="broad-rust"
+    FULL_SCOPE_SELECTED_CRATES=("${FULL_LOCAL_PACKAGES[@]}")
+  else
+    mapfile -t FULL_SCOPE_SELECTED_CRATES < <(list_changed_critical_crates)
+    if [[ ${#FULL_SCOPE_SELECTED_CRATES[@]} -gt 0 ]]; then
+      FULL_SCOPE_MODE="targeted-rust"
+    else
+      FULL_SCOPE_MODE="tooling-only"
+    fi
+  fi
+
+  mapfile -t FULL_SCOPE_CLIPPY_CORE_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_CLIPPY_CORE_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_CLIPPY_SUPPORT_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_CLIPPY_BIN_ONLY_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_TEST_SUPPORT_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_TEST_PACKAGES
+  )
+  mapfile -t FULL_SCOPE_RUSTDOC_PACKAGES < <(
+    filter_package_set_by_selection FULL_SCOPE_SELECTED_CRATES FULL_LOCAL_RUSTDOC_PACKAGES
+  )
+
+  FULL_SCOPE_RUN_WARP_CORE_SMOKE=0
+  FULL_SCOPE_WARP_WASM_TEST_MODE="none"
+  FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB=0
+  FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS=()
+  FULL_SCOPE_WARP_CORE_EXTRA_TESTS=()
+  FULL_SCOPE_WARP_CORE_RUN_PRNG=0
+
+  if array_contains "warp-core" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    FULL_SCOPE_RUN_WARP_CORE_SMOKE=1
+    prepare_warp_core_scope
+  fi
+  if array_contains "warp-wasm" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    prepare_warp_wasm_scope
+  fi
+  if array_contains "echo-wasm-abi" ${FULL_SCOPE_SELECTED_CRATES[@]+"${FULL_SCOPE_SELECTED_CRATES[@]}"}; then
+    prepare_echo_wasm_abi_scope
+  fi
 }
 
 run_pattern_guards() {
@@ -471,43 +1025,279 @@ run_determinism_guard() {
   fi
 }
 
-run_full_checks() {
-  ensure_toolchain
-  echo "[verify-local] critical local gate"
-  echo "[verify-local] cargo fmt --all -- --check"
+run_full_lane_fmt() {
+  echo "[verify-local][fmt] cargo fmt --all -- --check"
   cargo +"$PINNED" fmt --all -- --check
+}
 
-  local full_args=()
-  mapfile -t full_args < <(package_args "${FULL_LOCAL_PACKAGES[@]}")
-  local full_test_args=()
-  mapfile -t full_test_args < <(package_args "${FULL_LOCAL_TEST_PACKAGES[@]}")
+run_full_lane_clippy_core() {
+  if [[ ${#FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][clippy-core] no selected core packages"
+    return
+  fi
+  local args=()
+  mapfile -t args < <(package_args "${FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]}")
+  echo "[verify-local][clippy-core] curated clippy on selected core packages"
+  lane_cargo "full-clippy-core" clippy "${args[@]}" --lib -- -D warnings -D missing_docs
+}
 
-  echo "[verify-local] cargo clippy on critical packages"
-  cargo +"$PINNED" clippy "${full_args[@]}" --all-targets -- -D warnings -D missing_docs
+run_full_lane_clippy_support() {
+  if [[ ${#FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][clippy-support] no selected support packages"
+    return
+  fi
+  local args=()
+  mapfile -t args < <(package_args "${FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES[@]}")
+  echo "[verify-local][clippy-support] curated clippy on selected support packages"
+  lane_cargo "full-clippy-support" clippy "${args[@]}" --lib --tests -- -D warnings -D missing_docs
+}
 
-  echo "[verify-local] tests on critical packages (lib + integration targets)"
-  cargo +"$PINNED" test "${full_test_args[@]}" --lib --tests
-  cargo +"$PINNED" test -p warp-wasm --features engine --lib
-  cargo +"$PINNED" test -p echo-wasm-abi --lib
-  cargo +"$PINNED" test -p warp-core --lib
-  cargo +"$PINNED" test -p warp-core --test inbox
-  cargo +"$PINNED" test -p warp-core --test invariant_property_tests
-  cargo +"$PINNED" test -p warp-core --test golden_vectors_phase0
-  cargo +"$PINNED" test -p warp-core --test materialization_determinism
+run_full_lane_clippy_bins() {
+  if [[ ${#FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][clippy-bins] no selected binary-only packages"
+    return
+  fi
+  local args=()
+  mapfile -t args < <(package_args "${FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES[@]}")
+  echo "[verify-local][clippy-bins] curated clippy on selected binary-only packages"
+  lane_cargo "full-clippy-bins" clippy "${args[@]}" --bins -- -D warnings -D missing_docs
+}
 
-  echo "[verify-local] PRNG golden regression (warp-core)"
-  cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression
+run_full_lane_tests_support() {
+  if [[ ${#FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][tests-support] no selected support-package tests"
+    return
+  fi
+  local args=()
+  mapfile -t args < <(package_args "${FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]}")
+  echo "[verify-local][tests-support] selected support-package tests"
+  lane_cargo "full-tests-support" test "${args[@]}" --lib --tests
+}
 
-  local doc_pkg
-  for doc_pkg in warp-core warp-geom warp-wasm; do
-    echo "[verify-local] rustdoc warnings gate (${doc_pkg})"
-    RUSTDOCFLAGS="-D warnings" cargo +"$PINNED" doc -p "${doc_pkg}" --no-deps
+run_full_lane_tests_runtime() {
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "none" && "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" != "1" && ${#FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]} -eq 0 ]]; then
+    echo "[verify-local][tests-runtime] no selected runtime packages"
+    return
+  fi
+  echo "[verify-local][tests-runtime] selected runtime checks"
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "plain-lib" ]]; then
+    lane_cargo "full-tests-runtime" test -p warp-wasm --lib
+  fi
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "engine-lib" ]]; then
+    lane_cargo "full-tests-runtime" test -p warp-wasm --features engine --lib
+  fi
+  if [[ "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" ]]; then
+    lane_cargo "full-tests-runtime" test -p echo-wasm-abi --lib
+  fi
+  local test_target
+  for test_target in "${FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]}"; do
+    lane_cargo "full-tests-runtime" test -p echo-wasm-abi --test "$test_target"
   done
+}
 
+run_full_lane_tests_warp_core() {
+  if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" != "1" ]]; then
+    echo "[verify-local][tests-warp-core] warp-core not selected"
+    return
+  fi
+  echo "[verify-local][tests-warp-core] local warp-core smoke suite"
+  lane_cargo "full-tests-warp-core" test -p warp-core --lib
+  local test_target
+  for test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
+    lane_cargo "full-tests-warp-core" test -p warp-core --test "$test_target"
+  done
+  if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
+    lane_cargo "full-tests-warp-core" test -p warp-core --features golden_prng --test prng_golden_regression
+  fi
+}
+
+run_full_lane_rustdoc() {
+  if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -eq 0 ]]; then
+    echo "[verify-local][rustdoc] no selected public-doc crates"
+    return
+  fi
+  local doc_pkg
+  for doc_pkg in "${FULL_SCOPE_RUSTDOC_PACKAGES[@]}"; do
+    echo "[verify-local][rustdoc] ${doc_pkg}"
+    CARGO_TARGET_DIR="$(lane_target_dir "full-rustdoc")" \
+      RUSTDOCFLAGS="-D warnings" \
+      cargo +"$PINNED" doc -p "${doc_pkg}" --no-deps
+  done
+}
+
+run_full_lane_hook_tests() {
+  if [[ "$FULL_SCOPE_HAS_TOOLING" != "1" ]]; then
+    echo "[verify-local][hook-tests] no tooling changes detected"
+    return
+  fi
+  if [[ ! -f tests/hooks/test_verify_local.sh ]]; then
+    echo "[verify-local][hook-tests] tests/hooks/test_verify_local.sh not present"
+    return
+  fi
+  echo "[verify-local][hook-tests] hook regression coverage"
+  bash tests/hooks/test_verify_local.sh
+}
+
+run_ultra_fast_tooling_smoke() {
+  if [[ "$FULL_SCOPE_HAS_TOOLING" != "1" ]]; then
+    return
+  fi
+  echo "[verify-local][ultra-fast] tooling smoke"
+  mapfile -t shell_files < <(list_changed_tooling_shell_files)
+  if [[ ${#shell_files[@]} -eq 0 ]]; then
+    echo "[verify-local][ultra-fast] no changed shell tooling files"
+    return
+  fi
+  local file
+  for file in "${shell_files[@]}"; do
+    echo "[verify-local][ultra-fast] bash -n ${file}"
+    bash -n "$file"
+  done
+}
+
+run_full_lane_guards() {
   run_pattern_guards
   run_spdx_check
   run_determinism_guard
   run_docs_lint
+}
+
+run_full_checks_sequential() {
+  echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
+  run_full_lane_fmt
+  run_full_lane_hook_tests
+  run_full_lane_clippy_core
+  run_full_lane_clippy_support
+  run_full_lane_clippy_bins
+  run_full_lane_tests_support
+  run_full_lane_tests_runtime
+  run_full_lane_tests_warp_core
+  run_full_lane_rustdoc
+  run_full_lane_guards
+}
+
+run_full_checks_parallel() {
+  local -a lanes=("full" "fmt" run_full_lane_fmt "guards" run_full_lane_guards)
+
+  echo "[verify-local] critical local gate (${FULL_SCOPE_MODE})"
+
+  if [[ "$FULL_SCOPE_HAS_TOOLING" == "1" ]]; then
+    lanes+=("hook-tests" run_full_lane_hook_tests)
+  fi
+  if [[ ${#FULL_SCOPE_CLIPPY_CORE_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("clippy-core" run_full_lane_clippy_core)
+  fi
+  if [[ ${#FULL_SCOPE_CLIPPY_SUPPORT_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("clippy-support" run_full_lane_clippy_support)
+  fi
+  if [[ ${#FULL_SCOPE_CLIPPY_BIN_ONLY_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("clippy-bins" run_full_lane_clippy_bins)
+  fi
+  if [[ ${#FULL_SCOPE_TEST_SUPPORT_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("tests-support" run_full_lane_tests_support)
+  fi
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" != "none" || "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" || ${#FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]} -gt 0 ]]; then
+    lanes+=("tests-runtime" run_full_lane_tests_runtime)
+  fi
+  if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
+    lanes+=("tests-warp-core" run_full_lane_tests_warp_core)
+  fi
+  if [[ ${#FULL_SCOPE_RUSTDOC_PACKAGES[@]} -gt 0 ]]; then
+    lanes+=("rustdoc" run_full_lane_rustdoc)
+  fi
+
+  run_parallel_lanes "${lanes[@]}"
+}
+
+run_full_checks() {
+  ensure_toolchain
+  prepare_full_scope
+  if should_run_parallel_lanes; then
+    run_full_checks_parallel
+    return
+  fi
+  run_full_checks_sequential
+}
+
+run_ultra_fast_smoke() {
+  prepare_full_scope
+
+  echo "[verify-local] ultra-fast critical smoke (${FULL_SCOPE_MODE})"
+
+  if [[ "$FULL_SCOPE_HAS_TOOLING" == "1" ]]; then
+    run_ultra_fast_tooling_smoke
+  fi
+
+  if [[ "$FULL_SCOPE_RUN_WARP_CORE_SMOKE" == "1" ]]; then
+    echo "[verify-local][ultra-fast] warp-core smoke"
+    cargo +"$PINNED" test -p warp-core --lib
+    local warp_core_test_target
+    for warp_core_test_target in "${FULL_SCOPE_WARP_CORE_EXTRA_TESTS[@]}"; do
+      cargo +"$PINNED" test -p warp-core --test "$warp_core_test_target"
+    done
+    if [[ "$FULL_SCOPE_WARP_CORE_RUN_PRNG" == "1" ]]; then
+      cargo +"$PINNED" test -p warp-core --features golden_prng --test prng_golden_regression
+    fi
+  fi
+
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "plain-lib" ]]; then
+    echo "[verify-local][ultra-fast] warp-wasm plain lib smoke"
+    cargo +"$PINNED" test -p warp-wasm --lib
+  fi
+  if [[ "$FULL_SCOPE_WARP_WASM_TEST_MODE" == "engine-lib" ]]; then
+    echo "[verify-local][ultra-fast] warp-wasm engine lib smoke"
+    cargo +"$PINNED" test -p warp-wasm --features engine --lib
+  fi
+  if [[ "$FULL_SCOPE_ECHO_WASM_ABI_RUN_LIB" == "1" ]]; then
+    echo "[verify-local][ultra-fast] echo-wasm-abi lib smoke"
+    cargo +"$PINNED" test -p echo-wasm-abi --lib
+  fi
+  local abi_test_target
+  for abi_test_target in "${FULL_SCOPE_ECHO_WASM_ABI_EXTRA_TESTS[@]}"; do
+    echo "[verify-local][ultra-fast] echo-wasm-abi --test ${abi_test_target}"
+    cargo +"$PINNED" test -p echo-wasm-abi --test "$abi_test_target"
+  done
+}
+
+run_ultra_fast_checks() {
+  local classification="$1"
+  local -a changed_crates=()
+
+  if [[ "$classification" == "docs" ]]; then
+    echo "[verify-local] ultra-fast docs-only change set"
+    run_docs_lint
+    return
+  fi
+
+  mapfile -t changed_crates < <(list_changed_rust_crates)
+  if [[ ${#changed_crates[@]} -eq 0 ]]; then
+    if [[ "$classification" == "full" ]]; then
+      run_ultra_fast_smoke
+      return
+    fi
+    echo "[verify-local] ultra-fast: no changed Rust crates detected"
+    run_docs_lint
+    return
+  fi
+
+  ensure_toolchain
+  echo "[verify-local] ultra-fast verification for changed Rust crates: ${changed_crates[*]}"
+  echo "[verify-local] cargo fmt --all -- --check"
+  cargo +"$PINNED" fmt --all -- --check
+
+  local crate
+  for crate in "${changed_crates[@]}"; do
+    if [[ ! -f "crates/${crate}/Cargo.toml" ]]; then
+      echo "[verify-local] skipping ${crate}: missing crates/${crate}/Cargo.toml" >&2
+      continue
+    fi
+    echo "[verify-local] cargo check -p ${crate}"
+    cargo +"$PINNED" check -p "$crate" --quiet
+  done
+
+  if [[ "$classification" == "full" ]]; then
+    run_ultra_fast_smoke
+  fi
 }
 
 run_auto_mode() {
@@ -566,8 +1356,11 @@ case "$MODE" in
     printf 'changed_crates=%s\n' "$(list_changed_crates | paste -sd, -)"
     ;;
   fast)
-    mapfile -t changed_crates < <(list_changed_crates)
+    mapfile -t changed_crates < <(list_changed_rust_crates)
     run_targeted_checks "${changed_crates[@]}"
+    ;;
+  ultra-fast)
+    run_ultra_fast_checks "$CLASSIFICATION"
     ;;
   pre-commit)
     if should_skip_via_stamp "$(stamp_suite_for_classification "$CLASSIFICATION")"; then
@@ -589,7 +1382,7 @@ case "$MODE" in
     write_stamp "full"
     ;;
   *)
-    echo "usage: scripts/verify-local.sh [detect|detect-pre-commit|fast|pre-commit|pr|full|auto|pre-push]" >&2
+    echo "usage: scripts/verify-local.sh [detect|detect-pre-commit|ultra-fast|fast|pre-commit|pr|full|auto|pre-push]" >&2
     exit 1
     ;;
 esac

@@ -422,7 +422,8 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
+            .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         Ok(hash_to_uint8array(&expected.state_root))
@@ -449,7 +450,8 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
+            .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         Ok(hash_to_uint8array(&expected.commit_hash))
@@ -479,7 +481,8 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
+            .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         // Return patch_digest as a proxy; actual emissions_digest would need
@@ -729,14 +732,10 @@ impl TtdEngine {
 
         let expected = self
             .provenance
-            .expected(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, cursor.tick - 1)
             .map_err(|e| e.to_string())?;
-
-        // Retrieve recorded outputs for this tick to compute emissions_digest
-        let outputs = self
-            .provenance
-            .outputs(cursor.worldline_id, cursor.tick - 1)
-            .map_err(|e| e.to_string())?;
+        let outputs = expected.outputs.clone();
+        let expected = expected.expected;
 
         let finalized_channels: Vec<FinalizedChannel> = outputs
             .into_iter()
@@ -1340,7 +1339,8 @@ mod tests {
     #[test]
     fn regression_commit_populates_emissions_digest() {
         use warp_core::{
-            HashTriplet, TypeId, WarpId, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+            make_head_id, HashTriplet, ProvenanceEntry, TypeId, WarpId, WorldlineId,
+            WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
         };
 
         let mut engine = TtdEngine::new();
@@ -1372,11 +1372,23 @@ mod tests {
         };
 
         let outputs = vec![(TypeId([10u8; 32]), vec![1, 2, 3])];
+        let head_key = WriterHeadKey {
+            worldline_id: wl_id,
+            head_id: make_head_id("ttd-browser-test"),
+        };
+        let entry = ProvenanceEntry::local_commit(
+            wl_id,
+            0,
+            0,
+            head_key,
+            Vec::new(),
+            expected,
+            patch,
+            outputs.clone(),
+            Vec::new(),
+        );
 
-        engine
-            .provenance
-            .append_with_writes(wl_id, patch, expected, outputs, vec![])
-            .unwrap();
+        engine.provenance.append_local_commit(entry).unwrap();
 
         let cursor_id = engine.create_cursor(&wl_id.0).unwrap();
         // Advance cursor to tick 1 so we can commit (cannot commit at tick 0)
@@ -1384,29 +1396,16 @@ mod tests {
 
         let tx_id = engine.begin(cursor_id).unwrap();
         let receipt_bytes = engine.commit_inner(tx_id).unwrap();
+        let (frame, consumed) = echo_session_proto::decode_ttdr_v2(&receipt_bytes).unwrap();
+        assert_eq!(consumed, receipt_bytes.len());
 
-        // Parse receipt to check emissions_digest.
-        // TTDR v2 header starts with magic "TTDR" (4 bytes) + version (2 bytes) + flags (2 bytes)
-        // emissions_digest is at offset 104 in the header (v2):
-        // magic(4) + ver(2) + flags(2) + schema(32) + wl(32) + tick(8) + commit(32) + state(32) + patch(32) = 176?
-        // Let's check echo-session-proto for the offset.
-
-        // Actually, let's just assert the receipt is non-empty and trust the logic,
-        // or check that it's NOT all zeros at the expected position.
-        // Header:
-        // version: 2
-        // flags: 2
-        // schema_hash: 32
-        // worldline_id: 32
-        // tick: 8
-        // commit_hash: 32
-        // state_root: 32
-        // patch_digest: 32
-        // emissions_digest: 32  <-- offset = 2 + 2 + 32 + 32 + 8 + 32 + 32 + 32 = 172
-        // Wait, TTDR v2 frame encoding might be CBOR or raw.
-        // echo-session-proto says it's a TtdrFrame struct.
-
-        assert!(!receipt_bytes.is_empty());
-        // If we want to be sure, we'd need to decode it.
+        let finalized_channels: Vec<FinalizedChannel> = outputs
+            .into_iter()
+            .map(|(channel, data)| FinalizedChannel { channel, data })
+            .collect();
+        assert_eq!(
+            frame.header.emissions_digest,
+            compute_emissions_digest(&finalized_channels)
+        );
     }
 }

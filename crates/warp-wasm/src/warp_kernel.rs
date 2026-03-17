@@ -11,14 +11,18 @@ use std::fmt;
 
 use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, ChannelData, DispatchResponse, DrainResponse, HeadInfo, KernelPort,
+    ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
+    ObservationProjection as AbiObservationProjection, ObservationRequest as AbiObservationRequest,
     RegistryInfo, StepResponse, ABI_VERSION,
 };
 use echo_wasm_abi::unpack_intent_v1;
 use warp_core::{
     make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
-    IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, PlaybackMode, RuntimeError,
-    SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState,
-    WorldlineStateError, WriterHead, WriterHeadKey,
+    HistoryError, IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, ObservationAt,
+    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
+    ObservationProjection, ObservationRequest, ObservationService, PlaybackMode, ProvenanceService,
+    RuntimeError, SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime,
+    WorldlineState, WorldlineStateError, WriterHead, WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -28,6 +32,8 @@ pub enum KernelInitError {
     NonFreshEngine,
     /// The engine's backing state does not satisfy [`WorldlineState`] invariants.
     WorldlineState(WorldlineStateError),
+    /// Provenance registration failed while installing the default worldline.
+    Provenance(HistoryError),
     /// Runtime registration failed while installing the default worldline/head.
     Runtime(RuntimeError),
 }
@@ -37,6 +43,7 @@ impl fmt::Display for KernelInitError {
         match self {
             Self::NonFreshEngine => write!(f, "WarpKernel::with_engine requires a fresh engine"),
             Self::WorldlineState(err) => err.fmt(f),
+            Self::Provenance(err) => err.fmt(f),
             Self::Runtime(err) => err.fmt(f),
         }
     }
@@ -56,6 +63,12 @@ impl From<RuntimeError> for KernelInitError {
     }
 }
 
+impl From<HistoryError> for KernelInitError {
+    fn from(value: HistoryError) -> Self {
+        Self::Provenance(value)
+    }
+}
+
 /// App-agnostic kernel wrapping a `warp-core::Engine`.
 ///
 /// Constructed via [`WarpKernel::new`] (default empty engine) or
@@ -63,10 +76,13 @@ impl From<RuntimeError> for KernelInitError {
 pub struct WarpKernel {
     engine: Engine,
     runtime: WorldlineRuntime,
+    provenance: ProvenanceService,
     default_worldline: WorldlineId,
-    /// Whether materialization output has been drained since the last step.
-    /// Prevents returning stale data on consecutive drain calls.
-    drained: bool,
+    /// Latest committed tick returned by the legacy `drain_view_ops()` adapter.
+    ///
+    /// This bookkeeping belongs to the compatibility layer only. It does not
+    /// mutate runtime, provenance, or engine-owned worldline state.
+    last_drained_commit_tick: Option<u64>,
     /// Registry metadata (injected at construction, immutable after).
     registry: RegistryInfo,
 }
@@ -115,10 +131,10 @@ impl WarpKernel {
         let root = engine.root_key();
         let default_worldline = WorldlineId(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();
-        runtime.register_worldline(
-            default_worldline,
-            WorldlineState::try_from(engine.state().clone())?,
-        )?;
+        let default_state = WorldlineState::try_from(engine.state().clone())?;
+        let mut provenance = ProvenanceService::new();
+        provenance.register_worldline(default_worldline, &default_state)?;
+        runtime.register_worldline(default_worldline, default_state)?;
         runtime.register_writer_head(WriterHead::with_routing(
             WriterHeadKey {
                 worldline_id: default_worldline,
@@ -133,29 +149,161 @@ impl WarpKernel {
         Ok(Self {
             engine,
             runtime,
+            provenance,
             default_worldline,
-            drained: true,
+            last_drained_commit_tick: None,
             registry,
         })
     }
 
-    /// Build a [`HeadInfo`] from the current engine snapshot.
-    fn head_info(&self) -> HeadInfo {
-        let frontier = self
-            .runtime
-            .worldlines()
-            .get(&self.default_worldline)
-            .expect("default worldline must exist");
-        let snap = frontier
-            .state()
-            .last_snapshot()
-            .cloned()
-            .unwrap_or_else(|| self.engine.snapshot_for_state(frontier.state()));
-        HeadInfo {
-            tick: frontier.frontier_tick(),
-            state_root: snap.state_root.to_vec(),
-            commit_id: snap.hash.to_vec(),
+    fn parse_worldline_id(bytes: &[u8]) -> Result<WorldlineId, AbiError> {
+        let hash: [u8; 32] = bytes.try_into().map_err(|_| AbiError {
+            code: error_codes::INVALID_WORLDLINE,
+            message: format!("worldline id must be exactly 32 bytes, got {}", bytes.len()),
+        })?;
+        Ok(WorldlineId(hash))
+    }
+
+    fn parse_channel_ids(
+        channels: Option<&Vec<Vec<u8>>>,
+    ) -> Result<Option<Vec<warp_core::TypeId>>, AbiError> {
+        channels
+            .map(|ids| {
+                ids.iter()
+                    .map(|bytes| {
+                        let hash: [u8; 32] = bytes.as_slice().try_into().map_err(|_| AbiError {
+                            code: error_codes::INVALID_PAYLOAD,
+                            message: format!(
+                                "channel id must be exactly 32 bytes, got {}",
+                                bytes.len()
+                            ),
+                        })?;
+                        Ok(warp_core::TypeId(hash))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()
+    }
+
+    fn map_observation_error(err: ObservationError) -> AbiError {
+        match err {
+            ObservationError::InvalidWorldline(worldline_id) => AbiError {
+                code: error_codes::INVALID_WORLDLINE,
+                message: format!("invalid worldline: {worldline_id:?}"),
+            },
+            ObservationError::InvalidTick { worldline_id, tick } => AbiError {
+                code: error_codes::INVALID_TICK,
+                message: format!("invalid tick {tick} for worldline {worldline_id:?}"),
+            },
+            ObservationError::UnsupportedFrameProjection { frame, projection } => AbiError {
+                code: error_codes::UNSUPPORTED_FRAME_PROJECTION,
+                message: format!(
+                    "unsupported frame/projection pairing: {frame:?} + {projection:?}"
+                ),
+            },
+            ObservationError::UnsupportedQuery => AbiError {
+                code: error_codes::UNSUPPORTED_QUERY,
+                message: "query observation is not supported by this kernel".into(),
+            },
+            ObservationError::ObservationUnavailable { worldline_id, at } => AbiError {
+                code: error_codes::OBSERVATION_UNAVAILABLE,
+                message: format!(
+                    "observation unavailable for worldline {worldline_id:?} at {at:?}"
+                ),
+            },
+            ObservationError::CodecFailure(message) => AbiError {
+                code: error_codes::CODEC_ERROR,
+                message,
+            },
         }
+    }
+
+    fn to_core_request(request: AbiObservationRequest) -> Result<ObservationRequest, AbiError> {
+        let worldline_id = Self::parse_worldline_id(&request.coordinate.worldline_id)?;
+        let at = match request.coordinate.at {
+            echo_wasm_abi::kernel_port::ObservationAt::Frontier => ObservationAt::Frontier,
+            echo_wasm_abi::kernel_port::ObservationAt::Tick { tick } => ObservationAt::Tick(tick),
+        };
+        let frame = match request.frame {
+            AbiObservationFrame::CommitBoundary => ObservationFrame::CommitBoundary,
+            AbiObservationFrame::RecordedTruth => ObservationFrame::RecordedTruth,
+            AbiObservationFrame::QueryView => ObservationFrame::QueryView,
+        };
+        let projection = match request.projection {
+            AbiObservationProjection::Head => ObservationProjection::Head,
+            AbiObservationProjection::Snapshot => ObservationProjection::Snapshot,
+            AbiObservationProjection::TruthChannels { channels } => {
+                ObservationProjection::TruthChannels {
+                    channels: Self::parse_channel_ids(channels.as_ref())?,
+                }
+            }
+            AbiObservationProjection::Query {
+                query_id,
+                vars_bytes,
+            } => ObservationProjection::Query {
+                query_id,
+                vars_bytes,
+            },
+        };
+        Ok(ObservationRequest {
+            coordinate: ObservationCoordinate { worldline_id, at },
+            frame,
+            projection,
+        })
+    }
+
+    fn observe_core(
+        &self,
+        request: ObservationRequest,
+    ) -> Result<warp_core::ObservationArtifact, AbiError> {
+        ObservationService::observe(&self.runtime, &self.provenance, &self.engine, request)
+            .map_err(Self::map_observation_error)
+    }
+
+    fn head_info_from_observation(
+        artifact: warp_core::ObservationArtifact,
+    ) -> Result<HeadInfo, AbiError> {
+        match artifact.payload {
+            ObservationPayload::Head(head) => Ok(HeadInfo {
+                tick: head.tick,
+                state_root: head.state_root.to_vec(),
+                commit_id: head.commit_hash.to_vec(),
+            }),
+            _ => Err(AbiError {
+                code: error_codes::ENGINE_ERROR,
+                message: "observe returned non-head payload for head adapter".into(),
+            }),
+        }
+    }
+
+    fn snapshot_bytes_from_observation(
+        artifact: warp_core::ObservationArtifact,
+    ) -> Result<Vec<u8>, AbiError> {
+        let ObservationPayload::Snapshot(snapshot) = artifact.payload else {
+            return Err(AbiError {
+                code: error_codes::ENGINE_ERROR,
+                message: "observe returned non-snapshot payload for snapshot adapter".into(),
+            });
+        };
+        let head = HeadInfo {
+            tick: snapshot.tick,
+            state_root: snapshot.state_root.to_vec(),
+            commit_id: snapshot.commit_hash.to_vec(),
+        };
+        echo_wasm_abi::encode_cbor(&head).map_err(|e| AbiError {
+            code: error_codes::CODEC_ERROR,
+            message: e.to_string(),
+        })
+    }
+
+    fn map_legacy_snapshot_error(err: AbiError) -> AbiError {
+        if err.code == error_codes::INVALID_TICK {
+            return AbiError {
+                code: error_codes::LEGACY_INVALID_TICK,
+                message: err.message,
+            };
+        }
+        err
     }
 }
 
@@ -202,7 +350,7 @@ impl KernelPort for WarpKernel {
         if budget == 0 {
             return Ok(StepResponse {
                 ticks_executed: 0,
-                head: self.head_info(),
+                head: self.get_head()?,
             });
         }
 
@@ -212,11 +360,15 @@ impl KernelPort for WarpKernel {
             // Phase 3 exposes only the default worldline/default writer through
             // the WASM ABI, so one coordinator pass can produce at most one
             // committed head step here.
-            let records = SchedulerCoordinator::super_tick(&mut self.runtime, &mut self.engine)
-                .map_err(|e| AbiError {
-                    code: error_codes::ENGINE_ERROR,
-                    message: e.to_string(),
-                })?;
+            let records = SchedulerCoordinator::super_tick(
+                &mut self.runtime,
+                &mut self.provenance,
+                &mut self.engine,
+            )
+            .map_err(|e| AbiError {
+                code: error_codes::ENGINE_ERROR,
+                message: e.to_string(),
+            })?;
             if records.is_empty() {
                 break;
             }
@@ -224,74 +376,122 @@ impl KernelPort for WarpKernel {
             {
                 ticks_executed += records.len() as u32;
             }
-            self.drained = false;
         }
 
         Ok(StepResponse {
             ticks_executed,
-            head: self.head_info(),
+            head: self.get_head()?,
         })
     }
 
+    fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
+        let request = Self::to_core_request(request)?;
+        Ok(self.observe_core(request)?.to_abi())
+    }
+
     fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError> {
-        // If already drained since the last step, return empty to avoid
-        // returning stale data (the engine doesn't clear last_materialization).
-        if self.drained {
+        let artifact = match self.observe_core(ObservationRequest {
+            coordinate: ObservationCoordinate {
+                worldline_id: self.default_worldline,
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::RecordedTruth,
+            projection: ObservationProjection::TruthChannels { channels: None },
+        }) {
+            Ok(artifact) => artifact,
+            Err(AbiError {
+                code: error_codes::OBSERVATION_UNAVAILABLE,
+                ..
+            }) => {
+                return Ok(DrainResponse {
+                    channels: Vec::new(),
+                })
+            }
+            Err(err) => return Err(err),
+        };
+
+        let latest_commit_tick = artifact.resolved.resolved_tick;
+        if self.last_drained_commit_tick == Some(latest_commit_tick) {
             return Ok(DrainResponse {
                 channels: Vec::new(),
             });
         }
-        self.drained = true;
+        let start_tick = self.last_drained_commit_tick.map_or(0, |tick| tick + 1);
+        let mut channels = Vec::new();
+        for tick in start_tick..=latest_commit_tick {
+            let artifact = self.observe_core(ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: self.default_worldline,
+                    at: ObservationAt::Tick(tick),
+                },
+                frame: ObservationFrame::RecordedTruth,
+                projection: ObservationProjection::TruthChannels { channels: None },
+            })?;
 
-        let finalized = self
-            .runtime
-            .worldlines()
-            .get(&self.default_worldline)
-            .expect("default worldline must exist")
-            .state()
-            .last_materialization();
-        let channels: Vec<ChannelData> = finalized
-            .iter()
-            .map(|ch| ChannelData {
-                channel_id: ch.channel.0.to_vec(),
-                data: ch.data.clone(),
-            })
-            .collect();
+            let ObservationPayload::TruthChannels(tick_channels) = artifact.payload else {
+                return Err(AbiError {
+                    code: error_codes::ENGINE_ERROR,
+                    message: "observe returned non-truth payload for drain adapter".into(),
+                });
+            };
+            channels.extend(
+                tick_channels
+                    .into_iter()
+                    .map(|(channel, data)| ChannelData {
+                        channel_id: channel.0.to_vec(),
+                        data,
+                    }),
+            );
+        }
+        self.last_drained_commit_tick = Some(latest_commit_tick);
 
         Ok(DrainResponse { channels })
     }
 
     fn get_head(&self) -> Result<HeadInfo, AbiError> {
-        Ok(self.head_info())
+        Self::head_info_from_observation(self.observe_core(ObservationRequest {
+            coordinate: ObservationCoordinate {
+                worldline_id: self.default_worldline,
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::CommitBoundary,
+            projection: ObservationProjection::Head,
+        })?)
+    }
+
+    fn execute_query(&self, query_id: u32, vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
+        let artifact = self.observe_core(ObservationRequest {
+            coordinate: ObservationCoordinate {
+                worldline_id: self.default_worldline,
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::QueryView,
+            projection: ObservationProjection::Query {
+                query_id,
+                vars_bytes: vars_bytes.to_vec(),
+            },
+        })?;
+        let ObservationPayload::QueryBytes(data) = artifact.payload else {
+            return Err(AbiError {
+                code: error_codes::ENGINE_ERROR,
+                message: "observe returned non-query payload for query adapter".into(),
+            });
+        };
+        Ok(data)
     }
 
     fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError> {
-        let tick_index = usize::try_from(tick).map_err(|_| AbiError {
-            code: error_codes::INVALID_TICK,
-            message: format!("tick {tick} exceeds addressable range"),
-        })?;
-        let frontier = self
-            .runtime
-            .worldlines()
-            .get(&self.default_worldline)
-            .expect("default worldline must exist");
-        let snap = self
-            .engine
-            .snapshot_at_state(frontier.state(), tick_index)
-            .map_err(|e| AbiError {
-                code: error_codes::INVALID_TICK,
-                message: e.to_string(),
-            })?;
-        let head = HeadInfo {
-            tick,
-            state_root: snap.state_root.to_vec(),
-            commit_id: snap.hash.to_vec(),
-        };
-
-        echo_wasm_abi::encode_cbor(&head).map_err(|e| AbiError {
-            code: error_codes::CODEC_ERROR,
-            message: e.to_string(),
-        })
+        let artifact = self
+            .observe_core(ObservationRequest {
+                coordinate: ObservationCoordinate {
+                    worldline_id: self.default_worldline,
+                    at: ObservationAt::Tick(tick),
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Snapshot,
+            })
+            .map_err(Self::map_legacy_snapshot_error)?;
+        Self::snapshot_bytes_from_observation(artifact)
     }
 
     fn registry_info(&self) -> RegistryInfo {
@@ -303,7 +503,16 @@ impl KernelPort for WarpKernel {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use echo_wasm_abi::pack_intent_v1;
+    use echo_wasm_abi::{
+        kernel_port::{
+            ObservationAt as AbiObservationAt, ObservationCoordinate as AbiObservationCoordinate,
+            ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
+            ObservationProjection as AbiObservationProjection,
+            ObservationRequest as AbiObservationRequest,
+        },
+        pack_intent_v1,
+    };
+    use warp_core::{materialization::make_channel_id, ProvenanceStore};
 
     #[test]
     fn new_kernel_has_zero_tick() {
@@ -398,13 +607,29 @@ mod tests {
     fn execute_query_returns_not_supported() {
         let kernel = WarpKernel::new().unwrap();
         let err = kernel.execute_query(0, &[]).unwrap_err();
-        assert_eq!(err.code, error_codes::NOT_SUPPORTED);
+        assert_eq!(err.code, error_codes::UNSUPPORTED_QUERY);
     }
 
     #[test]
     fn snapshot_at_invalid_tick_returns_error() {
         let mut kernel = WarpKernel::new().unwrap();
         let err = kernel.snapshot_at(999).unwrap_err();
+        assert_eq!(err.code, error_codes::LEGACY_INVALID_TICK);
+    }
+
+    #[test]
+    fn observe_invalid_tick_returns_observation_error_code() {
+        let kernel = WarpKernel::new().unwrap();
+        let err = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Tick { tick: 999 },
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Snapshot,
+            })
+            .unwrap_err();
         assert_eq!(err.code, error_codes::INVALID_TICK);
     }
 
@@ -470,6 +695,112 @@ mod tests {
         let kernel = WarpKernel::new().unwrap();
         let err = kernel.render_snapshot(&[]).unwrap_err();
         assert_eq!(err.code, error_codes::NOT_SUPPORTED);
+    }
+
+    #[test]
+    fn observe_frontier_head_matches_get_head_adapter() {
+        let kernel = WarpKernel::new().unwrap();
+        let artifact = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Frontier,
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Head,
+            })
+            .unwrap();
+        let head = kernel.get_head().unwrap();
+
+        let AbiObservationPayload::Head { head: observed } = artifact.payload else {
+            panic!("expected head observation payload");
+        };
+        assert_eq!(observed.tick, head.tick);
+        assert_eq!(observed.state_root, head.state_root);
+        assert_eq!(observed.commit_id, head.commit_id);
+    }
+
+    #[test]
+    fn observe_snapshot_matches_snapshot_at_adapter() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent = pack_intent_v1(1, b"hello").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+        kernel.step(1).unwrap();
+
+        let artifact = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Tick { tick: 0 },
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Snapshot,
+            })
+            .unwrap();
+        let bytes = kernel.snapshot_at(0).unwrap();
+        let head: HeadInfo = echo_wasm_abi::decode_cbor(&bytes).unwrap();
+
+        let AbiObservationPayload::Snapshot { snapshot } = artifact.payload else {
+            panic!("expected snapshot observation payload");
+        };
+        assert_eq!(snapshot.tick, head.tick);
+        assert_eq!(snapshot.state_root, head.state_root);
+        assert_eq!(snapshot.commit_id, head.commit_id);
+    }
+
+    #[test]
+    fn drain_view_ops_is_read_only_adapter() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent = pack_intent_v1(1, b"hello").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+        kernel.step(1).unwrap();
+
+        let head_before = kernel.get_head().unwrap();
+        let _ = kernel.drain_view_ops().unwrap();
+        let head_after = kernel.get_head().unwrap();
+
+        assert_eq!(head_before, head_after);
+    }
+
+    #[test]
+    fn drain_view_ops_returns_all_committed_outputs_since_last_drain() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent_a = pack_intent_v1(1, b"hello").unwrap();
+        let intent_b = pack_intent_v1(2, b"world").unwrap();
+        kernel.dispatch_intent(&intent_a).unwrap();
+        kernel.step(1).unwrap();
+        kernel.dispatch_intent(&intent_b).unwrap();
+        kernel.step(1).unwrap();
+
+        let worldline_id = kernel.default_worldline;
+        let frontier_state = kernel
+            .runtime
+            .worldlines()
+            .get(&worldline_id)
+            .unwrap()
+            .state();
+        let mut provenance = ProvenanceService::new();
+        provenance
+            .register_worldline(worldline_id, frontier_state)
+            .unwrap();
+
+        for tick in 0..kernel.provenance.len(worldline_id).unwrap() {
+            let mut entry = kernel.provenance.entry(worldline_id, tick).unwrap();
+            entry.outputs = vec![(
+                make_channel_id("test:truth"),
+                format!("tick-{tick}").into_bytes(),
+            )];
+            provenance.append_local_commit(entry).unwrap();
+        }
+        kernel.provenance = provenance;
+
+        let drain = kernel.drain_view_ops().unwrap();
+        assert_eq!(drain.channels.len(), 2);
+        assert_eq!(drain.channels[0].data, b"tick-0".to_vec());
+        assert_eq!(drain.channels[1].data, b"tick-1".to_vec());
+
+        let drain_again = kernel.drain_view_ops().unwrap();
+        assert!(drain_again.channels.is_empty());
     }
 
     #[test]

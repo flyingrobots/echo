@@ -411,14 +411,6 @@ impl PlaybackCursor {
     /// recorded patches. This ensures deterministic replay regardless of
     /// rule changes or execution order.
     ///
-    /// # Limitations
-    ///
-    /// This method assumes **strictly linear single-parent history**. It constructs
-    /// the parent chain as `parents = vec![prev_commit_hash]` for each tick. If the
-    /// recorded history contains merge commits (multiple parents), the recomputed
-    /// `commit_hash` will not match the recorded value and verification will fail
-    /// with [`SeekError::CommitHashMismatch`]. Supporting multi-parent replay requires
-    /// extending `ProvenanceStore` to expose parent vectors per tick.
     pub fn seek_to<P: ProvenanceStore>(
         &mut self,
         target: u64,
@@ -459,29 +451,21 @@ impl PlaybackCursor {
             self.tick
         };
 
-        // Establish parent commit_hash chain for Merkle verification.
-        // For forward seeks (start_tick > 0), the parent is the prior tick's commit_hash.
-        // For rebuilds from initial state, the first tick has no parents.
-        let mut parents: Vec<Hash> = if start_tick > 0 {
-            let prev = provenance
-                .expected(self.worldline_id, start_tick - 1)
-                .map_err(|_| SeekError::HistoryUnavailable { tick: start_tick })?;
-            vec![prev.commit_hash]
-        } else {
-            Vec::new()
-        };
-
         // Apply patches from start_tick to target
         // If start_tick = 2 and target = 5, we apply patches 2, 3, 4
         for patch_tick in start_tick..target {
-            // Get patch and expected hash triplet
-            let patch = provenance
-                .patch(self.worldline_id, patch_tick)
+            let entry = provenance
+                .entry(self.worldline_id, patch_tick)
                 .map_err(|_| SeekError::HistoryUnavailable { tick: patch_tick })?;
-
-            let expected = provenance
-                .expected(self.worldline_id, patch_tick)
-                .map_err(|_| SeekError::HistoryUnavailable { tick: patch_tick })?;
+            let patch = entry
+                .patch
+                .ok_or(SeekError::HistoryUnavailable { tick: patch_tick })?;
+            let expected = entry.expected;
+            let parents = entry
+                .parents
+                .into_iter()
+                .map(|parent| parent.commit_hash)
+                .collect::<Vec<_>>();
 
             // Apply the patch to our store
             patch
@@ -515,9 +499,6 @@ impl PlaybackCursor {
             if computed_commit_hash != expected.commit_hash {
                 return Err(SeekError::CommitHashMismatch { tick: patch_tick });
             }
-
-            // Advance parent chain for next tick
-            parents = vec![expected.commit_hash];
         }
 
         // Update cursor position
@@ -584,7 +565,8 @@ impl PlaybackCursor {
                     self.mode = PlaybackMode::Paused;
                     Ok(StepResult::Advanced)
                 } else {
-                    // Writers advance via provenance.append(), not cursor stepping.
+                    // Writers advance via provenance append on the runtime side,
+                    // not through cursor stepping.
                     self.mode = PlaybackMode::Paused;
                     Ok(StepResult::NoOp)
                 }
@@ -719,8 +701,7 @@ impl ViewSession {
         // patches 0..N-1 have been applied, the current state corresponds to index N-1.
         let prov_tick = cursor.tick - 1;
 
-        // Get expected hashes for commit_hash
-        let expected = provenance.expected(cursor.worldline_id, prov_tick)?;
+        let entry = provenance.entry(cursor.worldline_id, prov_tick)?;
 
         // Build receipt
         let receipt = CursorReceipt {
@@ -729,17 +710,15 @@ impl ViewSession {
             worldline_id: cursor.worldline_id,
             warp_id: cursor.warp_id,
             tick: cursor.tick,
-            commit_hash: expected.commit_hash,
+            commit_hash: entry.expected.commit_hash,
         };
 
         // Publish receipt
         sink.publish_receipt(self.session_id, receipt);
 
         // Get recorded outputs for this tick
-        let outputs = provenance.outputs(cursor.worldline_id, prov_tick)?;
-
         // Publish frames for subscribed channels only
-        for (channel, value) in outputs {
+        for (channel, value) in entry.outputs {
             if self.subscriptions.contains(&channel) {
                 let value_hash = compute_value_hash(&value);
                 sink.publish_frame(

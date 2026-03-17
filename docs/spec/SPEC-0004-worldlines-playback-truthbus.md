@@ -13,6 +13,8 @@
 ## 0) Doctrine
 
 - **Worldline is the boundary.** (U0 + per-warp tick patches + expected hashes + recorded outputs)
+- **Observation is the public read contract.** Playback/session helpers are implementation
+  tools and compatibility aids; they are not the semantic center of reads anymore.
 - **PlaybackCursor is a viewpoint.** (materialize any tick without mutating head)
 - **Clients are dumb.** They render authoritative truth frames; no rollback/diff/rebuild logic.
 - **Determinism is non-negotiable.** Canonical ordering → canonical bytes → canonical hashes.
@@ -181,6 +183,11 @@ struct TruthFrame {
 ---
 
 ## 2) ProvenanceStore Seam (Wormholes-Ready)
+
+> **Phase 5 note:** recorded truth for public reads is now surfaced through the
+> explicit observation contract first. `PlaybackCursor`, `ViewSession`, and
+> `TruthSink` remain useful helper types, but they no longer define the public
+> read boundary of Echo.
 
 Worldline data is accessed through an interface (local memory today, wormholes later).
 

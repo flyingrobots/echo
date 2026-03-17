@@ -13,7 +13,8 @@
 
 mod common;
 use common::{
-    create_add_node_patch, create_initial_store, test_cursor_id, test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_store, test_cursor_id,
+    test_warp_id, test_worldline_id,
 };
 
 use warp_core::{
@@ -82,8 +83,7 @@ fn setup_worldline_with_ticks_and_checkpoints(
             commit_hash,
         };
 
-        provenance
-            .append(worldline_id, patch, triplet, vec![])
+        append_fixture_entry(&mut provenance, worldline_id, patch, triplet, vec![])
             .expect("append should succeed");
 
         parents = vec![commit_hash];
@@ -243,8 +243,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     let mut original_expected_hashes: Vec<HashTriplet> = Vec::new();
     for tick in 0..20 {
         let expected = provenance
-            .expected(original_worldline_id, tick)
-            .expect("original tick should exist");
+            .entry(original_worldline_id, tick)
+            .expect("original tick should exist")
+            .expected;
         original_expected_hashes.push(expected);
     }
 
@@ -255,19 +256,18 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
     // Copy patches 0-7 from original to forked
     for tick in 0..=7 {
-        let patch = provenance
-            .patch(original_worldline_id, tick)
-            .expect("original patch should exist");
-        let expected = provenance
-            .expected(original_worldline_id, tick)
-            .expect("original expected should exist");
-        let outputs = provenance
-            .outputs(original_worldline_id, tick)
-            .expect("original outputs should exist");
-
-        provenance
-            .append(forked_worldline_id, patch, expected, outputs)
-            .expect("append to forked should succeed");
+        let entry = provenance
+            .entry(original_worldline_id, tick)
+            .expect("original entry should exist");
+        let patch = entry.patch.expect("original patch should exist");
+        append_fixture_entry(
+            &mut provenance,
+            forked_worldline_id,
+            patch,
+            entry.expected,
+            entry.outputs,
+        )
+        .expect("append to forked should succeed");
     }
 
     // Verify fork has 8 ticks (0-7)
@@ -286,7 +286,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     // Replay forked worldline to tick 7 to get the correct state
     for tick in 0..=7 {
         let patch = provenance
-            .patch(forked_worldline_id, tick)
+            .entry(forked_worldline_id, tick)
+            .expect("forked entry should exist")
+            .patch
             .expect("forked patch should exist");
         patch
             .apply_to_store(&mut forked_store)
@@ -296,8 +298,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     // Get parent commit_hash from the last copied tick (tick 7) for Merkle chain continuity
     let mut fork_parents: Vec<Hash> = vec![
         provenance
-            .expected(forked_worldline_id, 7)
+            .entry(forked_worldline_id, 7)
             .expect("forked tick 7 should exist")
+            .expected
             .commit_hash,
     ];
 
@@ -326,8 +329,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
             commit_hash,
         };
 
-        provenance
-            .append(forked_worldline_id, patch, triplet, vec![])
+        append_fixture_entry(&mut provenance, forked_worldline_id, patch, triplet, vec![])
             .expect("append divergent tick should succeed");
 
         fork_parents = vec![commit_hash];
@@ -344,8 +346,9 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
     for tick in 0..20 {
         let current_expected = provenance
-            .expected(original_worldline_id, tick)
-            .expect("original tick should still exist");
+            .entry(original_worldline_id, tick)
+            .expect("original tick should still exist")
+            .expected;
         assert_eq!(
             current_expected, original_expected_hashes[tick as usize],
             "original worldline tick {tick} expected hash should be unchanged"
@@ -355,11 +358,13 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     // Assert 2: Forked worldline has ticks 0-7 matching original
     for tick in 0..=7 {
         let original_expected = provenance
-            .expected(original_worldline_id, tick)
-            .expect("original tick should exist");
+            .entry(original_worldline_id, tick)
+            .expect("original tick should exist")
+            .expected;
         let forked_expected = provenance
-            .expected(forked_worldline_id, tick)
-            .expect("forked tick should exist");
+            .entry(forked_worldline_id, tick)
+            .expect("forked tick should exist")
+            .expected;
 
         assert_eq!(
             original_expected, forked_expected,
@@ -378,11 +383,13 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
     for tick in 8..=10 {
         let original_expected = provenance
-            .expected(original_worldline_id, tick)
-            .expect("original tick should exist");
+            .entry(original_worldline_id, tick)
+            .expect("original tick should exist")
+            .expected;
         let forked_expected = provenance
-            .expected(forked_worldline_id, tick)
-            .expect("forked tick should exist");
+            .entry(forked_worldline_id, tick)
+            .expect("forked tick should exist")
+            .expected;
 
         // State roots should differ because patches created different nodes
         assert_ne!(

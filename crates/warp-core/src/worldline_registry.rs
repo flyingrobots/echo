@@ -91,6 +91,14 @@ impl WorldlineRegistry {
         self.worldlines.get_mut(worldline_id)
     }
 
+    /// Replaces the stored frontier for a worldline.
+    pub(crate) fn replace_frontier(
+        &mut self,
+        frontier: WorldlineFrontier,
+    ) -> Option<WorldlineFrontier> {
+        self.worldlines.insert(frontier.worldline_id(), frontier)
+    }
+
     /// Returns the number of registered worldlines.
     #[must_use]
     pub fn len(&self) -> usize {

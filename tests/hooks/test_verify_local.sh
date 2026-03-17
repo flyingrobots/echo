@@ -510,6 +510,20 @@ else
   printf '%s\n' "$fake_ultra_fast_hook_output"
 fi
 
+fake_ultra_fast_hook_readme_output="$(run_fake_verify ultra-fast scripts/hooks/README.md)"
+if printf '%s\n' "$fake_ultra_fast_hook_readme_output" | grep -q '\[verify-local\]\[ultra-fast\] bash -n scripts/hooks/README.md'; then
+  fail "ultra-fast should skip non-shell files in hook directories"
+  printf '%s\n' "$fake_ultra_fast_hook_readme_output"
+else
+  pass "ultra-fast skips non-shell files in hook directories"
+fi
+if printf '%s\n' "$fake_ultra_fast_hook_readme_output" | grep -q '\[verify-local\]\[ultra-fast\] no changed shell tooling files'; then
+  pass "non-shell hook docs do not fabricate shell smoke targets"
+else
+  fail "non-shell hook docs should not appear as shell tooling files"
+  printf '%s\n' "$fake_ultra_fast_hook_readme_output"
+fi
+
 fake_warp_core_default_output="$(run_fake_verify full crates/warp-core/src/provenance_store.rs)"
 if printf '%s\n' "$fake_warp_core_default_output" | grep -q 'test -p warp-core --lib'; then
   pass "warp-core default smoke keeps the lib test lane"

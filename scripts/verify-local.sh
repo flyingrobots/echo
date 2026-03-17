@@ -430,12 +430,23 @@ list_changed_tooling_shell_files() {
     [[ -z "$file" ]] && continue
     case "$file" in
       .githooks/*|scripts/*.sh|scripts/hooks/*|tests/hooks/*.sh)
-        if [[ -f "$file" ]]; then
+        if is_shell_tooling_file "$file"; then
           printf '%s\n' "$file"
         fi
         ;;
     esac
   done <<< "${CHANGED_FILES}" | sort -u
+}
+
+is_shell_tooling_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 1
+  case "$file" in
+    *.sh) return 0 ;;
+  esac
+  local first_line=""
+  IFS= read -r first_line < "$file" || true
+  [[ "$first_line" =~ ^#!.*(^|[[:space:]/])(ba|z)?sh([[:space:]]|$) ]]
 }
 
 list_changed_critical_crates() {

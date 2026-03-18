@@ -10,8 +10,11 @@ use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 
 use thiserror::Error;
 
+use crate::clock::{GlobalTick, WorldlineTick};
 use crate::engine_impl::{CommitOutcome, Engine, EngineError};
-use crate::head::{PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey};
+use crate::head::{
+    HeadEligibility, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
+};
 use crate::head_inbox::{InboxAddress, InboxIngestResult, IngressEnvelope, IngressTarget};
 use crate::ident::Hash;
 use crate::provenance_store::{
@@ -115,7 +118,7 @@ pub struct WorldlineRuntime {
     /// Ordered set of currently runnable (non-paused) writer heads.
     runnable: RunnableWriterSet,
     /// Global tick counter (metadata only; not per-worldline identity).
-    global_tick: u64,
+    global_tick: GlobalTick,
     /// Deterministic route table for default writers.
     default_writers: BTreeMap<WorldlineId, WriterHeadKey>,
     /// Deterministic route table for named public inboxes.
@@ -124,7 +127,7 @@ pub struct WorldlineRuntime {
 
 #[derive(Clone, Debug)]
 struct RuntimeCheckpoint {
-    global_tick: u64,
+    global_tick: GlobalTick,
     heads: BTreeMap<WriterHeadKey, WriterHead>,
     frontiers: BTreeMap<WorldlineId, WorldlineFrontier>,
 }
@@ -183,9 +186,15 @@ impl WorldlineRuntime {
         &self.worldlines
     }
 
+    /// Returns the registered writer heads.
+    #[must_use]
+    pub fn heads(&self) -> &PlaybackHeadRegistry {
+        &self.heads
+    }
+
     /// Returns the current correlation tick.
     #[must_use]
-    pub fn global_tick(&self) -> u64 {
+    pub fn global_tick(&self) -> GlobalTick {
         self.global_tick
     }
 
@@ -245,6 +254,24 @@ impl WorldlineRuntime {
                 .insert(inbox, key);
         }
         self.heads.insert(head);
+        self.refresh_runnable();
+        Ok(())
+    }
+
+    /// Sets declarative scheduler eligibility for a specific head.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::UnknownHead`] if the head is not registered.
+    pub fn set_head_eligibility(
+        &mut self,
+        key: WriterHeadKey,
+        eligibility: HeadEligibility,
+    ) -> Result<(), RuntimeError> {
+        self.heads
+            .get_mut(&key)
+            .ok_or(RuntimeError::UnknownHead(key))?
+            .set_eligibility(eligibility);
         self.refresh_runnable();
         Ok(())
     }
@@ -336,7 +363,9 @@ pub struct StepRecord {
     /// Number of ingress envelopes admitted for this commit.
     pub admitted_count: usize,
     /// The worldline tick after this step.
-    pub frontier_tick_after: u64,
+    pub worldline_tick_after: WorldlineTick,
+    /// Runtime cycle stamp that produced this commit.
+    pub commit_global_tick: GlobalTick,
     /// Resulting graph state root after the commit.
     pub state_root: Hash,
     /// Resulting commit hash after the commit.
@@ -370,7 +399,7 @@ impl SchedulerCoordinator {
     ) -> Result<Vec<StepRecord>, RuntimeError> {
         let next_global_tick = runtime
             .global_tick
-            .checked_add(1)
+            .checked_increment()
             .ok_or(RuntimeError::GlobalTickOverflow)?;
         runtime.refresh_runnable();
 
@@ -390,7 +419,7 @@ impl SchedulerCoordinator {
                 .worldlines
                 .get(&key.worldline_id)
                 .ok_or(RuntimeError::UnknownWorldline(key.worldline_id))?;
-            if frontier.frontier_tick() == u64::MAX {
+            if frontier.frontier_tick() == WorldlineTick::MAX {
                 return Err(RuntimeError::FrontierTickOverflow(key.worldline_id));
             }
         }
@@ -432,7 +461,7 @@ impl SchedulerCoordinator {
                         .map_err(RuntimeError::from)?
                 };
 
-                let (state_root, frontier_tick_after) = {
+                let (state_root, worldline_tick_after) = {
                     let frontier = runtime
                         .worldlines
                         .frontier_mut(&key.worldline_id)
@@ -445,7 +474,7 @@ impl SchedulerCoordinator {
                         .collect();
                     let worldline_patch = crate::worldline::WorldlineTickPatchV1 {
                         header: crate::worldline::WorldlineTickHeaderV1 {
-                            global_tick: next_global_tick,
+                            commit_global_tick: next_global_tick,
                             policy_id: patch.policy_id(),
                             rule_pack_id: patch.rule_pack_id(),
                             plan_digest: snapshot.plan_digest,
@@ -478,16 +507,17 @@ impl SchedulerCoordinator {
                         *key,
                         admitted.iter().map(IngressEnvelope::ingress_id),
                     );
-                    let frontier_tick_after = frontier
+                    let worldline_tick_after = frontier
                         .advance_tick()
                         .ok_or(RuntimeError::FrontierTickOverflow(key.worldline_id))?;
-                    (snapshot.state_root, frontier_tick_after)
+                    (snapshot.state_root, worldline_tick_after)
                 };
 
                 Ok(StepRecord {
                     head_key: *key,
                     admitted_count: admitted.len(),
-                    frontier_tick_after,
+                    worldline_tick_after,
+                    commit_global_tick: next_global_tick,
                     state_root,
                     commit_hash: snapshot.hash,
                 })
@@ -520,7 +550,7 @@ impl SchedulerCoordinator {
         runtime
             .heads
             .iter()
-            .filter_map(|(key, head)| (!head.is_paused()).then_some(*key))
+            .filter_map(|(key, head)| (head.is_admitted() && !head.is_paused()).then_some(*key))
             .collect()
     }
 }
@@ -540,6 +570,14 @@ mod tests {
 
     fn wl(n: u8) -> WorldlineId {
         WorldlineId([n; 32])
+    }
+
+    fn wt(raw: u64) -> WorldlineTick {
+        WorldlineTick::from_raw(raw)
+    }
+
+    fn gt(raw: u64) -> GlobalTick {
+        GlobalTick::from_raw(raw)
     }
 
     fn empty_engine() -> Engine {
@@ -972,11 +1010,11 @@ mod tests {
         assert!(records.iter().all(|record| record.admitted_count == 1));
         assert_eq!(provenance.len(worldline_id).unwrap(), 2);
         assert_eq!(
-            provenance.entry(worldline_id, 0).unwrap().head_key,
+            provenance.entry(worldline_id, wt(0)).unwrap().head_key,
             Some(first)
         );
         assert_eq!(
-            provenance.entry(worldline_id, 1).unwrap().head_key,
+            provenance.entry(worldline_id, wt(1)).unwrap().head_key,
             Some(second)
         );
     }
@@ -1035,11 +1073,11 @@ mod tests {
         assert_eq!(provenance.len(worldline_a).unwrap(), 1);
         assert_eq!(provenance.len(worldline_b).unwrap(), 1);
         assert_eq!(
-            provenance.entry(worldline_a, 0).unwrap().head_key,
+            provenance.entry(worldline_a, wt(0)).unwrap().head_key,
             Some(head_a)
         );
         assert_eq!(
-            provenance.entry(worldline_b, 0).unwrap().head_key,
+            provenance.entry(worldline_b, wt(0)).unwrap().head_key,
             Some(head_b)
         );
         assert_eq!(
@@ -1048,7 +1086,7 @@ mod tests {
                 .get(&worldline_a)
                 .unwrap()
                 .frontier_tick(),
-            1
+            wt(1)
         );
         assert_eq!(
             runtime
@@ -1056,7 +1094,7 @@ mod tests {
                 .get(&worldline_b)
                 .unwrap()
                 .frontier_tick(),
-            1
+            wt(1)
         );
         assert!(runtime
             .worldlines
@@ -1112,7 +1150,7 @@ mod tests {
                 .get(&worldline_id)
                 .unwrap()
                 .frontier_tick(),
-            0
+            wt(0)
         );
     }
 
@@ -1144,7 +1182,7 @@ mod tests {
             .worldlines
             .frontier_mut(&worldline_id)
             .unwrap()
-            .frontier_tick = u64::MAX;
+            .frontier_tick = WorldlineTick::MAX;
 
         let mut provenance = mirrored_provenance(&runtime);
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
@@ -1156,7 +1194,7 @@ mod tests {
                 .get(&worldline_id)
                 .unwrap()
                 .frontier_tick(),
-            u64::MAX
+            WorldlineTick::MAX
         );
         assert_eq!(
             runtime
@@ -1210,7 +1248,7 @@ mod tests {
             b"overflow-global".to_vec(),
         );
         runtime.ingest(envelope.clone()).unwrap();
-        runtime.global_tick = u64::MAX;
+        runtime.global_tick = GlobalTick::MAX;
 
         let mut provenance = mirrored_provenance(&runtime);
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
@@ -1313,7 +1351,7 @@ mod tests {
 
         assert_eq!(
             runtime.global_tick(),
-            0,
+            gt(0),
             "failed SuperTick must not advance global tick"
         );
         assert_eq!(
@@ -1440,7 +1478,7 @@ mod tests {
 
         assert_eq!(
             runtime.global_tick(),
-            0,
+            gt(0),
             "panic unwind must not advance global tick"
         );
         assert_eq!(
@@ -1608,7 +1646,7 @@ mod tests {
             .worldlines
             .frontier_mut(&worldline_id)
             .unwrap()
-            .frontier_tick = u64::MAX;
+            .frontier_tick = WorldlineTick::MAX;
 
         let mut provenance = mirrored_provenance(&runtime);
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)
@@ -1632,7 +1670,7 @@ mod tests {
             true,
             InboxPolicy::AcceptAll,
         );
-        runtime.global_tick = u64::MAX;
+        runtime.global_tick = GlobalTick::MAX;
 
         let mut provenance = mirrored_provenance(&runtime);
         let err = SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine)

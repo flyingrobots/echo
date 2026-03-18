@@ -40,7 +40,7 @@ use common::{create_initial_store, setup_worldline_with_ticks, test_cursor_id, t
 
 use warp_core::{
     compute_state_root_for_warp_store, CursorRole, EngineBuilder, PlaybackCursor, ProvenanceStore,
-    WorldlineId,
+    WorldlineId, WorldlineTick,
 };
 
 // =============================================================================
@@ -49,6 +49,10 @@ use warp_core::{
 
 fn hex(h: &[u8; 32]) -> String {
     h.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
 }
 
 // =============================================================================
@@ -137,7 +141,7 @@ fn gv002_provenance_replay_integrity() {
     // Verify each tick's hash triplet against pinned values
     for (tick, (exp_sr, exp_pd, exp_ch)) in EXPECTED.iter().enumerate() {
         let triplet = provenance
-            .entry(worldline_id, tick as u64)
+            .entry(worldline_id, wt(tick as u64))
             .unwrap_or_else(|e| panic!("tick {tick}: {e}"))
             .expected;
 
@@ -165,10 +169,10 @@ fn gv002_provenance_replay_integrity() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        5,
+        wt(5),
     );
     cursor
-        .seek_to(5, &provenance, &initial_store)
+        .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek should succeed");
     let final_state_root = compute_state_root_for_warp_store(&cursor.store, warp_id);
 
@@ -201,7 +205,7 @@ fn gv003_fork_reproducibility() {
     let forked_id = WorldlineId([2u8; 32]);
 
     provenance
-        .fork(worldline_id, 5, forked_id)
+        .fork(worldline_id, wt(5), forked_id)
         .expect("fork should succeed");
 
     // fork(src, 5, dst) copies ticks 0..=5 (6 entries)
@@ -211,10 +215,13 @@ fn gv003_fork_reproducibility() {
     // Prefix ticks 0..5 must be identical between original and fork
     for (tick, exp_ch) in EXPECTED_PREFIX_COMMITS.iter().enumerate() {
         let original = provenance
-            .entry(worldline_id, tick as u64)
+            .entry(worldline_id, wt(tick as u64))
             .unwrap()
             .expected;
-        let forked = provenance.entry(forked_id, tick as u64).unwrap().expected;
+        let forked = provenance
+            .entry(forked_id, wt(tick as u64))
+            .unwrap()
+            .expected;
 
         assert_eq!(
             original, forked,

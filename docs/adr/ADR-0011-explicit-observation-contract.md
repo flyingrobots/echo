@@ -188,7 +188,7 @@ During ABI v1, one adapter phase was allowed:
 `drain_view_ops()` was legacy/debug-only in that phase. It was not allowed to
 gain new product semantics.
 
-At the start of Phase 6 / ABI v2:
+At the start of Phase 6:
 
 - `get_head`
 - `snapshot_at`
@@ -196,9 +196,10 @@ At the start of Phase 6 / ABI v2:
 - `execute_query`
 - `render_snapshot`
 
-are removed from the public boundary, and the WASM ABI version is bumped to 2
-before other Phase 6 work proceeds. After that slice lands, `observe(...)`
-remains the only canonical public read entrypoint.
+are removed from the public boundary. That landed as the first ABI v2 break.
+The follow-on Phase 6 honest-clock/control-plane rewrite then bumps the public
+WASM boundary again to ABI v3. After those slices land, `observe(...)` remains
+the only canonical public read entrypoint.
 
 ## Consequences
 

@@ -18,6 +18,7 @@
 use thiserror::Error;
 
 use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentValue};
+use crate::clock::GlobalTick;
 use crate::graph::{DeleteNodeError, GraphStore};
 use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::materialization::ChannelId;
@@ -65,8 +66,8 @@ pub struct HashTriplet {
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldlineTickHeaderV1 {
-    /// Global tick number (monotonically increasing).
-    pub global_tick: u64,
+    /// Runtime cycle stamp for the commit that produced this patch.
+    pub commit_global_tick: GlobalTick,
     /// Policy identifier governing this tick.
     pub policy_id: u32,
     /// Hash identifying the rule pack used for this tick.
@@ -108,11 +109,11 @@ pub struct WorldlineTickPatchV1 {
 }
 
 impl WorldlineTickPatchV1 {
-    /// Returns the global tick number from the header.
+    /// Returns the runtime cycle stamp from the header.
     #[inline]
     #[must_use]
-    pub fn global_tick(&self) -> u64 {
-        self.header.global_tick
+    pub fn commit_global_tick(&self) -> GlobalTick {
+        self.header.commit_global_tick
     }
 
     /// Returns the policy ID from the header.
@@ -548,7 +549,7 @@ mod tests {
     #[test]
     fn worldline_tick_patch_accessors() {
         let header = WorldlineTickHeaderV1 {
-            global_tick: 42,
+            commit_global_tick: GlobalTick::from_raw(42),
             policy_id: 1,
             rule_pack_id: [0u8; 32],
             plan_digest: [1u8; 32],
@@ -563,13 +564,13 @@ mod tests {
             out_slots: vec![],
             patch_digest: [4u8; 32],
         };
-        assert_eq!(patch.global_tick(), 42);
+        assert_eq!(patch.commit_global_tick(), GlobalTick::from_raw(42));
         assert_eq!(patch.policy_id(), 1);
     }
 
     fn test_header() -> WorldlineTickHeaderV1 {
         WorldlineTickHeaderV1 {
-            global_tick: 0,
+            commit_global_tick: GlobalTick::ZERO,
             policy_id: 0,
             rule_pack_id: [0u8; 32],
             plan_digest: [0u8; 32],

@@ -33,6 +33,7 @@ pub mod math;
 pub mod wsc;
 
 mod attachment;
+mod clock;
 mod cmd;
 mod constants;
 /// Domain separation prefixes for hashing.
@@ -149,6 +150,7 @@ pub use attachment::{
     AtomPayload, AttachmentKey, AttachmentOwner, AttachmentPlane, AttachmentValue, Codec,
     CodecRegistry, DecodeError, ErasedCodec, RegistryError,
 };
+pub use clock::{GlobalTick, RunId, WorldlineTick};
 pub use constants::{blake3_empty, digest_len0_u64, POLICY_ID_NO_POLICY_V0};
 pub use engine_impl::{
     scope_hash, ApplyResult, CommitOutcome, DispatchDisposition, Engine, EngineBuilder,
@@ -236,7 +238,8 @@ pub use coordinator::{
 };
 /// Writer-head registry and routing primitives used by the runtime-owned ingress path.
 pub use head::{
-    make_head_id, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead, WriterHeadKey,
+    make_head_id, HeadEligibility, HeadId, PlaybackHeadRegistry, RunnableWriterSet, WriterHead,
+    WriterHeadKey,
 };
 /// Primary ingress-envelope and per-head inbox types for the live runtime path.
 ///

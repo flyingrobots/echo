@@ -27,6 +27,7 @@ use std::collections::BTreeMap;
 
 use thiserror::Error;
 
+use crate::clock::{GlobalTick, WorldlineTick};
 use crate::graph::GraphStore;
 use crate::head::WriterHeadKey;
 use crate::ident::{Hash, WarpId};
@@ -44,7 +45,7 @@ pub enum HistoryError {
     #[error("history unavailable for tick {tick}")]
     HistoryUnavailable {
         /// The tick that was requested but not found.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The requested worldline does not exist.
@@ -59,9 +60,9 @@ pub enum HistoryError {
     #[error("tick gap: expected tick {expected}, got {got}")]
     TickGap {
         /// The tick that was expected (current history length).
-        expected: u64,
+        expected: WorldlineTick,
         /// The tick that was provided.
-        got: u64,
+        got: WorldlineTick,
     },
 
     /// The entry worldline does not match the destination worldline.
@@ -77,14 +78,14 @@ pub enum HistoryError {
     #[error("local commit missing head attribution for tick {tick}")]
     LocalCommitMissingHeadKey {
         /// The entry tick.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// A local commit entry must carry a replay patch.
     #[error("local commit missing patch for tick {tick}")]
     LocalCommitMissingPatch {
         /// The entry tick.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The local commit head must belong to the same worldline as the entry.
@@ -100,7 +101,7 @@ pub enum HistoryError {
     #[error("append_local_commit rejected non-local event kind {got:?} at tick {tick}")]
     InvalidLocalCommitEventKind {
         /// The entry tick.
-        tick: u64,
+        tick: WorldlineTick,
         /// The unexpected event kind.
         got: ProvenanceEventKind,
     },
@@ -109,14 +110,14 @@ pub enum HistoryError {
     #[error("parent refs must be in canonical commit-hash order at tick {tick}")]
     NonCanonicalParents {
         /// The entry tick whose parent refs were non-canonical.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// A parent ref must resolve to an already-recorded provenance entry.
     #[error("missing parent ref {parent:?} for tick {tick}")]
     MissingParentRef {
         /// The entry tick carrying the invalid parent ref.
-        tick: u64,
+        tick: WorldlineTick,
         /// The missing parent ref.
         parent: ProvenanceRef,
     },
@@ -125,7 +126,7 @@ pub enum HistoryError {
     #[error("parent ref commit hash mismatch at tick {tick}: parent {parent:?}, stored {stored_commit_hash:?}")]
     ParentCommitHashMismatch {
         /// The entry tick carrying the invalid parent ref.
-        tick: u64,
+        tick: WorldlineTick,
         /// The provided parent ref.
         parent: ProvenanceRef,
         /// The stored commit hash at the referenced coordinate.
@@ -166,9 +167,9 @@ pub enum BtrError {
     #[error("BTR payload is not contiguous: expected tick {expected}, got {got}")]
     NonContiguousTicks {
         /// The next expected tick.
-        expected: u64,
+        expected: WorldlineTick,
         /// The observed tick.
-        got: u64,
+        got: WorldlineTick,
     },
 
     /// Payload tick arithmetic overflowed `u64`.
@@ -210,7 +211,7 @@ pub enum BtrError {
     #[error("BTR payload entry mismatch at tick {tick}")]
     EntryMismatch {
         /// The mismatching entry tick.
-        tick: u64,
+        tick: WorldlineTick,
     },
 }
 
@@ -219,7 +220,7 @@ pub enum BtrError {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CheckpointRef {
     /// Tick number where this checkpoint was taken.
-    pub tick: u64,
+    pub worldline_tick: WorldlineTick,
     /// Hash of the state at this checkpoint.
     pub state_hash: Hash,
 }
@@ -231,7 +232,7 @@ pub struct ProvenanceRef {
     /// Parent worldline.
     pub worldline_id: WorldlineId,
     /// Parent tick identity.
-    pub worldline_tick: u64,
+    pub worldline_tick: WorldlineTick,
     /// Parent commit hash.
     pub commit_hash: Hash,
 }
@@ -247,7 +248,7 @@ pub enum ProvenanceEventKind {
         /// Source worldline.
         source_worldline: WorldlineId,
         /// Source tick.
-        source_tick: u64,
+        source_worldline_tick: WorldlineTick,
         /// Stable message id.
         message_id: Hash,
     },
@@ -256,7 +257,7 @@ pub enum ProvenanceEventKind {
         /// Source worldline.
         source_worldline: WorldlineId,
         /// Source tick.
-        source_tick: u64,
+        source_worldline_tick: WorldlineTick,
         /// Stable imported op id.
         op_id: Hash,
     },
@@ -274,9 +275,9 @@ pub struct ProvenanceEntry {
     /// Worldline that owns this entry.
     pub worldline_id: WorldlineId,
     /// Append identity within the worldline (0-based).
-    pub worldline_tick: u64,
+    pub worldline_tick: WorldlineTick,
     /// Correlation metadata from the runtime SuperTick.
-    pub global_tick: u64,
+    pub commit_global_tick: GlobalTick,
     /// Writer head that produced this entry, when applicable.
     pub head_key: Option<WriterHeadKey>,
     /// Explicit parent refs in canonical stored order.
@@ -309,8 +310,8 @@ impl ProvenanceEntry {
     #[allow(clippy::too_many_arguments)]
     pub fn local_commit(
         worldline_id: WorldlineId,
-        worldline_tick: u64,
-        global_tick: u64,
+        worldline_tick: WorldlineTick,
+        commit_global_tick: GlobalTick,
         head_key: WriterHeadKey,
         parents: Vec<ProvenanceRef>,
         expected: HashTriplet,
@@ -321,7 +322,7 @@ impl ProvenanceEntry {
         Self {
             worldline_id,
             worldline_tick,
-            global_tick,
+            commit_global_tick,
             head_key: Some(head_key),
             parents,
             event_kind: ProvenanceEventKind::LocalCommit,
@@ -340,7 +341,7 @@ pub struct BtrPayload {
     /// Worldline represented by this payload.
     pub worldline_id: WorldlineId,
     /// First worldline tick included in `entries`.
-    pub start_tick: u64,
+    pub start_worldline_tick: WorldlineTick,
     /// Contiguous entries in append order.
     pub entries: Vec<ProvenanceEntry>,
 }
@@ -352,8 +353,8 @@ impl BtrPayload {
     ///
     /// Returns [`BtrError::TickOverflow`] if the payload length cannot be added
     /// to `start_tick` without overflowing `u64`.
-    pub fn end_tick_exclusive(&self) -> Result<u64, BtrError> {
-        self.start_tick
+    pub fn end_tick_exclusive(&self) -> Result<WorldlineTick, BtrError> {
+        self.start_worldline_tick
             .checked_add(self.entries.len() as u64)
             .ok_or(BtrError::TickOverflow)
     }
@@ -374,14 +375,14 @@ impl BtrPayload {
                 got: first.worldline_id,
             });
         }
-        if first.worldline_tick != self.start_tick {
+        if first.worldline_tick != self.start_worldline_tick {
             return Err(BtrError::NonContiguousTicks {
-                expected: self.start_tick,
+                expected: self.start_worldline_tick,
                 got: first.worldline_tick,
             });
         }
 
-        let mut expected_tick = self.start_tick;
+        let mut expected_tick = self.start_worldline_tick;
         for entry in &self.entries {
             if entry.worldline_id != self.worldline_id {
                 return Err(BtrError::MixedWorldline {
@@ -395,7 +396,9 @@ impl BtrPayload {
                     got: entry.worldline_tick,
                 });
             }
-            expected_tick = expected_tick.checked_add(1).ok_or(BtrError::TickOverflow)?;
+            expected_tick = expected_tick
+                .checked_increment()
+                .ok_or(BtrError::TickOverflow)?;
         }
 
         Ok(())
@@ -459,10 +462,14 @@ pub trait ProvenanceStore: Send + Sync {
     fn len(&self, w: WorldlineId) -> Result<u64, HistoryError>;
 
     /// Returns the entry for a specific tick.
-    fn entry(&self, w: WorldlineId, tick: u64) -> Result<ProvenanceEntry, HistoryError>;
+    fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError>;
 
     /// Returns the stored parent refs for a specific tick.
-    fn parents(&self, w: WorldlineId, tick: u64) -> Result<Vec<ProvenanceRef>, HistoryError>;
+    fn parents(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<Vec<ProvenanceRef>, HistoryError>;
 
     /// Appends a local commit entry.
     ///
@@ -473,7 +480,7 @@ pub trait ProvenanceStore: Send + Sync {
     fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError>;
 
     /// Returns the nearest checkpoint before a given tick, if any.
-    fn checkpoint_before(&self, w: WorldlineId, tick: u64) -> Option<CheckpointRef>;
+    fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef>;
 
     /// Returns whether the worldline has any recorded history.
     ///
@@ -588,7 +595,7 @@ impl LocalProvenanceStore {
     fn validate_local_commit_entry(
         worldlines: &BTreeMap<WorldlineId, WorldlineHistory>,
         worldline_id: WorldlineId,
-        expected_tick: u64,
+        expected_tick: WorldlineTick,
         entry: &ProvenanceEntry,
     ) -> Result<(), HistoryError> {
         if entry.worldline_id != worldline_id {
@@ -637,7 +644,7 @@ impl LocalProvenanceStore {
         for parent in &entry.parents {
             let stored = worldlines
                 .get(&parent.worldline_id)
-                .and_then(|history| history.entries.get(parent.worldline_tick as usize))
+                .and_then(|history| history.entries.get(parent.worldline_tick.as_u64() as usize))
                 .ok_or(HistoryError::MissingParentRef {
                     tick: entry.worldline_tick,
                     parent: *parent,
@@ -658,7 +665,11 @@ impl LocalProvenanceStore {
     /// # Errors
     ///
     /// Returns [`HistoryError`] if the worldline or tick is unavailable.
-    pub fn atom_writes(&self, w: WorldlineId, tick: u64) -> Result<AtomWriteSet, HistoryError> {
+    pub fn atom_writes(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<AtomWriteSet, HistoryError> {
         Ok(self.entry(w, tick)?.atom_writes)
     }
 
@@ -722,7 +733,7 @@ impl LocalProvenanceStore {
         let history = self.history_mut(w)?;
         match history
             .checkpoints
-            .binary_search_by_key(&checkpoint.tick, |c| c.tick)
+            .binary_search_by_key(&checkpoint.worldline_tick, |c| c.worldline_tick)
         {
             Ok(index) => history.checkpoints[index] = checkpoint,
             Err(pos) => history.checkpoints.insert(pos, checkpoint),
@@ -738,15 +749,18 @@ impl LocalProvenanceStore {
     pub fn checkpoint(
         &mut self,
         w: WorldlineId,
-        tick: u64,
+        tick: WorldlineTick,
         state: &GraphStore,
     ) -> Result<CheckpointRef, HistoryError> {
         let history = self.history_mut(w)?;
         let state_hash = compute_state_root_for_warp_store(state, history.u0_ref);
-        let checkpoint_ref = CheckpointRef { tick, state_hash };
+        let checkpoint_ref = CheckpointRef {
+            worldline_tick: tick,
+            state_hash,
+        };
         match history
             .checkpoints
-            .binary_search_by_key(&checkpoint_ref.tick, |c| c.tick)
+            .binary_search_by_key(&checkpoint_ref.worldline_tick, |c| c.worldline_tick)
         {
             Ok(index) => history.checkpoints[index] = checkpoint_ref,
             Err(pos) => history.checkpoints.insert(pos, checkpoint_ref),
@@ -763,7 +777,7 @@ impl LocalProvenanceStore {
     pub fn fork(
         &mut self,
         source: WorldlineId,
-        fork_tick: u64,
+        fork_tick: WorldlineTick,
         new_id: WorldlineId,
     ) -> Result<(), HistoryError> {
         if self.worldlines.contains_key(&new_id) {
@@ -772,11 +786,14 @@ impl LocalProvenanceStore {
 
         let source_history = self.history(source)?;
         let source_len = source_history.entries.len();
-        if fork_tick >= source_len as u64 {
+        if fork_tick.as_u64() >= source_len as u64 {
             return Err(HistoryError::HistoryUnavailable { tick: fork_tick });
         }
 
-        let end_idx = (fork_tick + 1) as usize;
+        let end_idx = fork_tick
+            .checked_increment()
+            .ok_or(HistoryError::HistoryUnavailable { tick: fork_tick })?
+            .as_u64() as usize;
         let new_history = WorldlineHistory {
             u0_ref: source_history.u0_ref,
             initial_boundary_hash: source_history.initial_boundary_hash,
@@ -788,7 +805,7 @@ impl LocalProvenanceStore {
             checkpoints: source_history
                 .checkpoints
                 .iter()
-                .filter(|c| c.tick <= fork_tick)
+                .filter(|c| c.worldline_tick <= fork_tick)
                 .copied()
                 .collect(),
         };
@@ -872,20 +889,25 @@ impl ProvenanceStore for LocalProvenanceStore {
         Ok(self.history(w)?.entries.len() as u64)
     }
 
-    fn entry(&self, w: WorldlineId, tick: u64) -> Result<ProvenanceEntry, HistoryError> {
+    fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError> {
         self.history(w)?
             .entries
-            .get(tick as usize)
+            .get(tick.as_u64() as usize)
             .cloned()
             .ok_or(HistoryError::HistoryUnavailable { tick })
     }
 
-    fn parents(&self, w: WorldlineId, tick: u64) -> Result<Vec<ProvenanceRef>, HistoryError> {
+    fn parents(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<Vec<ProvenanceRef>, HistoryError> {
         Ok(self.entry(w, tick)?.parents)
     }
 
     fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
-        let expected_tick = self.history(entry.worldline_id)?.entries.len() as u64;
+        let expected_tick =
+            WorldlineTick::from_raw(self.history(entry.worldline_id)?.entries.len() as u64);
         Self::validate_local_commit_entry(
             &self.worldlines,
             entry.worldline_id,
@@ -897,11 +919,11 @@ impl ProvenanceStore for LocalProvenanceStore {
         Ok(())
     }
 
-    fn checkpoint_before(&self, w: WorldlineId, tick: u64) -> Option<CheckpointRef> {
+    fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
         let history = self.worldlines.get(&w)?;
         let pos = history
             .checkpoints
-            .binary_search_by_key(&tick, |c| c.tick)
+            .binary_search_by_key(&tick, |c| c.worldline_tick)
             .unwrap_or_else(|e| e);
         if pos == 0 {
             None
@@ -965,15 +987,19 @@ impl ProvenanceService {
     pub fn checkpoint(
         &mut self,
         worldline_id: WorldlineId,
-        tick: u64,
+        tick: WorldlineTick,
         state: &GraphStore,
     ) -> Result<CheckpointRef, HistoryError> {
         self.store.checkpoint(worldline_id, tick, state)
     }
 
-    /// Returns the largest checkpoint with `checkpoint.tick < tick`, if any.
+    /// Returns the largest checkpoint with `checkpoint.worldline_tick < tick`, if any.
     #[must_use]
-    pub fn checkpoint_before(&self, worldline_id: WorldlineId, tick: u64) -> Option<CheckpointRef> {
+    pub fn checkpoint_before(
+        &self,
+        worldline_id: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Option<CheckpointRef> {
         self.store.checkpoint_before(worldline_id, tick)
     }
 
@@ -986,7 +1012,7 @@ impl ProvenanceService {
     pub fn fork(
         &mut self,
         source: WorldlineId,
-        fork_tick: u64,
+        fork_tick: WorldlineTick,
         new_id: WorldlineId,
     ) -> Result<(), HistoryError> {
         self.store.fork(source, fork_tick, new_id)
@@ -1031,31 +1057,35 @@ impl ProvenanceService {
     pub fn build_btr(
         &self,
         worldline_id: WorldlineId,
-        start_tick: u64,
-        end_tick_exclusive: u64,
+        start_tick: WorldlineTick,
+        end_tick_exclusive: WorldlineTick,
         logical_counter: u64,
         auth_tag: Vec<u8>,
     ) -> Result<BoundaryTransitionRecord, BtrError> {
-        let history_len = self.store.len(worldline_id)?;
+        let history_len = WorldlineTick::from_raw(self.store.len(worldline_id)?);
         if start_tick >= end_tick_exclusive || end_tick_exclusive > history_len {
             return Err(BtrError::EmptyPayload);
         }
 
-        let entries = (start_tick..end_tick_exclusive)
+        let entries = (start_tick.as_u64()..end_tick_exclusive.as_u64())
+            .map(WorldlineTick::from_raw)
             .map(|tick| self.store.entry(worldline_id, tick))
             .collect::<Result<Vec<_>, _>>()?;
         let payload = BtrPayload {
             worldline_id,
-            start_tick,
+            start_worldline_tick: start_tick,
             entries,
         };
         payload.validate()?;
 
-        let input_boundary_hash = if start_tick == 0 {
+        let input_boundary_hash = if start_tick == WorldlineTick::ZERO {
             self.store.initial_boundary_hash(worldline_id)?
         } else {
             self.store
-                .entry(worldline_id, start_tick - 1)?
+                .entry(
+                    worldline_id,
+                    start_tick.checked_sub(1).ok_or(BtrError::TickOverflow)?,
+                )?
                 .expected
                 .state_root
         };
@@ -1099,11 +1129,18 @@ impl ProvenanceService {
             });
         }
 
-        let expected_input = if record.payload.start_tick == 0 {
+        let expected_input = if record.payload.start_worldline_tick == WorldlineTick::ZERO {
             history.initial_boundary_hash
         } else {
             self.store
-                .entry(record.worldline_id, record.payload.start_tick - 1)?
+                .entry(
+                    record.worldline_id,
+                    record
+                        .payload
+                        .start_worldline_tick
+                        .checked_sub(1)
+                        .ok_or(BtrError::TickOverflow)?,
+                )?
                 .expected
                 .state_root
         };
@@ -1152,11 +1189,15 @@ impl ProvenanceStore for ProvenanceService {
         self.store.len(w)
     }
 
-    fn entry(&self, w: WorldlineId, tick: u64) -> Result<ProvenanceEntry, HistoryError> {
+    fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError> {
         self.store.entry(w, tick)
     }
 
-    fn parents(&self, w: WorldlineId, tick: u64) -> Result<Vec<ProvenanceRef>, HistoryError> {
+    fn parents(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<Vec<ProvenanceRef>, HistoryError> {
         self.store.parents(w, tick)
     }
 
@@ -1164,7 +1205,7 @@ impl ProvenanceStore for ProvenanceService {
         self.store.append_local_commit(entry)
     }
 
-    fn checkpoint_before(&self, w: WorldlineId, tick: u64) -> Option<CheckpointRef> {
+    fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
         self.store.checkpoint_before(w, tick)
     }
 }
@@ -1200,10 +1241,18 @@ mod tests {
         }
     }
 
+    fn wt(raw: u64) -> WorldlineTick {
+        WorldlineTick::from_raw(raw)
+    }
+
+    fn gt(raw: u64) -> GlobalTick {
+        GlobalTick::from_raw(raw)
+    }
+
     fn test_patch(tick: u64) -> WorldlineTickPatchV1 {
         WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
-                global_tick: tick,
+                commit_global_tick: gt(tick),
                 policy_id: 0,
                 rule_pack_id: [0u8; 32],
                 plan_digest: [0u8; 32],
@@ -1240,15 +1289,15 @@ mod tests {
     fn test_entry(tick: u64) -> ProvenanceEntry {
         ProvenanceEntry::local_commit(
             test_worldline_id(),
-            tick,
-            tick,
+            wt(tick),
+            gt(tick),
             test_head_key(),
             if tick == 0 {
                 Vec::new()
             } else {
                 vec![ProvenanceRef {
                     worldline_id: test_worldline_id(),
-                    worldline_tick: tick - 1,
+                    worldline_tick: wt(tick - 1),
                     commit_hash: test_triplet(tick - 1).commit_hash,
                 }]
             },
@@ -1267,7 +1316,8 @@ mod tests {
         outputs: OutputFrameSet,
         atom_writes: AtomWriteSet,
     ) {
-        let tick = patch.global_tick();
+        let commit_global_tick = patch.commit_global_tick();
+        let worldline_tick = wt(commit_global_tick.as_u64());
         let parents = store
             .tip_ref(worldline_id)
             .unwrap()
@@ -1275,8 +1325,8 @@ mod tests {
             .collect::<Vec<_>>();
         let entry = ProvenanceEntry::local_commit(
             worldline_id,
-            tick,
-            tick,
+            worldline_tick,
+            commit_global_tick,
             WriterHeadKey {
                 worldline_id,
                 head_id: make_head_id("fixture"),
@@ -1348,8 +1398,8 @@ mod tests {
         store.append_local_commit(entry.clone()).unwrap();
 
         assert_eq!(store.len(w).unwrap(), 1);
-        assert_eq!(store.entry(w, 0).unwrap(), entry);
-        assert!(store.parents(w, 0).unwrap().is_empty());
+        assert_eq!(store.entry(w, wt(0)).unwrap(), entry);
+        assert!(store.parents(w, wt(0)).unwrap().is_empty());
     }
 
     #[test]
@@ -1368,8 +1418,8 @@ mod tests {
             Vec::new(),
         );
 
-        let entry = store.entry(w, 0).unwrap();
-        assert_eq!(entry.patch.unwrap().global_tick(), 0);
+        let entry = store.entry(w, wt(0)).unwrap();
+        assert_eq!(entry.patch.unwrap().commit_global_tick(), gt(0));
         assert_eq!(entry.expected, test_triplet(0));
         assert_eq!(entry.outputs, outputs);
     }
@@ -1381,10 +1431,10 @@ mod tests {
         store.register_worldline(w, test_warp_id()).unwrap();
         store.append_local_commit(test_entry(0)).unwrap();
 
-        let result = store.entry(w, 1);
+        let result = store.entry(w, wt(1));
         assert!(matches!(
             result,
-            Err(HistoryError::HistoryUnavailable { tick: 1 })
+            Err(HistoryError::HistoryUnavailable { tick }) if tick == wt(1)
         ));
     }
 
@@ -1399,9 +1449,9 @@ mod tests {
         assert!(matches!(
             result,
             Err(HistoryError::TickGap {
-                expected: 1,
-                got: 2
-            })
+                expected,
+                got
+            }) if expected == wt(1) && got == wt(2)
         ));
     }
 
@@ -1416,7 +1466,7 @@ mod tests {
         let result = store.append_local_commit(entry);
         assert!(matches!(
             result,
-            Err(HistoryError::LocalCommitMissingHeadKey { tick: 0 })
+            Err(HistoryError::LocalCommitMissingHeadKey { tick }) if tick == wt(0)
         ));
     }
 
@@ -1434,9 +1484,9 @@ mod tests {
         assert!(matches!(
             result,
             Err(HistoryError::InvalidLocalCommitEventKind {
-                tick: 0,
+                tick,
                 got: ProvenanceEventKind::ConflictArtifact { .. }
-            })
+            }) if tick == wt(0)
         ));
     }
 
@@ -1449,7 +1499,7 @@ mod tests {
         let mut entry = test_entry(0);
         let missing_parent = ProvenanceRef {
             worldline_id: w,
-            worldline_tick: 99,
+            worldline_tick: wt(99),
             commit_hash: [7u8; 32],
         };
         entry.parents = vec![missing_parent];
@@ -1457,7 +1507,8 @@ mod tests {
         let result = store.append_local_commit(entry);
         assert!(matches!(
             result,
-            Err(HistoryError::MissingParentRef { tick: 0, parent }) if parent == missing_parent
+            Err(HistoryError::MissingParentRef { tick, parent })
+                if tick == wt(0) && parent == missing_parent
         ));
     }
 
@@ -1471,7 +1522,7 @@ mod tests {
         let mut entry = test_entry(1);
         let bad_parent = ProvenanceRef {
             worldline_id: w,
-            worldline_tick: 0,
+            worldline_tick: wt(0),
             commit_hash: [8u8; 32],
         };
         entry.parents = vec![bad_parent];
@@ -1480,10 +1531,12 @@ mod tests {
         assert!(matches!(
             result,
             Err(HistoryError::ParentCommitHashMismatch {
-                tick: 1,
+                tick,
                 parent,
                 stored_commit_hash
-            }) if parent == bad_parent && stored_commit_hash == test_triplet(0).commit_hash
+            }) if tick == wt(1)
+                && parent == bad_parent
+                && stored_commit_hash == test_triplet(0).commit_hash
         ));
     }
 
@@ -1497,7 +1550,7 @@ mod tests {
             .add_checkpoint(
                 w,
                 CheckpointRef {
-                    tick: 0,
+                    worldline_tick: wt(0),
                     state_hash: [0u8; 32],
                 },
             )
@@ -1506,7 +1559,7 @@ mod tests {
             .add_checkpoint(
                 w,
                 CheckpointRef {
-                    tick: 5,
+                    worldline_tick: wt(5),
                     state_hash: [5u8; 32],
                 },
             )
@@ -1515,17 +1568,29 @@ mod tests {
             .add_checkpoint(
                 w,
                 CheckpointRef {
-                    tick: 10,
+                    worldline_tick: wt(10),
                     state_hash: [10u8; 32],
                 },
             )
             .unwrap();
 
-        assert!(store.checkpoint_before(w, 0).is_none());
-        assert_eq!(store.checkpoint_before(w, 1).unwrap().tick, 0);
-        assert_eq!(store.checkpoint_before(w, 7).unwrap().tick, 5);
-        assert_eq!(store.checkpoint_before(w, 15).unwrap().tick, 10);
-        assert_eq!(store.checkpoint_before(w, 10).unwrap().tick, 5);
+        assert!(store.checkpoint_before(w, wt(0)).is_none());
+        assert_eq!(
+            store.checkpoint_before(w, wt(1)).unwrap().worldline_tick,
+            wt(0)
+        );
+        assert_eq!(
+            store.checkpoint_before(w, wt(7)).unwrap().worldline_tick,
+            wt(5)
+        );
+        assert_eq!(
+            store.checkpoint_before(w, wt(15)).unwrap().worldline_tick,
+            wt(10)
+        );
+        assert_eq!(
+            store.checkpoint_before(w, wt(10)).unwrap().worldline_tick,
+            wt(5)
+        );
     }
 
     #[test]
@@ -1536,9 +1601,9 @@ mod tests {
         store.register_worldline(w, warp).unwrap();
 
         let graph_store = GraphStore::new(warp);
-        let cp = store.checkpoint(w, 5, &graph_store).unwrap();
-        let found = store.checkpoint_before(w, 6);
-        assert_eq!(found.unwrap().tick, 5);
+        let cp = store.checkpoint(w, wt(5), &graph_store).unwrap();
+        let found = store.checkpoint_before(w, wt(6));
+        assert_eq!(found.unwrap().worldline_tick, wt(5));
         assert_eq!(found.unwrap().state_hash, cp.state_hash);
     }
 
@@ -1556,19 +1621,19 @@ mod tests {
             .add_checkpoint(
                 source,
                 CheckpointRef {
-                    tick: 1,
+                    worldline_tick: wt(1),
                     state_hash: [1u8; 32],
                 },
             )
             .unwrap();
 
-        store.fork(source, 0, target).unwrap();
+        store.fork(source, wt(0), target).unwrap();
         assert_eq!(store.len(target).unwrap(), 1);
-        let forked_entry = store.entry(target, 0).unwrap();
+        let forked_entry = store.entry(target, wt(0)).unwrap();
         assert_eq!(forked_entry.worldline_id, target);
         assert_eq!(forked_entry.head_key.unwrap().worldline_id, target);
         assert_eq!(forked_entry.expected, test_triplet(0));
-        assert!(store.checkpoint_before(target, 1).is_none());
+        assert!(store.checkpoint_before(target, wt(1)).is_none());
     }
 
     #[test]
@@ -1582,14 +1647,14 @@ mod tests {
         store.append_local_commit(test_entry(0)).unwrap();
         store.append_local_commit(test_entry(1)).unwrap();
 
-        store.fork(source, 1, target).unwrap();
+        store.fork(source, wt(1), target).unwrap();
 
-        let forked_entry = store.entry(target, 1).unwrap();
+        let forked_entry = store.entry(target, wt(1)).unwrap();
         assert_eq!(
             forked_entry.parents,
             vec![ProvenanceRef {
                 worldline_id: target,
-                worldline_tick: 0,
+                worldline_tick: wt(0),
                 commit_hash: test_triplet(0).commit_hash,
             }]
         );
@@ -1612,7 +1677,7 @@ mod tests {
             vec![atom_write.clone()],
         );
 
-        let writes = store.atom_writes(w, 0).unwrap();
+        let writes = store.atom_writes(w, wt(0)).unwrap();
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0], atom_write);
     }
@@ -1697,9 +1762,11 @@ mod tests {
         service.append_local_commit(test_entry(0)).unwrap();
         service.append_local_commit(test_entry(1)).unwrap();
 
-        let btr = service.build_btr(w, 0, 2, 7, b"auth".to_vec()).unwrap();
+        let btr = service
+            .build_btr(w, wt(0), wt(2), 7, b"auth".to_vec())
+            .unwrap();
         assert_eq!(btr.logical_counter, 7);
-        assert_eq!(btr.payload.start_tick, 0);
+        assert_eq!(btr.payload.start_worldline_tick, wt(0));
         assert_eq!(btr.payload.entries.len(), 2);
         service.validate_btr(&btr).unwrap();
     }
@@ -1715,8 +1782,8 @@ mod tests {
         let first_ref = first.as_ref();
         let second = ProvenanceEntry::local_commit(
             w,
-            1,
-            1,
+            wt(1),
+            gt(1),
             test_head_key(),
             vec![first_ref],
             test_triplet(1),
@@ -1728,7 +1795,9 @@ mod tests {
         service.append_local_commit(first).unwrap();
         service.append_local_commit(second.clone()).unwrap();
 
-        let btr = service.build_btr(w, 0, 2, 9, b"auth".to_vec()).unwrap();
+        let btr = service
+            .build_btr(w, wt(0), wt(2), 9, b"auth".to_vec())
+            .unwrap();
         assert_eq!(btr.logical_counter, 9);
         assert_eq!(btr.payload.entries[1].head_key, Some(test_head_key()));
         assert_eq!(btr.payload.entries[1].parents, vec![first_ref]);
@@ -1749,22 +1818,22 @@ mod tests {
             .add_checkpoint(
                 source,
                 CheckpointRef {
-                    tick: 1,
+                    worldline_tick: wt(1),
                     state_hash: [1u8; 32],
                 },
             )
             .unwrap();
 
-        service.fork(source, 0, target).unwrap();
+        service.fork(source, wt(0), target).unwrap();
 
         assert_eq!(service.len(target).unwrap(), 1);
-        let forked_entry = service.entry(target, 0).unwrap();
+        let forked_entry = service.entry(target, wt(0)).unwrap();
         assert_eq!(forked_entry.worldline_id, target);
         assert_eq!(forked_entry.head_key.unwrap().worldline_id, target);
         assert_eq!(forked_entry.expected, test_triplet(0));
-        assert!(service.checkpoint_before(target, 1).is_none());
+        assert!(service.checkpoint_before(target, wt(1)).is_none());
         service
-            .build_btr(target, 0, 1, 7, b"auth".to_vec())
+            .build_btr(target, wt(0), wt(1), 7, b"auth".to_vec())
             .unwrap();
     }
 
@@ -1772,15 +1841,15 @@ mod tests {
     fn btr_validation_rejects_non_contiguous_ticks() {
         let payload = BtrPayload {
             worldline_id: test_worldline_id(),
-            start_tick: 0,
+            start_worldline_tick: wt(0),
             entries: vec![test_entry(0), test_entry(2)],
         };
         assert!(matches!(
             payload.validate(),
             Err(BtrError::NonContiguousTicks {
-                expected: 1,
-                got: 2
-            })
+                expected,
+                got
+            }) if expected == wt(1) && got == wt(2)
         ));
     }
 
@@ -1792,11 +1861,11 @@ mod tests {
         };
         let payload = BtrPayload {
             worldline_id: test_worldline_id(),
-            start_tick: u64::MAX,
+            start_worldline_tick: wt(u64::MAX),
             entries: vec![ProvenanceEntry::local_commit(
                 test_worldline_id(),
-                u64::MAX,
-                0,
+                wt(u64::MAX),
+                gt(0),
                 head_key,
                 Vec::new(),
                 test_triplet(0),
@@ -1820,7 +1889,9 @@ mod tests {
         service.register_worldline(w, &state).unwrap();
         service.append_local_commit(test_entry(0)).unwrap();
 
-        let mut btr = service.build_btr(w, 0, 1, 3, b"auth".to_vec()).unwrap();
+        let mut btr = service
+            .build_btr(w, wt(0), wt(1), 3, b"auth".to_vec())
+            .unwrap();
         btr.input_boundary_hash = [9u8; 32];
 
         assert!(matches!(
@@ -1837,7 +1908,9 @@ mod tests {
         service.register_worldline(w, &state).unwrap();
         service.append_local_commit(test_entry(0)).unwrap();
 
-        let mut btr = service.build_btr(w, 0, 1, 3, b"auth".to_vec()).unwrap();
+        let mut btr = service
+            .build_btr(w, wt(0), wt(1), 3, b"auth".to_vec())
+            .unwrap();
         btr.output_boundary_hash = [7u8; 32];
 
         assert!(matches!(
@@ -1854,7 +1927,9 @@ mod tests {
         service.register_worldline(w, &state).unwrap();
         service.append_local_commit(test_entry(0)).unwrap();
 
-        let mut btr = service.build_btr(w, 0, 1, 3, b"auth".to_vec()).unwrap();
+        let mut btr = service
+            .build_btr(w, wt(0), wt(1), 3, b"auth".to_vec())
+            .unwrap();
         btr.payload.entries[0].head_key = Some(WriterHeadKey {
             worldline_id: w,
             head_id: make_head_id("mismatch"),
@@ -1862,7 +1937,7 @@ mod tests {
 
         assert!(matches!(
             service.validate_btr(&btr),
-            Err(BtrError::EntryMismatch { tick: 0 })
+            Err(BtrError::EntryMismatch { tick }) if tick == wt(0)
         ));
     }
 
@@ -1870,8 +1945,8 @@ mod tests {
     fn btr_validation_rejects_mixed_worldlines() {
         let entry = ProvenanceEntry::local_commit(
             WorldlineId([2u8; 32]),
-            0,
-            0,
+            wt(0),
+            gt(0),
             WriterHeadKey {
                 worldline_id: WorldlineId([2u8; 32]),
                 head_id: make_head_id("b"),
@@ -1884,7 +1959,7 @@ mod tests {
         );
         let payload = BtrPayload {
             worldline_id: test_worldline_id(),
-            start_tick: 0,
+            start_worldline_tick: wt(0),
             entries: vec![entry],
         };
         assert!(matches!(

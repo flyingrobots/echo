@@ -7,7 +7,7 @@
 //! implementation. The boundary is app-agnostic: any kernel that implements
 //! the trait can be installed via [`install_kernel`].
 //!
-//! # ABI Contract (v2)
+//! # ABI Contract (v3)
 //!
 //! All exports return CBOR-encoded bytes wrapped in a success/error envelope:
 //! - Success: `{ "ok": true, ...response_fields }`
@@ -213,7 +213,7 @@ pub fn init_console_panic_hook() {
 }
 
 // ---------------------------------------------------------------------------
-// ABI exports (v2)
+// ABI exports (v3)
 // ---------------------------------------------------------------------------
 
 /// Initialize the default engine kernel.
@@ -245,15 +245,6 @@ pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel(|k| k.dispatch_intent(intent_bytes)))
 }
 
-/// Run deterministic steps up to a budget.
-///
-/// Returns CBOR-encoded [`StepResponse`](kernel_port::StepResponse).
-/// A budget of 0 returns the current head without executing ticks.
-#[wasm_bindgen]
-pub fn step(step_budget: u32) -> Uint8Array {
-    encode_result(with_kernel(|k| k.step(step_budget)))
-}
-
 /// Observe a worldline at an explicit coordinate, frame, and projection.
 ///
 /// The request bytes must decode as canonical-CBOR `ObservationRequest`.
@@ -277,6 +268,12 @@ pub fn observe(request_bytes: &[u8]) -> Uint8Array {
 #[wasm_bindgen]
 pub fn get_registry_info() -> Uint8Array {
     encode_result(with_kernel_ref(|k| Ok(k.registry_info())))
+}
+
+/// Return read-only scheduler status metadata.
+#[wasm_bindgen]
+pub fn scheduler_status() -> Uint8Array {
+    encode_result(with_kernel_ref(|k| k.scheduler_status()))
 }
 
 /// Get the codec identifier from the installed registry.
@@ -517,9 +514,10 @@ mod schema_validation_tests {
 mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        DispatchResponse, HeadInfo, HeadObservation, ObservationArtifact, ObservationAt,
-        ObservationFrame, ObservationPayload, ObservationProjection, RegistryInfo,
-        ResolvedObservationCoordinate, StepResponse, ABI_VERSION,
+        DispatchResponse, GlobalTick, HeadInfo, HeadObservation, ObservationArtifact,
+        ObservationAt, ObservationFrame, ObservationPayload, ObservationProjection, RegistryInfo,
+        ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
+        SchedulerStatus, WorkState, WorldlineTick, ABI_VERSION,
     };
 
     struct StubKernel;
@@ -527,7 +525,8 @@ mod init_tests {
     impl StubKernel {
         fn current_head() -> HeadInfo {
             HeadInfo {
-                tick: 0,
+                worldline_tick: WorldlineTick(0),
+                commit_global_tick: None,
                 state_root: vec![2; 32],
                 commit_id: vec![3; 32],
             }
@@ -539,13 +538,18 @@ mod init_tests {
             Ok(DispatchResponse {
                 accepted: true,
                 intent_id: vec![0; 32],
-            })
-        }
-
-        fn step(&mut self, _budget: u32) -> Result<StepResponse, AbiError> {
-            Ok(StepResponse {
-                ticks_executed: 0,
-                head: Self::current_head(),
+                scheduler_status: SchedulerStatus {
+                    state: SchedulerState::Inactive,
+                    active_mode: Some(SchedulerMode::UntilIdle {
+                        cycle_limit: Some(1),
+                    }),
+                    work_state: WorkState::Quiescent,
+                    run_id: Some(RunId(1)),
+                    latest_cycle_global_tick: Some(GlobalTick(1)),
+                    latest_commit_global_tick: Some(GlobalTick(1)),
+                    last_quiescent_global_tick: Some(GlobalTick(1)),
+                    last_run_completion: Some(RunCompletion::Quiesced),
+                },
             })
         }
 
@@ -556,7 +560,9 @@ mod init_tests {
                     observation_version: 1,
                     worldline_id: vec![9; 32],
                     requested_at: ObservationAt::Frontier,
-                    resolved_tick: head.tick,
+                    resolved_worldline_tick: head.worldline_tick,
+                    commit_global_tick: head.commit_global_tick,
+                    observed_after_global_tick: Some(GlobalTick(1)),
                     state_root: head.state_root.clone(),
                     commit_hash: head.commit_id.clone(),
                 },
@@ -565,7 +571,8 @@ mod init_tests {
                 artifact_hash: vec![4; 32],
                 payload: ObservationPayload::Head {
                     head: HeadObservation {
-                        tick: head.tick,
+                        worldline_tick: head.worldline_tick,
+                        commit_global_tick: head.commit_global_tick,
                         state_root: head.state_root,
                         commit_id: head.commit_id,
                     },
@@ -580,6 +587,19 @@ mod init_tests {
                 schema_sha256_hex: None,
                 abi_version: ABI_VERSION,
             }
+        }
+
+        fn scheduler_status(&self) -> Result<SchedulerStatus, AbiError> {
+            Ok(SchedulerStatus {
+                state: SchedulerState::Inactive,
+                active_mode: None,
+                work_state: WorkState::Quiescent,
+                run_id: None,
+                latest_cycle_global_tick: None,
+                latest_commit_global_tick: None,
+                last_quiescent_global_tick: None,
+                last_run_completion: None,
+            })
         }
     }
 

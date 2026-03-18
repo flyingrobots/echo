@@ -1,27 +1,38 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# SPEC-0009: WASM ABI Contract v2
+# SPEC-0009: WASM ABI Contract v3
 
-> **Status:** Active | **ABI Version:** 2 | **Crate:** `warp-wasm`
+> **Status:** Active | **ABI Version:** 3 | **Crate:** `warp-wasm`
 
 ## Overview
 
-This document specifies the Phase 6 Slice A WASM export surface, wire
-encoding, and error protocol for the Echo deterministic simulation boundary.
-The ABI remains app-agnostic, but the public read surface is now explicitly
-observation-first:
+This document specifies the current WASM export surface, wire encoding, and
+error protocol for Echo's deterministic simulation boundary.
+
+ABI v3 makes three boundaries explicit:
 
 - `observe(request)` is the only public read export.
-- `dispatch_intent(...)` and `step(...)` remain the write / advance boundary.
-- legacy read adapters from ABI v1 are removed from the public boundary.
+- `dispatch_intent(...)` is the only public write and control ingress surface.
+- `scheduler_status()` is the read-only scheduler metadata export.
+
+Echo internals do not consume wall-clock time. All clocks in this ABI are
+logical monotone integers:
+
+- `WorldlineTick` is per-worldline append identity.
+- `GlobalTick` is runtime cycle correlation metadata.
+- `RunId` is a control-plane generation token.
+
+Scheduler lifecycle requests are carried as privileged control intents through
+the same EINT intake path as domain intents. There is no public `step(...)`,
+poll, or tick hook API in ABI v3.
 
 ## Architecture
 
 ```text
 ┌─────────────────────────────────────────────────┐
 │                 JS / Host Adapter                │
-│  (decodes CBOR envelopes, drives tick loop)      │
+│  (submits intents, decodes CBOR envelopes)       │
 └───────────────────┬─────────────────────────────┘
                     │  wasm-bindgen exports
 ┌───────────────────▼─────────────────────────────┐
@@ -45,20 +56,41 @@ All exports are `#[wasm_bindgen]` functions. Return types are CBOR-encoded
 | ------------------------- | ---------------------- | ------------------------------ |
 | `init()`                  | `() → Uint8Array`      | `HeadInfo` envelope            |
 | `dispatch_intent(bytes)`  | `(&[u8]) → Uint8Array` | `DispatchResponse` envelope    |
-| `step(budget)`            | `(u32) → Uint8Array`   | `StepResponse` envelope        |
 | `observe(request)`        | `(&[u8]) → Uint8Array` | `ObservationArtifact` envelope |
+| `scheduler_status()`      | `() → Uint8Array`      | `SchedulerStatus` envelope     |
 | `get_registry_info()`     | `() → Uint8Array`      | `RegistryInfo` envelope        |
 | `get_codec_id()`          | `() → JsValue`         | `string \| null`               |
 | `get_registry_version()`  | `() → JsValue`         | `string \| null`               |
 | `get_schema_sha256_hex()` | `() → JsValue`         | `string \| null`               |
 
-Removed in ABI v2:
+Removed before or by ABI v3:
 
 - `drain_view_ops()`
 - `get_head()`
 - `execute_query(id, vars)`
 - `snapshot_at(tick)`
 - `render_snapshot(bytes)`
+- `step(budget)`
+
+## Intent Intake
+
+All external writes enter Echo through EINT envelopes.
+
+- Domain intents use their domain-specific `op_id`.
+- Privileged scheduler/control intents use reserved op id `u32::MAX`
+  (`CONTROL_INTENT_V1_OP_ID`).
+
+Control intents decode as canonical-CBOR `ControlIntentV1`:
+
+- `Start { mode: UntilIdle { cycle_limit: Option<u32> } }`
+- `Stop`
+- `SetHeadEligibility { head, eligibility }`
+
+Notes:
+
+- `cycle_limit`, when present, must be non-zero.
+- The current engine-backed implementation supports `UntilIdle` only.
+- No wall-clock scheduler mode exists in ABI v3.
 
 ## Wire Envelope
 
@@ -87,7 +119,7 @@ The request payload for `observe(request)` is canonical-CBOR bytes that decode
 to:
 
 - `coordinate.worldline_id: bytes(32)`
-- `coordinate.at: frontier | tick`
+- `coordinate.at: frontier | tick { worldline_tick }`
 - `frame: commit_boundary | recorded_truth | query_view`
 - `projection: head | snapshot | truth_channels | query`
 
@@ -106,14 +138,16 @@ to:
 
 ### ResolvedObservationCoordinate
 
-| Field                 | Type      | Description                                 |
-| --------------------- | --------- | ------------------------------------------- |
-| `observation_version` | u32       | Observation contract version                |
-| `worldline_id`        | bytes(32) | Worldline actually observed                 |
-| `requested_at`        | enum      | Original coordinate selector                |
-| `resolved_tick`       | u64       | Concrete resolved tick                      |
-| `state_root`          | bytes(32) | Canonical graph-only state hash             |
-| `commit_hash`         | bytes(32) | Canonical commit hash at the resolved point |
+| Field                        | Type            | Description                                      |
+| ---------------------------- | --------------- | ------------------------------------------------ |
+| `observation_version`        | u32             | Observation contract version                     |
+| `worldline_id`               | bytes(32)       | Worldline actually observed                      |
+| `requested_at`               | enum            | Original coordinate selector                     |
+| `resolved_worldline_tick`    | `WorldlineTick` | Concrete resolved committed worldline coordinate |
+| `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit       |
+| `observed_after_global_tick` | `GlobalTick?`   | Observation freshness watermark                  |
+| `state_root`                 | bytes(32)       | Canonical graph-only state hash                  |
+| `commit_hash`                | bytes(32)       | Canonical commit hash at the resolved point      |
 
 ### ObservationPayload
 
@@ -124,27 +158,43 @@ to:
 
 ### HeadInfo
 
-Returned by `init()` and nested inside `StepResponse`.
+Returned by `init()`.
 
-| Field        | Type      | Description                  |
-| ------------ | --------- | ---------------------------- |
-| `tick`       | u64       | Number of committed ticks    |
-| `state_root` | bytes(32) | Graph-only BLAKE3 state hash |
-| `commit_id`  | bytes(32) | Canonical commit hash        |
+| Field                | Type            | Description                          |
+| -------------------- | --------------- | ------------------------------------ |
+| `worldline_tick`     | `WorldlineTick` | Current committed worldline position |
+| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit   |
+| `state_root`         | bytes(32)       | Graph-only BLAKE3 state hash         |
+| `commit_id`          | bytes(32)       | Canonical commit hash                |
 
 ### DispatchResponse
 
-| Field       | Type      | Description                                    |
-| ----------- | --------- | ---------------------------------------------- |
-| `accepted`  | bool      | `true` if newly accepted, `false` if duplicate |
-| `intent_id` | bytes(32) | Content-addressed intent hash                  |
+| Field              | Type              | Description                                    |
+| ------------------ | ----------------- | ---------------------------------------------- |
+| `accepted`         | bool              | `true` if newly accepted, `false` if duplicate |
+| `intent_id`        | bytes(32)         | Content-addressed intent hash                  |
+| `scheduler_status` | `SchedulerStatus` | Scheduler metadata after ingest/apply          |
 
-### StepResponse
+### SchedulerStatus
 
-| Field            | Type     | Description                        |
-| ---------------- | -------- | ---------------------------------- |
-| `ticks_executed` | u32      | Ticks actually executed (≤ budget) |
-| `head`           | HeadInfo | Post-step head state               |
+| Field                        | Type             | Description                                          |
+| ---------------------------- | ---------------- | ---------------------------------------------------- |
+| `state`                      | `SchedulerState` | Scheduler lifecycle state                            |
+| `active_mode`                | `SchedulerMode?` | Active mode while a run is configured                |
+| `work_state`                 | `WorkState`      | Whether runnable work exists at the current boundary |
+| `run_id`                     | `RunId?`         | Current or latest run generation token               |
+| `latest_cycle_global_tick`   | `GlobalTick?`    | Latest completed runtime cycle                       |
+| `latest_commit_global_tick`  | `GlobalTick?`    | Latest cycle that produced a commit                  |
+| `last_quiescent_global_tick` | `GlobalTick?`    | Most recent transition into quiescence               |
+| `last_run_completion`        | `RunCompletion?` | Why the most recent run ended                        |
+
+Current engine-backed behavior:
+
+- `init()` leaves the runtime inert.
+- `Start { mode: UntilIdle { ... } }` runs synchronously inside the control
+  intent handler and returns after the run completes.
+- Hosts normally observe `state = inactive` plus `last_run_completion`, not a
+  long-lived running scheduler loop.
 
 ### ChannelData
 
@@ -160,7 +210,7 @@ Returned by `init()` and nested inside `StepResponse`.
 | `codec_id`          | string? | Codec identifier (e.g. `"cbor-canonical-v1"`) |
 | `registry_version`  | string? | Registry version                              |
 | `schema_sha256_hex` | string? | Schema hash (hex)                             |
-| `abi_version`       | u32     | ABI contract version (currently `2`)          |
+| `abi_version`       | u32     | ABI contract version (currently `3`)          |
 
 ## Error Codes
 
@@ -178,36 +228,44 @@ Returned by `init()` and nested inside `StepResponse`.
 | 10   | `UNSUPPORTED_FRAME_PROJECTION` | Invalid frame/projection pair                              |
 | 11   | `UNSUPPORTED_QUERY`            | Query observation not yet implemented                      |
 | 12   | `OBSERVATION_UNAVAILABLE`      | Valid request but no observation exists at that coordinate |
+| 13   | `INVALID_CONTROL`              | Malformed or invalid control intent                        |
 
 ## Rust Boundary
 
 `KernelPort` is the Rust-side ABI contract for `warp-wasm`.
 
 - `dispatch_intent(...)`
-- `step(...)`
 - `observe(...)`
+- `scheduler_status()`
 - `registry_info()`
 
-The trait no longer exposes the removed v1 read adapters. Implementors that
-need head or snapshot data must derive them from their own observation-backed
-internals rather than adding parallel public read methods.
+The trait does not expose the removed v1 read adapters or a public step/pump
+surface. Implementors that need head or snapshot data must derive them from
+their own observation-backed internals rather than adding parallel public read
+methods.
 
 ## Migration Notes for Host Adapters
 
-### From ABI v1 to ABI v2
+### From ABI v2 to ABI v3
 
-1. Replace any direct use of `get_head()`, `snapshot_at()`, `drain_view_ops()`,
-   `execute_query(...)`, and `render_snapshot(...)` with `observe(request)`.
-2. Treat `observe(request)` as the only canonical public read boundary.
-3. Continue decoding `init()` and `step()` exactly as before; both still return
-   head metadata envelopes.
-4. Read `RegistryInfo.abi_version` and reject hosts that still expect the
-   removed v1 exports.
-5. Expect query-shaped observations to continue returning
+1. Stop calling `step(...)`; the export is absent in ABI v3.
+2. Continue treating `observe(request)` as the only canonical public read
+   boundary.
+3. Route scheduler lifecycle and admission requests through
+   `dispatch_intent(...)` using `ControlIntentV1` packed into an EINT envelope.
+4. Read `RegistryInfo.abi_version` and reject hosts that still expect the v2
+   step surface.
+5. Rename host-side field access from bare `tick`-style fields to explicit
+   `worldline_tick`, `commit_global_tick`, and
+   `observed_after_global_tick` fields.
+6. Treat all ABI clocks as logical coordinates only. They are not wall-clock
+   durations, timer inputs, or global ordering cursors.
+7. Expect query-shaped observations to continue returning
    `UNSUPPORTED_QUERY` until a real observation-backed query implementation
    lands.
 
 ## Compatibility Note
 
-ABI v2 is intentionally breaking. The removed v1 exports are absent, not
-deprecated, and hosts must migrate to explicit observation requests.
+ABI v3 is intentionally breaking. The removed step/pump surface is absent, not
+deprecated, and hosts must migrate to explicit observation requests plus
+intent-shaped scheduler control.

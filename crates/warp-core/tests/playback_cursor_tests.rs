@@ -13,8 +13,12 @@ use common::{
 };
 use warp_core::{
     compute_commit_hash_v2, compute_state_root_for_warp_store, CursorRole, Hash, HashTriplet,
-    LocalProvenanceStore, PlaybackCursor, ProvenanceStore, SeekError,
+    LocalProvenanceStore, PlaybackCursor, ProvenanceStore, SeekError, WorldlineTick,
 };
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
+}
 
 /// T14: cursor_seek_fails_on_corrupt_patch_or_hash_mismatch
 ///
@@ -82,18 +86,18 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        wt(10),
     );
 
     // Seeking to tick 5 should succeed (before the corrupted tick)
-    let result = cursor.seek_to(5, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(5), &provenance, &initial_store);
     assert!(result.is_ok(), "seek to tick 5 should succeed");
-    assert_eq!(cursor.tick, 5);
+    assert_eq!(cursor.tick, wt(5));
 
     // Seeking from tick 5 to tick 8 should fail at tick 6 due to hash mismatch
-    let result = cursor.seek_to(8, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(8), &provenance, &initial_store);
     assert!(
-        matches!(result, Err(SeekError::StateRootMismatch { tick: 6 })),
+        matches!(result, Err(SeekError::StateRootMismatch { tick }) if tick == wt(6)),
         "expected StateRootMismatch at tick 6, got: {result:?}"
     );
 }
@@ -113,19 +117,19 @@ fn seek_past_available_history_returns_history_unavailable() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        100, // pin_max_tick is high but provenance only has 10 ticks
+        wt(100), // pin_max_tick is high but provenance only has 10 ticks
     );
 
     // With 10 patches in history (indices 0..9), valid ticks are 0..=10.
     // Tick 10 represents the state after all patches have been applied.
-    let result = cursor.seek_to(10, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(10), &provenance, &initial_store);
     assert!(result.is_ok(), "seek to tick 10 should succeed: {result:?}");
-    assert_eq!(cursor.tick, 10);
+    assert_eq!(cursor.tick, wt(10));
 
     // Seeking to tick 50 should fail with HistoryUnavailable
-    let result = cursor.seek_to(50, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(50), &provenance, &initial_store);
     assert!(
-        matches!(result, Err(SeekError::HistoryUnavailable { tick: 50 })),
+        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == wt(50)),
         "expected HistoryUnavailable at tick 50, got: {result:?}"
     );
 }
@@ -142,23 +146,23 @@ fn seek_backward_rebuilds_from_initial_state() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        wt(10),
     );
 
     // Seek to tick 8
     cursor
-        .seek_to(8, &provenance, &initial_store)
+        .seek_to(wt(8), &provenance, &initial_store)
         .expect("seek to 8 should succeed");
-    assert_eq!(cursor.tick, 8);
+    assert_eq!(cursor.tick, wt(8));
 
     // Get hash at tick 8
     let hash_at_8 = compute_state_root_for_warp_store(&cursor.store, warp_id);
 
     // Seek backward to tick 3
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_store)
         .expect("seek to 3 should succeed");
-    assert_eq!(cursor.tick, 3);
+    assert_eq!(cursor.tick, wt(3));
 
     // Get hash at tick 3 - must differ from tick 8 since different patches are applied
     let hash_at_3 = compute_state_root_for_warp_store(&cursor.store, warp_id);
@@ -169,9 +173,9 @@ fn seek_backward_rebuilds_from_initial_state() {
 
     // Seek forward again to tick 8 - should get same hash
     cursor
-        .seek_to(8, &provenance, &initial_store)
+        .seek_to(wt(8), &provenance, &initial_store)
         .expect("seek back to 8 should succeed");
-    assert_eq!(cursor.tick, 8);
+    assert_eq!(cursor.tick, wt(8));
 
     let hash_at_8_again = compute_state_root_for_warp_store(&cursor.store, warp_id);
     assert_eq!(
@@ -181,9 +185,9 @@ fn seek_backward_rebuilds_from_initial_state() {
 
     // Also verify we can seek to 0 (initial state with patches applied from 0..0 = none)
     cursor
-        .seek_to(0, &provenance, &initial_store)
+        .seek_to(wt(0), &provenance, &initial_store)
         .expect("seek to 0 should succeed");
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.tick, wt(0));
 
     // At tick 0, no patches have been applied, so store should be initial state
     let initial_hash = compute_state_root_for_warp_store(&initial_store, warp_id);
@@ -205,19 +209,19 @@ fn seek_to_current_tick_is_noop() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        5,
+        wt(5),
     );
 
     // Seek to tick 3
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_store)
         .expect("seek to 3 should succeed");
 
     let hash_before = compute_state_root_for_warp_store(&cursor.store, warp_id);
 
     // Seek to same tick
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_store)
         .expect("seek to same tick should succeed");
 
     let hash_after = compute_state_root_for_warp_store(&cursor.store, warp_id);
@@ -244,12 +248,12 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        0, // pin_max_tick = 0: cursor is already at frontier
+        wt(0), // pin_max_tick = 0: cursor is already at frontier
     );
 
     // Cursor starts at tick 0, pin_max_tick is 0 => already at frontier
-    assert_eq!(cursor.tick, 0);
-    assert_eq!(cursor.pin_max_tick, 0);
+    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.pin_max_tick, wt(0));
 
     // Switch to Play mode and step
     cursor.mode = warp_core::PlaybackMode::Play;
@@ -270,7 +274,7 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
     );
 
     // Tick should remain at 0
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.tick, wt(0));
 }
 
 /// Edge case: Seeking to `u64::MAX` on a worldline with only a few ticks
@@ -286,18 +290,18 @@ fn seek_to_u64_max_returns_history_unavailable() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        u64::MAX,
+        WorldlineTick::MAX,
     );
 
-    let result = cursor.seek_to(u64::MAX, &provenance, &initial_store);
+    let result = cursor.seek_to(WorldlineTick::MAX, &provenance, &initial_store);
 
     assert!(
-        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == u64::MAX),
+        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == WorldlineTick::MAX),
         "expected HistoryUnavailable at u64::MAX, got: {result:?}"
     );
 
     // Cursor tick should remain at 0 (seek failed, no state change)
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.tick, wt(0));
 }
 
 /// Edge case: A worldline that is registered but has no patches appended.
@@ -322,29 +326,29 @@ fn empty_worldline_cursor_at_tick_zero() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        100,
+        wt(100),
     );
 
     // Cursor starts at tick 0
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.tick, wt(0));
 
     // Seeking to tick 0 should be a no-op (already there)
-    let result = cursor.seek_to(0, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(0), &provenance, &initial_store);
     assert!(
         result.is_ok(),
         "seek to 0 on empty worldline should succeed (no-op)"
     );
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.tick, wt(0));
 
     // Seeking to tick 1 should fail: no patches available
-    let result = cursor.seek_to(1, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(1), &provenance, &initial_store);
     assert!(
-        matches!(result, Err(SeekError::HistoryUnavailable { tick: 1 })),
+        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == wt(1)),
         "expected HistoryUnavailable at tick 1 on empty worldline, got: {result:?}"
     );
 
     // Cursor should remain at tick 0
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.tick, wt(0));
 }
 
 /// Edge case: Registering the same `WorldlineId` twice with the same `u0_ref` is
@@ -434,12 +438,12 @@ fn duplicate_worldline_registration_is_idempotent() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        wt(10),
     );
-    let result = cursor.seek_to(1, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(1), &provenance, &initial_store);
     assert!(
         result.is_ok(),
         "seek should succeed after failed re-registration: {result:?}"
     );
-    assert_eq!(cursor.tick, 1);
+    assert_eq!(cursor.tick, wt(1));
 }

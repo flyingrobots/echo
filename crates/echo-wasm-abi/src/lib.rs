@@ -44,6 +44,9 @@ pub use ttd::*;
 /// Deterministic binary codec for length-prefixed scalars and Q32.32 fixed-point helpers.
 pub mod codec;
 
+/// Reserved EINT op id for privileged control intents.
+pub const CONTROL_INTENT_V1_OP_ID: u32 = u32::MAX;
+
 /// Errors produced by the Intent Envelope parser.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EnvelopeError {
@@ -122,6 +125,25 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
     }
 
     Ok((op_id, &bytes[12..]))
+}
+
+/// Packs a privileged control intent into an EINT envelope v1.
+pub fn pack_control_intent_v1(
+    intent: &kernel_port::ControlIntentV1,
+) -> Result<Vec<u8>, EnvelopeError> {
+    let bytes = encode_cbor(intent).map_err(|_| EnvelopeError::Malformed)?;
+    pack_intent_v1(CONTROL_INTENT_V1_OP_ID, &bytes)
+}
+
+/// Unpacks and decodes a privileged control intent from an EINT envelope v1.
+pub fn unpack_control_intent_v1(
+    bytes: &[u8],
+) -> Result<kernel_port::ControlIntentV1, EnvelopeError> {
+    let (op_id, vars) = unpack_intent_v1(bytes)?;
+    if op_id != CONTROL_INTENT_V1_OP_ID {
+        return Err(EnvelopeError::Malformed);
+    }
+    decode_cbor(vars).map_err(|_| EnvelopeError::Malformed)
 }
 
 // -----------------------------------------------------------------------------

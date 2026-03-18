@@ -15,6 +15,7 @@ use std::collections::BTreeSet;
 
 use thiserror::Error;
 
+use crate::clock::WorldlineTick;
 use crate::graph::GraphStore;
 use crate::head::WriterHeadKey;
 use crate::ident::{make_node_id, make_type_id, make_warp_id, Hash, NodeKey};
@@ -247,10 +248,10 @@ impl WorldlineState {
 
     /// Returns the current committed frontier tick implied by this state's history.
     #[must_use]
-    pub fn current_tick(&self) -> u64 {
+    pub fn current_tick(&self) -> WorldlineTick {
         #[allow(clippy::cast_possible_truncation)]
         {
-            self.tick_history.len() as u64
+            WorldlineTick::from_raw(self.tick_history.len() as u64)
         }
     }
 
@@ -311,7 +312,7 @@ pub struct WorldlineFrontier {
     /// Current frontier tick (typed in Phase 6 as `WorldlineTick`).
     ///
     /// `pub(crate)` — only the coordinator may advance this.
-    pub(crate) frontier_tick: u64,
+    pub(crate) frontier_tick: WorldlineTick,
 }
 
 impl WorldlineFrontier {
@@ -321,7 +322,7 @@ impl WorldlineFrontier {
         Self {
             worldline_id,
             state,
-            frontier_tick: 0,
+            frontier_tick: WorldlineTick::ZERO,
         }
     }
 
@@ -333,7 +334,7 @@ impl WorldlineFrontier {
 
     /// Returns the current frontier tick.
     #[must_use]
-    pub fn frontier_tick(&self) -> u64 {
+    pub fn frontier_tick(&self) -> WorldlineTick {
         self.frontier_tick
     }
 
@@ -349,14 +350,14 @@ impl WorldlineFrontier {
     }
 
     /// Advances the frontier tick by one, returning the new value.
-    pub(crate) fn advance_tick(&mut self) -> Option<u64> {
-        self.frontier_tick = self.frontier_tick.checked_add(1)?;
+    pub(crate) fn advance_tick(&mut self) -> Option<WorldlineTick> {
+        self.frontier_tick = self.frontier_tick.checked_increment()?;
         Some(self.frontier_tick)
     }
 
     /// Creates a frontier at a specific tick (used for fork/rebuild).
     #[must_use]
-    pub fn at_tick(worldline_id: WorldlineId, state: WorldlineState, tick: u64) -> Self {
+    pub fn at_tick(worldline_id: WorldlineId, state: WorldlineState, tick: WorldlineTick) -> Self {
         Self {
             worldline_id,
             state,
@@ -385,14 +386,15 @@ mod tests {
     #[test]
     fn worldline_frontier_starts_at_tick_zero() {
         let frontier = WorldlineFrontier::new(wl(1), WorldlineState::empty());
-        assert_eq!(frontier.frontier_tick(), 0);
+        assert_eq!(frontier.frontier_tick(), WorldlineTick::ZERO);
         assert_eq!(frontier.worldline_id(), wl(1));
     }
 
     #[test]
     fn worldline_frontier_at_tick() {
-        let frontier = WorldlineFrontier::at_tick(wl(1), WorldlineState::empty(), 42);
-        assert_eq!(frontier.frontier_tick(), 42);
+        let frontier =
+            WorldlineFrontier::at_tick(wl(1), WorldlineState::empty(), WorldlineTick::from_raw(42));
+        assert_eq!(frontier.frontier_tick(), WorldlineTick::from_raw(42));
     }
 
     #[test]

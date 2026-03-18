@@ -28,7 +28,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use common::{append_fixture_entry, XorShift64};
 use warp_core::{
     compute_commit_hash_v2, compute_state_root_for_warp_store, HashTriplet, LocalProvenanceStore,
-    WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
 use warp_core::{
     make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload, AttachmentKey,
@@ -37,6 +37,10 @@ use warp_core::{
     PatternGraph, PlaybackCursor, PortSet, RewriteRule, TickDelta, ViolationKind, WarpOp,
     WorldlineId,
 };
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
+}
 
 // =============================================================================
 // Constants
@@ -566,7 +570,7 @@ fn phase_2_and_3_playback_replay_matches_execution() {
         // Convert to WorldlineTickPatchV1 for provenance
         let wl_patch = WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
-                global_tick: tick,
+                commit_global_tick: warp_core::GlobalTick::from_raw(tick),
                 policy_id: snapshot.policy_id,
                 rule_pack_id: patch.rule_pack_id(),
                 plan_digest: snapshot.plan_digest,
@@ -622,10 +626,10 @@ fn phase_2_and_3_playback_replay_matches_execution() {
         warp_id,
         CursorRole::Reader,
         &store,
-        NUM_TICKS,
+        wt(NUM_TICKS),
     );
     cursor
-        .seek_to(NUM_TICKS, &provenance, &store)
+        .seek_to(wt(NUM_TICKS), &provenance, &store)
         .expect("seek_to should succeed");
 
     let replayed_root = compute_state_root_for_warp_store(&cursor.store, warp_id);
@@ -643,10 +647,10 @@ fn phase_2_and_3_playback_replay_matches_execution() {
             warp_id,
             CursorRole::Reader,
             &store,
-            NUM_TICKS,
+            wt(NUM_TICKS),
         );
         cursor_tick
-            .seek_to(tick, &provenance, &store)
+            .seek_to(wt(tick), &provenance, &store)
             .expect("seek_to tick");
         let tick_root = compute_state_root_for_warp_store(&cursor_tick.store, warp_id);
         assert_eq!(
@@ -796,7 +800,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
 
     let wl_patch = WorldlineTickPatchV1 {
         header: WorldlineTickHeaderV1 {
-            global_tick: 0,
+            commit_global_tick: warp_core::GlobalTick::ZERO,
             policy_id: snapshot.policy_id,
             rule_pack_id: patch.rule_pack_id(),
             plan_digest: snapshot.plan_digest,
@@ -843,10 +847,10 @@ fn phase_6_semantic_correctness_dependent_chain() {
         warp_id,
         CursorRole::Reader,
         &post_r1_store,
-        1,
+        wt(1),
     );
     cursor
-        .seek_to(1, &provenance, &post_r1_store)
+        .seek_to(wt(1), &provenance, &post_r1_store)
         .expect("seek");
 
     // Verify same semantic result after replay

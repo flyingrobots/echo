@@ -38,8 +38,13 @@ use warp_core::{
     compute_commit_hash_v2, compute_state_root_for_warp_store, make_head_id, make_intent_kind,
     EngineBuilder, Hash, HashTriplet, InboxPolicy, IngressDisposition, IngressEnvelope,
     IngressTarget, LocalProvenanceStore, PlaybackHeadRegistry, PlaybackMode, ProvenanceStore,
-    RunnableWriterSet, WorldlineId, WorldlineRuntime, WorldlineState, WriterHead, WriterHeadKey,
+    RunnableWriterSet, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead,
+    WriterHeadKey,
 };
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
+}
 
 fn runtime_with_default_writer(worldline_id: WorldlineId) -> (WorldlineRuntime, WriterHeadKey) {
     let mut runtime = WorldlineRuntime::new();
@@ -299,11 +304,11 @@ fn inv004_no_cross_worldline_leakage() {
 
     // State roots must differ (different node names)
     let sr_a = provenance
-        .entry(worldline_a, 4)
+        .entry(worldline_a, wt(4))
         .unwrap()
         .expected
         .state_root;
-    let triplet_b_before = provenance.entry(worldline_b, 2).unwrap().expected;
+    let triplet_b_before = provenance.entry(worldline_b, wt(2)).unwrap().expected;
     let sr_b = triplet_b_before.state_root;
     assert_ne!(
         sr_a, sr_b,
@@ -324,7 +329,7 @@ fn inv004_no_cross_worldline_leakage() {
     append_fixture_entry(&mut provenance, worldline_a, patch, triplet, vec![]).unwrap();
     assert_eq!(provenance.len(worldline_a).unwrap(), 6);
     assert_eq!(
-        provenance.entry(worldline_b, 2).unwrap().expected,
+        provenance.entry(worldline_b, wt(2)).unwrap().expected,
         triplet_b_before,
         "appending to A must not mutate B's latest committed triplet"
     );
@@ -412,7 +417,7 @@ fn inv006_provenance_immutable_after_append() {
     // Verify all triplets remain unchanged after all appends
     for (tick, expected) in recorded_triplets.iter().enumerate() {
         let actual = provenance
-            .entry(worldline_id, tick as u64)
+            .entry(worldline_id, wt(tick as u64))
             .unwrap()
             .expected;
         assert_eq!(

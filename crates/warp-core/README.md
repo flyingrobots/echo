@@ -27,21 +27,30 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
       `InboxAddress`, or `ExactHead`,
     - per-head inboxes dedupe by content-addressed `ingress_id`,
     - committed duplicates are tracked per resolved writer head.
-- `SchedulerCoordinator::super_tick(...)` is the live step loop:
+- `SchedulerCoordinator::super_tick(...)` is the internal logical cycle:
     - runnable writer heads advance in canonical `(worldline_id, head_id)` order,
     - commits run against the shared `WorldlineState` frontier for that worldline,
-    - empty inboxes do not advance frontier ticks.
+    - empty inboxes do not advance frontier ticks,
+    - it is runtime internals, not a public WASM control export.
 - `ObservationService::observe(...)` is the canonical read path:
     - every read names an explicit worldline, coordinate, frame, and projection,
     - commit-boundary reads and recorded-truth reads share one deterministic
       artifact model,
     - observation is read-only and does not mutate runtime, provenance, inboxes,
       or compatibility mirrors.
+- `WorldlineTick` and `GlobalTick` are explicit logical coordinates:
+    - `WorldlineTick` is the only per-worldline append identity,
+    - `GlobalTick` is scheduler-cycle correlation metadata,
+    - neither carries wall-clock semantics.
+- Runtime control is intent-shaped:
+    - domain writes and privileged scheduler/control requests both enter through
+      canonical EINT intents,
+    - scheduler lifecycle requests are control intents, not direct tick verbs.
 - The runtime/kernel production path no longer uses `sim/inbox`,
   `edge:pending`, or `Engine::dispatch_next_intent(...)`.
-- Phase 6 / ABI v2 removes legacy public read adapters such as `get_head()`,
-  `snapshot_at()`, and `drain_view_ops()` from the WASM boundary.
-- `observe(...)` is now the only canonical public read entrypoint.
+- Phase 6 / ABI v3 removes legacy public read adapters, removes public
+  `step(...)`, and exposes `observe(...)` plus read-only scheduler metadata as
+  the canonical WASM boundary.
 - `Engine::ingest_intent(intent_bytes)` and `Engine::ingest_inbox_event(seq, payload)`
   remain legacy compatibility helpers for isolated tests and older spike call sites.
 

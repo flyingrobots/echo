@@ -16,10 +16,10 @@ use warp_core::{
     compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_head_id,
     make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload, AtomWriteSet,
     AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, CursorId, EdgeId, EdgeRecord,
-    Engine, EngineBuilder, Footprint, GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId,
-    NodeKey, NodeRecord, OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore,
-    RewriteRule, SessionId, WarpId, WarpOp, WorldlineId, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1, WriterHeadKey,
+    Engine, EngineBuilder, Footprint, GlobalTick, GraphStore, Hash, HashTriplet,
+    LocalProvenanceStore, NodeId, NodeKey, NodeRecord, OutputFrameSet, PatternGraph,
+    ProvenanceEntry, ProvenanceStore, RewriteRule, SessionId, WarpId, WarpOp, WorldlineId,
+    WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
 };
 
 // =============================================================================
@@ -760,7 +760,7 @@ pub fn test_warp_id() -> WarpId {
 /// Creates a test header for a specific tick.
 pub fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
     WorldlineTickHeaderV1 {
-        global_tick: tick,
+        commit_global_tick: GlobalTick::from_raw(tick),
         policy_id: 0,
         rule_pack_id: [0u8; 32],
         plan_digest: [0u8; 32],
@@ -879,12 +879,13 @@ pub fn fixture_entry(
     outputs: OutputFrameSet,
     atom_writes: AtomWriteSet,
 ) -> Result<ProvenanceEntry, warp_core::HistoryError> {
-    let tick = patch.global_tick();
+    let commit_global_tick = patch.commit_global_tick();
+    let worldline_tick = WorldlineTick::from_raw(commit_global_tick.as_u64());
     let parents = provenance.tip_ref(worldline_id)?.into_iter().collect();
     Ok(ProvenanceEntry::local_commit(
         worldline_id,
-        tick,
-        tick,
+        worldline_tick,
+        commit_global_tick,
         fixture_head_key(worldline_id),
         parents,
         expected,

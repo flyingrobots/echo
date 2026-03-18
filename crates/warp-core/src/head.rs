@@ -46,6 +46,12 @@ impl HeadId {
     /// Inclusive maximum key used by internal `BTreeMap` range queries.
     pub(crate) const MAX: Self = Self([0xff; 32]);
 
+    /// Constructs a head id from its canonical byte representation.
+    #[must_use]
+    pub fn from_bytes(bytes: Hash) -> Self {
+        Self(bytes)
+    }
+
     /// Returns the canonical byte representation of this id.
     #[must_use]
     pub fn as_bytes(&self) -> &Hash {
@@ -77,6 +83,17 @@ pub struct WriterHeadKey {
     pub head_id: HeadId,
 }
 
+/// Declarative scheduler admission for a writer head.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum HeadEligibility {
+    /// Head is intentionally excluded from scheduling.
+    Dormant,
+    /// Head is admitted and may run if it is otherwise unpaused.
+    #[default]
+    Admitted,
+}
+
 // =============================================================================
 // WriterHead
 // =============================================================================
@@ -99,6 +116,8 @@ pub struct WriterHead {
     /// [`mode()`](WriterHead::mode), [`pause()`](WriterHead::pause), and
     /// [`unpause()`](WriterHead::unpause) to read/mutate.
     mode: PlaybackMode,
+    /// Declarative scheduler admission for this head.
+    eligibility: HeadEligibility,
     /// Per-head deterministic ingress inbox.
     inbox: HeadInbox,
     /// Optional public inbox address for application routing.
@@ -130,6 +149,7 @@ impl WriterHead {
         Self {
             key,
             mode,
+            eligibility: HeadEligibility::default(),
             inbox: HeadInbox::new(key, inbox_policy),
             public_inbox,
             is_default_writer,
@@ -152,6 +172,18 @@ impl WriterHead {
     #[must_use]
     pub fn is_paused(&self) -> bool {
         matches!(self.mode, PlaybackMode::Paused)
+    }
+
+    /// Returns the declared scheduler eligibility for this head.
+    #[must_use]
+    pub fn eligibility(&self) -> HeadEligibility {
+        self.eligibility
+    }
+
+    /// Returns `true` if this head is admitted to scheduling.
+    #[must_use]
+    pub fn is_admitted(&self) -> bool {
+        matches!(self.eligibility, HeadEligibility::Admitted)
     }
 
     /// Returns the head inbox.
@@ -180,6 +212,11 @@ impl WriterHead {
     /// Pauses this head. The scheduler will skip it.
     pub fn pause(&mut self) {
         self.mode = PlaybackMode::Paused;
+    }
+
+    /// Sets the declarative scheduler eligibility for this head.
+    pub fn set_eligibility(&mut self, eligibility: HeadEligibility) {
+        self.eligibility = eligibility;
     }
 
     /// Unpauses this head and sets it to the given mode.
@@ -234,6 +271,11 @@ impl PlaybackHeadRegistry {
         self.heads.get(key)
     }
 
+    /// Returns a mutable reference to the writer head at the given key.
+    pub(crate) fn get_mut(&mut self, key: &WriterHeadKey) -> Option<&mut WriterHead> {
+        self.heads.get_mut(key)
+    }
+
     /// Returns a mutable reference to the inbox for the given head.
     pub(crate) fn inbox_mut(&mut self, key: &WriterHeadKey) -> Option<&mut HeadInbox> {
         self.heads.get_mut(key).map(WriterHead::inbox_mut)
@@ -281,8 +323,9 @@ impl PlaybackHeadRegistry {
 
 /// Ordered live index of writer heads that are eligible for scheduling.
 ///
-/// A head is runnable if and only if it is not paused. The set maintains
-/// canonical `(worldline_id, head_id)` ordering for deterministic iteration.
+/// A head is runnable if and only if it is admitted and not paused. The set
+/// maintains canonical `(worldline_id, head_id)` ordering for deterministic
+/// iteration.
 #[derive(Clone, Debug, Default)]
 pub struct RunnableWriterSet {
     keys: Vec<WriterHeadKey>,
@@ -299,11 +342,11 @@ impl RunnableWriterSet {
     ///
     /// This is the canonical way to update the set after head state changes.
     /// It iterates all heads in `BTreeMap` order (already canonical) and
-    /// collects those that are not paused.
+    /// collects those that are admitted and not paused.
     pub fn rebuild(&mut self, registry: &PlaybackHeadRegistry) {
         self.keys.clear();
         for (key, head) in registry.iter() {
-            if !head.is_paused() {
+            if head.is_admitted() && !head.is_paused() {
                 self.keys.push(*key);
             }
         }

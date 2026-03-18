@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
+use crate::clock::{GlobalTick, WorldlineTick};
 use crate::graph::GraphStore;
 use crate::ident::{Hash, WarpId};
 use crate::materialization::{compute_value_hash, ChannelId};
@@ -122,7 +123,7 @@ pub enum PlaybackMode {
     /// Seek to a specific tick, then apply the follow-up behavior.
     Seek {
         /// Target tick to seek to.
-        target: u64,
+        target: WorldlineTick,
         /// Behavior after reaching the target.
         then: SeekThen,
     },
@@ -156,8 +157,10 @@ pub struct CursorReceipt {
     pub worldline_id: WorldlineId,
     /// Warp the cursor is focused on.
     pub warp_id: WarpId,
-    /// Tick number when this receipt was generated.
-    pub tick: u64,
+    /// Worldline position when this receipt was generated.
+    pub worldline_tick: WorldlineTick,
+    /// Commit-cycle stamp for the referenced commit, if any.
+    pub commit_global_tick: Option<GlobalTick>,
     /// Commit hash at this tick for verification.
     pub commit_hash: Hash,
 }
@@ -198,7 +201,7 @@ pub enum SeekError {
     #[error("history unavailable for tick {tick}")]
     HistoryUnavailable {
         /// The tick that was unavailable.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The computed state root doesn't match the expected value.
@@ -210,7 +213,7 @@ pub enum SeekError {
     #[error("state root mismatch at tick {tick}")]
     StateRootMismatch {
         /// The tick where verification failed.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The patch digest stored in provenance doesn't match the expected value.
@@ -220,7 +223,7 @@ pub enum SeekError {
     #[error("patch digest mismatch at tick {tick}")]
     PatchDigestMismatch {
         /// The tick where verification failed.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The computed commit hash doesn't match the expected value.
@@ -230,7 +233,7 @@ pub enum SeekError {
     #[error("commit hash mismatch at tick {tick}")]
     CommitHashMismatch {
         /// The tick where verification failed.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// Failed to apply a patch during seek.
@@ -239,7 +242,7 @@ pub enum SeekError {
     #[error("apply error at tick {tick}: {source}")]
     ApplyError {
         /// The tick where the apply failed.
-        tick: u64,
+        tick: WorldlineTick,
         /// The underlying apply error.
         #[source]
         source: crate::worldline::ApplyError,
@@ -252,9 +255,9 @@ pub enum SeekError {
     #[error("target tick {target} exceeds pinned frontier {pin}")]
     PinnedFrontierExceeded {
         /// The requested target tick.
-        target: u64,
+        target: WorldlineTick,
         /// The current pinned frontier.
-        pin: u64,
+        pin: WorldlineTick,
     },
 }
 
@@ -318,7 +321,7 @@ pub struct PlaybackCursor {
     /// Invariant: `tick` always reflects the number of patches that have been applied
     /// to `store` since its initial state. Modifying `tick` without correspondingly
     /// updating `store` (or vice versa) will cause seek/replay hash verification to fail.
-    pub tick: u64,
+    pub tick: WorldlineTick,
 
     /// Role of this cursor (Writer or Reader).
     ///
@@ -348,7 +351,7 @@ pub struct PlaybackCursor {
     /// For readers, this is typically the current writer position.
     /// The cursor cannot seek or step beyond this tick. Safe to update
     /// externally to extend or restrict the cursor's visible history.
-    pub pin_max_tick: u64,
+    pub pin_max_tick: WorldlineTick,
 }
 
 impl PlaybackCursor {
@@ -369,13 +372,13 @@ impl PlaybackCursor {
         warp_id: WarpId,
         role: CursorRole,
         initial_store: &GraphStore,
-        pin_max_tick: u64,
+        pin_max_tick: WorldlineTick,
     ) -> Self {
         Self {
             cursor_id,
             worldline_id,
             warp_id,
-            tick: 0,
+            tick: WorldlineTick::ZERO,
             role,
             mode: PlaybackMode::default(),
             store: initial_store.clone(),
@@ -413,7 +416,7 @@ impl PlaybackCursor {
     ///
     pub fn seek_to<P: ProvenanceStore>(
         &mut self,
-        target: u64,
+        target: WorldlineTick,
         provenance: &P,
         initial_store: &GraphStore,
     ) -> Result<(), SeekError> {
@@ -428,6 +431,7 @@ impl PlaybackCursor {
         // Check if target is within available history
         let history_len = provenance
             .len(self.worldline_id)
+            .map(WorldlineTick::from_raw)
             .map_err(|_| SeekError::HistoryUnavailable { tick: target })?;
 
         // Tick represents the number of patches applied:
@@ -446,14 +450,15 @@ impl PlaybackCursor {
             // TODO: Optimize backward seeks by using provenance.checkpoint_before(worldline, target)
             // to start from the nearest checkpoint instead of replaying from tick 0.
             self.store = initial_store.clone();
-            0
+            WorldlineTick::ZERO
         } else {
             self.tick
         };
 
         // Apply patches from start_tick to target
         // If start_tick = 2 and target = 5, we apply patches 2, 3, 4
-        for patch_tick in start_tick..target {
+        for patch_tick in start_tick.as_u64()..target.as_u64() {
+            let patch_tick = WorldlineTick::from_raw(patch_tick);
             let entry = provenance
                 .entry(self.worldline_id, patch_tick)
                 .map_err(|_| SeekError::HistoryUnavailable { tick: patch_tick })?;
@@ -550,7 +555,16 @@ impl PlaybackCursor {
                         self.mode = PlaybackMode::Paused;
                         return Ok(StepResult::ReachedFrontier);
                     }
-                    self.seek_to(self.tick + 1, provenance, initial_store)?;
+                    self.seek_to(
+                        self.tick
+                            .checked_increment()
+                            .ok_or(SeekError::PinnedFrontierExceeded {
+                                target: WorldlineTick::MAX,
+                                pin: self.pin_max_tick,
+                            })?,
+                        provenance,
+                        initial_store,
+                    )?;
                     Ok(StepResult::Advanced)
                 } else {
                     // Writer: stub - actual advance needs parallel execution integration
@@ -561,7 +575,16 @@ impl PlaybackCursor {
 
             PlaybackMode::StepForward => {
                 if self.role == CursorRole::Reader {
-                    self.seek_to(self.tick + 1, provenance, initial_store)?;
+                    self.seek_to(
+                        self.tick
+                            .checked_increment()
+                            .ok_or(SeekError::PinnedFrontierExceeded {
+                                target: WorldlineTick::MAX,
+                                pin: self.pin_max_tick,
+                            })?,
+                        provenance,
+                        initial_store,
+                    )?;
                     self.mode = PlaybackMode::Paused;
                     Ok(StepResult::Advanced)
                 } else {
@@ -573,7 +596,7 @@ impl PlaybackCursor {
             }
 
             PlaybackMode::StepBack => {
-                let target = self.tick.saturating_sub(1);
+                let target = self.tick.checked_sub(1).unwrap_or(WorldlineTick::ZERO);
                 self.seek_to(target, provenance, initial_store)?;
                 self.mode = PlaybackMode::Paused;
                 Ok(StepResult::Seeked)
@@ -692,14 +715,14 @@ impl ViewSession {
     ) -> Result<(), crate::provenance_store::HistoryError> {
         // cursor.tick represents the number of patches applied (0 = initial state).
         // No truth to publish at tick 0 since no patches have been applied yet.
-        if cursor.tick == 0 {
+        if cursor.tick == WorldlineTick::ZERO {
             return Ok(());
         }
 
         // Provenance indices are 0-based: entry at index K holds the hash triplet
         // and outputs recorded AFTER applying patch K. Since cursor.tick = N means
         // patches 0..N-1 have been applied, the current state corresponds to index N-1.
-        let prov_tick = cursor.tick - 1;
+        let prov_tick = cursor.tick.checked_sub(1).unwrap_or(WorldlineTick::ZERO);
 
         let entry = provenance.entry(cursor.worldline_id, prov_tick)?;
 
@@ -709,7 +732,8 @@ impl ViewSession {
             cursor_id: cursor.cursor_id,
             worldline_id: cursor.worldline_id,
             warp_id: cursor.warp_id,
-            tick: cursor.tick,
+            worldline_tick: cursor.tick,
+            commit_global_tick: Some(entry.commit_global_tick),
             commit_hash: entry.expected.commit_hash,
         };
 
@@ -817,6 +841,14 @@ impl TruthSink {
 mod tests {
     use super::*;
 
+    fn wt(raw: u64) -> WorldlineTick {
+        WorldlineTick::from_raw(raw)
+    }
+
+    fn gt(raw: u64) -> GlobalTick {
+        GlobalTick::from_raw(raw)
+    }
+
     #[test]
     fn cursor_id_is_transparent_wrapper() {
         let hash = [42u8; 32];
@@ -855,7 +887,8 @@ mod tests {
             cursor_id: CursorId([2u8; 32]),
             worldline_id: WorldlineId([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
-            tick: 42,
+            worldline_tick: wt(42),
+            commit_global_tick: Some(gt(7)),
             commit_hash: [5u8; 32],
         };
         let receipt2 = CursorReceipt {
@@ -863,7 +896,8 @@ mod tests {
             cursor_id: CursorId([2u8; 32]),
             worldline_id: WorldlineId([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
-            tick: 42,
+            worldline_tick: wt(42),
+            commit_global_tick: Some(gt(7)),
             commit_hash: [5u8; 32],
         };
         assert_eq!(receipt1, receipt2);
@@ -876,7 +910,8 @@ mod tests {
             cursor_id: CursorId([2u8; 32]),
             worldline_id: WorldlineId([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
-            tick: 42,
+            worldline_tick: wt(42),
+            commit_global_tick: Some(gt(7)),
             commit_hash: [5u8; 32],
         };
         let frame1 = TruthFrame {
@@ -905,7 +940,8 @@ mod tests {
             cursor_id: CursorId([0u8; 32]),
             worldline_id: WorldlineId([0u8; 32]),
             warp_id: WarpId([0u8; 32]),
-            tick: 1,
+            worldline_tick: wt(1),
+            commit_global_tick: None,
             commit_hash: [0u8; 32],
         };
 

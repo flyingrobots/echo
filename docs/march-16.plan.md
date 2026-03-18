@@ -33,7 +33,7 @@ The chosen default for this plan is:
 flowchart LR
     A["Now: Phase 5 merged"] --> B["Close docs and sync to main"]
     B --> C["Dev-loop throughput hardening"]
-    C --> D["Phase 6: delete legacy read adapters + ABI v2"]
+    C --> D["Phase 6: delete legacy read adapters, then ABI v3 control-plane break"]
     D --> E["Phase 6: split WorldlineTick / GlobalTick"]
     E --> F["Phase 7: full WorldlineState replay"]
     F --> G["Phase 8: Wesley schema freeze"]
@@ -179,7 +179,7 @@ flowchart TB
     B --> C["2. Dev-loop hardening sprint"]
     C --> D["3. CI/status ergonomics cleanup"]
     D --> E["4. Cut Phase 6 branch"]
-    E --> F["5. Remove legacy read adapters + bump ABI v2"]
+    E --> F["5. Remove legacy read adapters, then land ABI v3"]
     F --> G["6. Introduce WorldlineTick / GlobalTick"]
 ```
 
@@ -460,7 +460,8 @@ Use three proof layers and do not blur them:
 - same-tree cache reuse works across manual and hook-triggered verification
 - changed-tree invalidation still forces real verification
 - PR status helper distinguishes pending vs failing vs passing checks
-- Phase 6 ABI v2 removes legacy read endpoints completely
+- Phase 6 removes legacy read endpoints completely and the honest-clock/control
+  rewrite lands as ABI v3
 - observation remains the only canonical read surface after Phase 6
 - `WorldlineTick` and `GlobalTick` no longer leak raw `u64` coupling
   assumptions

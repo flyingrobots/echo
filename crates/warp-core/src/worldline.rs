@@ -22,7 +22,8 @@ use crate::clock::GlobalTick;
 use crate::graph::{DeleteNodeError, GraphStore};
 use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::materialization::ChannelId;
-use crate::tick_patch::{SlotId, WarpOp};
+use crate::tick_patch::{apply_ops_to_state, SlotId, TickPatchError, WarpOp};
+use crate::worldline_state::WorldlineState;
 
 /// Unique identifier for a worldline.
 ///
@@ -159,6 +160,27 @@ impl WorldlineTickPatchV1 {
         for op in &self.ops {
             apply_warp_op_to_store(store, op)?;
         }
+        Ok(())
+    }
+
+    /// Apply this patch to a full [`WorldlineState`].
+    ///
+    /// Unlike [`Self::apply_to_store`], this path replays portal and warp-instance
+    /// operations against the full multi-instance state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ApplyError`] if the patch does not belong to the worldline root,
+    /// or if any operation violates full-state replay invariants.
+    pub fn apply_to_worldline_state(&self, state: &mut WorldlineState) -> Result<(), ApplyError> {
+        if state.root().warp_id != self.warp_id {
+            return Err(ApplyError::WarpMismatch {
+                expected: state.root().warp_id,
+                actual: self.warp_id,
+            });
+        }
+
+        apply_ops_to_state(&mut state.warp_state, &self.ops)?;
         Ok(())
     }
 }
@@ -509,6 +531,10 @@ pub enum ApplyError {
     /// `DeleteNode` must not cascade. Emit explicit `DeleteEdge` ops first.
     #[error("node not isolated (has edges): {0:?}")]
     NodeNotIsolated(NodeKey),
+
+    /// Full-state replay failed while applying a worldline patch.
+    #[error(transparent)]
+    TickPatch(#[from] TickPatchError),
 }
 
 #[cfg(test)]
@@ -522,6 +548,7 @@ mod tests {
     use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
     use crate::record::{EdgeRecord, NodeRecord};
     use crate::tick_patch::PortalInit;
+    use crate::worldline_state::WorldlineState;
 
     #[test]
     fn worldline_id_is_transparent_wrapper() {
@@ -930,5 +957,116 @@ mod tests {
         assert!(store.node_attachment(&node_id).is_none());
         patch.apply_to_store(&mut store).expect("apply failed");
         assert!(store.node_attachment(&node_id).is_some());
+    }
+
+    #[test]
+    fn apply_to_worldline_state_open_portal_creates_child_instance() {
+        let mut state = WorldlineState::empty();
+        let root = *state.root();
+        let portal_key = AttachmentKey::node_alpha(root);
+        let child_warp = make_warp_id("child");
+        let child_root = make_node_id("child-root");
+
+        let patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id: root.warp_id,
+            ops: vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+            in_slots: vec![],
+            out_slots: vec![SlotId::Attachment(portal_key)],
+            patch_digest: [0u8; 32],
+        };
+
+        patch
+            .apply_to_worldline_state(&mut state)
+            .expect("apply failed");
+
+        let child_instance = state
+            .warp_state()
+            .instance(&child_warp)
+            .expect("child instance missing");
+        assert_eq!(child_instance.parent, Some(portal_key));
+        assert_eq!(child_instance.root_node, child_root);
+
+        let child_store = state
+            .warp_state()
+            .store(&child_warp)
+            .expect("child store missing");
+        assert!(child_store.node(&child_root).is_some());
+
+        let root_store = state
+            .warp_state()
+            .store(&root.warp_id)
+            .expect("root store missing");
+        assert_eq!(
+            root_store.node_attachment(&root.local_id),
+            Some(&AttachmentValue::Descend(child_warp))
+        );
+    }
+
+    #[test]
+    fn apply_to_worldline_state_delete_instance_after_clearing_portal() {
+        let mut state = WorldlineState::empty();
+        let root = *state.root();
+        let portal_key = AttachmentKey::node_alpha(root);
+        let child_warp = make_warp_id("child");
+        let child_root = make_node_id("child-root");
+
+        let open_patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id: root.warp_id,
+            ops: vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+            in_slots: vec![],
+            out_slots: vec![SlotId::Attachment(portal_key)],
+            patch_digest: [0u8; 32],
+        };
+        open_patch
+            .apply_to_worldline_state(&mut state)
+            .expect("open portal failed");
+
+        let delete_patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id: root.warp_id,
+            ops: vec![
+                WarpOp::DeleteWarpInstance {
+                    warp_id: child_warp,
+                },
+                WarpOp::SetAttachment {
+                    key: portal_key,
+                    value: None,
+                },
+            ],
+            in_slots: vec![],
+            out_slots: vec![SlotId::Attachment(portal_key)],
+            patch_digest: [0u8; 32],
+        };
+        delete_patch
+            .apply_to_worldline_state(&mut state)
+            .expect("delete portal failed");
+
+        assert!(state.warp_state().instance(&child_warp).is_none());
+        assert!(state.warp_state().store(&child_warp).is_none());
+        let root_store = state
+            .warp_state()
+            .store(&root.warp_id)
+            .expect("root store missing");
+        assert!(root_store.node_attachment(&root.local_id).is_none());
     }
 }

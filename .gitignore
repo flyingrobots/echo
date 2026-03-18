@@ -73,3 +73,6 @@ _minted*
 
 # Experimental benchmark binaries (not ready for CI)
 crates/warp-benches/src/bin/
+
+# Local blog drafts
+blog/*

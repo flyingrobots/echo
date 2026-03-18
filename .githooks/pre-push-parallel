@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Parallel pre-push hook - runs stages concurrently with isolated target dirs
 set -euo pipefail
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
+# shellcheck source=.githooks/_timing.sh
+source "$HOOK_DIR/_timing.sh"
+hook_timing_prepare "$REPO_ROOT" "pre-push-parallel"
+cd "$REPO_ROOT"
 
 PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
 PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"
@@ -31,16 +37,38 @@ fi
 
 echo "🐰 BunBun 🐇 (parallel mode)"
 
+LOGDIR=""
 LOGDIR=$(mktemp -d)
 # Trap EXIT, INT, TERM: kill background jobs then clean up
 cleanup() {
+  local exit_code="${1:-0}"
   # Kill any background jobs from this script
   # Avoid GNU-only xargs -r by checking if pids is non-empty
   pids=$(jobs -p 2>/dev/null) || true
   [ -n "$pids" ] && echo "$pids" | xargs kill 2>/dev/null || true
-  rm -rf "$LOGDIR"
+  if [[ -n "${LOGDIR:-}" ]]; then
+    rm -rf "$LOGDIR"
+  fi
+  hook_timing_append "$exit_code"
 }
-trap cleanup EXIT INT TERM
+on_exit() {
+  local exit_code=$?
+  cleanup "$exit_code"
+}
+on_signal() {
+  local signal_name="$1"
+  local exit_code=1
+  if [[ "$signal_name" == "INT" ]]; then
+    exit_code=130
+  elif [[ "$signal_name" == "TERM" ]]; then
+    exit_code=143
+  fi
+  cleanup "$exit_code"
+  exit "$exit_code"
+}
+trap on_exit EXIT
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 
 # Stage functions - each uses its own target dir and the pinned toolchain
 run_fmt() {

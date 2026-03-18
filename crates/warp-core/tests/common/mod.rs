@@ -13,13 +13,13 @@
 )]
 
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_head_id,
-    make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload, AtomWriteSet,
-    AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, CursorId, EdgeId, EdgeRecord,
-    Engine, EngineBuilder, Footprint, GlobalTick, GraphStore, Hash, HashTriplet,
-    LocalProvenanceStore, NodeId, NodeKey, NodeRecord, OutputFrameSet, PatternGraph,
-    ProvenanceEntry, ProvenanceStore, RewriteRule, SessionId, WarpId, WarpOp, WorldlineId,
-    WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+    compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_type_id, make_warp_id,
+    ApplyResult, AtomPayload, AtomWriteSet, AttachmentKey, AttachmentSet, AttachmentValue,
+    ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder, Footprint, GlobalTick,
+    GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey, NodeRecord,
+    OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore, RewriteRule, SessionId, WarpId,
+    WarpOp, WorldlineId, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
+    WorldlineTickPatchV1, WriterHeadKey,
 };
 
 // =============================================================================
@@ -778,6 +778,14 @@ pub fn create_initial_store(warp_id: WarpId) -> GraphStore {
     store
 }
 
+/// Creates an initial full worldline state with a deterministic root node.
+pub fn create_initial_worldline_state(warp_id: WarpId) -> WorldlineState {
+    let store = create_initial_store(warp_id);
+    let root_id = make_node_id("root");
+    WorldlineState::from_root_store(store, root_id)
+        .expect("initial worldline state should be valid")
+}
+
 /// Creates a patch that adds a node at a specific tick.
 pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> WorldlineTickPatchV1 {
     let tick_u8 = u8::try_from(tick).expect("tick must fit in u8 for test helpers");
@@ -809,10 +817,10 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
 /// matching what `seek_to` will recompute during verification.
 pub fn setup_worldline_with_ticks(
     num_ticks: u64,
-) -> (LocalProvenanceStore, GraphStore, WarpId, WorldlineId) {
+) -> (LocalProvenanceStore, WorldlineState, WarpId, WorldlineId) {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
     provenance
@@ -820,7 +828,7 @@ pub fn setup_worldline_with_ticks(
         .unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..num_ticks {
@@ -828,11 +836,11 @@ pub fn setup_worldline_with_ticks(
 
         // Apply patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute the actual state root after applying
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+        let state_root = current_state.state_root();
 
         // Compute real commit_hash for Merkle chain verification
         let commit_hash = compute_commit_hash_v2(
@@ -855,7 +863,7 @@ pub fn setup_worldline_with_ticks(
         parents = vec![commit_hash];
     }
 
-    (provenance, initial_store, warp_id, worldline_id)
+    (provenance, initial_state, warp_id, worldline_id)
 }
 
 /// Returns the canonical writer head key used by provenance test fixtures.

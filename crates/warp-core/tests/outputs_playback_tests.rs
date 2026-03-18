@@ -16,8 +16,8 @@
 
 mod common;
 use common::{
-    append_fixture_entry, create_add_node_patch, create_initial_store, setup_worldline_with_ticks,
-    test_cursor_id, test_session_id, test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_worldline_state,
+    setup_worldline_with_ticks, test_cursor_id, test_session_id, test_warp_id, test_worldline_id,
 };
 
 use warp_core::materialization::{
@@ -25,9 +25,9 @@ use warp_core::materialization::{
     V2PacketHeader,
 };
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet,
-    LocalProvenanceStore, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekError, StepResult,
-    TruthSink, ViewSession, WorldlineId, WorldlineTick,
+    compute_commit_hash_v2, CursorRole, HashTriplet, LocalProvenanceStore, PlaybackCursor,
+    PlaybackMode, ProvenanceStore, SeekError, StepResult, TruthSink, ViewSession, WorldlineId,
+    WorldlineState, WorldlineTick,
 };
 
 /// Sets up a worldline with N ticks and outputs, returns the provenance store and initial store.
@@ -35,13 +35,13 @@ fn setup_worldline_with_outputs(
     num_ticks: u64,
 ) -> (
     LocalProvenanceStore,
-    GraphStore,
+    WorldlineState,
     warp_core::WarpId,
     WorldlineId,
 ) {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
     provenance
@@ -49,7 +49,7 @@ fn setup_worldline_with_outputs(
         .unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let mut parents: Vec<warp_core::Hash> = Vec::new();
 
     let position_channel = make_channel_id("entity:position");
@@ -65,11 +65,11 @@ fn setup_worldline_with_outputs(
 
         // Apply patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute the actual state root after applying
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+        let state_root = current_state.state_root();
 
         // Compute real commit_hash for Merkle chain verification
         let commit_hash = compute_commit_hash_v2(
@@ -100,7 +100,7 @@ fn setup_worldline_with_outputs(
         parents = vec![commit_hash];
     }
 
-    (provenance, initial_store, warp_id, worldline_id)
+    (provenance, initial_state, warp_id, worldline_id)
 }
 
 fn wt(raw: u64) -> WorldlineTick {
@@ -117,7 +117,7 @@ fn wt(raw: u64) -> WorldlineTick {
 /// role is Writer and mode requires advance.
 #[test]
 fn seek_moves_cursor_without_mutating_writer_store() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(20);
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(20);
 
     // Create a "writer" cursor and advance it to tick 20 (simulate writer position)
     let mut writer_cursor = PlaybackCursor::new(
@@ -125,18 +125,18 @@ fn seek_moves_cursor_without_mutating_writer_store() {
         worldline_id,
         warp_id,
         CursorRole::Writer,
-        &initial_store,
+        &initial_state,
         wt(20),
     );
 
     // Simulate writer being at tick 20 by seeking (this is how we simulate writer state)
     writer_cursor
-        .seek_to(wt(20), &provenance, &initial_store)
+        .seek_to(wt(20), &provenance, &initial_state)
         .expect("seek to 20 should succeed");
     assert_eq!(writer_cursor.tick, wt(20));
 
     // Snapshot writer's state_root
-    let writer_state_root = compute_state_root_for_warp_store(&writer_cursor.store, warp_id);
+    let writer_state_root = writer_cursor.current_state_root();
 
     // Create a reader cursor at tick 20
     let mut reader_cursor = PlaybackCursor::new(
@@ -144,26 +144,26 @@ fn seek_moves_cursor_without_mutating_writer_store() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
+        &initial_state,
         wt(20),
     );
 
     // Seek reader to tick 20 first
     reader_cursor
-        .seek_to(wt(20), &provenance, &initial_store)
+        .seek_to(wt(20), &provenance, &initial_state)
         .expect("reader seek to 20 should succeed");
     assert_eq!(reader_cursor.tick, wt(20));
 
     // Reader seeks back to tick 5
     reader_cursor
-        .seek_to(wt(5), &provenance, &initial_store)
+        .seek_to(wt(5), &provenance, &initial_state)
         .expect("reader seek to 5 should succeed");
 
     // Assert reader is at tick 5
     assert_eq!(reader_cursor.tick, wt(5), "reader should be at tick 5");
 
     // Assert writer's state_root is unchanged
-    let writer_state_root_after = compute_state_root_for_warp_store(&writer_cursor.store, warp_id);
+    let writer_state_root_after = writer_cursor.current_state_root();
     assert_eq!(
         writer_state_root, writer_state_root_after,
         "writer's state_root should be unchanged after reader seeks"
@@ -715,7 +715,7 @@ fn publish_truth_returns_error_for_unavailable_tick() {
 fn writer_play_advances_and_records_outputs() {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
     provenance
@@ -723,7 +723,7 @@ fn writer_play_advances_and_records_outputs() {
         .unwrap();
 
     // Simulate writer advancing 10 ticks
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let output_channel = make_channel_id("writer:output");
     let mut parents: Vec<warp_core::Hash> = Vec::new();
 
@@ -733,11 +733,11 @@ fn writer_play_advances_and_records_outputs() {
 
         // Apply the patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute state_root from the store
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+        let state_root = current_state.state_root();
 
         // Compute real commit_hash for Merkle chain validity
         let commit_hash = compute_commit_hash_v2(
@@ -772,7 +772,7 @@ fn writer_play_advances_and_records_outputs() {
 
     // Assert: provenance.entry(worldline, t) exists for t in 0..10
     // Recompute the Merkle chain to verify stored commit_hashes match
-    let mut verify_store = initial_store;
+    let mut verify_state = initial_state;
     let mut verify_parents: Vec<warp_core::Hash> = Vec::new();
     for tick in 0..10u64 {
         let entry = provenance
@@ -783,9 +783,9 @@ fn writer_play_advances_and_records_outputs() {
         // Recompute commit_hash from scratch to verify Merkle chain integrity
         let patch = entry.patch.expect("patch should exist");
         patch
-            .apply_to_store(&mut verify_store)
+            .apply_to_worldline_state(&mut verify_state)
             .expect("apply should succeed");
-        let state_root = compute_state_root_for_warp_store(&verify_store, warp_id);
+        let state_root = verify_state.state_root();
         let expected_commit = compute_commit_hash_v2(
             &state_root,
             &verify_parents,

@@ -18,7 +18,7 @@ use thiserror::Error;
 use crate::clock::WorldlineTick;
 use crate::graph::GraphStore;
 use crate::head::WriterHeadKey;
-use crate::ident::{make_node_id, make_type_id, make_warp_id, Hash, NodeKey};
+use crate::ident::{make_node_id, make_type_id, make_warp_id, Hash, NodeId, NodeKey};
 use crate::materialization::{ChannelConflict, FinalizedChannel};
 use crate::receipt::TickReceipt;
 use crate::record::NodeRecord;
@@ -204,10 +204,50 @@ impl WorldlineState {
         Self::build_validated(warp_state, root)
     }
 
+    /// Creates a worldline state from a single root store and root node.
+    ///
+    /// This is the minimal public constructor for root-only worldlines. It is
+    /// primarily useful for tests, replay bases, and adapters that need a
+    /// deterministic `WorldlineState` without going through live engine setup.
+    pub fn from_root_store(
+        store: GraphStore,
+        root_node: NodeId,
+    ) -> Result<Self, WorldlineStateError> {
+        let warp_id = store.warp_id();
+        let root = NodeKey {
+            warp_id,
+            local_id: root_node,
+        };
+
+        let mut warp_state = WarpState::new();
+        warp_state.upsert_instance(
+            WarpInstance {
+                warp_id,
+                root_node,
+                parent: None,
+            },
+            store,
+        );
+
+        Self::new(warp_state, root)
+    }
+
     /// Returns a reference to the underlying warp state.
     #[must_use]
     pub fn warp_state(&self) -> &WarpState {
         &self.warp_state
+    }
+
+    /// Returns the canonical full-state root hash for this worldline.
+    #[must_use]
+    pub fn state_root(&self) -> Hash {
+        crate::snapshot::compute_state_root_for_warp_state(&self.warp_state, &self.root)
+    }
+
+    /// Returns the graph store for a specific warp instance, if present.
+    #[must_use]
+    pub fn store(&self, warp_id: &crate::ident::WarpId) -> Option<&GraphStore> {
+        self.warp_state.store(warp_id)
     }
 
     /// Returns the root key used for hashing and commit execution.
@@ -275,6 +315,19 @@ impl WorldlineState {
                 .into_iter()
                 .map(|ingress_id| (head_key, ingress_id)),
         );
+    }
+
+    /// Clones the deterministic replay-relevant state for checkpoint storage.
+    ///
+    /// Ephemeral live-runtime fields that are not reconstructed by replay are
+    /// cleared so checkpoints remain an acceleration artifact rather than a
+    /// hidden source of truth.
+    pub(crate) fn replay_checkpoint_clone(&self) -> Self {
+        let mut checkpoint = self.clone();
+        checkpoint.last_materialization.clear();
+        checkpoint.last_materialization_errors.clear();
+        checkpoint.committed_ingress.clear();
+        checkpoint
     }
 }
 

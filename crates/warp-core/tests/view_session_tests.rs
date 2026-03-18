@@ -16,8 +16,8 @@ use common::{
 };
 use warp_core::materialization::make_channel_id;
 use warp_core::{
-    compute_state_root_for_warp_store, CursorRole, PlaybackCursor, PlaybackMode, SeekThen,
-    StepResult, TruthFrame, TruthSink, ViewSession, WorldlineTick,
+    CursorRole, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekThen, StepResult, TruthFrame,
+    TruthSink, ViewSession, WorldlineTick,
 };
 
 /// Maximum tick used as the `pin_max_tick` for most playback cursor tests.
@@ -113,7 +113,7 @@ fn paused_noop_even_with_pending_intents() {
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 
     // Get state hash before step
-    let hash_before = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_before = cursor.current_state_root();
 
     // Call step() while Paused - should be no-op
     let result = cursor.step(&provenance, &initial_store);
@@ -129,7 +129,7 @@ fn paused_noop_even_with_pending_intents() {
         "mode should still be paused"
     );
 
-    let hash_after = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_after = cursor.current_state_root();
     assert_eq!(
         hash_before, hash_after,
         "store should not change when paused"
@@ -201,13 +201,28 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
     assert_eq!(cursor2.tick, wt(7));
 
     // Compute state hashes at each position
-    let hash_at_tick_3 = compute_state_root_for_warp_store(&cursor1.store, warp_id);
-    let hash_at_tick_7 = compute_state_root_for_warp_store(&cursor2.store, warp_id);
+    let hash_at_tick_3 = cursor1.current_state_root();
+    let hash_at_tick_7 = cursor2.current_state_root();
+    let commit_at_tick_3 = provenance
+        .entry(worldline_id, wt(2))
+        .expect("tick 2 should exist")
+        .expected
+        .commit_hash;
+    let commit_at_tick_7 = provenance
+        .entry(worldline_id, wt(6))
+        .expect("tick 6 should exist")
+        .expected
+        .commit_hash;
 
-    // The states should be different (different history applied)
-    assert_ne!(
+    // These fixtures append isolated nodes, so reachable state roots can match
+    // across different ticks even though the cursor positions are distinct.
+    assert_eq!(
         hash_at_tick_3, hash_at_tick_7,
-        "cursors at different ticks should have different state"
+        "isolated fixture rewrites can preserve the reachable state root"
+    );
+    assert_ne!(
+        commit_at_tick_3, commit_at_tick_7,
+        "cursors at different ticks should still represent different committed history"
     );
 
     // Create truth sink and publish mock frames

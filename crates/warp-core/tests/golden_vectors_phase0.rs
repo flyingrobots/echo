@@ -39,8 +39,7 @@ mod common;
 use common::{create_initial_store, setup_worldline_with_ticks, test_cursor_id, test_warp_id};
 
 use warp_core::{
-    compute_state_root_for_warp_store, CursorRole, EngineBuilder, PlaybackCursor, ProvenanceStore,
-    WorldlineId, WorldlineTick,
+    CursorRole, EngineBuilder, PlaybackCursor, ProvenanceStore, WorldlineId, WorldlineTick,
 };
 
 // =============================================================================
@@ -110,54 +109,61 @@ fn gv002_provenance_replay_integrity() {
     // (state_root, patch_digest, commit_hash) per tick
     const EXPECTED: [(&str, &str, &str); 5] = [
         (
-            "96266268301910b9ba3d4b329e57b3ffc4dd14f86c0135bc522e4f39e61f3225",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
             "0000000000000000000000000000000000000000000000000000000000000000",
-            "a2a95c7cf7826dd958efa34b67001cdb51ed0bdc5186e35f5801881011bdcf12",
+            "61d1e09c45c39cdd22103d96ca2143fe535688f6d94967fd5ef96e5a5d98ea50",
         ),
         (
-            "ffbdc6137114e50c7650e8e89256de68ffbc6309586e260ad03b4a26a02ea1c1",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
             "0101010101010101010101010101010101010101010101010101010101010101",
-            "17d403ac3ee32ae651b0a229829c9d498d2ca98cc5cff2ae00a36b4f3a4ee786",
+            "c536e938c1a1fa688668e1ed7cbdee66a6fbf1f15098c7b93f7c67f3df9a36f3",
         ),
         (
-            "abfb7ff4864f246e970b192aa899b5c07ec06ea09f6ace47055c0b3ad61dc7b3",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
             "0202020202020202020202020202020202020202020202020202020202020202",
-            "6287d50b02bdfd201512e632ca6318f0f2df8432270e524eeeabb7312fe59785",
+            "226c7a7ab1ff460b4ce06c61c91ffff08473cc4098fb078b209b67b91e87d05a",
         ),
         (
-            "c4c992d30ad7f83b4fb6e8a506313952653625497538e0e135eec9bd2cf82f8f",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
             "0303030303030303030303030303030303030303030303030303030303030303",
-            "f1b9996112f2bda21c391ed68c31caca2c650f200cc8b2ead86076a9ce7ea116",
+            "ce6a80c6e4097e620c216882c4fcf0da2e27a47764f2e972ad4c7f73449cd644",
         ),
         (
-            "107238c92550c9561a9df3d6668b4c6e01ad06355e3ff82602c64eb476c539d5",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
             "0404040404040404040404040404040404040404040404040404040404040404",
-            "bb36ae47ea312a0199718bb137f508aee00fded15834f1b726c879b7a6174cda",
+            "f5ec8896803b007c18069e0be05f771cea79367329540dbc8c9674a8a8f8f70a",
         ),
     ];
 
     let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(5);
 
+    let actual: Vec<(String, String, String)> = (0..EXPECTED.len())
+        .map(|tick| {
+            let triplet = provenance
+                .entry(worldline_id, wt(tick as u64))
+                .unwrap_or_else(|e| panic!("tick {tick}: {e}"))
+                .expected;
+            (
+                hex(&triplet.state_root),
+                hex(&triplet.patch_digest),
+                hex(&triplet.commit_hash),
+            )
+        })
+        .collect();
+
     // Verify each tick's hash triplet against pinned values
     for (tick, (exp_sr, exp_pd, exp_ch)) in EXPECTED.iter().enumerate() {
-        let triplet = provenance
-            .entry(worldline_id, wt(tick as u64))
-            .unwrap_or_else(|e| panic!("tick {tick}: {e}"))
-            .expected;
-
+        let (actual_sr, actual_pd, actual_ch) = &actual[tick];
         assert_eq!(
-            hex(&triplet.state_root),
-            *exp_sr,
+            actual_sr, *exp_sr,
             "GV-002 tick {tick}: state_root mismatch"
         );
         assert_eq!(
-            hex(&triplet.patch_digest),
-            *exp_pd,
+            actual_pd, *exp_pd,
             "GV-002 tick {tick}: patch_digest mismatch"
         );
         assert_eq!(
-            hex(&triplet.commit_hash),
-            *exp_ch,
+            actual_ch, *exp_ch,
             "GV-002 tick {tick}: commit_hash mismatch"
         );
     }
@@ -174,7 +180,7 @@ fn gv002_provenance_replay_integrity() {
     cursor
         .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek should succeed");
-    let final_state_root = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let final_state_root = cursor.current_state_root();
 
     assert_eq!(
         hex(&final_state_root),
@@ -193,12 +199,12 @@ fn gv002_provenance_replay_integrity() {
 fn gv003_fork_reproducibility() {
     // Pinned commit hashes for ticks 0..=5 of the 10-tick worldline (fork-tick inclusive)
     const EXPECTED_PREFIX_COMMITS: [&str; 6] = [
-        "a2a95c7cf7826dd958efa34b67001cdb51ed0bdc5186e35f5801881011bdcf12",
-        "17d403ac3ee32ae651b0a229829c9d498d2ca98cc5cff2ae00a36b4f3a4ee786",
-        "6287d50b02bdfd201512e632ca6318f0f2df8432270e524eeeabb7312fe59785",
-        "f1b9996112f2bda21c391ed68c31caca2c650f200cc8b2ead86076a9ce7ea116",
-        "bb36ae47ea312a0199718bb137f508aee00fded15834f1b726c879b7a6174cda",
-        "d59644dd0529c0216dd54567fdf7f6b71c4103be17ea6eff71e2449e58a677e5",
+        "61d1e09c45c39cdd22103d96ca2143fe535688f6d94967fd5ef96e5a5d98ea50",
+        "c536e938c1a1fa688668e1ed7cbdee66a6fbf1f15098c7b93f7c67f3df9a36f3",
+        "226c7a7ab1ff460b4ce06c61c91ffff08473cc4098fb078b209b67b91e87d05a",
+        "ce6a80c6e4097e620c216882c4fcf0da2e27a47764f2e972ad4c7f73449cd644",
+        "f5ec8896803b007c18069e0be05f771cea79367329540dbc8c9674a8a8f8f70a",
+        "329a92fd1692944220253ab6d9b97b01fd6001ba2a0f61b09daae9dc8b5287f6",
     ];
 
     let (mut provenance, _initial_store, _warp_id, worldline_id) = setup_worldline_with_ticks(10);
@@ -211,6 +217,17 @@ fn gv003_fork_reproducibility() {
     // fork(src, 5, dst) copies ticks 0..=5 (6 entries)
     let forked_len = provenance.len(forked_id).unwrap();
     assert_eq!(forked_len, 6, "GV-003: fork at 5 should yield 6 entries");
+
+    let actual_prefix_commits: Vec<String> = (0..EXPECTED_PREFIX_COMMITS.len())
+        .map(|tick| {
+            provenance
+                .entry(worldline_id, wt(tick as u64))
+                .unwrap()
+                .expected
+                .commit_hash
+        })
+        .map(|hash| hex(&hash))
+        .collect();
 
     // Prefix ticks 0..5 must be identical between original and fork
     for (tick, exp_ch) in EXPECTED_PREFIX_COMMITS.iter().enumerate() {
@@ -228,7 +245,7 @@ fn gv003_fork_reproducibility() {
             "GV-003 tick {tick}: forked prefix must match original"
         );
         assert_eq!(
-            hex(&original.commit_hash),
+            actual_prefix_commits[tick].as_str(),
             *exp_ch,
             "GV-003 tick {tick}: commit_hash mismatch"
         );

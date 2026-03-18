@@ -28,14 +28,10 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 
 use crate::clock::{GlobalTick, WorldlineTick};
-use crate::graph::GraphStore;
 use crate::head::WriterHeadKey;
 use crate::ident::{Hash, WarpId};
 use crate::receipt::TickReceipt;
-use crate::snapshot::{
-    compute_commit_hash_v2, compute_state_root_for_warp_state, compute_state_root_for_warp_store,
-    Snapshot,
-};
+use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state, Snapshot};
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
 use crate::tx::TxId;
 use crate::worldline_state::WorldlineState;
@@ -302,6 +298,29 @@ pub struct CheckpointRef {
     pub state_hash: Hash,
 }
 
+/// Materialized replay checkpoint stored alongside provenance metadata.
+#[derive(Clone, Debug)]
+pub struct ReplayCheckpoint {
+    /// Metadata for the stored checkpoint coordinate.
+    pub checkpoint: CheckpointRef,
+    /// Full worldline state materialized at `checkpoint.worldline_tick`.
+    pub state: WorldlineState,
+}
+
+impl ReplayCheckpoint {
+    /// Builds a deterministic replay checkpoint from a full worldline state.
+    #[must_use]
+    pub fn from_state(state: &WorldlineState) -> Self {
+        Self {
+            checkpoint: CheckpointRef {
+                worldline_tick: state.current_tick(),
+                state_hash: state.state_root(),
+            },
+            state: state.replay_checkpoint_clone(),
+        }
+    }
+}
+
 /// Reference to a parent provenance commit.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -559,6 +578,13 @@ pub trait ProvenanceStore: Send + Sync {
     /// Returns the nearest checkpoint before a given tick, if any.
     fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef>;
 
+    /// Returns the nearest materialized checkpoint before a given tick, if any.
+    fn checkpoint_state_before(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Option<ReplayCheckpoint>;
+
     /// Returns whether the worldline has any recorded history.
     ///
     /// # Errors
@@ -574,7 +600,7 @@ struct WorldlineHistory {
     u0_ref: WarpId,
     initial_boundary_hash: Hash,
     entries: Vec<ProvenanceEntry>,
-    checkpoints: Vec<CheckpointRef>,
+    checkpoints: Vec<ReplayCheckpoint>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -805,20 +831,26 @@ impl LocalProvenanceStore {
     pub fn add_checkpoint(
         &mut self,
         w: WorldlineId,
-        checkpoint: CheckpointRef,
+        checkpoint: ReplayCheckpoint,
     ) -> Result<(), HistoryError> {
         let history = self.history_mut(w)?;
+        if checkpoint.checkpoint.worldline_tick.as_u64() > history.entries.len() as u64 {
+            return Err(HistoryError::HistoryUnavailable {
+                tick: checkpoint.checkpoint.worldline_tick,
+            });
+        }
         match history
             .checkpoints
-            .binary_search_by_key(&checkpoint.worldline_tick, |c| c.worldline_tick)
-        {
+            .binary_search_by_key(&checkpoint.checkpoint.worldline_tick, |c| {
+                c.checkpoint.worldline_tick
+            }) {
             Ok(index) => history.checkpoints[index] = checkpoint,
             Err(pos) => history.checkpoints.insert(pos, checkpoint),
         }
         Ok(())
     }
 
-    /// Creates a checkpoint at the given tick by computing the state hash.
+    /// Creates a checkpoint from the given full worldline state.
     ///
     /// # Errors
     ///
@@ -826,22 +858,11 @@ impl LocalProvenanceStore {
     pub fn checkpoint(
         &mut self,
         w: WorldlineId,
-        tick: WorldlineTick,
-        state: &GraphStore,
+        state: &WorldlineState,
     ) -> Result<CheckpointRef, HistoryError> {
-        let history = self.history_mut(w)?;
-        let state_hash = compute_state_root_for_warp_store(state, history.u0_ref);
-        let checkpoint_ref = CheckpointRef {
-            worldline_tick: tick,
-            state_hash,
-        };
-        match history
-            .checkpoints
-            .binary_search_by_key(&checkpoint_ref.worldline_tick, |c| c.worldline_tick)
-        {
-            Ok(index) => history.checkpoints[index] = checkpoint_ref,
-            Err(pos) => history.checkpoints.insert(pos, checkpoint_ref),
-        }
+        let checkpoint = ReplayCheckpoint::from_state(state);
+        let checkpoint_ref = checkpoint.checkpoint;
+        self.add_checkpoint(w, checkpoint)?;
         Ok(checkpoint_ref)
     }
 
@@ -882,8 +903,8 @@ impl LocalProvenanceStore {
             checkpoints: source_history
                 .checkpoints
                 .iter()
-                .filter(|c| c.worldline_tick <= fork_tick)
-                .copied()
+                .filter(|c| c.checkpoint.worldline_tick <= fork_tick)
+                .cloned()
                 .collect(),
         };
         self.worldlines.insert(new_id, new_history);
@@ -1000,12 +1021,29 @@ impl ProvenanceStore for LocalProvenanceStore {
         let history = self.worldlines.get(&w)?;
         let pos = history
             .checkpoints
-            .binary_search_by_key(&tick, |c| c.worldline_tick)
+            .binary_search_by_key(&tick, |c| c.checkpoint.worldline_tick)
             .unwrap_or_else(|e| e);
         if pos == 0 {
             None
         } else {
-            Some(history.checkpoints[pos - 1])
+            Some(history.checkpoints[pos - 1].checkpoint)
+        }
+    }
+
+    fn checkpoint_state_before(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Option<ReplayCheckpoint> {
+        let history = self.worldlines.get(&w)?;
+        let pos = history
+            .checkpoints
+            .binary_search_by_key(&tick, |c| c.checkpoint.worldline_tick)
+            .unwrap_or_else(|e| e);
+        if pos == 0 {
+            None
+        } else {
+            Some(history.checkpoints[pos - 1].clone())
         }
     }
 }
@@ -1051,12 +1089,12 @@ impl ProvenanceService {
     pub fn add_checkpoint(
         &mut self,
         worldline_id: WorldlineId,
-        checkpoint: CheckpointRef,
+        checkpoint: ReplayCheckpoint,
     ) -> Result<(), HistoryError> {
         self.store.add_checkpoint(worldline_id, checkpoint)
     }
 
-    /// Creates a checkpoint at the given tick using the provided state.
+    /// Creates a checkpoint from the provided full worldline state.
     ///
     /// # Errors
     ///
@@ -1064,10 +1102,9 @@ impl ProvenanceService {
     pub fn checkpoint(
         &mut self,
         worldline_id: WorldlineId,
-        tick: WorldlineTick,
-        state: &GraphStore,
+        state: &WorldlineState,
     ) -> Result<CheckpointRef, HistoryError> {
-        self.store.checkpoint(worldline_id, tick, state)
+        self.store.checkpoint(worldline_id, state)
     }
 
     /// Returns the largest checkpoint with `checkpoint.worldline_tick < tick`, if any.
@@ -1078,6 +1115,16 @@ impl ProvenanceService {
         tick: WorldlineTick,
     ) -> Option<CheckpointRef> {
         self.store.checkpoint_before(worldline_id, tick)
+    }
+
+    /// Returns the largest materialized checkpoint with `checkpoint.worldline_tick < tick`, if any.
+    #[must_use]
+    pub fn checkpoint_state_before(
+        &self,
+        worldline_id: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Option<ReplayCheckpoint> {
+        self.store.checkpoint_state_before(worldline_id, tick)
     }
 
     /// Creates a new worldline that is a prefix-copy of the source up to `fork_tick`.
@@ -1416,6 +1463,14 @@ impl ProvenanceStore for ProvenanceService {
     fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
         self.store.checkpoint_before(w, tick)
     }
+
+    fn checkpoint_state_before(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Option<ReplayCheckpoint> {
+        self.store.checkpoint_state_before(w, tick)
+    }
 }
 
 #[cfg(test)]
@@ -1427,7 +1482,6 @@ mod tests {
 
     use super::*;
     use crate::attachment::AttachmentKey;
-    use crate::graph::GraphStore;
     use crate::head::{make_head_id, WriterHeadKey};
     use crate::ident::{make_node_id, make_type_id, make_warp_id, NodeKey, WarpId};
     use crate::materialization::make_channel_id;
@@ -1831,31 +1885,43 @@ mod tests {
         let mut store = LocalProvenanceStore::new();
         let w = test_worldline_id();
         store.register_worldline(w, test_warp_id()).unwrap();
+        for tick in 0..10 {
+            store.append_local_commit(test_entry(tick)).unwrap();
+        }
 
         store
             .add_checkpoint(
                 w,
-                CheckpointRef {
-                    worldline_tick: wt(0),
-                    state_hash: [0u8; 32],
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(0),
+                        state_hash: [0u8; 32],
+                    },
+                    state: WorldlineState::empty(),
                 },
             )
             .unwrap();
         store
             .add_checkpoint(
                 w,
-                CheckpointRef {
-                    worldline_tick: wt(5),
-                    state_hash: [5u8; 32],
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(5),
+                        state_hash: [5u8; 32],
+                    },
+                    state: WorldlineState::empty(),
                 },
             )
             .unwrap();
         store
             .add_checkpoint(
                 w,
-                CheckpointRef {
-                    worldline_tick: wt(10),
-                    state_hash: [10u8; 32],
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(10),
+                        state_hash: [10u8; 32],
+                    },
+                    state: WorldlineState::empty(),
                 },
             )
             .unwrap();
@@ -1885,9 +1951,47 @@ mod tests {
         let w = test_worldline_id();
         let warp = test_warp_id();
         store.register_worldline(w, warp).unwrap();
-
-        let graph_store = GraphStore::new(warp);
-        let cp = store.checkpoint(w, wt(5), &graph_store).unwrap();
+        for tick in 0..5 {
+            store.append_local_commit(test_entry(tick)).unwrap();
+        }
+        let root = make_node_id("root");
+        let mut root_store = crate::graph::GraphStore::new(warp);
+        root_store.insert_node(
+            root,
+            crate::record::NodeRecord {
+                ty: make_type_id("RootType"),
+            },
+        );
+        let mut state = WorldlineState::from_root_store(root_store, root).unwrap();
+        for tick in 0..5 {
+            test_patch(tick)
+                .apply_to_worldline_state(&mut state)
+                .expect("apply checkpoint state");
+            state.tick_history.push((
+                Snapshot {
+                    root: *state.root(),
+                    hash: [tick as u8; 32],
+                    state_root: state.state_root(),
+                    parents: Vec::new(),
+                    plan_digest: [0u8; 32],
+                    decision_digest: [0u8; 32],
+                    rewrites_digest: [0u8; 32],
+                    patch_digest: [tick as u8; 32],
+                    policy_id: 0,
+                    tx: TxId::from_raw(tick + 1),
+                },
+                TickReceipt::new(TxId::from_raw(tick + 1), Vec::new(), Vec::new()),
+                WarpTickPatchV1::new(
+                    0,
+                    [0u8; 32],
+                    TickCommitStatus::Committed,
+                    vec![],
+                    vec![],
+                    vec![],
+                ),
+            ));
+        }
+        let cp = store.checkpoint(w, &state).unwrap();
         let found = store.checkpoint_before(w, wt(6));
         assert_eq!(found.unwrap().worldline_tick, wt(5));
         assert_eq!(found.unwrap().state_hash, cp.state_hash);
@@ -1906,9 +2010,12 @@ mod tests {
         store
             .add_checkpoint(
                 source,
-                CheckpointRef {
-                    worldline_tick: wt(1),
-                    state_hash: [1u8; 32],
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(1),
+                        state_hash: [1u8; 32],
+                    },
+                    state: WorldlineState::empty(),
                 },
             )
             .unwrap();
@@ -2103,9 +2210,12 @@ mod tests {
         service
             .add_checkpoint(
                 source,
-                CheckpointRef {
-                    worldline_tick: wt(1),
-                    state_hash: [1u8; 32],
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(1),
+                        state_hash: [1u8; 32],
+                    },
+                    state: WorldlineState::empty(),
                 },
             )
             .unwrap();

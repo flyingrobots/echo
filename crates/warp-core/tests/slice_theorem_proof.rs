@@ -27,8 +27,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use common::{append_fixture_entry, XorShift64};
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, HashTriplet, LocalProvenanceStore,
-    WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+    compute_commit_hash_v2, HashTriplet, LocalProvenanceStore, WorldlineState, WorldlineTick,
+    WorldlineTickHeaderV1, WorldlineTickPatchV1,
 };
 use warp_core::{
     make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload, AttachmentKey,
@@ -528,9 +528,8 @@ fn phase_2_and_3_playback_replay_matches_execution() {
     engine.register_rule(r5_rule()).expect("r5");
 
     // Build provenance store from execution.
-    // IMPORTANT: We must compute state_root using compute_state_root_for_warp_store
-    // (same function PlaybackCursor::seek_to uses), NOT the engine's snapshot.state_root
-    // (which uses the multi-instance reachability-based compute_state_root).
+    // IMPORTANT: We compute state_root from the same replay substrate as the cursor:
+    // full WorldlineState materialization, not engine-specific incidental state.
     let worldline_id = WorldlineId([0x42; 32]);
     let cursor_id = CursorId([0x01; 32]);
     let mut provenance = LocalProvenanceStore::new();
@@ -540,7 +539,8 @@ fn phase_2_and_3_playback_replay_matches_execution() {
 
     let mut recorded_roots = Vec::new();
     let mut parents: Vec<warp_core::Hash> = Vec::new();
-    let mut replay_store = store.clone(); // Track state by applying patches
+    let replay_base = WorldlineState::from_root_store(store.clone(), root).expect("replay base");
+    let mut replay_state = replay_base.clone(); // Track state by applying patches
 
     for tick in 0..NUM_TICKS {
         let tx = engine.begin();
@@ -584,11 +584,11 @@ fn phase_2_and_3_playback_replay_matches_execution() {
             patch_digest: snapshot.patch_digest,
         };
 
-        // Apply patch to replay_store and compute correct state_root
+        // Apply patch to replay_state and compute correct state_root
         wl_patch
-            .apply_to_store(&mut replay_store)
-            .expect("apply to replay store");
-        let state_root = compute_state_root_for_warp_store(&replay_store, warp_id);
+            .apply_to_worldline_state(&mut replay_state)
+            .expect("apply to replay state");
+        let state_root = replay_state.state_root();
         recorded_roots.push(state_root);
 
         let commit_hash = warp_core::compute_commit_hash_v2(
@@ -625,14 +625,14 @@ fn phase_2_and_3_playback_replay_matches_execution() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &store,
+        &replay_base,
         wt(NUM_TICKS),
     );
     cursor
-        .seek_to(wt(NUM_TICKS), &provenance, &store)
+        .seek_to(wt(NUM_TICKS), &provenance, &replay_base)
         .expect("seek_to should succeed");
 
-    let replayed_root = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let replayed_root = cursor.current_state_root();
     assert_eq!(
         replayed_root,
         recorded_roots[NUM_TICKS as usize - 1],
@@ -646,13 +646,13 @@ fn phase_2_and_3_playback_replay_matches_execution() {
             worldline_id,
             warp_id,
             CursorRole::Reader,
-            &store,
+            &replay_base,
             wt(NUM_TICKS),
         );
         cursor_tick
-            .seek_to(wt(tick), &provenance, &store)
+            .seek_to(wt(tick), &provenance, &replay_base)
             .expect("seek_to tick");
-        let tick_root = compute_state_root_for_warp_store(&cursor_tick.store, warp_id);
+        let tick_root = cursor_tick.current_state_root();
         assert_eq!(
             tick_root,
             recorded_roots[tick as usize - 1],
@@ -814,12 +814,14 @@ fn phase_6_semantic_correctness_dependent_chain() {
         patch_digest: snapshot.patch_digest,
     };
 
-    // Compute state_root using the same function seek_to uses
-    let mut replay_store = post_r1_store.clone();
+    // Compute state_root using the same full-state replay substrate as seek_to.
+    let replay_base =
+        WorldlineState::from_root_store(post_r1_store.clone(), root).expect("replay base");
+    let mut replay_state = replay_base.clone();
     wl_patch
-        .apply_to_store(&mut replay_store)
-        .expect("apply to replay store");
-    let state_root = compute_state_root_for_warp_store(&replay_store, warp_id);
+        .apply_to_worldline_state(&mut replay_state)
+        .expect("apply to replay state");
+    let state_root = replay_state.state_root();
     let commit_hash =
         compute_commit_hash_v2(&state_root, &[], &snapshot.patch_digest, snapshot.policy_id);
     let snapshot_commit_hash = compute_commit_hash_v2(
@@ -846,15 +848,18 @@ fn phase_6_semantic_correctness_dependent_chain() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &post_r1_store,
+        &replay_base,
         wt(1),
     );
     cursor
-        .seek_to(wt(1), &provenance, &post_r1_store)
+        .seek_to(wt(1), &provenance, &replay_base)
         .expect("seek");
 
     // Verify same semantic result after replay
-    let replayed_g = cursor.store.node_attachment(&node_id(6));
+    let replayed_g = cursor
+        .focused_store()
+        .expect("focused store missing")
+        .node_attachment(&node_id(6));
     match replayed_g {
         Some(AttachmentValue::Atom(payload)) => {
             assert_eq!(
@@ -867,7 +872,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
     }
 
     // Verify hash agreement between runtime and replay
-    let replayed_root = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let replayed_root = cursor.current_state_root();
     assert_eq!(
         replayed_root, state_root,
         "Replay state_root must match expected state_root (slice theorem trifecta)"

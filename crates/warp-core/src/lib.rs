@@ -202,7 +202,7 @@ pub use playback::{CursorReceipt, TruthFrame, TruthSink};
 pub use provenance_store::{
     BoundaryTransitionRecord, BtrError, BtrPayload, CheckpointRef, HistoryError,
     LocalProvenanceStore, ProvenanceEntry, ProvenanceEventKind, ProvenanceRef, ProvenanceService,
-    ProvenanceStore, ReplayError,
+    ProvenanceStore, ReplayCheckpoint, ReplayError,
 };
 pub use receipt::{TickReceipt, TickReceiptDisposition, TickReceiptEntry, TickReceiptRejection};
 pub use record::{EdgeRecord, NodeRecord};

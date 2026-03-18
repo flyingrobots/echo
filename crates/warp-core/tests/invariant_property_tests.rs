@@ -28,18 +28,17 @@
 
 mod common;
 use common::{
-    append_fixture_entry, create_add_node_patch, create_initial_store, test_warp_id,
-    test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_store,
+    create_initial_worldline_state, test_warp_id, test_worldline_id,
 };
 
 use proptest::prelude::*;
 
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, make_head_id, make_intent_kind,
-    EngineBuilder, Hash, HashTriplet, InboxPolicy, IngressDisposition, IngressEnvelope,
-    IngressTarget, LocalProvenanceStore, PlaybackHeadRegistry, PlaybackMode, ProvenanceStore,
-    RunnableWriterSet, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead,
-    WriterHeadKey,
+    compute_commit_hash_v2, make_head_id, make_intent_kind, EngineBuilder, Hash, HashTriplet,
+    InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, LocalProvenanceStore,
+    PlaybackHeadRegistry, PlaybackMode, ProvenanceStore, RunnableWriterSet, WorldlineId,
+    WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead, WriterHeadKey,
 };
 
 fn wt(raw: u64) -> WorldlineTick {
@@ -78,18 +77,20 @@ proptest! {
     fn inv001_monotonic_worldline_tick(num_ticks in 1u64..20) {
         let warp_id = test_warp_id();
         let worldline_id = test_worldline_id();
-        let initial_store = create_initial_store(warp_id);
+        let initial_state = create_initial_worldline_state(warp_id);
 
         let mut provenance = LocalProvenanceStore::new();
         provenance.register_worldline(worldline_id, warp_id).unwrap();
 
-        let mut current_store = initial_store.clone();
+        let mut current_state = initial_state.clone();
         let mut parents: Vec<Hash> = Vec::new();
 
         for tick in 0..num_ticks {
             let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
-            patch.apply_to_store(&mut current_store).expect("apply");
-            let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+            patch
+                .apply_to_worldline_state(&mut current_state)
+                .expect("apply");
+            let state_root = current_state.state_root();
             let commit_hash = compute_commit_hash_v2(
                 &state_root, &parents, &patch.patch_digest, patch.header.policy_id,
             );
@@ -258,19 +259,21 @@ fn inv004_no_cross_worldline_leakage() {
     let warp_id = test_warp_id();
     let worldline_a = WorldlineId([1u8; 32]);
     let worldline_b = WorldlineId([2u8; 32]);
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
     provenance.register_worldline(worldline_a, warp_id).unwrap();
     provenance.register_worldline(worldline_b, warp_id).unwrap();
 
     // Append 5 ticks to worldline A
-    let mut store_a = initial_store.clone();
+    let mut store_a = initial_state.clone();
     let mut parents_a: Vec<Hash> = Vec::new();
     for tick in 0..5 {
         let patch = create_add_node_patch(warp_id, tick, &format!("a-node-{tick}"));
-        patch.apply_to_store(&mut store_a).expect("apply A");
-        let sr = compute_state_root_for_warp_store(&store_a, warp_id);
+        patch
+            .apply_to_worldline_state(&mut store_a)
+            .expect("apply A");
+        let sr = store_a.state_root();
         let ch = compute_commit_hash_v2(&sr, &parents_a, &patch.patch_digest, 0);
         let triplet = HashTriplet {
             state_root: sr,
@@ -282,12 +285,14 @@ fn inv004_no_cross_worldline_leakage() {
     }
 
     // Append 3 ticks to worldline B
-    let mut store_b = initial_store.clone();
+    let mut store_b = initial_state.clone();
     let mut parents_b: Vec<Hash> = Vec::new();
     for tick in 0..3 {
         let patch = create_add_node_patch(warp_id, tick, &format!("b-node-{tick}"));
-        patch.apply_to_store(&mut store_b).expect("apply B");
-        let sr = compute_state_root_for_warp_store(&store_b, warp_id);
+        patch
+            .apply_to_worldline_state(&mut store_b)
+            .expect("apply B");
+        let sr = store_b.state_root();
         let ch = compute_commit_hash_v2(&sr, &parents_b, &patch.patch_digest, 0);
         let triplet = HashTriplet {
             state_root: sr,
@@ -302,24 +307,19 @@ fn inv004_no_cross_worldline_leakage() {
     assert_eq!(provenance.len(worldline_a).unwrap(), 5);
     assert_eq!(provenance.len(worldline_b).unwrap(), 3);
 
-    // State roots must differ (different node names)
-    let sr_a = provenance
-        .entry(worldline_a, wt(4))
-        .unwrap()
-        .expected
-        .state_root;
     let triplet_b_before = provenance.entry(worldline_b, wt(2)).unwrap().expected;
-    let sr_b = triplet_b_before.state_root;
-    assert_ne!(
-        sr_a, sr_b,
-        "different worldlines must have different state roots"
-    );
+    // Isolation is about independent provenance and append behavior, not
+    // guaranteed distinct reachable state roots. These fixtures only add
+    // unreachable nodes, so both worldlines can legitimately share the same
+    // canonical state root while still remaining causally isolated.
 
     // Appending to A must not change B's length
     let patch = create_add_node_patch(warp_id, 5, "a-node-5");
     let mut store_a_cont = store_a;
-    patch.apply_to_store(&mut store_a_cont).expect("apply A+1");
-    let sr = compute_state_root_for_warp_store(&store_a_cont, warp_id);
+    patch
+        .apply_to_worldline_state(&mut store_a_cont)
+        .expect("apply A+1");
+    let sr = store_a_cont.state_root();
     let ch = compute_commit_hash_v2(&sr, &parents_a, &patch.patch_digest, 0);
     let triplet = HashTriplet {
         state_root: sr,
@@ -388,21 +388,23 @@ proptest! {
 fn inv006_provenance_immutable_after_append() {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
     provenance
         .register_worldline(worldline_id, warp_id)
         .unwrap();
 
-    let mut current_store = initial_store;
+    let mut current_state = initial_state;
     let mut parents: Vec<Hash> = Vec::new();
     let mut recorded_triplets: Vec<HashTriplet> = Vec::new();
 
     for tick in 0..10 {
         let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
-        patch.apply_to_store(&mut current_store).expect("apply");
-        let sr = compute_state_root_for_warp_store(&current_store, warp_id);
+        patch
+            .apply_to_worldline_state(&mut current_state)
+            .expect("apply");
+        let sr = current_state.state_root();
         let ch = compute_commit_hash_v2(&sr, &parents, &patch.patch_digest, 0);
         let triplet = HashTriplet {
             state_root: sr,

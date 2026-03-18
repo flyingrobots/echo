@@ -13,14 +13,14 @@
 
 mod common;
 use common::{
-    append_fixture_entry, create_add_node_patch, create_initial_store, test_cursor_id,
-    test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_worldline_state, test_cursor_id,
+    test_header, test_warp_id, test_worldline_id,
 };
 
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, CheckpointRef, CursorRole,
-    GraphStore, Hash, HashTriplet, LocalProvenanceStore, PlaybackCursor, ProvenanceStore,
-    WorldlineId, WorldlineTick,
+    compute_commit_hash_v2, make_node_id, make_type_id, CursorRole, Hash, HashTriplet,
+    LocalProvenanceStore, NodeKey, NodeRecord, PlaybackCursor, ProvenanceStore, ReplayCheckpoint,
+    WarpOp, WorldlineId, WorldlineState, WorldlineTick, WorldlineTickPatchV1,
 };
 
 /// Creates a deterministic worldline ID for the forked worldline.
@@ -45,12 +45,12 @@ fn setup_worldline_with_ticks_and_checkpoints(
     checkpoint_ticks: &[u64],
 ) -> (
     LocalProvenanceStore,
-    GraphStore,
+    WorldlineState,
     warp_core::WarpId,
     Vec<(u64, [u8; 32])>, // (cursor_tick, state_root) for each checkpoint
 ) {
     let warp_id = test_warp_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
     provenance
@@ -58,7 +58,7 @@ fn setup_worldline_with_ticks_and_checkpoints(
         .unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let mut checkpoint_states: Vec<(u64, [u8; 32])> = Vec::new();
     let mut parents: Vec<Hash> = Vec::new();
 
@@ -67,11 +67,11 @@ fn setup_worldline_with_ticks_and_checkpoints(
 
         // Apply patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute the actual state root after applying
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+        let state_root = current_state.state_root();
 
         // Compute real commit_hash for Merkle chain verification
         let commit_hash = compute_commit_hash_v2(
@@ -96,28 +96,33 @@ fn setup_worldline_with_ticks_and_checkpoints(
         // So after applying patch at `patch_index`, cursor_tick = patch_index + 1.
         let cursor_tick = patch_index + 1;
         if checkpoint_ticks.contains(&cursor_tick) {
-            let checkpoint = CheckpointRef {
-                worldline_tick: wt(cursor_tick),
-                state_hash: state_root,
-            };
             provenance
-                .add_checkpoint(worldline_id, checkpoint)
+                .add_checkpoint(
+                    worldline_id,
+                    ReplayCheckpoint {
+                        checkpoint: warp_core::CheckpointRef {
+                            worldline_tick: wt(cursor_tick),
+                            state_hash: state_root,
+                        },
+                        state: current_state.clone(),
+                    },
+                )
                 .expect("worldline should be registered");
             checkpoint_states.push((cursor_tick, state_root));
         }
     }
 
-    (provenance, initial_store, warp_id, checkpoint_states)
+    (provenance, initial_state, warp_id, checkpoint_states)
 }
 
 /// Sets up a worldline with N ticks (no checkpoints).
 fn setup_worldline_with_ticks(
     worldline_id: WorldlineId,
     num_ticks: u64,
-) -> (LocalProvenanceStore, GraphStore, warp_core::WarpId) {
-    let (provenance, initial_store, warp_id, _) =
+) -> (LocalProvenanceStore, WorldlineState, warp_core::WarpId) {
+    let (provenance, initial_state, warp_id, _) =
         setup_worldline_with_ticks_and_checkpoints(worldline_id, num_ticks, &[]);
-    (provenance, initial_store, warp_id)
+    (provenance, initial_state, warp_id)
 }
 
 // ============================================================================
@@ -141,7 +146,7 @@ fn checkpoint_replay_equals_full_replay() {
     // Arrange: Create worldline with 25 patches and checkpoints at cursor ticks 5, 10, 15, 20
     // Cursor tick N means "state after N patches applied" (patches 0..N-1)
     let checkpoint_ticks = [5, 10, 15, 20];
-    let (provenance, initial_store, warp_id, checkpoint_states) =
+    let (provenance, initial_state, warp_id, checkpoint_states) =
         setup_worldline_with_ticks_and_checkpoints(worldline_id, 25, &checkpoint_ticks);
 
     // Verify checkpoints were created
@@ -160,17 +165,16 @@ fn checkpoint_replay_equals_full_replay() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
+        &initial_state,
         wt(25),
     );
 
     // Cursor starts at tick 0, seek to tick 23 (applies patches 0..23, i.e., patches 0-22)
     full_replay_cursor
-        .seek_to(wt(23), &provenance, &initial_store)
+        .seek_to(wt(23), &provenance, &initial_state)
         .expect("full replay seek to tick 23 should succeed");
 
-    let full_replay_state_root =
-        compute_state_root_for_warp_store(&full_replay_cursor.store, warp_id);
+    let full_replay_state_root = full_replay_cursor.current_state_root();
 
     // Act 2: Checkpoint path - seek to tick 23 using checkpoint at 20
     // First, create a cursor and manually restore state from checkpoint
@@ -179,18 +183,18 @@ fn checkpoint_replay_equals_full_replay() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
+        &initial_state,
         wt(25),
     );
 
     // Seek to checkpoint tick 20 first (this rebuilds state up to tick 20)
     // tick 20 = state after patches 0-19 applied
     checkpoint_cursor
-        .seek_to(wt(20), &provenance, &initial_store)
+        .seek_to(wt(20), &provenance, &initial_state)
         .expect("seek to checkpoint tick 20 should succeed");
 
     // Verify we're at the checkpoint state
-    let checkpoint_state = compute_state_root_for_warp_store(&checkpoint_cursor.store, warp_id);
+    let checkpoint_state = checkpoint_cursor.current_state_root();
     assert_eq!(
         checkpoint_state, checkpoint_20.state_hash,
         "cursor state at tick 20 should match checkpoint state_hash"
@@ -198,11 +202,10 @@ fn checkpoint_replay_equals_full_replay() {
 
     // Now seek from tick 20 to tick 23 (applies patches 20, 21, 22)
     checkpoint_cursor
-        .seek_to(wt(23), &provenance, &initial_store)
+        .seek_to(wt(23), &provenance, &initial_state)
         .expect("checkpoint seek to tick 23 should succeed");
 
-    let checkpoint_path_state_root =
-        compute_state_root_for_warp_store(&checkpoint_cursor.store, warp_id);
+    let checkpoint_path_state_root = checkpoint_cursor.current_state_root();
 
     // Assert: Both paths produce identical state_root
     assert_eq!(
@@ -240,7 +243,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     let forked_worldline_id = forked_worldline_id();
 
     // Arrange: Create "original" worldline with 20 ticks
-    let (mut provenance, initial_store, warp_id) =
+    let (mut provenance, initial_state, warp_id) =
         setup_worldline_with_ticks(original_worldline_id, 20);
 
     // Capture original worldline's expected hashes for all 20 ticks
@@ -285,7 +288,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
 
     // Act 2: Add 3 more ticks to forked worldline with DIFFERENT patches
     // These patches use different node names to produce different state
-    let mut forked_store = initial_store.clone();
+    let mut forked_state = initial_state.clone();
 
     // Replay forked worldline to tick 7 to get the correct state
     for tick in 0..=7 {
@@ -295,7 +298,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
             .patch
             .expect("forked patch should exist");
         patch
-            .apply_to_store(&mut forked_store)
+            .apply_to_worldline_state(&mut forked_state)
             .expect("apply should succeed");
     }
 
@@ -308,16 +311,32 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
             .commit_hash,
     ];
 
-    // Add divergent ticks 8, 9, 10 with different node names
+    // Add divergent ticks 8, 9, 10 by mutating reachable root state.
+    // Isolated node inserts do not affect the canonical state root.
     for tick in 8..=10 {
-        // Use a different node name pattern to create divergent history
-        let patch = create_add_node_patch(warp_id, tick, &format!("forked-node-{tick}"));
+        let tick_u8 = u8::try_from(tick).expect("test tick must fit in u8");
+        let patch = WorldlineTickPatchV1 {
+            header: test_header(tick),
+            warp_id,
+            ops: vec![WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: make_node_id("root"),
+                },
+                record: NodeRecord {
+                    ty: make_type_id(&format!("ForkedRootType{tick}")),
+                },
+            }],
+            in_slots: vec![],
+            out_slots: vec![],
+            patch_digest: [tick_u8.wrapping_add(64); 32],
+        };
 
         patch
-            .apply_to_store(&mut forked_store)
+            .apply_to_worldline_state(&mut forked_state)
             .expect("apply should succeed");
 
-        let state_root = compute_state_root_for_warp_store(&forked_store, warp_id);
+        let state_root = forked_state.state_root();
 
         // Compute real commit_hash continuing the Merkle chain from tick 7
         let commit_hash = compute_commit_hash_v2(
@@ -414,7 +433,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
         original_worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
+        &initial_state,
         wt(20),
     );
 
@@ -423,23 +442,23 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
         forked_worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
+        &initial_state,
         wt(11),
     );
 
     // Seek original to tick 10
     original_cursor
-        .seek_to(wt(10), &provenance, &initial_store)
+        .seek_to(wt(10), &provenance, &initial_state)
         .expect("seek original to 10 should succeed");
 
     // Seek forked to tick 10
     forked_cursor
-        .seek_to(wt(10), &provenance, &initial_store)
+        .seek_to(wt(10), &provenance, &initial_state)
         .expect("seek forked to 10 should succeed");
 
     // Verify they have different state roots at tick 10
-    let original_state = compute_state_root_for_warp_store(&original_cursor.store, warp_id);
-    let forked_state = compute_state_root_for_warp_store(&forked_cursor.store, warp_id);
+    let original_state = original_cursor.current_state_root();
+    let forked_state = forked_cursor.current_state_root();
 
     assert_ne!(
         original_state, forked_state,

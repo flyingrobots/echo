@@ -29,7 +29,8 @@ use thiserror::Error;
 
 use crate::clock::{GlobalTick, WorldlineTick};
 use crate::head::WriterHeadKey;
-use crate::ident::{Hash, WarpId};
+use crate::ident::{Hash, NodeKey, WarpId};
+use crate::materialization::FinalizedChannel;
 use crate::receipt::TickReceipt;
 use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_state, Snapshot};
 use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
@@ -1172,24 +1173,177 @@ impl ProvenanceService {
         self.store.restore(checkpoint);
     }
 
-    /// Reconstructs full [`WorldlineState`] for a worldline from stored provenance entries.
+    fn finalized_channels(outputs: &OutputFrameSet) -> Vec<FinalizedChannel> {
+        outputs
+            .iter()
+            .map(|(channel, data)| FinalizedChannel {
+                channel: *channel,
+                data: data.clone(),
+            })
+            .collect()
+    }
+
+    fn replay_artifacts_for_entry(
+        root: NodeKey,
+        entry: &ProvenanceEntry,
+    ) -> Result<(Snapshot, TickReceipt, WarpTickPatchV1), ReplayError> {
+        let tick = entry.worldline_tick;
+        let patch = entry
+            .patch
+            .clone()
+            .ok_or(ReplayError::MissingPatch { tick })?;
+        if entry.expected.patch_digest != patch.patch_digest {
+            return Err(ReplayError::PatchDigestMismatch {
+                tick,
+                expected: entry.expected.patch_digest,
+                actual: patch.patch_digest,
+            });
+        }
+
+        let replay_patch = WarpTickPatchV1::new(
+            patch.policy_id(),
+            patch.rule_pack_id(),
+            TickCommitStatus::Committed,
+            patch.in_slots.clone(),
+            patch.out_slots.clone(),
+            patch.ops.clone(),
+        );
+        let replay_patch_digest = replay_patch.digest();
+        if replay_patch_digest != patch.patch_digest {
+            return Err(ReplayError::PatchDigestMismatch {
+                tick,
+                expected: patch.patch_digest,
+                actual: replay_patch_digest,
+            });
+        }
+
+        let parents = entry
+            .parents
+            .iter()
+            .map(|parent| parent.commit_hash)
+            .collect::<Vec<_>>();
+        let snapshot = Snapshot {
+            root,
+            hash: entry.expected.commit_hash,
+            state_root: entry.expected.state_root,
+            parents,
+            plan_digest: patch.header.plan_digest,
+            decision_digest: patch.header.decision_digest,
+            rewrites_digest: patch.header.rewrites_digest,
+            patch_digest: entry.expected.patch_digest,
+            policy_id: patch.policy_id(),
+            tx: TxId::from_raw(tick.as_u64() + 1),
+        };
+        let receipt = TickReceipt::new(snapshot.tx, Vec::new(), Vec::new());
+        Ok((snapshot, receipt, replay_patch))
+    }
+
+    fn hydrate_replay_metadata(
+        &self,
+        worldline_id: WorldlineId,
+        replayed: &mut WorldlineState,
+        target_tick: WorldlineTick,
+    ) -> Result<(), ReplayError> {
+        let target_len = target_tick.as_u64() as usize;
+        if replayed.tick_history.len() > target_len {
+            replayed.tick_history.truncate(target_len);
+        }
+
+        let root = *replayed.root();
+        for raw_tick in replayed.tick_history.len() as u64..target_tick.as_u64() {
+            let entry = self
+                .store
+                .entry(worldline_id, WorldlineTick::from_raw(raw_tick))?;
+            let (snapshot, receipt, replay_patch) = Self::replay_artifacts_for_entry(root, &entry)?;
+            replayed
+                .tick_history
+                .push((snapshot, receipt, replay_patch));
+        }
+
+        if target_len == 0 {
+            replayed.last_snapshot = None;
+            replayed.last_materialization.clear();
+            replayed.last_materialization_errors.clear();
+            replayed.tx_counter = 0;
+        } else {
+            let last_tick = WorldlineTick::from_raw(target_tick.as_u64() - 1);
+            let entry = self.store.entry(worldline_id, last_tick)?;
+            replayed.last_snapshot = replayed
+                .tick_history
+                .last()
+                .map(|(snapshot, _, _)| snapshot.clone());
+            replayed.last_materialization = Self::finalized_channels(&entry.outputs);
+            replayed.last_materialization_errors.clear();
+            replayed.tx_counter = target_tick.as_u64();
+        }
+
+        Ok(())
+    }
+
+    fn restore_replay_base(
+        &self,
+        worldline_id: WorldlineId,
+        base_state: &WorldlineState,
+        target_tick: WorldlineTick,
+    ) -> Result<(WorldlineState, WorldlineTick), ReplayError> {
+        let checkpoint_lookup_tick = target_tick.checked_increment().unwrap_or(target_tick);
+        if let Some(checkpoint) = self
+            .store
+            .checkpoint_state_before(worldline_id, checkpoint_lookup_tick)
+        {
+            if checkpoint.state.state_root() != checkpoint.checkpoint.state_hash {
+                return Err(ReplayError::StateRootMismatch {
+                    tick: checkpoint.checkpoint.worldline_tick,
+                    expected: checkpoint.checkpoint.state_hash,
+                    actual: checkpoint.state.state_root(),
+                });
+            }
+
+            let checkpoint_tick = checkpoint.checkpoint.worldline_tick;
+            let mut replayed = checkpoint.state;
+            replayed.last_materialization_errors.clear();
+            replayed.committed_ingress.clear();
+            self.hydrate_replay_metadata(worldline_id, &mut replayed, checkpoint_tick)?;
+            return Ok((replayed, checkpoint_tick));
+        }
+
+        let mut replayed = base_state.clone();
+        replayed.warp_state = replayed.initial_state.clone();
+        replayed.last_snapshot = None;
+        replayed.tick_history.clear();
+        replayed.last_materialization.clear();
+        replayed.last_materialization_errors.clear();
+        replayed.tx_counter = 0;
+        replayed.committed_ingress.clear();
+        Ok((replayed, WorldlineTick::ZERO))
+    }
+
+    /// Reconstructs full [`WorldlineState`] for a worldline up to `target_tick`.
     ///
-    /// The supplied `base_state` provides the deterministic replay base for the
-    /// worldline and is reset to its preserved `initial_state()` before patches
-    /// are replayed. The returned state includes reconstructed `tick_history`
-    /// snapshots so historical snapshot/fork paths can operate on portal and
-    /// instance-bearing history without live execution.
+    /// `target_tick` is a cursor coordinate: tick 0 is the replay base with no
+    /// patches applied; tick N is the state after applying patches `0..N-1`.
+    /// Replay restores the nearest stored checkpoint when available, hydrates
+    /// snapshot/materialization metadata from authoritative provenance, then
+    /// replays only the remaining patch suffix.
     ///
     /// # Errors
     ///
     /// Returns [`ReplayError`] if the supplied replay base does not match the
     /// registered worldline boundary, if any entry lacks a patch, or if
     /// reconstructed hashes differ from stored provenance commitments.
-    pub fn replay_worldline_state(
+    pub fn replay_worldline_state_at(
         &self,
         worldline_id: WorldlineId,
         base_state: &WorldlineState,
+        target_tick: WorldlineTick,
     ) -> Result<WorldlineState, ReplayError> {
+        let history_len = WorldlineTick::from_raw(self.store.len(worldline_id)?);
+        if target_tick > history_len {
+            return Err(ReplayError::History(HistoryError::HistoryUnavailable {
+                tick: target_tick,
+            }));
+        }
+
         let expected_root_warp = self.store.u0(worldline_id)?;
         if base_state.root().warp_id != expected_root_warp {
             return Err(ReplayError::ReplayBaseWarpMismatch {
@@ -1208,46 +1362,18 @@ impl ProvenanceService {
             });
         }
 
-        let mut replayed = base_state.clone();
-        replayed.warp_state = replayed.initial_state.clone();
-        replayed.last_snapshot = None;
-        replayed.tick_history.clear();
-        replayed.last_materialization.clear();
-        replayed.last_materialization_errors.clear();
-        replayed.tx_counter = 0;
-        replayed.committed_ingress.clear();
+        let (mut replayed, start_tick) =
+            self.restore_replay_base(worldline_id, base_state, target_tick)?;
+        let root = *replayed.root();
 
-        let history_len = self.store.len(worldline_id)?;
-        for raw_tick in 0..history_len {
+        for raw_tick in start_tick.as_u64()..target_tick.as_u64() {
             let tick = WorldlineTick::from_raw(raw_tick);
             let entry = self.store.entry(worldline_id, tick)?;
             let patch = entry
                 .patch
                 .clone()
                 .ok_or(ReplayError::MissingPatch { tick })?;
-            if entry.expected.patch_digest != patch.patch_digest {
-                return Err(ReplayError::PatchDigestMismatch {
-                    tick,
-                    expected: entry.expected.patch_digest,
-                    actual: patch.patch_digest,
-                });
-            }
-
-            let replay_patch = WarpTickPatchV1::new(
-                patch.policy_id(),
-                patch.rule_pack_id(),
-                TickCommitStatus::Committed,
-                patch.in_slots.clone(),
-                patch.out_slots.clone(),
-                patch.ops.clone(),
-            );
-            if replay_patch.digest() != patch.patch_digest {
-                return Err(ReplayError::PatchDigestMismatch {
-                    tick,
-                    expected: patch.patch_digest,
-                    actual: replay_patch.digest(),
-                });
-            }
+            let (snapshot, receipt, replay_patch) = Self::replay_artifacts_for_entry(root, &entry)?;
 
             patch.apply_to_worldline_state(&mut replayed)?;
 
@@ -1261,14 +1387,9 @@ impl ProvenanceService {
                 });
             }
 
-            let parents = entry
-                .parents
-                .iter()
-                .map(|parent| parent.commit_hash)
-                .collect::<Vec<_>>();
             let actual_commit_hash = compute_commit_hash_v2(
                 &actual_state_root,
-                &parents,
+                &snapshot.parents,
                 &replay_patch.digest(),
                 patch.policy_id(),
             );
@@ -1280,27 +1401,39 @@ impl ProvenanceService {
                 });
             }
 
-            let snapshot = Snapshot {
-                root: *replayed.root(),
-                hash: entry.expected.commit_hash,
-                state_root: entry.expected.state_root,
-                parents,
-                plan_digest: patch.header.plan_digest,
-                decision_digest: patch.header.decision_digest,
-                rewrites_digest: patch.header.rewrites_digest,
-                patch_digest: entry.expected.patch_digest,
-                policy_id: patch.policy_id(),
-                tx: TxId::from_raw(raw_tick + 1),
-            };
-            let receipt = TickReceipt::new(snapshot.tx, Vec::new(), Vec::new());
             replayed.tx_counter = snapshot.tx.value();
             replayed.last_snapshot = Some(snapshot.clone());
+            replayed.last_materialization = Self::finalized_channels(&entry.outputs);
+            replayed.last_materialization_errors.clear();
             replayed
                 .tick_history
                 .push((snapshot, receipt, replay_patch));
         }
 
+        self.hydrate_replay_metadata(worldline_id, &mut replayed, target_tick)?;
         Ok(replayed)
+    }
+
+    /// Reconstructs full [`WorldlineState`] for a worldline from stored provenance entries.
+    ///
+    /// The supplied `base_state` provides the deterministic replay base for the
+    /// worldline and is reset to its preserved `initial_state()` before patches
+    /// are replayed. The returned state includes reconstructed `tick_history`
+    /// snapshots so historical snapshot/fork paths can operate on portal and
+    /// instance-bearing history without live execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplayError`] if the supplied replay base does not match the
+    /// registered worldline boundary, if any entry lacks a patch, or if
+    /// reconstructed hashes differ from stored provenance commitments.
+    pub fn replay_worldline_state(
+        &self,
+        worldline_id: WorldlineId,
+        base_state: &WorldlineState,
+    ) -> Result<WorldlineState, ReplayError> {
+        let history_len = WorldlineTick::from_raw(self.store.len(worldline_id)?);
+        self.replay_worldline_state_at(worldline_id, base_state, history_len)
     }
 
     /// Builds a contiguous BTR from the registered provenance history.
@@ -2433,6 +2566,155 @@ mod tests {
             .expect("stored snapshot should exist");
         assert_eq!(snapshot0.hash, entry0.expected.commit_hash);
         assert_eq!(snapshot0.state_root, entry0.expected.state_root);
+    }
+
+    #[test]
+    fn replay_worldline_state_at_hydrates_exact_checkpoint_metadata() {
+        let mut service = ProvenanceService::new();
+        let worldline_id = test_worldline_id();
+        let head_key = test_head_key();
+        let base_state = WorldlineState::empty();
+        let root = *base_state.root();
+
+        service
+            .register_worldline(worldline_id, &base_state)
+            .unwrap();
+
+        let patch = make_replay_patch(
+            gt(1),
+            root.warp_id,
+            vec![WarpOp::UpsertNode {
+                node: root,
+                record: crate::record::NodeRecord {
+                    ty: make_type_id("ReplayCheckpointRoot"),
+                },
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+        let (entry0, checkpoint_state) = replay_entry_from_patch(
+            worldline_id,
+            wt(0),
+            head_key,
+            Vec::new(),
+            &base_state,
+            patch,
+        );
+        service.append_local_commit(entry0.clone()).unwrap();
+        service
+            .add_checkpoint(
+                worldline_id,
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(1),
+                        state_hash: entry0.expected.state_root,
+                    },
+                    state: checkpoint_state,
+                },
+            )
+            .unwrap();
+
+        let replayed = service
+            .replay_worldline_state_at(worldline_id, &base_state, wt(1))
+            .expect("checkpoint replay should succeed");
+
+        assert_eq!(replayed.current_tick(), wt(1));
+        assert_eq!(replayed.tick_history().len(), 1);
+        assert_eq!(
+            replayed.last_snapshot().map(|snapshot| snapshot.hash),
+            Some(entry0.expected.commit_hash)
+        );
+
+        let engine = crate::Engine::new(
+            replayed
+                .store(&root.warp_id)
+                .expect("root store missing")
+                .clone(),
+            root.local_id,
+        );
+        let snapshot0 = engine
+            .snapshot_at_state(&replayed, 0)
+            .expect("stored snapshot should exist");
+        assert_eq!(snapshot0.hash, entry0.expected.commit_hash);
+        assert_eq!(snapshot0.state_root, entry0.expected.state_root);
+    }
+
+    #[test]
+    fn replay_worldline_state_at_restores_materialization_from_recorded_outputs() {
+        let mut service = ProvenanceService::new();
+        let worldline_id = test_worldline_id();
+        let head_key = test_head_key();
+        let base_state = WorldlineState::empty();
+        let root = *base_state.root();
+        let output_channel = make_channel_id("replay:checkpoint-output");
+        let output_bytes = vec![0xAB, 0xCD, 0xEF];
+
+        service
+            .register_worldline(worldline_id, &base_state)
+            .unwrap();
+
+        let patch = make_replay_patch(
+            gt(1),
+            root.warp_id,
+            vec![WarpOp::UpsertNode {
+                node: root,
+                record: crate::record::NodeRecord {
+                    ty: make_type_id("ReplayOutputRoot"),
+                },
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        let mut next_state = base_state.clone();
+        patch
+            .apply_to_worldline_state(&mut next_state)
+            .expect("fixture patch should apply");
+        let state_root =
+            compute_state_root_for_warp_state(next_state.warp_state(), next_state.root());
+        let commit_hash = compute_commit_hash_v2(
+            &state_root,
+            &[],
+            &patch.patch_digest,
+            patch.header.policy_id,
+        );
+        let entry = ProvenanceEntry::local_commit(
+            worldline_id,
+            wt(0),
+            patch.commit_global_tick(),
+            head_key,
+            Vec::new(),
+            HashTriplet {
+                state_root,
+                patch_digest: patch.patch_digest,
+                commit_hash,
+            },
+            patch,
+            vec![(output_channel, output_bytes.clone())],
+            Vec::new(),
+        );
+        service.append_local_commit(entry.clone()).unwrap();
+        service
+            .add_checkpoint(
+                worldline_id,
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(1),
+                        state_hash: entry.expected.state_root,
+                    },
+                    state: next_state,
+                },
+            )
+            .unwrap();
+
+        let replayed = service
+            .replay_worldline_state_at(worldline_id, &base_state, wt(1))
+            .expect("checkpoint replay should succeed");
+
+        assert_eq!(replayed.last_materialization().len(), 1);
+        assert_eq!(replayed.last_materialization()[0].channel, output_channel);
+        assert_eq!(replayed.last_materialization()[0].data, output_bytes);
+        assert!(replayed.last_materialization_errors().is_empty());
     }
 
     #[test]

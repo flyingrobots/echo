@@ -334,6 +334,15 @@ impl WarpKernel {
             Self::option_abi_global_tick(self.runtime.global_tick());
     }
 
+    fn clear_active_run_state(&mut self, clear_run_id: bool) {
+        self.scheduler_status.state = SchedulerState::Inactive;
+        self.scheduler_status.active_mode = None;
+        if clear_run_id {
+            self.scheduler_status.run_id = None;
+        }
+        self.refresh_scheduler_status();
+    }
+
     fn apply_control_intent(&mut self, intent: ControlIntentV1) -> Result<(), AbiError> {
         match intent {
             ControlIntentV1::Start {
@@ -368,15 +377,20 @@ impl WarpKernel {
 
                 let mut cycles_executed = 0u32;
                 loop {
-                    let records = SchedulerCoordinator::super_tick(
+                    let records = match SchedulerCoordinator::super_tick(
                         &mut self.runtime,
                         &mut self.provenance,
                         &mut self.engine,
-                    )
-                    .map_err(|e| AbiError {
-                        code: error_codes::ENGINE_ERROR,
-                        message: e.to_string(),
-                    })?;
+                    ) {
+                        Ok(records) => records,
+                        Err(error) => {
+                            self.clear_active_run_state(true);
+                            return Err(AbiError {
+                                code: error_codes::ENGINE_ERROR,
+                                message: error.to_string(),
+                            });
+                        }
+                    };
 
                     self.refresh_scheduler_status();
                     if !records.is_empty() {
@@ -392,6 +406,14 @@ impl WarpKernel {
                         break;
                     }
 
+                    if records.is_empty()
+                        && self.scheduler_status.work_state == WorkState::BlockedOnly
+                    {
+                        self.scheduler_status.last_run_completion =
+                            Some(RunCompletion::BlockedOnly);
+                        break;
+                    }
+
                     if cycle_limit.is_some_and(|limit| cycles_executed >= limit) {
                         self.scheduler_status.last_run_completion =
                             Some(RunCompletion::CycleLimitReached);
@@ -399,14 +421,11 @@ impl WarpKernel {
                     }
                 }
 
-                self.scheduler_status.state = SchedulerState::Inactive;
-                self.scheduler_status.active_mode = None;
+                self.clear_active_run_state(false);
             }
             ControlIntentV1::Stop => {
                 self.scheduler_status.last_run_completion = Some(RunCompletion::Stopped);
-                self.scheduler_status.state = SchedulerState::Inactive;
-                self.scheduler_status.active_mode = None;
-                self.refresh_scheduler_status();
+                self.clear_active_run_state(false);
             }
             ControlIntentV1::SetHeadEligibility { head, eligibility } => {
                 let key = Self::parse_head_key(&head)?;
@@ -533,23 +552,34 @@ mod tests {
     use super::*;
     use echo_wasm_abi::{
         kernel_port::{
-            ControlIntentV1, GlobalTick as AbiGlobalTick, ObservationAt as AbiObservationAt,
+            ControlIntentV1, GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
+            HeadKey as AbiHeadKey, ObservationAt as AbiObservationAt,
             ObservationCoordinate as AbiObservationCoordinate,
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
             ObservationRequest as AbiObservationRequest, RunCompletion, SchedulerMode,
-            WorldlineTick as AbiWorldlineTick,
+            SchedulerState, WorkState, WorldlineTick as AbiWorldlineTick,
         },
         pack_control_intent_v1, pack_intent_v1,
     };
-    use warp_core::{materialization::make_channel_id, ProvenanceStore};
+    use warp_core::{
+        make_head_id, materialization::make_channel_id, GlobalTick, HashTriplet, ProvenanceEntry,
+        ProvenanceStore, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+    };
 
     fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
+        start_until_idle_result(kernel, cycle_limit).unwrap()
+    }
+
+    fn start_until_idle_result(
+        kernel: &mut WarpKernel,
+        cycle_limit: Option<u32>,
+    ) -> Result<DispatchResponse, AbiError> {
         let control = pack_control_intent_v1(&ControlIntentV1::Start {
             mode: SchedulerMode::UntilIdle { cycle_limit },
         })
         .unwrap();
-        kernel.dispatch_intent(&control).unwrap()
+        kernel.dispatch_intent(&control)
     }
 
     #[test]
@@ -658,6 +688,96 @@ mod tests {
         );
         assert_eq!(head_after.worldline_tick, AbiWorldlineTick(1));
         assert_ne!(head_after.worldline_tick, head_before.worldline_tick);
+    }
+
+    #[test]
+    fn start_until_idle_exits_when_work_is_blocked_only() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let intent = pack_intent_v1(7, b"blocked").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+
+        let dormancy = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
+            head: AbiHeadKey {
+                worldline_id: kernel.default_worldline.0.to_vec(),
+                head_id: make_head_id("default").as_bytes().to_vec(),
+            },
+            eligibility: AbiHeadEligibility::Dormant,
+        })
+        .unwrap();
+        kernel.dispatch_intent(&dormancy).unwrap();
+
+        let response = start_until_idle(&mut kernel, None);
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::BlockedOnly)
+        );
+        assert_eq!(response.scheduler_status.state, SchedulerState::Inactive);
+        assert_eq!(response.scheduler_status.work_state, WorkState::BlockedOnly);
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(0)
+        );
+    }
+
+    #[test]
+    fn scheduler_error_clears_active_run_state() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let root_warp = kernel
+            .runtime
+            .worldlines()
+            .get(&kernel.default_worldline)
+            .expect("default frontier should exist")
+            .state()
+            .root()
+            .warp_id;
+        kernel
+            .provenance
+            .append_local_commit(ProvenanceEntry::local_commit(
+                kernel.default_worldline,
+                WorldlineTick::ZERO,
+                GlobalTick::from_raw(1),
+                WriterHeadKey {
+                    worldline_id: kernel.default_worldline,
+                    head_id: make_head_id("default"),
+                },
+                Vec::new(),
+                HashTriplet {
+                    state_root: [0u8; 32],
+                    patch_digest: [0u8; 32],
+                    commit_hash: [1u8; 32],
+                },
+                WorldlineTickPatchV1 {
+                    header: WorldlineTickHeaderV1 {
+                        commit_global_tick: GlobalTick::from_raw(1),
+                        policy_id: 0,
+                        rule_pack_id: [0u8; 32],
+                        plan_digest: [0u8; 32],
+                        decision_digest: [0u8; 32],
+                        rewrites_digest: [0u8; 32],
+                    },
+                    warp_id: root_warp,
+                    ops: Vec::new(),
+                    in_slots: Vec::new(),
+                    out_slots: Vec::new(),
+                    patch_digest: [0u8; 32],
+                },
+                Vec::new(),
+                Vec::new(),
+            ))
+            .unwrap();
+
+        let intent = pack_intent_v1(8, b"error").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+
+        let err = start_until_idle_result(&mut kernel, Some(1)).unwrap_err();
+        assert_eq!(err.code, error_codes::ENGINE_ERROR);
+
+        let status = kernel.scheduler_status().unwrap();
+        assert_eq!(status.state, SchedulerState::Inactive);
+        assert_eq!(status.active_mode, None);
+        assert_eq!(status.run_id, None);
+        assert_eq!(status.last_run_completion, None);
+        assert_eq!(status.work_state, WorkState::RunnablePending);
     }
 
     #[test]

@@ -757,10 +757,15 @@ pub fn test_warp_id() -> WarpId {
     make_warp_id("test-warp")
 }
 
+/// Maps a fixture worldline tick to the corresponding logical global tick.
+fn fixture_commit_global_tick(worldline_tick: u64) -> GlobalTick {
+    GlobalTick::from_raw(worldline_tick.saturating_add(1))
+}
+
 /// Creates a test header for a specific tick.
 pub fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
     WorldlineTickHeaderV1 {
-        commit_global_tick: GlobalTick::from_raw(tick),
+        commit_global_tick: fixture_commit_global_tick(tick),
         policy_id: 0,
         rule_pack_id: [0u8; 32],
         plan_digest: [0u8; 32],
@@ -906,7 +911,7 @@ pub fn fixture_entry(
     atom_writes: AtomWriteSet,
 ) -> Result<ProvenanceEntry, warp_core::HistoryError> {
     let commit_global_tick = patch.commit_global_tick();
-    let worldline_tick = WorldlineTick::from_raw(commit_global_tick.as_u64());
+    let worldline_tick = WorldlineTick::from_raw(provenance.len(worldline_id)?);
     let parents = provenance.tip_ref(worldline_id)?.into_iter().collect();
     Ok(ProvenanceEntry::local_commit(
         worldline_id,

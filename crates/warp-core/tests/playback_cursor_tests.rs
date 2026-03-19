@@ -421,6 +421,53 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
     assert_eq!(cursor.tick, wt(0));
 }
 
+#[test]
+fn step_forward_at_pinned_frontier_returns_reached_frontier() {
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(5);
+
+    let mut cursor = PlaybackCursor::new(
+        test_cursor_id(4),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(0),
+    );
+    cursor.mode = warp_core::PlaybackMode::StepForward;
+
+    let result = cursor.step(&provenance, &initial_state).unwrap();
+    assert_eq!(result, warp_core::StepResult::ReachedFrontier);
+    assert_eq!(cursor.mode, warp_core::PlaybackMode::Paused);
+    assert_eq!(cursor.tick, wt(0));
+}
+
+#[test]
+#[should_panic(expected = "playback cursor initial_state must be an unadvanced replay base")]
+fn new_rejects_advanced_initial_state() {
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(1);
+
+    let mut seed_cursor = PlaybackCursor::new(
+        test_cursor_id(11),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(1),
+    );
+    seed_cursor
+        .seek_to(wt(1), &provenance, &initial_state)
+        .expect("seed cursor should materialize tick 1");
+
+    let _ = PlaybackCursor::new(
+        test_cursor_id(12),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &seed_cursor.state,
+        wt(1),
+    );
+}
+
 /// Edge case: Seeking to `u64::MAX` on a worldline with only a few ticks
 /// should return `SeekError::HistoryUnavailable` since the target is far
 /// beyond the recorded history.

@@ -389,7 +389,9 @@ impl PlaybackCursor {
                 tick,
             })
             | ReplayError::MissingPatch { tick } => SeekError::HistoryUnavailable { tick },
-            ReplayError::History(_) => SeekError::HistoryUnavailable { tick: target },
+            ReplayError::History(_) | ReplayError::TickOverflow { .. } => {
+                SeekError::HistoryUnavailable { tick: target }
+            }
             ReplayError::Apply { tick, source } => SeekError::ApplyError { tick, source },
             ReplayError::ReplayBaseWarpMismatch { expected, actual } => {
                 SeekError::ReplayBaseWarpMismatch { expected, actual }
@@ -427,6 +429,11 @@ impl PlaybackCursor {
         initial_state: &WorldlineState,
         pin_max_tick: WorldlineTick,
     ) -> Self {
+        assert_eq!(
+            initial_state.current_tick(),
+            WorldlineTick::ZERO,
+            "playback cursor initial_state must be an unadvanced replay base"
+        );
         Self {
             cursor_id,
             worldline_id,
@@ -518,8 +525,8 @@ impl PlaybackCursor {
 
         let checkpoint_lookup_tick = target.checked_increment().unwrap_or(target);
         let should_restore_from_checkpoint = provenance
-            .checkpoint_state_before(self.worldline_id, checkpoint_lookup_tick)
-            .is_some_and(|checkpoint| checkpoint.checkpoint.worldline_tick > self.tick);
+            .checkpoint_before(self.worldline_id, checkpoint_lookup_tick)
+            .is_some_and(|checkpoint| checkpoint.worldline_tick > self.tick);
 
         let next_state = if target < self.tick || should_restore_from_checkpoint {
             replay_worldline_state_at_from_provenance(
@@ -606,6 +613,10 @@ impl PlaybackCursor {
 
             PlaybackMode::StepForward => {
                 if self.role == CursorRole::Reader {
+                    if self.tick >= self.pin_max_tick {
+                        self.mode = PlaybackMode::Paused;
+                        return Ok(StepResult::ReachedFrontier);
+                    }
                     self.seek_to(
                         self.tick
                             .checked_increment()

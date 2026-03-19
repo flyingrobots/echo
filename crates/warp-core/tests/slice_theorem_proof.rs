@@ -568,7 +568,7 @@ fn phase_2_and_3_playback_replay_matches_execution() {
         // Convert to WorldlineTickPatchV1 for provenance
         let wl_patch = WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
-                commit_global_tick: warp_core::GlobalTick::from_raw(tick),
+                commit_global_tick: warp_core::GlobalTick::from_raw(tick + 1),
                 policy_id: snapshot.policy_id,
                 rule_pack_id: patch.rule_pack_id(),
                 plan_digest: snapshot.plan_digest,
@@ -795,7 +795,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
 
     let wl_patch = WorldlineTickPatchV1 {
         header: WorldlineTickHeaderV1 {
-            commit_global_tick: warp_core::GlobalTick::ZERO,
+            commit_global_tick: warp_core::GlobalTick::from_raw(1),
             policy_id: snapshot.policy_id,
             rule_pack_id: patch.rule_pack_id(),
             plan_digest: snapshot.plan_digest,

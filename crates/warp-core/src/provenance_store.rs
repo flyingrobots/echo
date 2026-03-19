@@ -272,6 +272,13 @@ pub enum ReplayError {
         tick: WorldlineTick,
     },
 
+    /// Replay metadata could not derive a receipt transaction id from the tick.
+    #[error("replay tick arithmetic overflowed while deriving metadata for tick {tick}")]
+    TickOverflow {
+        /// Tick whose metadata overflowed.
+        tick: WorldlineTick,
+    },
+
     /// Patch digest commitments disagreed during replay reconstruction.
     #[error("replay patch digest mismatch at tick {tick}")]
     PatchDigestMismatch {
@@ -665,6 +672,11 @@ pub(crate) fn replay_artifacts_for_entry(
         .iter()
         .map(|parent| parent.commit_hash)
         .collect::<Vec<_>>();
+    let tx = tick
+        .as_u64()
+        .checked_add(1)
+        .map(TxId::from_raw)
+        .ok_or(ReplayError::TickOverflow { tick })?;
     let snapshot = Snapshot {
         root,
         hash: entry.expected.commit_hash,
@@ -675,10 +687,30 @@ pub(crate) fn replay_artifacts_for_entry(
         rewrites_digest: patch.header.rewrites_digest,
         patch_digest: entry.expected.patch_digest,
         policy_id: patch.policy_id(),
-        tx: TxId::from_raw(tick.as_u64() + 1),
+        tx,
     };
     let receipt = TickReceipt::new(snapshot.tx, Vec::new(), Vec::new());
     Ok((snapshot, receipt, replay_patch))
+}
+
+fn expected_state_root_at_materialized_tick<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    tick: WorldlineTick,
+) -> Result<Hash, ReplayError> {
+    if tick == WorldlineTick::ZERO {
+        return provenance
+            .initial_boundary_hash(worldline_id)
+            .map_err(ReplayError::from);
+    }
+
+    let commit_tick = tick
+        .checked_sub(1)
+        .ok_or(ReplayError::TickOverflow { tick })?;
+    Ok(provenance
+        .entry(worldline_id, commit_tick)?
+        .expected
+        .state_root)
 }
 
 pub(crate) fn hydrate_replay_metadata<P: ProvenanceStore>(
@@ -757,11 +789,24 @@ pub(crate) fn restore_replay_base<P: ProvenanceStore>(
     if let Some(checkpoint) =
         provenance.checkpoint_state_before(worldline_id, checkpoint_lookup_tick)
     {
-        let actual_state_root = checkpoint.state.state_root();
-        if actual_state_root != checkpoint.checkpoint.state_hash {
+        let expected_state_root = expected_state_root_at_materialized_tick(
+            provenance,
+            worldline_id,
+            checkpoint.checkpoint.worldline_tick,
+        )?;
+        if checkpoint.checkpoint.state_hash != expected_state_root {
             return Err(ReplayError::CheckpointStateRootMismatch {
                 tick: checkpoint.checkpoint.worldline_tick,
-                expected: checkpoint.checkpoint.state_hash,
+                expected: expected_state_root,
+                actual: checkpoint.checkpoint.state_hash,
+            });
+        }
+
+        let actual_state_root = checkpoint.state.state_root();
+        if actual_state_root != expected_state_root {
+            return Err(ReplayError::CheckpointStateRootMismatch {
+                tick: checkpoint.checkpoint.worldline_tick,
+                expected: expected_state_root,
                 actual: actual_state_root,
             });
         }
@@ -2777,6 +2822,59 @@ mod tests {
         assert_eq!(replayed.last_materialization()[0].channel, output_channel);
         assert_eq!(replayed.last_materialization()[0].data, output_bytes);
         assert!(replayed.last_materialization_errors().is_empty());
+    }
+
+    #[test]
+    fn replay_worldline_state_at_rejects_checkpoint_that_disagrees_with_provenance() {
+        let mut service = ProvenanceService::new();
+        let worldline_id = test_worldline_id();
+        let head_key = test_head_key();
+        let base_state = WorldlineState::empty();
+        let root = *base_state.root();
+
+        service
+            .register_worldline(worldline_id, &base_state)
+            .unwrap();
+
+        let patch = make_replay_patch(
+            gt(1),
+            root.warp_id,
+            vec![WarpOp::UpsertNode {
+                node: root,
+                record: crate::record::NodeRecord {
+                    ty: make_type_id("ReplayCheckpointMismatch"),
+                },
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+        let (entry0, _checkpoint_state) = replay_entry_from_patch(
+            worldline_id,
+            wt(0),
+            head_key,
+            Vec::new(),
+            &base_state,
+            patch,
+        );
+        service.append_local_commit(entry0).unwrap();
+        service
+            .add_checkpoint(
+                worldline_id,
+                ReplayCheckpoint {
+                    checkpoint: CheckpointRef {
+                        worldline_tick: wt(1),
+                        state_hash: base_state.state_root(),
+                    },
+                    state: base_state.replay_checkpoint_clone(),
+                },
+            )
+            .unwrap();
+
+        let result = service.replay_worldline_state_at(worldline_id, &base_state, wt(1));
+        assert!(
+            matches!(result, Err(ReplayError::CheckpointStateRootMismatch { tick, .. }) if tick == wt(1)),
+            "expected authoritative checkpoint mismatch, got {result:?}"
+        );
     }
 
     #[test]

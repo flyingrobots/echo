@@ -131,7 +131,7 @@ pub struct HeadInfo {
     pub worldline_tick: WorldlineTick,
     /// Runtime cycle stamp for the current committed head, if any.
     pub commit_global_tick: Option<GlobalTick>,
-    /// Graph-only state hash (32 bytes).
+    /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
     /// Canonical commit hash (32 bytes).
     pub commit_id: Vec<u8>,
@@ -178,6 +178,8 @@ pub enum WorkState {
 pub enum RunCompletion {
     /// The most recent run ended because no runnable work remained.
     Quiesced,
+    /// The most recent run ended because work remained but all heads were blocked or dormant.
+    BlockedOnly,
     /// The most recent run ended because its cycle bound was reached.
     CycleLimitReached,
     /// The most recent run ended because stop was requested.
@@ -360,7 +362,7 @@ pub struct HeadObservation {
     pub worldline_tick: WorldlineTick,
     /// Commit cycle stamp for the observed head, if any.
     pub commit_global_tick: Option<GlobalTick>,
-    /// Graph-only state hash (32 bytes).
+    /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
     /// Canonical commit hash (32 bytes).
     pub commit_id: Vec<u8>,
@@ -373,7 +375,7 @@ pub struct SnapshotObservation {
     pub worldline_tick: WorldlineTick,
     /// Commit cycle stamp for the observed historical commit, if any.
     pub commit_global_tick: Option<GlobalTick>,
-    /// Graph-only state hash (32 bytes).
+    /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
     /// Canonical commit hash (32 bytes).
     pub commit_id: Vec<u8>,

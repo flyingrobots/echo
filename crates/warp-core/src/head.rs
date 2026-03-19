@@ -46,7 +46,7 @@ impl HeadId {
     /// Inclusive maximum key used by internal `BTreeMap` range queries.
     pub(crate) const MAX: Self = Self([0xff; 32]);
 
-    /// Constructs a head id from its canonical byte representation.
+    /// Constructs a head id from its canonical 32-byte hash representation.
     #[must_use]
     pub fn from_bytes(bytes: Hash) -> Self {
         Self(bytes)

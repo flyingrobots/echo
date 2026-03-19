@@ -147,6 +147,8 @@ fn checkpoint_replay_equals_full_replay() {
     let checkpoint_ticks = [5, 10, 15, 20];
     let (provenance, initial_state, warp_id, checkpoint_states) =
         setup_worldline_with_ticks_and_checkpoints(worldline_id, 25, &checkpoint_ticks);
+    let (full_replay_provenance, full_replay_initial_state, _) =
+        setup_worldline_with_ticks(worldline_id, 25);
 
     // Verify checkpoints were created
     assert_eq!(checkpoint_states.len(), 4);
@@ -164,19 +166,18 @@ fn checkpoint_replay_equals_full_replay() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_state,
+        &full_replay_initial_state,
         wt(25),
     );
 
     // Cursor starts at tick 0, seek to tick 23 (applies patches 0..23, i.e., patches 0-22)
     full_replay_cursor
-        .seek_to(wt(23), &provenance, &initial_state)
+        .seek_to(wt(23), &full_replay_provenance, &full_replay_initial_state)
         .expect("full replay seek to tick 23 should succeed");
 
     let full_replay_state_root = full_replay_cursor.current_state_root();
 
-    // Act 2: Checkpoint path - seek to tick 23 using checkpoint at 20
-    // First, create a cursor and manually restore state from checkpoint
+    // Act 2: Checkpoint path - seek directly to tick 23 using checkpoint at 20
     let mut checkpoint_cursor = PlaybackCursor::new(
         test_cursor_id(2),
         worldline_id,
@@ -186,25 +187,18 @@ fn checkpoint_replay_equals_full_replay() {
         wt(25),
     );
 
-    // Seek to checkpoint tick 20 first (this rebuilds state up to tick 20)
-    // tick 20 = state after patches 0-19 applied
-    checkpoint_cursor
-        .seek_to(wt(20), &provenance, &initial_state)
-        .expect("seek to checkpoint tick 20 should succeed");
-
-    // Verify we're at the checkpoint state
-    let checkpoint_state = checkpoint_cursor.current_state_root();
-    assert_eq!(
-        checkpoint_state, checkpoint_20.state_hash,
-        "cursor state at tick 20 should match checkpoint state_hash"
-    );
-
-    // Now seek from tick 20 to tick 23 (applies patches 20, 21, 22)
     checkpoint_cursor
         .seek_to(wt(23), &provenance, &initial_state)
         .expect("checkpoint seek to tick 23 should succeed");
 
     let checkpoint_path_state_root = checkpoint_cursor.current_state_root();
+    let checkpoint_restore_state = provenance
+        .checkpoint_state_before(worldline_id, wt(24))
+        .expect("checkpoint-backed seek should have a checkpoint before tick 24");
+    assert_eq!(
+        checkpoint_restore_state.checkpoint.worldline_tick,
+        checkpoint_20.worldline_tick
+    );
 
     // Assert: Both paths produce identical state_root
     assert_eq!(

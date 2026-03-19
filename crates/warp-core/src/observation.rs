@@ -26,8 +26,8 @@ use crate::provenance_store::{ProvenanceService, ProvenanceStore};
 use crate::snapshot::Snapshot;
 use crate::worldline::WorldlineId;
 
-const OBSERVATION_VERSION: u32 = 1;
-const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v1\0";
+const OBSERVATION_VERSION: u32 = 2;
+const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v2\0";
 
 /// Coordinate selector for an observation request.
 #[derive(Clone, Debug, PartialEq, Eq)]

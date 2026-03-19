@@ -64,6 +64,12 @@ pub enum WorldlineStateError {
     /// The unique root instance has no backing graph store.
     #[error("worldline root store missing for warp {0:?}")]
     MissingRootStore(crate::ident::WarpId),
+    /// The supplied root node does not exist in the provided root store.
+    #[error("worldline root node {root:?} is missing from the supplied store")]
+    MissingRootNode {
+        /// Root key that was requested but not found in the store.
+        root: NodeKey,
+    },
 }
 
 /// Broad worldline state abstraction wrapping [`WarpState`].
@@ -218,6 +224,9 @@ impl WorldlineState {
             warp_id,
             local_id: root_node,
         };
+        if store.node(&root_node).is_none() {
+            return Err(WorldlineStateError::MissingRootNode { root });
+        }
 
         let mut warp_state = WarpState::new();
         warp_state.upsert_instance(
@@ -562,6 +571,30 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(WorldlineStateError::MissingRootStore(root_warp))
+        );
+    }
+
+    #[test]
+    fn from_root_store_rejects_missing_root_node() {
+        let warp_id = make_warp_id("root");
+        let mut store = GraphStore::new(warp_id);
+        store.insert_node(
+            make_node_id("present-root"),
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+
+        let missing_root = make_node_id("missing-root");
+        let result = WorldlineState::from_root_store(store, missing_root);
+        assert_eq!(
+            result.err(),
+            Some(WorldlineStateError::MissingRootNode {
+                root: NodeKey {
+                    warp_id,
+                    local_id: missing_root,
+                },
+            })
         );
     }
 }

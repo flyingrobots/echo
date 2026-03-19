@@ -29,7 +29,7 @@
 mod common;
 use common::{
     append_fixture_entry, create_add_node_patch, create_initial_store,
-    create_initial_worldline_state, test_warp_id, test_worldline_id,
+    create_initial_worldline_state, fixture_head_key, test_warp_id, test_worldline_id,
 };
 
 use proptest::prelude::*;
@@ -37,8 +37,8 @@ use proptest::prelude::*;
 use warp_core::{
     compute_commit_hash_v2, make_head_id, make_intent_kind, EngineBuilder, Hash, HashTriplet,
     InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, LocalProvenanceStore,
-    PlaybackHeadRegistry, PlaybackMode, ProvenanceStore, RunnableWriterSet, WorldlineId,
-    WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead, WriterHeadKey,
+    PlaybackHeadRegistry, PlaybackMode, ProvenanceEntry, ProvenanceStore, RunnableWriterSet,
+    WorldlineId, WorldlineRuntime, WorldlineState, WorldlineTick, WriterHead, WriterHeadKey,
 };
 
 fn wt(raw: u64) -> WorldlineTick {
@@ -111,8 +111,18 @@ proptest! {
             patch_digest: gap_patch.patch_digest,
             commit_hash: [0u8; 32],
         };
-        let result =
-            append_fixture_entry(&mut provenance, worldline_id, gap_patch, gap_triplet, vec![]);
+        let gap_entry = ProvenanceEntry::local_commit(
+            worldline_id,
+            wt(gap_tick),
+            gap_patch.commit_global_tick(),
+            fixture_head_key(worldline_id),
+            provenance.tip_ref(worldline_id).unwrap().into_iter().collect(),
+            gap_triplet,
+            gap_patch,
+            vec![],
+            vec![],
+        );
+        let result = provenance.append_local_commit(gap_entry);
         prop_assert!(result.is_err(), "appending at tick gap must fail");
 
         // Invariant: attempting to re-append at an existing tick must fail
@@ -123,8 +133,18 @@ proptest! {
             patch_digest: dup_patch.patch_digest,
             commit_hash: [0u8; 32],
         };
-        let dup_result =
-            append_fixture_entry(&mut provenance, worldline_id, dup_patch, dup_triplet, vec![]);
+        let dup_entry = ProvenanceEntry::local_commit(
+            worldline_id,
+            wt(dup_tick),
+            dup_patch.commit_global_tick(),
+            fixture_head_key(worldline_id),
+            provenance.tip_ref(worldline_id).unwrap().into_iter().collect(),
+            dup_triplet,
+            dup_patch,
+            vec![],
+            vec![],
+        );
+        let dup_result = provenance.append_local_commit(dup_entry);
         prop_assert!(dup_result.is_err(), "re-appending at existing tick must fail");
     }
 }

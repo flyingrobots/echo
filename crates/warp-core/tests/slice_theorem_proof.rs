@@ -532,7 +532,7 @@ fn phase_2_and_3_playback_replay_matches_execution() {
     // full WorldlineState materialization, not engine-specific incidental state.
     let worldline_id = WorldlineId([0x42; 32]);
     let cursor_id = CursorId([0x01; 32]);
-    let replay_base = WorldlineState::from_root_store(store.clone(), root).expect("replay base");
+    let replay_base = WorldlineState::from_root_store(store, root).expect("replay base");
     let mut provenance = LocalProvenanceStore::new();
     register_fixture_worldline(&mut provenance, worldline_id, &replay_base).unwrap();
 
@@ -810,8 +810,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
     };
 
     // Compute state_root using the same full-state replay substrate as seek_to.
-    let replay_base =
-        WorldlineState::from_root_store(post_r1_store.clone(), root).expect("replay base");
+    let replay_base = WorldlineState::from_root_store(post_r1_store, root).expect("replay base");
     register_fixture_worldline(&mut provenance, worldline_id, &replay_base).unwrap();
     let mut replay_state = replay_base.clone();
     wl_patch

@@ -144,6 +144,9 @@ EOF
   cat >"$tmp/bin/npx" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
+  printf 'NPX|%s\n' "$*" >>"${VERIFY_FAKE_NPX_LOG}"
+fi
 exit 0
 EOF
   cat >"$tmp/bin/git" <<'EOF'
@@ -191,6 +194,8 @@ EOF
   printf '%s\n' "$changed_file" >"$changed"
   local cargo_log
   cargo_log="$(mktemp)"
+  local npx_log
+  npx_log="$(mktemp)"
 
   local output
   output="$(
@@ -202,14 +207,17 @@ EOF
     VERIFY_STAMP_SUBJECT="test-head" \
     VERIFY_CHANGED_FILES_FILE="$changed" \
     VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_NPX_LOG="$npx_log" \
     ./scripts/verify-local.sh "$mode"
   )"
 
   printf '%s\n' "$output"
   echo "--- cargo-log ---"
   cat "$cargo_log"
+  echo "--- npx-log ---"
+  cat "$npx_log"
 
-  rm -f "$changed" "$cargo_log"
+  rm -f "$changed" "$cargo_log" "$npx_log"
   rm -rf "$tmp"
 }
 
@@ -249,6 +257,9 @@ EOF
   cat >"$tmp/bin/npx" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
+  printf 'NPX|%s\n' "$*" >>"${VERIFY_FAKE_NPX_LOG}"
+fi
 exit 0
 EOF
   cat >"$tmp/bin/git" <<'EOF'
@@ -338,6 +349,14 @@ if printf '%s\n' "$docs_output" | grep -q '^stamp_suite=docs$'; then
 else
   fail "docs-only changes should map to the docs stamp suite"
   printf '%s\n' "$docs_output"
+fi
+
+deleted_docs_output="$(run_fake_verify auto docs/spec/SPEC-0009-wasm-abi-v1.md)"
+if printf '%s\n' "$deleted_docs_output" | grep -q '^NPX|'; then
+  fail "deleted markdown paths should be skipped by docs lint"
+  printf '%s\n' "$deleted_docs_output"
+else
+  pass "docs lint skips deleted markdown paths"
 fi
 
 reduced_output="$(run_detect \

@@ -586,7 +586,16 @@ should_skip_via_stamp() {
 }
 
 run_docs_lint() {
-  mapfile -t md_files < <(printf '%s\n' "$CHANGED_FILES" | awk '/\.md$/ {print}')
+  local discovered_md_files=()
+  local md_files=()
+  local md_file
+
+  mapfile -t discovered_md_files < <(printf '%s\n' "$CHANGED_FILES" | awk '/\.md$/ {print}')
+  for md_file in "${discovered_md_files[@]}"; do
+    if [[ -f "$md_file" ]]; then
+      md_files+=("$md_file")
+    fi
+  done
   if [[ ${#md_files[@]} -eq 0 ]]; then
     return
   fi

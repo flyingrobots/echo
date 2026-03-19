@@ -50,9 +50,10 @@ use ttd_protocol_rs::{
 };
 use warp_core::materialization::{ChannelId, FinalizedChannel};
 use warp_core::{
-    compute_emissions_digest, CursorId, CursorRole, GraphStore, LocalProvenanceStore,
-    PlaybackCursor, PlaybackMode, ProvenanceStore, SeekThen, SessionId,
-    StepResult as CoreStepResult, TruthSink, ViewSession, WorldlineId,
+    compute_emissions_digest, make_node_id, make_type_id, CursorId, CursorRole, GraphStore,
+    LocalProvenanceStore, NodeRecord, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekThen,
+    SessionId, StepResult as CoreStepResult, TruthSink, ViewSession, WorldlineId, WorldlineState,
+    WorldlineTick,
 };
 
 // ─── TtdEngine ───────────────────────────────────────────────────────────────
@@ -78,8 +79,8 @@ pub struct TtdEngine {
     /// Active view sessions, keyed by handle ID.
     sessions: BTreeMap<u32, ViewSession>,
 
-    /// Initial stores per worldline (for seek rebuilding from U0).
-    initial_stores: BTreeMap<WorldlineId, GraphStore>,
+    /// Initial full states per worldline (for seek rebuilding from U0).
+    initial_stores: BTreeMap<WorldlineId, WorldlineState>,
 
     /// Truth sink for collecting frames during publish operations.
     truth_sink: TruthSink,
@@ -103,7 +104,7 @@ struct Transaction {
     cursor_id: u32,
     /// Tick at transaction start (reserved for future delta tracking).
     #[allow(dead_code)]
-    start_tick: u64,
+    start_tick: WorldlineTick,
 }
 
 #[wasm_bindgen]
@@ -151,14 +152,22 @@ impl TtdEngine {
     ) -> Result<(), JsError> {
         let worldline = parse_worldline_id(worldline_id)?;
         let warp = parse_warp_id(warp_id)?;
-
-        self.provenance
-            .register_worldline(worldline, warp)
+        let root = make_node_id("root");
+        let mut initial_store = GraphStore::new(warp);
+        initial_store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let initial_state = WorldlineState::from_root_store(initial_store, root)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        // Create and store initial empty GraphStore for this worldline
-        let initial_store = GraphStore::new(warp);
-        self.initial_stores.insert(worldline, initial_store);
+        self.provenance
+            .register_worldline_with_boundary(worldline, warp, initial_state.state_root())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        self.initial_stores.insert(worldline, initial_state);
 
         Ok(())
     }
@@ -198,6 +207,7 @@ impl TtdEngine {
         let history_len = self
             .provenance
             .len(wl_id)
+            .map(WorldlineTick::from_raw)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         let cursor_id = CursorId(hash_from_u32(self.next_cursor_id));
@@ -245,7 +255,11 @@ impl TtdEngine {
             .get(&cursor.worldline_id)
             .ok_or_else(|| JsError::new("worldline not registered"))?;
 
-        match cursor.seek_to(tick, &self.provenance, initial_store) {
+        match cursor.seek_to(
+            WorldlineTick::from_raw(tick),
+            &self.provenance,
+            initial_store,
+        ) {
             Ok(()) => Ok(true),
             Err(
                 warp_core::SeekError::HistoryUnavailable { .. }
@@ -288,7 +302,7 @@ impl TtdEngine {
                 CoreStepResult::Seeked => StepResultKind::SEEKED,
                 CoreStepResult::ReachedFrontier => StepResultKind::REACHED_FRONTIER,
             },
-            tick: i32::try_from(cursor.tick).unwrap_or(i32::MAX),
+            tick: i32::try_from(cursor.tick.as_u64()).unwrap_or(i32::MAX),
         };
 
         encode_cbor(&step_result)
@@ -304,7 +318,7 @@ impl TtdEngine {
             .cursors
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
-        Ok(cursor.tick)
+        Ok(cursor.tick.as_u64())
     }
 
     /// Sets the playback mode for a cursor.
@@ -359,7 +373,7 @@ impl TtdEngine {
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
         cursor.mode = PlaybackMode::Seek {
-            target,
+            target: WorldlineTick::from_raw(target),
             then: if then_play {
                 SeekThen::Play
             } else {
@@ -382,7 +396,7 @@ impl TtdEngine {
             .cursors
             .get_mut(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
-        cursor.pin_max_tick = max_tick;
+        cursor.pin_max_tick = WorldlineTick::from_raw(max_tick);
         Ok(())
     }
 
@@ -415,14 +429,13 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == 0 {
-            // At initial state, no provenance entry yet
-            return Ok(hash_to_uint8array(&[0u8; 32]));
+        if cursor.tick == WorldlineTick::ZERO {
+            return Ok(hash_to_uint8array(&cursor.current_state_root()));
         }
 
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, committed_tick_for_cursor(cursor)?)
             .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -444,13 +457,13 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == 0 {
+        if cursor.tick == WorldlineTick::ZERO {
             return Ok(hash_to_uint8array(&[0u8; 32]));
         }
 
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, committed_tick_for_cursor(cursor)?)
             .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -475,13 +488,13 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == 0 {
+        if cursor.tick == WorldlineTick::ZERO {
             return Ok(hash_to_uint8array(&[0u8; 32]));
         }
 
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, committed_tick_for_cursor(cursor)?)
             .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -643,7 +656,7 @@ impl TtdEngine {
                 channel: f.channel.0,
                 value: f.value.clone(),
                 value_hash: f.value_hash,
-                tick: f.cursor.tick,
+                tick: f.cursor.worldline_tick.as_u64(),
                 commit_hash: f.cursor.commit_hash,
             })
             .collect();
@@ -726,13 +739,19 @@ impl TtdEngine {
             .ok_or_else(|| "cursor not found".to_string())?;
 
         // Generate a Light mode receipt for the current cursor position
-        if cursor.tick == 0 {
+        if cursor.tick == WorldlineTick::ZERO {
             return Err("cannot commit at tick 0".to_string());
         }
 
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(
+                cursor.worldline_id,
+                cursor
+                    .tick
+                    .checked_sub(1)
+                    .ok_or_else(|| "cannot commit at tick 0".to_string())?,
+            )
             .map_err(|e| e.to_string())?;
         let outputs = expected.outputs.clone();
         let expected = expected.expected;
@@ -762,7 +781,7 @@ impl TtdEngine {
             flags,
             schema_hash,
             worldline_id: cursor.worldline_id.0,
-            tick: cursor.tick,
+            tick: cursor.tick.as_u64(),
             commit_hash: expected.commit_hash,
             state_root: expected.state_root,
             patch_digest: expected.patch_digest,
@@ -802,7 +821,7 @@ impl TtdEngine {
 
         let snapshot = Snapshot {
             worldlineId: bytes_to_hex(&cursor.worldline_id.0),
-            tick: i32::try_from(cursor.tick).unwrap_or(i32::MAX),
+            tick: i32::try_from(cursor.tick.as_u64()).unwrap_or(i32::MAX),
         };
 
         encode_cbor(&snapshot)
@@ -836,11 +855,16 @@ impl TtdEngine {
         let new_wl = parse_worldline_id(new_worldline_id)?;
 
         // Convert tick from i32 to u64 (protocol uses i32, internal uses u64)
-        let tick = u64::try_from(snap.tick).unwrap_or(0);
+        let tick = WorldlineTick::from_raw(u64::try_from(snap.tick).unwrap_or(0));
 
         // Fork in provenance store
         self.provenance
-            .fork(source_wl, tick.saturating_sub(1), new_wl)
+            .fork(
+                source_wl,
+                tick.checked_sub(1)
+                    .ok_or_else(|| JsError::new("cannot fork from tick 0 snapshot"))?,
+                new_wl,
+            )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         // Copy initial store
@@ -930,6 +954,13 @@ impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+fn committed_tick_for_cursor(cursor: &PlaybackCursor) -> Result<WorldlineTick, JsError> {
+    cursor
+        .tick
+        .checked_sub(1)
+        .ok_or_else(|| JsError::new("cursor has no committed tick at position 0"))
 }
 
 fn parse_worldline_id_inner(bytes: &[u8]) -> Result<WorldlineId, ParseError> {
@@ -1241,7 +1272,10 @@ mod tests {
 
         // Update frontier
         assert!(engine.update_frontier(cursor_id, 100).is_ok());
-        assert_eq!(engine.cursors.get(&cursor_id).unwrap().pin_max_tick, 100);
+        assert_eq!(
+            engine.cursors.get(&cursor_id).unwrap().pin_max_tick,
+            WorldlineTick::from_raw(100)
+        );
     }
 
     #[test]
@@ -1298,7 +1332,8 @@ mod tests {
                 cursor_id: CursorId([0u8; 32]),
                 worldline_id: WorldlineId([0u8; 32]),
                 warp_id: WarpId([0u8; 32]),
-                tick: 0,
+                worldline_tick: WorldlineTick::ZERO,
+                commit_global_tick: None,
                 commit_hash: [0u8; 32],
             },
             channel: TypeId([0u8; 32]),
@@ -1312,7 +1347,8 @@ mod tests {
                 cursor_id: CursorId([0u8; 32]),
                 worldline_id: WorldlineId([0u8; 32]),
                 warp_id: WarpId([0u8; 32]),
-                tick: 0,
+                worldline_tick: WorldlineTick::ZERO,
+                commit_global_tick: None,
                 commit_hash: [0u8; 32],
             },
             channel: TypeId([0u8; 32]),
@@ -1339,7 +1375,7 @@ mod tests {
     #[test]
     fn regression_commit_populates_emissions_digest() {
         use warp_core::{
-            make_head_id, HashTriplet, ProvenanceEntry, TypeId, WarpId, WorldlineId,
+            make_head_id, GlobalTick, HashTriplet, ProvenanceEntry, TypeId, WarpId, WorldlineId,
             WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
         };
 
@@ -1351,7 +1387,7 @@ mod tests {
         // Manually add a tick with outputs to provenance
         let patch = WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
-                global_tick: 0,
+                commit_global_tick: GlobalTick::from_raw(1),
                 policy_id: 0,
                 rule_pack_id: [0u8; 32],
                 plan_digest: [0u8; 32],
@@ -1378,8 +1414,8 @@ mod tests {
         };
         let entry = ProvenanceEntry::local_commit(
             wl_id,
-            0,
-            0,
+            WorldlineTick::ZERO,
+            GlobalTick::from_raw(1),
             head_key,
             Vec::new(),
             expected,
@@ -1392,7 +1428,7 @@ mod tests {
 
         let cursor_id = engine.create_cursor(&wl_id.0).unwrap();
         // Advance cursor to tick 1 so we can commit (cannot commit at tick 0)
-        engine.cursors.get_mut(&cursor_id).unwrap().tick = 1;
+        engine.cursors.get_mut(&cursor_id).unwrap().tick = WorldlineTick::from_raw(1);
 
         let tx_id = engine.begin(cursor_id).unwrap();
         let receipt_bytes = engine.commit_inner(tx_id).unwrap();

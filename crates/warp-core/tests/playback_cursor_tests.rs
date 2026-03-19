@@ -7,6 +7,8 @@
 
 mod common;
 
+use std::sync::{Arc, Mutex};
+
 use common::{
     append_fixture_entry, create_add_node_patch, create_initial_worldline_state,
     register_fixture_worldline, setup_worldline_with_ticks, test_cursor_id, test_warp_id,
@@ -15,12 +17,94 @@ use common::{
 use warp_core::materialization::make_channel_id;
 use warp_core::{
     compute_commit_hash_v2, make_node_id, make_type_id, CheckpointRef, CursorRole, Hash,
-    HashTriplet, LocalProvenanceStore, NodeRecord, PlaybackCursor, ProvenanceStore,
-    ReplayCheckpoint, SeekError, WorldlineState, WorldlineTick,
+    HashTriplet, HistoryError, LocalProvenanceStore, NodeRecord, PlaybackCursor, ProvenanceEntry,
+    ProvenanceRef, ProvenanceStore, ReplayCheckpoint, SeekError, WarpId, WorldlineId,
+    WorldlineState, WorldlineTick,
 };
 
 fn wt(raw: u64) -> WorldlineTick {
     WorldlineTick::from_raw(raw)
+}
+
+struct RecordingProvenance {
+    inner: LocalProvenanceStore,
+    events: Arc<Mutex<Vec<String>>>,
+}
+
+impl RecordingProvenance {
+    fn new(inner: LocalProvenanceStore) -> Self {
+        Self {
+            inner,
+            events: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn record(&self, event: impl Into<String>) {
+        self.events
+            .lock()
+            .expect("recording mutex should not be poisoned")
+            .push(event.into());
+    }
+
+    fn events(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .expect("recording mutex should not be poisoned")
+            .clone()
+    }
+}
+
+impl ProvenanceStore for RecordingProvenance {
+    fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError> {
+        self.record("u0");
+        self.inner.u0(w)
+    }
+
+    fn initial_boundary_hash(&self, w: WorldlineId) -> Result<Hash, HistoryError> {
+        self.record("initial_boundary_hash");
+        self.inner.initial_boundary_hash(w)
+    }
+
+    fn len(&self, w: WorldlineId) -> Result<u64, HistoryError> {
+        self.record("len");
+        self.inner.len(w)
+    }
+
+    fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError> {
+        self.record(format!("entry:{}", tick.as_u64()));
+        self.inner.entry(w, tick)
+    }
+
+    fn parents(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<Vec<ProvenanceRef>, HistoryError> {
+        self.record(format!("parents:{}", tick.as_u64()));
+        self.inner.parents(w, tick)
+    }
+
+    fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        self.record(format!(
+            "append_local_commit:{}",
+            entry.worldline_tick.as_u64()
+        ));
+        self.inner.append_local_commit(entry)
+    }
+
+    fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
+        self.record(format!("checkpoint_before:{}", tick.as_u64()));
+        self.inner.checkpoint_before(w, tick)
+    }
+
+    fn checkpoint_state_before(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Option<ReplayCheckpoint> {
+        self.record(format!("checkpoint_state_before:{}", tick.as_u64()));
+        self.inner.checkpoint_state_before(w, tick)
+    }
 }
 
 /// T14: cursor_seek_fails_on_corrupt_patch_or_hash_mismatch
@@ -253,8 +337,10 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
     let worldline_id = test_worldline_id();
     let initial_state = create_initial_worldline_state(warp_id);
     let root = *initial_state.root();
-    let output_channel = make_channel_id("playback:checkpoint-output");
-    let output_bytes = vec![0xAA, 0xBB, 0xCC];
+    let checkpoint_output_channel = make_channel_id("playback:checkpoint-output");
+    let checkpoint_output_bytes = vec![0xAA, 0xBB, 0xCC];
+    let suffix_output_channel = make_channel_id("playback:checkpoint-suffix-output");
+    let suffix_output_bytes = vec![0xDD, 0xEE];
 
     let mut provenance = LocalProvenanceStore::new();
     register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
@@ -282,7 +368,7 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
         worldline_id,
         patch,
         triplet,
-        vec![(output_channel, output_bytes.clone())],
+        vec![(checkpoint_output_channel, checkpoint_output_bytes.clone())],
     )
     .expect("append should succeed");
     provenance
@@ -293,10 +379,39 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
                     worldline_tick: wt(1),
                     state_hash: state_root,
                 },
-                state: checkpoint_state,
+                state: checkpoint_state.clone(),
             },
         )
         .expect("checkpoint should be accepted");
+
+    let suffix_patch = create_add_node_patch(warp_id, 1, "checkpoint-suffix");
+    let mut final_state = checkpoint_state.clone();
+    suffix_patch
+        .apply_to_worldline_state(&mut final_state)
+        .expect("suffix fixture patch should apply");
+
+    let suffix_state_root = final_state.state_root();
+    let suffix_commit_hash = compute_commit_hash_v2(
+        &suffix_state_root,
+        &[commit_hash],
+        &suffix_patch.patch_digest,
+        suffix_patch.header.policy_id,
+    );
+    let suffix_triplet = HashTriplet {
+        state_root: suffix_state_root,
+        patch_digest: suffix_patch.patch_digest,
+        commit_hash: suffix_commit_hash,
+    };
+    append_fixture_entry(
+        &mut provenance,
+        worldline_id,
+        suffix_patch,
+        suffix_triplet,
+        vec![(suffix_output_channel, suffix_output_bytes.clone())],
+    )
+    .expect("suffix append should succeed");
+
+    let provenance = RecordingProvenance::new(provenance);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(7),
@@ -304,25 +419,36 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
         warp_id,
         CursorRole::Reader,
         &initial_state,
-        wt(1),
+        wt(2),
     );
     cursor
-        .seek_to(wt(1), &provenance, &initial_state)
+        .seek_to(wt(2), &provenance, &initial_state)
         .expect("checkpoint seek should succeed");
 
-    assert_eq!(cursor.tick, wt(1));
-    assert_eq!(cursor.state.tick_history().len(), 1);
+    let events = provenance.events();
+    assert!(
+        events
+            .iter()
+            .any(|event| event == "checkpoint_state_before:3"),
+        "expected seek to restore from a replay checkpoint, got events: {events:?}"
+    );
+
+    assert_eq!(cursor.tick, wt(2));
+    assert_eq!(cursor.state.tick_history().len(), 2);
     assert_eq!(
         cursor.state.last_snapshot().map(|snapshot| snapshot.hash),
-        Some(commit_hash)
+        Some(suffix_commit_hash)
     );
     assert_eq!(cursor.state.last_materialization().len(), 1);
     assert_eq!(
         cursor.state.last_materialization()[0].channel,
-        output_channel
+        suffix_output_channel
     );
-    assert_eq!(cursor.state.last_materialization()[0].data, output_bytes);
-    assert_eq!(cursor.current_state_root(), state_root);
+    assert_eq!(
+        cursor.state.last_materialization()[0].data,
+        suffix_output_bytes
+    );
+    assert_eq!(cursor.current_state_root(), suffix_state_root);
     assert_eq!(
         cursor
             .focused_store()
@@ -331,6 +457,15 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
             .expect("checkpoint node should exist")
             .ty,
         make_type_id("Type0")
+    );
+    assert_eq!(
+        cursor
+            .focused_store()
+            .expect("focused store should exist")
+            .node(&make_node_id("checkpoint-suffix"))
+            .expect("suffix node should exist")
+            .ty,
+        make_type_id("Type1")
     );
     assert_eq!(cursor.state.root(), &root);
 }

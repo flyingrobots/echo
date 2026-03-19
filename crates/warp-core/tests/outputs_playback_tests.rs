@@ -17,7 +17,8 @@
 mod common;
 use common::{
     append_fixture_entry, create_add_node_patch, create_initial_worldline_state,
-    setup_worldline_with_ticks, test_cursor_id, test_session_id, test_warp_id, test_worldline_id,
+    register_fixture_worldline, setup_worldline_with_ticks, test_cursor_id, test_session_id,
+    test_warp_id, test_worldline_id,
 };
 
 use warp_core::materialization::{
@@ -44,9 +45,7 @@ fn setup_worldline_with_outputs(
     let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_state = initial_state.clone();
@@ -718,9 +717,7 @@ fn writer_play_advances_and_records_outputs() {
     let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Simulate writer advancing 10 ticks
     let mut current_state = initial_state.clone();

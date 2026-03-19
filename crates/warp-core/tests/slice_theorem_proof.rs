@@ -25,7 +25,7 @@ mod common;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use common::{append_fixture_entry, XorShift64};
+use common::{append_fixture_entry, register_fixture_worldline, XorShift64};
 use warp_core::{
     compute_commit_hash_v2, HashTriplet, LocalProvenanceStore, WorldlineState, WorldlineTick,
     WorldlineTickHeaderV1, WorldlineTickPatchV1,
@@ -532,14 +532,12 @@ fn phase_2_and_3_playback_replay_matches_execution() {
     // full WorldlineState materialization, not engine-specific incidental state.
     let worldline_id = WorldlineId([0x42; 32]);
     let cursor_id = CursorId([0x01; 32]);
+    let replay_base = WorldlineState::from_root_store(store.clone(), root).expect("replay base");
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &replay_base).unwrap();
 
     let mut recorded_roots = Vec::new();
     let mut parents: Vec<warp_core::Hash> = Vec::new();
-    let replay_base = WorldlineState::from_root_store(store.clone(), root).expect("replay base");
     let mut replay_state = replay_base.clone(); // Track state by applying patches
 
     for tick in 0..NUM_TICKS {
@@ -794,9 +792,6 @@ fn phase_6_semantic_correctness_dependent_chain() {
     let worldline_id = WorldlineId([0x66; 32]);
     let cursor_id = CursorId([0x77; 32]);
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
 
     let wl_patch = WorldlineTickPatchV1 {
         header: WorldlineTickHeaderV1 {
@@ -817,6 +812,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
     // Compute state_root using the same full-state replay substrate as seek_to.
     let replay_base =
         WorldlineState::from_root_store(post_r1_store.clone(), root).expect("replay base");
+    register_fixture_worldline(&mut provenance, worldline_id, &replay_base).unwrap();
     let mut replay_state = replay_base.clone();
     wl_patch
         .apply_to_worldline_state(&mut replay_state)

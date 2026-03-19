@@ -31,10 +31,10 @@ use crate::clock::{GlobalTick, WorldlineTick};
 use crate::graph::GraphStore;
 use crate::ident::{Hash, WarpId};
 use crate::materialization::{compute_value_hash, ChannelId};
-use crate::provenance_store::ProvenanceStore;
-use crate::receipt::TickReceipt;
-use crate::snapshot::{compute_commit_hash_v2, Snapshot};
-use crate::tx::TxId;
+use crate::provenance_store::{
+    advance_replay_state, replay_worldline_state_at_from_provenance, validate_replay_base,
+    ProvenanceStore, ReplayError,
+};
 use crate::worldline::WorldlineId;
 use crate::worldline_state::WorldlineState;
 
@@ -269,6 +269,24 @@ pub enum SeekError {
         /// The checkpoint coordinate whose stored state was inconsistent.
         tick: WorldlineTick,
     },
+
+    /// The supplied replay base does not belong to the requested worldline root warp.
+    #[error("replay base root warp mismatch: expected {expected:?}, got {actual:?}")]
+    ReplayBaseWarpMismatch {
+        /// Registered root warp for the worldline.
+        expected: WarpId,
+        /// Root warp found in the supplied replay base.
+        actual: WarpId,
+    },
+
+    /// The supplied replay base initial state does not match the registered provenance boundary.
+    #[error("replay base initial boundary hash mismatch")]
+    InitialBoundaryHashMismatch {
+        /// Registered deterministic initial boundary hash.
+        expected: Hash,
+        /// Hash computed from the supplied replay base.
+        actual: Hash,
+    },
 }
 
 /// Result of a single step operation on a cursor.
@@ -365,6 +383,31 @@ pub struct PlaybackCursor {
 }
 
 impl PlaybackCursor {
+    fn map_replay_error(target: WorldlineTick, error: ReplayError) -> SeekError {
+        match error {
+            ReplayError::History(crate::provenance_store::HistoryError::HistoryUnavailable {
+                tick,
+            })
+            | ReplayError::MissingPatch { tick } => SeekError::HistoryUnavailable { tick },
+            ReplayError::History(_) => SeekError::HistoryUnavailable { tick: target },
+            ReplayError::Apply { tick, source } => SeekError::ApplyError { tick, source },
+            ReplayError::ReplayBaseWarpMismatch { expected, actual } => {
+                SeekError::ReplayBaseWarpMismatch { expected, actual }
+            }
+            ReplayError::InitialBoundaryHashMismatch { expected, actual } => {
+                SeekError::InitialBoundaryHashMismatch { expected, actual }
+            }
+            ReplayError::PatchDigestMismatch { tick, .. } => {
+                SeekError::PatchDigestMismatch { tick }
+            }
+            ReplayError::StateRootMismatch { tick, .. } => SeekError::StateRootMismatch { tick },
+            ReplayError::CommitHashMismatch { tick, .. } => SeekError::CommitHashMismatch { tick },
+            ReplayError::CheckpointStateRootMismatch { tick, .. } => {
+                SeekError::CheckpointStateRootMismatch { tick }
+            }
+        }
+    }
+
     /// Creates a new playback cursor.
     ///
     /// # Arguments
@@ -466,113 +509,35 @@ impl PlaybackCursor {
             return Err(SeekError::HistoryUnavailable { tick: target });
         }
 
+        validate_replay_base(provenance, self.worldline_id, initial_state)
+            .map_err(|error| Self::map_replay_error(target, error))?;
+
+        if target == self.tick {
+            return Ok(());
+        }
+
         let checkpoint_lookup_tick = target.checked_increment().unwrap_or(target);
-        let checkpoint =
-            provenance.checkpoint_state_before(self.worldline_id, checkpoint_lookup_tick);
-        let mut start_tick = self.tick;
-        if let Some(checkpoint) = checkpoint {
-            let checkpoint_tick = checkpoint.checkpoint.worldline_tick;
-            let should_restore = target < self.tick || checkpoint_tick > self.tick;
-            if should_restore {
-                if checkpoint.state.state_root() != checkpoint.checkpoint.state_hash {
-                    return Err(SeekError::CheckpointStateRootMismatch {
-                        tick: checkpoint_tick,
-                    });
-                }
-                self.state = checkpoint.state;
-                start_tick = checkpoint_tick;
-            }
-        } else if target < self.tick {
-            self.state = initial_state.clone();
-            start_tick = WorldlineTick::ZERO;
-        }
+        let should_restore_from_checkpoint = provenance
+            .checkpoint_state_before(self.worldline_id, checkpoint_lookup_tick)
+            .is_some_and(|checkpoint| checkpoint.checkpoint.worldline_tick > self.tick);
 
-        // Apply patches from start_tick to target
-        // If start_tick = 2 and target = 5, we apply patches 2, 3, 4
-        for patch_tick in start_tick.as_u64()..target.as_u64() {
-            let patch_tick = WorldlineTick::from_raw(patch_tick);
-            let entry = provenance
-                .entry(self.worldline_id, patch_tick)
-                .map_err(|_| SeekError::HistoryUnavailable { tick: patch_tick })?;
-            let patch = entry
-                .patch
-                .ok_or(SeekError::HistoryUnavailable { tick: patch_tick })?;
-            let expected = entry.expected;
-            let parents = entry
-                .parents
-                .into_iter()
-                .map(|parent| parent.commit_hash)
-                .collect::<Vec<_>>();
-
-            // Apply the patch to our materialized worldline state
-            patch
-                .apply_to_worldline_state(&mut self.state)
-                .map_err(|e| SeekError::ApplyError {
-                    tick: patch_tick,
-                    source: e,
-                })?;
-
-            // Verify state root matches expected
-            let computed_state_root = self.state.state_root();
-
-            if computed_state_root != expected.state_root {
-                return Err(SeekError::StateRootMismatch { tick: patch_tick });
-            }
-
-            // Verify patch digest consistency between patch and provenance record
-            if patch.patch_digest != expected.patch_digest {
-                return Err(SeekError::PatchDigestMismatch { tick: patch_tick });
-            }
-
-            // Verify commit hash (Merkle chain integrity).
-            // commit_hash = BLAKE3(version | parents | state_root | patch_digest | policy_id)
-            let computed_commit_hash = compute_commit_hash_v2(
-                &computed_state_root,
-                &parents,
-                &expected.patch_digest,
-                patch.header.policy_id,
-            );
-
-            if computed_commit_hash != expected.commit_hash {
-                return Err(SeekError::CommitHashMismatch { tick: patch_tick });
-            }
-
-            let snapshot = Snapshot {
-                root: *self.state.root(),
-                hash: expected.commit_hash,
-                state_root: expected.state_root,
-                parents,
-                plan_digest: patch.header.plan_digest,
-                decision_digest: patch.header.decision_digest,
-                rewrites_digest: patch.header.rewrites_digest,
-                patch_digest: expected.patch_digest,
-                policy_id: patch.policy_id(),
-                tx: TxId::from_raw(patch_tick.as_u64() + 1),
-            };
-            let replay_patch = crate::tick_patch::WarpTickPatchV1::new(
-                patch.policy_id(),
-                patch.rule_pack_id(),
-                crate::tick_patch::TickCommitStatus::Committed,
-                patch.in_slots.clone(),
-                patch.out_slots.clone(),
-                patch.ops.clone(),
-            );
-            self.state.tx_counter = snapshot.tx.value();
-            self.state.last_snapshot = Some(snapshot.clone());
-            self.state.last_materialization.clear();
-            self.state.last_materialization_errors.clear();
-            self.state.tick_history.push((
-                snapshot,
-                TickReceipt::new(
-                    TxId::from_raw(patch_tick.as_u64() + 1),
-                    Vec::new(),
-                    Vec::new(),
-                ),
-                replay_patch,
-            ));
-        }
+        let next_state = if target < self.tick || should_restore_from_checkpoint {
+            replay_worldline_state_at_from_provenance(
+                provenance,
+                self.worldline_id,
+                initial_state,
+                target,
+            )
+            .map_err(|error| Self::map_replay_error(target, error))?
+        } else {
+            let mut state = self.state.clone();
+            advance_replay_state(provenance, self.worldline_id, &mut state, self.tick, target)
+                .map_err(|error| Self::map_replay_error(target, error))?;
+            state
+        };
 
         // Update cursor position
+        self.state = next_state;
         self.tick = target;
         Ok(())
     }

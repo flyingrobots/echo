@@ -17,9 +17,9 @@ use warp_core::{
     ApplyResult, AtomPayload, AtomWriteSet, AttachmentKey, AttachmentSet, AttachmentValue,
     ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder, Footprint, GlobalTick,
     GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey, NodeRecord,
-    OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore, RewriteRule, SessionId, WarpId,
-    WarpOp, WorldlineId, WorldlineState, WorldlineTick, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1, WriterHeadKey,
+    OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore, RewriteRule, SessionId,
+    TickCommitStatus, WarpId, WarpOp, WarpTickPatchV1, WorldlineId, WorldlineState, WorldlineTick,
+    WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
 };
 
 // =============================================================================
@@ -786,28 +786,48 @@ pub fn create_initial_worldline_state(warp_id: WarpId) -> WorldlineState {
         .expect("initial worldline state should be valid")
 }
 
+/// Registers a test worldline with its real deterministic initial boundary hash.
+pub fn register_fixture_worldline(
+    provenance: &mut LocalProvenanceStore,
+    worldline_id: WorldlineId,
+    initial_state: &WorldlineState,
+) -> Result<(), warp_core::HistoryError> {
+    provenance.register_worldline_with_boundary(
+        worldline_id,
+        initial_state.root().warp_id,
+        initial_state.state_root(),
+    )
+}
+
 /// Creates a patch that adds a node at a specific tick.
 pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> WorldlineTickPatchV1 {
-    let tick_u8 = u8::try_from(tick).expect("tick must fit in u8 for test helpers");
     let node_id = make_node_id(node_name);
     let node_key = NodeKey {
         warp_id,
         local_id: node_id,
     };
     let ty = make_type_id(&format!("Type{tick}"));
+    let ops = vec![WarpOp::UpsertNode {
+        node: node_key,
+        record: NodeRecord { ty },
+    }];
+    let patch_digest = WarpTickPatchV1::new(
+        test_header(tick).policy_id,
+        test_header(tick).rule_pack_id,
+        TickCommitStatus::Committed,
+        Vec::new(),
+        Vec::new(),
+        ops.clone(),
+    )
+    .digest();
 
     WorldlineTickPatchV1 {
         header: test_header(tick),
         warp_id,
-        ops: vec![WarpOp::UpsertNode {
-            node: node_key,
-            record: NodeRecord { ty },
-        }],
+        ops,
         in_slots: vec![],
         out_slots: vec![],
-        // Intentional: wraps at tick > 255 via `as u8`, but all test worldlines
-        // use fewer than 256 ticks so this produces unique per-tick digests.
-        patch_digest: [tick_u8; 32],
+        patch_digest,
     }
 }
 
@@ -823,9 +843,7 @@ pub fn setup_worldline_with_ticks(
     let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_state = initial_state.clone();

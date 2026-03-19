@@ -227,8 +227,25 @@ pub enum ReplayError {
     History(#[from] HistoryError),
 
     /// Wrapped full-state patch replay failure.
-    #[error(transparent)]
-    Apply(#[from] ApplyError),
+    #[error("replay apply error at tick {tick}: {source}")]
+    Apply {
+        /// Tick whose patch application failed.
+        tick: WorldlineTick,
+        /// Underlying worldline-state apply failure.
+        #[source]
+        source: ApplyError,
+    },
+
+    /// A stored checkpoint had materialized state that did not match its metadata hash.
+    #[error("checkpoint state root mismatch at tick {tick}")]
+    CheckpointStateRootMismatch {
+        /// Checkpoint coordinate whose stored state was inconsistent.
+        tick: WorldlineTick,
+        /// Stored committed state root.
+        expected: Hash,
+        /// Recomputed checkpoint state root.
+        actual: Hash,
+    },
 
     /// The replay base does not belong to the requested worldline root warp.
     #[error("replay base root warp mismatch: expected {expected:?}, got {actual:?}")]
@@ -555,6 +572,9 @@ pub trait ProvenanceStore: Send + Sync {
     /// Returns the U0 reference (initial state handle) for a worldline.
     fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError>;
 
+    /// Returns the registered deterministic initial boundary hash for a worldline.
+    fn initial_boundary_hash(&self, w: WorldlineId) -> Result<Hash, HistoryError>;
+
     /// Returns the number of recorded ticks for a worldline.
     fn len(&self, w: WorldlineId) -> Result<u64, HistoryError>;
 
@@ -594,6 +614,254 @@ pub trait ProvenanceStore: Send + Sync {
     fn is_empty(&self, w: WorldlineId) -> Result<bool, HistoryError> {
         Ok(self.len(w)? == 0)
     }
+}
+
+pub(crate) fn finalized_channels(outputs: &OutputFrameSet) -> Vec<FinalizedChannel> {
+    outputs
+        .iter()
+        .map(|(channel, data)| FinalizedChannel {
+            channel: *channel,
+            data: data.clone(),
+        })
+        .collect()
+}
+
+pub(crate) fn replay_artifacts_for_entry(
+    root: NodeKey,
+    entry: &ProvenanceEntry,
+) -> Result<(Snapshot, TickReceipt, WarpTickPatchV1), ReplayError> {
+    let tick = entry.worldline_tick;
+    let patch = entry
+        .patch
+        .clone()
+        .ok_or(ReplayError::MissingPatch { tick })?;
+    if entry.expected.patch_digest != patch.patch_digest {
+        return Err(ReplayError::PatchDigestMismatch {
+            tick,
+            expected: entry.expected.patch_digest,
+            actual: patch.patch_digest,
+        });
+    }
+
+    let replay_patch = WarpTickPatchV1::new(
+        patch.policy_id(),
+        patch.rule_pack_id(),
+        TickCommitStatus::Committed,
+        patch.in_slots.clone(),
+        patch.out_slots.clone(),
+        patch.ops.clone(),
+    );
+    let replay_patch_digest = replay_patch.digest();
+    if replay_patch_digest != patch.patch_digest {
+        return Err(ReplayError::PatchDigestMismatch {
+            tick,
+            expected: patch.patch_digest,
+            actual: replay_patch_digest,
+        });
+    }
+
+    let parents = entry
+        .parents
+        .iter()
+        .map(|parent| parent.commit_hash)
+        .collect::<Vec<_>>();
+    let snapshot = Snapshot {
+        root,
+        hash: entry.expected.commit_hash,
+        state_root: entry.expected.state_root,
+        parents,
+        plan_digest: patch.header.plan_digest,
+        decision_digest: patch.header.decision_digest,
+        rewrites_digest: patch.header.rewrites_digest,
+        patch_digest: entry.expected.patch_digest,
+        policy_id: patch.policy_id(),
+        tx: TxId::from_raw(tick.as_u64() + 1),
+    };
+    let receipt = TickReceipt::new(snapshot.tx, Vec::new(), Vec::new());
+    Ok((snapshot, receipt, replay_patch))
+}
+
+pub(crate) fn hydrate_replay_metadata<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    replayed: &mut WorldlineState,
+    target_tick: WorldlineTick,
+) -> Result<(), ReplayError> {
+    let target_len = target_tick.as_u64() as usize;
+    if replayed.tick_history.len() > target_len {
+        replayed.tick_history.truncate(target_len);
+    }
+
+    let root = *replayed.root();
+    for raw_tick in replayed.tick_history.len() as u64..target_tick.as_u64() {
+        let entry = provenance.entry(worldline_id, WorldlineTick::from_raw(raw_tick))?;
+        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(root, &entry)?;
+        replayed
+            .tick_history
+            .push((snapshot, receipt, replay_patch));
+    }
+
+    if target_len == 0 {
+        replayed.last_snapshot = None;
+        replayed.last_materialization.clear();
+        replayed.last_materialization_errors.clear();
+        replayed.tx_counter = 0;
+    } else {
+        let last_tick = WorldlineTick::from_raw(target_tick.as_u64() - 1);
+        let entry = provenance.entry(worldline_id, last_tick)?;
+        replayed.last_snapshot = replayed
+            .tick_history
+            .last()
+            .map(|(snapshot, _, _)| snapshot.clone());
+        replayed.last_materialization = finalized_channels(&entry.outputs);
+        replayed.last_materialization_errors.clear();
+        replayed.tx_counter = target_tick.as_u64();
+    }
+
+    Ok(())
+}
+
+pub(crate) fn validate_replay_base<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    base_state: &WorldlineState,
+) -> Result<(), ReplayError> {
+    let expected_root_warp = provenance.u0(worldline_id)?;
+    if base_state.root().warp_id != expected_root_warp {
+        return Err(ReplayError::ReplayBaseWarpMismatch {
+            expected: expected_root_warp,
+            actual: base_state.root().warp_id,
+        });
+    }
+
+    let expected_initial_boundary = provenance.initial_boundary_hash(worldline_id)?;
+    let actual_initial_boundary =
+        compute_state_root_for_warp_state(base_state.initial_state(), base_state.root());
+    if actual_initial_boundary != expected_initial_boundary {
+        return Err(ReplayError::InitialBoundaryHashMismatch {
+            expected: expected_initial_boundary,
+            actual: actual_initial_boundary,
+        });
+    }
+
+    Ok(())
+}
+
+pub(crate) fn restore_replay_base<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    base_state: &WorldlineState,
+    target_tick: WorldlineTick,
+) -> Result<(WorldlineState, WorldlineTick), ReplayError> {
+    let checkpoint_lookup_tick = target_tick.checked_increment().unwrap_or(target_tick);
+    if let Some(checkpoint) =
+        provenance.checkpoint_state_before(worldline_id, checkpoint_lookup_tick)
+    {
+        let actual_state_root = checkpoint.state.state_root();
+        if actual_state_root != checkpoint.checkpoint.state_hash {
+            return Err(ReplayError::CheckpointStateRootMismatch {
+                tick: checkpoint.checkpoint.worldline_tick,
+                expected: checkpoint.checkpoint.state_hash,
+                actual: actual_state_root,
+            });
+        }
+
+        let checkpoint_tick = checkpoint.checkpoint.worldline_tick;
+        let mut replayed = checkpoint.state;
+        replayed.last_materialization_errors.clear();
+        replayed.committed_ingress.clear();
+        hydrate_replay_metadata(provenance, worldline_id, &mut replayed, checkpoint_tick)?;
+        return Ok((replayed, checkpoint_tick));
+    }
+
+    let mut replayed = base_state.clone();
+    replayed.warp_state = replayed.initial_state.clone();
+    replayed.last_snapshot = None;
+    replayed.tick_history.clear();
+    replayed.last_materialization.clear();
+    replayed.last_materialization_errors.clear();
+    replayed.tx_counter = 0;
+    replayed.committed_ingress.clear();
+    Ok((replayed, WorldlineTick::ZERO))
+}
+
+pub(crate) fn advance_replay_state<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    replayed: &mut WorldlineState,
+    start_tick: WorldlineTick,
+    target_tick: WorldlineTick,
+) -> Result<(), ReplayError> {
+    for raw_tick in start_tick.as_u64()..target_tick.as_u64() {
+        let tick = WorldlineTick::from_raw(raw_tick);
+        let entry = provenance.entry(worldline_id, tick)?;
+        let patch = entry
+            .patch
+            .clone()
+            .ok_or(ReplayError::MissingPatch { tick })?;
+
+        patch
+            .apply_to_worldline_state(replayed)
+            .map_err(|source| ReplayError::Apply { tick, source })?;
+
+        let actual_state_root =
+            compute_state_root_for_warp_state(replayed.warp_state(), replayed.root());
+        if actual_state_root != entry.expected.state_root {
+            return Err(ReplayError::StateRootMismatch {
+                tick,
+                expected: entry.expected.state_root,
+                actual: actual_state_root,
+            });
+        }
+
+        let parent_hashes = entry
+            .parents
+            .iter()
+            .map(|parent| parent.commit_hash)
+            .collect::<Vec<_>>();
+        let actual_commit_hash = compute_commit_hash_v2(
+            &actual_state_root,
+            &parent_hashes,
+            &entry.expected.patch_digest,
+            patch.policy_id(),
+        );
+        if actual_commit_hash != entry.expected.commit_hash {
+            return Err(ReplayError::CommitHashMismatch {
+                tick,
+                expected: entry.expected.commit_hash,
+                actual: actual_commit_hash,
+            });
+        }
+    }
+
+    hydrate_replay_metadata(provenance, worldline_id, replayed, target_tick)?;
+    Ok(())
+}
+
+pub(crate) fn replay_worldline_state_at_from_provenance<P: ProvenanceStore>(
+    provenance: &P,
+    worldline_id: WorldlineId,
+    base_state: &WorldlineState,
+    target_tick: WorldlineTick,
+) -> Result<WorldlineState, ReplayError> {
+    let history_len = WorldlineTick::from_raw(provenance.len(worldline_id)?);
+    if target_tick > history_len {
+        return Err(ReplayError::History(HistoryError::HistoryUnavailable {
+            tick: target_tick,
+        }));
+    }
+
+    validate_replay_base(provenance, worldline_id, base_state)?;
+    let (mut replayed, start_tick) =
+        restore_replay_base(provenance, worldline_id, base_state, target_tick)?;
+    advance_replay_state(
+        provenance,
+        worldline_id,
+        &mut replayed,
+        start_tick,
+        target_tick,
+    )?;
+    Ok(replayed)
 }
 
 #[derive(Debug, Clone)]
@@ -984,6 +1252,10 @@ impl ProvenanceStore for LocalProvenanceStore {
         Ok(self.history(w)?.u0_ref)
     }
 
+    fn initial_boundary_hash(&self, w: WorldlineId) -> Result<Hash, HistoryError> {
+        self.initial_boundary_hash(w)
+    }
+
     fn len(&self, w: WorldlineId) -> Result<u64, HistoryError> {
         Ok(self.history(w)?.entries.len() as u64)
     }
@@ -1173,151 +1445,6 @@ impl ProvenanceService {
         self.store.restore(checkpoint);
     }
 
-    fn finalized_channels(outputs: &OutputFrameSet) -> Vec<FinalizedChannel> {
-        outputs
-            .iter()
-            .map(|(channel, data)| FinalizedChannel {
-                channel: *channel,
-                data: data.clone(),
-            })
-            .collect()
-    }
-
-    fn replay_artifacts_for_entry(
-        root: NodeKey,
-        entry: &ProvenanceEntry,
-    ) -> Result<(Snapshot, TickReceipt, WarpTickPatchV1), ReplayError> {
-        let tick = entry.worldline_tick;
-        let patch = entry
-            .patch
-            .clone()
-            .ok_or(ReplayError::MissingPatch { tick })?;
-        if entry.expected.patch_digest != patch.patch_digest {
-            return Err(ReplayError::PatchDigestMismatch {
-                tick,
-                expected: entry.expected.patch_digest,
-                actual: patch.patch_digest,
-            });
-        }
-
-        let replay_patch = WarpTickPatchV1::new(
-            patch.policy_id(),
-            patch.rule_pack_id(),
-            TickCommitStatus::Committed,
-            patch.in_slots.clone(),
-            patch.out_slots.clone(),
-            patch.ops.clone(),
-        );
-        let replay_patch_digest = replay_patch.digest();
-        if replay_patch_digest != patch.patch_digest {
-            return Err(ReplayError::PatchDigestMismatch {
-                tick,
-                expected: patch.patch_digest,
-                actual: replay_patch_digest,
-            });
-        }
-
-        let parents = entry
-            .parents
-            .iter()
-            .map(|parent| parent.commit_hash)
-            .collect::<Vec<_>>();
-        let snapshot = Snapshot {
-            root,
-            hash: entry.expected.commit_hash,
-            state_root: entry.expected.state_root,
-            parents,
-            plan_digest: patch.header.plan_digest,
-            decision_digest: patch.header.decision_digest,
-            rewrites_digest: patch.header.rewrites_digest,
-            patch_digest: entry.expected.patch_digest,
-            policy_id: patch.policy_id(),
-            tx: TxId::from_raw(tick.as_u64() + 1),
-        };
-        let receipt = TickReceipt::new(snapshot.tx, Vec::new(), Vec::new());
-        Ok((snapshot, receipt, replay_patch))
-    }
-
-    fn hydrate_replay_metadata(
-        &self,
-        worldline_id: WorldlineId,
-        replayed: &mut WorldlineState,
-        target_tick: WorldlineTick,
-    ) -> Result<(), ReplayError> {
-        let target_len = target_tick.as_u64() as usize;
-        if replayed.tick_history.len() > target_len {
-            replayed.tick_history.truncate(target_len);
-        }
-
-        let root = *replayed.root();
-        for raw_tick in replayed.tick_history.len() as u64..target_tick.as_u64() {
-            let entry = self
-                .store
-                .entry(worldline_id, WorldlineTick::from_raw(raw_tick))?;
-            let (snapshot, receipt, replay_patch) = Self::replay_artifacts_for_entry(root, &entry)?;
-            replayed
-                .tick_history
-                .push((snapshot, receipt, replay_patch));
-        }
-
-        if target_len == 0 {
-            replayed.last_snapshot = None;
-            replayed.last_materialization.clear();
-            replayed.last_materialization_errors.clear();
-            replayed.tx_counter = 0;
-        } else {
-            let last_tick = WorldlineTick::from_raw(target_tick.as_u64() - 1);
-            let entry = self.store.entry(worldline_id, last_tick)?;
-            replayed.last_snapshot = replayed
-                .tick_history
-                .last()
-                .map(|(snapshot, _, _)| snapshot.clone());
-            replayed.last_materialization = Self::finalized_channels(&entry.outputs);
-            replayed.last_materialization_errors.clear();
-            replayed.tx_counter = target_tick.as_u64();
-        }
-
-        Ok(())
-    }
-
-    fn restore_replay_base(
-        &self,
-        worldline_id: WorldlineId,
-        base_state: &WorldlineState,
-        target_tick: WorldlineTick,
-    ) -> Result<(WorldlineState, WorldlineTick), ReplayError> {
-        let checkpoint_lookup_tick = target_tick.checked_increment().unwrap_or(target_tick);
-        if let Some(checkpoint) = self
-            .store
-            .checkpoint_state_before(worldline_id, checkpoint_lookup_tick)
-        {
-            if checkpoint.state.state_root() != checkpoint.checkpoint.state_hash {
-                return Err(ReplayError::StateRootMismatch {
-                    tick: checkpoint.checkpoint.worldline_tick,
-                    expected: checkpoint.checkpoint.state_hash,
-                    actual: checkpoint.state.state_root(),
-                });
-            }
-
-            let checkpoint_tick = checkpoint.checkpoint.worldline_tick;
-            let mut replayed = checkpoint.state;
-            replayed.last_materialization_errors.clear();
-            replayed.committed_ingress.clear();
-            self.hydrate_replay_metadata(worldline_id, &mut replayed, checkpoint_tick)?;
-            return Ok((replayed, checkpoint_tick));
-        }
-
-        let mut replayed = base_state.clone();
-        replayed.warp_state = replayed.initial_state.clone();
-        replayed.last_snapshot = None;
-        replayed.tick_history.clear();
-        replayed.last_materialization.clear();
-        replayed.last_materialization_errors.clear();
-        replayed.tx_counter = 0;
-        replayed.committed_ingress.clear();
-        Ok((replayed, WorldlineTick::ZERO))
-    }
-
     /// Reconstructs full [`WorldlineState`] for a worldline up to `target_tick`.
     ///
     /// `target_tick` is a cursor coordinate: tick 0 is the replay base with no
@@ -1337,81 +1464,12 @@ impl ProvenanceService {
         base_state: &WorldlineState,
         target_tick: WorldlineTick,
     ) -> Result<WorldlineState, ReplayError> {
-        let history_len = WorldlineTick::from_raw(self.store.len(worldline_id)?);
-        if target_tick > history_len {
-            return Err(ReplayError::History(HistoryError::HistoryUnavailable {
-                tick: target_tick,
-            }));
-        }
-
-        let expected_root_warp = self.store.u0(worldline_id)?;
-        if base_state.root().warp_id != expected_root_warp {
-            return Err(ReplayError::ReplayBaseWarpMismatch {
-                expected: expected_root_warp,
-                actual: base_state.root().warp_id,
-            });
-        }
-
-        let expected_initial_boundary = self.store.initial_boundary_hash(worldline_id)?;
-        let actual_initial_boundary =
-            compute_state_root_for_warp_state(base_state.initial_state(), base_state.root());
-        if actual_initial_boundary != expected_initial_boundary {
-            return Err(ReplayError::InitialBoundaryHashMismatch {
-                expected: expected_initial_boundary,
-                actual: actual_initial_boundary,
-            });
-        }
-
-        let (mut replayed, start_tick) =
-            self.restore_replay_base(worldline_id, base_state, target_tick)?;
-        let root = *replayed.root();
-
-        for raw_tick in start_tick.as_u64()..target_tick.as_u64() {
-            let tick = WorldlineTick::from_raw(raw_tick);
-            let entry = self.store.entry(worldline_id, tick)?;
-            let patch = entry
-                .patch
-                .clone()
-                .ok_or(ReplayError::MissingPatch { tick })?;
-            let (snapshot, receipt, replay_patch) = Self::replay_artifacts_for_entry(root, &entry)?;
-
-            patch.apply_to_worldline_state(&mut replayed)?;
-
-            let actual_state_root =
-                compute_state_root_for_warp_state(replayed.warp_state(), replayed.root());
-            if actual_state_root != entry.expected.state_root {
-                return Err(ReplayError::StateRootMismatch {
-                    tick,
-                    expected: entry.expected.state_root,
-                    actual: actual_state_root,
-                });
-            }
-
-            let actual_commit_hash = compute_commit_hash_v2(
-                &actual_state_root,
-                &snapshot.parents,
-                &replay_patch.digest(),
-                patch.policy_id(),
-            );
-            if actual_commit_hash != entry.expected.commit_hash {
-                return Err(ReplayError::CommitHashMismatch {
-                    tick,
-                    expected: entry.expected.commit_hash,
-                    actual: actual_commit_hash,
-                });
-            }
-
-            replayed.tx_counter = snapshot.tx.value();
-            replayed.last_snapshot = Some(snapshot.clone());
-            replayed.last_materialization = Self::finalized_channels(&entry.outputs);
-            replayed.last_materialization_errors.clear();
-            replayed
-                .tick_history
-                .push((snapshot, receipt, replay_patch));
-        }
-
-        self.hydrate_replay_metadata(worldline_id, &mut replayed, target_tick)?;
-        Ok(replayed)
+        replay_worldline_state_at_from_provenance(
+            &self.store,
+            worldline_id,
+            base_state,
+            target_tick,
+        )
     }
 
     /// Reconstructs full [`WorldlineState`] for a worldline from stored provenance entries.
@@ -1571,6 +1629,10 @@ impl ProvenanceService {
 impl ProvenanceStore for ProvenanceService {
     fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError> {
         self.store.u0(w)
+    }
+
+    fn initial_boundary_hash(&self, w: WorldlineId) -> Result<Hash, HistoryError> {
+        self.store.initial_boundary_hash(w)
     }
 
     fn len(&self, w: WorldlineId) -> Result<u64, HistoryError> {

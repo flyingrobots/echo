@@ -13,14 +13,15 @@
 
 mod common;
 use common::{
-    append_fixture_entry, create_add_node_patch, create_initial_worldline_state, test_cursor_id,
-    test_header, test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_worldline_state,
+    register_fixture_worldline, test_cursor_id, test_header, test_warp_id, test_worldline_id,
 };
 
 use warp_core::{
     compute_commit_hash_v2, make_node_id, make_type_id, CursorRole, Hash, HashTriplet,
     LocalProvenanceStore, NodeKey, NodeRecord, PlaybackCursor, ProvenanceStore, ReplayCheckpoint,
-    WarpOp, WorldlineId, WorldlineState, WorldlineTick, WorldlineTickPatchV1,
+    TickCommitStatus, WarpOp, WarpTickPatchV1, WorldlineId, WorldlineState, WorldlineTick,
+    WorldlineTickPatchV1,
 };
 
 /// Creates a deterministic worldline ID for the forked worldline.
@@ -53,9 +54,7 @@ fn setup_worldline_with_ticks_and_checkpoints(
     let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
     let mut current_state = initial_state.clone();
@@ -257,9 +256,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     }
 
     // Act 1: Fork at tick 7 - copy history from original (ticks 0-7) to forked worldline
-    provenance
-        .register_worldline(forked_worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, forked_worldline_id, &initial_state).unwrap();
 
     // Copy patches 0-7 from original to forked
     for tick in 0..=7 {
@@ -314,22 +311,32 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     // Add divergent ticks 8, 9, 10 by mutating reachable root state.
     // Isolated node inserts do not affect the canonical state root.
     for tick in 8..=10 {
-        let tick_u8 = u8::try_from(tick).expect("test tick must fit in u8");
+        let header = test_header(tick);
+        let ops = vec![WarpOp::UpsertNode {
+            node: NodeKey {
+                warp_id,
+                local_id: make_node_id("root"),
+            },
+            record: NodeRecord {
+                ty: make_type_id(&format!("ForkedRootType{tick}")),
+            },
+        }];
+        let patch_digest = WarpTickPatchV1::new(
+            header.policy_id,
+            header.rule_pack_id,
+            TickCommitStatus::Committed,
+            Vec::new(),
+            Vec::new(),
+            ops.clone(),
+        )
+        .digest();
         let patch = WorldlineTickPatchV1 {
-            header: test_header(tick),
+            header,
             warp_id,
-            ops: vec![WarpOp::UpsertNode {
-                node: NodeKey {
-                    warp_id,
-                    local_id: make_node_id("root"),
-                },
-                record: NodeRecord {
-                    ty: make_type_id(&format!("ForkedRootType{tick}")),
-                },
-            }],
+            ops,
             in_slots: vec![],
             out_slots: vec![],
-            patch_digest: [tick_u8.wrapping_add(64); 32],
+            patch_digest,
         };
 
         patch

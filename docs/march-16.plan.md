@@ -1,7 +1,14 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
 
-# March 16 Plan: Post-Phase-5 Stabilization, Dev-Loop First, Then Phase 6
+# Archived: March 16 Plan: Post-Phase-5 Stabilization, Dev-Loop First, Then Phase 6
+
+> Historical planning memo captured immediately after Phase 5 merged.
+> Status update as of 2026-03-19:
+>
+> - the planned ABI break ultimately shipped as ABI v3
+> - Phases 0-7 are implemented
+> - the live source of truth is `docs/plans/adr-0008-and-0009.md`
 
 ## Summary
 
@@ -140,7 +147,7 @@ exit criteria.
 Goals:
 
 - delete the one-phase compatibility tail on the read side
-- bump the ABI to v2 at the start of that deletion
+- land the planned ABI break for that deletion path (ultimately shipped as ABI v3)
 - make tick semantics explicit in the type system
 
 Planned outputs:
@@ -218,7 +225,7 @@ Update these sources of truth:
 Required decisions:
 
 - change the implementation plan header from `Phases 0-4 implemented` to
-  `Phases 0-5 implemented`
+  `Phases 0-5 implemented` (the live plan now records Phases 0-7 implemented)
 - mark Phase 5 as implemented with the observation-contract merge now that
   ADR-0011 is shipped
 - update the implementation plan date to the post-merge date
@@ -362,7 +369,7 @@ Phase 6 work.
 
 Phase 6 should be split into two sequenced slices.
 
-### 4. Phase 6 Slice A: remove the legacy read adapters and bump ABI to v2
+### 4. Phase 6 Slice A: remove the legacy read adapters and bump the ABI
 
 This is the first architectural slice after the dev-loop sprint.
 
@@ -373,7 +380,7 @@ Required work:
 - remove `drain_view_ops`
 - remove `execute_query`
 - remove `render_snapshot`
-- bump the WASM ABI version to `2`
+- bump the WASM ABI version for the read-side break (this ultimately landed as `3`)
 - keep `observe(...)` as the only canonical public read entrypoint
 
 Rules:
@@ -396,7 +403,7 @@ Required tests:
 - removed endpoints are absent, not merely deprecated
 - `observe(...)` round-trip tests still cover head, snapshot, and recorded truth
   surfaces
-- host-side compatibility notes clearly describe the v1 to v2 break
+- host-side compatibility notes clearly describe the ABI break
 
 ### 5. Phase 6 Slice B: introduce `WorldlineTick` and `GlobalTick`
 

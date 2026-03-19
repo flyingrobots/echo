@@ -6,8 +6,6 @@ set -euo pipefail
 export GH_PAGER=cat
 
 SELECTOR="${1:-${PR:-}}"
-OWNER="flyingrobots"
-REPO="echo"
 
 gh_run() {
   local output

@@ -273,6 +273,10 @@ if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
   printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
   exit 0
 fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
 if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
   printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
   exit 0
@@ -584,9 +588,9 @@ fi
 
 fake_full_stamp_output="$(run_fake_full_stamp_sequence)"
 if printf '%s\n' "$fake_full_stamp_output" | grep -q 'reusing cached full verification for tree tree-aaaaaaa'; then
-  pass "full verification stamp reuse keys off the committed tree instead of HEAD"
+  pass "full verification stamp reuse keys off the working tree instead of HEAD"
 else
-  fail "full verification should reuse the cache for a different commit with the same tree"
+  fail "full verification should reuse the cache for a different commit with the same working tree"
   printf '%s\n' "$fake_full_stamp_output"
 fi
 if [[ "$(printf '%s\n' "$fake_full_stamp_output" | awk '/--- cargo-log ---/{flag=1; next} flag && NF {count++} END {print count+0}')" == "2" ]]; then

@@ -21,6 +21,8 @@ fail() {
 run_with_fake_gh() {
   local fixture="$1"
   local tmp
+  local repo_root
+  repo_root="$(pwd)"
   tmp="$(mktemp -d)"
   mkdir -p "$tmp/bin"
 
@@ -68,7 +70,7 @@ EOF
 
   chmod +x "$tmp/bin/gh"
   (
-    cd /Users/james/git/echo
+    cd "$repo_root"
     PATH="$tmp/bin:$PATH" ./scripts/pr-status.sh 302 2>&1
   )
 

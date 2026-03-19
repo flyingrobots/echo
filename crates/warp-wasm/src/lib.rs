@@ -270,7 +270,16 @@ pub fn get_registry_info() -> Uint8Array {
     encode_result(with_kernel_ref(|k| Ok(k.registry_info())))
 }
 
-/// Return read-only scheduler status metadata.
+/// Return the current read-only scheduler status envelope.
+///
+/// The returned bytes are canonical-CBOR encoded
+/// [`SchedulerStatus`](kernel_port::SchedulerStatus) metadata. Callers should
+/// decode the returned `Uint8Array` as `SchedulerStatus` and treat it as an
+/// observation-only snapshot of scheduler lifecycle state; it does not advance
+/// the runtime or mutate scheduler policy.
+///
+/// Returns a `NOT_INITIALIZED` ABI error envelope until a kernel has been
+/// installed via [`init`].
 #[wasm_bindgen]
 pub fn scheduler_status() -> Uint8Array {
     encode_result(with_kernel_ref(|k| k.scheduler_status()))

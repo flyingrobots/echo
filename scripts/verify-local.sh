@@ -1437,7 +1437,7 @@ run_auto_mode() {
 VERIFY_MODE_CONTEXT="$(mode_context "$MODE")"
 if [[ -n "${VERIFY_STAMP_SUBJECT:-}" ]]; then
   :
-elif [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" || "$VERIFY_MODE_CONTEXT" == "working-tree" ]]; then
+elif [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" || "$VERIFY_MODE_CONTEXT" == "working-tree" || "$MODE" == "full" ]]; then
   VERIFY_STAMP_SUBJECT="$(git write-tree)"
 else
   VERIFY_STAMP_SUBJECT="$(git rev-parse HEAD^{tree})"

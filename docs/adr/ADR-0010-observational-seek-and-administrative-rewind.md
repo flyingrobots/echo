@@ -152,5 +152,5 @@ This ADR does not:
 ## Supersession Note
 
 This ADR clarifies the operational reading of ADR-0008 Section 6.
-If accepted, implementations should treat generic head `seek(...)` wording as
-refined by the explicit observational/admin split described here.
+Implementations should treat generic head `seek(...)` wording as refined by the
+explicit observational/admin split described here.

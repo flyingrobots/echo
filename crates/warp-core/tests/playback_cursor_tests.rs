@@ -368,7 +368,7 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
         worldline_id,
         patch,
         triplet,
-        vec![(checkpoint_output_channel, checkpoint_output_bytes.clone())],
+        vec![(checkpoint_output_channel, checkpoint_output_bytes)],
     )
     .expect("append should succeed");
     provenance

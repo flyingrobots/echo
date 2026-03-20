@@ -4,6 +4,9 @@
 //! Playback cursor tests for SPEC-0004: Worldlines, Playback, and TruthBus.
 //!
 //! These tests verify cursor seek operations and hash verification.
+//! Fixture helpers such as `create_add_node_patch(...)` deliberately append
+//! isolated nodes, so some tests assert that commit history diverges while the
+//! reachable `state_root()` remains unchanged across ticks.
 
 mod common;
 
@@ -280,7 +283,7 @@ fn seek_backward_rebuilds_from_initial_state() {
     );
     assert_eq!(
         hash_at_3, hash_at_8,
-        "isolated fixture rewrites may leave the reachable state root unchanged across ticks"
+        "create_add_node_patch fixtures append isolated nodes, so the reachable state root may stay unchanged across ticks"
     );
 
     // Also verify we can seek to 0 (initial state with patches applied from 0..0 = none)

@@ -75,18 +75,42 @@ print(
 ')
 EOF
 
-if ! THREADS_JSON="$(gh_run gh api graphql -F number="$PR_NUMBER" -f query='query($number:Int!) { repository(owner:"flyingrobots", name:"echo") { pullRequest(number:$number) { reviewThreads(first:100) { nodes { isResolved } } } } }')"; then
-  exit 1
-fi
-UNRESOLVED_THREADS="$(
-  THREADS_JSON="$THREADS_JSON" python3 -c '
+UNRESOLVED_THREADS=0
+THREADS_CURSOR=""
+while :; do
+  THREAD_ARGS=(-F number="$PR_NUMBER")
+  if [[ -n "$THREADS_CURSOR" ]]; then
+    THREAD_ARGS+=(-F cursor="$THREADS_CURSOR")
+  fi
+  if ! THREADS_JSON="$(
+    gh_run gh api graphql \
+      "${THREAD_ARGS[@]}" \
+      -f query='query($number:Int!, $cursor:String) { repository(owner:"flyingrobots", name:"echo") { pullRequest(number:$number) { reviewThreads(first:100, after:$cursor) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }'
+  )"; then
+    exit 1
+  fi
+  read -r PAGE_UNRESOLVED PAGE_HAS_NEXT PAGE_CURSOR <<EOF
+$(THREADS_JSON="$THREADS_JSON" python3 -c '
 import json
 import os
 
 data = json.loads(os.environ["THREADS_JSON"])
-threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
-print(sum(1 for thread in threads if not thread["isResolved"]))
-')"
+review_threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]
+threads = review_threads["nodes"]
+page_info = review_threads["pageInfo"]
+print(
+    sum(1 for thread in threads if not thread["isResolved"]),
+    int(bool(page_info["hasNextPage"])),
+    page_info["endCursor"] or "",
+)
+')
+EOF
+  UNRESOLVED_THREADS=$((UNRESOLVED_THREADS + PAGE_UNRESOLVED))
+  if [[ "$PAGE_HAS_NEXT" != "1" ]]; then
+    break
+  fi
+  THREADS_CURSOR="$PAGE_CURSOR"
+done
 
 CHECK_GROUPS="$(
   CHECKS_JSON="$CHECKS_JSON" python3 -c '

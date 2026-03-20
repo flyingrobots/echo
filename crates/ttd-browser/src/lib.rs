@@ -20,7 +20,8 @@
 //! await init();
 //! const engine = new TtdEngine();
 //!
-//! // Create a cursor for a worldline
+//! // Register a canonical empty worldline, then create a cursor for it
+//! engine.register_empty_worldline(worldlineIdBytes, warpIdBytes);
 //! const cursorId = engine.create_cursor(worldlineIdBytes);
 //!
 //! // Seek to a specific tick
@@ -114,7 +115,7 @@ impl TtdEngine {
     /// Creates a new TTD engine instance.
     ///
     /// The engine starts with no worldlines, cursors, or sessions. Use
-    /// `register_worldline` to add worldlines before creating cursors.
+    /// `register_empty_worldline` to add worldlines before creating cursors.
     #[wasm_bindgen(constructor)]
     #[must_use]
     pub fn new() -> Self {
@@ -136,7 +137,7 @@ impl TtdEngine {
 
     // ─── Worldline Management ────────────────────────────────────────────────
 
-    /// Registers a worldline with the engine.
+    /// Registers a canonical empty worldline with the engine.
     ///
     /// This must be called before creating cursors for a worldline. The
     /// `worldline_id` and `warp_id` are 32-byte hashes.
@@ -145,7 +146,12 @@ impl TtdEngine {
     ///
     /// Returns an error if the worldline is already registered with a different
     /// warp ID.
-    pub fn register_worldline(
+    ///
+    /// This browser binding only supports creating fresh empty worldlines at
+    /// registration time. Importing a pre-initialized worldline requires a
+    /// different API surface that can accept the exact initial
+    /// [`WorldlineState`].
+    pub fn register_empty_worldline(
         &mut self,
         worldline_id: &[u8],
         warp_id: &[u8],
@@ -1130,9 +1136,9 @@ mod tests {
     }
 
     #[test]
-    fn test_worldline_registration() {
+    fn test_empty_worldline_registration() {
         let mut engine = TtdEngine::new();
-        let result = engine.register_worldline(&test_worldline_id(), &test_warp_id());
+        let result = engine.register_empty_worldline(&test_worldline_id(), &test_warp_id());
         assert!(result.is_ok());
     }
 
@@ -1140,7 +1146,7 @@ mod tests {
     fn test_cursor_creation() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1194,7 +1200,7 @@ mod tests {
     fn test_cursor_modes_success() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1210,7 +1216,7 @@ mod tests {
     fn test_set_seek() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1224,7 +1230,7 @@ mod tests {
     fn test_begin_transaction() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1240,7 +1246,7 @@ mod tests {
     fn test_drop_cursor_success() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1265,7 +1271,7 @@ mod tests {
     fn test_update_frontier() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1282,7 +1288,7 @@ mod tests {
     fn test_session_cursor_association() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1306,7 +1312,7 @@ mod tests {
     fn test_get_history_length() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let len = engine.get_history_length(&test_worldline_id()).unwrap();
@@ -1382,7 +1388,9 @@ mod tests {
         let mut engine = TtdEngine::new();
         let wl_id = WorldlineId([1u8; 32]);
         let warp_id = WarpId([2u8; 32]);
-        engine.register_worldline(&wl_id.0, &warp_id.0).unwrap();
+        engine
+            .register_empty_worldline(&wl_id.0, &warp_id.0)
+            .unwrap();
 
         // Manually add a tick with outputs to provenance
         let patch = WorldlineTickPatchV1 {

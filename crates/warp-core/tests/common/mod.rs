@@ -757,15 +757,10 @@ pub fn test_warp_id() -> WarpId {
     make_warp_id("test-warp")
 }
 
-/// Maps a fixture worldline tick to the corresponding logical global tick.
-fn fixture_commit_global_tick(worldline_tick: u64) -> GlobalTick {
-    GlobalTick::from_raw(worldline_tick.saturating_add(1))
-}
-
-/// Creates a test header for a specific tick.
-pub fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
+/// Creates a test header for a specific explicit commit-global tick.
+pub fn test_header(commit_global_tick: GlobalTick) -> WorldlineTickHeaderV1 {
     WorldlineTickHeaderV1 {
-        commit_global_tick: fixture_commit_global_tick(tick),
+        commit_global_tick,
         policy_id: 0,
         rule_pack_id: [0u8; 32],
         plan_digest: [0u8; 32],
@@ -804,8 +799,14 @@ pub fn register_fixture_worldline(
     )
 }
 
-/// Creates a patch that adds a node at a specific tick.
-pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> WorldlineTickPatchV1 {
+/// Creates a patch that adds a node at a specific worldline tick and explicit
+/// commit-global tick.
+pub fn create_add_node_patch(
+    warp_id: WarpId,
+    tick: u64,
+    commit_global_tick: GlobalTick,
+    node_name: &str,
+) -> WorldlineTickPatchV1 {
     let node_id = make_node_id(node_name);
     let node_key = NodeKey {
         warp_id,
@@ -816,9 +817,10 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
         node: node_key,
         record: NodeRecord { ty },
     }];
+    let header = test_header(commit_global_tick);
     let patch_digest = WarpTickPatchV1::new(
-        test_header(tick).policy_id,
-        test_header(tick).rule_pack_id,
+        header.policy_id,
+        header.rule_pack_id,
         TickCommitStatus::Committed,
         Vec::new(),
         Vec::new(),
@@ -827,7 +829,7 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
     .digest();
 
     WorldlineTickPatchV1 {
-        header: test_header(tick),
+        header,
         warp_id,
         ops,
         in_slots: vec![],
@@ -855,7 +857,12 @@ pub fn setup_worldline_with_ticks(
     let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            GlobalTick::from_raw(tick + 1),
+            &format!("node-{tick}"),
+        );
 
         // Apply patch to get the resulting state
         patch

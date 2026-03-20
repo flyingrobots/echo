@@ -53,6 +53,17 @@ now_seconds() {
   date +%s
 }
 
+worktree_tree() (
+  set -euo pipefail
+  local tmp_index
+  tmp_index="$(mktemp "${TMPDIR:-/tmp}/verify-local-index.XXXXXX")"
+  trap 'rm -f "$tmp_index"' EXIT
+  rm -f "$tmp_index"
+  GIT_INDEX_FILE="$tmp_index" git read-tree HEAD
+  GIT_INDEX_FILE="$tmp_index" git add -A -- .
+  GIT_INDEX_FILE="$tmp_index" git write-tree
+)
+
 append_timing_record() {
   local record_type="$1"
   local name="$2"
@@ -1438,7 +1449,11 @@ VERIFY_MODE_CONTEXT="$(mode_context "$MODE")"
 if [[ -n "${VERIFY_STAMP_SUBJECT:-}" ]]; then
   :
 elif [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" || "$VERIFY_MODE_CONTEXT" == "working-tree" || "$MODE" == "full" ]]; then
-  VERIFY_STAMP_SUBJECT="$(git write-tree)"
+  if [[ "$VERIFY_MODE_CONTEXT" == "pre-commit" ]]; then
+    VERIFY_STAMP_SUBJECT="$(git write-tree)"
+  else
+    VERIFY_STAMP_SUBJECT="$(worktree_tree)"
+  fi
 else
   VERIFY_STAMP_SUBJECT="$(git rev-parse HEAD^{tree})"
 fi

@@ -164,6 +164,12 @@ if [[ "${1:-}" == "write-tree" ]]; then
   printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
   exit 0
 fi
+if [[ "${1:-}" == "read-tree" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "add" ]]; then
+  exit 0
+fi
 if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
   printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
   exit 0
@@ -275,6 +281,12 @@ if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
 fi
 if [[ "${1:-}" == "write-tree" ]]; then
   printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "add" ]]; then
   exit 0
 fi
 if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then

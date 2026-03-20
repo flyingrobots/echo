@@ -46,7 +46,12 @@ impl HeadId {
     /// Inclusive maximum key used by internal `BTreeMap` range queries.
     pub(crate) const MAX: Self = Self([0xff; 32]);
 
-    /// Constructs a head id from its canonical 32-byte hash representation.
+    /// Reconstructs a head id from its canonical 32-byte hash representation.
+    ///
+    /// This is for round-trip deserialization and persistence only. It bypasses
+    /// the domain-separated construction path used by [`make_head_id`], so
+    /// callers should use [`make_head_id`] when deriving fresh ids from names or
+    /// untrusted input.
     #[must_use]
     pub fn from_bytes(bytes: Hash) -> Self {
         Self(bytes)
@@ -483,6 +488,35 @@ mod tests {
 
         assert_eq!(runnable.len(), 1);
         assert_eq!(*runnable.iter().next().unwrap(), k1);
+    }
+
+    #[test]
+    fn dormant_heads_excluded_until_readmitted() {
+        let mut reg = PlaybackHeadRegistry::new();
+        let key = WriterHeadKey {
+            worldline_id: wl(1),
+            head_id: hd("dormant"),
+        };
+
+        reg.insert(make_head(key, PlaybackMode::Play));
+        let head = reg.get_mut(&key);
+        assert!(head.is_some(), "head should exist");
+        if let Some(head) = head {
+            head.set_eligibility(HeadEligibility::Dormant);
+        }
+
+        let mut runnable = RunnableWriterSet::new();
+        runnable.rebuild(&reg);
+        assert_eq!(runnable.len(), 0, "dormant heads must be excluded");
+
+        let head = reg.get_mut(&key);
+        assert!(head.is_some(), "head should exist");
+        if let Some(head) = head {
+            head.set_eligibility(HeadEligibility::Admitted);
+        }
+        runnable.rebuild(&reg);
+        assert_eq!(runnable.len(), 1, "readmitted heads must become runnable");
+        assert_eq!(*runnable.iter().next().unwrap(), key);
     }
 
     #[test]

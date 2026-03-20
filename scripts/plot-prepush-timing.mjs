@@ -56,7 +56,11 @@ if (hasLegacyFormat) {
 } else {
   const runRecords = data.filter(d => d.record_type === 'run' && typeof d.elapsed_seconds === 'number');
   const preferredModes = ['full', 'pre-push', 'pr', 'fast', 'ultra-fast'];
-  const modeNames = preferredModes.filter(mode => runRecords.some(d => d.mode === mode));
+  const seenModes = [...new Set(runRecords.map(d => d.mode).filter(Boolean))];
+  const modeNames = [
+    ...preferredModes.filter(mode => seenModes.includes(mode)),
+    ...seenModes.filter(mode => !preferredModes.includes(mode)).sort(),
+  ];
   for (const mode of modeNames) {
     const records = runRecords.filter(d => d.mode === mode);
     series.push(records.map(d => d.elapsed_seconds));

@@ -333,8 +333,11 @@ impl WorldlineState {
     /// hidden source of truth.
     pub(crate) fn replay_checkpoint_clone(&self) -> Self {
         let mut checkpoint = self.clone();
+        checkpoint.last_snapshot = None;
+        checkpoint.tick_history.clear();
         checkpoint.last_materialization.clear();
         checkpoint.last_materialization_errors.clear();
+        checkpoint.tx_counter = 0;
         checkpoint.committed_ingress.clear();
         checkpoint
     }

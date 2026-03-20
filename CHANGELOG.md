@@ -7,9 +7,10 @@
 
 ### feat(tooling): harden the post-Phase-5 dev loop
 
-- **Changed** local verification success stamps now key off the committed tree
-  instead of `HEAD`, so commit-only churn can reuse the same clean proof across
-  manual and hook-triggered runs.
+- **Changed** local verification success stamps now key off the actual checked
+  tree instead of `HEAD`, so commit-only churn can reuse the same clean proof
+  across manual and hook-triggered runs without ignoring unstaged or untracked
+  changes.
 - **Added** per-lane and per-run timing records under
   `.git/verify-local/timing.jsonl`, keeping local timing artifacts off the
   tracked repo while making verifier cost visible.

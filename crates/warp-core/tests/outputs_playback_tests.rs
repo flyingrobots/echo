@@ -60,7 +60,12 @@ fn setup_worldline_with_outputs(
     );
 
     for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("node-{tick}"),
+        );
 
         // Apply patch to get the resulting state
         patch
@@ -726,7 +731,12 @@ fn writer_play_advances_and_records_outputs() {
 
     for tick in 0..10u64 {
         // Create a patch for this tick
-        let patch = create_add_node_patch(warp_id, tick, &format!("writer-node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("writer-node-{tick}"),
+        );
 
         // Apply the patch to get the resulting state
         patch

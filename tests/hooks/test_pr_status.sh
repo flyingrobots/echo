@@ -24,6 +24,10 @@ run_with_fake_gh() {
   local repo_root
   repo_root="$(pwd)"
   tmp="$(mktemp -d)"
+  cleanup() {
+    rm -rf "$tmp"
+  }
+  trap cleanup RETURN
   mkdir -p "$tmp/bin"
 
   case "$fixture" in
@@ -44,8 +48,14 @@ JSON
   exit 0
 fi
 if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
+  if [[ "$*" == *"cursor=page-2"* ]]; then
+    cat <<'JSON'
+{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}
+JSON
+    exit 0
+  fi
   cat <<'JSON'
-{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true},{"isResolved":false},{"isResolved":false}]}}}}}
+{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true},{"isResolved":false}],"pageInfo":{"hasNextPage":true,"endCursor":"page-2"}}}}}}
 JSON
   exit 0
 fi
@@ -73,8 +83,6 @@ EOF
     cd "$repo_root"
     PATH="$tmp/bin:$PATH" ./scripts/pr-status.sh 302 2>&1
   )
-
-  rm -rf "$tmp"
 }
 
 echo "=== Testing pr-status helper ==="
@@ -111,9 +119,32 @@ else
   fail "pr-status should report merge state"
   printf '%s\n' "$status_output"
 fi
-if printf '%s\n' "$status_output" | grep -q '^- Tests$' && \
-   printf '%s\n' "$status_output" | grep -q '^- Clippy$' && \
-   printf '%s\n' "$status_output" | grep -q '^- Determinism Guards$'; then
+if STATUS_OUTPUT="$status_output" python3 - <<'PY'
+import os
+import sys
+
+lines = os.environ["STATUS_OUTPUT"].splitlines()
+
+def heading_contains(heading, item):
+    try:
+        idx = lines.index(heading)
+    except ValueError:
+        return False
+    for line in lines[idx + 1:]:
+        if not line.strip():
+            break
+        if line == f"- {item}":
+            return True
+    return False
+
+ok = (
+    heading_contains("Failing checks (1)", "Determinism Guards")
+    and heading_contains("Pending checks (1)", "Clippy")
+    and heading_contains("Passing checks (1)", "Tests")
+)
+sys.exit(0 if ok else 1)
+PY
+then
   pass "pr-status groups checks by bucket"
 else
   fail "pr-status should group checks by bucket"

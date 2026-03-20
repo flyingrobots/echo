@@ -86,7 +86,12 @@ proptest! {
         let mut parents: Vec<Hash> = Vec::new();
 
         for tick in 0..num_ticks {
-            let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+            let patch = create_add_node_patch(
+                warp_id,
+                tick,
+                warp_core::GlobalTick::from_raw(tick + 1),
+                &format!("node-{tick}"),
+            );
             patch
                 .apply_to_worldline_state(&mut current_state)
                 .expect("apply");
@@ -105,7 +110,12 @@ proptest! {
 
         // Invariant: attempting to append at a gap must fail
         let gap_tick = num_ticks + 1; // skip one
-        let gap_patch = create_add_node_patch(warp_id, gap_tick, &format!("node-gap-{gap_tick}"));
+        let gap_patch = create_add_node_patch(
+            warp_id,
+            gap_tick,
+            warp_core::GlobalTick::from_raw(gap_tick + 1),
+            &format!("node-gap-{gap_tick}"),
+        );
         let gap_triplet = HashTriplet {
             state_root: [0u8; 32],
             patch_digest: gap_patch.patch_digest,
@@ -127,7 +137,12 @@ proptest! {
 
         // Invariant: attempting to re-append at an existing tick must fail
         let dup_tick = num_ticks - 1;
-        let dup_patch = create_add_node_patch(warp_id, dup_tick, &format!("node-dup-{dup_tick}"));
+        let dup_patch = create_add_node_patch(
+            warp_id,
+            dup_tick,
+            warp_core::GlobalTick::from_raw(dup_tick + 1),
+            &format!("node-dup-{dup_tick}"),
+        );
         let dup_triplet = HashTriplet {
             state_root: [0u8; 32],
             patch_digest: dup_patch.patch_digest,
@@ -289,7 +304,12 @@ fn inv004_no_cross_worldline_leakage() {
     let mut store_a = initial_state.clone();
     let mut parents_a: Vec<Hash> = Vec::new();
     for tick in 0..5 {
-        let patch = create_add_node_patch(warp_id, tick, &format!("a-node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("a-node-{tick}"),
+        );
         patch
             .apply_to_worldline_state(&mut store_a)
             .expect("apply A");
@@ -308,7 +328,12 @@ fn inv004_no_cross_worldline_leakage() {
     let mut store_b = initial_state.clone();
     let mut parents_b: Vec<Hash> = Vec::new();
     for tick in 0..3 {
-        let patch = create_add_node_patch(warp_id, tick, &format!("b-node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(101 + tick),
+            &format!("b-node-{tick}"),
+        );
         patch
             .apply_to_worldline_state(&mut store_b)
             .expect("apply B");
@@ -334,7 +359,7 @@ fn inv004_no_cross_worldline_leakage() {
     // canonical state root while still remaining causally isolated.
 
     // Appending to A must not change B's length
-    let patch = create_add_node_patch(warp_id, 5, "a-node-5");
+    let patch = create_add_node_patch(warp_id, 5, warp_core::GlobalTick::from_raw(6), "a-node-5");
     let mut store_a_cont = store_a;
     patch
         .apply_to_worldline_state(&mut store_a_cont)
@@ -420,7 +445,12 @@ fn inv006_provenance_immutable_after_append() {
     let mut recorded_triplets: Vec<HashTriplet> = Vec::new();
 
     for tick in 0..10 {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("node-{tick}"),
+        );
         patch
             .apply_to_worldline_state(&mut current_state)
             .expect("apply");

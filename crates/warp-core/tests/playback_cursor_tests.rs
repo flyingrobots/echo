@@ -128,7 +128,12 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
     let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..10u64 {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("node-{tick}"),
+        );
 
         // Apply patch to get the resulting state
         patch
@@ -348,7 +353,12 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
     let mut provenance = LocalProvenanceStore::new();
     register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
-    let patch = create_add_node_patch(warp_id, 0, "checkpoint-root");
+    let patch = create_add_node_patch(
+        warp_id,
+        0,
+        warp_core::GlobalTick::from_raw(1),
+        "checkpoint-root",
+    );
     let mut checkpoint_state = initial_state.clone();
     patch
         .apply_to_worldline_state(&mut checkpoint_state)
@@ -387,7 +397,12 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
         )
         .expect("checkpoint should be accepted");
 
-    let suffix_patch = create_add_node_patch(warp_id, 1, "checkpoint-suffix");
+    let suffix_patch = create_add_node_patch(
+        warp_id,
+        1,
+        warp_core::GlobalTick::from_raw(2),
+        "checkpoint-suffix",
+    );
     let mut final_state = checkpoint_state.clone();
     suffix_patch
         .apply_to_worldline_state(&mut final_state)
@@ -693,7 +708,7 @@ fn duplicate_worldline_registration_is_idempotent() {
     register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Append a tick so we can verify history survives re-registration attempts
-    let patch = create_add_node_patch(warp_id, 0, "dup-node-0");
+    let patch = create_add_node_patch(warp_id, 0, warp_core::GlobalTick::from_raw(1), "dup-node-0");
     let mut current_state = initial_state.clone();
     patch
         .apply_to_worldline_state(&mut current_state)

@@ -62,7 +62,12 @@ fn setup_worldline_with_ticks_and_checkpoints(
     let mut parents: Vec<Hash> = Vec::new();
 
     for patch_index in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, patch_index, &format!("node-{patch_index}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            patch_index,
+            warp_core::GlobalTick::from_raw(patch_index + 1),
+            &format!("node-{patch_index}"),
+        );
 
         // Apply patch to get the resulting state
         patch
@@ -305,7 +310,7 @@ fn fork_worldline_diverges_after_fork_tick_without_affecting_original() {
     // Add divergent ticks 8, 9, 10 by mutating reachable root state.
     // Isolated node inserts do not affect the canonical state root.
     for tick in 8..=10 {
-        let header = test_header(tick);
+        let header = test_header(warp_core::GlobalTick::from_raw(tick + 1));
         let ops = vec![WarpOp::UpsertNode {
             node: NodeKey {
                 warp_id,

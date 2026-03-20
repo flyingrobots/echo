@@ -528,23 +528,26 @@ impl PlaybackCursor {
             .checkpoint_before(self.worldline_id, checkpoint_lookup_tick)
             .is_some_and(|checkpoint| checkpoint.worldline_tick > self.tick);
 
-        let next_state = if target < self.tick || should_restore_from_checkpoint {
-            replay_worldline_state_at_from_provenance(
+        if target < self.tick || should_restore_from_checkpoint {
+            self.state = replay_worldline_state_at_from_provenance(
                 provenance,
                 self.worldline_id,
                 initial_state,
                 target,
             )
-            .map_err(|error| Self::map_replay_error(target, error))?
+            .map_err(|error| Self::map_replay_error(target, error))?;
         } else {
-            let mut state = self.state.clone();
-            advance_replay_state(provenance, self.worldline_id, &mut state, self.tick, target)
-                .map_err(|error| Self::map_replay_error(target, error))?;
-            state
-        };
+            advance_replay_state(
+                provenance,
+                self.worldline_id,
+                &mut self.state,
+                self.tick,
+                target,
+            )
+            .map_err(|error| Self::map_replay_error(target, error))?;
+        }
 
         // Update cursor position
-        self.state = next_state;
         self.tick = target;
         Ok(())
     }

@@ -21,8 +21,6 @@
 //! simply the `WarpId`. The engine's `initial_state` for a warp serves as the U0
 //! starting point for replay.
 
-#![allow(clippy::cast_possible_truncation)]
-
 use std::collections::BTreeMap;
 
 use thiserror::Error;
@@ -719,7 +717,8 @@ pub(crate) fn hydrate_replay_metadata<P: ProvenanceStore>(
     replayed: &mut WorldlineState,
     target_tick: WorldlineTick,
 ) -> Result<(), ReplayError> {
-    let target_len = target_tick.as_u64() as usize;
+    let target_len = usize::try_from(target_tick.as_u64())
+        .map_err(|_| ReplayError::TickOverflow { tick: target_tick })?;
     if replayed.tick_history.len() > target_len {
         replayed.tick_history.truncate(target_len);
     }
@@ -751,6 +750,15 @@ pub(crate) fn hydrate_replay_metadata<P: ProvenanceStore>(
     }
 
     Ok(())
+}
+
+fn clear_replay_metadata(replayed: &mut WorldlineState) {
+    replayed.last_snapshot = None;
+    replayed.tick_history.clear();
+    replayed.last_materialization.clear();
+    replayed.last_materialization_errors.clear();
+    replayed.tx_counter = 0;
+    replayed.committed_ingress.clear();
 }
 
 pub(crate) fn validate_replay_base<P: ProvenanceStore>(
@@ -813,20 +821,14 @@ pub(crate) fn restore_replay_base<P: ProvenanceStore>(
 
         let checkpoint_tick = checkpoint.checkpoint.worldline_tick;
         let mut replayed = checkpoint.state;
-        replayed.last_materialization_errors.clear();
-        replayed.committed_ingress.clear();
+        clear_replay_metadata(&mut replayed);
         hydrate_replay_metadata(provenance, worldline_id, &mut replayed, checkpoint_tick)?;
         return Ok((replayed, checkpoint_tick));
     }
 
     let mut replayed = base_state.clone();
     replayed.warp_state = replayed.initial_state.clone();
-    replayed.last_snapshot = None;
-    replayed.tick_history.clear();
-    replayed.last_materialization.clear();
-    replayed.last_materialization_errors.clear();
-    replayed.tx_counter = 0;
-    replayed.committed_ingress.clear();
+    clear_replay_metadata(&mut replayed);
     Ok((replayed, WorldlineTick::ZERO))
 }
 
@@ -1059,9 +1061,15 @@ impl LocalProvenanceStore {
             });
         }
         for parent in &entry.parents {
+            let parent_index = usize::try_from(parent.worldline_tick.as_u64()).map_err(|_| {
+                HistoryError::MissingParentRef {
+                    tick: entry.worldline_tick,
+                    parent: *parent,
+                }
+            })?;
             let stored = worldlines
                 .get(&parent.worldline_id)
-                .and_then(|history| history.entries.get(parent.worldline_tick.as_u64() as usize))
+                .and_then(|history| history.entries.get(parent_index))
                 .ok_or(HistoryError::MissingParentRef {
                     tick: entry.worldline_tick,
                     parent: *parent,
@@ -1202,10 +1210,13 @@ impl LocalProvenanceStore {
             return Err(HistoryError::HistoryUnavailable { tick: fork_tick });
         }
 
-        let end_idx = fork_tick
-            .checked_increment()
-            .ok_or(HistoryError::HistoryUnavailable { tick: fork_tick })?
-            .as_u64() as usize;
+        let end_idx = usize::try_from(
+            fork_tick
+                .checked_increment()
+                .ok_or(HistoryError::HistoryUnavailable { tick: fork_tick })?
+                .as_u64(),
+        )
+        .map_err(|_| HistoryError::HistoryUnavailable { tick: fork_tick })?;
         let new_history = WorldlineHistory {
             u0_ref: source_history.u0_ref,
             initial_boundary_hash: source_history.initial_boundary_hash,
@@ -1306,9 +1317,11 @@ impl ProvenanceStore for LocalProvenanceStore {
     }
 
     fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError> {
+        let index = usize::try_from(tick.as_u64())
+            .map_err(|_| HistoryError::HistoryUnavailable { tick })?;
         self.history(w)?
             .entries
-            .get(tick.as_u64() as usize)
+            .get(index)
             .cloned()
             .ok_or(HistoryError::HistoryUnavailable { tick })
     }
@@ -2699,7 +2712,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
         );
-        let (entry0, checkpoint_state) = replay_entry_from_patch(
+        let (entry0, mut checkpoint_state) = replay_entry_from_patch(
             worldline_id,
             wt(0),
             head_key,
@@ -2707,6 +2720,12 @@ mod tests {
             &base_state,
             patch,
         );
+        let (snapshot, receipt, replay_patch) =
+            replay_artifacts_for_entry(root, &entry0).expect("fixture replay artifacts");
+        let mut poisoned_snapshot = snapshot;
+        poisoned_snapshot.hash = [0xAA; 32];
+        checkpoint_state.last_snapshot = Some(poisoned_snapshot.clone());
+        checkpoint_state.tick_history = vec![(poisoned_snapshot, receipt, replay_patch)];
         service.append_local_commit(entry0.clone()).unwrap();
         service
             .add_checkpoint(
@@ -2730,6 +2749,11 @@ mod tests {
         assert_eq!(
             replayed.last_snapshot().map(|snapshot| snapshot.hash),
             Some(entry0.expected.commit_hash)
+        );
+        assert_eq!(
+            replayed.tick_history()[0].0.hash,
+            entry0.expected.commit_hash,
+            "checkpoint-carried tick history must be rebuilt from provenance"
         );
 
         let engine = crate::Engine::new(

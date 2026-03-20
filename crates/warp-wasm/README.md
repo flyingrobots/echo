@@ -13,9 +13,10 @@ See the repository root `README.md` for the full overview.
   Echo’s deterministic wire protocol can be used from JavaScript/TypeScript in
   web-based tools and playgrounds.
 - Exposes the ABI v3 observation-first and intent-shaped control surface:
-  `observe(...)` is the only public read export, `scheduler_status()` is the
-  read-only scheduler metadata export, and all external writes or scheduler
-  control requests flow through `dispatch_intent(...)`.
+  `observe(...)` is the only public world-state read export,
+  `scheduler_status()` is the read-only scheduler metadata export, and all
+  external writes or scheduler control requests flow through
+  `dispatch_intent(...)`.
 - The engine-backed boundary uses logical clocks only:
   `WorldlineTick` is per-worldline append identity and `GlobalTick` is runtime
   cycle correlation metadata. No wall-clock time enters Echo internals.

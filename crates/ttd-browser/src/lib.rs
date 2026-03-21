@@ -313,7 +313,7 @@ impl TtdEngine {
                 CoreStepResult::Seeked => StepResultKind::SEEKED,
                 CoreStepResult::ReachedFrontier => StepResultKind::REACHED_FRONTIER,
             },
-            tick: cursor.tick.as_u64(),
+            tick: cursor.current_tick().as_u64(),
         })
     }
 
@@ -327,7 +327,7 @@ impl TtdEngine {
             .cursors
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
-        Ok(cursor.tick.as_u64())
+        Ok(cursor.current_tick().as_u64())
     }
 
     /// Sets the playback mode for a cursor.
@@ -438,7 +438,7 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == WorldlineTick::ZERO {
+        if cursor.current_tick() == WorldlineTick::ZERO {
             return Ok(hash_to_uint8array(&cursor.current_state_root()));
         }
 
@@ -466,7 +466,7 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == WorldlineTick::ZERO {
+        if cursor.current_tick() == WorldlineTick::ZERO {
             return Ok(hash_to_uint8array(&[0u8; 32]));
         }
 
@@ -497,7 +497,7 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == WorldlineTick::ZERO {
+        if cursor.current_tick() == WorldlineTick::ZERO {
             return Ok(hash_to_uint8array(&[0u8; 32]));
         }
 
@@ -713,7 +713,7 @@ impl TtdEngine {
             tx_id,
             Transaction {
                 cursor_id,
-                start_tick: cursor.tick,
+                start_tick: cursor.current_tick(),
             },
         );
         self.next_tx_id = self.next_tx_id.wrapping_add(1);
@@ -747,19 +747,12 @@ impl TtdEngine {
             .get(&tx.cursor_id)
             .ok_or_else(|| "cursor not found".to_string())?;
 
-        // Generate a Light mode receipt for the current cursor position
-        if cursor.tick == WorldlineTick::ZERO {
-            return Err("cannot commit at tick 0".to_string());
-        }
-
         let expected = self
             .provenance
             .entry(
                 cursor.worldline_id,
-                cursor
-                    .tick
-                    .checked_sub(1)
-                    .ok_or_else(|| "cannot commit at tick 0".to_string())?,
+                committed_tick_for_cursor(cursor)
+                    .map_err(|_| "cannot commit at tick 0".to_string())?,
             )
             .map_err(|e| e.to_string())?;
         let outputs = expected.outputs.clone();
@@ -790,7 +783,7 @@ impl TtdEngine {
             flags,
             schema_hash,
             worldline_id: cursor.worldline_id.0,
-            tick: cursor.tick.as_u64(),
+            tick: cursor.current_tick().as_u64(),
             commit_hash: expected.commit_hash,
             state_root: expected.state_root,
             patch_digest: expected.patch_digest,
@@ -835,7 +828,7 @@ impl TtdEngine {
 
         Ok(Snapshot {
             worldlineId: bytes_to_hex(&cursor.worldline_id.0),
-            tick: cursor.tick.as_u64(),
+            tick: cursor.current_tick().as_u64(),
         })
     }
 
@@ -969,7 +962,7 @@ impl std::fmt::Display for ParseError {
 
 fn committed_tick_for_cursor(cursor: &PlaybackCursor) -> Result<WorldlineTick, JsError> {
     cursor
-        .tick
+        .current_tick()
         .checked_sub(1)
         .ok_or_else(|| JsError::new("cursor has no committed tick at position 0"))
 }
@@ -1385,37 +1378,38 @@ mod tests {
 
     #[test]
     fn step_result_preserves_large_ticks() {
-        let mut engine = TtdEngine::new();
-        engine
-            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
-            .unwrap();
-        let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
         let large_tick = u64::from(i32::MAX as u32) + 42;
-        engine.cursors.get_mut(&cursor_id).unwrap().tick = WorldlineTick::from_raw(large_tick);
+        let step_result = StepResult {
+            result: StepResultKind::ADVANCED,
+            tick: large_tick,
+        };
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&step_result, &mut encoded).unwrap();
 
-        let step_result = engine.step_inner(cursor_id).unwrap();
-        assert_eq!(step_result.tick, large_tick);
+        let decoded: StepResult = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.tick, large_tick);
     }
 
     #[test]
     fn snapshot_preserves_large_ticks() {
-        let mut engine = TtdEngine::new();
-        engine
-            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
-            .unwrap();
-        let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
         let large_tick = u64::from(i32::MAX as u32) + 42;
-        engine.cursors.get_mut(&cursor_id).unwrap().tick = WorldlineTick::from_raw(large_tick);
+        let snapshot = Snapshot {
+            worldlineId: bytes_to_hex(&test_worldline_id()),
+            tick: large_tick,
+        };
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&snapshot, &mut encoded).unwrap();
 
-        let snapshot = engine.snapshot_inner(cursor_id).unwrap();
-        assert_eq!(snapshot.tick, large_tick);
+        let decoded: Snapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.tick, large_tick);
     }
 
     #[test]
     fn regression_commit_populates_emissions_digest() {
         use warp_core::{
-            make_head_id, GlobalTick, HashTriplet, ProvenanceEntry, TypeId, WarpId, WorldlineId,
-            WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+            make_head_id, GlobalTick, HashTriplet, ProvenanceEntry, TickCommitStatus, TypeId,
+            WarpId, WarpTickPatchV1, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+            WriterHeadKey,
         };
 
         let mut engine = TtdEngine::new();
@@ -1425,7 +1419,15 @@ mod tests {
             .register_empty_worldline(&wl_id.0, &warp_id.0)
             .unwrap();
 
-        // Manually add a tick with outputs to provenance
+        // Manually add a tick with outputs to provenance.
+        let runtime_patch = WarpTickPatchV1::new(
+            0,
+            [0u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![],
+        );
         let patch = WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
                 commit_global_tick: GlobalTick::from_raw(1),
@@ -1436,16 +1438,23 @@ mod tests {
                 rewrites_digest: [0u8; 32],
             },
             warp_id,
-            ops: vec![],
-            in_slots: vec![],
-            out_slots: vec![],
-            patch_digest: [0u8; 32],
+            ops: runtime_patch.ops().to_vec(),
+            in_slots: runtime_patch.in_slots().to_vec(),
+            out_slots: runtime_patch.out_slots().to_vec(),
+            patch_digest: runtime_patch.digest(),
         };
 
+        let initial_state = engine.initial_stores.get(&wl_id).unwrap().clone();
+        let state_root = initial_state.state_root();
         let expected = HashTriplet {
-            state_root: [0u8; 32],
-            patch_digest: [0u8; 32],
-            commit_hash: [0u8; 32],
+            state_root,
+            patch_digest: patch.patch_digest,
+            commit_hash: warp_core::compute_commit_hash_v2(
+                &state_root,
+                &[],
+                &patch.patch_digest,
+                patch.header.policy_id,
+            ),
         };
 
         let outputs = vec![(TypeId([10u8; 32]), vec![1, 2, 3])];
@@ -1468,8 +1477,16 @@ mod tests {
         engine.provenance.append_local_commit(entry).unwrap();
 
         let cursor_id = engine.create_cursor(&wl_id.0).unwrap();
-        // Advance cursor to tick 1 so we can commit (cannot commit at tick 0)
-        engine.cursors.get_mut(&cursor_id).unwrap().tick = WorldlineTick::from_raw(1);
+        // Advance cursor to tick 1 so we can commit (cannot commit at tick 0).
+        let mut cursor = engine.cursors.remove(&cursor_id).unwrap();
+        cursor
+            .seek_to(
+                WorldlineTick::from_raw(1),
+                &engine.provenance,
+                &initial_state,
+            )
+            .unwrap();
+        engine.cursors.insert(cursor_id, cursor);
 
         let tx_id = engine.begin(cursor_id).unwrap();
         let receipt_bytes = engine.commit_inner(tx_id).unwrap();

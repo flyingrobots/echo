@@ -212,8 +212,8 @@ fn checkpoint_replay_equals_full_replay() {
     );
 
     // Also verify both cursors are at tick 23
-    assert_eq!(full_replay_cursor.tick, wt(23));
-    assert_eq!(checkpoint_cursor.tick, wt(23));
+    assert_eq!(full_replay_cursor.current_tick(), wt(23));
+    assert_eq!(checkpoint_cursor.current_tick(), wt(23));
 }
 
 // ============================================================================

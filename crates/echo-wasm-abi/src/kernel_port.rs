@@ -200,6 +200,8 @@ pub enum HeadEligibility {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HeadDisposition {
+    /// Head is intentionally excluded from scheduling.
+    Dormant,
     /// Head is currently runnable by the scheduler.
     Runnable,
     /// Head is admitted but cannot currently run.

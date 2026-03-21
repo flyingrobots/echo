@@ -52,7 +52,7 @@ fn step_forward_advances_one_then_pauses() {
     );
 
     // Cursor starts at tick 0, mode is Paused by default
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 
     // Set mode to StepForward
@@ -66,7 +66,7 @@ fn step_forward_advances_one_then_pauses() {
     assert_eq!(result.unwrap(), StepResult::Advanced);
 
     // Verify tick advanced by 1
-    assert_eq!(cursor.tick, wt(1), "cursor should be at tick 1");
+    assert_eq!(cursor.current_tick(), wt(1), "cursor should be at tick 1");
 
     // Verify mode is now Paused
     assert_eq!(
@@ -81,7 +81,7 @@ fn step_forward_advances_one_then_pauses() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Advanced);
-    assert_eq!(cursor.tick, wt(2));
+    assert_eq!(cursor.current_tick(), wt(2));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -109,7 +109,7 @@ fn paused_noop_even_with_pending_intents() {
         .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek should succeed");
 
-    assert_eq!(cursor.tick, wt(5));
+    assert_eq!(cursor.current_tick(), wt(5));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 
     // Get state hash before step
@@ -122,7 +122,11 @@ fn paused_noop_even_with_pending_intents() {
     assert_eq!(result.unwrap(), StepResult::NoOp);
 
     // Verify nothing changed
-    assert_eq!(cursor.tick, wt(5), "tick should not change when paused");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(5),
+        "tick should not change when paused"
+    );
     assert_eq!(
         cursor.mode,
         PlaybackMode::Paused,
@@ -140,7 +144,7 @@ fn paused_noop_even_with_pending_intents() {
         let result = cursor.step(&provenance, &initial_store);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), StepResult::NoOp);
-        assert_eq!(cursor.tick, wt(5));
+        assert_eq!(cursor.current_tick(), wt(5));
     }
 }
 
@@ -197,8 +201,8 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
         .seek_to(wt(7), &provenance, &initial_store)
         .expect("seek should succeed");
 
-    assert_eq!(cursor1.tick, wt(3));
-    assert_eq!(cursor2.tick, wt(7));
+    assert_eq!(cursor1.current_tick(), wt(3));
+    assert_eq!(cursor2.current_tick(), wt(7));
 
     // Compute state hashes at each position
     let hash_at_tick_3 = cursor1.current_state_root();
@@ -235,7 +239,7 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
             cursor_id: cursor1.cursor_id,
             worldline_id,
             warp_id,
-            worldline_tick: cursor1.tick,
+            worldline_tick: cursor1.current_tick(),
             commit_global_tick: None,
             commit_hash: [103u8; 32], // tick + 100
         },
@@ -251,7 +255,7 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
             cursor_id: cursor2.cursor_id,
             worldline_id,
             warp_id,
-            worldline_tick: cursor2.tick,
+            worldline_tick: cursor2.current_tick(),
             commit_global_tick: None,
             commit_hash: [107u8; 32], // tick + 100
         },
@@ -366,7 +370,7 @@ fn reader_play_advances_until_frontier() {
         let result = cursor.step(&provenance, &initial_store);
         assert!(result.is_ok(), "step {expected_tick} should succeed");
         assert_eq!(result.unwrap(), StepResult::Advanced);
-        assert_eq!(cursor.tick, wt(expected_tick));
+        assert_eq!(cursor.current_tick(), wt(expected_tick));
         assert_eq!(cursor.mode, PlaybackMode::Play, "should stay in Play mode");
     }
 
@@ -374,7 +378,11 @@ fn reader_play_advances_until_frontier() {
     let result = cursor.step(&provenance, &initial_store);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::ReachedFrontier);
-    assert_eq!(cursor.tick, wt(5), "tick should stay at 5 (frontier)");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(5),
+        "tick should stay at 5 (frontier)"
+    );
     assert_eq!(
         cursor.mode,
         PlaybackMode::Paused,
@@ -401,7 +409,7 @@ fn step_back_seeks_then_pauses() {
     cursor
         .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek should succeed");
-    assert_eq!(cursor.tick, wt(5));
+    assert_eq!(cursor.current_tick(), wt(5));
 
     // Set mode to StepBack
     cursor.mode = PlaybackMode::StepBack;
@@ -410,7 +418,7 @@ fn step_back_seeks_then_pauses() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, wt(4), "should be at tick 4 (5 - 1)");
+    assert_eq!(cursor.current_tick(), wt(4), "should be at tick 4 (5 - 1)");
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -430,7 +438,7 @@ fn step_back_at_zero_stays_at_zero() {
     );
 
     // Cursor starts at tick 0
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // Set mode to StepBack
     cursor.mode = PlaybackMode::StepBack;
@@ -439,7 +447,11 @@ fn step_back_at_zero_stays_at_zero() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, wt(0), "should stay at tick 0 (saturating_sub)");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(0),
+        "should stay at tick 0 (saturating_sub)"
+    );
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -468,7 +480,7 @@ fn seek_mode_with_then_pause() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, wt(7));
+    assert_eq!(cursor.current_tick(), wt(7));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -497,7 +509,7 @@ fn seek_mode_with_then_play() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, wt(3));
+    assert_eq!(cursor.current_tick(), wt(3));
     assert_eq!(cursor.mode, PlaybackMode::Play, "should transition to Play");
 }
 
@@ -612,6 +624,10 @@ fn writer_play_is_stub_noop() {
     // Writer in Play mode is a stub - returns NoOp
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::NoOp);
-    assert_eq!(cursor.tick, wt(0), "tick should not change for writer stub");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(0),
+        "tick should not change for writer stub"
+    );
     assert_eq!(cursor.mode, PlaybackMode::Play, "mode should stay Play");
 }

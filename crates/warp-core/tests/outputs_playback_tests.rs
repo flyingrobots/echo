@@ -137,7 +137,7 @@ fn seek_moves_cursor_without_mutating_writer_store() {
     writer_cursor
         .seek_to(wt(20), &provenance, &initial_state)
         .expect("seek to 20 should succeed");
-    assert_eq!(writer_cursor.tick, wt(20));
+    assert_eq!(writer_cursor.current_tick(), wt(20));
 
     // Snapshot writer's state_root
     let writer_state_root = writer_cursor.current_state_root();
@@ -156,7 +156,7 @@ fn seek_moves_cursor_without_mutating_writer_store() {
     reader_cursor
         .seek_to(wt(20), &provenance, &initial_state)
         .expect("reader seek to 20 should succeed");
-    assert_eq!(reader_cursor.tick, wt(20));
+    assert_eq!(reader_cursor.current_tick(), wt(20));
 
     // Reader seeks back to tick 5
     reader_cursor
@@ -164,7 +164,11 @@ fn seek_moves_cursor_without_mutating_writer_store() {
         .expect("reader seek to 5 should succeed");
 
     // Assert reader is at tick 5
-    assert_eq!(reader_cursor.tick, wt(5), "reader should be at tick 5");
+    assert_eq!(
+        reader_cursor.current_tick(),
+        wt(5),
+        "reader should be at tick 5"
+    );
 
     // Assert writer's state_root is unchanged
     let writer_state_root_after = writer_cursor.current_state_root();
@@ -175,7 +179,7 @@ fn seek_moves_cursor_without_mutating_writer_store() {
 
     // Also verify writer is still at tick 20
     assert_eq!(
-        writer_cursor.tick,
+        writer_cursor.current_tick(),
         wt(20),
         "writer tick should be unchanged"
     );
@@ -203,7 +207,7 @@ fn step_back_is_seek_minus_one_then_pause() {
     cursor
         .seek_to(wt(10), &provenance, &initial_store)
         .expect("seek to 10 should succeed");
-    assert_eq!(cursor.tick, wt(10));
+    assert_eq!(cursor.current_tick(), wt(10));
 
     // Set mode to StepBack
     cursor.mode = PlaybackMode::StepBack;
@@ -221,7 +225,7 @@ fn step_back_is_seek_minus_one_then_pause() {
 
     // Assert tick == 9 (10 - 1)
     assert_eq!(
-        cursor.tick,
+        cursor.current_tick(),
         wt(9),
         "cursor should be at tick 9 after StepBack"
     );
@@ -265,7 +269,7 @@ fn reader_play_consumes_existing_then_pauses_at_frontier() {
         wt(6), // pin_max_tick = 6
     );
 
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
     cursor.mode = PlaybackMode::Play;
 
     // Step until tick reaches frontier (6)
@@ -282,7 +286,7 @@ fn reader_play_consumes_existing_then_pauses_at_frontier() {
             "step {expected_tick} should return Advanced"
         );
         assert_eq!(
-            cursor.tick,
+            cursor.current_tick(),
             wt(expected_tick),
             "cursor should be at tick {expected_tick}"
         );
@@ -310,7 +314,11 @@ fn reader_play_consumes_existing_then_pauses_at_frontier() {
     );
 
     // Assert tick stays at 6 (frontier)
-    assert_eq!(cursor.tick, wt(6), "tick should stay at frontier (6)");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(6),
+        "tick should stay at frontier (6)"
+    );
 
     // Assert no new patches were created (worldline length unchanged)
     assert_eq!(
@@ -359,7 +367,7 @@ fn outputs_match_recorded_bytes_for_same_tick() {
     cursor
         .seek_to(wt(k), &provenance, &initial_store)
         .expect("seek to tick k should succeed");
-    assert_eq!(cursor.tick, wt(k));
+    assert_eq!(cursor.current_tick(), wt(k));
 
     // Publish truth
     let mut sink = TruthSink::new();
@@ -687,7 +695,7 @@ fn publish_truth_returns_error_for_unavailable_tick() {
         wt(5),
     );
     // cursor starts at tick 0 by default
-    assert_eq!(cursor_zero.tick, wt(0));
+    assert_eq!(cursor_zero.current_tick(), wt(0));
 
     let mut session_zero = ViewSession::new(test_session_id(2), cursor_zero.cursor_id);
     session_zero.subscribe(position_channel);
@@ -861,7 +869,7 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     cursor
         .seek_to(wt(3), &provenance, &initial_store)
         .expect("seek to tick 3 should succeed");
-    assert_eq!(cursor.tick, wt(3));
+    assert_eq!(cursor.current_tick(), wt(3));
 
     let mut sink = TruthSink::new();
     session
@@ -916,7 +924,7 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     cursor
         .seek_to(wt(7), &provenance, &initial_store)
         .expect("seek to tick 7 should succeed");
-    assert_eq!(cursor.tick, wt(7));
+    assert_eq!(cursor.current_tick(), wt(7));
 
     let mut sink = TruthSink::new();
     session

@@ -349,7 +349,7 @@ pub struct PlaybackCursor {
     /// Invariant: `tick` always reflects the number of patches that have been applied
     /// to `state` since its initial state. Modifying `tick` without correspondingly
     /// updating `state` (or vice versa) will cause seek/replay hash verification to fail.
-    pub tick: WorldlineTick,
+    tick: WorldlineTick,
 
     /// Role of this cursor (Writer or Reader).
     ///
@@ -372,7 +372,7 @@ pub struct PlaybackCursor {
     /// updating `tick` (or vice versa) will break seek/replay consistency: subsequent
     /// `seek_to()` calls will compute incorrect state roots and fail CUR-003
     /// hash verification. Use `seek_to()` for safe state transitions.
-    pub state: WorldlineState,
+    state: WorldlineState,
 
     /// Maximum tick this cursor can advance to (pinned frontier).
     ///
@@ -450,6 +450,18 @@ impl PlaybackCursor {
     #[must_use]
     pub fn focused_store(&self) -> Option<&GraphStore> {
         self.state.store(&self.warp_id)
+    }
+
+    /// Returns the cursor's current worldline position.
+    #[must_use]
+    pub fn current_tick(&self) -> WorldlineTick {
+        self.tick
+    }
+
+    /// Returns the cursor's current materialized worldline state.
+    #[must_use]
+    pub fn materialized_state(&self) -> &WorldlineState {
+        &self.state
     }
 
     /// Returns the canonical full-state root for the cursor's current materialization.

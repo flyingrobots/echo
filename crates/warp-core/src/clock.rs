@@ -74,3 +74,37 @@ logical_counter!(
     /// This value is not provenance, replay state, or hash input.
     RunId
 );
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::{GlobalTick, RunId, WorldlineTick};
+
+    macro_rules! assert_logical_counter_boundaries {
+        ($ty:ty) => {{
+            assert_eq!(<$ty>::ZERO.as_u64(), 0);
+            assert_eq!(<$ty>::MAX.as_u64(), u64::MAX);
+            assert_eq!(<$ty>::from_raw(41).checked_add(1).unwrap().as_u64(), 42);
+            assert_eq!(<$ty>::MAX.checked_add(1), None);
+            assert_eq!(<$ty>::from_raw(42).checked_sub(1).unwrap().as_u64(), 41);
+            assert_eq!(<$ty>::ZERO.checked_sub(1), None);
+            assert_eq!(<$ty>::from_raw(7).checked_increment().unwrap().as_u64(), 8);
+            assert_eq!(<$ty>::MAX.checked_increment(), None);
+        }};
+    }
+
+    #[test]
+    fn worldline_tick_checked_arithmetic_boundaries() {
+        assert_logical_counter_boundaries!(WorldlineTick);
+    }
+
+    #[test]
+    fn global_tick_checked_arithmetic_boundaries() {
+        assert_logical_counter_boundaries!(GlobalTick);
+    }
+
+    #[test]
+    fn run_id_checked_arithmetic_boundaries() {
+        assert_logical_counter_boundaries!(RunId);
+    }
+}

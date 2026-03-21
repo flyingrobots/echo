@@ -185,7 +185,7 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
     // Seeking to tick 5 should succeed (before the corrupted tick)
     let result = cursor.seek_to(wt(5), &provenance, &initial_state);
     assert!(result.is_ok(), "seek to tick 5 should succeed");
-    assert_eq!(cursor.tick, wt(5));
+    assert_eq!(cursor.current_tick(), wt(5));
 
     // Seeking from tick 5 to tick 8 should fail at tick 6 due to hash mismatch
     let result = cursor.seek_to(wt(8), &provenance, &initial_state);
@@ -217,7 +217,7 @@ fn seek_past_available_history_returns_history_unavailable() {
     // Tick 10 represents the state after all patches have been applied.
     let result = cursor.seek_to(wt(10), &provenance, &initial_state);
     assert!(result.is_ok(), "seek to tick 10 should succeed: {result:?}");
-    assert_eq!(cursor.tick, wt(10));
+    assert_eq!(cursor.current_tick(), wt(10));
 
     // Seeking to tick 50 should fail with HistoryUnavailable
     let result = cursor.seek_to(wt(50), &provenance, &initial_state);
@@ -246,7 +246,7 @@ fn seek_backward_rebuilds_from_initial_state() {
     cursor
         .seek_to(wt(8), &provenance, &initial_state)
         .expect("seek to 8 should succeed");
-    assert_eq!(cursor.tick, wt(8));
+    assert_eq!(cursor.current_tick(), wt(8));
 
     // Get hash at tick 8
     let hash_at_8 = cursor.current_state_root();
@@ -260,7 +260,7 @@ fn seek_backward_rebuilds_from_initial_state() {
     cursor
         .seek_to(wt(3), &provenance, &initial_state)
         .expect("seek to 3 should succeed");
-    assert_eq!(cursor.tick, wt(3));
+    assert_eq!(cursor.current_tick(), wt(3));
 
     // The logical history position must differ even if the reachable state root
     // matches because these fixtures only append isolated nodes.
@@ -279,7 +279,7 @@ fn seek_backward_rebuilds_from_initial_state() {
     cursor
         .seek_to(wt(8), &provenance, &initial_state)
         .expect("seek back to 8 should succeed");
-    assert_eq!(cursor.tick, wt(8));
+    assert_eq!(cursor.current_tick(), wt(8));
 
     let hash_at_8_again = cursor.current_state_root();
     assert_eq!(
@@ -295,7 +295,7 @@ fn seek_backward_rebuilds_from_initial_state() {
     cursor
         .seek_to(wt(0), &provenance, &initial_state)
         .expect("seek to 0 should succeed");
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // At tick 0, no patches have been applied, so store should be initial state
     let initial_hash = initial_state.state_root();
@@ -451,19 +451,22 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
         "expected seek to restore from a replay checkpoint, got events: {events:?}"
     );
 
-    assert_eq!(cursor.tick, wt(2));
-    assert_eq!(cursor.state.tick_history().len(), 2);
+    assert_eq!(cursor.current_tick(), wt(2));
+    assert_eq!(cursor.materialized_state().tick_history().len(), 2);
     assert_eq!(
-        cursor.state.last_snapshot().map(|snapshot| snapshot.hash),
+        cursor
+            .materialized_state()
+            .last_snapshot()
+            .map(|snapshot| snapshot.hash),
         Some(suffix_commit_hash)
     );
-    assert_eq!(cursor.state.last_materialization().len(), 1);
+    assert_eq!(cursor.materialized_state().last_materialization().len(), 1);
     assert_eq!(
-        cursor.state.last_materialization()[0].channel,
+        cursor.materialized_state().last_materialization()[0].channel,
         suffix_output_channel
     );
     assert_eq!(
-        cursor.state.last_materialization()[0].data,
+        cursor.materialized_state().last_materialization()[0].data,
         suffix_output_bytes
     );
     assert_eq!(cursor.current_state_root(), suffix_state_root);
@@ -485,7 +488,7 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
             .ty,
         make_type_id("Type1")
     );
-    assert_eq!(cursor.state.root(), &root);
+    assert_eq!(cursor.materialized_state().root(), &root);
 }
 
 #[test]
@@ -525,7 +528,7 @@ fn seek_rejects_wrong_initial_boundary_up_front() {
         matches!(result, Err(SeekError::InitialBoundaryHashMismatch { .. })),
         "expected wrong replay base rejection, got: {result:?}"
     );
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 // =============================================================================
@@ -549,7 +552,7 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
     );
 
     // Cursor starts at tick 0, pin_max_tick is 0 => already at frontier
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
     assert_eq!(cursor.pin_max_tick, wt(0));
 
     // Switch to Play mode and step
@@ -571,7 +574,7 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
     );
 
     // Tick should remain at 0
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 #[test]
@@ -591,7 +594,7 @@ fn step_forward_at_pinned_frontier_returns_reached_frontier() {
     let result = cursor.step(&provenance, &initial_state).unwrap();
     assert_eq!(result, warp_core::StepResult::ReachedFrontier);
     assert_eq!(cursor.mode, warp_core::PlaybackMode::Paused);
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 #[test]
@@ -616,7 +619,7 @@ fn new_rejects_advanced_initial_state() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &seed_cursor.state,
+        seed_cursor.materialized_state(),
         wt(1),
     );
 }
@@ -645,7 +648,7 @@ fn seek_to_u64_max_returns_history_unavailable() {
     );
 
     // Cursor tick should remain at 0 (seek failed, no state change)
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 /// Edge case: A worldline that is registered but has no patches appended.
@@ -672,7 +675,7 @@ fn empty_worldline_cursor_at_tick_zero() {
     );
 
     // Cursor starts at tick 0
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // Seeking to tick 0 should be a no-op (already there)
     let result = cursor.seek_to(wt(0), &provenance, &initial_state);
@@ -680,7 +683,7 @@ fn empty_worldline_cursor_at_tick_zero() {
         result.is_ok(),
         "seek to 0 on empty worldline should succeed (no-op)"
     );
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // Seeking to tick 1 should fail: no patches available
     let result = cursor.seek_to(wt(1), &provenance, &initial_state);
@@ -690,7 +693,7 @@ fn empty_worldline_cursor_at_tick_zero() {
     );
 
     // Cursor should remain at tick 0
-    assert_eq!(cursor.tick, wt(0));
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 /// Edge case: Registering the same `WorldlineId` twice with the same `u0_ref` is
@@ -783,5 +786,5 @@ fn duplicate_worldline_registration_is_idempotent() {
         result.is_ok(),
         "seek should succeed after failed re-registration: {result:?}"
     );
-    assert_eq!(cursor.tick, wt(1));
+    assert_eq!(cursor.current_tick(), wt(1));
 }

@@ -39,17 +39,20 @@ The `warp-core` crate also contains a small “website kernel spike” used by t
     - observation is read-only and does not mutate runtime, provenance, inboxes,
       or compatibility mirrors.
 - `WorldlineTick` and `GlobalTick` are explicit logical coordinates:
-    - `WorldlineTick` is the only per-worldline append identity,
-    - `GlobalTick` is scheduler-cycle correlation metadata,
+    - `WorldlineTick` is the monotone per-worldline append-order coordinate used
+      to identify committed positions within one worldline,
+    - `GlobalTick` is scheduler-cycle correlation metadata used to relate work
+      across worldlines without implying wall-clock time or append order,
     - neither carries wall-clock semantics.
 - Runtime control is intent-shaped:
     - domain writes and privileged scheduler/control requests both enter through
       canonical EINT intents,
-    - scheduler lifecycle requests are control intents, not direct tick verbs.
+    - scheduler lifecycle requests route through control intents and do not
+      directly invoke `SchedulerCoordinator::super_tick(...)`.
 - The runtime/kernel production path no longer uses `sim/inbox`,
   `edge:pending`, or `Engine::dispatch_next_intent(...)`.
-- Phase 6 / ABI v3 removes legacy public read adapters, removes public
-  `step(...)`, and exposes `observe(...)` plus read-only scheduler metadata as
+- Phase 6 / ABI v3 removed legacy public read adapters, removed public
+  `step(...)`, and exposed `observe(...)` plus read-only scheduler metadata as
   the canonical WASM boundary.
 - `Engine::ingest_intent(intent_bytes)` and `Engine::ingest_inbox_event(seq, payload)`
   remain legacy compatibility helpers for isolated tests and older spike call sites.

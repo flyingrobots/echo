@@ -667,12 +667,9 @@ pub(crate) fn finalized_channels(outputs: &OutputFrameSet) -> Vec<FinalizedChann
 pub(crate) fn replay_artifacts_for_entry(
     root: NodeKey,
     entry: &ProvenanceEntry,
+    patch: &crate::worldline::WorldlineTickPatchV1,
 ) -> Result<(Snapshot, TickReceipt, WarpTickPatchV1), ReplayError> {
     let tick = entry.worldline_tick;
-    let patch = entry
-        .patch
-        .clone()
-        .ok_or(ReplayError::MissingPatch { tick })?;
     if entry.expected.patch_digest != patch.patch_digest {
         return Err(ReplayError::PatchDigestMismatch {
             tick,
@@ -760,7 +757,10 @@ pub(crate) fn hydrate_replay_metadata<P: ProvenanceStore>(
     let mut last_entry = None;
     for raw_tick in replayed.tick_history.len() as u64..target_tick.as_u64() {
         let entry = provenance.entry(worldline_id, WorldlineTick::from_raw(raw_tick))?;
-        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(root, &entry)?;
+        let patch = entry.patch.as_ref().ok_or(ReplayError::MissingPatch {
+            tick: entry.worldline_tick,
+        })?;
+        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(root, &entry, patch)?;
         replayed
             .tick_history
             .push((snapshot, receipt, replay_patch));
@@ -895,7 +895,7 @@ pub(crate) fn advance_replay_state<P: ProvenanceStore>(
         let entry = provenance.entry(worldline_id, tick)?;
         let patch = entry
             .patch
-            .clone()
+            .as_ref()
             .ok_or(ReplayError::MissingPatch { tick })?;
 
         patch
@@ -931,7 +931,7 @@ pub(crate) fn advance_replay_state<P: ProvenanceStore>(
             });
         }
 
-        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(root, &entry)?;
+        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(root, &entry, patch)?;
         replayed
             .tick_history
             .push((snapshot, receipt, replay_patch));
@@ -2960,8 +2960,15 @@ mod tests {
             &base_state,
             patch,
         );
-        let (snapshot, receipt, replay_patch) =
-            replay_artifacts_for_entry(root, &entry0).expect("fixture replay artifacts");
+        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(
+            root,
+            &entry0,
+            entry0
+                .patch
+                .as_ref()
+                .expect("fixture entry should carry a replay patch"),
+        )
+        .expect("fixture replay artifacts");
         let mut poisoned_snapshot = snapshot;
         poisoned_snapshot.hash = [0xAA; 32];
         checkpoint_state.last_snapshot = Some(poisoned_snapshot.clone());

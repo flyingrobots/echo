@@ -130,7 +130,7 @@ function createMockEngine(): TtdEngine {
 
   return {
     register_empty_worldline(_worldlineId: Uint8Array, _warpId: Uint8Array) {
-      console.log("[mock] registerEmptyWorldline");
+      console.log("[mock] register_empty_worldline");
     },
 
     create_cursor(worldlineId: Uint8Array): number {

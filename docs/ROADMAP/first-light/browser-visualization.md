@@ -8,7 +8,7 @@
 > **Historical note:** This roadmap item predates the observation-first ABI v2
 > and the intent-shaped ABI v3 control-plane rewrite. It is retained as
 > planning archaeology, not as the current WASM API contract. The live public
-> boundary is documented in `docs/spec/SPEC-0009-wasm-abi-v3.md`.
+> boundary is documented in [SPEC-0009 WASM ABI v3](../../spec/SPEC-0009-wasm-abi-v3.md).
 >
 > Historical First Light plan for a Canvas-based graph rewrite viewer. It
 > assumes an earlier `step(...)`-driven browser boundary that has since been

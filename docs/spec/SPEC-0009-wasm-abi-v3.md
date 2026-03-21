@@ -23,6 +23,15 @@ logical monotone integers:
 - `GlobalTick` is runtime cycle correlation metadata.
 - `RunId` is a control-plane generation token.
 
+`WorldlineTick(0)` is intentionally overloaded by coordinate type:
+
+- In historical selectors such as `ObservationAt::Tick { worldline_tick: 0 }`,
+  it names the first committed append.
+- In frontier/head metadata such as `HeadInfo`, `HeadObservation`, and
+  `ResolvedObservationCoordinate`, `worldline_tick = 0` with
+  `commit_global_tick = null` means the worldline is still at `U0` and has not
+  committed anything yet.
+
 Scheduler lifecycle requests are carried as privileged control intents through
 the same EINT intake path as domain intents. There is no public `step(...)`,
 poll, or tick hook API in ABI v3.
@@ -138,16 +147,16 @@ to:
 
 ### ResolvedObservationCoordinate
 
-| Field                        | Type            | Description                                      |
-| ---------------------------- | --------------- | ------------------------------------------------ |
-| `observation_version`        | u32             | Observation contract version                     |
-| `worldline_id`               | bytes(32)       | Worldline actually observed                      |
-| `requested_at`               | enum            | Original coordinate selector                     |
-| `resolved_worldline_tick`    | `WorldlineTick` | Concrete resolved committed worldline coordinate |
-| `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit       |
-| `observed_after_global_tick` | `GlobalTick?`   | Observation freshness watermark                  |
-| `state_root`                 | bytes(32)       | Canonical full-state root hash                   |
-| `commit_hash`                | bytes(32)       | Canonical commit hash at the resolved point      |
+| Field                        | Type            | Description                                                                                                                                                       |
+| ---------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `observation_version`        | u32             | Observation contract version                                                                                                                                      |
+| `worldline_id`               | bytes(32)       | Worldline actually observed                                                                                                                                       |
+| `requested_at`               | enum            | Original coordinate selector                                                                                                                                      |
+| `resolved_worldline_tick`    | `WorldlineTick` | Resolved coordinate; historical reads use zero-based committed append indices, while `0` plus `commit_global_tick = null` represents empty `U0` frontier metadata |
+| `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit; `null` means the resolved coordinate is empty `U0` rather than a committed append                                     |
+| `observed_after_global_tick` | `GlobalTick?`   | Observation freshness watermark                                                                                                                                   |
+| `state_root`                 | bytes(32)       | Canonical full-state root hash                                                                                                                                    |
+| `commit_hash`                | bytes(32)       | Canonical commit hash at the resolved point                                                                                                                       |
 
 ### ObservationPayload
 
@@ -160,12 +169,12 @@ to:
 
 Returned by `init()`.
 
-| Field                | Type            | Description                           |
-| -------------------- | --------------- | ------------------------------------- |
-| `worldline_tick`     | `WorldlineTick` | Current committed worldline position  |
-| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit    |
-| `state_root`         | bytes(32)       | Canonical full-state BLAKE3 root hash |
-| `commit_id`          | bytes(32)       | Canonical commit hash                 |
+| Field                | Type            | Description                                                                                |
+| -------------------- | --------------- | ------------------------------------------------------------------------------------------ |
+| `worldline_tick`     | `WorldlineTick` | Current committed frontier position; `0` plus `commit_global_tick = null` means empty `U0` |
+| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit; `null` means no commits yet                            |
+| `state_root`         | bytes(32)       | Canonical full-state BLAKE3 root hash                                                      |
+| `commit_id`          | bytes(32)       | Canonical commit hash                                                                      |
 
 ### DispatchResponse
 

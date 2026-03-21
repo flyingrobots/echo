@@ -23,6 +23,10 @@
   checkpoint state at the copied tip, `verify-local` records failing lane
   timings even when helpers `exit`, and the session gateway rejects unexpected
   pre-installed Rustls crypto providers.
+- **Fixed** final replay/tooling follow-ups so checkpoints are validated before
+  storage, suffix replay rebuilds metadata without a second provenance scan,
+  hook timing reaps stale CSV locks, `pr-status` propagates paginated parse
+  failures, and mixed timing logs prefer current run records over legacy rows.
 
 ### feat(tooling): harden the post-Phase-5 dev loop
 

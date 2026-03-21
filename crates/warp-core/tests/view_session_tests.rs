@@ -207,12 +207,12 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
     // Compute state hashes at each position
     let hash_at_tick_3 = cursor1.current_state_root();
     let hash_at_tick_7 = cursor2.current_state_root();
-    let commit_at_tick_3 = provenance
+    let commit_producing_tick_3 = provenance
         .entry(worldline_id, wt(2))
         .expect("tick 2 should exist")
         .expected
         .commit_hash;
-    let commit_at_tick_7 = provenance
+    let commit_producing_tick_7 = provenance
         .entry(worldline_id, wt(6))
         .expect("tick 6 should exist")
         .expected
@@ -225,7 +225,7 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
         "isolated fixture rewrites can preserve the reachable state root"
     );
     assert_ne!(
-        commit_at_tick_3, commit_at_tick_7,
+        commit_producing_tick_3, commit_producing_tick_7,
         "cursors at different ticks should still represent different committed history"
     );
 

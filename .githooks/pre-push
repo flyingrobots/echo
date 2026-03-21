@@ -11,6 +11,10 @@ REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
 # shellcheck source=.githooks/_timing.sh
 source "$HOOK_DIR/_timing.sh"
 hook_timing_prepare "$REPO_ROOT" "pre-push"
-trap 'hook_timing_append $?' EXIT
+on_exit() {
+  local exit_code=$?
+  hook_timing_append "$exit_code"
+}
+trap on_exit EXIT
 cd "$REPO_ROOT"
 "$REPO_ROOT/scripts/verify-local.sh" pre-push

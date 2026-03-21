@@ -1126,10 +1126,33 @@ mod wasm_tests {
         let result = engine.get_obligations();
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_fork_from_snapshot_rejects_tick_zero_without_history() {
+        let mut engine = TtdEngine::new();
+        engine
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
+            .unwrap();
+
+        let snapshot = BrowserSnapshot {
+            worldline_id: bytes_to_hex(&test_worldline_id()),
+            tick: 0,
+        };
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&snapshot, &mut encoded).unwrap();
+
+        let err = engine
+            .fork_from_snapshot(encoded.as_slice(), &[3u8; 32])
+            .unwrap_err();
+        assert!(
+            format!("{err:?}").contains(fork_from_tick_zero_message()),
+            "unexpected error: {err:?}"
+        );
+    }
 }
 
-// Native tests that don't call methods returning JsError on failure paths.
-// Tests that trigger error paths must run on wasm32 target.
+// Native tests may exercise JsError-returning paths when they only construct
+// deterministic string errors and do not require JS host bindings.
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1422,7 +1445,7 @@ mod tests {
     }
 
     #[test]
-    fn fork_from_snapshot_rejects_tick_zero_without_history() {
+    fn fork_from_snapshot_payload_preserves_zero_tick() {
         let snapshot = BrowserSnapshot {
             worldline_id: bytes_to_hex(&test_worldline_id()),
             tick: 0,
@@ -1432,10 +1455,7 @@ mod tests {
 
         let decoded: BrowserSnapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
         assert_eq!(decoded.worldline_id, bytes_to_hex(&test_worldline_id()));
-        assert_eq!(
-            fork_from_tick_zero_message(),
-            "cannot fork from tick 0: no committed history"
-        );
+        assert_eq!(decoded.tick, 0);
     }
 
     #[test]

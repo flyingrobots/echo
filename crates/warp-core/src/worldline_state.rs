@@ -329,14 +329,17 @@ impl WorldlineState {
     /// cleared so checkpoints remain an acceleration artifact rather than a
     /// hidden source of truth.
     pub(crate) fn replay_checkpoint_clone(&self) -> Self {
-        let mut checkpoint = self.clone();
-        checkpoint.last_snapshot = None;
-        checkpoint.tick_history.clear();
-        checkpoint.last_materialization.clear();
-        checkpoint.last_materialization_errors.clear();
-        checkpoint.tx_counter = 0;
-        checkpoint.committed_ingress.clear();
-        checkpoint
+        Self {
+            warp_state: self.warp_state.clone(),
+            root: self.root,
+            initial_state: self.initial_state.clone(),
+            last_snapshot: None,
+            tick_history: Vec::new(),
+            last_materialization: Vec::new(),
+            last_materialization_errors: Vec::new(),
+            tx_counter: 0,
+            committed_ingress: BTreeSet::new(),
+        }
     }
 }
 
@@ -596,5 +599,78 @@ mod tests {
                 },
             })
         );
+    }
+
+    #[test]
+    fn replay_checkpoint_clone_discards_ephemeral_metadata() {
+        let mut state = WorldlineState::empty();
+        state.last_snapshot = Some(Snapshot {
+            root: *state.root(),
+            hash: [3u8; 32],
+            state_root: [1u8; 32],
+            parents: Vec::new(),
+            plan_digest: [4u8; 32],
+            decision_digest: [5u8; 32],
+            rewrites_digest: [6u8; 32],
+            patch_digest: [2u8; 32],
+            policy_id: 7,
+            tx: crate::tx::TxId::from_raw(8),
+        });
+        state.tick_history.push((
+            Snapshot {
+                root: *state.root(),
+                hash: [9u8; 32],
+                state_root: [7u8; 32],
+                parents: vec![[19u8; 32]],
+                plan_digest: [10u8; 32],
+                decision_digest: [11u8; 32],
+                rewrites_digest: [12u8; 32],
+                patch_digest: [8u8; 32],
+                policy_id: 13,
+                tx: crate::tx::TxId::from_raw(14),
+            },
+            TickReceipt::new(crate::tx::TxId::from_raw(15), Vec::new(), Vec::new()),
+            WarpTickPatchV1::new(
+                0,
+                [16u8; 32],
+                crate::tick_patch::TickCommitStatus::Committed,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+        ));
+        state.last_materialization.push(FinalizedChannel {
+            channel: crate::make_type_id("materialized"),
+            data: vec![1, 2, 3],
+        });
+        state.last_materialization_errors.push(ChannelConflict {
+            channel: crate::make_type_id("materialized"),
+            emission_count: 2,
+            kind: crate::materialization::MaterializationErrorKind::StrictSingleConflict,
+        });
+        state.tx_counter = 42;
+        let head_key = WriterHeadKey {
+            worldline_id: WorldlineId([17u8; 32]),
+            head_id: crate::head::make_head_id("checkpoint"),
+        };
+        state.record_committed_ingress(head_key, [[18u8; 32]]);
+
+        let checkpoint = state.replay_checkpoint_clone();
+
+        assert_eq!(checkpoint.root, state.root);
+        assert_eq!(checkpoint.state_root(), state.state_root());
+        assert_eq!(
+            crate::snapshot::compute_state_root_for_warp_state(
+                checkpoint.initial_state(),
+                checkpoint.root()
+            ),
+            crate::snapshot::compute_state_root_for_warp_state(state.initial_state(), state.root())
+        );
+        assert!(checkpoint.last_snapshot.is_none());
+        assert!(checkpoint.tick_history.is_empty());
+        assert!(checkpoint.last_materialization.is_empty());
+        assert!(checkpoint.last_materialization_errors.is_empty());
+        assert_eq!(checkpoint.tx_counter, 0);
+        assert!(checkpoint.committed_ingress.is_empty());
     }
 }

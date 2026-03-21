@@ -94,7 +94,9 @@ fn pack_envelope_v1_raw(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeErro
 /// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
 ///
 /// # Errors
-/// Returns `PayloadTooLarge` if `vars.len()` exceeds `u32::MAX`.
+/// Returns [`EnvelopeError::PayloadTooLarge`] if `vars.len()` exceeds
+/// `u32::MAX`, or [`EnvelopeError::ReservedOpId`] if `op_id` is the reserved
+/// control envelope id.
 pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
     if op_id == CONTROL_INTENT_V1_OP_ID {
         return Err(EnvelopeError::ReservedOpId);

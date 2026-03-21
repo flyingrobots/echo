@@ -1155,6 +1155,66 @@ mod tests {
     }
 
     #[test]
+    fn dormant_head_is_skipped_by_super_tick_until_readmitted() {
+        let mut runtime = WorldlineRuntime::new();
+        let mut engine = empty_engine();
+        let worldline_id = wl(1);
+        runtime
+            .register_worldline(worldline_id, WorldlineState::empty())
+            .unwrap();
+        let head_key = register_head(
+            &mut runtime,
+            worldline_id,
+            "default",
+            None,
+            true,
+            InboxPolicy::AcceptAll,
+        );
+
+        let envelope = IngressEnvelope::local_intent(
+            IngressTarget::DefaultWriter { worldline_id },
+            make_intent_kind("test"),
+            b"dormant".to_vec(),
+        );
+        let ingress_id = envelope.ingress_id();
+        runtime.ingest(envelope).unwrap();
+        runtime
+            .set_head_eligibility(head_key, HeadEligibility::Dormant)
+            .unwrap();
+
+        let mut provenance = mirrored_provenance(&runtime);
+        let skipped =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert!(skipped.is_empty(), "dormant head should not be executed");
+        assert_eq!(provenance.len(worldline_id).unwrap(), 0);
+        assert_eq!(
+            runtime
+                .heads
+                .get(&head_key)
+                .unwrap()
+                .inbox()
+                .pending_count(),
+            1,
+            "dormant head should retain its pending ingress"
+        );
+        assert!(
+            runtime_store(&runtime, worldline_id)
+                .node(&crate::NodeId(ingress_id))
+                .is_none(),
+            "dormant head should not mutate worldline state"
+        );
+
+        runtime
+            .set_head_eligibility(head_key, HeadEligibility::Admitted)
+            .unwrap();
+        let resumed =
+            SchedulerCoordinator::super_tick(&mut runtime, &mut provenance, &mut engine).unwrap();
+        assert_eq!(resumed.len(), 1, "readmitted head should execute");
+        assert_eq!(resumed[0].head_key, head_key);
+        assert_eq!(provenance.len(worldline_id).unwrap(), 1);
+    }
+
+    #[test]
     fn frontier_tick_overflow_preflight_preserves_runtime_state() {
         let mut runtime = WorldlineRuntime::new();
         let mut engine = empty_engine();

@@ -554,6 +554,13 @@ EOF
     ./scripts/verify-local.sh full >/dev/null
   )
 
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  SKIP: python3 unavailable; skipping JSON timing escape fixture"
+    rm -f "$timing_log"
+    rm -rf "$tmp"
+    return
+  fi
+
   python3 - <<'PY' "$timing_log"
 import json, sys
 with open(sys.argv[1], 'r', encoding='utf-8') as handle:
@@ -852,7 +859,9 @@ else
   fail "canonical pre-commit hook should delegate staged crate verification to verify-local"
 fi
 
-coverage_output="$(python3 - <<'PY'
+coverage_output=""
+if command -v python3 >/dev/null 2>&1; then
+  coverage_output="$(python3 - <<'PY'
 from pathlib import Path
 import re
 
@@ -890,29 +899,32 @@ print("ttd_browser_tested=" + str("ttd-browser" in full_test_packages).lower())
 print("warp_core_fast_lib_only=" + str("warp-core" in fast_lib_only).lower())
 PY
 )"
-if printf '%s\n' "$coverage_output" | grep -q '^missing_build=$'; then
-  pass "every full-critical crate is included in the full build/clippy package set"
+  if printf '%s\n' "$coverage_output" | grep -q '^missing_build=$'; then
+    pass "every full-critical crate is included in the full build/clippy package set"
+  else
+    fail "full-critical crates must all be present in FULL_LOCAL_PACKAGES"
+    printf '%s\n' "$coverage_output"
+  fi
+  if printf '%s\n' "$coverage_output" | grep -q '^missing_clippy=$'; then
+    pass "every full-critical crate is covered by one of the curated local clippy lanes"
+  else
+    fail "full-critical crates must all be present in the local clippy lane package sets"
+    printf '%s\n' "$coverage_output"
+  fi
+  if printf '%s\n' "$coverage_output" | grep -q '^ttd_browser_tested=true$'; then
+    pass "ttd-browser is covered by the full local test lane"
+  else
+    fail "ttd-browser must be exercised by the full local test lane"
+    printf '%s\n' "$coverage_output"
+  fi
+  if printf '%s\n' "$coverage_output" | grep -q '^warp_core_fast_lib_only=true$'; then
+    pass "warp-core uses the narrowed fast local clippy scope"
+  else
+    fail "warp-core should stay in the narrowed fast local clippy package set"
+    printf '%s\n' "$coverage_output"
+  fi
 else
-  fail "full-critical crates must all be present in FULL_LOCAL_PACKAGES"
-  printf '%s\n' "$coverage_output"
-fi
-if printf '%s\n' "$coverage_output" | grep -q '^missing_clippy=$'; then
-  pass "every full-critical crate is covered by one of the curated local clippy lanes"
-else
-  fail "full-critical crates must all be present in the local clippy lane package sets"
-  printf '%s\n' "$coverage_output"
-fi
-if printf '%s\n' "$coverage_output" | grep -q '^ttd_browser_tested=true$'; then
-  pass "ttd-browser is covered by the full local test lane"
-else
-  fail "ttd-browser must be exercised by the full local test lane"
-  printf '%s\n' "$coverage_output"
-fi
-if printf '%s\n' "$coverage_output" | grep -q '^warp_core_fast_lib_only=true$'; then
-  pass "warp-core uses the narrowed fast local clippy scope"
-else
-  fail "warp-core should stay in the narrowed fast local clippy package set"
-  printf '%s\n' "$coverage_output"
+  echo "  SKIP: python3 unavailable; skipping verify-local coverage parser assertions"
 fi
 
 if grep -q '^verify-ultra-fast:' Makefile; then

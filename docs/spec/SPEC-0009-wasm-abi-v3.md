@@ -12,7 +12,7 @@ error protocol for Echo's deterministic simulation boundary.
 
 ABI v3 makes three boundaries explicit:
 
-- `observe(request)` is the only public read export.
+- `observe(request)` is the only public world-state read export.
 - `dispatch_intent(...)` is the only public write and control ingress surface.
 - `scheduler_status()` is the read-only scheduler metadata export.
 
@@ -143,7 +143,7 @@ to:
 | `payload`       | tagged union                    | Head, snapshot, recorded truth, or query bytes |
 
 `artifact_hash` is computed as
-`blake3("echo:observation-artifact:v1\0" || canonical_cbor(hash_input))`.
+`blake3("echo:observation-artifact:v2\0" || canonical_cbor(hash_input))`.
 
 ### ResolvedObservationCoordinate
 
@@ -260,8 +260,8 @@ methods.
 ### From ABI v2 to ABI v3
 
 1. Stop calling `step(...)`; the export is absent in ABI v3.
-2. Continue treating `observe(request)` as the only canonical public read
-   boundary.
+2. Continue treating `observe(request)` as the only canonical public
+   world-state read boundary.
 3. Route scheduler lifecycle and admission requests through
    `dispatch_intent(...)` using `ControlIntentV1` packed into an EINT envelope.
 4. Read `RegistryInfo.abi_version` and reject hosts that still expect the v2

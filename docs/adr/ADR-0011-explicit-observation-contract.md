@@ -148,7 +148,7 @@ Observation artifact identity uses the repository's canonical CBOR rules.
 `artifact_hash` is defined as:
 
 ```text
-blake3("echo:observation-artifact:v1\0" || canonical_cbor(hash_input))
+blake3("echo:observation-artifact:v2\0" || canonical_cbor(hash_input))
 ```
 
 Where `hash_input` includes:

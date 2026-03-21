@@ -47,7 +47,7 @@ in CI. Tooling-only changes stay on a syntax/smoke path instead of inheriting
 the full hook regression suite.
 
 A successful `make verify-full` run now shares the same success stamp as the
-canonical pre-push full gate for the same worktree tree, so commit-only churn
+canonical pre-push full gate for the same worktree, so commit-only churn
 and unchanged unstaged content do not rerun identical full verification
 locally. Local timing data now lands
 in `.git/verify-local/timing.jsonl`, including run-level and per-lane durations,

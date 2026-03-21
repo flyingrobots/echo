@@ -103,8 +103,9 @@
 
 ### docs(post-phase5): sync roadmap truth after the merge
 
-- **Changed** the ADR-0008 / ADR-0009 implementation plan now marks Phases 0-5
-  implemented and records Phase 5 as shipped.
+- **Changed** during the post-Phase-5 closeout, the ADR-0008 / ADR-0009
+  implementation plan was updated to mark Phases 0-5 implemented and record
+  Phase 5 as shipped.
 - **Changed** ADR-0010 is now accepted, aligning the observational/admin split
   with the implemented observation contract rather than leaving it in a
   hypothetical state.

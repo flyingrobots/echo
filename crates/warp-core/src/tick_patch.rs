@@ -459,11 +459,27 @@ pub(crate) fn apply_ops_to_state(
     state: &mut WarpState,
     ops: &[WarpOp],
 ) -> Result<(), TickPatchError> {
+    let mut touches_portal_topology = false;
     for op in ops {
+        touches_portal_topology |= warp_op_touches_portal_topology(op);
         apply_op_to_state(state, op)?;
     }
-    validate_portal_invariants(state)?;
+    if touches_portal_topology {
+        validate_portal_invariants(state)?;
+    }
     Ok(())
+}
+
+fn warp_op_touches_portal_topology(op: &WarpOp) -> bool {
+    matches!(
+        op,
+        WarpOp::OpenPortal { .. }
+            | WarpOp::UpsertWarpInstance { .. }
+            | WarpOp::DeleteWarpInstance { .. }
+            | WarpOp::DeleteNode { .. }
+            | WarpOp::DeleteEdge { .. }
+            | WarpOp::SetAttachment { .. }
+    )
 }
 
 fn validate_portal_invariants(state: &WarpState) -> Result<(), TickPatchError> {
@@ -1771,5 +1787,26 @@ mod tests {
         set.insert(key_a);
         set.insert(key_b);
         assert_eq!(set.len(), 2, "WarpOpKeys must not collide in BTreeSet");
+    }
+
+    #[test]
+    fn portal_topology_gate_skips_plain_graph_edits() {
+        let warp_id = make_warp_id("topology-gate");
+        let node = NodeKey {
+            warp_id,
+            local_id: make_node_id("plain-node"),
+        };
+        let portal_key = AttachmentKey::node_alpha(node);
+
+        assert!(!warp_op_touches_portal_topology(&WarpOp::UpsertNode {
+            node,
+            record: NodeRecord {
+                ty: make_type_id("PlainTy"),
+            },
+        }));
+        assert!(warp_op_touches_portal_topology(&WarpOp::SetAttachment {
+            key: portal_key,
+            value: None,
+        }));
     }
 }

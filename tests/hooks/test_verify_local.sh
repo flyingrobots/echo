@@ -558,7 +558,7 @@ EOF
     echo "  SKIP: python3 unavailable; skipping JSON timing escape fixture"
     rm -f "$timing_log"
     rm -rf "$tmp"
-    return
+    return 77
   fi
 
   python3 - <<'PY' "$timing_log"
@@ -789,8 +789,12 @@ else
   printf '%s\n' "$sequential_exit_timing_output"
 fi
 
-if run_fake_full_timing_escape; then
+timing_escape_rc=0
+run_fake_full_timing_escape || timing_escape_rc=$?
+if [[ "$timing_escape_rc" -eq 0 ]]; then
   pass "timing records remain valid JSON when subject values need escaping"
+elif [[ "$timing_escape_rc" -eq 77 ]]; then
+  :
 else
   fail "timing records should escape JSON string fields"
 fi

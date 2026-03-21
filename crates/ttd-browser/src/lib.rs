@@ -1417,7 +1417,23 @@ mod tests {
     }
 
     #[test]
-    fn step_result_preserves_large_ticks() {
+    fn step_adapter_emits_cbor_payload() {
+        let mut engine = TtdEngine::new();
+        engine
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
+            .unwrap();
+        let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
+
+        let step_result = engine.step_inner(cursor_id).unwrap();
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&step_result, &mut encoded).unwrap();
+        let decoded: BrowserStepResult = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.result, StepResultKind::NO_OP);
+        assert_eq!(decoded.tick, 0);
+    }
+
+    #[test]
+    fn step_result_cbor_preserves_large_ticks() {
         let large_tick = u64::from(i32::MAX as u32) + 42;
         let step_result = BrowserStepResult {
             result: StepResultKind::ADVANCED,
@@ -1431,7 +1447,23 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_preserves_large_ticks() {
+    fn snapshot_adapter_emits_cbor_payload() {
+        let mut engine = TtdEngine::new();
+        engine
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
+            .unwrap();
+        let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
+
+        let snapshot = engine.snapshot_inner(cursor_id).unwrap();
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&snapshot, &mut encoded).unwrap();
+        let decoded: BrowserSnapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.worldline_id, bytes_to_hex(&test_worldline_id()));
+        assert_eq!(decoded.tick, 0);
+    }
+
+    #[test]
+    fn snapshot_cbor_preserves_large_ticks() {
         let large_tick = u64::from(i32::MAX as u32) + 42;
         let snapshot = BrowserSnapshot {
             worldline_id: bytes_to_hex(&test_worldline_id()),
@@ -1446,13 +1478,15 @@ mod tests {
 
     #[test]
     fn fork_from_snapshot_payload_preserves_zero_tick() {
-        let snapshot = BrowserSnapshot {
-            worldline_id: bytes_to_hex(&test_worldline_id()),
-            tick: 0,
-        };
+        let mut engine = TtdEngine::new();
+        engine
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
+            .unwrap();
+        let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
+
+        let snapshot = engine.snapshot_inner(cursor_id).unwrap();
         let mut encoded = Vec::new();
         ciborium::into_writer(&snapshot, &mut encoded).unwrap();
-
         let decoded: BrowserSnapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
         assert_eq!(decoded.worldline_id, bytes_to_hex(&test_worldline_id()));
         assert_eq!(decoded.tick, 0);

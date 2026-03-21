@@ -140,6 +140,14 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
 }
 
 /// Packs a privileged control intent into an EINT envelope v1.
+///
+/// This helper always uses the protocol-reserved
+/// [`CONTROL_INTENT_V1_OP_ID`]; callers do not provide or override the op id.
+///
+/// # Errors
+///
+/// Returns [`EnvelopeError::Malformed`] if
+/// [`kernel_port::ControlIntentV1`] cannot be encoded as canonical CBOR.
 pub fn pack_control_intent_v1(
     intent: &kernel_port::ControlIntentV1,
 ) -> Result<Vec<u8>, EnvelopeError> {
@@ -148,6 +156,14 @@ pub fn pack_control_intent_v1(
 }
 
 /// Unpacks and decodes a privileged control intent from an EINT envelope v1.
+///
+/// The envelope must use the protocol-reserved [`CONTROL_INTENT_V1_OP_ID`].
+///
+/// # Errors
+///
+/// Returns [`EnvelopeError::Malformed`] if the envelope uses any other op id or
+/// if the payload is not valid canonical CBOR for
+/// [`kernel_port::ControlIntentV1`].
 pub fn unpack_control_intent_v1(
     bytes: &[u8],
 ) -> Result<kernel_port::ControlIntentV1, EnvelopeError> {

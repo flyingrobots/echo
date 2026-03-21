@@ -287,7 +287,19 @@ pub enum ApplyError {
 
     /// Full-state replay failed while applying a worldline patch.
     #[error(transparent)]
-    TickPatch(#[from] TickPatchError),
+    TickPatch(TickPatchError),
+}
+
+impl From<TickPatchError> for ApplyError {
+    fn from(value: TickPatchError) -> Self {
+        match value {
+            TickPatchError::MissingNode(node) => Self::MissingNode(node),
+            TickPatchError::MissingEdge(edge) => Self::MissingEdge(edge),
+            TickPatchError::InvalidAttachmentKey(_) => Self::InvalidAttachmentKey,
+            TickPatchError::NodeNotIsolated(node) => Self::NodeNotIsolated(node),
+            other => Self::TickPatch(other),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -461,10 +473,7 @@ mod tests {
         };
 
         let result = patch.apply_to_worldline_state(&mut state);
-        assert!(matches!(
-            result,
-            Err(ApplyError::TickPatch(TickPatchError::MissingNode(_)))
-        ));
+        assert!(matches!(result, Err(ApplyError::MissingNode(_))));
     }
 
     #[test]

@@ -844,7 +844,7 @@ mod tests {
 
     #[test]
     fn frontier_head_matches_live_frontier_snapshot() {
-        let (engine, runtime, provenance, worldline_id) = empty_runtime_fixture();
+        let (engine, runtime, provenance, worldline_id) = one_commit_fixture();
         let artifact = ObservationService::observe(
             &runtime,
             &provenance,
@@ -861,11 +861,17 @@ mod tests {
         .unwrap();
 
         let frontier = runtime.worldlines().get(&worldline_id).unwrap();
-        let snapshot = engine.snapshot_for_state(frontier.state());
+        let snapshot = frontier
+            .state()
+            .last_snapshot()
+            .cloned()
+            .unwrap_or_else(|| engine.snapshot_for_state(frontier.state()));
         assert_eq!(
             artifact.resolved.resolved_worldline_tick,
             frontier.frontier_tick()
         );
+        assert_eq!(artifact.resolved.commit_global_tick, Some(gt(1)));
+        assert_eq!(artifact.resolved.observed_after_global_tick, Some(gt(1)));
         assert_eq!(artifact.resolved.state_root, snapshot.state_root);
         assert_eq!(artifact.resolved.commit_hash, snapshot.hash);
     }
@@ -962,6 +968,15 @@ mod tests {
         .unwrap();
 
         assert_eq!(artifact.resolved.resolved_worldline_tick, wt(0));
+        assert_eq!(artifact.resolved.commit_global_tick, Some(gt(1)));
+        assert_eq!(artifact.resolved.observed_after_global_tick, Some(gt(1)));
+        assert_eq!(
+            provenance
+                .entry(worldline_id, wt(0))
+                .unwrap()
+                .commit_global_tick,
+            gt(1)
+        );
         let frontier_after = runtime.worldlines().get(&worldline_id).unwrap();
         let frontier_before = runtime_before.worldlines().get(&worldline_id).unwrap();
         assert_eq!(runtime.global_tick(), runtime_before.global_tick());

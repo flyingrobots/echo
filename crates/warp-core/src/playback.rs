@@ -380,6 +380,14 @@ pub struct PlaybackCursor {
     /// The cursor cannot seek or step beyond this tick. Safe to update
     /// externally to extend or restrict the cursor's visible history.
     pub pin_max_tick: WorldlineTick,
+
+    /// Whether this cursor has already validated its U0 replay base.
+    ///
+    /// Once the cursor has either validated the supplied replay base or rebuilt
+    /// itself via provenance-backed replay, ordinary forward replay can trust
+    /// the current materialized state without rehashing the U0 base on every
+    /// tick.
+    replay_base_validated: bool,
 }
 
 impl PlaybackCursor {
@@ -443,6 +451,7 @@ impl PlaybackCursor {
             mode: PlaybackMode::default(),
             state: initial_state.clone(),
             pin_max_tick,
+            replay_base_validated: false,
         }
     }
 
@@ -528,9 +537,6 @@ impl PlaybackCursor {
             return Err(SeekError::HistoryUnavailable { tick: target });
         }
 
-        validate_replay_base(provenance, self.worldline_id, initial_state)
-            .map_err(|error| Self::map_replay_error(target, error))?;
-
         if target == self.tick {
             return Ok(());
         }
@@ -548,7 +554,13 @@ impl PlaybackCursor {
                 target,
             )
             .map_err(|error| Self::map_replay_error(target, error))?;
+            self.replay_base_validated = true;
         } else {
+            if !self.replay_base_validated {
+                validate_replay_base(provenance, self.worldline_id, initial_state)
+                    .map_err(|error| Self::map_replay_error(target, error))?;
+                self.replay_base_validated = true;
+            }
             advance_replay_state(
                 provenance,
                 self.worldline_id,

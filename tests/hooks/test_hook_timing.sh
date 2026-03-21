@@ -165,7 +165,11 @@ assert_cargo_invoked() {
     pass "${label} runs cargo ${expected}"
   else
     fail "${label} should run cargo ${expected}"
-    cat "$log_file"
+    if [[ -f "$log_file" ]]; then
+      cat "$log_file"
+    else
+      echo "missing: $log_file"
+    fi
   fi
 }
 
@@ -242,7 +246,11 @@ if [[ "$(<"$tmp/.verify-local-invocation")" == "pre-push" ]]; then
   pass "pre-push still delegates to verify-local"
 else
   fail "pre-push should delegate to verify-local with pre-push mode"
-  cat "$tmp/.verify-local-invocation"
+  if [[ -f "$tmp/.verify-local-invocation" ]]; then
+    cat "$tmp/.verify-local-invocation"
+  else
+    echo "missing: $tmp/.verify-local-invocation"
+  fi
 fi
 assert_csv_recorded "$tmp/.dx-debug/pre-push-times.csv" 0 "pre-push"
 rm -rf "$tmp"

@@ -1365,9 +1365,9 @@ fn try_frame_len(buf: &[u8], max_payload: usize) -> Result<Option<usize>> {
 }
 
 async fn load_tls(cert_path: PathBuf, key_path: PathBuf) -> Result<RustlsConfig> {
-    ring::default_provider().install_default().map_err(|_| {
-        anyhow!("rustls crypto provider already installed before gateway TLS setup")
-    })?;
+    // The rustls provider is process-global; Err means another initializer
+    // already installed one, which is fine for subsequent TLS config creation.
+    let _ = ring::default_provider().install_default();
     let cfg = RustlsConfig::from_pem_file(cert_path, key_path).await?;
     Ok(cfg)
 }

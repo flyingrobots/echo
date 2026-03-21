@@ -55,6 +55,13 @@ impl RecordingProvenance {
             .expect("recording mutex should not be poisoned")
             .clone()
     }
+
+    fn count_event(&self, needle: &str) -> usize {
+        self.events()
+            .into_iter()
+            .filter(|event| event == needle)
+            .count()
+    }
 }
 
 impl ProvenanceStore for RecordingProvenance {
@@ -225,6 +232,28 @@ fn seek_past_available_history_returns_history_unavailable() {
         matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == wt(50)),
         "expected HistoryUnavailable at tick 50, got: {result:?}"
     );
+}
+
+#[test]
+fn incremental_forward_seek_validates_replay_base_only_once() {
+    let (inner, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(3);
+    let provenance = RecordingProvenance::new(inner);
+    let mut cursor = PlaybackCursor::new(
+        test_cursor_id(9),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(3),
+    );
+
+    cursor.seek_to(wt(1), &provenance, &initial_state).unwrap();
+    assert_eq!(provenance.count_event("u0"), 1);
+    assert_eq!(provenance.count_event("initial_boundary_hash"), 1);
+
+    cursor.seek_to(wt(2), &provenance, &initial_state).unwrap();
+    assert_eq!(provenance.count_event("u0"), 1);
+    assert_eq!(provenance.count_event("initial_boundary_hash"), 1);
 }
 
 /// Additional test: verify that seeking backwards works correctly by

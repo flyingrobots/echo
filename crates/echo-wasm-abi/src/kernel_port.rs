@@ -592,5 +592,10 @@ pub trait KernelPort {
     fn registry_info(&self) -> RegistryInfo;
 
     /// Return read-only scheduler status metadata.
+    ///
+    /// This call is side-effect free. Implementations may report a run that has
+    /// already completed by the time the host polls here; for example, a
+    /// synchronous `Start` can return from `dispatch_intent(...)` with
+    /// `state = Inactive` and `last_run_completion` populated immediately.
     fn scheduler_status(&self) -> Result<SchedulerStatus, AbiError>;
 }

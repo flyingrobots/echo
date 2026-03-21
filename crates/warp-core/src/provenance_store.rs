@@ -348,7 +348,10 @@ pub enum ReplayError {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CheckpointRef {
-    /// Tick number where this checkpoint was taken.
+    /// Cursor coordinate where this checkpoint was taken.
+    ///
+    /// `0` denotes the U0 replay base and `N` denotes the state after applying
+    /// patches `0..N-1`; this is not a provenance entry index.
     pub worldline_tick: WorldlineTick,
     /// Hash of the state at this checkpoint.
     pub state_hash: Hash,

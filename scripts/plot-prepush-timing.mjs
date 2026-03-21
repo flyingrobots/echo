@@ -43,15 +43,15 @@ const runRecords = data.filter(d => d.record_type === 'run' && typeof d.elapsed_
 const legacyRecords = data.filter(d => Object.prototype.hasOwnProperty.call(d, 'variant'));
 
 if (runRecords.length === 0 && legacyRecords.length > 0) {
-  const sequential = data.filter(d => d.variant === 'sequential').map(d => d.duration);
-  const parallel = data.filter(d => d.variant === 'parallel').map(d => d.duration);
+  const sequential = legacyRecords.filter(d => d.variant === 'sequential').map(d => d.duration);
+  const parallel = legacyRecords.filter(d => d.variant === 'parallel').map(d => d.duration);
   if (sequential.length > 0) {
     series.push(sequential);
-    legends.push({ label: 'sequential', color: '🔴', stats: data.filter(d => d.variant === 'sequential' && d.exit === 0).map(d => d.duration) });
+    legends.push({ label: 'sequential', color: '🔴', stats: legacyRecords.filter(d => d.variant === 'sequential' && d.exit === 0).map(d => d.duration) });
   }
   if (parallel.length > 0) {
     series.push(parallel);
-    legends.push({ label: 'parallel', color: '🟢', stats: data.filter(d => d.variant === 'parallel' && d.exit === 0).map(d => d.duration) });
+    legends.push({ label: 'parallel', color: '🟢', stats: legacyRecords.filter(d => d.variant === 'parallel' && d.exit === 0).map(d => d.duration) });
   }
 }
 

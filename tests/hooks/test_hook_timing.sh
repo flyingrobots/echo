@@ -161,7 +161,7 @@ assert_cargo_invoked() {
   local expected="$2"
   local label="$3"
 
-  if grep -q "^${expected}\b" "$log_file"; then
+  if grep -Eq "^${expected}([[:space:]]|$)" "$log_file"; then
     pass "${label} runs cargo ${expected}"
   else
     fail "${label} should run cargo ${expected}"
@@ -348,6 +348,29 @@ if tail -n1 "$tmp/.dx-debug/cached-method-times.csv" | awk -F, 'NF == 4 && $2 ==
 else
   fail "cached timing method should yield a zero delta when python disappears mid-hook"
   cat "$tmp/.dx-debug/cached-method-times.csv"
+fi
+rm -rf "$tmp"
+
+tmp="$(fixture_root)"
+(
+  cd "$tmp"
+  mkdir -p .dx-debug/stale-lock-times.csv.lock
+  cat > .dx-debug/stale-lock-times.csv.lock/owner <<'EOF'
+pid=999999
+started_at=1
+EOF
+  /bin/bash -c '
+    source ./.githooks/_timing.sh
+    hook_timing_prepare "$PWD" "stale-lock"
+    hook_timing_append 0
+  '
+)
+assert_csv_recorded "$tmp/.dx-debug/stale-lock-times.csv" 0 "stale lock recovery"
+if [[ ! -d "$tmp/.dx-debug/stale-lock-times.csv.lock" ]]; then
+  pass "stale timing locks are reaped automatically"
+else
+  fail "stale timing lock directory should be reaped"
+  ls -la "$tmp/.dx-debug"
 fi
 rm -rf "$tmp"
 

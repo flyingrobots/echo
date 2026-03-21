@@ -75,6 +75,36 @@ echo "gh: authentication required" >&2
 exit 1
 EOF
       ;;
+    pagination-parse-error)
+      cat >"$tmp/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "pr" && "${2:-}" == "view" ]]; then
+  cat <<'JSON'
+{"number":302,"url":"https://github.com/flyingrobots/echo/pull/302","headRefOid":"123456789abcdeffedcba9876543210abcdef123","reviewDecision":"APPROVED","mergeStateStatus":"CLEAN"}
+JSON
+  exit 0
+fi
+if [[ "${1:-}" == "pr" && "${2:-}" == "checks" ]]; then
+  cat <<'JSON'
+[{"name":"Tests","bucket":"pass","state":"SUCCESS"}]
+JSON
+  exit 0
+fi
+if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
+  if [[ "$*" == *"cursor=page-2"* ]]; then
+    printf '%s\n' '{"data":{"repository":{"pullRequest":{"reviewThreads":'
+    exit 0
+  fi
+  cat <<'JSON'
+{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":true,"endCursor":"page-2"}}}}}}
+JSON
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+EOF
+      ;;
     *)
       echo "unknown fixture: $fixture" >&2
       exit 1
@@ -160,6 +190,12 @@ if printf '%s\n' "$auth_output" | grep -q 'Auth error—run `gh auth login` and 
 else
   fail "pr-status should emit the auth guidance message"
   printf '%s\n' "$auth_output"
+fi
+
+if run_with_fake_gh pagination-parse-error >/dev/null 2>&1; then
+  fail "pr-status should fail fast when paginated thread JSON cannot be parsed"
+else
+  pass "pr-status propagates pagination parse failures"
 fi
 
 echo

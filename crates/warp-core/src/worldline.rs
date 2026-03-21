@@ -722,12 +722,12 @@ mod tests {
             header: test_header(),
             warp_id: root.warp_id,
             ops: vec![
-                WarpOp::DeleteWarpInstance {
-                    warp_id: child_warp,
-                },
                 WarpOp::SetAttachment {
                     key: portal_key,
                     value: None,
+                },
+                WarpOp::DeleteWarpInstance {
+                    warp_id: child_warp,
                 },
             ],
             in_slots: vec![],

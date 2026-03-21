@@ -46,7 +46,15 @@ macro_rules! logical_counter {
 }
 
 logical_counter!(
-    /// Per-worldline append identity in host-visible metadata.
+    /// Per-worldline logical coordinate in host-visible metadata.
+    ///
+    /// The meaning of `0` depends on the surface carrying it:
+    ///
+    /// - In historical coordinates such as [`ObservationAt::Tick`], `0` names
+    ///   the first committed append.
+    /// - In frontier/head metadata such as [`HeadInfo`] and
+    ///   [`HeadObservation`], `0` paired with `commit_global_tick = None`
+    ///   means the worldline is still at `U0` and has not committed anything.
     WorldlineTick
 );
 
@@ -127,9 +135,15 @@ pub struct DispatchResponse {
 /// Current head state of the kernel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadInfo {
-    /// Current committed worldline position.
+    /// Current committed frontier position for the worldline.
+    ///
+    /// `worldline_tick == WorldlineTick(0)` together with
+    /// `commit_global_tick == None` represents the empty `U0` frontier with no
+    /// committed appends yet.
     pub worldline_tick: WorldlineTick,
     /// Runtime cycle stamp for the current committed head, if any.
+    ///
+    /// `None` means the worldline has not committed anything yet.
     pub commit_global_tick: Option<GlobalTick>,
     /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
@@ -144,6 +158,9 @@ pub enum SchedulerMode {
     /// Run until no runnable work remains, optionally bounded by cycle count.
     UntilIdle {
         /// Maximum cycles to run before yielding.
+        ///
+        /// When present, this value must be non-zero. `Some(0)` is rejected as
+        /// [`error_codes::INVALID_CONTROL`].
         cycle_limit: Option<u32>,
     },
 }
@@ -290,7 +307,9 @@ pub enum ObservationAt {
     Frontier,
     /// Observe a specific committed historical tick.
     Tick {
-        /// Zero-based historical tick index.
+        /// Zero-based committed append index.
+        ///
+        /// `WorldlineTick(0)` means "the first committed append", not `U0`.
         worldline_tick: WorldlineTick,
     },
 }
@@ -349,9 +368,16 @@ pub struct ResolvedObservationCoordinate {
     pub worldline_id: Vec<u8>,
     /// Original coordinate selector from the request.
     pub requested_at: ObservationAt,
-    /// Concrete resolved committed worldline tick.
+    /// Concrete resolved worldline coordinate.
+    ///
+    /// For historical requests this is a zero-based committed append index. For
+    /// empty-frontier observations it may be `WorldlineTick(0)` paired with
+    /// `commit_global_tick == None` to represent `U0`.
     pub resolved_worldline_tick: WorldlineTick,
     /// Commit cycle stamp for the resolved commit, if any.
+    ///
+    /// `None` indicates that the resolved coordinate is the empty `U0`
+    /// frontier rather than a committed append.
     pub commit_global_tick: Option<GlobalTick>,
     /// Observation freshness watermark after resolving this artifact.
     pub observed_after_global_tick: Option<GlobalTick>,
@@ -364,9 +390,15 @@ pub struct ResolvedObservationCoordinate {
 /// Minimal head observation payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadObservation {
-    /// Current committed worldline position at the observed frontier.
+    /// Current committed frontier position at the observed frontier.
+    ///
+    /// `worldline_tick == WorldlineTick(0)` together with
+    /// `commit_global_tick == None` means the observed frontier is still `U0`
+    /// with no committed appends.
     pub worldline_tick: WorldlineTick,
     /// Commit cycle stamp for the observed head, if any.
+    ///
+    /// `None` means the observed frontier has not committed anything yet.
     pub commit_global_tick: Option<GlobalTick>,
     /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
@@ -377,9 +409,14 @@ pub struct HeadObservation {
 /// Minimal historical snapshot payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotObservation {
-    /// Historical worldline tick being observed.
+    /// Historical committed append index being observed.
+    ///
+    /// `WorldlineTick(0)` names the first committed append.
     pub worldline_tick: WorldlineTick,
     /// Commit cycle stamp for the observed historical commit, if any.
+    ///
+    /// Historical snapshots are expected to carry `Some(_)`; `None` is
+    /// reserved for empty-frontier metadata surfaces such as [`HeadInfo`].
     pub commit_global_tick: Option<GlobalTick>,
     /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,

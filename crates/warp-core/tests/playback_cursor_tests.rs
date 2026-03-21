@@ -450,6 +450,14 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
             .any(|event| event == "checkpoint_state_before:3"),
         "expected seek to restore from a replay checkpoint, got events: {events:?}"
     );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.as_str() == "entry:1")
+            .count(),
+        1,
+        "forward replay should read the suffix entry exactly once instead of rescanning it"
+    );
 
     assert_eq!(cursor.current_tick(), wt(2));
     assert_eq!(cursor.materialized_state().tick_history().len(), 2);

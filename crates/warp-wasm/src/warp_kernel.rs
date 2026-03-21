@@ -637,6 +637,14 @@ mod tests {
     }
 
     #[test]
+    fn start_rejects_zero_cycle_limit_as_invalid_control() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let error = start_until_idle_result(&mut kernel, Some(0)).unwrap_err();
+        assert_eq!(error.code, error_codes::INVALID_CONTROL);
+        assert_eq!(error.message, "cycle_limit must be non-zero when present");
+    }
+
+    #[test]
     fn stop_while_inactive_preserves_last_run_completion() {
         let mut kernel = WarpKernel::new().unwrap();
         let response = start_until_idle(&mut kernel, Some(1));

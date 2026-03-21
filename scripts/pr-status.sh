@@ -101,8 +101,8 @@ while :; do
   )"; then
     exit 1
   fi
-  read -r PAGE_UNRESOLVED PAGE_HAS_NEXT PAGE_CURSOR <<EOF
-$(THREADS_JSON="$THREADS_JSON" python3 -c '
+  if ! THREAD_PAGE="$(
+    THREADS_JSON="$THREADS_JSON" python3 -c '
 import json
 import os
 
@@ -115,7 +115,12 @@ print(
     int(bool(page_info["hasNextPage"])),
     page_info["endCursor"] or "",
 )
-')
+'
+  )"; then
+    exit 1
+  fi
+  read -r PAGE_UNRESOLVED PAGE_HAS_NEXT PAGE_CURSOR <<EOF
+$THREAD_PAGE
 EOF
   UNRESOLVED_THREADS=$((UNRESOLVED_THREADS + PAGE_UNRESOLVED))
   if [[ "$PAGE_HAS_NEXT" != "1" ]]; then

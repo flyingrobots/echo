@@ -37,12 +37,12 @@ const median = arr => {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
-const hasLegacyFormat = data.some(d => Object.prototype.hasOwnProperty.call(d, 'variant'));
-
 let series = [];
 let legends = [];
+const runRecords = data.filter(d => d.record_type === 'run' && typeof d.elapsed_seconds === 'number');
+const legacyRecords = data.filter(d => Object.prototype.hasOwnProperty.call(d, 'variant'));
 
-if (hasLegacyFormat) {
+if (runRecords.length === 0 && legacyRecords.length > 0) {
   const sequential = data.filter(d => d.variant === 'sequential').map(d => d.duration);
   const parallel = data.filter(d => d.variant === 'parallel').map(d => d.duration);
   if (sequential.length > 0) {
@@ -53,8 +53,9 @@ if (hasLegacyFormat) {
     series.push(parallel);
     legends.push({ label: 'parallel', color: '🟢', stats: data.filter(d => d.variant === 'parallel' && d.exit === 0).map(d => d.duration) });
   }
-} else {
-  const runRecords = data.filter(d => d.record_type === 'run' && typeof d.elapsed_seconds === 'number');
+}
+
+if (runRecords.length > 0) {
   const preferredModes = ['full', 'pre-push', 'pr', 'fast', 'ultra-fast'];
   const seenModes = [...new Set(runRecords.map(d => d.mode).filter(Boolean))];
   const modeNames = [

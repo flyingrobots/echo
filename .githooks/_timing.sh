@@ -37,6 +37,63 @@ hook_timing_prepare() {
   DX_HOOK_TIMING_RECORDED=0
 }
 
+hook_timing_lock_metadata_file() {
+  printf '%s\n' "$1/owner"
+}
+
+hook_timing_write_lock_metadata() {
+  local lock_dir="$1"
+  local meta_file
+  meta_file="$(hook_timing_lock_metadata_file "$lock_dir")"
+  printf 'pid=%s\nstarted_at=%s\n' "$$" "$(date +%s)" >"$meta_file" 2>/dev/null || true
+}
+
+hook_timing_lock_is_stale() {
+  local lock_dir="$1"
+  local meta_file pid="" started_at="" key value now stale_after
+  meta_file="$(hook_timing_lock_metadata_file "$lock_dir")"
+  stale_after="${DX_HOOK_TIMING_STALE_LOCK_SECS:-30}"
+
+  if [[ ! -f "$meta_file" ]]; then
+    return 1
+  fi
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      pid) pid="$value" ;;
+      started_at) started_at="$value" ;;
+    esac
+  done <"$meta_file"
+
+  if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  if [[ "$started_at" =~ ^[0-9]+$ ]]; then
+    now="$(date +%s)"
+    if (( now >= started_at && now - started_at >= stale_after )); then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+hook_timing_reap_stale_lock() {
+  local lock_dir="$1"
+  if ! hook_timing_lock_is_stale "$lock_dir"; then
+    return 1
+  fi
+  rm -rf "$lock_dir" 2>/dev/null || true
+  return 0
+}
+
+hook_timing_release_lock() {
+  local lock_dir="$1"
+  rm -f "$(hook_timing_lock_metadata_file "$lock_dir")" 2>/dev/null || true
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+
 hook_timing_append() {
   local exit_code="${1:-$?}"
   if [[ "${DX_HOOK_TIMING_RECORDED:-0}" == "1" ]]; then
@@ -68,8 +125,10 @@ hook_timing_append() {
   while (( attempts < 100 )); do
     if mkdir "$lock_dir" 2>/dev/null; then
       lock_acquired=1
+      hook_timing_write_lock_metadata "$lock_dir"
       break
     fi
+    hook_timing_reap_stale_lock "$lock_dir" || true
     attempts=$(( attempts + 1 ))
     sleep 0.01
   done
@@ -79,7 +138,7 @@ hook_timing_append() {
 
   if [[ ! -s "$csv_file" ]]; then
     printf 'timestamp_utc,elapsed_ms,exit_code,pid\n' >>"$csv_file" 2>/dev/null || {
-      rmdir "$lock_dir" 2>/dev/null || true
+      hook_timing_release_lock "$lock_dir"
       return 0
     }
   fi
@@ -88,5 +147,5 @@ hook_timing_append() {
     "$elapsed_ms" \
     "$exit_code" \
     "$$" >>"$csv_file" 2>/dev/null || true
-  rmdir "$lock_dir" 2>/dev/null || true
+  hook_timing_release_lock "$lock_dir"
 }

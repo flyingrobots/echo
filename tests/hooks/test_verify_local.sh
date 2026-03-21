@@ -156,8 +156,27 @@ if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
   printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
   exit 0
 fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  if [[ "${VERIFY_FAKE_GIT_HAS_UPSTREAM:-1}" == "1" ]]; then
+    printf 'origin/main\n'
+    exit 0
+  fi
+  exit 1
+fi
 if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
   printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_BRANCH_DIFF:-}"
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_WORKTREE_DIFF:-}"
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_UNTRACKED:-}"
   exit 0
 fi
 if [[ "${1:-}" == "write-tree" ]]; then
@@ -224,6 +243,116 @@ EOF
   cat "$npx_log"
 
   rm -f "$changed" "$cargo_log" "$npx_log"
+  rm -rf "$tmp"
+}
+
+run_fake_full_worktree_classification() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
+  printf 'NPX|%s\n' "$*" >>"${VERIFY_FAKE_NPX_LOG}"
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  printf 'origin/main\n'
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' 'docs/spec/SPEC-0009-wasm-abi-v3.md'
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' 'crates/warp-core/src/lib.rs'
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
+
+  local cargo_log
+  cargo_log="$(mktemp)"
+  local timing_log
+  timing_log="$(mktemp)"
+
+  local output
+  output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_TIMING_FILE="$timing_log" \
+    VERIFY_FAKE_GIT_TREE="tree-worktree-full" \
+    ./scripts/verify-local.sh full
+  )"
+
+  printf '%s\n' "$output"
+  echo "--- timing-log ---"
+  cat "$timing_log"
+  echo "--- cargo-log ---"
+  cat "$cargo_log"
+
+  rm -f "$cargo_log" "$timing_log"
   rm -rf "$tmp"
 }
 
@@ -417,6 +546,14 @@ if printf '%s\n' "$full_output" | grep -q '^stamp_context=full$'; then
 else
   fail "full verification should normalize to the shared full stamp context"
   printf '%s\n' "$full_output"
+fi
+
+full_worktree_output="$(run_fake_full_worktree_classification)"
+if printf '%s\n' "$full_worktree_output" | grep -q '"classification":"full"'; then
+  pass "manual full verification classifies against the live worktree tree"
+else
+  fail "manual full verification should classify unstaged critical paths as full"
+  printf '%s\n' "$full_worktree_output"
 fi
 
 workflow_output="$(run_detect .github/workflows/ci.yml)"

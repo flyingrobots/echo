@@ -333,6 +333,13 @@ list_changed_worktree_files() {
   } | awk 'NF' | sort -u
 }
 
+list_changed_full_files() {
+  {
+    list_changed_branch_files
+    list_changed_worktree_files
+  } | awk 'NF' | sort -u
+}
+
 mode_context() {
   case "$1" in
     pre-commit|detect-pre-commit)
@@ -362,6 +369,11 @@ list_changed_files() {
 
   if [[ "$context" == "working-tree" ]]; then
     list_changed_worktree_files
+    return
+  fi
+
+  if [[ "$context" == "full" ]]; then
+    list_changed_full_files
     return
   fi
 

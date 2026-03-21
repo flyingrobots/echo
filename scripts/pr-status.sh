@@ -75,17 +75,29 @@ print(
 ')
 EOF
 
+read -r PR_OWNER PR_NAME <<EOF
+$(PR_URL="$PR_URL" python3 -c '
+import os
+from urllib.parse import urlparse
+
+parts = [part for part in urlparse(os.environ["PR_URL"]).path.split("/") if part]
+if len(parts) < 4 or parts[2] != "pull":
+    raise SystemExit(f"unexpected PR URL: {os.environ['PR_URL']}")
+print(parts[0], parts[1])
+')
+EOF
+
 UNRESOLVED_THREADS=0
 THREADS_CURSOR=""
 while :; do
-  THREAD_ARGS=(-F number="$PR_NUMBER")
+  THREAD_ARGS=(-F owner="$PR_OWNER" -F name="$PR_NAME" -F number="$PR_NUMBER")
   if [[ -n "$THREADS_CURSOR" ]]; then
     THREAD_ARGS+=(-F cursor="$THREADS_CURSOR")
   fi
   if ! THREADS_JSON="$(
     gh_run gh api graphql \
       "${THREAD_ARGS[@]}" \
-      -f query='query($number:Int!, $cursor:String) { repository(owner:"flyingrobots", name:"echo") { pullRequest(number:$number) { reviewThreads(first:100, after:$cursor) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }'
+      -f query='query($owner:String!, $name:String!, $number:Int!, $cursor:String) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { reviewThreads(first:100, after:$cursor) { nodes { isResolved } pageInfo { hasNextPage endCursor } } } } }'
   )"; then
     exit 1
   fi

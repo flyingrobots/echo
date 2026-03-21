@@ -365,10 +365,13 @@ impl WarpKernel {
                 }
 
                 let run_id = self.next_run_id;
-                self.next_run_id = self.next_run_id.checked_increment().ok_or(AbiError {
-                    code: error_codes::ENGINE_ERROR,
-                    message: "run id overflow".into(),
-                })?;
+                self.next_run_id =
+                    self.next_run_id
+                        .checked_increment()
+                        .ok_or_else(|| AbiError {
+                            code: error_codes::ENGINE_ERROR,
+                            message: "run id overflow".into(),
+                        })?;
                 self.scheduler_status.state = SchedulerState::Running;
                 self.scheduler_status.active_mode = Some(SchedulerMode::UntilIdle { cycle_limit });
                 self.scheduler_status.run_id = Some(AbiRunId(run_id.as_u64()));
@@ -424,6 +427,10 @@ impl WarpKernel {
                 self.clear_active_run_state(false);
             }
             ControlIntentV1::Stop => {
+                if self.scheduler_status.state == SchedulerState::Inactive {
+                    self.refresh_scheduler_status();
+                    return Ok(());
+                }
                 self.scheduler_status.last_run_completion = Some(RunCompletion::Stopped);
                 self.clear_active_run_state(false);
             }
@@ -623,6 +630,35 @@ mod tests {
         assert_eq!(
             kernel.current_head().unwrap().worldline_tick,
             AbiWorldlineTick(0)
+        );
+    }
+
+    #[test]
+    fn stop_while_inactive_preserves_last_run_completion() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let response = start_until_idle(&mut kernel, Some(1));
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        let status_before = kernel.scheduler_status().unwrap();
+        assert_eq!(status_before.state, SchedulerState::Inactive);
+
+        let stop = pack_control_intent_v1(&ControlIntentV1::Stop).unwrap();
+        let stop_response = kernel.dispatch_intent(&stop).unwrap();
+
+        assert_eq!(
+            stop_response.scheduler_status.state,
+            SchedulerState::Inactive
+        );
+        assert_eq!(
+            stop_response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        assert_eq!(stop_response.scheduler_status.run_id, status_before.run_id);
+        assert_eq!(
+            kernel.scheduler_status().unwrap().last_run_completion,
+            Some(RunCompletion::Quiesced)
         );
     }
 

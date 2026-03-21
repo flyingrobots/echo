@@ -287,6 +287,11 @@ impl TtdEngine {
     ///
     /// Returns an error if the cursor doesn't exist or step fails.
     pub fn step(&mut self, cursor_id: u32) -> Result<Uint8Array, JsError> {
+        let step_result = self.step_inner(cursor_id)?;
+        encode_cbor(&step_result)
+    }
+
+    fn step_inner(&mut self, cursor_id: u32) -> Result<StepResult, JsError> {
         let cursor = self
             .cursors
             .get_mut(&cursor_id)
@@ -301,17 +306,15 @@ impl TtdEngine {
             .step(&self.provenance, initial_store)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        let step_result = StepResult {
+        Ok(StepResult {
             result: match result {
                 CoreStepResult::NoOp => StepResultKind::NO_OP,
                 CoreStepResult::Advanced => StepResultKind::ADVANCED,
                 CoreStepResult::Seeked => StepResultKind::SEEKED,
                 CoreStepResult::ReachedFrontier => StepResultKind::REACHED_FRONTIER,
             },
-            tick: i32::try_from(cursor.tick.as_u64()).unwrap_or(i32::MAX),
-        };
-
-        encode_cbor(&step_result)
+            tick: cursor.tick.as_u64(),
+        })
     }
 
     /// Gets the current tick of a cursor.
@@ -820,17 +823,20 @@ impl TtdEngine {
     ///
     /// Returns an error if the cursor doesn't exist.
     pub fn snapshot(&self, cursor_id: u32) -> Result<Uint8Array, JsError> {
+        let snapshot = self.snapshot_inner(cursor_id)?;
+        encode_cbor(&snapshot)
+    }
+
+    fn snapshot_inner(&self, cursor_id: u32) -> Result<Snapshot, JsError> {
         let cursor = self
             .cursors
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        let snapshot = Snapshot {
+        Ok(Snapshot {
             worldlineId: bytes_to_hex(&cursor.worldline_id.0),
-            tick: i32::try_from(cursor.tick.as_u64()).unwrap_or(i32::MAX),
-        };
-
-        encode_cbor(&snapshot)
+            tick: cursor.tick.as_u64(),
+        })
     }
 
     /// Creates a new worldline forked from a snapshot.
@@ -860,8 +866,7 @@ impl TtdEngine {
         let source_wl = WorldlineId(source_wl_bytes);
         let new_wl = parse_worldline_id(new_worldline_id)?;
 
-        // Convert tick from i32 to u64 (protocol uses i32, internal uses u64)
-        let tick = WorldlineTick::from_raw(u64::try_from(snap.tick).unwrap_or(0));
+        let tick = WorldlineTick::from_raw(snap.tick);
 
         // Fork in provenance store
         self.provenance
@@ -1376,6 +1381,34 @@ mod tests {
             1,
             "Session 2 frames should NOT have been cleared when draining Session 1"
         );
+    }
+
+    #[test]
+    fn step_result_preserves_large_ticks() {
+        let mut engine = TtdEngine::new();
+        engine
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
+            .unwrap();
+        let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
+        let large_tick = u64::from(i32::MAX as u32) + 42;
+        engine.cursors.get_mut(&cursor_id).unwrap().tick = WorldlineTick::from_raw(large_tick);
+
+        let step_result = engine.step_inner(cursor_id).unwrap();
+        assert_eq!(step_result.tick, large_tick);
+    }
+
+    #[test]
+    fn snapshot_preserves_large_ticks() {
+        let mut engine = TtdEngine::new();
+        engine
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
+            .unwrap();
+        let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
+        let large_tick = u64::from(i32::MAX as u32) + 42;
+        engine.cursors.get_mut(&cursor_id).unwrap().tick = WorldlineTick::from_raw(large_tick);
+
+        let snapshot = engine.snapshot_inner(cursor_id).unwrap();
+        assert_eq!(snapshot.tick, large_tick);
     }
 
     #[test]

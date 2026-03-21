@@ -146,7 +146,7 @@ to:
 | `resolved_worldline_tick`    | `WorldlineTick` | Concrete resolved committed worldline coordinate |
 | `commit_global_tick`         | `GlobalTick?`   | Commit cycle stamp for the resolved commit       |
 | `observed_after_global_tick` | `GlobalTick?`   | Observation freshness watermark                  |
-| `state_root`                 | bytes(32)       | Canonical graph-only state hash                  |
+| `state_root`                 | bytes(32)       | Canonical full-state root hash                   |
 | `commit_hash`                | bytes(32)       | Canonical commit hash at the resolved point      |
 
 ### ObservationPayload
@@ -160,12 +160,12 @@ to:
 
 Returned by `init()`.
 
-| Field                | Type            | Description                          |
-| -------------------- | --------------- | ------------------------------------ |
-| `worldline_tick`     | `WorldlineTick` | Current committed worldline position |
-| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit   |
-| `state_root`         | bytes(32)       | Graph-only BLAKE3 state hash         |
-| `commit_id`          | bytes(32)       | Canonical commit hash                |
+| Field                | Type            | Description                           |
+| -------------------- | --------------- | ------------------------------------- |
+| `worldline_tick`     | `WorldlineTick` | Current committed worldline position  |
+| `commit_global_tick` | `GlobalTick?`   | Cycle stamp for the current commit    |
+| `state_root`         | bytes(32)       | Canonical full-state BLAKE3 root hash |
+| `commit_id`          | bytes(32)       | Canonical commit hash                 |
 
 ### DispatchResponse
 
@@ -193,6 +193,8 @@ Current engine-backed behavior:
 - `init()` leaves the runtime inert.
 - `Start { mode: UntilIdle { ... } }` runs synchronously inside the control
   intent handler and returns after the run completes.
+- `Stop` is a no-op when the scheduler is already inactive; it does not rewrite
+  `last_run_completion` for a finished run.
 - Hosts normally observe `state = inactive` plus `last_run_completion`, not a
   long-lived running scheduler loop.
 

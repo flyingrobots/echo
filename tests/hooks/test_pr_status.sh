@@ -48,6 +48,10 @@ JSON
   exit 0
 fi
 if [[ "${1:-}" == "api" && "${2:-}" == "graphql" ]]; then
+  if [[ "$*" != *"owner=flyingrobots"* || "$*" != *"name=echo"* ]]; then
+    echo "expected repository owner/name arguments in graphql query" >&2
+    exit 1
+  fi
   if [[ "$*" == *"cursor=page-2"* ]]; then
     cat <<'JSON'
 {"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}

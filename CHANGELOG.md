@@ -5,6 +5,43 @@
 
 ## Unreleased
 
+### Fixed (PR #304 follow-up)
+
+- **Fixed** the session WebSocket gateway TLS stack to use the Rustls ring
+  provider instead of AWS-LC, clearing the current `cargo audit` and
+  `cargo-deny` blockers without weakening TLS coverage.
+- **Fixed** hook timing instrumentation to cache its clock source, serialize CSV
+  header creation, and runtime-test the sequential and parallel pre-push hooks
+  instead of only checking them statically.
+- **Fixed** ABI/runtime metadata surfaces so dormant heads are representable,
+  playback cursor tick/state invariants stay encapsulated, and typed logical
+  counter helpers have direct boundary coverage.
+- **Fixed** the browser adapter to reuse the canonical committed-tick helper and
+  preserve large logical tick values end-to-end instead of clamping them.
+- **Fixed** final PR review follow-ups so browser-only large-tick DTOs no
+  longer hand-edit generated protocol artifacts, forked provenance retains
+  checkpoint state at the copied tip, `verify-local` records failing lane
+  timings even when helpers `exit`, and the session gateway rejects unexpected
+  pre-installed Rustls crypto providers.
+
+### feat(tooling): harden the post-Phase-5 dev loop
+
+- **Changed** local verification success stamps now key off the actual checked
+  tree instead of `HEAD`, so commit-only churn can reuse the same clean proof
+  across manual and hook-triggered runs without ignoring unstaged or untracked
+  changes.
+- **Added** per-lane and per-run timing records under
+  `.git/verify-local/timing.jsonl`, keeping local timing artifacts off the
+  tracked repo while making verifier cost visible.
+- **Added** `scripts/pr-status.sh` plus `make pr-status` as a one-shot GitHub
+  summary for PR number, head SHA, unresolved thread count, review decision,
+  merge state, and grouped checks.
+- **Fixed** `cargo nextest` targeted verification now respects crate target
+  shape instead of hardcoding `--lib --tests`, which keeps bin-only crates from
+  tripping the local fast path.
+- **Changed** the full local tooling lane now runs all hook regression scripts
+  under `tests/hooks/test_*.sh` instead of one hardcoded verifier test.
+
 ### feat(tooling): split local verification into parallel lanes
 
 - **Changed** the local full verifier now runs as curated parallel lanes with
@@ -59,6 +96,17 @@
   drain state instead of mutating runtime-owned materialization state.
 - **Changed** `ttd-browser` migrated to the entry-based provenance API after
   the Phase 4 hard cut removed the old provenance convenience methods.
+
+### docs(post-phase5): sync roadmap truth after the merge
+
+- **Changed** the ADR-0008 / ADR-0009 implementation plan now marks Phases 0-5
+  implemented and records Phase 5 as shipped.
+- **Changed** ADR-0010 is now accepted, aligning the observational/admin split
+  with the implemented observation contract rather than leaving it in a
+  hypothetical state.
+- **Added** `docs/march-16.plan.md` as the post-merge execution bridge for
+  dev-loop hardening, Phase 6 adapter deletion, explicit tick types, and the
+  later replay / transport horizons.
 
 ### fix(warp-core): close final Phase 3 PR review threads
 

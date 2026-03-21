@@ -42,8 +42,8 @@ import init, { TtdEngine } from "ttd-browser";
 await init();
 const engine = new TtdEngine();
 
-// Register a worldline
-engine.register_worldline(worldlineId, warpId);
+// Register a canonical empty worldline
+engine.register_empty_worldline(worldlineId, warpId);
 
 // Create a cursor and navigate
 const cursorId = engine.create_cursor(worldlineId);
@@ -70,7 +70,7 @@ const frames = engine.drain_frames(sessionId); // CBOR-encoded
 
 ### Worldline Management
 
-- `register_worldline(worldline_id, warp_id)` - Register a worldline
+- `register_empty_worldline(worldline_id, warp_id)` - Register a canonical empty worldline
 
 ### Cursor Management
 

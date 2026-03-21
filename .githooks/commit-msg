@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
+# shellcheck source=.githooks/_timing.sh
+source "$HOOK_DIR/_timing.sh"
+hook_timing_prepare "$REPO_ROOT" "commit-msg"
+trap 'hook_timing_append $?' EXIT
+
 FILE="${1:-}"
 if [[ -z "$FILE" || ! -f "$FILE" ]]; then
   echo "[commit-msg] Missing commit message file. Usage: commit-msg <path>" >&2

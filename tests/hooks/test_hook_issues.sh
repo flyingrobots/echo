@@ -42,7 +42,15 @@ if grep -q 'jobs -p' .githooks/pre-push-parallel && \
 else
   fail "trap doesn't kill background jobs"
 fi
-if grep -E "trap.*EXIT.*INT.*TERM|trap.*INT.*TERM.*EXIT" .githooks/pre-push-parallel >/dev/null 2>&1; then
+if grep -q 'trap - EXIT' .githooks/pre-push-parallel; then
+  pass "signal path disarms EXIT trap before cleanup"
+else
+  fail "signal path should disarm EXIT trap before cleanup"
+fi
+if (grep -E "trap.*EXIT.*INT.*TERM|trap.*INT.*TERM.*EXIT" .githooks/pre-push-parallel >/dev/null 2>&1) || \
+   (grep -q 'trap on_exit EXIT' .githooks/pre-push-parallel && \
+    grep -q "trap 'on_signal INT' INT" .githooks/pre-push-parallel && \
+    grep -q "trap 'on_signal TERM' TERM" .githooks/pre-push-parallel); then
   pass "trap handles EXIT, INT, TERM signals"
 else
   fail "trap doesn't handle all interrupt signals"

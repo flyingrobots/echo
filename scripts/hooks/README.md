@@ -16,7 +16,8 @@ older local workflows. Both [`scripts/hooks/pre-commit`](./pre-commit) and
 Authoritative behavior lives in `.githooks/pre-commit` and
 `.githooks/pre-push`. For explicit local runs outside git hooks, prefer the
 `make verify-ultra-fast`, `make verify-fast`, `make verify-pr`, and
-`make verify-full` entry points.
+`make verify-full` entry points. For PR gate visibility before or after a push,
+prefer `make pr-status`.
 
 The local full gate now runs as curated parallel lanes with isolated
 `CARGO_TARGET_DIR`s, which keeps expensive cargo invocations from serializing on
@@ -45,8 +46,12 @@ rustdoc, guard scans, and exhaustive local proof stay on the heavier paths and
 in CI. Tooling-only changes stay on a syntax/smoke path instead of inheriting
 the full hook regression suite.
 
-A successful `make verify-full` run still shares the same success stamp as the
-canonical pre-push full gate, so pushing the same `HEAD` does not rerun that
-identical full verification locally. The staged and reduced local Rust paths are
-also intentionally narrower than CI: heavy all-target clippy coverage stays in
-CI, while local hooks bias toward faster iteration on the current work surface.
+A successful `make verify-full` run now shares the same success stamp as the
+canonical pre-push full gate for the same worktree tree, so commit-only churn
+and unchanged unstaged content do not rerun identical full verification
+locally. Local timing data now lands
+in `.git/verify-local/timing.jsonl`, including run-level and per-lane durations,
+which keeps timing artifacts out of the tracked repo while still making lane
+cost visible. The staged and reduced local Rust paths are also intentionally
+narrower than CI: heavy all-target clippy coverage stays in CI, while local
+hooks bias toward faster iteration on the current work surface.

@@ -13,13 +13,13 @@
 )]
 
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, make_edge_id, make_head_id,
-    make_node_id, make_type_id, make_warp_id, ApplyResult, AtomPayload, AtomWriteSet,
-    AttachmentKey, AttachmentSet, AttachmentValue, ConflictPolicy, CursorId, EdgeId, EdgeRecord,
-    Engine, EngineBuilder, Footprint, GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId,
-    NodeKey, NodeRecord, OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore,
-    RewriteRule, SessionId, WarpId, WarpOp, WorldlineId, WorldlineTickHeaderV1,
-    WorldlineTickPatchV1, WriterHeadKey,
+    compute_commit_hash_v2, make_edge_id, make_head_id, make_node_id, make_type_id, make_warp_id,
+    ApplyResult, AtomPayload, AtomWriteSet, AttachmentKey, AttachmentSet, AttachmentValue,
+    ConflictPolicy, CursorId, EdgeId, EdgeRecord, Engine, EngineBuilder, Footprint, GlobalTick,
+    GraphStore, Hash, HashTriplet, LocalProvenanceStore, NodeId, NodeKey, NodeRecord,
+    OutputFrameSet, PatternGraph, ProvenanceEntry, ProvenanceStore, RewriteRule, SessionId,
+    TickCommitStatus, WarpId, WarpOp, WarpTickPatchV1, WorldlineId, WorldlineState, WorldlineTick,
+    WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
 };
 
 // =============================================================================
@@ -757,10 +757,10 @@ pub fn test_warp_id() -> WarpId {
     make_warp_id("test-warp")
 }
 
-/// Creates a test header for a specific tick.
-pub fn test_header(tick: u64) -> WorldlineTickHeaderV1 {
+/// Creates a test header for a specific explicit commit-global tick.
+pub fn test_header(commit_global_tick: GlobalTick) -> WorldlineTickHeaderV1 {
     WorldlineTickHeaderV1 {
-        global_tick: tick,
+        commit_global_tick,
         policy_id: 0,
         rule_pack_id: [0u8; 32],
         plan_digest: [0u8; 32],
@@ -778,28 +778,63 @@ pub fn create_initial_store(warp_id: WarpId) -> GraphStore {
     store
 }
 
-/// Creates a patch that adds a node at a specific tick.
-pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> WorldlineTickPatchV1 {
-    let tick_u8 = u8::try_from(tick).expect("tick must fit in u8 for test helpers");
+/// Creates an initial full worldline state with a deterministic root node.
+pub fn create_initial_worldline_state(warp_id: WarpId) -> WorldlineState {
+    let store = create_initial_store(warp_id);
+    let root_id = make_node_id("root");
+    WorldlineState::from_root_store(store, root_id)
+        .expect("initial worldline state should be valid")
+}
+
+/// Registers a test worldline with its real deterministic initial boundary hash.
+pub fn register_fixture_worldline(
+    provenance: &mut LocalProvenanceStore,
+    worldline_id: WorldlineId,
+    initial_state: &WorldlineState,
+) -> Result<(), warp_core::HistoryError> {
+    provenance.register_worldline_with_boundary(
+        worldline_id,
+        initial_state.root().warp_id,
+        initial_state.state_root(),
+    )
+}
+
+/// Creates a patch that adds a node at a specific worldline tick and explicit
+/// commit-global tick.
+pub fn create_add_node_patch(
+    warp_id: WarpId,
+    tick: u64,
+    commit_global_tick: GlobalTick,
+    node_name: &str,
+) -> WorldlineTickPatchV1 {
     let node_id = make_node_id(node_name);
     let node_key = NodeKey {
         warp_id,
         local_id: node_id,
     };
     let ty = make_type_id(&format!("Type{tick}"));
+    let ops = vec![WarpOp::UpsertNode {
+        node: node_key,
+        record: NodeRecord { ty },
+    }];
+    let header = test_header(commit_global_tick);
+    let patch_digest = WarpTickPatchV1::new(
+        header.policy_id,
+        header.rule_pack_id,
+        TickCommitStatus::Committed,
+        Vec::new(),
+        Vec::new(),
+        ops.clone(),
+    )
+    .digest();
 
     WorldlineTickPatchV1 {
-        header: test_header(tick),
+        header,
         warp_id,
-        ops: vec![WarpOp::UpsertNode {
-            node: node_key,
-            record: NodeRecord { ty },
-        }],
+        ops,
         in_slots: vec![],
         out_slots: vec![],
-        // Intentional: wraps at tick > 255 via `as u8`, but all test worldlines
-        // use fewer than 256 ticks so this produces unique per-tick digests.
-        patch_digest: [tick_u8; 32],
+        patch_digest,
     }
 }
 
@@ -809,30 +844,33 @@ pub fn create_add_node_patch(warp_id: WarpId, tick: u64, node_name: &str) -> Wor
 /// matching what `seek_to` will recompute during verification.
 pub fn setup_worldline_with_ticks(
     num_ticks: u64,
-) -> (LocalProvenanceStore, GraphStore, WarpId, WorldlineId) {
+) -> (LocalProvenanceStore, WorldlineState, WarpId, WorldlineId) {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            GlobalTick::from_raw(tick + 1),
+            &format!("node-{tick}"),
+        );
 
         // Apply patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute the actual state root after applying
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+        let state_root = current_state.state_root();
 
         // Compute real commit_hash for Merkle chain verification
         let commit_hash = compute_commit_hash_v2(
@@ -855,7 +893,7 @@ pub fn setup_worldline_with_ticks(
         parents = vec![commit_hash];
     }
 
-    (provenance, initial_store, warp_id, worldline_id)
+    (provenance, initial_state, warp_id, worldline_id)
 }
 
 /// Returns the canonical writer head key used by provenance test fixtures.
@@ -879,12 +917,13 @@ pub fn fixture_entry(
     outputs: OutputFrameSet,
     atom_writes: AtomWriteSet,
 ) -> Result<ProvenanceEntry, warp_core::HistoryError> {
-    let tick = patch.global_tick();
+    let commit_global_tick = patch.commit_global_tick();
+    let worldline_tick = WorldlineTick::from_raw(provenance.len(worldline_id)?);
     let parents = provenance.tip_ref(worldline_id)?.into_iter().collect();
     Ok(ProvenanceEntry::local_commit(
         worldline_id,
-        tick,
-        tick,
+        worldline_tick,
+        commit_global_tick,
         fixture_head_key(worldline_id),
         parents,
         expected,

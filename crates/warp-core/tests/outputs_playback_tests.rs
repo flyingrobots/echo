@@ -16,8 +16,9 @@
 
 mod common;
 use common::{
-    append_fixture_entry, create_add_node_patch, create_initial_store, setup_worldline_with_ticks,
-    test_cursor_id, test_session_id, test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_worldline_state,
+    register_fixture_worldline, setup_worldline_with_ticks, test_cursor_id, test_session_id,
+    test_warp_id, test_worldline_id,
 };
 
 use warp_core::materialization::{
@@ -25,9 +26,9 @@ use warp_core::materialization::{
     V2PacketHeader,
 };
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, CursorRole, GraphStore, HashTriplet,
-    LocalProvenanceStore, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekError, StepResult,
-    TruthSink, ViewSession, WorldlineId,
+    compute_commit_hash_v2, CursorRole, HashTriplet, LocalProvenanceStore, PlaybackCursor,
+    PlaybackMode, ProvenanceStore, SeekError, StepResult, TruthSink, ViewSession, WorldlineId,
+    WorldlineState, WorldlineTick,
 };
 
 /// Sets up a worldline with N ticks and outputs, returns the provenance store and initial store.
@@ -35,21 +36,19 @@ fn setup_worldline_with_outputs(
     num_ticks: u64,
 ) -> (
     LocalProvenanceStore,
-    GraphStore,
+    WorldlineState,
     warp_core::WarpId,
     WorldlineId,
 ) {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Build up the worldline by applying patches and recording correct hashes
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let mut parents: Vec<warp_core::Hash> = Vec::new();
 
     let position_channel = make_channel_id("entity:position");
@@ -61,15 +60,20 @@ fn setup_worldline_with_outputs(
     );
 
     for tick in 0..num_ticks {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("node-{tick}"),
+        );
 
         // Apply patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute the actual state root after applying
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+        let state_root = current_state.state_root();
 
         // Compute real commit_hash for Merkle chain verification
         let commit_hash = compute_commit_hash_v2(
@@ -100,7 +104,11 @@ fn setup_worldline_with_outputs(
         parents = vec![commit_hash];
     }
 
-    (provenance, initial_store, warp_id, worldline_id)
+    (provenance, initial_state, warp_id, worldline_id)
+}
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
 }
 
 // ============================================================================
@@ -113,7 +121,7 @@ fn setup_worldline_with_outputs(
 /// role is Writer and mode requires advance.
 #[test]
 fn seek_moves_cursor_without_mutating_writer_store() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(20);
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(20);
 
     // Create a "writer" cursor and advance it to tick 20 (simulate writer position)
     let mut writer_cursor = PlaybackCursor::new(
@@ -121,18 +129,18 @@ fn seek_moves_cursor_without_mutating_writer_store() {
         worldline_id,
         warp_id,
         CursorRole::Writer,
-        &initial_store,
-        20,
+        &initial_state,
+        wt(20),
     );
 
     // Simulate writer being at tick 20 by seeking (this is how we simulate writer state)
     writer_cursor
-        .seek_to(20, &provenance, &initial_store)
+        .seek_to(wt(20), &provenance, &initial_state)
         .expect("seek to 20 should succeed");
-    assert_eq!(writer_cursor.tick, 20);
+    assert_eq!(writer_cursor.current_tick(), wt(20));
 
     // Snapshot writer's state_root
-    let writer_state_root = compute_state_root_for_warp_store(&writer_cursor.store, warp_id);
+    let writer_state_root = writer_cursor.current_state_root();
 
     // Create a reader cursor at tick 20
     let mut reader_cursor = PlaybackCursor::new(
@@ -140,33 +148,41 @@ fn seek_moves_cursor_without_mutating_writer_store() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        20,
+        &initial_state,
+        wt(20),
     );
 
     // Seek reader to tick 20 first
     reader_cursor
-        .seek_to(20, &provenance, &initial_store)
+        .seek_to(wt(20), &provenance, &initial_state)
         .expect("reader seek to 20 should succeed");
-    assert_eq!(reader_cursor.tick, 20);
+    assert_eq!(reader_cursor.current_tick(), wt(20));
 
     // Reader seeks back to tick 5
     reader_cursor
-        .seek_to(5, &provenance, &initial_store)
+        .seek_to(wt(5), &provenance, &initial_state)
         .expect("reader seek to 5 should succeed");
 
     // Assert reader is at tick 5
-    assert_eq!(reader_cursor.tick, 5, "reader should be at tick 5");
+    assert_eq!(
+        reader_cursor.current_tick(),
+        wt(5),
+        "reader should be at tick 5"
+    );
 
     // Assert writer's state_root is unchanged
-    let writer_state_root_after = compute_state_root_for_warp_store(&writer_cursor.store, warp_id);
+    let writer_state_root_after = writer_cursor.current_state_root();
     assert_eq!(
         writer_state_root, writer_state_root_after,
         "writer's state_root should be unchanged after reader seeks"
     );
 
     // Also verify writer is still at tick 20
-    assert_eq!(writer_cursor.tick, 20, "writer tick should be unchanged");
+    assert_eq!(
+        writer_cursor.current_tick(),
+        wt(20),
+        "writer tick should be unchanged"
+    );
 }
 
 // ============================================================================
@@ -184,14 +200,14 @@ fn step_back_is_seek_minus_one_then_pause() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        15,
+        wt(15),
     );
 
     // Position cursor at tick 10
     cursor
-        .seek_to(10, &provenance, &initial_store)
+        .seek_to(wt(10), &provenance, &initial_store)
         .expect("seek to 10 should succeed");
-    assert_eq!(cursor.tick, 10);
+    assert_eq!(cursor.current_tick(), wt(10));
 
     // Set mode to StepBack
     cursor.mode = PlaybackMode::StepBack;
@@ -208,7 +224,11 @@ fn step_back_is_seek_minus_one_then_pause() {
     );
 
     // Assert tick == 9 (10 - 1)
-    assert_eq!(cursor.tick, 9, "cursor should be at tick 9 after StepBack");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(9),
+        "cursor should be at tick 9 after StepBack"
+    );
 
     // Assert mode == Paused
     assert_eq!(
@@ -246,10 +266,10 @@ fn reader_play_consumes_existing_then_pauses_at_frontier() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        6, // pin_max_tick = 6
+        wt(6), // pin_max_tick = 6
     );
 
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
     cursor.mode = PlaybackMode::Play;
 
     // Step until tick reaches frontier (6)
@@ -266,7 +286,8 @@ fn reader_play_consumes_existing_then_pauses_at_frontier() {
             "step {expected_tick} should return Advanced"
         );
         assert_eq!(
-            cursor.tick, expected_tick,
+            cursor.current_tick(),
+            wt(expected_tick),
             "cursor should be at tick {expected_tick}"
         );
         assert_eq!(
@@ -293,7 +314,11 @@ fn reader_play_consumes_existing_then_pauses_at_frontier() {
     );
 
     // Assert tick stays at 6 (frontier)
-    assert_eq!(cursor.tick, 6, "tick should stay at frontier (6)");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(6),
+        "tick should stay at frontier (6)"
+    );
 
     // Assert no new patches were created (worldline length unchanged)
     assert_eq!(
@@ -326,7 +351,7 @@ fn outputs_match_recorded_bytes_for_same_tick() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        15,
+        wt(15),
     );
 
     // Create session subscribed to both channels
@@ -340,9 +365,9 @@ fn outputs_match_recorded_bytes_for_same_tick() {
 
     // Seek cursor to tick k
     cursor
-        .seek_to(k, &provenance, &initial_store)
+        .seek_to(wt(k), &provenance, &initial_store)
         .expect("seek to tick k should succeed");
-    assert_eq!(cursor.tick, k);
+    assert_eq!(cursor.current_tick(), wt(k));
 
     // Publish truth
     let mut sink = TruthSink::new();
@@ -354,7 +379,7 @@ fn outputs_match_recorded_bytes_for_same_tick() {
     // publish_truth queries prov_tick = cursor.tick - 1 (0-based index of last applied patch).
     let prov_tick = k - 1;
     let recorded_outputs = provenance
-        .entry(worldline_id, prov_tick)
+        .entry(worldline_id, wt(prov_tick))
         .expect("outputs should exist")
         .outputs;
 
@@ -411,7 +436,11 @@ fn outputs_match_recorded_bytes_for_same_tick() {
 
     // Verify cursor receipt information
     let receipt = sink.last_receipt(session_id).expect("receipt should exist");
-    assert_eq!(receipt.tick, k, "receipt tick should match cursor tick");
+    assert_eq!(
+        receipt.worldline_tick,
+        wt(k),
+        "receipt tick should match cursor tick"
+    );
     assert_eq!(
         receipt.worldline_id, worldline_id,
         "receipt worldline should match"
@@ -444,10 +473,10 @@ fn truth_frames_encode_to_mbus_v2() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        wt(10),
     );
     cursor
-        .seek_to(7, &provenance, &initial_store)
+        .seek_to(wt(7), &provenance, &initial_store)
         .expect("seek should succeed");
 
     // Create session subscribed to position channel
@@ -473,7 +502,7 @@ fn truth_frames_encode_to_mbus_v2() {
         cursor_id: frame.cursor.cursor_id.0,
         worldline_id: frame.cursor.worldline_id.0,
         warp_id: frame.cursor.warp_id,
-        tick: frame.cursor.tick,
+        tick: frame.cursor.worldline_tick.as_u64(),
         commit_hash: frame.cursor.commit_hash,
     };
 
@@ -548,10 +577,10 @@ fn publish_truth_filters_by_subscription() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        5,
+        wt(5),
     );
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_store)
         .expect("seek should succeed");
 
     // Create session subscribed ONLY to position channel
@@ -617,13 +646,13 @@ fn publish_truth_returns_error_for_unavailable_tick() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        100,
+        wt(100),
     );
-    let seek_result = cursor.seek_to(100, &provenance, &initial_store);
+    let seek_result = cursor.seek_to(wt(100), &provenance, &initial_store);
     assert!(
         matches!(
             seek_result,
-            Err(SeekError::HistoryUnavailable { tick: 100 })
+            Err(SeekError::HistoryUnavailable { tick }) if tick == wt(100)
         ),
         "seek_to(100) should fail with HistoryUnavailable, got: {seek_result:?}"
     );
@@ -631,7 +660,7 @@ fn publish_truth_returns_error_for_unavailable_tick() {
     // Seek to tick 5 (boundary: valid since 5 <= history_len).
     // With the off-by-one fix, publish_truth queries prov_tick=4 which IS valid.
     cursor
-        .seek_to(5, &provenance, &initial_store)
+        .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek_to(5) should succeed at boundary tick");
 
     // Create session
@@ -663,10 +692,10 @@ fn publish_truth_returns_error_for_unavailable_tick() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        5,
+        wt(5),
     );
     // cursor starts at tick 0 by default
-    assert_eq!(cursor_zero.tick, 0);
+    assert_eq!(cursor_zero.current_tick(), wt(0));
 
     let mut session_zero = ViewSession::new(test_session_id(2), cursor_zero.cursor_id);
     session_zero.subscribe(position_channel);
@@ -698,29 +727,32 @@ fn publish_truth_returns_error_for_unavailable_tick() {
 fn writer_play_advances_and_records_outputs() {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Simulate writer advancing 10 ticks
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let output_channel = make_channel_id("writer:output");
     let mut parents: Vec<warp_core::Hash> = Vec::new();
 
     for tick in 0..10u64 {
         // Create a patch for this tick
-        let patch = create_add_node_patch(warp_id, tick, &format!("writer-node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("writer-node-{tick}"),
+        );
 
         // Apply the patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute state_root from the store
-        let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+        let state_root = current_state.state_root();
 
         // Compute real commit_hash for Merkle chain validity
         let commit_hash = compute_commit_hash_v2(
@@ -755,20 +787,20 @@ fn writer_play_advances_and_records_outputs() {
 
     // Assert: provenance.entry(worldline, t) exists for t in 0..10
     // Recompute the Merkle chain to verify stored commit_hashes match
-    let mut verify_store = initial_store;
+    let mut verify_state = initial_state;
     let mut verify_parents: Vec<warp_core::Hash> = Vec::new();
     for tick in 0..10u64 {
         let entry = provenance
-            .entry(worldline_id, tick)
+            .entry(worldline_id, wt(tick))
             .expect("entry should exist for tick");
         let triplet = entry.expected;
 
         // Recompute commit_hash from scratch to verify Merkle chain integrity
         let patch = entry.patch.expect("patch should exist");
         patch
-            .apply_to_store(&mut verify_store)
+            .apply_to_worldline_state(&mut verify_state)
             .expect("apply should succeed");
-        let state_root = compute_state_root_for_warp_store(&verify_store, warp_id);
+        let state_root = verify_state.state_root();
         let expected_commit = compute_commit_hash_v2(
             &state_root,
             &verify_parents,
@@ -786,7 +818,7 @@ fn writer_play_advances_and_records_outputs() {
     // Assert: provenance.entry(worldline, t).outputs contains expected values
     for tick in 0..10u64 {
         let outputs = provenance
-            .entry(worldline_id, tick)
+            .entry(worldline_id, wt(tick))
             .expect("outputs should exist for tick")
             .outputs;
 
@@ -825,7 +857,7 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        10,
+        wt(10),
     );
 
     // Create session subscribed to position channel
@@ -835,9 +867,9 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
 
     // Test 1: Seek to tick 3, verify receipt and frame values
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_store)
         .expect("seek to tick 3 should succeed");
-    assert_eq!(cursor.tick, 3);
+    assert_eq!(cursor.current_tick(), wt(3));
 
     let mut sink = TruthSink::new();
     session
@@ -847,11 +879,11 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     let receipt_3 = sink.last_receipt(session_id).expect("receipt should exist");
 
     // Verify receipt has tick == 3
-    assert_eq!(receipt_3.tick, 3, "receipt tick should be 3");
+    assert_eq!(receipt_3.worldline_tick, wt(3), "receipt tick should be 3");
 
     // publish_truth queries prov_tick = cursor.tick - 1 = 2
     let expected_triplet_3 = provenance
-        .entry(worldline_id, 2)
+        .entry(worldline_id, wt(2))
         .expect("expected triplet for prov_tick 2 should exist")
         .expected;
     assert_eq!(
@@ -862,7 +894,7 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     // Verify frame values match provenance.entry(worldline, 2).outputs (prov_tick = cursor.tick - 1)
     let frames_3 = sink.collect_frames(session_id);
     let recorded_outputs_3 = provenance
-        .entry(worldline_id, 2)
+        .entry(worldline_id, wt(2))
         .expect("outputs for prov_tick 2 should exist")
         .outputs;
 
@@ -890,9 +922,9 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
 
     // Test 2: Seek to tick 7, verify same invariants
     cursor
-        .seek_to(7, &provenance, &initial_store)
+        .seek_to(wt(7), &provenance, &initial_store)
         .expect("seek to tick 7 should succeed");
-    assert_eq!(cursor.tick, 7);
+    assert_eq!(cursor.current_tick(), wt(7));
 
     let mut sink = TruthSink::new();
     session
@@ -902,11 +934,11 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     let receipt_7 = sink.last_receipt(session_id).expect("receipt should exist");
 
     // Verify receipt has tick == 7
-    assert_eq!(receipt_7.tick, 7, "receipt tick should be 7");
+    assert_eq!(receipt_7.worldline_tick, wt(7), "receipt tick should be 7");
 
     // publish_truth queries prov_tick = cursor.tick - 1 = 6
     let expected_triplet_7 = provenance
-        .entry(worldline_id, 6)
+        .entry(worldline_id, wt(6))
         .expect("expected triplet for prov_tick 6 should exist")
         .expected;
     assert_eq!(
@@ -917,7 +949,7 @@ fn truth_frames_are_cursor_addressed_and_authoritative() {
     // Verify frame values match provenance.entry(worldline, 6).outputs (prov_tick = cursor.tick - 1)
     let frames_7 = sink.collect_frames(session_id);
     let recorded_outputs_7 = provenance
-        .entry(worldline_id, 6)
+        .entry(worldline_id, wt(6))
         .expect("outputs for prov_tick 6 should exist")
         .outputs;
 

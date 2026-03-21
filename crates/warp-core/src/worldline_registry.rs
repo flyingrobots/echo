@@ -127,6 +127,7 @@ impl WorldlineRegistry {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::clock::WorldlineTick;
     use crate::receipt::TickReceipt;
     use crate::snapshot::Snapshot;
     use crate::tick_patch::{TickCommitStatus, WarpTickPatchV1};
@@ -148,7 +149,7 @@ mod tests {
 
         let frontier = reg.get(&wl(1)).unwrap();
         assert_eq!(frontier.worldline_id(), wl(1));
-        assert_eq!(frontier.frontier_tick(), 0);
+        assert_eq!(frontier.frontier_tick(), WorldlineTick::ZERO);
     }
 
     #[test]
@@ -180,9 +181,12 @@ mod tests {
         reg.register(wl(1), WorldlineState::empty()).unwrap();
 
         let frontier = reg.frontier_mut(&wl(1)).unwrap();
-        frontier.frontier_tick = 42;
+        frontier.frontier_tick = WorldlineTick::from_raw(42);
 
-        assert_eq!(reg.get(&wl(1)).unwrap().frontier_tick(), 42);
+        assert_eq!(
+            reg.get(&wl(1)).unwrap().frontier_tick(),
+            WorldlineTick::from_raw(42)
+        );
     }
 
     #[test]
@@ -216,6 +220,9 @@ mod tests {
         let mut reg = WorldlineRegistry::new();
         reg.register(wl(1), state).unwrap();
 
-        assert_eq!(reg.get(&wl(1)).unwrap().frontier_tick(), 1);
+        assert_eq!(
+            reg.get(&wl(1)).unwrap().frontier_tick(),
+            WorldlineTick::from_raw(1)
+        );
     }
 }

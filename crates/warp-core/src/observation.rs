@@ -17,6 +17,7 @@ use blake3::Hasher;
 use echo_wasm_abi::kernel_port as abi;
 use thiserror::Error;
 
+use crate::clock::{GlobalTick, WorldlineTick};
 use crate::coordinator::WorldlineRuntime;
 use crate::engine_impl::Engine;
 use crate::ident::Hash;
@@ -25,8 +26,8 @@ use crate::provenance_store::{ProvenanceService, ProvenanceStore};
 use crate::snapshot::Snapshot;
 use crate::worldline::WorldlineId;
 
-const OBSERVATION_VERSION: u32 = 1;
-const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v1\0";
+const OBSERVATION_VERSION: u32 = 2;
+const OBSERVATION_ARTIFACT_DOMAIN: &[u8] = b"echo:observation-artifact:v2\0";
 
 /// Coordinate selector for an observation request.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,14 +44,16 @@ pub enum ObservationAt {
     /// Observe the current worldline frontier.
     Frontier,
     /// Observe a specific committed historical tick.
-    Tick(u64),
+    Tick(WorldlineTick),
 }
 
 impl ObservationAt {
     fn to_abi(self) -> abi::ObservationAt {
         match self {
             Self::Frontier => abi::ObservationAt::Frontier,
-            Self::Tick(tick) => abi::ObservationAt::Tick { tick },
+            Self::Tick(worldline_tick) => abi::ObservationAt::Tick {
+                worldline_tick: abi::WorldlineTick(worldline_tick.as_u64()),
+            },
         }
     }
 }
@@ -192,7 +195,11 @@ pub struct ResolvedObservationCoordinate {
     /// Original coordinate selector from the request.
     pub requested_at: ObservationAt,
     /// Concrete resolved tick.
-    pub resolved_tick: u64,
+    pub resolved_worldline_tick: WorldlineTick,
+    /// Commit-cycle stamp for the resolved commit, if any.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Observation freshness watermark after resolving this artifact.
+    pub observed_after_global_tick: Option<GlobalTick>,
     /// Canonical state root at the resolved coordinate.
     pub state_root: Hash,
     /// Canonical commit hash at the resolved coordinate.
@@ -205,7 +212,13 @@ impl ResolvedObservationCoordinate {
             observation_version: self.observation_version,
             worldline_id: self.worldline_id.0.to_vec(),
             requested_at: self.requested_at.to_abi(),
-            resolved_tick: self.resolved_tick,
+            resolved_worldline_tick: abi::WorldlineTick(self.resolved_worldline_tick.as_u64()),
+            commit_global_tick: self
+                .commit_global_tick
+                .map(|tick| abi::GlobalTick(tick.as_u64())),
+            observed_after_global_tick: self
+                .observed_after_global_tick
+                .map(|tick| abi::GlobalTick(tick.as_u64())),
             state_root: self.state_root.to_vec(),
             commit_hash: self.commit_hash.to_vec(),
         }
@@ -216,7 +229,9 @@ impl ResolvedObservationCoordinate {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeadObservation {
     /// Observed tick.
-    pub tick: u64,
+    pub worldline_tick: WorldlineTick,
+    /// Commit-cycle stamp for the observed commit, if any.
+    pub commit_global_tick: Option<GlobalTick>,
     /// Canonical state root at that tick.
     pub state_root: Hash,
     /// Canonical commit hash at that tick.
@@ -226,7 +241,10 @@ pub struct HeadObservation {
 impl HeadObservation {
     fn to_abi(&self) -> abi::HeadObservation {
         abi::HeadObservation {
-            tick: self.tick,
+            worldline_tick: abi::WorldlineTick(self.worldline_tick.as_u64()),
+            commit_global_tick: self
+                .commit_global_tick
+                .map(|tick| abi::GlobalTick(tick.as_u64())),
             state_root: self.state_root.to_vec(),
             commit_id: self.commit_hash.to_vec(),
         }
@@ -237,7 +255,9 @@ impl HeadObservation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorldlineSnapshot {
     /// Observed historical tick.
-    pub tick: u64,
+    pub worldline_tick: WorldlineTick,
+    /// Commit-cycle stamp for the observed commit, if any.
+    pub commit_global_tick: Option<GlobalTick>,
     /// Canonical state root at that tick.
     pub state_root: Hash,
     /// Canonical commit hash at that tick.
@@ -247,7 +267,10 @@ pub struct WorldlineSnapshot {
 impl WorldlineSnapshot {
     fn to_abi(&self) -> abi::SnapshotObservation {
         abi::SnapshotObservation {
-            tick: self.tick,
+            worldline_tick: abi::WorldlineTick(self.worldline_tick.as_u64()),
+            commit_global_tick: self
+                .commit_global_tick
+                .map(|tick| abi::GlobalTick(tick.as_u64())),
             state_root: self.state_root.to_vec(),
             commit_id: self.commit_hash.to_vec(),
         }
@@ -331,7 +354,7 @@ pub enum ObservationError {
         /// Worldline that was targeted.
         worldline_id: WorldlineId,
         /// Requested tick.
-        tick: u64,
+        tick: WorldlineTick,
     },
     /// The frame/projection pairing is not valid in v1.
     #[error("unsupported frame/projection pairing: {frame:?} + {projection:?}")]
@@ -390,14 +413,16 @@ impl ObservationService {
         let payload = match (&request.frame, &request.projection) {
             (ObservationFrame::CommitBoundary, ObservationProjection::Head) => {
                 ObservationPayload::Head(HeadObservation {
-                    tick: resolved.resolved_tick,
+                    worldline_tick: resolved.resolved_worldline_tick,
+                    commit_global_tick: resolved.commit_global_tick,
                     state_root: resolved.state_root,
                     commit_hash: resolved.commit_hash,
                 })
             }
             (ObservationFrame::CommitBoundary, ObservationProjection::Snapshot) => {
                 ObservationPayload::Snapshot(WorldlineSnapshot {
-                    tick: resolved.resolved_tick,
+                    worldline_tick: resolved.resolved_worldline_tick,
+                    commit_global_tick: resolved.commit_global_tick,
                     state_root: resolved.state_root,
                     commit_hash: resolved.commit_hash,
                 })
@@ -407,7 +432,7 @@ impl ObservationService {
                 ObservationProjection::TruthChannels { channels },
             ) => {
                 let entry = provenance
-                    .entry(worldline_id, resolved.resolved_tick)
+                    .entry(worldline_id, resolved.resolved_worldline_tick)
                     .map_err(|_| ObservationError::ObservationUnavailable {
                         worldline_id,
                         at: request.coordinate.at,
@@ -486,10 +511,25 @@ impl ObservationService {
                     .last_snapshot()
                     .cloned()
                     .unwrap_or_else(|| engine.snapshot_for_state(frontier.state()));
+                let commit_global_tick = frontier
+                    .frontier_tick()
+                    .checked_sub(1)
+                    .map(|committed_tick| {
+                        provenance
+                            .entry(worldline_id, committed_tick)
+                            .map(|entry| entry.commit_global_tick)
+                            .map_err(|_| ObservationError::ObservationUnavailable {
+                                worldline_id,
+                                at: request.coordinate.at,
+                            })
+                    })
+                    .transpose()?;
                 Ok(Self::resolved_commit_boundary(
                     worldline_id,
                     request.coordinate.at,
                     frontier.frontier_tick(),
+                    commit_global_tick,
+                    runtime.global_tick(),
                     &snapshot,
                 ))
             }
@@ -501,29 +541,33 @@ impl ObservationService {
                     observation_version: OBSERVATION_VERSION,
                     worldline_id,
                     requested_at: request.coordinate.at,
-                    resolved_tick: tick,
+                    resolved_worldline_tick: tick,
+                    commit_global_tick: Some(entry.commit_global_tick),
+                    observed_after_global_tick: current_cycle_tick(runtime),
                     state_root: entry.expected.state_root,
                     commit_hash: entry.expected.commit_hash,
                 })
             }
             (ObservationFrame::RecordedTruth, ObservationAt::Frontier) => {
-                let Some(resolved_tick) = frontier.frontier_tick().checked_sub(1) else {
+                let Some(resolved_worldline_tick) = frontier.frontier_tick().checked_sub(1) else {
                     return Err(ObservationError::ObservationUnavailable {
                         worldline_id,
                         at: request.coordinate.at,
                     });
                 };
-                let entry = provenance.entry(worldline_id, resolved_tick).map_err(|_| {
-                    ObservationError::ObservationUnavailable {
+                let entry = provenance
+                    .entry(worldline_id, resolved_worldline_tick)
+                    .map_err(|_| ObservationError::ObservationUnavailable {
                         worldline_id,
                         at: request.coordinate.at,
-                    }
-                })?;
+                    })?;
                 Ok(ResolvedObservationCoordinate {
                     observation_version: OBSERVATION_VERSION,
                     worldline_id,
                     requested_at: request.coordinate.at,
-                    resolved_tick,
+                    resolved_worldline_tick,
+                    commit_global_tick: Some(entry.commit_global_tick),
+                    observed_after_global_tick: current_cycle_tick(runtime),
                     state_root: entry.expected.state_root,
                     commit_hash: entry.expected.commit_hash,
                 })
@@ -536,7 +580,9 @@ impl ObservationService {
                     observation_version: OBSERVATION_VERSION,
                     worldline_id,
                     requested_at: request.coordinate.at,
-                    resolved_tick: tick,
+                    resolved_worldline_tick: tick,
+                    commit_global_tick: Some(entry.commit_global_tick),
+                    observed_after_global_tick: current_cycle_tick(runtime),
                     state_root: entry.expected.state_root,
                     commit_hash: entry.expected.commit_hash,
                 })
@@ -548,14 +594,18 @@ impl ObservationService {
     fn resolved_commit_boundary(
         worldline_id: WorldlineId,
         requested_at: ObservationAt,
-        resolved_tick: u64,
+        resolved_worldline_tick: WorldlineTick,
+        commit_global_tick: Option<GlobalTick>,
+        latest_cycle_global_tick: GlobalTick,
         snapshot: &Snapshot,
     ) -> ResolvedObservationCoordinate {
         ResolvedObservationCoordinate {
             observation_version: OBSERVATION_VERSION,
             worldline_id,
             requested_at,
-            resolved_tick,
+            resolved_worldline_tick,
+            commit_global_tick,
+            observed_after_global_tick: option_cycle_tick(latest_cycle_global_tick),
             state_root: snapshot.state_root,
             commit_hash: snapshot.hash,
         }
@@ -582,6 +632,14 @@ impl ObservationService {
     }
 }
 
+fn option_cycle_tick(tick: GlobalTick) -> Option<GlobalTick> {
+    (tick != GlobalTick::ZERO).then_some(tick)
+}
+
+fn current_cycle_tick(runtime: &WorldlineRuntime) -> Option<GlobalTick> {
+    option_cycle_tick(runtime.global_tick())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -602,6 +660,14 @@ mod tests {
 
     fn wl(n: u8) -> WorldlineId {
         WorldlineId([n; 32])
+    }
+
+    fn wt(raw: u64) -> WorldlineTick {
+        WorldlineTick::from_raw(raw)
+    }
+
+    fn gt(raw: u64) -> GlobalTick {
+        GlobalTick::from_raw(raw)
     }
 
     fn empty_runtime_fixture() -> (Engine, WorldlineRuntime, ProvenanceService, WorldlineId) {
@@ -701,8 +767,8 @@ mod tests {
         provenance
             .append_local_commit(ProvenanceEntry::local_commit(
                 worldline_id,
-                0,
-                1,
+                wt(0),
+                gt(1),
                 WriterHeadKey {
                     worldline_id,
                     head_id: make_head_id("default"),
@@ -715,7 +781,7 @@ mod tests {
                 },
                 WorldlineTickPatchV1 {
                     header: WorldlineTickHeaderV1 {
-                        global_tick: 1,
+                        commit_global_tick: gt(1),
                         policy_id: crate::POLICY_ID_NO_POLICY_V0,
                         rule_pack_id: crate::blake3_empty(),
                         plan_digest: snapshot.plan_digest,
@@ -796,7 +862,10 @@ mod tests {
 
         let frontier = runtime.worldlines().get(&worldline_id).unwrap();
         let snapshot = engine.snapshot_for_state(frontier.state());
-        assert_eq!(artifact.resolved.resolved_tick, frontier.frontier_tick());
+        assert_eq!(
+            artifact.resolved.resolved_worldline_tick,
+            frontier.frontier_tick()
+        );
         assert_eq!(artifact.resolved.state_root, snapshot.state_root);
         assert_eq!(artifact.resolved.commit_hash, snapshot.hash);
     }
@@ -884,7 +953,7 @@ mod tests {
             ObservationRequest {
                 coordinate: ObservationCoordinate {
                     worldline_id,
-                    at: ObservationAt::Tick(0),
+                    at: ObservationAt::Tick(wt(0)),
                 },
                 frame: ObservationFrame::CommitBoundary,
                 projection: ObservationProjection::Snapshot,
@@ -892,7 +961,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(artifact.resolved.resolved_tick, 0);
+        assert_eq!(artifact.resolved.resolved_worldline_tick, wt(0));
         let frontier_after = runtime.worldlines().get(&worldline_id).unwrap();
         let frontier_before = runtime_before.worldlines().get(&worldline_id).unwrap();
         assert_eq!(runtime.global_tick(), runtime_before.global_tick());
@@ -919,8 +988,8 @@ mod tests {
             provenance_before.len(worldline_id).unwrap()
         );
         assert_eq!(
-            provenance.entry(worldline_id, 0).unwrap(),
-            provenance_before.entry(worldline_id, 0).unwrap()
+            provenance.entry(worldline_id, wt(0)).unwrap(),
+            provenance_before.entry(worldline_id, wt(0)).unwrap()
         );
     }
 }

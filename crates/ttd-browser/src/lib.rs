@@ -20,7 +20,8 @@
 //! await init();
 //! const engine = new TtdEngine();
 //!
-//! // Create a cursor for a worldline
+//! // Register a canonical empty worldline, then create a cursor for it
+//! engine.register_empty_worldline(worldlineIdBytes, warpIdBytes);
 //! const cursorId = engine.create_cursor(worldlineIdBytes);
 //!
 //! // Seek to a specific tick
@@ -45,14 +46,13 @@ use std::collections::BTreeMap;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 
-use ttd_protocol_rs::{
-    ComplianceModel, ObligationReport, Snapshot, StepResult, StepResultKind, SCHEMA_SHA256,
-};
+use ttd_protocol_rs::{ComplianceModel, ObligationReport, StepResultKind, SCHEMA_SHA256};
 use warp_core::materialization::{ChannelId, FinalizedChannel};
 use warp_core::{
-    compute_emissions_digest, CursorId, CursorRole, GraphStore, LocalProvenanceStore,
-    PlaybackCursor, PlaybackMode, ProvenanceStore, SeekThen, SessionId,
-    StepResult as CoreStepResult, TruthSink, ViewSession, WorldlineId,
+    compute_emissions_digest, make_node_id, make_type_id, CursorId, CursorRole, GraphStore,
+    LocalProvenanceStore, NodeRecord, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekThen,
+    SessionId, StepResult as CoreStepResult, TruthSink, ViewSession, WorldlineId, WorldlineState,
+    WorldlineTick,
 };
 
 // ─── TtdEngine ───────────────────────────────────────────────────────────────
@@ -78,8 +78,8 @@ pub struct TtdEngine {
     /// Active view sessions, keyed by handle ID.
     sessions: BTreeMap<u32, ViewSession>,
 
-    /// Initial stores per worldline (for seek rebuilding from U0).
-    initial_stores: BTreeMap<WorldlineId, GraphStore>,
+    /// Initial full states per worldline (for seek rebuilding from U0).
+    initial_stores: BTreeMap<WorldlineId, WorldlineState>,
 
     /// Truth sink for collecting frames during publish operations.
     truth_sink: TruthSink,
@@ -103,7 +103,7 @@ struct Transaction {
     cursor_id: u32,
     /// Tick at transaction start (reserved for future delta tracking).
     #[allow(dead_code)]
-    start_tick: u64,
+    start_tick: WorldlineTick,
 }
 
 #[wasm_bindgen]
@@ -113,7 +113,7 @@ impl TtdEngine {
     /// Creates a new TTD engine instance.
     ///
     /// The engine starts with no worldlines, cursors, or sessions. Use
-    /// `register_worldline` to add worldlines before creating cursors.
+    /// `register_empty_worldline` to add worldlines before creating cursors.
     #[wasm_bindgen(constructor)]
     #[must_use]
     pub fn new() -> Self {
@@ -135,7 +135,7 @@ impl TtdEngine {
 
     // ─── Worldline Management ────────────────────────────────────────────────
 
-    /// Registers a worldline with the engine.
+    /// Registers a canonical empty worldline with the engine.
     ///
     /// This must be called before creating cursors for a worldline. The
     /// `worldline_id` and `warp_id` are 32-byte hashes.
@@ -144,21 +144,34 @@ impl TtdEngine {
     ///
     /// Returns an error if the worldline is already registered with a different
     /// warp ID.
-    pub fn register_worldline(
+    ///
+    /// This browser binding only supports creating fresh empty worldlines at
+    /// registration time. Importing a pre-initialized worldline requires a
+    /// different API surface that can accept the exact initial
+    /// [`WorldlineState`].
+    pub fn register_empty_worldline(
         &mut self,
         worldline_id: &[u8],
         warp_id: &[u8],
     ) -> Result<(), JsError> {
         let worldline = parse_worldline_id(worldline_id)?;
         let warp = parse_warp_id(warp_id)?;
-
-        self.provenance
-            .register_worldline(worldline, warp)
+        let root = make_node_id("root");
+        let mut initial_store = GraphStore::new(warp);
+        initial_store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("world"),
+            },
+        );
+        let initial_state = WorldlineState::from_root_store(initial_store, root)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        // Create and store initial empty GraphStore for this worldline
-        let initial_store = GraphStore::new(warp);
-        self.initial_stores.insert(worldline, initial_store);
+        self.provenance
+            .register_worldline_with_boundary(worldline, warp, initial_state.state_root())
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        self.initial_stores.insert(worldline, initial_state);
 
         Ok(())
     }
@@ -198,6 +211,7 @@ impl TtdEngine {
         let history_len = self
             .provenance
             .len(wl_id)
+            .map(WorldlineTick::from_raw)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         let cursor_id = CursorId(hash_from_u32(self.next_cursor_id));
@@ -245,7 +259,11 @@ impl TtdEngine {
             .get(&cursor.worldline_id)
             .ok_or_else(|| JsError::new("worldline not registered"))?;
 
-        match cursor.seek_to(tick, &self.provenance, initial_store) {
+        match cursor.seek_to(
+            WorldlineTick::from_raw(tick),
+            &self.provenance,
+            initial_store,
+        ) {
             Ok(()) => Ok(true),
             Err(
                 warp_core::SeekError::HistoryUnavailable { .. }
@@ -259,7 +277,7 @@ impl TtdEngine {
     ///
     /// # Returns
     ///
-    /// CBOR-encoded `StepResult` object with fields:
+    /// CBOR-encoded step result object with fields:
     /// - `result`: `NoOp` | `Advanced` | `Seeked` | `ReachedFrontier`
     /// - `tick`: Current tick after step
     ///
@@ -267,6 +285,11 @@ impl TtdEngine {
     ///
     /// Returns an error if the cursor doesn't exist or step fails.
     pub fn step(&mut self, cursor_id: u32) -> Result<Uint8Array, JsError> {
+        let step_result = self.step_inner(cursor_id)?;
+        encode_cbor(&step_result)
+    }
+
+    fn step_inner(&mut self, cursor_id: u32) -> Result<BrowserStepResult, JsError> {
         let cursor = self
             .cursors
             .get_mut(&cursor_id)
@@ -281,17 +304,15 @@ impl TtdEngine {
             .step(&self.provenance, initial_store)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        let step_result = StepResult {
+        Ok(BrowserStepResult {
             result: match result {
                 CoreStepResult::NoOp => StepResultKind::NO_OP,
                 CoreStepResult::Advanced => StepResultKind::ADVANCED,
                 CoreStepResult::Seeked => StepResultKind::SEEKED,
                 CoreStepResult::ReachedFrontier => StepResultKind::REACHED_FRONTIER,
             },
-            tick: i32::try_from(cursor.tick).unwrap_or(i32::MAX),
-        };
-
-        encode_cbor(&step_result)
+            tick: cursor.current_tick().as_u64(),
+        })
     }
 
     /// Gets the current tick of a cursor.
@@ -304,7 +325,7 @@ impl TtdEngine {
             .cursors
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
-        Ok(cursor.tick)
+        Ok(cursor.current_tick().as_u64())
     }
 
     /// Sets the playback mode for a cursor.
@@ -359,7 +380,7 @@ impl TtdEngine {
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
         cursor.mode = PlaybackMode::Seek {
-            target,
+            target: WorldlineTick::from_raw(target),
             then: if then_play {
                 SeekThen::Play
             } else {
@@ -382,7 +403,7 @@ impl TtdEngine {
             .cursors
             .get_mut(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
-        cursor.pin_max_tick = max_tick;
+        cursor.pin_max_tick = WorldlineTick::from_raw(max_tick);
         Ok(())
     }
 
@@ -415,14 +436,13 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == 0 {
-            // At initial state, no provenance entry yet
-            return Ok(hash_to_uint8array(&[0u8; 32]));
+        if cursor.current_tick() == WorldlineTick::ZERO {
+            return Ok(hash_to_uint8array(&cursor.current_state_root()));
         }
 
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, committed_tick_for_cursor(cursor)?)
             .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -444,13 +464,13 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == 0 {
+        if cursor.current_tick() == WorldlineTick::ZERO {
             return Ok(hash_to_uint8array(&[0u8; 32]));
         }
 
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, committed_tick_for_cursor(cursor)?)
             .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -475,13 +495,13 @@ impl TtdEngine {
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        if cursor.tick == 0 {
+        if cursor.current_tick() == WorldlineTick::ZERO {
             return Ok(hash_to_uint8array(&[0u8; 32]));
         }
 
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(cursor.worldline_id, committed_tick_for_cursor(cursor)?)
             .map(|entry| entry.expected)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -643,7 +663,7 @@ impl TtdEngine {
                 channel: f.channel.0,
                 value: f.value.clone(),
                 value_hash: f.value_hash,
-                tick: f.cursor.tick,
+                tick: f.cursor.worldline_tick.as_u64(),
                 commit_hash: f.cursor.commit_hash,
             })
             .collect();
@@ -691,7 +711,7 @@ impl TtdEngine {
             tx_id,
             Transaction {
                 cursor_id,
-                start_tick: cursor.tick,
+                start_tick: cursor.current_tick(),
             },
         );
         self.next_tx_id = self.next_tx_id.wrapping_add(1);
@@ -725,14 +745,13 @@ impl TtdEngine {
             .get(&tx.cursor_id)
             .ok_or_else(|| "cursor not found".to_string())?;
 
-        // Generate a Light mode receipt for the current cursor position
-        if cursor.tick == 0 {
-            return Err("cannot commit at tick 0".to_string());
-        }
-
         let expected = self
             .provenance
-            .entry(cursor.worldline_id, cursor.tick - 1)
+            .entry(
+                cursor.worldline_id,
+                committed_tick_for_cursor(cursor)
+                    .map_err(|_| "cannot commit at tick 0".to_string())?,
+            )
             .map_err(|e| e.to_string())?;
         let outputs = expected.outputs.clone();
         let expected = expected.expected;
@@ -762,7 +781,7 @@ impl TtdEngine {
             flags,
             schema_hash,
             worldline_id: cursor.worldline_id.0,
-            tick: cursor.tick,
+            tick: cursor.current_tick().as_u64(),
             commit_hash: expected.commit_hash,
             state_root: expected.state_root,
             patch_digest: expected.patch_digest,
@@ -795,17 +814,20 @@ impl TtdEngine {
     ///
     /// Returns an error if the cursor doesn't exist.
     pub fn snapshot(&self, cursor_id: u32) -> Result<Uint8Array, JsError> {
+        let snapshot = self.snapshot_inner(cursor_id)?;
+        encode_cbor(&snapshot)
+    }
+
+    fn snapshot_inner(&self, cursor_id: u32) -> Result<BrowserSnapshot, JsError> {
         let cursor = self
             .cursors
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        let snapshot = Snapshot {
-            worldlineId: bytes_to_hex(&cursor.worldline_id.0),
-            tick: i32::try_from(cursor.tick).unwrap_or(i32::MAX),
-        };
-
-        encode_cbor(&snapshot)
+        Ok(BrowserSnapshot {
+            worldline_id: bytes_to_hex(&cursor.worldline_id.0),
+            tick: cursor.current_tick().as_u64(),
+        })
     }
 
     /// Creates a new worldline forked from a snapshot.
@@ -827,20 +849,24 @@ impl TtdEngine {
         snapshot: &[u8],
         new_worldline_id: &[u8],
     ) -> Result<u32, JsError> {
-        let snap: Snapshot =
+        let snap: BrowserSnapshot =
             ciborium::from_reader(snapshot).map_err(|e| JsError::new(&e.to_string()))?;
 
-        let source_wl_bytes = hex_to_bytes(&snap.worldlineId)
+        let source_wl_bytes = hex_to_bytes(&snap.worldline_id)
             .map_err(|e| JsError::new(&format!("invalid worldlineId: {e}")))?;
         let source_wl = WorldlineId(source_wl_bytes);
         let new_wl = parse_worldline_id(new_worldline_id)?;
 
-        // Convert tick from i32 to u64 (protocol uses i32, internal uses u64)
-        let tick = u64::try_from(snap.tick).unwrap_or(0);
+        let tick = WorldlineTick::from_raw(snap.tick);
 
         // Fork in provenance store
         self.provenance
-            .fork(source_wl, tick.saturating_sub(1), new_wl)
+            .fork(
+                source_wl,
+                tick.checked_sub(1)
+                    .ok_or_else(|| JsError::new(fork_from_tick_zero_message()))?,
+                new_wl,
+            )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         // Copy initial store
@@ -920,6 +946,21 @@ struct TruthFrameJs {
     commit_hash: [u8; 32],
 }
 
+/// Browser-facing step result that preserves full logical tick width.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BrowserStepResult {
+    result: StepResultKind,
+    tick: u64,
+}
+
+/// Browser-facing snapshot coordinate that preserves full logical tick width.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BrowserSnapshot {
+    #[serde(rename = "worldlineId")]
+    worldline_id: String,
+    tick: u64,
+}
+
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
 /// Error type for parsing 32-byte identifiers.
@@ -930,6 +971,17 @@ impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+fn committed_tick_for_cursor(cursor: &PlaybackCursor) -> Result<WorldlineTick, JsError> {
+    cursor
+        .current_tick()
+        .checked_sub(1)
+        .ok_or_else(|| JsError::new("cursor has no committed tick at position 0"))
+}
+
+fn fork_from_tick_zero_message() -> &'static str {
+    "cannot fork from tick 0: no committed history"
 }
 
 fn parse_worldline_id_inner(bytes: &[u8]) -> Result<WorldlineId, ParseError> {
@@ -1099,9 +1151,9 @@ mod tests {
     }
 
     #[test]
-    fn test_worldline_registration() {
+    fn test_empty_worldline_registration() {
         let mut engine = TtdEngine::new();
-        let result = engine.register_worldline(&test_worldline_id(), &test_warp_id());
+        let result = engine.register_empty_worldline(&test_worldline_id(), &test_warp_id());
         assert!(result.is_ok());
     }
 
@@ -1109,7 +1161,7 @@ mod tests {
     fn test_cursor_creation() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1163,7 +1215,7 @@ mod tests {
     fn test_cursor_modes_success() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1179,7 +1231,7 @@ mod tests {
     fn test_set_seek() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1193,7 +1245,7 @@ mod tests {
     fn test_begin_transaction() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1209,7 +1261,7 @@ mod tests {
     fn test_drop_cursor_success() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1234,21 +1286,24 @@ mod tests {
     fn test_update_frontier() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
 
         // Update frontier
         assert!(engine.update_frontier(cursor_id, 100).is_ok());
-        assert_eq!(engine.cursors.get(&cursor_id).unwrap().pin_max_tick, 100);
+        assert_eq!(
+            engine.cursors.get(&cursor_id).unwrap().pin_max_tick,
+            WorldlineTick::from_raw(100)
+        );
     }
 
     #[test]
     fn test_session_cursor_association() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let cursor_id = engine.create_cursor(&test_worldline_id()).unwrap();
@@ -1272,7 +1327,7 @@ mod tests {
     fn test_get_history_length() {
         let mut engine = TtdEngine::new();
         engine
-            .register_worldline(&test_worldline_id(), &test_warp_id())
+            .register_empty_worldline(&test_worldline_id(), &test_warp_id())
             .unwrap();
 
         let len = engine.get_history_length(&test_worldline_id()).unwrap();
@@ -1298,7 +1353,8 @@ mod tests {
                 cursor_id: CursorId([0u8; 32]),
                 worldline_id: WorldlineId([0u8; 32]),
                 warp_id: WarpId([0u8; 32]),
-                tick: 0,
+                worldline_tick: WorldlineTick::ZERO,
+                commit_global_tick: None,
                 commit_hash: [0u8; 32],
             },
             channel: TypeId([0u8; 32]),
@@ -1312,7 +1368,8 @@ mod tests {
                 cursor_id: CursorId([0u8; 32]),
                 worldline_id: WorldlineId([0u8; 32]),
                 warp_id: WarpId([0u8; 32]),
-                tick: 0,
+                worldline_tick: WorldlineTick::ZERO,
+                commit_global_tick: None,
                 commit_hash: [0u8; 32],
             },
             channel: TypeId([0u8; 32]),
@@ -1337,21 +1394,77 @@ mod tests {
     }
 
     #[test]
+    fn step_result_preserves_large_ticks() {
+        let large_tick = u64::from(i32::MAX as u32) + 42;
+        let step_result = BrowserStepResult {
+            result: StepResultKind::ADVANCED,
+            tick: large_tick,
+        };
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&step_result, &mut encoded).unwrap();
+
+        let decoded: BrowserStepResult = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.tick, large_tick);
+    }
+
+    #[test]
+    fn snapshot_preserves_large_ticks() {
+        let large_tick = u64::from(i32::MAX as u32) + 42;
+        let snapshot = BrowserSnapshot {
+            worldline_id: bytes_to_hex(&test_worldline_id()),
+            tick: large_tick,
+        };
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&snapshot, &mut encoded).unwrap();
+
+        let decoded: BrowserSnapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.tick, large_tick);
+    }
+
+    #[test]
+    fn fork_from_snapshot_rejects_tick_zero_without_history() {
+        let snapshot = BrowserSnapshot {
+            worldline_id: bytes_to_hex(&test_worldline_id()),
+            tick: 0,
+        };
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&snapshot, &mut encoded).unwrap();
+
+        let decoded: BrowserSnapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.worldline_id, bytes_to_hex(&test_worldline_id()));
+        assert_eq!(
+            fork_from_tick_zero_message(),
+            "cannot fork from tick 0: no committed history"
+        );
+    }
+
+    #[test]
     fn regression_commit_populates_emissions_digest() {
         use warp_core::{
-            make_head_id, HashTriplet, ProvenanceEntry, TypeId, WarpId, WorldlineId,
-            WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+            make_head_id, GlobalTick, HashTriplet, ProvenanceEntry, TickCommitStatus, TypeId,
+            WarpId, WarpTickPatchV1, WorldlineId, WorldlineTickHeaderV1, WorldlineTickPatchV1,
+            WriterHeadKey,
         };
 
         let mut engine = TtdEngine::new();
         let wl_id = WorldlineId([1u8; 32]);
         let warp_id = WarpId([2u8; 32]);
-        engine.register_worldline(&wl_id.0, &warp_id.0).unwrap();
+        engine
+            .register_empty_worldline(&wl_id.0, &warp_id.0)
+            .unwrap();
 
-        // Manually add a tick with outputs to provenance
+        // Manually add a tick with outputs to provenance.
+        let runtime_patch = WarpTickPatchV1::new(
+            0,
+            [0u8; 32],
+            TickCommitStatus::Committed,
+            vec![],
+            vec![],
+            vec![],
+        );
         let patch = WorldlineTickPatchV1 {
             header: WorldlineTickHeaderV1 {
-                global_tick: 0,
+                commit_global_tick: GlobalTick::from_raw(1),
                 policy_id: 0,
                 rule_pack_id: [0u8; 32],
                 plan_digest: [0u8; 32],
@@ -1359,16 +1472,23 @@ mod tests {
                 rewrites_digest: [0u8; 32],
             },
             warp_id,
-            ops: vec![],
-            in_slots: vec![],
-            out_slots: vec![],
-            patch_digest: [0u8; 32],
+            ops: runtime_patch.ops().to_vec(),
+            in_slots: runtime_patch.in_slots().to_vec(),
+            out_slots: runtime_patch.out_slots().to_vec(),
+            patch_digest: runtime_patch.digest(),
         };
 
+        let initial_state = engine.initial_stores.get(&wl_id).unwrap().clone();
+        let state_root = initial_state.state_root();
         let expected = HashTriplet {
-            state_root: [0u8; 32],
-            patch_digest: [0u8; 32],
-            commit_hash: [0u8; 32],
+            state_root,
+            patch_digest: patch.patch_digest,
+            commit_hash: warp_core::compute_commit_hash_v2(
+                &state_root,
+                &[],
+                &patch.patch_digest,
+                patch.header.policy_id,
+            ),
         };
 
         let outputs = vec![(TypeId([10u8; 32]), vec![1, 2, 3])];
@@ -1378,8 +1498,8 @@ mod tests {
         };
         let entry = ProvenanceEntry::local_commit(
             wl_id,
-            0,
-            0,
+            WorldlineTick::ZERO,
+            GlobalTick::from_raw(1),
             head_key,
             Vec::new(),
             expected,
@@ -1391,8 +1511,16 @@ mod tests {
         engine.provenance.append_local_commit(entry).unwrap();
 
         let cursor_id = engine.create_cursor(&wl_id.0).unwrap();
-        // Advance cursor to tick 1 so we can commit (cannot commit at tick 0)
-        engine.cursors.get_mut(&cursor_id).unwrap().tick = 1;
+        // Advance cursor to tick 1 so we can commit (cannot commit at tick 0).
+        let mut cursor = engine.cursors.remove(&cursor_id).unwrap();
+        cursor
+            .seek_to(
+                WorldlineTick::from_raw(1),
+                &engine.provenance,
+                &initial_state,
+            )
+            .unwrap();
+        engine.cursors.insert(cursor_id, cursor);
 
         let tx_id = engine.begin(cursor_id).unwrap();
         let receipt_bytes = engine.commit_inner(tx_id).unwrap();

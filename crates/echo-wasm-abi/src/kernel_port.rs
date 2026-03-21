@@ -5,12 +5,12 @@
 //!
 //! This module defines the contract between a WASM host adapter and a
 //! deterministic simulation kernel. The [`KernelPort`] trait is byte-oriented
-//! and app-agnostic: any engine that can ingest intents, execute ticks, and
-//! drain materialized output can implement it.
+//! and app-agnostic: any engine that can ingest intents, advance logical
+//! scheduler cycles, and serve observation-backed reads can implement it.
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (1). All response types are
+//! The current ABI version is [`ABI_VERSION`] (3). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -34,7 +34,31 @@ use serde::{Deserialize, Serialize};
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 3;
+
+macro_rules! logical_counter {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[repr(transparent)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        pub struct $name(pub u64);
+    };
+}
+
+logical_counter!(
+    /// Per-worldline append identity in host-visible metadata.
+    WorldlineTick
+);
+
+logical_counter!(
+    /// Runtime-cycle correlation stamp in host-visible metadata.
+    GlobalTick
+);
+
+logical_counter!(
+    /// Control-plane run generation token.
+    RunId
+);
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -48,7 +72,7 @@ pub mod error_codes {
     pub const INVALID_INTENT: u32 = 2;
     /// An internal engine error occurred during processing.
     pub const ENGINE_ERROR: u32 = 3;
-    /// Legacy snapshot/history tick index is out of bounds.
+    /// Reserved for the removed v1 snapshot adapter.
     pub const LEGACY_INVALID_TICK: u32 = 4;
     /// The requested operation is not yet supported by this kernel.
     pub const NOT_SUPPORTED: u32 = 5;
@@ -66,6 +90,8 @@ pub mod error_codes {
     pub const UNSUPPORTED_QUERY: u32 = 11;
     /// The requested observation cannot be produced at this coordinate.
     pub const OBSERVATION_UNAVAILABLE: u32 = 12;
+    /// The provided control intent payload was invalid.
+    pub const INVALID_CONTROL: u32 = 13;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,26 +120,148 @@ pub struct DispatchResponse {
     pub accepted: bool,
     /// Content-addressed intent identifier (BLAKE3 hash, 32 bytes).
     pub intent_id: Vec<u8>,
+    /// Scheduler status after the intent is ingested or applied.
+    pub scheduler_status: SchedulerStatus,
 }
 
 /// Current head state of the kernel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadInfo {
-    /// Current tick count (number of committed ticks).
-    pub tick: u64,
-    /// Graph-only state hash (32 bytes).
+    /// Current committed worldline position.
+    pub worldline_tick: WorldlineTick,
+    /// Runtime cycle stamp for the current committed head, if any.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
     /// Canonical commit hash (32 bytes).
     pub commit_id: Vec<u8>,
 }
 
-/// Response from [`KernelPort::step`].
+/// Declared scheduler mode visible to hosts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StepResponse {
-    /// Number of ticks actually executed (may be less than budget).
-    pub ticks_executed: u32,
-    /// Head state after stepping.
-    pub head: HeadInfo,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SchedulerMode {
+    /// Run until no runnable work remains, optionally bounded by cycle count.
+    UntilIdle {
+        /// Maximum cycles to run before yielding.
+        cycle_limit: Option<u32>,
+    },
+}
+
+/// Scheduler lifecycle state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SchedulerState {
+    /// Scheduler is inactive and no run is currently executing.
+    Inactive,
+    /// Scheduler is actively executing runtime cycles.
+    Running,
+    /// Scheduler will stop after the current cycle boundary.
+    Stopping,
+}
+
+/// Runtime work availability at the current scheduler boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkState {
+    /// No runnable work remains at the current boundary.
+    Quiescent,
+    /// Runnable work exists and can be scheduled immediately.
+    RunnablePending,
+    /// Work exists, but all current heads are blocked or dormant.
+    BlockedOnly,
+}
+
+/// Completion reason for the most recent bounded or active run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunCompletion {
+    /// The most recent run ended because no runnable work remained.
+    Quiesced,
+    /// The most recent run ended because work remained but all heads were blocked or dormant.
+    BlockedOnly,
+    /// The most recent run ended because its cycle bound was reached.
+    CycleLimitReached,
+    /// The most recent run ended because stop was requested.
+    Stopped,
+}
+
+/// Declarative host intent for head admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadEligibility {
+    /// Head is intentionally excluded from scheduling.
+    Dormant,
+    /// Head is admitted and may participate if otherwise runnable.
+    Admitted,
+}
+
+/// Runtime truth about a head's scheduler disposition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadDisposition {
+    /// Head is intentionally excluded from scheduling.
+    Dormant,
+    /// Head is currently runnable by the scheduler.
+    Runnable,
+    /// Head is admitted but cannot currently run.
+    Blocked,
+    /// Head has been retired and cannot be reactivated.
+    Retired,
+}
+
+/// Current scheduler metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchedulerStatus {
+    /// Current scheduler lifecycle state.
+    pub state: SchedulerState,
+    /// Active scheduler mode, if any run is configured.
+    pub active_mode: Option<SchedulerMode>,
+    /// Runtime work availability at the current scheduler boundary.
+    pub work_state: WorkState,
+    /// Current run generation token, if a run is active or recently completed.
+    pub run_id: Option<RunId>,
+    /// Latest completed runtime cycle, even if no commit occurred.
+    pub latest_cycle_global_tick: Option<GlobalTick>,
+    /// Latest runtime cycle that produced a commit.
+    pub latest_commit_global_tick: Option<GlobalTick>,
+    /// Most recent cycle that transitioned the runtime into quiescence.
+    pub last_quiescent_global_tick: Option<GlobalTick>,
+    /// Completion reason for the most recent run, if one has completed.
+    pub last_run_completion: Option<RunCompletion>,
+}
+
+/// Stable head key used by control intents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeadKey {
+    /// Worldline that owns the head.
+    pub worldline_id: Vec<u8>,
+    /// Stable head identifier within that worldline.
+    pub head_id: Vec<u8>,
+}
+
+/// Privileged control intents routed through the same intent intake surface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ControlIntentV1 {
+    /// Request a bounded or unbounded runtime run.
+    Start {
+        /// Requested scheduler mode.
+        mode: SchedulerMode,
+    },
+    /// Request scheduler stop for implementations with persistent runs.
+    ///
+    /// The current engine-backed `warp-wasm` kernel executes `Start` runs
+    /// synchronously, so hosts normally observe the completed run via
+    /// `last_run_completion` instead of an intermediate stopping state.
+    Stop,
+    /// Change declarative head admission.
+    SetHeadEligibility {
+        /// Target head whose eligibility should change.
+        head: HeadKey,
+        /// New declarative eligibility for that head.
+        eligibility: HeadEligibility,
+    },
 }
 
 /// A single materialized channel output.
@@ -143,7 +291,7 @@ pub enum ObservationAt {
     /// Observe a specific committed historical tick.
     Tick {
         /// Zero-based historical tick index.
-        tick: u64,
+        worldline_tick: WorldlineTick,
     },
 }
 
@@ -201,8 +349,12 @@ pub struct ResolvedObservationCoordinate {
     pub worldline_id: Vec<u8>,
     /// Original coordinate selector from the request.
     pub requested_at: ObservationAt,
-    /// Concrete resolved committed tick.
-    pub resolved_tick: u64,
+    /// Concrete resolved committed worldline tick.
+    pub resolved_worldline_tick: WorldlineTick,
+    /// Commit cycle stamp for the resolved commit, if any.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Observation freshness watermark after resolving this artifact.
+    pub observed_after_global_tick: Option<GlobalTick>,
     /// Canonical state root at the resolved coordinate.
     pub state_root: Vec<u8>,
     /// Canonical commit hash at the resolved coordinate.
@@ -212,9 +364,11 @@ pub struct ResolvedObservationCoordinate {
 /// Minimal head observation payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadObservation {
-    /// Current committed tick count at the observed frontier.
-    pub tick: u64,
-    /// Graph-only state hash (32 bytes).
+    /// Current committed worldline position at the observed frontier.
+    pub worldline_tick: WorldlineTick,
+    /// Commit cycle stamp for the observed head, if any.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
     /// Canonical commit hash (32 bytes).
     pub commit_id: Vec<u8>,
@@ -223,9 +377,11 @@ pub struct HeadObservation {
 /// Minimal historical snapshot payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotObservation {
-    /// Historical tick index being observed.
-    pub tick: u64,
-    /// Graph-only state hash (32 bytes).
+    /// Historical worldline tick being observed.
+    pub worldline_tick: WorldlineTick,
+    /// Commit cycle stamp for the observed historical commit, if any.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Canonical full-state root hash (32 bytes).
     pub state_root: Vec<u8>,
     /// Canonical commit hash (32 bytes).
     pub commit_id: Vec<u8>,
@@ -288,13 +444,6 @@ pub struct ObservationArtifact {
     pub payload: ObservationPayload,
 }
 
-/// Response from [`KernelPort::drain_view_ops`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DrainResponse {
-    /// Finalized channel outputs since the last drain.
-    pub channels: Vec<ChannelData>,
-}
-
 /// Registry and handshake metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryInfo {
@@ -337,17 +486,6 @@ impl<T> OkEnvelope<T> {
     }
 }
 
-/// Wrapper for raw CBOR byte payloads in success envelopes.
-///
-/// Used by endpoints that return pre-encoded CBOR bytes (e.g., `snapshot_at`,
-/// `execute_query`). Unlike struct responses that flatten into the envelope,
-/// raw bytes are placed in a `data` field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RawBytesResponse {
-    /// The raw CBOR-encoded payload.
-    pub data: Vec<u8>,
-}
-
 /// Error envelope for CBOR encoding.
 ///
 /// Construct via [`ErrEnvelope::new`] to guarantee `ok` is always `false`.
@@ -386,8 +524,8 @@ impl ErrEnvelope {
 ///
 /// The trait makes no assumptions about what rules the engine runs, what
 /// schema is installed, or what domain the simulation models. It operates
-/// purely on canonical intent bytes, tick budgets, and materialized channel
-/// outputs. App-specific behavior is injected by the kernel implementation,
+/// purely on canonical intent bytes, scheduler status inspection, and explicit observation
+/// requests. App-specific behavior is injected by the kernel implementation,
 /// not by the boundary.
 ///
 /// # Thread Safety
@@ -401,15 +539,10 @@ pub trait KernelPort {
     /// newly accepted or a duplicate.
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>;
 
-    /// Execute deterministic ticks up to the given budget.
-    ///
-    /// Returns the number of ticks actually executed and the head state
-    /// after stepping. A budget of 0 is a no-op that returns the current head.
-    fn step(&mut self, budget: u32) -> Result<StepResponse, AbiError>;
-
     /// Observe a worldline at an explicit coordinate and frame.
     ///
-    /// The default implementation reports that the observation contract is not
+    /// This is the only canonical public read entrypoint in ABI v3. The
+    /// default implementation reports that the observation contract is not
     /// supported by this kernel implementation.
     fn observe(&self, _request: ObservationRequest) -> Result<ObservationArtifact, AbiError> {
         Err(AbiError {
@@ -418,40 +551,9 @@ pub trait KernelPort {
         })
     }
 
-    /// Drain materialized ViewOps channels since the last drain.
-    ///
-    /// Returns finalized channel data. Calling drain twice without an
-    /// intervening step returns empty channels.
-    fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError>;
-
-    /// Get the current head state (tick, state_root, commit_id).
-    fn get_head(&self) -> Result<HeadInfo, AbiError>;
-
-    /// Execute a read-only query against the current state.
-    ///
-    /// Returns CBOR-encoded query results. The default implementation returns
-    /// `NOT_SUPPORTED`; override when the engine has a query dispatcher.
-    fn execute_query(&self, _query_id: u32, _vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "execute_query is not supported by this kernel".into(),
-        })
-    }
-
-    /// Replay to a specific tick and return the snapshot as CBOR bytes.
-    fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError>;
-
-    /// Render a snapshot into ViewOps for visualization.
-    ///
-    /// The default implementation returns `NOT_SUPPORTED`; override when the
-    /// engine has snapshot rendering.
-    fn render_snapshot(&self, _snapshot_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "render_snapshot is not supported by this kernel".into(),
-        })
-    }
-
     /// Return registry and handshake metadata.
     fn registry_info(&self) -> RegistryInfo;
+
+    /// Return read-only scheduler status metadata.
+    fn scheduler_status(&self) -> Result<SchedulerStatus, AbiError>;
 }

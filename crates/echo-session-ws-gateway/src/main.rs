@@ -30,6 +30,7 @@ use echo_session_proto::{
 };
 use futures_util::{SinkExt, StreamExt};
 use ninelives::{ExponentialBackoff, Jitter, ResilienceError, RetryPolicy};
+use rustls::crypto::ring;
 use serde::Serialize;
 use tokio::task::JoinError;
 use tokio::{
@@ -1364,6 +1365,9 @@ fn try_frame_len(buf: &[u8], max_payload: usize) -> Result<Option<usize>> {
 }
 
 async fn load_tls(cert_path: PathBuf, key_path: PathBuf) -> Result<RustlsConfig> {
+    ring::default_provider().install_default().map_err(|_| {
+        anyhow!("rustls crypto provider already installed before gateway TLS setup")
+    })?;
     let cfg = RustlsConfig::from_pem_file(cert_path, key_path).await?;
     Ok(cfg)
 }

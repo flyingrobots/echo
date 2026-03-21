@@ -52,6 +52,7 @@ EOF
     git init -q
     git config user.name "verify-local-test"
     git config user.email "verify-local-test@example.com"
+    git config commit.gpgsign false
     git branch -M main
     printf '%s\n' 'pub fn anchor() {}' > crates/warp-core/src/lib.rs
     git add rust-toolchain.toml crates/warp-core/src/lib.rs
@@ -83,11 +84,12 @@ run_fake_verify() {
   local mode="$1"
   local changed_file="$2"
   local lane_mode="${3:-parallel}"
+  local use_nextest="${4:-0}"
   local tmp
   tmp="$(mktemp -d)"
 
   mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
-  mkdir -p "$tmp/crates/warp-core/src"
+  mkdir -p "$tmp/crates/warp-core/src" "$tmp/crates/bin-only/src"
   cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
   chmod +x "$tmp/scripts/verify-local.sh"
 
@@ -103,6 +105,159 @@ version = "0.0.0"
 edition = "2021"
 EOF
   printf '%s\n' 'pub fn anchor() {}' >"$tmp/crates/warp-core/src/lib.rs"
+
+  cat >"$tmp/crates/bin-only/Cargo.toml" <<'EOF'
+[package]
+name = "bin-only"
+version = "0.0.0"
+edition = "2021"
+EOF
+  cat >"$tmp/crates/bin-only/src/main.rs" <<'EOF'
+fn main() {}
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
+exit 0
+EOF
+  cat >"$tmp/bin/cargo-nextest" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
+  printf 'NPX|%s\n' "$*" >>"${VERIFY_FAKE_NPX_LOG}"
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  if [[ "${VERIFY_FAKE_GIT_HAS_UPSTREAM:-1}" == "1" ]]; then
+    printf 'origin/main\n'
+    exit 0
+  fi
+  exit 1
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_BRANCH_DIFF:-}"
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_WORKTREE_DIFF:-}"
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_UNTRACKED:-}"
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
+  printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/cargo-nextest" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  cat >"$tmp/.githooks/pre-push" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake canonical pre-push"
+EOF
+  cat >"$tmp/scripts/hooks/pre-commit" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake legacy pre-commit shim"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh" "$tmp/.githooks/pre-push" "$tmp/scripts/hooks/pre-commit"
+
+  local changed
+  changed="$(mktemp)"
+  printf '%s\n' "$changed_file" >"$changed"
+  local cargo_log
+  cargo_log="$(mktemp)"
+  local npx_log
+  npx_log="$(mktemp)"
+
+  local output
+  output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_USE_NEXTEST="$use_nextest" \
+    VERIFY_LANE_MODE="$lane_mode" \
+    VERIFY_STAMP_SUBJECT="test-head" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_NPX_LOG="$npx_log" \
+    ./scripts/verify-local.sh "$mode"
+  )"
+
+  printf '%s\n' "$output"
+  echo "--- cargo-log ---"
+  cat "$cargo_log"
+  echo "--- npx-log ---"
+  cat "$npx_log"
+
+  rm -f "$changed" "$cargo_log" "$npx_log"
+  rm -rf "$tmp"
+}
+
+run_fake_full_worktree_classification() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
 
   cat >"$tmp/bin/cargo" <<'EOF'
 #!/usr/bin/env bash
@@ -127,17 +282,41 @@ EOF
   cat >"$tmp/bin/npx" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
+  printf 'NPX|%s\n' "$*" >>"${VERIFY_FAKE_NPX_LOG}"
+fi
 exit 0
 EOF
   cat >"$tmp/bin/git" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
-  printf 'test-head\n'
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  printf 'origin/main\n'
   exit 0
 fi
-if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
-  printf 'test-head\n'
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' 'docs/spec/SPEC-0009-wasm-abi-v3.md'
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${3:-}" == "--diff-filter=ACMRTUXBD" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' 'crates/warp-core/src/lib.rs'
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
   exit 0
 fi
 exit 0
@@ -149,37 +328,361 @@ EOF
 set -euo pipefail
 echo "fake hook coverage"
 EOF
-  cat >"$tmp/.githooks/pre-push" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "fake canonical pre-push"
-EOF
-  cat >"$tmp/scripts/hooks/pre-commit" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "fake legacy pre-commit shim"
-EOF
-  chmod +x "$tmp/tests/hooks/test_verify_local.sh" "$tmp/.githooks/pre-push" "$tmp/scripts/hooks/pre-commit"
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
 
-  local changed
-  changed="$(mktemp)"
-  printf '%s\n' "$changed_file" >"$changed"
   local cargo_log
   cargo_log="$(mktemp)"
+  local timing_log
+  timing_log="$(mktemp)"
 
   local output
   output="$(
     cd "$tmp" && \
     PATH="$tmp/bin:$PATH" \
     VERIFY_FORCE=1 \
-    VERIFY_LANE_MODE="$lane_mode" \
-    VERIFY_STAMP_SUBJECT="test-head" \
-    VERIFY_CHANGED_FILES_FILE="$changed" \
     VERIFY_FAKE_CARGO_LOG="$cargo_log" \
-    ./scripts/verify-local.sh "$mode"
+    VERIFY_TIMING_FILE="$timing_log" \
+    VERIFY_FAKE_GIT_TREE="tree-worktree-full" \
+    ./scripts/verify-local.sh full
   )"
 
   printf '%s\n' "$output"
+  echo "--- timing-log ---"
+  cat "$timing_log"
+  echo "--- cargo-log ---"
+  cat "$cargo_log"
+
+  rm -f "$cargo_log" "$timing_log"
+  rm -rf "$tmp"
+}
+
+run_fake_full_lane_exit_timing() {
+  local lane_mode="$1"
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  printf 'origin/main\n'
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf 'fake-head\n'
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf 'fake-tree\n'
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" || "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' 'scripts/verify-local.sh'
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' 'scripts/verify-local.sh'
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  cat >"$tmp/scripts/check_spdx.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/scripts/ban-nondeterminism.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  chmod +x \
+    "$tmp/tests/hooks/test_verify_local.sh" \
+    "$tmp/scripts/check_spdx.sh" \
+    "$tmp/scripts/ban-nondeterminism.sh"
+
+  local timing_log
+  timing_log="$(mktemp)"
+  local output
+  output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_LANE_MODE="$lane_mode" \
+    VERIFY_TIMING_FILE="$timing_log" \
+    ./scripts/verify-local.sh full 2>&1 || true
+  )"
+
+  printf '%s\n' "$output"
+  echo "--- timing-log ---"
+  cat "$timing_log"
+
+  rm -f "$timing_log"
+  rm -rf "$tmp"
+}
+
+run_fake_full_timing_escape() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  printf 'origin/main\n'
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf 'fake-head\n'
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-fake-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" || "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' 'docs/spec/SPEC-0009-wasm-abi-v3.md'
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' 'crates/warp-core/src/lib.rs'
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
+
+  local timing_log
+  timing_log="$(mktemp)"
+  (
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_TIMING_FILE="$timing_log" \
+    VERIFY_FAKE_GIT_TREE='tree"quoted\subject' \
+    ./scripts/verify-local.sh full >/dev/null
+  )
+
+  python3 - <<'PY' "$timing_log"
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as handle:
+    for line in handle:
+        record = json.loads(line)
+        assert '"' in record["subject"] or '\\' in record["subject"]
+PY
+
+  rm -f "$timing_log"
+  rm -rf "$tmp"
+}
+
+run_fake_full_stamp_sequence() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
+  printf 'NPX|%s\n' "$*" >>"${VERIFY_FAKE_NPX_LOG}"
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD^{tree}" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-test-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]]; then
+  printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
+
+  local changed
+  changed="$(mktemp)"
+  printf '%s\n' 'scripts/verify-local.sh' >"$changed"
+  local cargo_log
+  cargo_log="$(mktemp)"
+
+  local first_output second_output third_output
+  first_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-a" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh full
+  )"
+  second_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-b" \
+    VERIFY_FAKE_GIT_TREE="tree-aaaaaaaaaaaa" \
+    ./scripts/verify-local.sh full
+  )"
+  third_output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_CHANGED_FILES_FILE="$changed" \
+    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
+    VERIFY_FAKE_GIT_HEAD="commit-c" \
+    VERIFY_FAKE_GIT_TREE="tree-bbbbbbbbbbbb" \
+    ./scripts/verify-local.sh full
+  )"
+
+  printf '%s\n' "$first_output"
+  echo "--- second ---"
+  printf '%s\n' "$second_output"
+  echo "--- third ---"
+  printf '%s\n' "$third_output"
   echo "--- cargo-log ---"
   cat "$cargo_log"
 
@@ -201,6 +704,14 @@ if printf '%s\n' "$docs_output" | grep -q '^stamp_suite=docs$'; then
 else
   fail "docs-only changes should map to the docs stamp suite"
   printf '%s\n' "$docs_output"
+fi
+
+deleted_docs_output="$(run_fake_verify auto docs/spec/SPEC-0009-wasm-abi-v1.md)"
+if printf '%s\n' "$deleted_docs_output" | grep -q '^NPX|'; then
+  fail "deleted markdown paths should be skipped by docs lint"
+  printf '%s\n' "$deleted_docs_output"
+else
+  pass "docs lint skips deleted markdown paths"
 fi
 
 reduced_output="$(run_detect \
@@ -245,6 +756,36 @@ if printf '%s\n' "$full_output" | grep -q '^stamp_context=full$'; then
 else
   fail "full verification should normalize to the shared full stamp context"
   printf '%s\n' "$full_output"
+fi
+
+full_worktree_output="$(run_fake_full_worktree_classification)"
+if printf '%s\n' "$full_worktree_output" | grep -q '"classification":"full"'; then
+  pass "manual full verification classifies against the live worktree tree"
+else
+  fail "manual full verification should classify unstaged critical paths as full"
+  printf '%s\n' "$full_worktree_output"
+fi
+
+parallel_exit_timing_output="$(run_fake_full_lane_exit_timing parallel)"
+if printf '%s\n' "$parallel_exit_timing_output" | grep -q '"record_type":"lane".*"name":"guards".*"exit_status":1'; then
+  pass "parallel lane timing records preserve failing guard exits"
+else
+  fail "parallel lane timing should record failing guard exits"
+  printf '%s\n' "$parallel_exit_timing_output"
+fi
+
+sequential_exit_timing_output="$(run_fake_full_lane_exit_timing sequential)"
+if printf '%s\n' "$sequential_exit_timing_output" | grep -q '"record_type":"lane".*"name":"guards".*"exit_status":1'; then
+  pass "sequential lane timing records preserve failing guard exits"
+else
+  fail "sequential lane timing should record failing guard exits"
+  printf '%s\n' "$sequential_exit_timing_output"
+fi
+
+if run_fake_full_timing_escape; then
+  pass "timing records remain valid JSON when subject values need escaping"
+else
+  fail "timing records should escape JSON string fields"
 fi
 
 workflow_output="$(run_detect .github/workflows/ci.yml)"
@@ -426,6 +967,20 @@ else
   pass "local warp-core full verification stays on the smoke suite"
 fi
 
+fake_full_stamp_output="$(run_fake_full_stamp_sequence)"
+if printf '%s\n' "$fake_full_stamp_output" | grep -q 'reusing cached full verification for tree tree-aaaaaaa'; then
+  pass "full verification stamp reuse keys off the working tree instead of HEAD"
+else
+  fail "full verification should reuse the cache for a different commit with the same working tree"
+  printf '%s\n' "$fake_full_stamp_output"
+fi
+if [[ "$(printf '%s\n' "$fake_full_stamp_output" | awk '/--- cargo-log ---/{flag=1; next} flag && NF {count++} END {print count+0}')" == "2" ]]; then
+  pass "same-tree cache reuse suppresses the duplicate full rerun"
+else
+  fail "same-tree cache reuse should skip the duplicate full cargo invocation"
+  printf '%s\n' "$fake_full_stamp_output"
+fi
+
 fake_fast_output="$(run_fake_verify fast crates/warp-core/src/lib.rs)"
 if printf '%s\n' "$fake_fast_output" | grep -q 'clippy -p warp-core --lib -- -D warnings -D missing_docs'; then
   pass "fast verification uses the narrowed warp-core clippy scope"
@@ -438,6 +993,20 @@ if printf '%s\n' "$fake_fast_output" | grep -vq 'clippy -p warp-core --all-targe
 else
   fail "fast verification must not fall back to warp-core all-targets clippy"
   printf '%s\n' "$fake_fast_output"
+fi
+
+fake_fast_nextest_output="$(run_fake_verify fast crates/bin-only/src/main.rs parallel 1)"
+if printf '%s\n' "$fake_fast_nextest_output" | grep -q 'nextest run -p bin-only --bins'; then
+  pass "nextest uses target-aware args for bin-only crates"
+else
+  fail "nextest should use --bins for bin-only crates instead of hardcoded lib/test flags"
+  printf '%s\n' "$fake_fast_nextest_output"
+fi
+if printf '%s\n' "$fake_fast_nextest_output" | grep -q 'nextest run -p bin-only --lib --tests'; then
+  fail "nextest must not hardcode --lib --tests for bin-only crates"
+  printf '%s\n' "$fake_fast_nextest_output"
+else
+  pass "nextest avoids invalid lib/test flags for bin-only crates"
 fi
 
 fake_ultra_fast_output="$(run_fake_verify ultra-fast crates/warp-core/src/coordinator.rs)"

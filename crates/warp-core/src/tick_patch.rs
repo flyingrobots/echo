@@ -451,12 +451,19 @@ impl WarpTickPatchV1 {
     /// Returns an error if an operation is invalid for the current store
     /// state (e.g., deleting a missing edge).
     pub fn apply_to_state(&self, state: &mut WarpState) -> Result<(), TickPatchError> {
-        for op in &self.ops {
-            apply_op_to_state(state, op)?;
-        }
-        validate_portal_invariants(state)?;
-        Ok(())
+        apply_ops_to_state(state, &self.ops)
     }
+}
+
+pub(crate) fn apply_ops_to_state(
+    state: &mut WarpState,
+    ops: &[WarpOp],
+) -> Result<(), TickPatchError> {
+    for op in ops {
+        apply_op_to_state(state, op)?;
+    }
+    validate_portal_invariants(state)?;
+    Ok(())
 }
 
 fn validate_portal_invariants(state: &WarpState) -> Result<(), TickPatchError> {

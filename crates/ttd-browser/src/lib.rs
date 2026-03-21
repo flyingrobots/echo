@@ -46,9 +46,7 @@ use std::collections::BTreeMap;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
 
-use ttd_protocol_rs::{
-    ComplianceModel, ObligationReport, Snapshot, StepResult, StepResultKind, SCHEMA_SHA256,
-};
+use ttd_protocol_rs::{ComplianceModel, ObligationReport, StepResultKind, SCHEMA_SHA256};
 use warp_core::materialization::{ChannelId, FinalizedChannel};
 use warp_core::{
     compute_emissions_digest, make_node_id, make_type_id, CursorId, CursorRole, GraphStore,
@@ -279,7 +277,7 @@ impl TtdEngine {
     ///
     /// # Returns
     ///
-    /// CBOR-encoded `StepResult` object with fields:
+    /// CBOR-encoded step result object with fields:
     /// - `result`: `NoOp` | `Advanced` | `Seeked` | `ReachedFrontier`
     /// - `tick`: Current tick after step
     ///
@@ -291,7 +289,7 @@ impl TtdEngine {
         encode_cbor(&step_result)
     }
 
-    fn step_inner(&mut self, cursor_id: u32) -> Result<StepResult, JsError> {
+    fn step_inner(&mut self, cursor_id: u32) -> Result<BrowserStepResult, JsError> {
         let cursor = self
             .cursors
             .get_mut(&cursor_id)
@@ -306,7 +304,7 @@ impl TtdEngine {
             .step(&self.provenance, initial_store)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        Ok(StepResult {
+        Ok(BrowserStepResult {
             result: match result {
                 CoreStepResult::NoOp => StepResultKind::NO_OP,
                 CoreStepResult::Advanced => StepResultKind::ADVANCED,
@@ -820,14 +818,14 @@ impl TtdEngine {
         encode_cbor(&snapshot)
     }
 
-    fn snapshot_inner(&self, cursor_id: u32) -> Result<Snapshot, JsError> {
+    fn snapshot_inner(&self, cursor_id: u32) -> Result<BrowserSnapshot, JsError> {
         let cursor = self
             .cursors
             .get(&cursor_id)
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
-        Ok(Snapshot {
-            worldlineId: bytes_to_hex(&cursor.worldline_id.0),
+        Ok(BrowserSnapshot {
+            worldline_id: bytes_to_hex(&cursor.worldline_id.0),
             tick: cursor.current_tick().as_u64(),
         })
     }
@@ -851,10 +849,10 @@ impl TtdEngine {
         snapshot: &[u8],
         new_worldline_id: &[u8],
     ) -> Result<u32, JsError> {
-        let snap: Snapshot =
+        let snap: BrowserSnapshot =
             ciborium::from_reader(snapshot).map_err(|e| JsError::new(&e.to_string()))?;
 
-        let source_wl_bytes = hex_to_bytes(&snap.worldlineId)
+        let source_wl_bytes = hex_to_bytes(&snap.worldline_id)
             .map_err(|e| JsError::new(&format!("invalid worldlineId: {e}")))?;
         let source_wl = WorldlineId(source_wl_bytes);
         let new_wl = parse_worldline_id(new_worldline_id)?;
@@ -866,7 +864,7 @@ impl TtdEngine {
             .fork(
                 source_wl,
                 tick.checked_sub(1)
-                    .ok_or_else(|| JsError::new("cannot fork from tick 0 snapshot"))?,
+                    .ok_or_else(|| JsError::new(fork_from_tick_zero_message()))?,
                 new_wl,
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
@@ -948,6 +946,21 @@ struct TruthFrameJs {
     commit_hash: [u8; 32],
 }
 
+/// Browser-facing step result that preserves full logical tick width.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BrowserStepResult {
+    result: StepResultKind,
+    tick: u64,
+}
+
+/// Browser-facing snapshot coordinate that preserves full logical tick width.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BrowserSnapshot {
+    #[serde(rename = "worldlineId")]
+    worldline_id: String,
+    tick: u64,
+}
+
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
 /// Error type for parsing 32-byte identifiers.
@@ -965,6 +978,10 @@ fn committed_tick_for_cursor(cursor: &PlaybackCursor) -> Result<WorldlineTick, J
         .current_tick()
         .checked_sub(1)
         .ok_or_else(|| JsError::new("cursor has no committed tick at position 0"))
+}
+
+fn fork_from_tick_zero_message() -> &'static str {
+    "cannot fork from tick 0: no committed history"
 }
 
 fn parse_worldline_id_inner(bytes: &[u8]) -> Result<WorldlineId, ParseError> {
@@ -1379,29 +1396,46 @@ mod tests {
     #[test]
     fn step_result_preserves_large_ticks() {
         let large_tick = u64::from(i32::MAX as u32) + 42;
-        let step_result = StepResult {
+        let step_result = BrowserStepResult {
             result: StepResultKind::ADVANCED,
             tick: large_tick,
         };
         let mut encoded = Vec::new();
         ciborium::into_writer(&step_result, &mut encoded).unwrap();
 
-        let decoded: StepResult = ciborium::from_reader(encoded.as_slice()).unwrap();
+        let decoded: BrowserStepResult = ciborium::from_reader(encoded.as_slice()).unwrap();
         assert_eq!(decoded.tick, large_tick);
     }
 
     #[test]
     fn snapshot_preserves_large_ticks() {
         let large_tick = u64::from(i32::MAX as u32) + 42;
-        let snapshot = Snapshot {
-            worldlineId: bytes_to_hex(&test_worldline_id()),
+        let snapshot = BrowserSnapshot {
+            worldline_id: bytes_to_hex(&test_worldline_id()),
             tick: large_tick,
         };
         let mut encoded = Vec::new();
         ciborium::into_writer(&snapshot, &mut encoded).unwrap();
 
-        let decoded: Snapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
+        let decoded: BrowserSnapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
         assert_eq!(decoded.tick, large_tick);
+    }
+
+    #[test]
+    fn fork_from_snapshot_rejects_tick_zero_without_history() {
+        let snapshot = BrowserSnapshot {
+            worldline_id: bytes_to_hex(&test_worldline_id()),
+            tick: 0,
+        };
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&snapshot, &mut encoded).unwrap();
+
+        let decoded: BrowserSnapshot = ciborium::from_reader(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.worldline_id, bytes_to_hex(&test_worldline_id()));
+        assert_eq!(
+            fork_from_tick_zero_message(),
+            "cannot fork from tick 0: no committed history"
+        );
     }
 
     #[test]

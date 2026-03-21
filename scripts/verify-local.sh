@@ -728,7 +728,7 @@ run_timed_step() {
   local rc=0
 
   set +e
-  "$step_func" "$@"
+  ( "$step_func" "$@" )
   rc=$?
   set -e
 
@@ -816,7 +816,7 @@ run_parallel_lanes() {
       set -uo pipefail
       started_at="$(now_seconds)"
       rc=0
-      "${lane_funcs[$i]}" || rc=$?
+      ( "${lane_funcs[$i]}" ) || rc=$?
       finished_at="$(now_seconds)"
       printf '%s\n' "$((finished_at - started_at))" >"${logdir}/${lane_names[$i]}.elapsed"
       exit "$rc"

@@ -1217,6 +1217,7 @@ impl LocalProvenanceStore {
                 .as_u64(),
         )
         .map_err(|_| HistoryError::HistoryUnavailable { tick: fork_tick })?;
+        let checkpoint_max_tick = fork_tick.checked_increment().unwrap_or(WorldlineTick::MAX);
         let new_history = WorldlineHistory {
             u0_ref: source_history.u0_ref,
             initial_boundary_hash: source_history.initial_boundary_hash,
@@ -1228,7 +1229,7 @@ impl LocalProvenanceStore {
             checkpoints: source_history
                 .checkpoints
                 .iter()
-                .filter(|c| c.checkpoint.worldline_tick <= fork_tick)
+                .filter(|c| c.checkpoint.worldline_tick <= checkpoint_max_tick)
                 .cloned()
                 .collect(),
         };
@@ -2279,7 +2280,10 @@ mod tests {
         assert_eq!(forked_entry.worldline_id, target);
         assert_eq!(forked_entry.head_key.unwrap().worldline_id, target);
         assert_eq!(forked_entry.expected, test_triplet(0));
-        assert!(store.checkpoint_before(target, wt(1)).is_none());
+        let checkpoint = store
+            .checkpoint_before(target, wt(2))
+            .expect("fork should retain the tip checkpoint");
+        assert_eq!(checkpoint.worldline_tick, wt(1));
     }
 
     #[test]
@@ -2480,7 +2484,10 @@ mod tests {
         assert_eq!(forked_entry.worldline_id, target);
         assert_eq!(forked_entry.head_key.unwrap().worldline_id, target);
         assert_eq!(forked_entry.expected, test_triplet(0));
-        assert!(service.checkpoint_before(target, wt(1)).is_none());
+        let checkpoint = service
+            .checkpoint_before(target, wt(2))
+            .expect("fork should retain the tip checkpoint");
+        assert_eq!(checkpoint.worldline_tick, wt(1));
         service
             .build_btr(target, wt(0), wt(1), 7, b"auth".to_vec())
             .unwrap();

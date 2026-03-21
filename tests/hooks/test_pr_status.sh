@@ -77,7 +77,6 @@ EOF
       ;;
     *)
       echo "unknown fixture: $fixture" >&2
-      rm -rf "$tmp"
       exit 1
       ;;
   esac

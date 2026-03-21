@@ -189,12 +189,12 @@ pub struct ObligationState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResult {
     pub result: StepResultKind,
-    pub tick: u64,
+    pub tick: i32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub worldlineId: String,
-    pub tick: u64,
+    pub tick: i32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComplianceModel {

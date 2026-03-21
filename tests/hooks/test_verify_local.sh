@@ -356,6 +356,117 @@ EOF
   rm -rf "$tmp"
 }
 
+run_fake_full_lane_exit_timing() {
+  local lane_mode="$1"
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+  exit 0
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  printf 'origin/main\n'
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf 'fake-head\n'
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf 'fake-tree\n'
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" || "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' 'scripts/verify-local.sh'
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' 'scripts/verify-local.sh'
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  cat >"$tmp/scripts/check_spdx.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/scripts/ban-nondeterminism.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  chmod +x \
+    "$tmp/tests/hooks/test_verify_local.sh" \
+    "$tmp/scripts/check_spdx.sh" \
+    "$tmp/scripts/ban-nondeterminism.sh"
+
+  local timing_log
+  timing_log="$(mktemp)"
+  local output
+  output="$(
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_LANE_MODE="$lane_mode" \
+    VERIFY_TIMING_FILE="$timing_log" \
+    ./scripts/verify-local.sh full 2>&1 || true
+  )"
+
+  printf '%s\n' "$output"
+  echo "--- timing-log ---"
+  cat "$timing_log"
+
+  rm -f "$timing_log"
+  rm -rf "$tmp"
+}
+
 run_fake_full_timing_escape() {
   local tmp
   tmp="$(mktemp -d)"
@@ -653,6 +764,22 @@ if printf '%s\n' "$full_worktree_output" | grep -q '"classification":"full"'; th
 else
   fail "manual full verification should classify unstaged critical paths as full"
   printf '%s\n' "$full_worktree_output"
+fi
+
+parallel_exit_timing_output="$(run_fake_full_lane_exit_timing parallel)"
+if printf '%s\n' "$parallel_exit_timing_output" | grep -q '"record_type":"lane".*"name":"guards".*"exit_status":1'; then
+  pass "parallel lane timing records preserve failing guard exits"
+else
+  fail "parallel lane timing should record failing guard exits"
+  printf '%s\n' "$parallel_exit_timing_output"
+fi
+
+sequential_exit_timing_output="$(run_fake_full_lane_exit_timing sequential)"
+if printf '%s\n' "$sequential_exit_timing_output" | grep -q '"record_type":"lane".*"name":"guards".*"exit_status":1'; then
+  pass "sequential lane timing records preserve failing guard exits"
+else
+  fail "sequential lane timing should record failing guard exits"
+  printf '%s\n' "$sequential_exit_timing_output"
 fi
 
 if run_fake_full_timing_escape; then

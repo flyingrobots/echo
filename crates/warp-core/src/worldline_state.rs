@@ -298,10 +298,7 @@ impl WorldlineState {
     /// Returns the current committed frontier tick implied by this state's history.
     #[must_use]
     pub fn current_tick(&self) -> WorldlineTick {
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            WorldlineTick::from_raw(self.tick_history.len() as u64)
-        }
+        WorldlineTick::from_raw(self.tick_history.len() as u64)
     }
 
     /// Returns `true` if this worldline already committed the ingress for the given head.

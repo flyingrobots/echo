@@ -53,6 +53,16 @@ now_seconds() {
   date +%s
 }
 
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+
 worktree_tree() (
   set -euo pipefail
   local tmp_index
@@ -73,16 +83,16 @@ append_timing_record() {
   mkdir -p "$(dirname "$VERIFY_TIMING_FILE")"
   printf \
     '{"ts":"%s","record_type":"%s","mode":"%s","context":"%s","classification":"%s","name":"%s","elapsed_seconds":%s,"exit_status":%s,"cache":"%s","subject":"%s"}\n' \
-    "$(utc_timestamp)" \
-    "$record_type" \
-    "$MODE" \
-    "${VERIFY_MODE_CONTEXT:-unknown}" \
-    "${VERIFY_CLASSIFICATION:-unknown}" \
-    "$name" \
+    "$(json_escape "$(utc_timestamp)")" \
+    "$(json_escape "$record_type")" \
+    "$(json_escape "$MODE")" \
+    "$(json_escape "${VERIFY_MODE_CONTEXT:-unknown}")" \
+    "$(json_escape "${VERIFY_CLASSIFICATION:-unknown}")" \
+    "$(json_escape "$name")" \
     "$elapsed_seconds" \
     "$exit_status" \
-    "${VERIFY_RUN_CACHE_STATE:-fresh}" \
-    "${VERIFY_STAMP_SUBJECT:-unknown}" >>"$VERIFY_TIMING_FILE"
+    "$(json_escape "${VERIFY_RUN_CACHE_STATE:-fresh}")" \
+    "$(json_escape "${VERIFY_STAMP_SUBJECT:-unknown}")" >>"$VERIFY_TIMING_FILE"
 }
 
 report_lane_timing() {
@@ -802,6 +812,7 @@ run_parallel_lanes() {
   echo "[verify-local] ${suite}: lanes=${lane_names[*]}"
   for i in "${!lane_names[@]}"; do
     (
+      # Deliberately omit -e: we capture the lane exit explicitly in rc below.
       set -uo pipefail
       started_at="$(now_seconds)"
       rc=0

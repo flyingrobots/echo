@@ -60,6 +60,8 @@ pub enum EnvelopeError {
     Malformed,
     /// Payload length exceeds u32::MAX.
     PayloadTooLarge,
+    /// Public application envelopes may not use the reserved control op id.
+    ReservedOpId,
 }
 
 impl core::fmt::Display for EnvelopeError {
@@ -70,16 +72,12 @@ impl core::fmt::Display for EnvelopeError {
             Self::LengthMismatch => f.write_str("envelope length mismatch"),
             Self::Malformed => f.write_str("malformed envelope"),
             Self::PayloadTooLarge => f.write_str("payload exceeds u32::MAX"),
+            Self::ReservedOpId => f.write_str("reserved control op id is not allowed here"),
         }
     }
 }
 
-/// Packs an application-blind intent envelope v1.
-/// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
-///
-/// # Errors
-/// Returns `PayloadTooLarge` if `vars.len()` exceeds `u32::MAX`.
-pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+fn pack_envelope_v1_raw(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
     let vars_len: u32 = vars
         .len()
         .try_into()
@@ -90,6 +88,18 @@ pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError>
     out.extend_from_slice(&vars_len.to_le_bytes());
     out.extend_from_slice(vars);
     Ok(out)
+}
+
+/// Packs an application-blind intent envelope v1.
+/// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
+///
+/// # Errors
+/// Returns `PayloadTooLarge` if `vars.len()` exceeds `u32::MAX`.
+pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+    if op_id == CONTROL_INTENT_V1_OP_ID {
+        return Err(EnvelopeError::ReservedOpId);
+    }
+    pack_envelope_v1_raw(op_id, vars)
 }
 
 /// Unpacks an application-blind intent envelope v1.
@@ -132,7 +142,7 @@ pub fn pack_control_intent_v1(
     intent: &kernel_port::ControlIntentV1,
 ) -> Result<Vec<u8>, EnvelopeError> {
     let bytes = encode_cbor(intent).map_err(|_| EnvelopeError::Malformed)?;
-    pack_intent_v1(CONTROL_INTENT_V1_OP_ID, &bytes)
+    pack_envelope_v1_raw(CONTROL_INTENT_V1_OP_ID, &bytes)
 }
 
 /// Unpacks and decodes a privileged control intent from an EINT envelope v1.
@@ -383,5 +393,61 @@ mod tests {
         let (op, vars) = unpack_intent_v1(&packed).unwrap();
         assert_eq!(op, 99);
         assert_eq!(vars, &[] as &[u8]);
+    }
+
+    #[test]
+    fn test_pack_intent_rejects_reserved_control_op_id() {
+        assert_eq!(
+            pack_intent_v1(CONTROL_INTENT_V1_OP_ID, b"reserved"),
+            Err(EnvelopeError::ReservedOpId)
+        );
+    }
+
+    #[test]
+    fn test_control_intent_round_trip() {
+        use crate::kernel_port::{ControlIntentV1, SchedulerMode};
+
+        let packed = pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
+            },
+        })
+        .unwrap();
+
+        let unpacked = unpack_control_intent_v1(&packed).unwrap();
+        assert_eq!(
+            unpacked,
+            ControlIntentV1::Start {
+                mode: SchedulerMode::UntilIdle {
+                    cycle_limit: Some(1),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn test_unpack_control_intent_rejects_wrong_op_id() {
+        use crate::kernel_port::{ControlIntentV1, SchedulerMode};
+
+        let payload = encode_cbor(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle { cycle_limit: None },
+        })
+        .unwrap();
+        let packed = pack_intent_v1(99, &payload).unwrap();
+
+        assert_eq!(
+            unpack_control_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
+        );
+    }
+
+    #[test]
+    fn test_unpack_control_intent_rejects_malformed_cbor() {
+        let packed = pack_envelope_v1_raw(CONTROL_INTENT_V1_OP_ID, &[0xff]).unwrap();
+
+        assert_eq!(
+            unpack_control_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
+        );
     }
 }

@@ -443,7 +443,10 @@ impl WarpKernel {
                 self.runtime
                     .set_head_eligibility(key, eligibility)
                     .map_err(|e| AbiError {
-                        code: error_codes::ENGINE_ERROR,
+                        code: match e {
+                            RuntimeError::UnknownHead(_) => error_codes::INVALID_CONTROL,
+                            _ => error_codes::ENGINE_ERROR,
+                        },
                         message: e.to_string(),
                     })?;
                 self.refresh_scheduler_status();
@@ -686,6 +689,23 @@ mod tests {
         );
         // State root should be non-zero (deterministic hash of root node)
         assert_ne!(head.state_root, vec![0u8; 32]);
+    }
+
+    #[test]
+    fn set_head_eligibility_rejects_unknown_head_as_invalid_control() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let control = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
+            head: AbiHeadKey {
+                worldline_id: kernel.default_worldline.0.to_vec(),
+                head_id: make_head_id("missing").as_bytes().to_vec(),
+            },
+            eligibility: AbiHeadEligibility::Dormant,
+        })
+        .unwrap();
+
+        let error = kernel.dispatch_intent(&control).unwrap_err();
+        assert_eq!(error.code, error_codes::INVALID_CONTROL);
+        assert!(error.message.contains("unknown writer head"));
     }
 
     #[test]

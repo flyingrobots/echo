@@ -249,7 +249,11 @@ pub enum ControlIntentV1 {
         /// Requested scheduler mode.
         mode: SchedulerMode,
     },
-    /// Request stop at the next scheduler boundary.
+    /// Request scheduler stop for implementations with persistent runs.
+    ///
+    /// The current engine-backed `warp-wasm` kernel executes `Start` runs
+    /// synchronously, so hosts normally observe the completed run via
+    /// `last_run_completion` instead of an intermediate stopping state.
     Stop,
     /// Change declarative head admission.
     SetHeadEligibility {

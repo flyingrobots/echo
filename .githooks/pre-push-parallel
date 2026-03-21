@@ -63,6 +63,7 @@ on_signal() {
   elif [[ "$signal_name" == "TERM" ]]; then
     exit_code=143
   fi
+  trap - EXIT
   cleanup "$exit_code"
   exit "$exit_code"
 }

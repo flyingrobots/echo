@@ -566,7 +566,7 @@ mod init_tests {
             let head = Self::current_head();
             Ok(ObservationArtifact {
                 resolved: ResolvedObservationCoordinate {
-                    observation_version: 1,
+                    observation_version: 2,
                     worldline_id: vec![9; 32],
                     requested_at: ObservationAt::Frontier,
                     resolved_worldline_tick: head.worldline_tick,

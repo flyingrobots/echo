@@ -356,6 +356,105 @@ EOF
   rm -rf "$tmp"
 }
 
+run_fake_full_timing_escape() {
+  local tmp
+  tmp="$(mktemp -d)"
+
+  mkdir -p "$tmp/scripts/hooks" "$tmp/bin" "$tmp/.git" "$tmp/.githooks" "$tmp/tests/hooks"
+  cp scripts/verify-local.sh "$tmp/scripts/verify-local.sh"
+  chmod +x "$tmp/scripts/verify-local.sh"
+
+  cat >"$tmp/rust-toolchain.toml" <<'EOF'
+[toolchain]
+channel = "1.90.0"
+EOF
+
+  cat >"$tmp/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/rustup" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
+  printf '1.90.0-aarch64-apple-darwin (default)\n'
+fi
+exit 0
+EOF
+  cat >"$tmp/bin/rg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+  cat >"$tmp/bin/npx" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 0
+EOF
+  cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--verify" && "${3:-}" == "@{upstream}" ]]; then
+  printf 'origin/main\n'
+  exit 0
+fi
+if [[ "${1:-}" == "rev-parse" && "${2:-}" == "HEAD" ]]; then
+  printf 'fake-head\n'
+  exit 0
+fi
+if [[ "${1:-}" == "write-tree" ]]; then
+  printf '%s\n' "${VERIFY_FAKE_GIT_TREE:-fake-tree}"
+  exit 0
+fi
+if [[ "${1:-}" == "read-tree" || "${1:-}" == "add" ]]; then
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "@{upstream}...HEAD" ]]; then
+  printf '%s\n' 'docs/spec/SPEC-0009-wasm-abi-v3.md'
+  exit 0
+fi
+if [[ "${1:-}" == "diff" && "${2:-}" == "--name-only" && "${4:-}" == "HEAD" ]]; then
+  printf '%s\n' 'crates/warp-core/src/lib.rs'
+  exit 0
+fi
+if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
+
+  cat >"$tmp/tests/hooks/test_verify_local.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "fake hook coverage"
+EOF
+  chmod +x "$tmp/tests/hooks/test_verify_local.sh"
+
+  local timing_log
+  timing_log="$(mktemp)"
+  (
+    cd "$tmp" && \
+    PATH="$tmp/bin:$PATH" \
+    VERIFY_FORCE=1 \
+    VERIFY_TIMING_FILE="$timing_log" \
+    VERIFY_FAKE_GIT_TREE='tree"quoted\subject' \
+    ./scripts/verify-local.sh full >/dev/null
+  )
+
+  python3 - <<'PY' "$timing_log"
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as handle:
+    for line in handle:
+        record = json.loads(line)
+        assert '"' in record["subject"] or '\\' in record["subject"]
+PY
+
+  rm -f "$timing_log"
+  rm -rf "$tmp"
+}
+
 run_fake_full_stamp_sequence() {
   local tmp
   tmp="$(mktemp -d)"
@@ -554,6 +653,12 @@ if printf '%s\n' "$full_worktree_output" | grep -q '"classification":"full"'; th
 else
   fail "manual full verification should classify unstaged critical paths as full"
   printf '%s\n' "$full_worktree_output"
+fi
+
+if run_fake_full_timing_escape; then
+  pass "timing records remain valid JSON when subject values need escaping"
+else
+  fail "timing records should escape JSON string fields"
 fi
 
 workflow_output="$(run_detect .github/workflows/ci.yml)"

@@ -180,10 +180,15 @@ for hook in commit-msg pre-commit pre-push pre-push-parallel pre-push-sequential
   fi
 done
 
-if rg -q '^\.dx-debug/\*$' .gitignore; then
+if rg -q '^\.dx-debug/$' .gitignore; then
   pass ".gitignore ignores .dx-debug timing artifacts"
 else
   fail ".gitignore should ignore .dx-debug timing artifacts"
+fi
+if rg -q '^blog/$' .gitignore; then
+  pass ".gitignore ignores blog drafts recursively"
+else
+  fail ".gitignore should ignore blog drafts recursively"
 fi
 
 tmp="$(fixture_root)"

@@ -5,6 +5,20 @@
 
 ## Unreleased
 
+### Fixed (PR #304 follow-up)
+
+- **Fixed** the session WebSocket gateway TLS stack to use the Rustls ring
+  provider instead of AWS-LC, clearing the current `cargo audit` and
+  `cargo-deny` blockers without weakening TLS coverage.
+- **Fixed** hook timing instrumentation to cache its clock source, serialize CSV
+  header creation, and runtime-test the sequential and parallel pre-push hooks
+  instead of only checking them statically.
+- **Fixed** ABI/runtime metadata surfaces so dormant heads are representable,
+  playback cursor tick/state invariants stay encapsulated, and typed logical
+  counter helpers have direct boundary coverage.
+- **Fixed** the browser adapter to reuse the canonical committed-tick helper and
+  preserve large logical tick values end-to-end instead of clamping them.
+
 ### feat(tooling): harden the post-Phase-5 dev loop
 
 - **Changed** local verification success stamps now key off the actual checked

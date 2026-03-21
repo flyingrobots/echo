@@ -18,6 +18,11 @@
   counter helpers have direct boundary coverage.
 - **Fixed** the browser adapter to reuse the canonical committed-tick helper and
   preserve large logical tick values end-to-end instead of clamping them.
+- **Fixed** final PR review follow-ups so browser-only large-tick DTOs no
+  longer hand-edit generated protocol artifacts, forked provenance retains
+  checkpoint state at the copied tip, `verify-local` records failing lane
+  timings even when helpers `exit`, and the session gateway rejects unexpected
+  pre-installed Rustls crypto providers.
 
 ### feat(tooling): harden the post-Phase-5 dev loop
 

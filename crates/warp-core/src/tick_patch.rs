@@ -1815,7 +1815,12 @@ mod tests {
         let edge_id = make_edge_id("plain-edge");
         let child_warp = make_warp_id("topology-gate-child");
         let mut state = worldline.warp_state().clone();
-        let store = state.store_mut(&root.warp_id).expect("root store");
+        let root_instance = WarpInstance {
+            warp_id,
+            root_node: root.local_id,
+            parent: None,
+        };
+        let mut store = state.take_or_create_store(root.warp_id);
         store.insert_node(
             child,
             NodeRecord {
@@ -1831,6 +1836,7 @@ mod tests {
                 ty: make_type_id("PlainEdgeTy"),
             },
         );
+        state.upsert_instance(root_instance.clone(), store);
 
         let portal_key = AttachmentKey::node_alpha(root);
         let edge_key = AttachmentKey::edge_beta(EdgeKey {
@@ -1878,10 +1884,9 @@ mod tests {
             },
         ));
 
-        state
-            .store_mut(&warp_id)
-            .expect("root store")
-            .set_node_attachment(root.local_id, Some(AttachmentValue::Descend(child_warp)));
+        let mut store = state.take_or_create_store(warp_id);
+        store.set_node_attachment(root.local_id, Some(AttachmentValue::Descend(child_warp)));
+        state.upsert_instance(root_instance.clone(), store);
         assert!(warp_op_touches_portal_topology(
             &state,
             &WarpOp::SetAttachment {
@@ -1894,10 +1899,9 @@ mod tests {
             &WarpOp::DeleteNode { node: root },
         ));
 
-        state
-            .store_mut(&warp_id)
-            .expect("root store")
-            .set_edge_attachment(edge_id, Some(AttachmentValue::Descend(child_warp)));
+        let mut store = state.take_or_create_store(warp_id);
+        store.set_edge_attachment(edge_id, Some(AttachmentValue::Descend(child_warp)));
+        state.upsert_instance(root_instance, store);
         assert!(warp_op_touches_portal_topology(
             &state,
             &WarpOp::DeleteEdge {

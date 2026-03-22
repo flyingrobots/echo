@@ -732,7 +732,7 @@ mod tests {
     #[test]
     fn replay_base_from_initial_resets_frontier_metadata() {
         let mut state = WorldlineState::empty();
-        state.last_snapshot = Some(Snapshot {
+        let snapshot = Snapshot {
             root: *state.root(),
             hash: [1u8; 32],
             state_root: [2u8; 32],
@@ -743,9 +743,10 @@ mod tests {
             patch_digest: [7u8; 32],
             policy_id: 8,
             tx: crate::tx::TxId::from_raw(9),
-        });
+        };
+        state.last_snapshot = Some(snapshot.clone());
         state.tick_history.push((
-            state.last_snapshot.clone().expect("snapshot fixture"),
+            snapshot,
             TickReceipt::new(crate::tx::TxId::from_raw(10), Vec::new(), Vec::new()),
             WarpTickPatchV1::new(
                 0,

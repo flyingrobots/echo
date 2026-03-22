@@ -148,6 +148,8 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
 ///
 /// Returns [`EnvelopeError::Malformed`] if
 /// [`kernel_port::ControlIntentV1`] cannot be encoded as canonical CBOR.
+/// Returns [`EnvelopeError::PayloadTooLarge`] if the encoded payload exceeds
+/// the EINT v1 `u32` length field accepted by [`pack_envelope_v1_raw`].
 pub fn pack_control_intent_v1(
     intent: &kernel_port::ControlIntentV1,
 ) -> Result<Vec<u8>, EnvelopeError> {
@@ -161,6 +163,9 @@ pub fn pack_control_intent_v1(
 ///
 /// # Errors
 ///
+/// Returns [`EnvelopeError::InvalidMagic`], [`EnvelopeError::TooShort`], or
+/// [`EnvelopeError::LengthMismatch`] if `bytes` is not a well-formed EINT v1
+/// envelope as parsed by [`unpack_intent_v1`].
 /// Returns [`EnvelopeError::Malformed`] if the envelope uses any other op id or
 /// if the payload is not valid canonical CBOR for
 /// [`kernel_port::ControlIntentV1`].

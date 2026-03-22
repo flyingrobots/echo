@@ -35,6 +35,7 @@ use crate::provenance_store::{
     advance_replay_state, replay_worldline_state_at_from_provenance, validate_replay_base,
     ProvenanceStore, ReplayError,
 };
+use crate::snapshot::compute_state_root_for_warp_state;
 use crate::worldline::WorldlineId;
 use crate::worldline_state::WorldlineState;
 
@@ -441,6 +442,11 @@ impl PlaybackCursor {
             initial_state.current_tick(),
             WorldlineTick::ZERO,
             "playback cursor initial_state must be an unadvanced replay base"
+        );
+        assert_eq!(
+            initial_state.state_root(),
+            compute_state_root_for_warp_state(initial_state.initial_state(), initial_state.root()),
+            "playback cursor initial_state must materialize the canonical U0 replay base"
         );
         Self {
             cursor_id,

@@ -27,6 +27,7 @@ trap cleanup EXIT
 cat >"$tmp" <<'EOF'
 {"variant":"sequential","duration":9.5,"exit":0}
 {"record_type":"run","mode":"full","elapsed_seconds":2.5,"exit_status":0}
+{"record_type":"run","mode":"full","elapsed_seconds":99.0,"exit_status":1}
 {"record_type":"run","mode":"fast","elapsed_seconds":1.0,"exit_status":0}
 EOF
 
@@ -54,6 +55,13 @@ if printf '%s\n' "$output" | grep -q 'sequential'; then
   printf '%s\n' "$output"
 else
   pass "plotter ignores legacy rows when current run records are present"
+fi
+
+if printf '%s\n' "$output" | grep -q 'full: 1 successful runs'; then
+  pass "plotter summaries count only successful runs for plotted series"
+else
+  fail "plotter should align plotted full-mode samples with successful-run stats"
+  printf '%s\n' "$output"
 fi
 
 echo

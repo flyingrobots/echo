@@ -193,7 +193,8 @@ if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]];
   printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
   exit 0
 fi
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   chmod +x "$tmp/bin/cargo" "$tmp/bin/cargo-nextest" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
 
@@ -263,7 +264,8 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_CARGO_LOG}"
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   cat >"$tmp/bin/rustup" <<'EOF'
 #!/usr/bin/env bash
@@ -272,7 +274,8 @@ if [[ "${1:-}" == "toolchain" && "${2:-}" == "list" ]]; then
   printf '1.90.0-aarch64-apple-darwin (default)\n'
   exit 0
 fi
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   cat >"$tmp/bin/rg" <<'EOF'
 #!/usr/bin/env bash
@@ -285,7 +288,8 @@ set -euo pipefail
 if [[ -n "${VERIFY_FAKE_NPX_LOG:-}" ]]; then
   printf 'NPX|%s\n' "$*" >>"${VERIFY_FAKE_NPX_LOG}"
 fi
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   cat >"$tmp/bin/git" <<'EOF'
 #!/usr/bin/env bash
@@ -319,7 +323,8 @@ fi
 if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
   exit 0
 fi
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
 
@@ -423,7 +428,8 @@ fi
 if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
   exit 0
 fi
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
 
@@ -532,7 +538,8 @@ fi
 if [[ "${1:-}" == "ls-files" && "${2:-}" == "--others" && "${3:-}" == "--exclude-standard" ]]; then
   exit 0
 fi
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
 
@@ -639,7 +646,8 @@ if [[ "${1:-}" == "rev-parse" && "${2:-}" == "--short" && "${3:-}" == "HEAD" ]];
   printf '%.12s\n' "${VERIFY_FAKE_GIT_HEAD:-test-head}"
   exit 0
 fi
-exit 0
+echo "unexpected git invocation: $*" >&2
+exit 1
 EOF
   chmod +x "$tmp/bin/cargo" "$tmp/bin/rustup" "$tmp/bin/rg" "$tmp/bin/npx" "$tmp/bin/git"
 

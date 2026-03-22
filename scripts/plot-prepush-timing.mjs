@@ -43,15 +43,19 @@ const runRecords = data.filter(d => d.record_type === 'run' && typeof d.elapsed_
 const legacyRecords = data.filter(d => Object.prototype.hasOwnProperty.call(d, 'variant'));
 
 if (runRecords.length === 0 && legacyRecords.length > 0) {
-  const sequential = legacyRecords.filter(d => d.variant === 'sequential').map(d => d.duration);
-  const parallel = legacyRecords.filter(d => d.variant === 'parallel').map(d => d.duration);
+  const sequential = legacyRecords
+    .filter(d => d.variant === 'sequential' && d.exit === 0)
+    .map(d => d.duration);
+  const parallel = legacyRecords
+    .filter(d => d.variant === 'parallel' && d.exit === 0)
+    .map(d => d.duration);
   if (sequential.length > 0) {
     series.push(sequential);
-    legends.push({ label: 'sequential', color: '🔴', stats: legacyRecords.filter(d => d.variant === 'sequential' && d.exit === 0).map(d => d.duration) });
+    legends.push({ label: 'sequential', color: '🔴', stats: sequential });
   }
   if (parallel.length > 0) {
     series.push(parallel);
-    legends.push({ label: 'parallel', color: '🟢', stats: legacyRecords.filter(d => d.variant === 'parallel' && d.exit === 0).map(d => d.duration) });
+    legends.push({ label: 'parallel', color: '🟢', stats: parallel });
   }
 }
 
@@ -64,11 +68,15 @@ if (runRecords.length > 0) {
   ];
   for (const mode of modeNames) {
     const records = runRecords.filter(d => d.mode === mode);
-    series.push(records.map(d => d.elapsed_seconds));
+    const successful = records.filter(d => d.exit_status === 0);
+    if (successful.length === 0) {
+      continue;
+    }
+    series.push(successful.map(d => d.elapsed_seconds));
     legends.push({
       label: mode,
       color: ['🔴', '🟢', '🔵', '🟡', '🟣'][legends.length] || '⚪',
-      stats: records.filter(d => d.exit_status === 0).map(d => d.elapsed_seconds),
+      stats: successful.map(d => d.elapsed_seconds),
     });
   }
 }

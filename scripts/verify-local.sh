@@ -74,13 +74,87 @@ worktree_tree() (
   GIT_INDEX_FILE="$tmp_index" git write-tree
 )
 
+timing_lock_metadata_file() {
+  printf '%s\n' "$1/owner"
+}
+
+timing_write_lock_metadata() {
+  local lock_dir="$1"
+  local meta_file
+  meta_file="$(timing_lock_metadata_file "$lock_dir")"
+  printf 'pid=%s\nstarted_at=%s\n' "$$" "$(now_seconds)" >"$meta_file" 2>/dev/null || true
+}
+
+timing_lock_is_stale() {
+  local lock_dir="$1"
+  local meta_file pid="" started_at="" key value now stale_after
+  meta_file="$(timing_lock_metadata_file "$lock_dir")"
+  stale_after="${VERIFY_TIMING_STALE_LOCK_SECS:-30}"
+
+  if [[ ! -f "$meta_file" ]]; then
+    return 1
+  fi
+
+  while IFS='=' read -r key value; do
+    case "$key" in
+      pid) pid="$value" ;;
+      started_at) started_at="$value" ;;
+    esac
+  done <"$meta_file"
+
+  if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  if [[ "$started_at" =~ ^[0-9]+$ ]]; then
+    now="$(now_seconds)"
+    if (( now >= started_at && now - started_at >= stale_after )); then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+timing_reap_stale_lock() {
+  local lock_dir="$1"
+  if ! timing_lock_is_stale "$lock_dir"; then
+    return 1
+  fi
+  rm -rf "$lock_dir" 2>/dev/null || true
+  return 0
+}
+
+timing_release_lock() {
+  local lock_dir="$1"
+  rm -f "$(timing_lock_metadata_file "$lock_dir")" 2>/dev/null || true
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+
 append_timing_record() {
   local record_type="$1"
   local name="$2"
   local elapsed_seconds="$3"
   local exit_status="$4"
+  local timing_dir lock_dir lock_acquired=0 attempts=0
 
-  mkdir -p "$(dirname "$VERIFY_TIMING_FILE")"
+  timing_dir="$(dirname "$VERIFY_TIMING_FILE")"
+  mkdir -p "$timing_dir"
+  lock_dir="${VERIFY_TIMING_FILE}.lock"
+  while (( attempts < 100 )); do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      lock_acquired=1
+      timing_write_lock_metadata "$lock_dir"
+      break
+    fi
+    timing_reap_stale_lock "$lock_dir" || true
+    attempts=$(( attempts + 1 ))
+    sleep 0.01
+  done
+  if [[ "$lock_acquired" != "1" ]]; then
+    return 0
+  fi
+
   printf \
     '{"ts":"%s","record_type":"%s","mode":"%s","context":"%s","classification":"%s","name":"%s","elapsed_seconds":%s,"exit_status":%s,"cache":"%s","subject":"%s"}\n' \
     "$(json_escape "$(utc_timestamp)")" \
@@ -92,7 +166,9 @@ append_timing_record() {
     "$elapsed_seconds" \
     "$exit_status" \
     "$(json_escape "${VERIFY_RUN_CACHE_STATE:-fresh}")" \
-    "$(json_escape "${VERIFY_STAMP_SUBJECT:-unknown}")" >>"$VERIFY_TIMING_FILE"
+    "$(json_escape "${VERIFY_STAMP_SUBJECT:-unknown}")" >>"$VERIFY_TIMING_FILE" || true
+
+  timing_release_lock "$lock_dir"
 }
 
 report_lane_timing() {

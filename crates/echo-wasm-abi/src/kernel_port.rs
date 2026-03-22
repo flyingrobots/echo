@@ -146,8 +146,14 @@ pub struct HeadInfo {
     /// `None` means the worldline has not committed anything yet.
     pub commit_global_tick: Option<GlobalTick>,
     /// Canonical full-state root hash (32 bytes).
+    ///
+    /// For the empty `U0` frontier this is still populated: it is the
+    /// deterministic root hash of the current `U0` materialization.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash (32 bytes).
+    /// Canonical frontier hash (32 bytes).
+    ///
+    /// For the empty `U0` frontier this is the deterministic frontier snapshot
+    /// hash over that `U0` materialization, not an absent sentinel.
     pub commit_id: Vec<u8>,
 }
 
@@ -382,8 +388,14 @@ pub struct ResolvedObservationCoordinate {
     /// Observation freshness watermark after resolving this artifact.
     pub observed_after_global_tick: Option<GlobalTick>,
     /// Canonical state root at the resolved coordinate.
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic `U0`
+    /// materialization root here.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash at the resolved coordinate.
+    /// Canonical frontier/commit hash at the resolved coordinate.
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic frontier
+    /// snapshot hash for that `U0` materialization here.
     pub commit_hash: Vec<u8>,
 }
 
@@ -401,26 +413,41 @@ pub struct HeadObservation {
     /// `None` means the observed frontier has not committed anything yet.
     pub commit_global_tick: Option<GlobalTick>,
     /// Canonical full-state root hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic `U0`
+    /// materialization root here.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash (32 bytes).
+    /// Canonical frontier hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic frontier
+    /// snapshot hash for that `U0` materialization here.
     pub commit_id: Vec<u8>,
 }
 
-/// Minimal historical snapshot payload.
+/// Minimal snapshot payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotObservation {
-    /// Historical committed append index being observed.
+    /// Snapshot coordinate being observed.
     ///
-    /// `WorldlineTick(0)` names the first committed append.
+    /// Historical observations use zero-based committed append indices.
+    /// `ObservationAt::Frontier + Snapshot` may also resolve to
+    /// `WorldlineTick(0)` plus `commit_global_tick = None` to describe the
+    /// empty `U0` frontier snapshot.
     pub worldline_tick: WorldlineTick,
     /// Commit cycle stamp for the observed historical commit, if any.
     ///
-    /// Historical snapshots are expected to carry `Some(_)`; `None` is
-    /// reserved for empty-frontier metadata surfaces such as [`HeadInfo`].
+    /// Historical snapshots carry `Some(_)`; `None` is reserved for an
+    /// empty-frontier `U0` snapshot resolved from `ObservationAt::Frontier`.
     pub commit_global_tick: Option<GlobalTick>,
     /// Canonical full-state root hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` snapshots still carry the deterministic `U0`
+    /// materialization root here.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash (32 bytes).
+    /// Canonical snapshot hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` snapshots still carry the deterministic frontier
+    /// snapshot hash for that `U0` materialization here.
     pub commit_id: Vec<u8>,
 }
 

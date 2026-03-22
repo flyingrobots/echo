@@ -325,19 +325,19 @@ impl WorldlineState {
 
     /// Clones the deterministic replay-relevant state for checkpoint storage.
     ///
-    /// Ephemeral live-runtime fields that are not reconstructed by replay are
-    /// cleared so checkpoints remain an acceleration artifact rather than a
-    /// hidden source of truth.
+    /// Checkpoints preserve already-validated replay artifacts so exact
+    /// checkpoint restore does not need to rehydrate prefix metadata from
+    /// provenance entries. Only process-local ingress dedupe state is cleared.
     pub(crate) fn replay_checkpoint_clone(&self) -> Self {
         Self {
             warp_state: self.warp_state.clone(),
             root: self.root,
             initial_state: self.initial_state.clone(),
-            last_snapshot: None,
-            tick_history: Vec::new(),
-            last_materialization: Vec::new(),
-            last_materialization_errors: Vec::new(),
-            tx_counter: 0,
+            last_snapshot: self.last_snapshot.clone(),
+            tick_history: self.tick_history.clone(),
+            last_materialization: self.last_materialization.clone(),
+            last_materialization_errors: self.last_materialization_errors.clone(),
+            tx_counter: self.tx_counter,
             committed_ingress: BTreeSet::new(),
         }
     }
@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn replay_checkpoint_clone_discards_ephemeral_metadata() {
+    fn replay_checkpoint_clone_preserves_replay_artifacts_but_clears_ingress_ledger() {
         let mut state = WorldlineState::empty();
         state.last_snapshot = Some(Snapshot {
             root: *state.root(),
@@ -666,11 +666,47 @@ mod tests {
             ),
             crate::snapshot::compute_state_root_for_warp_state(state.initial_state(), state.root())
         );
-        assert!(checkpoint.last_snapshot.is_none());
-        assert!(checkpoint.tick_history.is_empty());
-        assert!(checkpoint.last_materialization.is_empty());
-        assert!(checkpoint.last_materialization_errors.is_empty());
-        assert_eq!(checkpoint.tx_counter, 0);
+        assert_eq!(
+            checkpoint
+                .last_snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.hash),
+            state.last_snapshot.as_ref().map(|snapshot| snapshot.hash)
+        );
+        assert_eq!(checkpoint.tick_history.len(), state.tick_history.len());
+        assert_eq!(
+            checkpoint.tick_history[0].0.hash,
+            state.tick_history[0].0.hash
+        );
+        assert_eq!(
+            checkpoint.tick_history[0].0.state_root,
+            state.tick_history[0].0.state_root
+        );
+        assert_eq!(
+            checkpoint.tick_history[0].1.tx(),
+            state.tick_history[0].1.tx()
+        );
+        assert_eq!(
+            checkpoint.tick_history[0].2.digest(),
+            state.tick_history[0].2.digest()
+        );
+        assert_eq!(
+            checkpoint.last_materialization.len(),
+            state.last_materialization.len()
+        );
+        assert_eq!(
+            checkpoint.last_materialization[0].channel,
+            state.last_materialization[0].channel
+        );
+        assert_eq!(
+            checkpoint.last_materialization[0].data,
+            state.last_materialization[0].data
+        );
+        assert_eq!(
+            checkpoint.last_materialization_errors.len(),
+            state.last_materialization_errors.len()
+        );
+        assert_eq!(checkpoint.tx_counter, state.tx_counter);
         assert!(checkpoint.committed_ingress.is_empty());
     }
 }

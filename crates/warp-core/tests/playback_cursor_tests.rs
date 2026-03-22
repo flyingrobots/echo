@@ -256,6 +256,31 @@ fn incremental_forward_seek_validates_replay_base_only_once() {
     assert_eq!(provenance.count_event("initial_boundary_hash"), 1);
 }
 
+#[test]
+#[should_panic(
+    expected = "playback cursor initial_state must materialize the canonical U0 replay base"
+)]
+fn new_rejects_tick_zero_state_with_advanced_materialization() {
+    let warp_id = test_warp_id();
+    let worldline_id = test_worldline_id();
+    let canonical_u0 = create_initial_worldline_state(warp_id);
+    let mut invalid_state = canonical_u0.clone();
+    create_add_node_patch(warp_id, 0, warp_core::GlobalTick::from_raw(1), "root")
+        .apply_to_worldline_state(&mut invalid_state)
+        .expect("fixture patch should apply");
+    assert_eq!(invalid_state.current_tick(), wt(0));
+    assert_ne!(invalid_state.state_root(), canonical_u0.state_root());
+
+    let _cursor = PlaybackCursor::new(
+        test_cursor_id(10),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &invalid_state,
+        wt(1),
+    );
+}
+
 /// Additional test: verify that seeking backwards works correctly by
 /// rebuilding from initial state.
 #[test]

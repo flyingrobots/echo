@@ -167,6 +167,15 @@ pub enum HistoryError {
         /// Observed checkpoint state root.
         actual: Hash,
     },
+
+    /// A checkpoint carried replay metadata that disagreed with authoritative provenance.
+    #[error("checkpoint replay metadata mismatch at tick {tick}: {field}")]
+    CheckpointReplayMetadataMismatch {
+        /// Checkpoint coordinate whose replay metadata mismatched.
+        tick: WorldlineTick,
+        /// Replay metadata field that disagreed with provenance.
+        field: &'static str,
+    },
 }
 
 /// Errors that can occur when constructing or validating a BTR.
@@ -744,37 +753,6 @@ fn expected_state_root_at_materialized_tick<P: ProvenanceStore>(
         .state_root)
 }
 
-pub(crate) fn hydrate_replay_metadata<P: ProvenanceStore>(
-    provenance: &P,
-    worldline_id: WorldlineId,
-    replayed: &mut WorldlineState,
-    target_tick: WorldlineTick,
-) -> Result<(), ReplayError> {
-    let target_len = usize::try_from(target_tick.as_u64())
-        .map_err(|_| ReplayError::TickOverflow { tick: target_tick })?;
-    if replayed.tick_history.len() > target_len {
-        replayed.tick_history.truncate(target_len);
-    }
-
-    let root = *replayed.root();
-    let mut last_entry = None;
-    for raw_tick in replayed.tick_history.len() as u64..target_tick.as_u64() {
-        let entry = provenance.entry(worldline_id, WorldlineTick::from_raw(raw_tick))?;
-        let patch = entry.patch.as_ref().ok_or(ReplayError::MissingPatch {
-            tick: entry.worldline_tick,
-        })?;
-        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(root, &entry, patch)?;
-        replayed
-            .tick_history
-            .push((snapshot, receipt, replay_patch));
-        last_entry = Some(entry);
-    }
-
-    finalize_replay_metadata(replayed, target_tick, last_entry.as_ref());
-
-    Ok(())
-}
-
 fn finalize_replay_metadata(
     replayed: &mut WorldlineState,
     target_tick: WorldlineTick,
@@ -867,11 +845,7 @@ pub(crate) fn restore_replay_base<P: ProvenanceStore>(
             });
         }
 
-        let checkpoint_tick = checkpoint.checkpoint.worldline_tick;
-        let mut replayed = checkpoint.state;
-        clear_replay_metadata(&mut replayed);
-        hydrate_replay_metadata(provenance, worldline_id, &mut replayed, checkpoint_tick)?;
-        return Ok((replayed, checkpoint_tick));
+        return Ok((checkpoint.state, checkpoint.checkpoint.worldline_tick));
     }
 
     let mut replayed = base_state.clone();
@@ -1050,6 +1024,115 @@ fn validate_checkpoint_for_history(
             expected: expected_state_root,
             actual: actual_state_root,
         });
+    }
+
+    let checkpoint_len = usize::try_from(checkpoint_tick.as_u64()).map_err(|_| {
+        HistoryError::HistoryUnavailable {
+            tick: checkpoint_tick,
+        }
+    })?;
+    if checkpoint.state.tick_history.len() != checkpoint_len {
+        return Err(HistoryError::CheckpointReplayMetadataMismatch {
+            tick: checkpoint_tick,
+            field: "tick_history_len",
+        });
+    }
+    if checkpoint.state.tx_counter != checkpoint_tick.as_u64() {
+        return Err(HistoryError::CheckpointReplayMetadataMismatch {
+            tick: checkpoint_tick,
+            field: "tx_counter",
+        });
+    }
+    if !checkpoint.state.committed_ingress.is_empty() {
+        return Err(HistoryError::CheckpointReplayMetadataMismatch {
+            tick: checkpoint_tick,
+            field: "committed_ingress",
+        });
+    }
+    if checkpoint_tick == WorldlineTick::ZERO {
+        if checkpoint.state.last_snapshot.is_some() {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "last_snapshot",
+            });
+        }
+        if !checkpoint.state.last_materialization.is_empty() {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "last_materialization",
+            });
+        }
+        return Ok(());
+    }
+
+    for (index, (snapshot, _, replay_patch)) in checkpoint.state.tick_history.iter().enumerate() {
+        let entry = &history.entries[index];
+        if snapshot.state_root != entry.expected.state_root {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "tick_history.state_root",
+            });
+        }
+        if snapshot.hash != entry.expected.commit_hash {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "tick_history.commit_hash",
+            });
+        }
+        let Some(stored_patch) = entry.patch.as_ref() else {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "tick_history.patch",
+            });
+        };
+        if replay_patch.digest() != stored_patch.patch_digest {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "tick_history.patch_digest",
+            });
+        }
+    }
+
+    let last_entry =
+        history
+            .entries
+            .get(checkpoint_len - 1)
+            .ok_or(HistoryError::HistoryUnavailable {
+                tick: checkpoint_tick,
+            })?;
+    let expected_last_materialization = finalized_channels(&last_entry.outputs);
+    if checkpoint.state.last_materialization.len() != expected_last_materialization.len()
+        || checkpoint
+            .state
+            .last_materialization
+            .iter()
+            .zip(expected_last_materialization.iter())
+            .any(|(actual, expected)| {
+                actual.channel != expected.channel || actual.data != expected.data
+            })
+    {
+        return Err(HistoryError::CheckpointReplayMetadataMismatch {
+            tick: checkpoint_tick,
+            field: "last_materialization",
+        });
+    }
+    match (
+        checkpoint.state.last_snapshot.as_ref(),
+        checkpoint
+            .state
+            .tick_history
+            .last()
+            .map(|(snapshot, _, _)| snapshot),
+    ) {
+        (Some(last_snapshot), Some(history_snapshot))
+            if last_snapshot.hash == history_snapshot.hash
+                && last_snapshot.state_root == history_snapshot.state_root => {}
+        _ => {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "last_snapshot",
+            });
+        }
     }
 
     Ok(())
@@ -2091,24 +2174,36 @@ mod tests {
             &patch.patch_digest,
             patch.header.policy_id,
         );
-        (
-            ProvenanceEntry::local_commit(
-                worldline_id,
-                worldline_tick,
-                patch.commit_global_tick(),
-                head_key,
-                parents,
-                HashTriplet {
-                    state_root,
-                    patch_digest: patch.patch_digest,
-                    commit_hash,
-                },
-                patch,
-                Vec::new(),
-                Vec::new(),
-            ),
-            next_state,
+        let entry = ProvenanceEntry::local_commit(
+            worldline_id,
+            worldline_tick,
+            patch.commit_global_tick(),
+            head_key,
+            parents,
+            HashTriplet {
+                state_root,
+                patch_digest: patch.patch_digest,
+                commit_hash,
+            },
+            patch,
+            Vec::new(),
+            Vec::new(),
+        );
+        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(
+            *next_state.root(),
+            &entry,
+            entry
+                .patch
+                .as_ref()
+                .expect("fixture entry should carry a replay patch"),
         )
+        .expect("fixture replay artifacts");
+        next_state
+            .tick_history
+            .push((snapshot, receipt, replay_patch));
+        let target_tick = next_state.current_tick();
+        finalize_replay_metadata(&mut next_state, target_tick, Some(&entry));
+        (entry, next_state)
     }
 
     #[test]
@@ -2932,7 +3027,7 @@ mod tests {
     }
 
     #[test]
-    fn replay_worldline_state_at_hydrates_exact_checkpoint_metadata() {
+    fn add_checkpoint_rejects_poisoned_checkpoint_metadata() {
         let mut service = ProvenanceService::new();
         let worldline_id = test_worldline_id();
         let head_key = test_head_key();
@@ -2963,61 +3058,33 @@ mod tests {
             &base_state,
             patch,
         );
-        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(
-            root,
-            &entry0,
-            entry0
-                .patch
-                .as_ref()
-                .expect("fixture entry should carry a replay patch"),
-        )
-        .expect("fixture replay artifacts");
-        let mut poisoned_snapshot = snapshot;
+        let mut poisoned_snapshot = checkpoint_state
+            .last_snapshot
+            .clone()
+            .expect("fixture state should carry last snapshot");
         poisoned_snapshot.hash = [0xAA; 32];
         checkpoint_state.last_snapshot = Some(poisoned_snapshot.clone());
-        checkpoint_state.tick_history = vec![(poisoned_snapshot, receipt, replay_patch)];
-        service.append_local_commit(entry0.clone()).unwrap();
-        service
-            .add_checkpoint(
-                worldline_id,
-                ReplayCheckpoint {
-                    checkpoint: CheckpointRef {
-                        worldline_tick: wt(1),
-                        state_hash: entry0.expected.state_root,
+        checkpoint_state.tick_history[0].0 = poisoned_snapshot;
+        service.append_local_commit(entry0).unwrap();
+        assert!(
+            matches!(
+                service.add_checkpoint(
+                    worldline_id,
+                    ReplayCheckpoint {
+                        checkpoint: CheckpointRef {
+                            worldline_tick: wt(1),
+                            state_hash: checkpoint_state.state_root(),
+                        },
+                        state: checkpoint_state,
                     },
-                    state: checkpoint_state,
-                },
-            )
-            .unwrap();
-
-        let replayed = service
-            .replay_worldline_state_at(worldline_id, &base_state, wt(1))
-            .expect("checkpoint replay should succeed");
-
-        assert_eq!(replayed.current_tick(), wt(1));
-        assert_eq!(replayed.tick_history().len(), 1);
-        assert_eq!(
-            replayed.last_snapshot().map(|snapshot| snapshot.hash),
-            Some(entry0.expected.commit_hash)
+                ),
+                Err(HistoryError::CheckpointReplayMetadataMismatch {
+                    tick,
+                    field: "tick_history.commit_hash",
+                }) if tick == wt(1)
+            ),
+            "expected checkpoint write to reject poisoned replay metadata"
         );
-        assert_eq!(
-            replayed.tick_history()[0].0.hash,
-            entry0.expected.commit_hash,
-            "checkpoint-carried tick history must be rebuilt from provenance"
-        );
-
-        let engine = crate::Engine::new(
-            replayed
-                .store(&root.warp_id)
-                .expect("root store missing")
-                .clone(),
-            root.local_id,
-        );
-        let snapshot0 = engine
-            .snapshot_at_state(&replayed, 0)
-            .expect("stored snapshot should exist");
-        assert_eq!(snapshot0.hash, entry0.expected.commit_hash);
-        assert_eq!(snapshot0.state_root, entry0.expected.state_root);
     }
 
     #[test]
@@ -3074,6 +3141,20 @@ mod tests {
             vec![(output_channel, output_bytes.clone())],
             Vec::new(),
         );
+        let (snapshot, receipt, replay_patch) = replay_artifacts_for_entry(
+            *next_state.root(),
+            &entry,
+            entry
+                .patch
+                .as_ref()
+                .expect("fixture entry should carry a replay patch"),
+        )
+        .expect("fixture replay artifacts");
+        next_state
+            .tick_history
+            .push((snapshot, receipt, replay_patch));
+        let target_tick = next_state.current_tick();
+        finalize_replay_metadata(&mut next_state, target_tick, Some(&entry));
         service.append_local_commit(entry.clone()).unwrap();
         service
             .add_checkpoint(

@@ -207,6 +207,23 @@ assert_csv_recorded "$tmp/.dx-debug/commit-msg-times.csv" 0 "commit-msg"
 rm -rf "$tmp"
 
 tmp="$(fixture_root)"
+cp .githooks/commit-msg "$tmp/.githooks/commit-msg"
+chmod +x "$tmp/.githooks/commit-msg"
+printf 'feat: timed commit-msg hook\n' >"$tmp/COMMIT_MSG"
+cat >"$tmp/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+exit 1
+EOF
+chmod +x "$tmp/bin/python3"
+(
+  cd "$tmp"
+  PATH="$tmp/bin:$PATH" ./.githooks/commit-msg COMMIT_MSG
+)
+assert_csv_recorded "$tmp/.dx-debug/commit-msg-times.csv" 0 "commit-msg with broken python3"
+rm -rf "$tmp"
+
+tmp="$(fixture_root)"
 cp .githooks/pre-rebase "$tmp/.githooks/pre-rebase"
 chmod +x "$tmp/.githooks/pre-rebase"
 if [[ -x "$tmp/.githooks/pre-rebase" ]]; then

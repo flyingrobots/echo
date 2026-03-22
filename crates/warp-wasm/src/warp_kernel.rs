@@ -915,6 +915,31 @@ mod tests {
     }
 
     #[test]
+    fn observe_frontier_snapshot_reports_u0_without_fake_sentinels() {
+        let kernel = WarpKernel::new().unwrap();
+        let artifact = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Frontier,
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Snapshot,
+            })
+            .unwrap();
+
+        let AbiObservationPayload::Snapshot { snapshot } = artifact.payload else {
+            panic!("expected snapshot observation payload");
+        };
+        assert_eq!(snapshot.worldline_tick, AbiWorldlineTick(0));
+        assert_eq!(snapshot.commit_global_tick, None);
+        assert_eq!(snapshot.state_root.len(), 32);
+        assert_eq!(snapshot.commit_id.len(), 32);
+        assert_ne!(snapshot.state_root, vec![0u8; 32]);
+        assert_ne!(snapshot.commit_id, vec![0u8; 32]);
+    }
+
+    #[test]
     fn observe_recorded_truth_is_read_only() {
         let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();

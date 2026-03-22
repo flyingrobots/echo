@@ -10,21 +10,41 @@ hook_timing_detect_method() {
   fi
 }
 
+hook_timing_fallback_now_ns() {
+  printf '%s000000000\n' "$(date +%s)"
+}
+
 hook_timing_now_ns() {
   case "${DX_HOOK_TIMING_METHOD:-$(hook_timing_detect_method)}" in
     python3_monotonic_ns)
       if ! command -v python3 >/dev/null 2>&1; then
-        printf '%s\n' "${DX_HOOK_START_NS:-0}"
+        if [[ -n "${DX_HOOK_START_NS:-}" ]]; then
+          printf '%s\n' "${DX_HOOK_START_NS}"
+        else
+          hook_timing_fallback_now_ns
+        fi
         return 0
       fi
-      python3 - <<'PY'
+
+      local monotonic_ns=""
+      if monotonic_ns="$(
+        python3 - <<'PY' 2>/dev/null
 import time
 
 print(time.monotonic_ns())
 PY
+      )"; then
+        printf '%s\n' "$monotonic_ns"
+      else
+        if [[ -n "${DX_HOOK_START_NS:-}" ]]; then
+          printf '%s\n' "${DX_HOOK_START_NS}"
+        else
+          hook_timing_fallback_now_ns
+        fi
+      fi
       ;;
     *)
-      printf '%s000000000\n' "$(date +%s)"
+      hook_timing_fallback_now_ns
       ;;
   esac
 }

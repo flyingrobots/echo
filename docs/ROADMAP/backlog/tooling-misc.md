@@ -226,21 +226,23 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 ## T-10-8-6: PR Review Triage Summary Tool
 
-**User Story:** As a reviewer, I want a lightweight PR triage summary so that unresolved threads, failing checks, and stale review state are visible before push/merge decisions.
+**User Story:** As a reviewer, I want a lightweight PR triage summary so that unresolved threads, failing checks, historical noise, and merge-readiness state are visible before push/merge decisions.
 
 **Requirements:**
 
-- R1: Add a small script or xtask that summarizes unresolved review-thread counts for a PR
-- R2: Include failing/pending check names and the current head SHA
-- R3: Make the output fast to scan in terminal use
-- R4: Keep the tool read-only; it should not mutate PR state
+- R1: Add a small script or xtask that summarizes unresolved review-thread counts for a PR using paginated GitHub API queries
+- R2: Include failing/pending check names, the current head SHA, and the current approval / merge-readiness state
+- R3: Distinguish live unresolved threads on the current head from historical comment noise and, when possible, show deltas since the last pushed SHA
+- R4: Make the output fast to scan in terminal use
+- R5: Keep the tool read-only; it should not mutate PR state
 
 **Acceptance Criteria:**
 
-- [ ] AC1: One command prints unresolved thread counts, key checks, and head SHA for a PR
+- [ ] AC1: One command prints exact unresolved thread counts, key checks, head SHA, and approval / merge-readiness state for a PR
 - [ ] AC2: Output distinguishes pending vs failing vs passing checks
-- [ ] AC3: The summary is useful before merge or review-follow-up pushes
-- [ ] AC4: Tool works with the existing `gh`-based workflow
+- [ ] AC3: Output can separate current actionable review state from historical review chatter
+- [ ] AC4: The summary is useful before merge or review-follow-up pushes
+- [ ] AC5: Tool works with the existing `gh`-based workflow
 
 **Definition of Done:**
 
@@ -248,21 +250,21 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 - [ ] Tests pass (CI green)
 - [ ] Documentation updated (if applicable)
 
-**Scope:** CLI/script support for review-state summarization.
+**Scope:** CLI/script support for review-state summarization and merge-readiness visibility.
 **Out of Scope:** Auto-replying to review comments, auto-merging.
 
 **Test Plan:**
 
 - **Goldens:** n/a
 - **Failures:** Simulate missing `gh` auth / bad PR number handling
-- **Edges:** PR with zero threads, PR with only pending checks, mixed push+PR runs
+- **Edges:** PR with zero threads, PR with more than 100 review threads, PR with only pending checks, mixed push+PR runs, stale historical comment noise with zero unresolved threads
 - **Fuzz/Stress:** n/a
 
 **Blocked By:** none
 **Blocking:** none
 
-**Est. Hours:** 3h
-**Expected Complexity:** ~120 LoC (script + docs)
+**Est. Hours:** 5h
+**Expected Complexity:** ~180 LoC (script + docs)
 
 ---
 
@@ -305,3 +307,87 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Est. Hours:** 4h
 **Expected Complexity:** ~60 LoC (workflow edits + docs)
+
+---
+
+## T-10-8-8: Background Cargo Lock Isolation
+
+**User Story:** As a contributor, I want background Cargo activity isolated from manual verification so that ad hoc review fixes and hook-driven checks do not waste time waiting on unrelated workspace builds.
+
+**Requirements:**
+
+- R1: Audit long-lived background Cargo producers in the desktop app / local tooling flow
+- R2: Route background workspace checks to an isolated `CARGO_TARGET_DIR` or equivalent non-conflicting build path
+- R3: Surface lock contention clearly when it still occurs so contributors can tell queue time from actual compile time
+- R4: Document the isolation policy so future background tooling does not reuse the default repo target directory by accident
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Background Cargo activity no longer steals the default build lock from manual repo verification by default
+- [ ] AC2: Contributors can distinguish lock-wait time from active compile/test time in the local workflow
+- [ ] AC3: The isolation approach is documented for future tool authors
+- [ ] AC4: Existing local/CI behavior remains functionally unchanged aside from reduced contention
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Local developer workflow, desktop app background checks, target-dir isolation, and lock-visibility improvements.
+**Out of Scope:** Rewriting Cargo itself, changing CI target-dir strategy, or removing useful background checks entirely.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Verify the warning path when contention still happens
+- **Edges:** Background check starts before manual verification, background check starts during manual verification, isolated target dir missing
+- **Fuzz/Stress:** Repeated back-to-back manual verification with background checks enabled
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~100 LoC (tooling config + docs)
+
+---
+
+## T-10-8-9: Small-Commit Pre-Commit Latency Reduction
+
+**User Story:** As a contributor, I want tiny review-fix commits to complete quickly so that one-line test/doc/tooling follow-ups do not trigger disproportionately expensive staged verification.
+
+**Requirements:**
+
+- R1: Audit staged pre-commit lanes to identify avoidable heavy work for tiny review-fix commits
+- R2: Preserve truthfulness: any narrowing must still cover the changed surface honestly
+- R3: Separate lock-wait / queue time from active lane runtime in local timing output so regressions are obvious
+- R4: Document the expected fast path for small doc/test/tooling-only follow-up commits
+
+**Acceptance Criteria:**
+
+- [ ] AC1: Tiny staged follow-up commits have a measurably faster default path
+- [ ] AC2: Timing output separates queue/lock delay from active runtime
+- [ ] AC3: Narrowed staged verification still matches the changed surface truthfully
+- [ ] AC4: Contributor docs explain the intended fast path and when a broader manual gate is still required
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Pre-commit / staged local verification latency, timing visibility, and contributor workflow docs.
+**Out of Scope:** Weakening merge-time CI gates or skipping validation for semantic code changes.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Intentionally introduce a staged regression outside the narrowed surface and verify the broader path still catches it when appropriate
+- **Edges:** Single-file test fix, docs-only change, tooling-only change, mixed code+docs staged commit
+- **Fuzz/Stress:** Repeated tiny staged commits with warm cache
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 4h
+**Expected Complexity:** ~120 LoC (scripts + docs + timing assertions)

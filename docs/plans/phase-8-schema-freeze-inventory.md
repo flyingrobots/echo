@@ -7,6 +7,7 @@
 - **Date:** 2026-03-22
 - **Primary Plan:** [Implementation Plan: ADR-0008 and ADR-0009](adr-0008-and-0009.md)
 - **Conformance Audit:** [Phase 8 Runtime Schema Conformance Audit](phase-8-runtime-schema-conformance.md)
+- **Mapping Contract:** [Phase 8 Runtime Schema Mapping Contract](phase-8-runtime-schema-mapping-contract.md)
 
 ## Purpose
 
@@ -201,7 +202,7 @@ The inventory resolves this now: Phase 8 should freeze `SchedulerStatus`,
 `HeadDisposition` rather than back-porting a stale `SuperTickResult` name for
 cosmetic consistency.
 
-### 5. Opaque id / logical counter mapping rules are not yet written down as schema rules
+### 5. Opaque id / logical counter mapping rules
 
 `HeadId`, `IntentKind`, `WorldlineTick`, and `GlobalTick` all have stricter
 semantics than "some bytes" or "some integer." Phase 8 needs schema-side rules
@@ -210,6 +211,10 @@ for:
 - opaque fixed-size hash ids,
 - logical counters that are coordinates rather than time,
 - and wrapper-vs-generated ownership boundaries.
+
+This is now captured in the
+[Phase 8 Runtime Schema Mapping Contract](phase-8-runtime-schema-mapping-contract.md).
+The remaining work is implementation, not policy discovery.
 
 ## Recommended Phase 8 Slice Order
 

@@ -7,6 +7,7 @@
 - **Date:** 2026-03-22
 - **Primary Plan:** [Implementation Plan: ADR-0008 and ADR-0009](adr-0008-and-0009.md)
 - **Prep Inventory:** [Phase 8 Prep Inventory: ADR-0008 Runtime Schema Freeze](phase-8-schema-freeze-inventory.md)
+- **Mapping Contract:** [Phase 8 Runtime Schema Mapping Contract](phase-8-runtime-schema-mapping-contract.md)
 
 ## Purpose
 
@@ -158,14 +159,10 @@ This matters for generation layout:
 - but those wrappers should not leak back into `warp-core` as the new source of
   truth.
 
-## Recommended Next Slice
+## Follow-On
 
-The next honest Phase 8 implementation slice is:
-
-1. write the scalar/opaque-id mapping contract for generated Rust output,
-2. decide which ABI wrappers remain raw bytes versus typed wrapper DTOs,
-3. define the future `echo-runtime-schema` crate boundary,
-4. and only then consider generation plumbing.
-
-That keeps the remaining work Echo-local and schema-first without coupling this
-branch to Wesley churn prematurely.
+The scalar and ownership rules are now pinned in the
+[Phase 8 Runtime Schema Mapping Contract](phase-8-runtime-schema-mapping-contract.md).
+The next honest implementation slice is the ABI-edge cleanup that follows from
+that contract: move semantic runtime identifiers and structural keys off raw
+byte vectors while keeping hashes and payload blobs byte-oriented.

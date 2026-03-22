@@ -54,6 +54,7 @@ own the runtime freeze loop.
 The current Echo-side mismatch inventory lives in:
 
 - [Phase 8 Runtime Schema Conformance Audit](../../docs/plans/phase-8-runtime-schema-conformance.md)
+- [Phase 8 Runtime Schema Mapping Contract](../../docs/plans/phase-8-runtime-schema-mapping-contract.md)
 
 ## Planned Output Contract
 

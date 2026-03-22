@@ -175,6 +175,13 @@ The repo advertises `cargo xtask wesley sync`, but `xtask/src/main.rs` does not
 implement it yet. Phase 8 needs a real, deterministic regeneration path before
 generated artifacts can be trusted.
 
+For now, this branch keeps the runtime freeze loop Echo-local:
+
+- the source of truth lives under `schemas/runtime/*.graphql`,
+- local validation happens via `pnpm schema:runtime:check`,
+- and Wesley sync stays deliberately deferred until the upstream Echo-facing
+  schema/compiler contract stops moving.
+
 ### 3. Stale plan naming around scheduler results
 
 The inventory resolves this now: Phase 8 should freeze `SchedulerStatus`,
@@ -233,3 +240,7 @@ This prep slice is complete when:
 - the first runtime schema artifact set is sketched concretely,
 - and the next implementation slice can start from a concrete schema authoring
   target instead of inference from Rust code.
+
+That bar is now met. The next honest Phase 8 slice is Echo-local schema
+hardening and deferred-generation contract work, not premature Wesley
+integration.

@@ -33,10 +33,46 @@ That means these files are allowed to exist before:
 - Wesley IR is vendored for the runtime freeze set,
 - or generated Rust replaces hand-written runtime mirrors.
 
+## Validation
+
+Run the local fragment validator before touching any generation plumbing:
+
+```sh
+pnpm schema:runtime:check
+```
+
+The validator does two narrow jobs:
+
+- parse-check the SDL fragments via the repo's existing `prettier --check`
+  toolchain path,
+- and verify that every referenced runtime type is defined somewhere inside the
+  local `schemas/runtime/` fragment set.
+
+This keeps Phase 8 moving without pretending Wesley is already stable enough to
+own the runtime freeze loop.
+
+## Planned Output Contract
+
+Generation is explicitly deferred, but the intended artifact boundary is:
+
+- `schemas/runtime/*.graphql`
+  Human-authored source fragments for Artifacts A-D.
+- `schemas/runtime/generated/runtime-schema.graphql`
+  Planned normalized single-file runtime schema bundle.
+- `schemas/runtime/generated/runtime-ir.json`
+  Planned vendored Wesley IR snapshot for the frozen runtime schema.
+- `schemas/runtime/generated/runtime-manifest.json`
+  Planned vendored schema manifest/metadata for deterministic regeneration.
+
+No generated Rust output path is frozen yet. That stays deferred until Wesley's
+Echo-facing contract stabilizes enough that wiring `cargo xtask wesley sync`
+will not thrash the Phase 8 freeze target.
+
 ## Notes
 
 - These files are SDL **fragments**, not a standalone executable GraphQL API.
 - Comments here carry semantic constraints that current GraphQL type syntax
   cannot express directly, such as opaque-hash ids and logical-counter rules.
 - Generation plumbing (`cargo xtask wesley sync`) still does not exist for this
-  runtime schema tree; Phase 8 is pinning source files before generation.
+  runtime schema tree; Phase 8 is pinning and validating source files before
+  generation.

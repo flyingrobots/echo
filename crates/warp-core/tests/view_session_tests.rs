@@ -16,8 +16,8 @@ use common::{
 };
 use warp_core::materialization::make_channel_id;
 use warp_core::{
-    compute_state_root_for_warp_store, CursorRole, PlaybackCursor, PlaybackMode, SeekThen,
-    StepResult, TruthFrame, TruthSink, ViewSession,
+    CursorRole, PlaybackCursor, PlaybackMode, ProvenanceStore, SeekThen, StepResult, TruthFrame,
+    TruthSink, ViewSession, WorldlineTick,
 };
 
 /// Maximum tick used as the `pin_max_tick` for most playback cursor tests.
@@ -27,6 +27,10 @@ const PIN_MAX_TICK: u64 = 10;
 /// Number of repeated step() calls in the paused-no-op loop (T3).
 /// Chosen to be > 1 to confirm idempotency without being gratuitously large.
 const NUM_PAUSED_STEPS: usize = 5;
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
+}
 
 // ============================================================================
 // T2: step_forward_advances_one_then_pauses
@@ -44,11 +48,11 @@ fn step_forward_advances_one_then_pauses() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     // Cursor starts at tick 0, mode is Paused by default
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 
     // Set mode to StepForward
@@ -62,7 +66,7 @@ fn step_forward_advances_one_then_pauses() {
     assert_eq!(result.unwrap(), StepResult::Advanced);
 
     // Verify tick advanced by 1
-    assert_eq!(cursor.tick, 1, "cursor should be at tick 1");
+    assert_eq!(cursor.current_tick(), wt(1), "cursor should be at tick 1");
 
     // Verify mode is now Paused
     assert_eq!(
@@ -77,7 +81,7 @@ fn step_forward_advances_one_then_pauses() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Advanced);
-    assert_eq!(cursor.tick, 2);
+    assert_eq!(cursor.current_tick(), wt(2));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -97,19 +101,19 @@ fn paused_noop_even_with_pending_intents() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     // Seek to tick 5 first
     cursor
-        .seek_to(5, &provenance, &initial_store)
+        .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek should succeed");
 
-    assert_eq!(cursor.tick, 5);
+    assert_eq!(cursor.current_tick(), wt(5));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 
     // Get state hash before step
-    let hash_before = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_before = cursor.current_state_root();
 
     // Call step() while Paused - should be no-op
     let result = cursor.step(&provenance, &initial_store);
@@ -118,14 +122,18 @@ fn paused_noop_even_with_pending_intents() {
     assert_eq!(result.unwrap(), StepResult::NoOp);
 
     // Verify nothing changed
-    assert_eq!(cursor.tick, 5, "tick should not change when paused");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(5),
+        "tick should not change when paused"
+    );
     assert_eq!(
         cursor.mode,
         PlaybackMode::Paused,
         "mode should still be paused"
     );
 
-    let hash_after = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_after = cursor.current_state_root();
     assert_eq!(
         hash_before, hash_after,
         "store should not change when paused"
@@ -136,7 +144,7 @@ fn paused_noop_even_with_pending_intents() {
         let result = cursor.step(&provenance, &initial_store);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), StepResult::NoOp);
-        assert_eq!(cursor.tick, 5);
+        assert_eq!(cursor.current_tick(), wt(5));
     }
 }
 
@@ -173,7 +181,7 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     let mut cursor2 = PlaybackCursor::new(
@@ -182,28 +190,43 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     // Position cursors at different ticks
     cursor1
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_store)
         .expect("seek should succeed");
     cursor2
-        .seek_to(7, &provenance, &initial_store)
+        .seek_to(wt(7), &provenance, &initial_store)
         .expect("seek should succeed");
 
-    assert_eq!(cursor1.tick, 3);
-    assert_eq!(cursor2.tick, 7);
+    assert_eq!(cursor1.current_tick(), wt(3));
+    assert_eq!(cursor2.current_tick(), wt(7));
 
     // Compute state hashes at each position
-    let hash_at_tick_3 = compute_state_root_for_warp_store(&cursor1.store, warp_id);
-    let hash_at_tick_7 = compute_state_root_for_warp_store(&cursor2.store, warp_id);
+    let hash_at_tick_3 = cursor1.current_state_root();
+    let hash_at_tick_7 = cursor2.current_state_root();
+    let commit_producing_tick_3 = provenance
+        .entry(worldline_id, wt(2))
+        .expect("tick 2 should exist")
+        .expected
+        .commit_hash;
+    let commit_producing_tick_7 = provenance
+        .entry(worldline_id, wt(6))
+        .expect("tick 6 should exist")
+        .expected
+        .commit_hash;
 
-    // The states should be different (different history applied)
-    assert_ne!(
+    // These fixtures append isolated nodes, so reachable state roots can match
+    // across different ticks even though the cursor positions are distinct.
+    assert_eq!(
         hash_at_tick_3, hash_at_tick_7,
-        "cursors at different ticks should have different state"
+        "isolated fixture rewrites can preserve the reachable state root"
+    );
+    assert_ne!(
+        commit_producing_tick_3, commit_producing_tick_7,
+        "cursors at different ticks should still represent different committed history"
     );
 
     // Create truth sink and publish mock frames
@@ -216,7 +239,8 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
             cursor_id: cursor1.cursor_id,
             worldline_id,
             warp_id,
-            tick: cursor1.tick,
+            worldline_tick: cursor1.current_tick(),
+            commit_global_tick: None,
             commit_hash: [103u8; 32], // tick + 100
         },
         channel: position_channel,
@@ -231,7 +255,8 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
             cursor_id: cursor2.cursor_id,
             worldline_id,
             warp_id,
-            tick: cursor2.tick,
+            worldline_tick: cursor2.current_tick(),
+            commit_global_tick: None,
             commit_hash: [107u8; 32], // tick + 100
         },
         channel: position_channel,
@@ -250,8 +275,8 @@ fn two_sessions_same_channel_different_cursors_receive_different_truth() {
     assert_eq!(frames2.len(), 1);
 
     // Verify the frames are cursor-addressed (contain correct tick)
-    assert_eq!(frames1[0].cursor.tick, 3);
-    assert_eq!(frames2[0].cursor.tick, 7);
+    assert_eq!(frames1[0].cursor.worldline_tick, wt(3));
+    assert_eq!(frames2[0].cursor.worldline_tick, wt(7));
 
     // Verify the values are different
     assert_ne!(frames1[0].value, frames2[0].value);
@@ -332,7 +357,7 @@ fn reader_play_advances_until_frontier() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        5, // pin_max_tick = 5
+        wt(5), // pin_max_tick = 5
     );
 
     // Set mode to Play
@@ -345,7 +370,7 @@ fn reader_play_advances_until_frontier() {
         let result = cursor.step(&provenance, &initial_store);
         assert!(result.is_ok(), "step {expected_tick} should succeed");
         assert_eq!(result.unwrap(), StepResult::Advanced);
-        assert_eq!(cursor.tick, expected_tick);
+        assert_eq!(cursor.current_tick(), wt(expected_tick));
         assert_eq!(cursor.mode, PlaybackMode::Play, "should stay in Play mode");
     }
 
@@ -353,7 +378,11 @@ fn reader_play_advances_until_frontier() {
     let result = cursor.step(&provenance, &initial_store);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::ReachedFrontier);
-    assert_eq!(cursor.tick, 5, "tick should stay at 5 (frontier)");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(5),
+        "tick should stay at 5 (frontier)"
+    );
     assert_eq!(
         cursor.mode,
         PlaybackMode::Paused,
@@ -373,14 +402,14 @@ fn step_back_seeks_then_pauses() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     // Seek to tick 5 first
     cursor
-        .seek_to(5, &provenance, &initial_store)
+        .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek should succeed");
-    assert_eq!(cursor.tick, 5);
+    assert_eq!(cursor.current_tick(), wt(5));
 
     // Set mode to StepBack
     cursor.mode = PlaybackMode::StepBack;
@@ -389,7 +418,7 @@ fn step_back_seeks_then_pauses() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, 4, "should be at tick 4 (5 - 1)");
+    assert_eq!(cursor.current_tick(), wt(4), "should be at tick 4 (5 - 1)");
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -405,11 +434,11 @@ fn step_back_at_zero_stays_at_zero() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     // Cursor starts at tick 0
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // Set mode to StepBack
     cursor.mode = PlaybackMode::StepBack;
@@ -418,7 +447,11 @@ fn step_back_at_zero_stays_at_zero() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, 0, "should stay at tick 0 (saturating_sub)");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(0),
+        "should stay at tick 0 (saturating_sub)"
+    );
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -434,12 +467,12 @@ fn seek_mode_with_then_pause() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     // Set mode to Seek with target 7
     cursor.mode = PlaybackMode::Seek {
-        target: 7,
+        target: wt(7),
         then: SeekThen::Pause,
     };
 
@@ -447,7 +480,7 @@ fn seek_mode_with_then_pause() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, 7);
+    assert_eq!(cursor.current_tick(), wt(7));
     assert_eq!(cursor.mode, PlaybackMode::Paused);
 }
 
@@ -463,12 +496,12 @@ fn seek_mode_with_then_play() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        PIN_MAX_TICK,
+        wt(PIN_MAX_TICK),
     );
 
     // Set mode to Seek with target 3, then Play
     cursor.mode = PlaybackMode::Seek {
-        target: 3,
+        target: wt(3),
         then: SeekThen::Play,
     };
 
@@ -476,7 +509,7 @@ fn seek_mode_with_then_play() {
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::Seeked);
-    assert_eq!(cursor.tick, 3);
+    assert_eq!(cursor.current_tick(), wt(3));
     assert_eq!(cursor.mode, PlaybackMode::Play, "should transition to Play");
 }
 
@@ -496,7 +529,8 @@ fn truth_sink_basic_operations() {
         cursor_id: test_cursor_id(1),
         worldline_id: test_worldline_id(),
         warp_id: test_warp_id(),
-        tick: 5,
+        worldline_tick: wt(5),
+        commit_global_tick: None,
         commit_hash: [105u8; 32],
     };
     sink.publish_receipt(session_id, receipt);
@@ -579,7 +613,7 @@ fn writer_play_is_stub_noop() {
         warp_id,
         CursorRole::Writer, // Writer role
         &initial_store,
-        5,
+        wt(5),
     );
 
     // Set mode to Play
@@ -590,6 +624,10 @@ fn writer_play_is_stub_noop() {
     // Writer in Play mode is a stub - returns NoOp
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), StepResult::NoOp);
-    assert_eq!(cursor.tick, 0, "tick should not change for writer stub");
+    assert_eq!(
+        cursor.current_tick(),
+        wt(0),
+        "tick should not change for writer stub"
+    );
     assert_eq!(cursor.mode, PlaybackMode::Play, "mode should stay Play");
 }

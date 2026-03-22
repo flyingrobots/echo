@@ -42,7 +42,29 @@ if grep -q 'jobs -p' .githooks/pre-push-parallel && \
 else
   fail "trap doesn't kill background jobs"
 fi
-if grep -E "trap.*EXIT.*INT.*TERM|trap.*INT.*TERM.*EXIT" .githooks/pre-push-parallel >/dev/null 2>&1; then
+on_signal_body="$(awk '
+  /^on_signal\(\)[[:space:]]*\{/ { in_fn=1; next }
+  in_fn && /^\}/ { exit }
+  in_fn { print }
+' .githooks/pre-push-parallel)"
+if printf '%s\n' "$on_signal_body" | grep -q 'trap - EXIT'; then
+  pass "signal path disarms EXIT trap before cleanup"
+else
+  fail "signal path should disarm EXIT trap before cleanup"
+fi
+if printf '%s\n' "$on_signal_body" | awk '
+  /trap - EXIT/ { seen_exit=1 }
+  /cleanup "\$exit_code"/ && seen_exit { ok=1 }
+  END { exit(ok ? 0 : 1) }
+' >/dev/null 2>&1; then
+  pass "signal path disarms EXIT before running cleanup"
+else
+  fail "signal path should disarm EXIT before cleanup runs"
+fi
+if (grep -E "trap.*EXIT.*INT.*TERM|trap.*INT.*TERM.*EXIT" .githooks/pre-push-parallel >/dev/null 2>&1) || \
+   (grep -q 'trap on_exit EXIT' .githooks/pre-push-parallel && \
+    grep -q "trap 'on_signal INT' INT" .githooks/pre-push-parallel && \
+    grep -q "trap 'on_signal TERM' TERM" .githooks/pre-push-parallel); then
   pass "trap handles EXIT, INT, TERM signals"
 else
   fail "trap doesn't handle all interrupt signals"

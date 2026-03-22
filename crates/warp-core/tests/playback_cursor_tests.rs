@@ -4,17 +4,118 @@
 //! Playback cursor tests for SPEC-0004: Worldlines, Playback, and TruthBus.
 //!
 //! These tests verify cursor seek operations and hash verification.
+//! Fixture helpers such as `create_add_node_patch(...)` deliberately append
+//! isolated nodes, so some tests assert that commit history diverges while the
+//! reachable `state_root()` remains unchanged across ticks.
 
 mod common;
 
+use std::sync::{Arc, Mutex};
+
 use common::{
-    append_fixture_entry, create_add_node_patch, create_initial_store, setup_worldline_with_ticks,
-    test_cursor_id, test_warp_id, test_worldline_id,
+    append_fixture_entry, create_add_node_patch, create_initial_worldline_state,
+    register_fixture_worldline, setup_worldline_with_ticks, test_cursor_id, test_warp_id,
+    test_worldline_id,
 };
+use warp_core::materialization::make_channel_id;
 use warp_core::{
-    compute_commit_hash_v2, compute_state_root_for_warp_store, CursorRole, Hash, HashTriplet,
-    LocalProvenanceStore, PlaybackCursor, ProvenanceStore, SeekError,
+    compute_commit_hash_v2, make_node_id, make_type_id, CheckpointRef, CursorRole, Hash,
+    HashTriplet, HistoryError, LocalProvenanceStore, NodeRecord, PlaybackCursor, ProvenanceEntry,
+    ProvenanceRef, ProvenanceStore, ReplayCheckpoint, SeekError, WarpId, WorldlineId,
+    WorldlineState, WorldlineTick,
 };
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
+}
+
+struct RecordingProvenance {
+    inner: LocalProvenanceStore,
+    events: Arc<Mutex<Vec<String>>>,
+}
+
+impl RecordingProvenance {
+    fn new(inner: LocalProvenanceStore) -> Self {
+        Self {
+            inner,
+            events: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn record(&self, event: impl Into<String>) {
+        self.events
+            .lock()
+            .expect("recording mutex should not be poisoned")
+            .push(event.into());
+    }
+
+    fn events(&self) -> Vec<String> {
+        self.events
+            .lock()
+            .expect("recording mutex should not be poisoned")
+            .clone()
+    }
+
+    fn count_event(&self, needle: &str) -> usize {
+        self.events()
+            .into_iter()
+            .filter(|event| event == needle)
+            .count()
+    }
+}
+
+impl ProvenanceStore for RecordingProvenance {
+    fn u0(&self, w: WorldlineId) -> Result<WarpId, HistoryError> {
+        self.record("u0");
+        self.inner.u0(w)
+    }
+
+    fn initial_boundary_hash(&self, w: WorldlineId) -> Result<Hash, HistoryError> {
+        self.record("initial_boundary_hash");
+        self.inner.initial_boundary_hash(w)
+    }
+
+    fn len(&self, w: WorldlineId) -> Result<u64, HistoryError> {
+        self.record("len");
+        self.inner.len(w)
+    }
+
+    fn entry(&self, w: WorldlineId, tick: WorldlineTick) -> Result<ProvenanceEntry, HistoryError> {
+        self.record(format!("entry:{}", tick.as_u64()));
+        self.inner.entry(w, tick)
+    }
+
+    fn parents(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Result<Vec<ProvenanceRef>, HistoryError> {
+        self.record(format!("parents:{}", tick.as_u64()));
+        self.inner.parents(w, tick)
+    }
+
+    fn append_local_commit(&mut self, entry: ProvenanceEntry) -> Result<(), HistoryError> {
+        self.record(format!(
+            "append_local_commit:{}",
+            entry.worldline_tick.as_u64()
+        ));
+        self.inner.append_local_commit(entry)
+    }
+
+    fn checkpoint_before(&self, w: WorldlineId, tick: WorldlineTick) -> Option<CheckpointRef> {
+        self.record(format!("checkpoint_before:{}", tick.as_u64()));
+        self.inner.checkpoint_before(w, tick)
+    }
+
+    fn checkpoint_state_before(
+        &self,
+        w: WorldlineId,
+        tick: WorldlineTick,
+    ) -> Option<ReplayCheckpoint> {
+        self.record(format!("checkpoint_state_before:{}", tick.as_u64()));
+        self.inner.checkpoint_state_before(w, tick)
+    }
+}
 
 /// T14: cursor_seek_fails_on_corrupt_patch_or_hash_mismatch
 ///
@@ -24,23 +125,26 @@ use warp_core::{
 fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Build up 10 ticks, but corrupt the expected state_root at tick 6
-    let mut current_store = initial_store.clone();
+    let mut current_state = initial_state.clone();
     let mut parents: Vec<Hash> = Vec::new();
 
     for tick in 0..10u64 {
-        let patch = create_add_node_patch(warp_id, tick, &format!("node-{tick}"));
+        let patch = create_add_node_patch(
+            warp_id,
+            tick,
+            warp_core::GlobalTick::from_raw(tick + 1),
+            &format!("node-{tick}"),
+        );
 
         // Apply patch to get the resulting state
         patch
-            .apply_to_store(&mut current_store)
+            .apply_to_worldline_state(&mut current_state)
             .expect("apply should succeed");
 
         // Compute the actual state root after applying
@@ -51,7 +155,7 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
                 0, 0, 0, 0, 0, 0, 0, 0, 0,
             ]
         } else {
-            compute_state_root_for_warp_store(&current_store, warp_id)
+            current_state.state_root()
         };
 
         // Compute real commit_hash for valid Merkle chain (even for corrupt tick 6,
@@ -81,19 +185,19 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        10,
+        &initial_state,
+        wt(10),
     );
 
     // Seeking to tick 5 should succeed (before the corrupted tick)
-    let result = cursor.seek_to(5, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(5), &provenance, &initial_state);
     assert!(result.is_ok(), "seek to tick 5 should succeed");
-    assert_eq!(cursor.tick, 5);
+    assert_eq!(cursor.current_tick(), wt(5));
 
     // Seeking from tick 5 to tick 8 should fail at tick 6 due to hash mismatch
-    let result = cursor.seek_to(8, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(8), &provenance, &initial_state);
     assert!(
-        matches!(result, Err(SeekError::StateRootMismatch { tick: 6 })),
+        matches!(result, Err(SeekError::StateRootMismatch { tick }) if tick == wt(6)),
         "expected StateRootMismatch at tick 6, got: {result:?}"
     );
 }
@@ -104,7 +208,7 @@ fn cursor_seek_fails_on_corrupt_patch_or_hash_mismatch() {
 /// `SeekError::HistoryUnavailable`.
 #[test]
 fn seek_past_available_history_returns_history_unavailable() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(10);
 
     // Create a cursor
     let mut cursor = PlaybackCursor::new(
@@ -112,21 +216,68 @@ fn seek_past_available_history_returns_history_unavailable() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        100, // pin_max_tick is high but provenance only has 10 ticks
+        &initial_state,
+        wt(100), // pin_max_tick is high but provenance only has 10 ticks
     );
 
     // With 10 patches in history (indices 0..9), valid ticks are 0..=10.
     // Tick 10 represents the state after all patches have been applied.
-    let result = cursor.seek_to(10, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(10), &provenance, &initial_state);
     assert!(result.is_ok(), "seek to tick 10 should succeed: {result:?}");
-    assert_eq!(cursor.tick, 10);
+    assert_eq!(cursor.current_tick(), wt(10));
 
     // Seeking to tick 50 should fail with HistoryUnavailable
-    let result = cursor.seek_to(50, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(50), &provenance, &initial_state);
     assert!(
-        matches!(result, Err(SeekError::HistoryUnavailable { tick: 50 })),
+        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == wt(50)),
         "expected HistoryUnavailable at tick 50, got: {result:?}"
+    );
+}
+
+#[test]
+fn incremental_forward_seek_validates_replay_base_only_once() {
+    let (inner, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(3);
+    let provenance = RecordingProvenance::new(inner);
+    let mut cursor = PlaybackCursor::new(
+        test_cursor_id(9),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(3),
+    );
+
+    cursor.seek_to(wt(1), &provenance, &initial_state).unwrap();
+    assert_eq!(provenance.count_event("u0"), 1);
+    assert_eq!(provenance.count_event("initial_boundary_hash"), 1);
+
+    cursor.seek_to(wt(2), &provenance, &initial_state).unwrap();
+    assert_eq!(provenance.count_event("u0"), 1);
+    assert_eq!(provenance.count_event("initial_boundary_hash"), 1);
+}
+
+#[test]
+#[should_panic(
+    expected = "playback cursor initial_state must materialize the canonical U0 replay base"
+)]
+fn new_rejects_tick_zero_state_with_advanced_materialization() {
+    let warp_id = test_warp_id();
+    let worldline_id = test_worldline_id();
+    let canonical_u0 = create_initial_worldline_state(warp_id);
+    let mut invalid_state = canonical_u0.clone();
+    create_add_node_patch(warp_id, 0, warp_core::GlobalTick::from_raw(1), "root")
+        .apply_to_worldline_state(&mut invalid_state)
+        .expect("fixture patch should apply");
+    assert_eq!(invalid_state.current_tick(), wt(0));
+    assert_ne!(invalid_state.state_root(), canonical_u0.state_root());
+
+    let _cursor = PlaybackCursor::new(
+        test_cursor_id(10),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &invalid_state,
+        wt(1),
     );
 }
 
@@ -134,60 +285,75 @@ fn seek_past_available_history_returns_history_unavailable() {
 /// rebuilding from initial state.
 #[test]
 fn seek_backward_rebuilds_from_initial_state() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(10);
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(10);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(2),
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        10,
+        &initial_state,
+        wt(10),
     );
 
     // Seek to tick 8
     cursor
-        .seek_to(8, &provenance, &initial_store)
+        .seek_to(wt(8), &provenance, &initial_state)
         .expect("seek to 8 should succeed");
-    assert_eq!(cursor.tick, 8);
+    assert_eq!(cursor.current_tick(), wt(8));
 
     // Get hash at tick 8
-    let hash_at_8 = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_at_8 = cursor.current_state_root();
+    let commit_at_8 = provenance
+        .entry(worldline_id, wt(7))
+        .expect("tick 7 should exist")
+        .expected
+        .commit_hash;
 
     // Seek backward to tick 3
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_state)
         .expect("seek to 3 should succeed");
-    assert_eq!(cursor.tick, 3);
+    assert_eq!(cursor.current_tick(), wt(3));
 
-    // Get hash at tick 3 - must differ from tick 8 since different patches are applied
-    let hash_at_3 = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    // The logical history position must differ even if the reachable state root
+    // matches because these fixtures only append isolated nodes.
+    let hash_at_3 = cursor.current_state_root();
+    let commit_at_3 = provenance
+        .entry(worldline_id, wt(2))
+        .expect("tick 2 should exist")
+        .expected
+        .commit_hash;
     assert_ne!(
-        hash_at_8, hash_at_3,
-        "state at tick 3 should differ from state at tick 8"
+        commit_at_8, commit_at_3,
+        "tick 3 and tick 8 should be distinct history positions"
     );
 
     // Seek forward again to tick 8 - should get same hash
     cursor
-        .seek_to(8, &provenance, &initial_store)
+        .seek_to(wt(8), &provenance, &initial_state)
         .expect("seek back to 8 should succeed");
-    assert_eq!(cursor.tick, 8);
+    assert_eq!(cursor.current_tick(), wt(8));
 
-    let hash_at_8_again = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_at_8_again = cursor.current_state_root();
     assert_eq!(
         hash_at_8, hash_at_8_again,
         "seeking back and forth should produce same state"
     );
+    assert_eq!(
+        hash_at_3, hash_at_8,
+        "create_add_node_patch fixtures append isolated nodes, so the reachable state root may stay unchanged across ticks"
+    );
 
     // Also verify we can seek to 0 (initial state with patches applied from 0..0 = none)
     cursor
-        .seek_to(0, &provenance, &initial_store)
+        .seek_to(wt(0), &provenance, &initial_state)
         .expect("seek to 0 should succeed");
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // At tick 0, no patches have been applied, so store should be initial state
-    let initial_hash = compute_state_root_for_warp_store(&initial_store, warp_id);
-    let cursor_hash_at_0 = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let initial_hash = initial_state.state_root();
+    let cursor_hash_at_0 = cursor.current_state_root();
     assert_eq!(
         initial_hash, cursor_hash_at_0,
         "tick 0 should match initial state"
@@ -197,34 +363,245 @@ fn seek_backward_rebuilds_from_initial_state() {
 /// Test that seek to current tick is a no-op.
 #[test]
 fn seek_to_current_tick_is_noop() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(5);
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(5);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(2),
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        5,
+        &initial_state,
+        wt(5),
     );
 
     // Seek to tick 3
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_state)
         .expect("seek to 3 should succeed");
 
-    let hash_before = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_before = cursor.current_state_root();
 
     // Seek to same tick
     cursor
-        .seek_to(3, &provenance, &initial_store)
+        .seek_to(wt(3), &provenance, &initial_state)
         .expect("seek to same tick should succeed");
 
-    let hash_after = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let hash_after = cursor.current_state_root();
     assert_eq!(
         hash_before, hash_after,
         "seeking to current tick should be no-op"
     );
+}
+
+#[test]
+fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
+    let warp_id = test_warp_id();
+    let worldline_id = test_worldline_id();
+    let initial_state = create_initial_worldline_state(warp_id);
+    let root = *initial_state.root();
+    let checkpoint_output_channel = make_channel_id("playback:checkpoint-output");
+    let checkpoint_output_bytes = vec![0xAA, 0xBB, 0xCC];
+    let suffix_output_channel = make_channel_id("playback:checkpoint-suffix-output");
+    let suffix_output_bytes = vec![0xDD, 0xEE];
+
+    let mut provenance = LocalProvenanceStore::new();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
+
+    let patch = create_add_node_patch(
+        warp_id,
+        0,
+        warp_core::GlobalTick::from_raw(1),
+        "checkpoint-root",
+    );
+    let mut checkpoint_state = initial_state.clone();
+    patch
+        .apply_to_worldline_state(&mut checkpoint_state)
+        .expect("fixture patch should apply");
+
+    let state_root = checkpoint_state.state_root();
+    let commit_hash = compute_commit_hash_v2(
+        &state_root,
+        &[],
+        &patch.patch_digest,
+        patch.header.policy_id,
+    );
+    let triplet = HashTriplet {
+        state_root,
+        patch_digest: patch.patch_digest,
+        commit_hash,
+    };
+    append_fixture_entry(
+        &mut provenance,
+        worldline_id,
+        patch,
+        triplet,
+        vec![(checkpoint_output_channel, checkpoint_output_bytes)],
+    )
+    .expect("append should succeed");
+    let mut checkpoint_cursor = PlaybackCursor::new(
+        test_cursor_id(8),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(2),
+    );
+    checkpoint_cursor
+        .seek_to(wt(1), &provenance, &initial_state)
+        .expect("checkpoint materialization should succeed");
+    provenance
+        .add_checkpoint(
+            worldline_id,
+            ReplayCheckpoint {
+                checkpoint: CheckpointRef {
+                    worldline_tick: wt(1),
+                    state_hash: state_root,
+                },
+                state: checkpoint_cursor.materialized_state().clone(),
+            },
+        )
+        .expect("checkpoint should be accepted");
+
+    let suffix_patch = create_add_node_patch(
+        warp_id,
+        1,
+        warp_core::GlobalTick::from_raw(2),
+        "checkpoint-suffix",
+    );
+    let mut final_state = checkpoint_state.clone();
+    suffix_patch
+        .apply_to_worldline_state(&mut final_state)
+        .expect("suffix fixture patch should apply");
+
+    let suffix_state_root = final_state.state_root();
+    let suffix_commit_hash = compute_commit_hash_v2(
+        &suffix_state_root,
+        &[commit_hash],
+        &suffix_patch.patch_digest,
+        suffix_patch.header.policy_id,
+    );
+    let suffix_triplet = HashTriplet {
+        state_root: suffix_state_root,
+        patch_digest: suffix_patch.patch_digest,
+        commit_hash: suffix_commit_hash,
+    };
+    append_fixture_entry(
+        &mut provenance,
+        worldline_id,
+        suffix_patch,
+        suffix_triplet,
+        vec![(suffix_output_channel, suffix_output_bytes.clone())],
+    )
+    .expect("suffix append should succeed");
+
+    let provenance = RecordingProvenance::new(provenance);
+
+    let mut cursor = PlaybackCursor::new(
+        test_cursor_id(7),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(2),
+    );
+    cursor
+        .seek_to(wt(2), &provenance, &initial_state)
+        .expect("checkpoint seek should succeed");
+
+    let events = provenance.events();
+    assert!(
+        events
+            .iter()
+            .any(|event| event == "checkpoint_state_before:3"),
+        "expected seek to restore from a replay checkpoint, got events: {events:?}"
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.as_str() == "entry:1")
+            .count(),
+        1,
+        "forward replay should read the suffix entry exactly once instead of rescanning it"
+    );
+
+    assert_eq!(cursor.current_tick(), wt(2));
+    assert_eq!(cursor.materialized_state().tick_history().len(), 2);
+    assert_eq!(
+        cursor
+            .materialized_state()
+            .last_snapshot()
+            .map(|snapshot| snapshot.hash),
+        Some(suffix_commit_hash)
+    );
+    assert_eq!(cursor.materialized_state().last_materialization().len(), 1);
+    assert_eq!(
+        cursor.materialized_state().last_materialization()[0].channel,
+        suffix_output_channel
+    );
+    assert_eq!(
+        cursor.materialized_state().last_materialization()[0].data,
+        suffix_output_bytes
+    );
+    assert_eq!(cursor.current_state_root(), suffix_state_root);
+    assert_eq!(
+        cursor
+            .focused_store()
+            .expect("focused store should exist")
+            .node(&make_node_id("checkpoint-root"))
+            .expect("checkpoint node should exist")
+            .ty,
+        make_type_id("Type0")
+    );
+    assert_eq!(
+        cursor
+            .focused_store()
+            .expect("focused store should exist")
+            .node(&make_node_id("checkpoint-suffix"))
+            .expect("suffix node should exist")
+            .ty,
+        make_type_id("Type1")
+    );
+    assert_eq!(cursor.materialized_state().root(), &root);
+}
+
+#[test]
+fn seek_rejects_wrong_initial_boundary_up_front() {
+    let warp_id = test_warp_id();
+    let worldline_id = test_worldline_id();
+    let initial_state = create_initial_worldline_state(warp_id);
+    let root_node = initial_state.root().local_id;
+
+    let mut provenance = LocalProvenanceStore::new();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
+
+    let mut wrong_store = initial_state
+        .store(&warp_id)
+        .expect("root store should exist")
+        .clone();
+    wrong_store.insert_node(
+        root_node,
+        NodeRecord {
+            ty: make_type_id("wrong-base"),
+        },
+    );
+    let wrong_base =
+        WorldlineState::from_root_store(wrong_store, root_node).expect("wrong base should build");
+
+    let mut cursor = PlaybackCursor::new(
+        test_cursor_id(8),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &wrong_base,
+        wt(0),
+    );
+    let result = cursor.seek_to(wt(0), &provenance, &wrong_base);
+
+    assert!(
+        matches!(result, Err(SeekError::InitialBoundaryHashMismatch { .. })),
+        "expected wrong replay base rejection, got: {result:?}"
+    );
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 // =============================================================================
@@ -236,24 +613,24 @@ fn seek_to_current_tick_is_noop() {
 /// `ReachedFrontier` and transition the mode to Paused.
 #[test]
 fn pin_max_tick_zero_cursor_cannot_advance() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(5);
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(5);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(3),
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        0, // pin_max_tick = 0: cursor is already at frontier
+        &initial_state,
+        wt(0), // pin_max_tick = 0: cursor is already at frontier
     );
 
     // Cursor starts at tick 0, pin_max_tick is 0 => already at frontier
-    assert_eq!(cursor.tick, 0);
-    assert_eq!(cursor.pin_max_tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
+    assert_eq!(cursor.pin_max_tick, wt(0));
 
     // Switch to Play mode and step
     cursor.mode = warp_core::PlaybackMode::Play;
-    let result = cursor.step(&provenance, &initial_store);
+    let result = cursor.step(&provenance, &initial_state);
 
     assert!(result.is_ok(), "step should not error: {result:?}");
     assert_eq!(
@@ -270,7 +647,54 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
     );
 
     // Tick should remain at 0
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
+}
+
+#[test]
+fn step_forward_at_pinned_frontier_returns_reached_frontier() {
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(5);
+
+    let mut cursor = PlaybackCursor::new(
+        test_cursor_id(4),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(0),
+    );
+    cursor.mode = warp_core::PlaybackMode::StepForward;
+
+    let result = cursor.step(&provenance, &initial_state).unwrap();
+    assert_eq!(result, warp_core::StepResult::ReachedFrontier);
+    assert_eq!(cursor.mode, warp_core::PlaybackMode::Paused);
+    assert_eq!(cursor.current_tick(), wt(0));
+}
+
+#[test]
+#[should_panic(expected = "playback cursor initial_state must be an unadvanced replay base")]
+fn new_rejects_advanced_initial_state() {
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(1);
+
+    let mut seed_cursor = PlaybackCursor::new(
+        test_cursor_id(11),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(1),
+    );
+    seed_cursor
+        .seek_to(wt(1), &provenance, &initial_state)
+        .expect("seed cursor should materialize tick 1");
+
+    let _ = PlaybackCursor::new(
+        test_cursor_id(12),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        seed_cursor.materialized_state(),
+        wt(1),
+    );
 }
 
 /// Edge case: Seeking to `u64::MAX` on a worldline with only a few ticks
@@ -278,26 +702,26 @@ fn pin_max_tick_zero_cursor_cannot_advance() {
 /// beyond the recorded history.
 #[test]
 fn seek_to_u64_max_returns_history_unavailable() {
-    let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(5);
+    let (provenance, initial_state, warp_id, worldline_id) = setup_worldline_with_ticks(5);
 
     let mut cursor = PlaybackCursor::new(
         test_cursor_id(4),
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        u64::MAX,
+        &initial_state,
+        WorldlineTick::MAX,
     );
 
-    let result = cursor.seek_to(u64::MAX, &provenance, &initial_store);
+    let result = cursor.seek_to(WorldlineTick::MAX, &provenance, &initial_state);
 
     assert!(
-        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == u64::MAX),
+        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == WorldlineTick::MAX),
         "expected HistoryUnavailable at u64::MAX, got: {result:?}"
     );
 
     // Cursor tick should remain at 0 (seek failed, no state change)
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 /// Edge case: A worldline that is registered but has no patches appended.
@@ -307,12 +731,10 @@ fn seek_to_u64_max_returns_history_unavailable() {
 fn empty_worldline_cursor_at_tick_zero() {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
-    let initial_store = create_initial_store(warp_id);
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Do NOT append any patches -- worldline is empty
 
@@ -321,30 +743,30 @@ fn empty_worldline_cursor_at_tick_zero() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        100,
+        &initial_state,
+        wt(100),
     );
 
     // Cursor starts at tick 0
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // Seeking to tick 0 should be a no-op (already there)
-    let result = cursor.seek_to(0, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(0), &provenance, &initial_state);
     assert!(
         result.is_ok(),
         "seek to 0 on empty worldline should succeed (no-op)"
     );
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
 
     // Seeking to tick 1 should fail: no patches available
-    let result = cursor.seek_to(1, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(1), &provenance, &initial_state);
     assert!(
-        matches!(result, Err(SeekError::HistoryUnavailable { tick: 1 })),
+        matches!(result, Err(SeekError::HistoryUnavailable { tick }) if tick == wt(1)),
         "expected HistoryUnavailable at tick 1 on empty worldline, got: {result:?}"
     );
 
     // Cursor should remain at tick 0
-    assert_eq!(cursor.tick, 0);
+    assert_eq!(cursor.current_tick(), wt(0));
 }
 
 /// Edge case: Registering the same `WorldlineId` twice with the same `u0_ref` is
@@ -354,22 +776,20 @@ fn empty_worldline_cursor_at_tick_zero() {
 fn duplicate_worldline_registration_is_idempotent() {
     let warp_id = test_warp_id();
     let worldline_id = test_worldline_id();
+    let initial_state = create_initial_worldline_state(warp_id);
 
     let mut provenance = LocalProvenanceStore::new();
 
     // First registration
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // Append a tick so we can verify history survives re-registration attempts
-    let patch = create_add_node_patch(warp_id, 0, "dup-node-0");
-    let initial_store = create_initial_store(warp_id);
-    let mut current_store = initial_store.clone();
+    let patch = create_add_node_patch(warp_id, 0, warp_core::GlobalTick::from_raw(1), "dup-node-0");
+    let mut current_state = initial_state.clone();
     patch
-        .apply_to_store(&mut current_store)
+        .apply_to_worldline_state(&mut current_state)
         .expect("apply should succeed");
-    let state_root = compute_state_root_for_warp_store(&current_store, warp_id);
+    let state_root = current_state.state_root();
     let commit_hash = compute_commit_hash_v2(
         &state_root,
         &[], // No parents for first tick
@@ -392,9 +812,7 @@ fn duplicate_worldline_registration_is_idempotent() {
     );
 
     // Re-registration with the same u0_ref -- should be idempotent no-op
-    provenance
-        .register_worldline(worldline_id, warp_id)
-        .unwrap();
+    register_fixture_worldline(&mut provenance, worldline_id, &initial_state).unwrap();
 
     // History should NOT be reset; length should still be 1
     assert_eq!(
@@ -433,13 +851,13 @@ fn duplicate_worldline_registration_is_idempotent() {
         worldline_id,
         warp_id,
         CursorRole::Reader,
-        &initial_store,
-        10,
+        &initial_state,
+        wt(10),
     );
-    let result = cursor.seek_to(1, &provenance, &initial_store);
+    let result = cursor.seek_to(wt(1), &provenance, &initial_state);
     assert!(
         result.is_ok(),
         "seek should succeed after failed re-registration: {result:?}"
     );
-    assert_eq!(cursor.tick, 1);
+    assert_eq!(cursor.current_tick(), wt(1));
 }

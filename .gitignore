@@ -11,6 +11,8 @@ target-clippy
 target-test
 target-doc
 .githooks/timing.jsonl
+.dx-debug/
+blog/
 docs/.vitepress/cache
 
 # Editor cruft

@@ -5,12 +5,12 @@
 //!
 //! This module defines the contract between a WASM host adapter and a
 //! deterministic simulation kernel. The [`KernelPort`] trait is byte-oriented
-//! and app-agnostic: any engine that can ingest intents, execute ticks, and
-//! drain materialized output can implement it.
+//! and app-agnostic: any engine that can ingest intents, advance logical
+//! scheduler cycles, and serve observation-backed reads can implement it.
 //!
 //! # ABI Version
 //!
-//! The current ABI version is [`ABI_VERSION`] (1). All response types are
+//! The current ABI version is [`ABI_VERSION`] (3). All response types are
 //! CBOR-encoded using the canonical rules defined in `docs/js-cbor-mapping.md`.
 //! Breaking changes to response shapes or error codes require a bump to the
 //! ABI version.
@@ -34,7 +34,52 @@ use serde::{Deserialize, Serialize};
 ///
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 3;
+
+macro_rules! logical_counter {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[repr(transparent)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        pub struct $name(pub u64);
+    };
+}
+
+logical_counter!(
+    /// Per-worldline logical coordinate in host-visible metadata.
+    ///
+    /// The meaning of `0` depends on the surface carrying it:
+    ///
+    /// - In historical coordinates such as [`ObservationAt::Tick`], `0` names
+    ///   the first committed append.
+    /// - In frontier/head metadata such as [`HeadInfo`] and
+    ///   [`HeadObservation`], `0` paired with `commit_global_tick = None`
+    ///   means the worldline is still at `U0` and has not committed anything.
+    WorldlineTick
+);
+
+logical_counter!(
+    /// Runtime-cycle correlation stamp in host-visible metadata.
+    ///
+    /// `GlobalTick` is monotonic for the lifetime of one initialized kernel and
+    /// spans all worldlines managed by that kernel. It is not a per-worldline
+    /// append id and it resets when the host creates a fresh kernel via
+    /// `init()`. When exposed through [`SchedulerStatus`] as an `Option`, `None`
+    /// means the referenced event has not happened yet in this kernel lifetime
+    /// (for example, no cycle has completed or no commit has occurred).
+    GlobalTick
+);
+
+logical_counter!(
+    /// Control-plane run generation token.
+    ///
+    /// A fresh `RunId` is minted for every accepted `Start` request. It stays
+    /// stable across all host observations and `dispatch_intent(...)` calls
+    /// during that run, then remains visible in [`SchedulerStatus::run_id`]
+    /// after completion until another `Start` replaces it or the kernel is
+    /// re-initialized.
+    RunId
+);
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -48,7 +93,7 @@ pub mod error_codes {
     pub const INVALID_INTENT: u32 = 2;
     /// An internal engine error occurred during processing.
     pub const ENGINE_ERROR: u32 = 3;
-    /// Legacy snapshot/history tick index is out of bounds.
+    /// Reserved for the removed v1 snapshot adapter.
     pub const LEGACY_INVALID_TICK: u32 = 4;
     /// The requested operation is not yet supported by this kernel.
     pub const NOT_SUPPORTED: u32 = 5;
@@ -66,6 +111,8 @@ pub mod error_codes {
     pub const UNSUPPORTED_QUERY: u32 = 11;
     /// The requested observation cannot be produced at this coordinate.
     pub const OBSERVATION_UNAVAILABLE: u32 = 12;
+    /// The provided control intent payload was invalid.
+    pub const INVALID_CONTROL: u32 = 13;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,26 +141,184 @@ pub struct DispatchResponse {
     pub accepted: bool,
     /// Content-addressed intent identifier (BLAKE3 hash, 32 bytes).
     pub intent_id: Vec<u8>,
+    /// Scheduler status after the intent is ingested or applied.
+    pub scheduler_status: SchedulerStatus,
 }
 
 /// Current head state of the kernel.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadInfo {
-    /// Current tick count (number of committed ticks).
-    pub tick: u64,
-    /// Graph-only state hash (32 bytes).
+    /// Current committed frontier position for the worldline.
+    ///
+    /// `worldline_tick == WorldlineTick(0)` together with
+    /// `commit_global_tick == None` represents the empty `U0` frontier with no
+    /// committed appends yet.
+    pub worldline_tick: WorldlineTick,
+    /// Runtime cycle stamp for the current committed head, if any.
+    ///
+    /// `None` means the worldline has not committed anything yet.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Canonical full-state root hash (32 bytes).
+    ///
+    /// For the empty `U0` frontier this is still populated: it is the
+    /// deterministic root hash of the current `U0` materialization.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash (32 bytes).
+    /// Canonical frontier hash (32 bytes).
+    ///
+    /// For the empty `U0` frontier this is the deterministic frontier snapshot
+    /// hash over that `U0` materialization, not an absent sentinel.
     pub commit_id: Vec<u8>,
 }
 
-/// Response from [`KernelPort::step`].
+/// Declared scheduler mode visible to hosts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StepResponse {
-    /// Number of ticks actually executed (may be less than budget).
-    pub ticks_executed: u32,
-    /// Head state after stepping.
-    pub head: HeadInfo,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SchedulerMode {
+    /// Run until no runnable work remains, optionally bounded by cycle count.
+    UntilIdle {
+        /// Maximum cycles to run before yielding.
+        ///
+        /// When present, this value must be non-zero. `Some(0)` is rejected as
+        /// [`error_codes::INVALID_CONTROL`].
+        cycle_limit: Option<u32>,
+    },
+}
+
+/// Scheduler lifecycle state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SchedulerState {
+    /// Scheduler is inactive and no run is currently executing.
+    Inactive,
+    /// Scheduler is actively executing runtime cycles.
+    Running,
+    /// Scheduler will stop after the current cycle boundary.
+    Stopping,
+}
+
+/// Runtime work availability at the current scheduler boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkState {
+    /// No runnable work remains at the current boundary.
+    Quiescent,
+    /// Runnable work exists and can be scheduled immediately.
+    RunnablePending,
+    /// Work exists, but all current heads are blocked or dormant.
+    BlockedOnly,
+}
+
+/// Completion reason for the most recent bounded or active run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunCompletion {
+    /// The most recent run ended because no runnable work remained.
+    Quiesced,
+    /// The most recent run ended because work remained but all heads were blocked or dormant.
+    BlockedOnly,
+    /// The most recent run ended because its cycle bound was reached.
+    CycleLimitReached,
+    /// The most recent run ended because stop was requested.
+    Stopped,
+}
+
+/// Declarative host intent for head admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadEligibility {
+    /// Head is intentionally excluded from scheduling.
+    Dormant,
+    /// Head is admitted and may participate if otherwise runnable.
+    Admitted,
+}
+
+/// Runtime truth about a head's scheduler disposition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeadDisposition {
+    /// Head is intentionally excluded from scheduling.
+    Dormant,
+    /// Head is currently runnable by the scheduler.
+    Runnable,
+    /// Head is admitted but cannot currently run.
+    Blocked,
+    /// Head has been retired and cannot be reactivated.
+    Retired,
+}
+
+/// Current scheduler metadata.
+///
+/// ABI invariants:
+///
+/// - `run_id` is `Some(...)` once a run starts and remains `Some(...)` after
+///   that run completes until a later `Start` replaces it or `init()` resets
+///   the kernel.
+/// - `active_mode` is `Some(...)` only while the scheduler is active
+///   (`state = running` or `state = stopping`). The current engine-backed
+///   implementation runs `Start` synchronously, so hosts normally observe
+///   `active_mode = None` together with the completed
+///   `last_run_completion`.
+/// - `latest_commit_global_tick <= latest_cycle_global_tick` whenever both are
+///   present.
+/// - `last_quiescent_global_tick` is monotonic for the lifetime of one
+///   initialized kernel. It records the most recent transition into
+///   quiescence and does not regress when work later becomes runnable again.
+/// - `latest_cycle_global_tick = None` means the kernel has not completed a
+///   runtime cycle yet. `last_run_completion = None` means no run has
+///   completed since initialization or the most recent accepted `Start` has
+///   not finished yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchedulerStatus {
+    /// Current scheduler lifecycle state.
+    pub state: SchedulerState,
+    /// Active scheduler mode, if any run is configured.
+    pub active_mode: Option<SchedulerMode>,
+    /// Runtime work availability at the current scheduler boundary.
+    pub work_state: WorkState,
+    /// Current run generation token, if a run is active or recently completed.
+    pub run_id: Option<RunId>,
+    /// Latest completed runtime cycle, even if no commit occurred.
+    pub latest_cycle_global_tick: Option<GlobalTick>,
+    /// Latest runtime cycle that produced a commit.
+    pub latest_commit_global_tick: Option<GlobalTick>,
+    /// Most recent cycle that transitioned the runtime into quiescence.
+    pub last_quiescent_global_tick: Option<GlobalTick>,
+    /// Completion reason for the most recent run, if one has completed.
+    pub last_run_completion: Option<RunCompletion>,
+}
+
+/// Stable head key used by control intents.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeadKey {
+    /// Worldline that owns the head as a canonical 32-byte worldline-id hash.
+    pub worldline_id: Vec<u8>,
+    /// Stable head identifier within that worldline as a canonical 32-byte
+    /// domain-separated head-id hash payload.
+    pub head_id: Vec<u8>,
+}
+
+/// Privileged control intents routed through the same intent intake surface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ControlIntentV1 {
+    /// Request a bounded or unbounded runtime run.
+    Start {
+        /// Requested scheduler mode.
+        mode: SchedulerMode,
+    },
+    /// Request scheduler stop for implementations with persistent runs.
+    ///
+    /// The current engine-backed `warp-wasm` kernel executes `Start` runs
+    /// synchronously, so hosts normally observe the completed run via
+    /// `last_run_completion` instead of an intermediate stopping state.
+    Stop,
+    /// Change declarative head admission.
+    SetHeadEligibility {
+        /// Target head whose eligibility should change.
+        head: HeadKey,
+        /// New declarative eligibility for that head.
+        eligibility: HeadEligibility,
+    },
 }
 
 /// A single materialized channel output.
@@ -142,8 +347,10 @@ pub enum ObservationAt {
     Frontier,
     /// Observe a specific committed historical tick.
     Tick {
-        /// Zero-based historical tick index.
-        tick: u64,
+        /// Zero-based committed append index.
+        ///
+        /// `WorldlineTick(0)` means "the first committed append", not `U0`.
+        worldline_tick: WorldlineTick,
     },
 }
 
@@ -201,33 +408,80 @@ pub struct ResolvedObservationCoordinate {
     pub worldline_id: Vec<u8>,
     /// Original coordinate selector from the request.
     pub requested_at: ObservationAt,
-    /// Concrete resolved committed tick.
-    pub resolved_tick: u64,
+    /// Concrete resolved worldline coordinate.
+    ///
+    /// For historical requests this is a zero-based committed append index. For
+    /// empty-frontier observations it may be `WorldlineTick(0)` paired with
+    /// `commit_global_tick == None` to represent `U0`.
+    pub resolved_worldline_tick: WorldlineTick,
+    /// Commit cycle stamp for the resolved commit, if any.
+    ///
+    /// `None` indicates that the resolved coordinate is the empty `U0`
+    /// frontier rather than a committed append.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Observation freshness watermark after resolving this artifact.
+    pub observed_after_global_tick: Option<GlobalTick>,
     /// Canonical state root at the resolved coordinate.
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic `U0`
+    /// materialization root here.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash at the resolved coordinate.
+    /// Canonical frontier/commit hash at the resolved coordinate.
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic frontier
+    /// snapshot hash for that `U0` materialization here.
     pub commit_hash: Vec<u8>,
 }
 
 /// Minimal head observation payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadObservation {
-    /// Current committed tick count at the observed frontier.
-    pub tick: u64,
-    /// Graph-only state hash (32 bytes).
+    /// Current committed frontier position at the observed frontier.
+    ///
+    /// `worldline_tick == WorldlineTick(0)` together with
+    /// `commit_global_tick == None` means the observed frontier is still `U0`
+    /// with no committed appends.
+    pub worldline_tick: WorldlineTick,
+    /// Commit cycle stamp for the observed head, if any.
+    ///
+    /// `None` means the observed frontier has not committed anything yet.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Canonical full-state root hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic `U0`
+    /// materialization root here.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash (32 bytes).
+    /// Canonical frontier hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` observations still carry the deterministic frontier
+    /// snapshot hash for that `U0` materialization here.
     pub commit_id: Vec<u8>,
 }
 
-/// Minimal historical snapshot payload.
+/// Minimal snapshot payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnapshotObservation {
-    /// Historical tick index being observed.
-    pub tick: u64,
-    /// Graph-only state hash (32 bytes).
+    /// Snapshot coordinate being observed.
+    ///
+    /// Historical observations use zero-based committed append indices.
+    /// `ObservationAt::Frontier + Snapshot` may also resolve to
+    /// `WorldlineTick(0)` plus `commit_global_tick = None` to describe the
+    /// empty `U0` frontier snapshot.
+    pub worldline_tick: WorldlineTick,
+    /// Commit cycle stamp for the observed historical commit, if any.
+    ///
+    /// Historical snapshots carry `Some(_)`; `None` is reserved for an
+    /// empty-frontier `U0` snapshot resolved from `ObservationAt::Frontier`.
+    pub commit_global_tick: Option<GlobalTick>,
+    /// Canonical full-state root hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` snapshots still carry the deterministic `U0`
+    /// materialization root here.
     pub state_root: Vec<u8>,
-    /// Canonical commit hash (32 bytes).
+    /// Canonical snapshot hash (32 bytes).
+    ///
+    /// Empty-frontier `U0` snapshots still carry the deterministic frontier
+    /// snapshot hash for that `U0` materialization here.
     pub commit_id: Vec<u8>,
 }
 
@@ -288,13 +542,6 @@ pub struct ObservationArtifact {
     pub payload: ObservationPayload,
 }
 
-/// Response from [`KernelPort::drain_view_ops`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DrainResponse {
-    /// Finalized channel outputs since the last drain.
-    pub channels: Vec<ChannelData>,
-}
-
 /// Registry and handshake metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryInfo {
@@ -337,17 +584,6 @@ impl<T> OkEnvelope<T> {
     }
 }
 
-/// Wrapper for raw CBOR byte payloads in success envelopes.
-///
-/// Used by endpoints that return pre-encoded CBOR bytes (e.g., `snapshot_at`,
-/// `execute_query`). Unlike struct responses that flatten into the envelope,
-/// raw bytes are placed in a `data` field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RawBytesResponse {
-    /// The raw CBOR-encoded payload.
-    pub data: Vec<u8>,
-}
-
 /// Error envelope for CBOR encoding.
 ///
 /// Construct via [`ErrEnvelope::new`] to guarantee `ok` is always `false`.
@@ -386,8 +622,8 @@ impl ErrEnvelope {
 ///
 /// The trait makes no assumptions about what rules the engine runs, what
 /// schema is installed, or what domain the simulation models. It operates
-/// purely on canonical intent bytes, tick budgets, and materialized channel
-/// outputs. App-specific behavior is injected by the kernel implementation,
+/// purely on canonical intent bytes, scheduler status inspection, and explicit observation
+/// requests. App-specific behavior is injected by the kernel implementation,
 /// not by the boundary.
 ///
 /// # Thread Safety
@@ -401,15 +637,10 @@ pub trait KernelPort {
     /// newly accepted or a duplicate.
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError>;
 
-    /// Execute deterministic ticks up to the given budget.
-    ///
-    /// Returns the number of ticks actually executed and the head state
-    /// after stepping. A budget of 0 is a no-op that returns the current head.
-    fn step(&mut self, budget: u32) -> Result<StepResponse, AbiError>;
-
     /// Observe a worldline at an explicit coordinate and frame.
     ///
-    /// The default implementation reports that the observation contract is not
+    /// This is the only canonical public read entrypoint in ABI v3. The
+    /// default implementation reports that the observation contract is not
     /// supported by this kernel implementation.
     fn observe(&self, _request: ObservationRequest) -> Result<ObservationArtifact, AbiError> {
         Err(AbiError {
@@ -418,40 +649,14 @@ pub trait KernelPort {
         })
     }
 
-    /// Drain materialized ViewOps channels since the last drain.
-    ///
-    /// Returns finalized channel data. Calling drain twice without an
-    /// intervening step returns empty channels.
-    fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError>;
-
-    /// Get the current head state (tick, state_root, commit_id).
-    fn get_head(&self) -> Result<HeadInfo, AbiError>;
-
-    /// Execute a read-only query against the current state.
-    ///
-    /// Returns CBOR-encoded query results. The default implementation returns
-    /// `NOT_SUPPORTED`; override when the engine has a query dispatcher.
-    fn execute_query(&self, _query_id: u32, _vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "execute_query is not supported by this kernel".into(),
-        })
-    }
-
-    /// Replay to a specific tick and return the snapshot as CBOR bytes.
-    fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError>;
-
-    /// Render a snapshot into ViewOps for visualization.
-    ///
-    /// The default implementation returns `NOT_SUPPORTED`; override when the
-    /// engine has snapshot rendering.
-    fn render_snapshot(&self, _snapshot_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        Err(AbiError {
-            code: error_codes::NOT_SUPPORTED,
-            message: "render_snapshot is not supported by this kernel".into(),
-        })
-    }
-
     /// Return registry and handshake metadata.
     fn registry_info(&self) -> RegistryInfo;
+
+    /// Return read-only scheduler status metadata.
+    ///
+    /// This call is side-effect free. Implementations may report a run that has
+    /// already completed by the time the host polls here; for example, a
+    /// synchronous `Start` can return from `dispatch_intent(...)` with
+    /// `state = Inactive` and `last_run_completion` populated immediately.
+    fn scheduler_status(&self) -> Result<SchedulerStatus, AbiError>;
 }

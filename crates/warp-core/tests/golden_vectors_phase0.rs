@@ -39,8 +39,7 @@ mod common;
 use common::{create_initial_store, setup_worldline_with_ticks, test_cursor_id, test_warp_id};
 
 use warp_core::{
-    compute_state_root_for_warp_store, CursorRole, EngineBuilder, PlaybackCursor, ProvenanceStore,
-    WorldlineId,
+    CursorRole, EngineBuilder, PlaybackCursor, ProvenanceStore, WorldlineId, WorldlineTick,
 };
 
 // =============================================================================
@@ -49,6 +48,10 @@ use warp_core::{
 
 fn hex(h: &[u8; 32]) -> String {
     h.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
 }
 
 // =============================================================================
@@ -106,54 +109,61 @@ fn gv002_provenance_replay_integrity() {
     // (state_root, patch_digest, commit_hash) per tick
     const EXPECTED: [(&str, &str, &str); 5] = [
         (
-            "96266268301910b9ba3d4b329e57b3ffc4dd14f86c0135bc522e4f39e61f3225",
-            "0000000000000000000000000000000000000000000000000000000000000000",
-            "a2a95c7cf7826dd958efa34b67001cdb51ed0bdc5186e35f5801881011bdcf12",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
+            "c8a5742eac00bd749b047eb370a216550d89506db974f33ea8e38267fbb99c30",
+            "3a812930ebb500193e04eb54dd9d91464dc083bc5831d1f56cda003a979ba79b",
         ),
         (
-            "ffbdc6137114e50c7650e8e89256de68ffbc6309586e260ad03b4a26a02ea1c1",
-            "0101010101010101010101010101010101010101010101010101010101010101",
-            "17d403ac3ee32ae651b0a229829c9d498d2ca98cc5cff2ae00a36b4f3a4ee786",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
+            "6233bde837b9ed096bb9cf4da088b473774ef93c6ac5b81d802671198f4ce1d7",
+            "f636478b62ab0a9ba53fcb4265f16b249094715827c383d58ed508cf2033936d",
         ),
         (
-            "abfb7ff4864f246e970b192aa899b5c07ec06ea09f6ace47055c0b3ad61dc7b3",
-            "0202020202020202020202020202020202020202020202020202020202020202",
-            "6287d50b02bdfd201512e632ca6318f0f2df8432270e524eeeabb7312fe59785",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
+            "28e6bfae2d50e1a6844e5b2296b3919763ead2456193abb76afb11d71feb09e7",
+            "cf7104578e38084fd967da50094d12001dd1c26bb43c3cf08d1469c2f1128355",
         ),
         (
-            "c4c992d30ad7f83b4fb6e8a506313952653625497538e0e135eec9bd2cf82f8f",
-            "0303030303030303030303030303030303030303030303030303030303030303",
-            "f1b9996112f2bda21c391ed68c31caca2c650f200cc8b2ead86076a9ce7ea116",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
+            "1a22ffbe3349630eca690769929680a1916c2cff141d03884c395e8174b7c13e",
+            "3b0e8f0ba658ef7d0bd434335050804197f02916480571a43fb2266208e82daf",
         ),
         (
-            "107238c92550c9561a9df3d6668b4c6e01ad06355e3ff82602c64eb476c539d5",
-            "0404040404040404040404040404040404040404040404040404040404040404",
-            "bb36ae47ea312a0199718bb137f508aee00fded15834f1b726c879b7a6174cda",
+            "c867d82d58d4d32dbba9b3df68fd2db5b5fac7d798b863c31ae219593b15941d",
+            "449e6e3b7af6c76b0052747afaf5ff2779c6e3881523326926c0699e005ef9c4",
+            "b2800a319ccc208e8d627b9b78c8c4d88c2494cfc9eeb4d98a2720b2a881b92c",
         ),
     ];
 
     let (provenance, initial_store, warp_id, worldline_id) = setup_worldline_with_ticks(5);
 
+    let actual: Vec<(String, String, String)> = (0..EXPECTED.len())
+        .map(|tick| {
+            let triplet = provenance
+                .entry(worldline_id, wt(tick as u64))
+                .unwrap_or_else(|e| panic!("tick {tick}: {e}"))
+                .expected;
+            (
+                hex(&triplet.state_root),
+                hex(&triplet.patch_digest),
+                hex(&triplet.commit_hash),
+            )
+        })
+        .collect();
+
     // Verify each tick's hash triplet against pinned values
     for (tick, (exp_sr, exp_pd, exp_ch)) in EXPECTED.iter().enumerate() {
-        let triplet = provenance
-            .entry(worldline_id, tick as u64)
-            .unwrap_or_else(|e| panic!("tick {tick}: {e}"))
-            .expected;
-
+        let (actual_sr, actual_pd, actual_ch) = &actual[tick];
         assert_eq!(
-            hex(&triplet.state_root),
-            *exp_sr,
+            actual_sr, *exp_sr,
             "GV-002 tick {tick}: state_root mismatch"
         );
         assert_eq!(
-            hex(&triplet.patch_digest),
-            *exp_pd,
+            actual_pd, *exp_pd,
             "GV-002 tick {tick}: patch_digest mismatch"
         );
         assert_eq!(
-            hex(&triplet.commit_hash),
-            *exp_ch,
+            actual_ch, *exp_ch,
             "GV-002 tick {tick}: commit_hash mismatch"
         );
     }
@@ -165,12 +175,12 @@ fn gv002_provenance_replay_integrity() {
         warp_id,
         CursorRole::Reader,
         &initial_store,
-        5,
+        wt(5),
     );
     cursor
-        .seek_to(5, &provenance, &initial_store)
+        .seek_to(wt(5), &provenance, &initial_store)
         .expect("seek should succeed");
-    let final_state_root = compute_state_root_for_warp_store(&cursor.store, warp_id);
+    let final_state_root = cursor.current_state_root();
 
     assert_eq!(
         hex(&final_state_root),
@@ -189,39 +199,53 @@ fn gv002_provenance_replay_integrity() {
 fn gv003_fork_reproducibility() {
     // Pinned commit hashes for ticks 0..=5 of the 10-tick worldline (fork-tick inclusive)
     const EXPECTED_PREFIX_COMMITS: [&str; 6] = [
-        "a2a95c7cf7826dd958efa34b67001cdb51ed0bdc5186e35f5801881011bdcf12",
-        "17d403ac3ee32ae651b0a229829c9d498d2ca98cc5cff2ae00a36b4f3a4ee786",
-        "6287d50b02bdfd201512e632ca6318f0f2df8432270e524eeeabb7312fe59785",
-        "f1b9996112f2bda21c391ed68c31caca2c650f200cc8b2ead86076a9ce7ea116",
-        "bb36ae47ea312a0199718bb137f508aee00fded15834f1b726c879b7a6174cda",
-        "d59644dd0529c0216dd54567fdf7f6b71c4103be17ea6eff71e2449e58a677e5",
+        "3a812930ebb500193e04eb54dd9d91464dc083bc5831d1f56cda003a979ba79b",
+        "f636478b62ab0a9ba53fcb4265f16b249094715827c383d58ed508cf2033936d",
+        "cf7104578e38084fd967da50094d12001dd1c26bb43c3cf08d1469c2f1128355",
+        "3b0e8f0ba658ef7d0bd434335050804197f02916480571a43fb2266208e82daf",
+        "b2800a319ccc208e8d627b9b78c8c4d88c2494cfc9eeb4d98a2720b2a881b92c",
+        "983390108e4cc9d8d0c21fa47f0ee84eae115757d63d0b3f599925877c5bc30e",
     ];
 
     let (mut provenance, _initial_store, _warp_id, worldline_id) = setup_worldline_with_ticks(10);
     let forked_id = WorldlineId([2u8; 32]);
 
     provenance
-        .fork(worldline_id, 5, forked_id)
+        .fork(worldline_id, wt(5), forked_id)
         .expect("fork should succeed");
 
     // fork(src, 5, dst) copies ticks 0..=5 (6 entries)
     let forked_len = provenance.len(forked_id).unwrap();
     assert_eq!(forked_len, 6, "GV-003: fork at 5 should yield 6 entries");
 
+    let actual_prefix_commits: Vec<String> = (0..EXPECTED_PREFIX_COMMITS.len())
+        .map(|tick| {
+            provenance
+                .entry(worldline_id, wt(tick as u64))
+                .unwrap()
+                .expected
+                .commit_hash
+        })
+        .map(|hash| hex(&hash))
+        .collect();
+
     // Prefix ticks 0..5 must be identical between original and fork
     for (tick, exp_ch) in EXPECTED_PREFIX_COMMITS.iter().enumerate() {
         let original = provenance
-            .entry(worldline_id, tick as u64)
+            .entry(worldline_id, wt(tick as u64))
             .unwrap()
             .expected;
-        let forked = provenance.entry(forked_id, tick as u64).unwrap().expected;
+        let forked = provenance
+            .entry(forked_id, wt(tick as u64))
+            .unwrap()
+            .expected;
 
         assert_eq!(
             original, forked,
             "GV-003 tick {tick}: forked prefix must match original"
         );
         assert_eq!(
-            hex(&original.commit_hash),
+            actual_prefix_commits[tick].as_str(),
             *exp_ch,
             "GV-003 tick {tick}: commit_hash mismatch"
         );

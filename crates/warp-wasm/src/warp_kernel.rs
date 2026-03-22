@@ -10,19 +10,22 @@
 use std::fmt;
 
 use echo_wasm_abi::kernel_port::{
-    error_codes, AbiError, ChannelData, DispatchResponse, DrainResponse, HeadInfo, KernelPort,
+    error_codes, AbiError, ControlIntentV1, DispatchResponse, GlobalTick as AbiGlobalTick,
+    HeadEligibility as AbiHeadEligibility, HeadInfo, HeadKey as AbiHeadKey, KernelPort,
     ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
     ObservationProjection as AbiObservationProjection, ObservationRequest as AbiObservationRequest,
-    RegistryInfo, StepResponse, ABI_VERSION,
+    RegistryInfo, RunCompletion, RunId as AbiRunId, SchedulerMode, SchedulerState, SchedulerStatus,
+    WorkState, WorldlineTick as AbiWorldlineTick, ABI_VERSION,
 };
-use echo_wasm_abi::unpack_intent_v1;
+use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 use warp_core::{
-    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GraphStore,
-    HistoryError, IngressDisposition, IngressEnvelope, IngressTarget, NodeRecord, ObservationAt,
-    ObservationCoordinate, ObservationError, ObservationFrame, ObservationPayload,
-    ObservationProjection, ObservationRequest, ObservationService, PlaybackMode, ProvenanceService,
-    RuntimeError, SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime,
-    WorldlineState, WorldlineStateError, WriterHead, WriterHeadKey,
+    make_head_id, make_intent_kind, make_node_id, make_type_id, Engine, EngineBuilder, GlobalTick,
+    GraphStore, HeadEligibility, HeadId, HistoryError, IngressDisposition, IngressEnvelope,
+    IngressTarget, NodeRecord, ObservationAt, ObservationCoordinate, ObservationError,
+    ObservationFrame, ObservationPayload, ObservationProjection, ObservationRequest,
+    ObservationService, PlaybackMode, ProvenanceService, RunId, RuntimeError, SchedulerCoordinator,
+    SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState, WorldlineStateError,
+    WorldlineTick, WriterHead, WriterHeadKey,
 };
 
 /// Error returned when a [`WarpKernel`] cannot be initialized from a caller-supplied engine.
@@ -78,11 +81,8 @@ pub struct WarpKernel {
     runtime: WorldlineRuntime,
     provenance: ProvenanceService,
     default_worldline: WorldlineId,
-    /// Latest committed tick returned by the legacy `drain_view_ops()` adapter.
-    ///
-    /// This bookkeeping belongs to the compatibility layer only. It does not
-    /// mutate runtime, provenance, or engine-owned worldline state.
-    last_drained_commit_tick: Option<u64>,
+    scheduler_status: SchedulerStatus,
+    next_run_id: RunId,
     /// Registry metadata (injected at construction, immutable after).
     registry: RegistryInfo,
 }
@@ -151,7 +151,17 @@ impl WarpKernel {
             runtime,
             provenance,
             default_worldline,
-            last_drained_commit_tick: None,
+            scheduler_status: SchedulerStatus {
+                state: SchedulerState::Inactive,
+                active_mode: None,
+                work_state: WorkState::Quiescent,
+                run_id: None,
+                latest_cycle_global_tick: None,
+                latest_commit_global_tick: None,
+                last_quiescent_global_tick: None,
+                last_run_completion: None,
+            },
+            next_run_id: RunId::from_raw(1),
             registry,
         })
     }
@@ -222,7 +232,9 @@ impl WarpKernel {
         let worldline_id = Self::parse_worldline_id(&request.coordinate.worldline_id)?;
         let at = match request.coordinate.at {
             echo_wasm_abi::kernel_port::ObservationAt::Frontier => ObservationAt::Frontier,
-            echo_wasm_abi::kernel_port::ObservationAt::Tick { tick } => ObservationAt::Tick(tick),
+            echo_wasm_abi::kernel_port::ObservationAt::Tick { worldline_tick } => {
+                ObservationAt::Tick(WorldlineTick::from_raw(worldline_tick.0))
+            }
         };
         let frame = match request.frame {
             AbiObservationFrame::CommitBoundary => ObservationFrame::CommitBoundary,
@@ -260,12 +272,26 @@ impl WarpKernel {
             .map_err(Self::map_observation_error)
     }
 
+    pub(crate) fn current_head(&self) -> Result<HeadInfo, AbiError> {
+        Self::head_info_from_observation(self.observe_core(ObservationRequest {
+            coordinate: ObservationCoordinate {
+                worldline_id: self.default_worldline,
+                at: ObservationAt::Frontier,
+            },
+            frame: ObservationFrame::CommitBoundary,
+            projection: ObservationProjection::Head,
+        })?)
+    }
+
     fn head_info_from_observation(
         artifact: warp_core::ObservationArtifact,
     ) -> Result<HeadInfo, AbiError> {
         match artifact.payload {
             ObservationPayload::Head(head) => Ok(HeadInfo {
-                tick: head.tick,
+                worldline_tick: AbiWorldlineTick(head.worldline_tick.as_u64()),
+                commit_global_tick: head
+                    .commit_global_tick
+                    .map(|tick| AbiGlobalTick(tick.as_u64())),
                 state_root: head.state_root.to_vec(),
                 commit_id: head.commit_hash.to_vec(),
             }),
@@ -276,47 +302,218 @@ impl WarpKernel {
         }
     }
 
-    fn snapshot_bytes_from_observation(
-        artifact: warp_core::ObservationArtifact,
-    ) -> Result<Vec<u8>, AbiError> {
-        let ObservationPayload::Snapshot(snapshot) = artifact.payload else {
-            return Err(AbiError {
-                code: error_codes::ENGINE_ERROR,
-                message: "observe returned non-snapshot payload for snapshot adapter".into(),
-            });
-        };
-        let head = HeadInfo {
-            tick: snapshot.tick,
-            state_root: snapshot.state_root.to_vec(),
-            commit_id: snapshot.commit_hash.to_vec(),
-        };
-        echo_wasm_abi::encode_cbor(&head).map_err(|e| AbiError {
-            code: error_codes::CODEC_ERROR,
-            message: e.to_string(),
-        })
+    fn option_abi_global_tick(tick: GlobalTick) -> Option<AbiGlobalTick> {
+        (tick != GlobalTick::ZERO).then_some(AbiGlobalTick(tick.as_u64()))
     }
 
-    fn map_legacy_snapshot_error(err: AbiError) -> AbiError {
-        if err.code == error_codes::INVALID_TICK {
-            return AbiError {
-                code: error_codes::LEGACY_INVALID_TICK,
-                message: err.message,
-            };
+    fn current_work_state(&self) -> WorkState {
+        let mut has_pending = false;
+        let mut has_runnable = false;
+
+        for (_, head) in self.runtime.heads().iter() {
+            if !head.inbox().is_empty() {
+                has_pending = true;
+            }
+            if head.is_admitted() && !head.is_paused() && head.inbox().can_admit() {
+                has_runnable = true;
+            }
         }
-        err
+
+        if has_runnable {
+            WorkState::RunnablePending
+        } else if has_pending {
+            WorkState::BlockedOnly
+        } else {
+            WorkState::Quiescent
+        }
+    }
+
+    fn refresh_scheduler_status(&mut self) {
+        self.scheduler_status.work_state = self.current_work_state();
+        self.scheduler_status.latest_cycle_global_tick =
+            Self::option_abi_global_tick(self.runtime.global_tick());
+    }
+
+    fn clear_active_run_state(&mut self, clear_run_id: bool) {
+        self.scheduler_status.state = SchedulerState::Inactive;
+        self.scheduler_status.active_mode = None;
+        if clear_run_id {
+            self.scheduler_status.run_id = None;
+        }
+        self.refresh_scheduler_status();
+    }
+
+    fn apply_control_intent(&mut self, intent: ControlIntentV1) -> Result<(), AbiError> {
+        match intent {
+            ControlIntentV1::Start {
+                mode: SchedulerMode::UntilIdle { cycle_limit },
+            } => {
+                if matches!(
+                    self.scheduler_status.state,
+                    SchedulerState::Running | SchedulerState::Stopping
+                ) {
+                    return Err(AbiError {
+                        code: error_codes::INVALID_CONTROL,
+                        message: "scheduler is already active".into(),
+                    });
+                }
+                if matches!(cycle_limit, Some(0)) {
+                    return Err(AbiError {
+                        code: error_codes::INVALID_CONTROL,
+                        message: "cycle_limit must be non-zero when present".into(),
+                    });
+                }
+
+                let run_id = self.next_run_id;
+                self.next_run_id =
+                    self.next_run_id
+                        .checked_increment()
+                        .ok_or_else(|| AbiError {
+                            code: error_codes::ENGINE_ERROR,
+                            message: "run id overflow".into(),
+                        })?;
+                self.scheduler_status.state = SchedulerState::Running;
+                self.scheduler_status.active_mode = Some(SchedulerMode::UntilIdle { cycle_limit });
+                self.scheduler_status.run_id = Some(AbiRunId(run_id.as_u64()));
+                self.scheduler_status.last_run_completion = None;
+                self.refresh_scheduler_status();
+
+                let mut cycles_executed = 0u32;
+                loop {
+                    let records = match SchedulerCoordinator::super_tick(
+                        &mut self.runtime,
+                        &mut self.provenance,
+                        &mut self.engine,
+                    ) {
+                        Ok(records) => records,
+                        Err(error) => {
+                            self.clear_active_run_state(true);
+                            return Err(AbiError {
+                                code: error_codes::ENGINE_ERROR,
+                                message: error.to_string(),
+                            });
+                        }
+                    };
+
+                    self.refresh_scheduler_status();
+                    if !records.is_empty() {
+                        self.scheduler_status.latest_commit_global_tick =
+                            Self::option_abi_global_tick(self.runtime.global_tick());
+                    }
+                    cycles_executed = cycles_executed.saturating_add(1);
+
+                    if self.scheduler_status.work_state == WorkState::Quiescent {
+                        self.scheduler_status.last_quiescent_global_tick =
+                            Self::option_abi_global_tick(self.runtime.global_tick());
+                        self.scheduler_status.last_run_completion = Some(RunCompletion::Quiesced);
+                        break;
+                    }
+
+                    if records.is_empty()
+                        && self.scheduler_status.work_state == WorkState::BlockedOnly
+                    {
+                        self.scheduler_status.last_run_completion =
+                            Some(RunCompletion::BlockedOnly);
+                        break;
+                    }
+
+                    if cycle_limit.is_some_and(|limit| cycles_executed >= limit) {
+                        self.scheduler_status.last_run_completion =
+                            Some(RunCompletion::CycleLimitReached);
+                        break;
+                    }
+                }
+
+                self.clear_active_run_state(false);
+            }
+            ControlIntentV1::Stop => {
+                if self.scheduler_status.state == SchedulerState::Inactive {
+                    self.refresh_scheduler_status();
+                    return Ok(());
+                }
+                self.scheduler_status.last_run_completion = Some(RunCompletion::Stopped);
+                self.clear_active_run_state(false);
+            }
+            ControlIntentV1::SetHeadEligibility { head, eligibility } => {
+                let key = Self::parse_head_key(&head)?;
+                let eligibility = match eligibility {
+                    AbiHeadEligibility::Dormant => HeadEligibility::Dormant,
+                    AbiHeadEligibility::Admitted => HeadEligibility::Admitted,
+                };
+                self.runtime
+                    .set_head_eligibility(key, eligibility)
+                    .map_err(|e| AbiError {
+                        code: match e {
+                            RuntimeError::UnknownHead(_) => error_codes::INVALID_CONTROL,
+                            _ => error_codes::ENGINE_ERROR,
+                        },
+                        message: e.to_string(),
+                    })?;
+                self.refresh_scheduler_status();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_head_key(head: &AbiHeadKey) -> Result<WriterHeadKey, AbiError> {
+        let worldline_id = Self::parse_worldline_id(&head.worldline_id)?;
+        let head_id_bytes: [u8; 32] = head.head_id.as_slice().try_into().map_err(|_| AbiError {
+            code: error_codes::INVALID_CONTROL,
+            message: format!(
+                "head id must be exactly 32 bytes, got {}",
+                head.head_id.len()
+            ),
+        })?;
+        Ok(WriterHeadKey {
+            worldline_id,
+            head_id: HeadId::from_bytes(head_id_bytes),
+        })
     }
 }
 
 impl KernelPort for WarpKernel {
     fn dispatch_intent(&mut self, intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError> {
-        // Validate the EINT envelope before passing to the engine.
-        if let Err(e) = unpack_intent_v1(intent_bytes) {
-            return Err(AbiError {
-                code: error_codes::INVALID_INTENT,
-                message: format!(
-                    "malformed EINT envelope ({} bytes): {e}",
-                    intent_bytes.len()
-                ),
+        let (op_id, _vars) = unpack_intent_v1(intent_bytes).map_err(|e| AbiError {
+            code: error_codes::INVALID_INTENT,
+            message: format!(
+                "malformed EINT envelope ({} bytes): {e}",
+                intent_bytes.len()
+            ),
+        })?;
+
+        let intent_id = if op_id == CONTROL_INTENT_V1_OP_ID {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: self.default_worldline,
+                },
+                make_intent_kind("echo.control/eint-v1"),
+                intent_bytes.to_vec(),
+            )
+            .ingress_id()
+            .to_vec()
+        } else {
+            IngressEnvelope::local_intent(
+                IngressTarget::DefaultWriter {
+                    worldline_id: self.default_worldline,
+                },
+                make_intent_kind("echo.intent/eint-v1"),
+                intent_bytes.to_vec(),
+            )
+            .ingress_id()
+            .to_vec()
+        };
+
+        if op_id == CONTROL_INTENT_V1_OP_ID {
+            let control = unpack_control_intent_v1(intent_bytes).map_err(|_| AbiError {
+                code: error_codes::INVALID_CONTROL,
+                message: "invalid control intent envelope".into(),
+            })?;
+            self.apply_control_intent(control)?;
+            return Ok(DispatchResponse {
+                accepted: true,
+                intent_id,
+                scheduler_status: self.scheduler_status()?,
             });
         }
 
@@ -330,13 +527,12 @@ impl KernelPort for WarpKernel {
 
         match self.runtime.ingest(envelope) {
             Ok(disposition) => {
-                let (accepted, ingress_id) = match disposition {
-                    IngressDisposition::Accepted { ingress_id, .. } => (true, ingress_id),
-                    IngressDisposition::Duplicate { ingress_id, .. } => (false, ingress_id),
-                };
+                let accepted = matches!(disposition, IngressDisposition::Accepted { .. });
+                self.refresh_scheduler_status();
                 Ok(DispatchResponse {
                     accepted,
-                    intent_id: ingress_id.to_vec(),
+                    intent_id,
+                    scheduler_status: self.scheduler_status()?,
                 })
             }
             Err(e) => Err(AbiError {
@@ -346,156 +542,17 @@ impl KernelPort for WarpKernel {
         }
     }
 
-    fn step(&mut self, budget: u32) -> Result<StepResponse, AbiError> {
-        if budget == 0 {
-            return Ok(StepResponse {
-                ticks_executed: 0,
-                head: self.get_head()?,
-            });
-        }
-
-        let mut ticks_executed: u32 = 0;
-
-        for _ in 0..budget {
-            // Phase 3 exposes only the default worldline/default writer through
-            // the WASM ABI, so one coordinator pass can produce at most one
-            // committed head step here.
-            let records = SchedulerCoordinator::super_tick(
-                &mut self.runtime,
-                &mut self.provenance,
-                &mut self.engine,
-            )
-            .map_err(|e| AbiError {
-                code: error_codes::ENGINE_ERROR,
-                message: e.to_string(),
-            })?;
-            if records.is_empty() {
-                break;
-            }
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                ticks_executed += records.len() as u32;
-            }
-        }
-
-        Ok(StepResponse {
-            ticks_executed,
-            head: self.get_head()?,
-        })
-    }
-
     fn observe(&self, request: AbiObservationRequest) -> Result<AbiObservationArtifact, AbiError> {
         let request = Self::to_core_request(request)?;
         Ok(self.observe_core(request)?.to_abi())
     }
 
-    fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError> {
-        let artifact = match self.observe_core(ObservationRequest {
-            coordinate: ObservationCoordinate {
-                worldline_id: self.default_worldline,
-                at: ObservationAt::Frontier,
-            },
-            frame: ObservationFrame::RecordedTruth,
-            projection: ObservationProjection::TruthChannels { channels: None },
-        }) {
-            Ok(artifact) => artifact,
-            Err(AbiError {
-                code: error_codes::OBSERVATION_UNAVAILABLE,
-                ..
-            }) => {
-                return Ok(DrainResponse {
-                    channels: Vec::new(),
-                })
-            }
-            Err(err) => return Err(err),
-        };
-
-        let latest_commit_tick = artifact.resolved.resolved_tick;
-        if self.last_drained_commit_tick == Some(latest_commit_tick) {
-            return Ok(DrainResponse {
-                channels: Vec::new(),
-            });
-        }
-        let start_tick = self.last_drained_commit_tick.map_or(0, |tick| tick + 1);
-        let mut channels = Vec::new();
-        for tick in start_tick..=latest_commit_tick {
-            let artifact = self.observe_core(ObservationRequest {
-                coordinate: ObservationCoordinate {
-                    worldline_id: self.default_worldline,
-                    at: ObservationAt::Tick(tick),
-                },
-                frame: ObservationFrame::RecordedTruth,
-                projection: ObservationProjection::TruthChannels { channels: None },
-            })?;
-
-            let ObservationPayload::TruthChannels(tick_channels) = artifact.payload else {
-                return Err(AbiError {
-                    code: error_codes::ENGINE_ERROR,
-                    message: "observe returned non-truth payload for drain adapter".into(),
-                });
-            };
-            channels.extend(
-                tick_channels
-                    .into_iter()
-                    .map(|(channel, data)| ChannelData {
-                        channel_id: channel.0.to_vec(),
-                        data,
-                    }),
-            );
-        }
-        self.last_drained_commit_tick = Some(latest_commit_tick);
-
-        Ok(DrainResponse { channels })
-    }
-
-    fn get_head(&self) -> Result<HeadInfo, AbiError> {
-        Self::head_info_from_observation(self.observe_core(ObservationRequest {
-            coordinate: ObservationCoordinate {
-                worldline_id: self.default_worldline,
-                at: ObservationAt::Frontier,
-            },
-            frame: ObservationFrame::CommitBoundary,
-            projection: ObservationProjection::Head,
-        })?)
-    }
-
-    fn execute_query(&self, query_id: u32, vars_bytes: &[u8]) -> Result<Vec<u8>, AbiError> {
-        let artifact = self.observe_core(ObservationRequest {
-            coordinate: ObservationCoordinate {
-                worldline_id: self.default_worldline,
-                at: ObservationAt::Frontier,
-            },
-            frame: ObservationFrame::QueryView,
-            projection: ObservationProjection::Query {
-                query_id,
-                vars_bytes: vars_bytes.to_vec(),
-            },
-        })?;
-        let ObservationPayload::QueryBytes(data) = artifact.payload else {
-            return Err(AbiError {
-                code: error_codes::ENGINE_ERROR,
-                message: "observe returned non-query payload for query adapter".into(),
-            });
-        };
-        Ok(data)
-    }
-
-    fn snapshot_at(&mut self, tick: u64) -> Result<Vec<u8>, AbiError> {
-        let artifact = self
-            .observe_core(ObservationRequest {
-                coordinate: ObservationCoordinate {
-                    worldline_id: self.default_worldline,
-                    at: ObservationAt::Tick(tick),
-                },
-                frame: ObservationFrame::CommitBoundary,
-                projection: ObservationProjection::Snapshot,
-            })
-            .map_err(Self::map_legacy_snapshot_error)?;
-        Self::snapshot_bytes_from_observation(artifact)
-    }
-
     fn registry_info(&self) -> RegistryInfo {
         self.registry.clone()
+    }
+
+    fn scheduler_status(&self) -> Result<SchedulerStatus, AbiError> {
+        Ok(self.scheduler_status.clone())
     }
 }
 
@@ -505,31 +562,54 @@ mod tests {
     use super::*;
     use echo_wasm_abi::{
         kernel_port::{
-            ObservationAt as AbiObservationAt, ObservationCoordinate as AbiObservationCoordinate,
+            ControlIntentV1, GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
+            HeadKey as AbiHeadKey, ObservationAt as AbiObservationAt,
+            ObservationCoordinate as AbiObservationCoordinate,
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
-            ObservationRequest as AbiObservationRequest,
+            ObservationRequest as AbiObservationRequest, RunCompletion, SchedulerMode,
+            SchedulerState, WorkState, WorldlineTick as AbiWorldlineTick,
         },
-        pack_intent_v1,
+        pack_control_intent_v1, pack_intent_v1,
     };
-    use warp_core::{materialization::make_channel_id, ProvenanceStore};
+    use warp_core::{
+        make_head_id, materialization::make_channel_id, GlobalTick, HashTriplet, ProvenanceEntry,
+        ProvenanceStore, WorldlineTick, WorldlineTickHeaderV1, WorldlineTickPatchV1, WriterHeadKey,
+    };
+
+    fn start_until_idle(kernel: &mut WarpKernel, cycle_limit: Option<u32>) -> DispatchResponse {
+        start_until_idle_result(kernel, cycle_limit).unwrap()
+    }
+
+    fn start_until_idle_result(
+        kernel: &mut WarpKernel,
+        cycle_limit: Option<u32>,
+    ) -> Result<DispatchResponse, AbiError> {
+        let control = pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle { cycle_limit },
+        })
+        .unwrap();
+        kernel.dispatch_intent(&control)
+    }
 
     #[test]
     fn new_kernel_has_zero_tick() {
         let kernel = WarpKernel::new().unwrap();
-        let head = kernel.get_head().unwrap();
-        assert_eq!(head.tick, 0);
+        let head = kernel.current_head().unwrap();
+        assert_eq!(head.worldline_tick, AbiWorldlineTick(0));
+        assert_eq!(head.commit_global_tick, None);
         assert_eq!(head.state_root.len(), 32);
         assert_eq!(head.commit_id.len(), 32);
     }
 
     /// Regression: init() must return real 32-byte hashes, not empty vecs.
-    /// The init() WASM export calls get_head() before boxing the kernel.
-    /// This test verifies the contract that get_head() upholds on a fresh kernel.
+    /// The init() WASM export reads the initial frontier head before boxing the
+    /// kernel. This test verifies that the observation-backed head helper
+    /// upholds that contract on a fresh kernel.
     #[test]
     fn fresh_kernel_head_has_real_hashes() {
         let kernel = WarpKernel::new().unwrap();
-        let head = kernel.get_head().unwrap();
+        let head = kernel.current_head().unwrap();
         // Must be 32 bytes (BLAKE3 hash), not empty
         assert_eq!(head.state_root.len(), 32, "state_root must be 32 bytes");
         assert_eq!(head.commit_id.len(), 32, "commit_id must be 32 bytes");
@@ -543,23 +623,97 @@ mod tests {
     }
 
     #[test]
-    fn step_zero_is_noop() {
+    fn start_without_work_keeps_worldline_at_zero() {
         let mut kernel = WarpKernel::new().unwrap();
-        let result = kernel.step(0).unwrap();
-        assert_eq!(result.ticks_executed, 0);
-        assert_eq!(result.head.tick, 0);
+        let response = start_until_idle(&mut kernel, Some(1));
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(0)
+        );
     }
 
     #[test]
-    fn step_executes_ticks() {
+    fn start_rejects_zero_cycle_limit_as_invalid_control() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let error = start_until_idle_result(&mut kernel, Some(0)).unwrap_err();
+        assert_eq!(error.code, error_codes::INVALID_CONTROL);
+        assert_eq!(error.message, "cycle_limit must be non-zero when present");
+    }
+
+    #[test]
+    fn stop_while_inactive_preserves_last_run_completion() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let response = start_until_idle(&mut kernel, Some(1));
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        let status_before = kernel.scheduler_status().unwrap();
+        assert_eq!(status_before.state, SchedulerState::Inactive);
+
+        let stop = pack_control_intent_v1(&ControlIntentV1::Stop).unwrap();
+        let stop_response = kernel.dispatch_intent(&stop).unwrap();
+
+        assert_eq!(
+            stop_response.scheduler_status.state,
+            SchedulerState::Inactive
+        );
+        assert_eq!(
+            stop_response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        assert_eq!(stop_response.scheduler_status.run_id, status_before.run_id);
+        assert_eq!(
+            kernel.scheduler_status().unwrap().last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+    }
+
+    #[test]
+    fn start_executes_commits_until_idle() {
         let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
-        let result = kernel.step(3).unwrap();
-        assert_eq!(result.ticks_executed, 1);
-        assert_eq!(result.head.tick, 1);
+        let response = start_until_idle(&mut kernel, Some(3));
+        let head = kernel.current_head().unwrap();
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        assert_eq!(head.worldline_tick, AbiWorldlineTick(1));
+        assert_eq!(
+            head.commit_global_tick,
+            Some(AbiGlobalTick(
+                response
+                    .scheduler_status
+                    .latest_commit_global_tick
+                    .expect("run should record a commit")
+                    .0
+            ))
+        );
         // State root should be non-zero (deterministic hash of root node)
-        assert_ne!(result.head.state_root, vec![0u8; 32]);
+        assert_ne!(head.state_root, vec![0u8; 32]);
+    }
+
+    #[test]
+    fn set_head_eligibility_rejects_unknown_head_as_invalid_control() {
+        let mut kernel = WarpKernel::new().unwrap();
+        let control = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
+            head: AbiHeadKey {
+                worldline_id: kernel.default_worldline.0.to_vec(),
+                head_id: make_head_id("missing").as_bytes().to_vec(),
+            },
+            eligibility: AbiHeadEligibility::Dormant,
+        })
+        .unwrap();
+
+        let error = kernel.dispatch_intent(&control).unwrap_err();
+        assert_eq!(error.code, error_codes::INVALID_CONTROL);
+        assert!(error.message.contains("unknown writer head"));
     }
 
     #[test]
@@ -583,38 +737,111 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_then_step_changes_state() {
+    fn dispatch_then_start_changes_state() {
         let mut kernel = WarpKernel::new().unwrap();
-        let head_before = kernel.get_head().unwrap();
+        let head_before = kernel.current_head().unwrap();
 
         let intent = pack_intent_v1(1, b"test-intent").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
 
-        let result = kernel.step(1).unwrap();
-        assert_eq!(result.ticks_executed, 1);
-        assert_eq!(result.head.tick, 1);
-        assert_ne!(result.head.tick, head_before.tick);
+        let response = start_until_idle(&mut kernel, Some(1));
+        let head_after = kernel.current_head().unwrap();
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
+        assert_eq!(head_after.worldline_tick, AbiWorldlineTick(1));
+        assert_ne!(head_after.worldline_tick, head_before.worldline_tick);
     }
 
     #[test]
-    fn drain_empty_on_fresh_kernel() {
+    fn start_until_idle_exits_when_work_is_blocked_only() {
         let mut kernel = WarpKernel::new().unwrap();
-        let drain = kernel.drain_view_ops().unwrap();
-        assert!(drain.channels.is_empty());
+        let intent = pack_intent_v1(7, b"blocked").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+
+        let dormancy = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
+            head: AbiHeadKey {
+                worldline_id: kernel.default_worldline.0.to_vec(),
+                head_id: make_head_id("default").as_bytes().to_vec(),
+            },
+            eligibility: AbiHeadEligibility::Dormant,
+        })
+        .unwrap();
+        kernel.dispatch_intent(&dormancy).unwrap();
+
+        let response = start_until_idle(&mut kernel, None);
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::BlockedOnly)
+        );
+        assert_eq!(response.scheduler_status.state, SchedulerState::Inactive);
+        assert_eq!(response.scheduler_status.work_state, WorkState::BlockedOnly);
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(0)
+        );
     }
 
     #[test]
-    fn execute_query_returns_not_supported() {
-        let kernel = WarpKernel::new().unwrap();
-        let err = kernel.execute_query(0, &[]).unwrap_err();
-        assert_eq!(err.code, error_codes::UNSUPPORTED_QUERY);
-    }
-
-    #[test]
-    fn snapshot_at_invalid_tick_returns_error() {
+    fn scheduler_error_clears_active_run_state() {
         let mut kernel = WarpKernel::new().unwrap();
-        let err = kernel.snapshot_at(999).unwrap_err();
-        assert_eq!(err.code, error_codes::LEGACY_INVALID_TICK);
+        let root_warp = kernel
+            .runtime
+            .worldlines()
+            .get(&kernel.default_worldline)
+            .expect("default frontier should exist")
+            .state()
+            .root()
+            .warp_id;
+        kernel
+            .provenance
+            .append_local_commit(ProvenanceEntry::local_commit(
+                kernel.default_worldline,
+                WorldlineTick::ZERO,
+                GlobalTick::from_raw(1),
+                WriterHeadKey {
+                    worldline_id: kernel.default_worldline,
+                    head_id: make_head_id("default"),
+                },
+                Vec::new(),
+                HashTriplet {
+                    state_root: [0u8; 32],
+                    patch_digest: [0u8; 32],
+                    commit_hash: [1u8; 32],
+                },
+                WorldlineTickPatchV1 {
+                    header: WorldlineTickHeaderV1 {
+                        commit_global_tick: GlobalTick::from_raw(1),
+                        policy_id: 0,
+                        rule_pack_id: [0u8; 32],
+                        plan_digest: [0u8; 32],
+                        decision_digest: [0u8; 32],
+                        rewrites_digest: [0u8; 32],
+                    },
+                    warp_id: root_warp,
+                    ops: Vec::new(),
+                    in_slots: Vec::new(),
+                    out_slots: Vec::new(),
+                    patch_digest: [0u8; 32],
+                },
+                Vec::new(),
+                Vec::new(),
+            ))
+            .unwrap();
+
+        let intent = pack_intent_v1(8, b"error").unwrap();
+        kernel.dispatch_intent(&intent).unwrap();
+
+        let err = start_until_idle_result(&mut kernel, Some(1)).unwrap_err();
+        assert_eq!(err.code, error_codes::ENGINE_ERROR);
+
+        let status = kernel.scheduler_status().unwrap();
+        assert_eq!(status.state, SchedulerState::Inactive);
+        assert_eq!(status.active_mode, None);
+        assert_eq!(status.run_id, None);
+        assert_eq!(status.last_run_completion, None);
+        assert_eq!(status.work_state, WorkState::RunnablePending);
     }
 
     #[test]
@@ -624,7 +851,9 @@ mod tests {
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
                     worldline_id: kernel.default_worldline.0.to_vec(),
-                    at: AbiObservationAt::Tick { tick: 999 },
+                    at: AbiObservationAt::Tick {
+                        worldline_tick: AbiWorldlineTick(999),
+                    },
                 },
                 frame: AbiObservationFrame::CommitBoundary,
                 projection: AbiObservationProjection::Snapshot,
@@ -634,71 +863,35 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_at_valid_tick() {
+    fn observe_snapshot_returns_historical_commit_boundary() {
         let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
-        kernel.step(1).unwrap();
-        let bytes = kernel.snapshot_at(0).unwrap();
-        assert!(!bytes.is_empty());
-        // Decode and verify it's valid CBOR with a HeadInfo
-        let head: HeadInfo = echo_wasm_abi::decode_cbor(&bytes).unwrap();
-        assert_eq!(head.tick, 0);
-        assert_eq!(head.state_root.len(), 32);
+        start_until_idle(&mut kernel, Some(1));
+        let artifact = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Tick {
+                        worldline_tick: AbiWorldlineTick(0),
+                    },
+                },
+                frame: AbiObservationFrame::CommitBoundary,
+                projection: AbiObservationProjection::Snapshot,
+            })
+            .unwrap();
+
+        let AbiObservationPayload::Snapshot { snapshot } = artifact.payload else {
+            panic!("expected snapshot observation payload");
+        };
+        assert_eq!(snapshot.worldline_tick, AbiWorldlineTick(0));
+        assert_eq!(snapshot.commit_global_tick, Some(AbiGlobalTick(1)));
+        assert_eq!(snapshot.state_root.len(), 32);
+        assert_eq!(snapshot.commit_id.len(), 32);
     }
 
     #[test]
-    fn snapshot_at_does_not_corrupt_live_state() {
-        let mut kernel = WarpKernel::new().unwrap();
-        let intent = pack_intent_v1(1, b"hello").unwrap();
-        kernel.dispatch_intent(&intent).unwrap();
-        kernel.step(1).unwrap();
-
-        // Capture live head before snapshot_at
-        let head_before = kernel.get_head().unwrap();
-        assert_eq!(head_before.tick, 1);
-
-        // Replay to tick 0 — must NOT corrupt live state
-        kernel.snapshot_at(0).unwrap();
-
-        // Live head must be unchanged
-        let head_after = kernel.get_head().unwrap();
-        assert_eq!(head_after.tick, 1);
-        assert_eq!(head_after.state_root, head_before.state_root);
-        assert_eq!(head_after.commit_id, head_before.commit_id);
-
-        // Subsequent step must work correctly on live state
-        let intent2 = pack_intent_v1(2, b"second").unwrap();
-        kernel.dispatch_intent(&intent2).unwrap();
-        let result = kernel.step(1).unwrap();
-        assert_eq!(result.ticks_executed, 1);
-        assert_eq!(result.head.tick, 2);
-    }
-
-    #[test]
-    fn drain_returns_empty_on_second_call() {
-        let mut kernel = WarpKernel::new().unwrap();
-        let intent = pack_intent_v1(1, b"hello").unwrap();
-        kernel.dispatch_intent(&intent).unwrap();
-        kernel.step(1).unwrap();
-
-        // First drain returns data (even if empty channels, the flag is set)
-        let _d1 = kernel.drain_view_ops().unwrap();
-
-        // Second drain without intervening step must return empty
-        let d2 = kernel.drain_view_ops().unwrap();
-        assert!(d2.channels.is_empty());
-    }
-
-    #[test]
-    fn render_snapshot_returns_not_supported() {
-        let kernel = WarpKernel::new().unwrap();
-        let err = kernel.render_snapshot(&[]).unwrap_err();
-        assert_eq!(err.code, error_codes::NOT_SUPPORTED);
-    }
-
-    #[test]
-    fn observe_frontier_head_matches_get_head_adapter() {
+    fn observe_frontier_head_matches_current_head() {
         let kernel = WarpKernel::new().unwrap();
         let artifact = kernel
             .observe(AbiObservationRequest {
@@ -710,67 +903,74 @@ mod tests {
                 projection: AbiObservationProjection::Head,
             })
             .unwrap();
-        let head = kernel.get_head().unwrap();
+        let head = kernel.current_head().unwrap();
 
         let AbiObservationPayload::Head { head: observed } = artifact.payload else {
             panic!("expected head observation payload");
         };
-        assert_eq!(observed.tick, head.tick);
+        assert_eq!(observed.worldline_tick, head.worldline_tick);
+        assert_eq!(observed.commit_global_tick, head.commit_global_tick);
         assert_eq!(observed.state_root, head.state_root);
         assert_eq!(observed.commit_id, head.commit_id);
     }
 
     #[test]
-    fn observe_snapshot_matches_snapshot_at_adapter() {
-        let mut kernel = WarpKernel::new().unwrap();
-        let intent = pack_intent_v1(1, b"hello").unwrap();
-        kernel.dispatch_intent(&intent).unwrap();
-        kernel.step(1).unwrap();
-
+    fn observe_frontier_snapshot_reports_u0_without_fake_sentinels() {
+        let kernel = WarpKernel::new().unwrap();
         let artifact = kernel
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
                     worldline_id: kernel.default_worldline.0.to_vec(),
-                    at: AbiObservationAt::Tick { tick: 0 },
+                    at: AbiObservationAt::Frontier,
                 },
                 frame: AbiObservationFrame::CommitBoundary,
                 projection: AbiObservationProjection::Snapshot,
             })
             .unwrap();
-        let bytes = kernel.snapshot_at(0).unwrap();
-        let head: HeadInfo = echo_wasm_abi::decode_cbor(&bytes).unwrap();
 
         let AbiObservationPayload::Snapshot { snapshot } = artifact.payload else {
             panic!("expected snapshot observation payload");
         };
-        assert_eq!(snapshot.tick, head.tick);
-        assert_eq!(snapshot.state_root, head.state_root);
-        assert_eq!(snapshot.commit_id, head.commit_id);
+        assert_eq!(snapshot.worldline_tick, AbiWorldlineTick(0));
+        assert_eq!(snapshot.commit_global_tick, None);
+        assert_eq!(snapshot.state_root.len(), 32);
+        assert_eq!(snapshot.commit_id.len(), 32);
+        assert_ne!(snapshot.state_root, vec![0u8; 32]);
+        assert_ne!(snapshot.commit_id, vec![0u8; 32]);
     }
 
     #[test]
-    fn drain_view_ops_is_read_only_adapter() {
+    fn observe_recorded_truth_is_read_only() {
         let mut kernel = WarpKernel::new().unwrap();
         let intent = pack_intent_v1(1, b"hello").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
-        kernel.step(1).unwrap();
+        start_until_idle(&mut kernel, Some(1));
 
-        let head_before = kernel.get_head().unwrap();
-        let _ = kernel.drain_view_ops().unwrap();
-        let head_after = kernel.get_head().unwrap();
+        let head_before = kernel.current_head().unwrap();
+        let _ = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Frontier,
+                },
+                frame: AbiObservationFrame::RecordedTruth,
+                projection: AbiObservationProjection::TruthChannels { channels: None },
+            })
+            .unwrap();
+        let head_after = kernel.current_head().unwrap();
 
         assert_eq!(head_before, head_after);
     }
 
     #[test]
-    fn drain_view_ops_returns_all_committed_outputs_since_last_drain() {
+    fn observe_recorded_truth_returns_committed_outputs_for_tick() {
         let mut kernel = WarpKernel::new().unwrap();
         let intent_a = pack_intent_v1(1, b"hello").unwrap();
         let intent_b = pack_intent_v1(2, b"world").unwrap();
         kernel.dispatch_intent(&intent_a).unwrap();
-        kernel.step(1).unwrap();
+        start_until_idle(&mut kernel, Some(1));
         kernel.dispatch_intent(&intent_b).unwrap();
-        kernel.step(1).unwrap();
+        start_until_idle(&mut kernel, Some(1));
 
         let worldline_id = kernel.default_worldline;
         let frontier_state = kernel
@@ -785,7 +985,10 @@ mod tests {
             .unwrap();
 
         for tick in 0..kernel.provenance.len(worldline_id).unwrap() {
-            let mut entry = kernel.provenance.entry(worldline_id, tick).unwrap();
+            let mut entry = kernel
+                .provenance
+                .entry(worldline_id, WorldlineTick::from_raw(tick))
+                .unwrap();
             entry.outputs = vec![(
                 make_channel_id("test:truth"),
                 format!("tick-{tick}").into_bytes(),
@@ -794,13 +997,23 @@ mod tests {
         }
         kernel.provenance = provenance;
 
-        let drain = kernel.drain_view_ops().unwrap();
-        assert_eq!(drain.channels.len(), 2);
-        assert_eq!(drain.channels[0].data, b"tick-0".to_vec());
-        assert_eq!(drain.channels[1].data, b"tick-1".to_vec());
-
-        let drain_again = kernel.drain_view_ops().unwrap();
-        assert!(drain_again.channels.is_empty());
+        let artifact = kernel
+            .observe(AbiObservationRequest {
+                coordinate: AbiObservationCoordinate {
+                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    at: AbiObservationAt::Tick {
+                        worldline_tick: AbiWorldlineTick(1),
+                    },
+                },
+                frame: AbiObservationFrame::RecordedTruth,
+                projection: AbiObservationProjection::TruthChannels { channels: None },
+            })
+            .unwrap();
+        let AbiObservationPayload::TruthChannels { channels } = artifact.payload else {
+            panic!("expected recorded-truth payload");
+        };
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].data, b"tick-1".to_vec());
     }
 
     #[test]
@@ -816,8 +1029,8 @@ mod tests {
         // Two fresh kernels should produce identical state roots
         let k1 = WarpKernel::new().unwrap();
         let k2 = WarpKernel::new().unwrap();
-        let h1 = k1.get_head().unwrap();
-        let h2 = k2.get_head().unwrap();
+        let h1 = k1.current_head().unwrap();
+        let h2 = k2.current_head().unwrap();
         assert_eq!(h1.state_root, h2.state_root);
         assert_eq!(h1.commit_id, h2.commit_id);
     }
@@ -867,8 +1080,11 @@ mod tests {
 
         let intent = pack_intent_v1(1, b"test").unwrap();
         kernel.dispatch_intent(&intent).unwrap();
-        let result = kernel.step(1).unwrap();
-        assert_eq!(result.ticks_executed, 1);
+        let response = start_until_idle(&mut kernel, Some(1));
+        assert_eq!(
+            response.scheduler_status.last_run_completion,
+            Some(RunCompletion::Quiesced)
+        );
     }
 
     #[test]
@@ -896,7 +1112,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(kernel.get_head().unwrap().tick, 0);
+        assert_eq!(
+            kernel.current_head().unwrap().worldline_tick,
+            AbiWorldlineTick(0)
+        );
     }
 
     #[test]
@@ -962,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    fn step_produces_deterministic_commits() {
+    fn start_produces_deterministic_commits() {
         let mut k1 = WarpKernel::new().unwrap();
         let mut k2 = WarpKernel::new().unwrap();
 
@@ -971,10 +1190,12 @@ mod tests {
         k1.dispatch_intent(&intent).unwrap();
         k2.dispatch_intent(&intent).unwrap();
 
-        let r1 = k1.step(1).unwrap();
-        let r2 = k2.step(1).unwrap();
+        start_until_idle(&mut k1, Some(1));
+        start_until_idle(&mut k2, Some(1));
+        let r1 = k1.current_head().unwrap();
+        let r2 = k2.current_head().unwrap();
 
-        assert_eq!(r1.head.state_root, r2.head.state_root);
-        assert_eq!(r1.head.commit_id, r2.head.commit_id);
+        assert_eq!(r1.state_root, r2.state_root);
+        assert_eq!(r1.commit_id, r2.commit_id);
     }
 }

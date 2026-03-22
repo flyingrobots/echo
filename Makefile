@@ -7,7 +7,7 @@ SHELL := /bin/bash
 PORT ?= 5173
 BENCH_PORT ?= 8000
 
-.PHONY: hooks verify-ultra-fast verify-fast verify-pr verify-full verify-full-sequential docs docs-build docs-ci
+.PHONY: hooks verify-ultra-fast verify-fast verify-pr verify-full verify-full-sequential pr-status docs docs-build docs-ci
 hooks:
 	@git config core.hooksPath .githooks
 	@chmod +x .githooks/* 2>/dev/null || true
@@ -27,6 +27,9 @@ verify-full:
 
 verify-full-sequential:
 	@VERIFY_LANE_MODE=sequential ./scripts/verify-local.sh full
+
+pr-status:
+	@./scripts/pr-status.sh "$(PR)"
 
 .PHONY: dags dags-fetch
 dags:

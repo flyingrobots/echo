@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
  */
 export interface TtdEngine {
   // Worldline management
-  register_worldline(worldline_id: Uint8Array, warp_id: Uint8Array): void;
+  register_empty_worldline(worldline_id: Uint8Array, warp_id: Uint8Array): void;
 
   // Cursor management
   create_cursor(worldline_id: Uint8Array): number;
@@ -129,8 +129,8 @@ function createMockEngine(): TtdEngine {
   const cursors = new Map<number, { tick: bigint; worldlineId: Uint8Array }>();
 
   return {
-    register_worldline(_worldlineId: Uint8Array, _warpId: Uint8Array) {
-      console.log("[mock] registerWorldline");
+    register_empty_worldline(_worldlineId: Uint8Array, _warpId: Uint8Array) {
+      console.log("[mock] register_empty_worldline");
     },
 
     create_cursor(worldlineId: Uint8Array): number {

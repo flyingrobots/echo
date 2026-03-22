@@ -4,8 +4,15 @@
 # In-Browser Visualization
 
 > **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Echo
-
-Build a Canvas-based graph rewrite viewer. Renders simulation state as an interactive node-edge graph and shows rewrites in real-time as ticks execute. Controls for step, play/pause, and node inspection.
+>
+> **Historical note:** This roadmap item predates the observation-first ABI v2
+> and the intent-shaped ABI v3 control-plane rewrite. It is retained as
+> planning archaeology, not as the current WASM API contract. The live public
+> boundary is documented in [SPEC-0009 WASM ABI v3](../../spec/SPEC-0009-wasm-abi-v3.md).
+>
+> Historical First Light plan for a Canvas-based graph rewrite viewer. It
+> assumes an earlier `step(...)`-driven browser boundary that has since been
+> replaced.
 
 ## T-4-2-1: Canvas graph renderer (static snapshot)
 

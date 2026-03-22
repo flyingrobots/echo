@@ -17,11 +17,11 @@
 
 use thiserror::Error;
 
-use crate::attachment::{AttachmentKey, AttachmentOwner, AttachmentValue};
-use crate::graph::{DeleteNodeError, GraphStore};
+use crate::clock::GlobalTick;
 use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::materialization::ChannelId;
-use crate::tick_patch::{SlotId, WarpOp};
+use crate::tick_patch::{apply_ops_to_state, SlotId, TickPatchError, WarpOp};
+use crate::worldline_state::WorldlineState;
 
 /// Unique identifier for a worldline.
 ///
@@ -65,8 +65,8 @@ pub struct HashTriplet {
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldlineTickHeaderV1 {
-    /// Global tick number (monotonically increasing).
-    pub global_tick: u64,
+    /// Runtime cycle stamp for the commit that produced this patch.
+    pub commit_global_tick: GlobalTick,
     /// Policy identifier governing this tick.
     pub policy_id: u32,
     /// Hash identifying the rule pack used for this tick.
@@ -108,11 +108,11 @@ pub struct WorldlineTickPatchV1 {
 }
 
 impl WorldlineTickPatchV1 {
-    /// Returns the global tick number from the header.
+    /// Returns the runtime cycle stamp from the header.
     #[inline]
     #[must_use]
-    pub fn global_tick(&self) -> u64 {
-        self.header.global_tick
+    pub fn commit_global_tick(&self) -> GlobalTick {
+        self.header.commit_global_tick
     }
 
     /// Returns the policy ID from the header.
@@ -129,231 +129,25 @@ impl WorldlineTickPatchV1 {
         self.header.rule_pack_id
     }
 
-    /// Apply this patch to a warp-local [`GraphStore`].
+    /// Apply this patch to a full [`WorldlineState`].
     ///
-    /// This method applies all operations in the patch to the provided store.
-    /// The store must be for the same warp as this patch.
+    /// Replay is worldline-scoped: portal and warp-instance operations are
+    /// applied against the full multi-instance state, not a warp-local store.
     ///
     /// # Errors
     ///
-    /// Returns [`ApplyError`] if:
-    /// - The store's warp ID doesn't match the patch's warp ID
-    /// - An operation references a missing node or edge
-    /// - An operation is not supported for warp-local replay (e.g., portal operations)
-    ///
-    /// # Note
-    ///
-    /// This is designed for replay scenarios where the cursor applies recorded
-    /// patches to reconstruct historical state. It does NOT execute rules or
-    /// create new warp instances.
-    pub fn apply_to_store(&self, store: &mut GraphStore) -> Result<(), ApplyError> {
-        // Verify warp ID matches
-        if store.warp_id() != self.warp_id {
+    /// Returns [`ApplyError`] if the patch does not belong to the worldline root,
+    /// or if any operation violates full-state replay invariants.
+    pub fn apply_to_worldline_state(&self, state: &mut WorldlineState) -> Result<(), ApplyError> {
+        if state.root().warp_id != self.warp_id {
             return Err(ApplyError::WarpMismatch {
-                expected: store.warp_id(),
+                expected: state.root().warp_id,
                 actual: self.warp_id,
             });
         }
 
-        for op in &self.ops {
-            apply_warp_op_to_store(store, op)?;
-        }
+        apply_ops_to_state(&mut state.warp_state, &self.ops)?;
         Ok(())
-    }
-}
-
-/// Apply a single [`WarpOp`] to a warp-local [`GraphStore`].
-///
-/// This function handles ALL `WarpOp` variants explicitly - either applying
-/// them or returning a typed error for unsupported operations.
-///
-/// # Supported Operations
-///
-/// - `UpsertNode`: Insert or replace a node record
-/// - `DeleteNode`: Delete a node and cascade to edges/attachments
-/// - `UpsertEdge`: Insert or replace an edge record
-/// - `DeleteEdge`: Delete an edge record
-/// - `SetAttachment`: Set or clear a node/edge attachment
-///
-/// # Unsupported Operations (for warp-local replay)
-///
-/// - `OpenPortal`: Requires multi-warp instance management
-/// - `UpsertWarpInstance`: Requires multi-warp instance management
-/// - `DeleteWarpInstance`: Requires multi-warp instance management
-///
-/// # Errors
-///
-/// Returns [`ApplyError`] if:
-/// - The operation targets a different warp than the store
-/// - The operation references a missing node or edge
-/// - The operation is not supported for warp-local replay
-pub(crate) fn apply_warp_op_to_store(
-    store: &mut GraphStore,
-    op: &WarpOp,
-) -> Result<(), ApplyError> {
-    let store_warp = store.warp_id();
-
-    match op {
-        WarpOp::OpenPortal { .. } => {
-            // Portal operations require multi-warp state management.
-            // Warp-local replay cannot handle instance creation/linking.
-            Err(ApplyError::UnsupportedOperation {
-                op_name: "OpenPortal",
-            })
-        }
-
-        WarpOp::UpsertWarpInstance { .. } => {
-            // Instance metadata operations require WarpState, not a single store.
-            Err(ApplyError::UnsupportedOperation {
-                op_name: "UpsertWarpInstance",
-            })
-        }
-
-        WarpOp::DeleteWarpInstance { .. } => {
-            // Instance deletion requires WarpState, not a single store.
-            Err(ApplyError::UnsupportedOperation {
-                op_name: "DeleteWarpInstance",
-            })
-        }
-
-        WarpOp::UpsertNode { node, record } => {
-            if node.warp_id != store_warp {
-                return Err(ApplyError::WarpMismatch {
-                    expected: store_warp,
-                    actual: node.warp_id,
-                });
-            }
-            store.insert_node(node.local_id, record.clone());
-            Ok(())
-        }
-
-        WarpOp::DeleteNode { node } => {
-            if node.warp_id != store_warp {
-                return Err(ApplyError::WarpMismatch {
-                    expected: store_warp,
-                    actual: node.warp_id,
-                });
-            }
-            match store.delete_node_isolated(node.local_id) {
-                Ok(()) => Ok(()),
-                Err(DeleteNodeError::NodeNotFound) => Err(ApplyError::MissingNode(*node)),
-                Err(DeleteNodeError::HasOutgoingEdges | DeleteNodeError::HasIncomingEdges) => {
-                    Err(ApplyError::NodeNotIsolated(*node))
-                }
-            }
-        }
-
-        WarpOp::UpsertEdge { warp_id, record } => {
-            if *warp_id != store_warp {
-                return Err(ApplyError::WarpMismatch {
-                    expected: store_warp,
-                    actual: *warp_id,
-                });
-            }
-            // Verify both endpoint nodes exist before inserting the edge
-            if store.node(&record.from).is_none() {
-                return Err(ApplyError::MissingNode(NodeKey {
-                    warp_id: *warp_id,
-                    local_id: record.from,
-                }));
-            }
-            if store.node(&record.to).is_none() {
-                return Err(ApplyError::MissingNode(NodeKey {
-                    warp_id: *warp_id,
-                    local_id: record.to,
-                }));
-            }
-            store.upsert_edge_record(record.from, record.clone());
-            Ok(())
-        }
-
-        WarpOp::DeleteEdge {
-            warp_id,
-            from,
-            edge_id,
-        } => {
-            if *warp_id != store_warp {
-                return Err(ApplyError::WarpMismatch {
-                    expected: store_warp,
-                    actual: *warp_id,
-                });
-            }
-            if !store.delete_edge_exact(*from, *edge_id) {
-                return Err(ApplyError::MissingEdge(EdgeKey {
-                    warp_id: *warp_id,
-                    local_id: *edge_id,
-                }));
-            }
-            Ok(())
-        }
-
-        WarpOp::SetAttachment { key, value } => {
-            apply_set_attachment(store, store_warp, key, value.clone())
-        }
-    }
-}
-
-/// Applies a `SetAttachment` op to a store, validating plane and existence.
-///
-/// # Arguments
-///
-/// * `store` - The `GraphStore` to mutate.
-/// * `store_warp` - Must equal `store.warp_id()`; validates that the attachment
-///   owner's warp matches the store's warp.
-/// * `key` - The `AttachmentKey` identifying the attachment to set.
-/// * `value` - The new attachment value (or `None` to clear).
-///
-/// # Errors
-///
-/// Returns an error if:
-/// * [`ApplyError::InvalidAttachmentKey`] - The `AttachmentKey.plane` doesn't match
-///   the `AttachmentOwner` (Alpha is for nodes, Beta is for edges).
-/// * [`ApplyError::WarpMismatch`] - The owner's `warp_id` differs from `store_warp`.
-/// * [`ApplyError::MissingNode`] - For node attachments, the referenced node is absent.
-/// * [`ApplyError::MissingEdge`] - For edge attachments, the referenced edge is absent.
-///
-/// # Effects
-///
-/// On success, calls `store.set_node_attachment()` or `store.set_edge_attachment()`
-/// with the given value.
-fn apply_set_attachment(
-    store: &mut GraphStore,
-    store_warp: WarpId,
-    key: &AttachmentKey,
-    value: Option<AttachmentValue>,
-) -> Result<(), ApplyError> {
-    // Validate plane matches owner type (shared logic via AttachmentKey::is_plane_valid)
-    if !key.is_plane_valid() {
-        return Err(ApplyError::InvalidAttachmentKey);
-    }
-
-    match key.owner {
-        AttachmentOwner::Node(node_key) => {
-            if node_key.warp_id != store_warp {
-                return Err(ApplyError::WarpMismatch {
-                    expected: store_warp,
-                    actual: node_key.warp_id,
-                });
-            }
-            if store.node(&node_key.local_id).is_none() {
-                return Err(ApplyError::MissingNode(node_key));
-            }
-            store.set_node_attachment(node_key.local_id, value);
-            Ok(())
-        }
-        AttachmentOwner::Edge(edge_key) => {
-            if edge_key.warp_id != store_warp {
-                return Err(ApplyError::WarpMismatch {
-                    expected: store_warp,
-                    actual: edge_key.warp_id,
-                });
-            }
-            if !store.has_edge(&edge_key.local_id) {
-                return Err(ApplyError::MissingEdge(edge_key));
-            }
-            store.set_edge_attachment(edge_key.local_id, value);
-            Ok(())
-        }
     }
 }
 
@@ -455,12 +249,11 @@ impl AtomWrite {
 /// ordered by execution sequence within the tick.
 pub type AtomWriteSet = Vec<AtomWrite>;
 
-/// Errors produced while applying a worldline patch to a warp-local store.
+/// Errors produced while applying a worldline patch to a worldline state.
 ///
 /// These errors indicate structural violations when replaying patches:
 /// - Missing nodes/edges that were expected to exist
 /// - Missing warp instance that was expected to exist
-/// - Unsupported operations for warp-local replay
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ApplyError {
     /// Referenced a node that did not exist in the store.
@@ -482,23 +275,6 @@ pub enum ApplyError {
         actual: WarpId,
     },
 
-    /// Operation type is not supported for warp-local replay.
-    ///
-    /// Some operations (like `OpenPortal`, `UpsertWarpInstance`, `DeleteWarpInstance`)
-    /// require multi-warp state management and cannot be applied to a single
-    /// warp-local store.
-    ///
-    /// `op_name` is a `&'static str` rather than an enum because [`WarpOp`] variants
-    /// are open-ended (new ops may be added across crate versions) and this field is
-    /// used only for diagnostic/debug messages. A dedicated enum would couple this
-    /// error type to the full set of unsupported variants and require updating in
-    /// lockstep with `WarpOp`, adding maintenance burden with no runtime benefit.
-    #[error("unsupported operation for warp-local apply: {op_name}")]
-    UnsupportedOperation {
-        /// Name of the unsupported operation variant (debug-only, not matched on).
-        op_name: &'static str,
-    },
-
     /// Invalid attachment key (wrong plane for owner type).
     #[error("invalid attachment key: node owners use Alpha plane, edge owners use Beta plane")]
     InvalidAttachmentKey,
@@ -508,6 +284,22 @@ pub enum ApplyError {
     /// `DeleteNode` must not cascade. Emit explicit `DeleteEdge` ops first.
     #[error("node not isolated (has edges): {0:?}")]
     NodeNotIsolated(NodeKey),
+
+    /// Full-state replay failed while applying a worldline patch.
+    #[error(transparent)]
+    TickPatch(TickPatchError),
+}
+
+impl From<TickPatchError> for ApplyError {
+    fn from(value: TickPatchError) -> Self {
+        match value {
+            TickPatchError::MissingNode(node) => Self::MissingNode(node),
+            TickPatchError::MissingEdge(edge) => Self::MissingEdge(edge),
+            TickPatchError::InvalidAttachmentKey(_) => Self::InvalidAttachmentKey,
+            TickPatchError::NodeNotIsolated(node) => Self::NodeNotIsolated(node),
+            other => Self::TickPatch(other),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -517,10 +309,11 @@ mod tests {
     #![allow(clippy::redundant_clone)]
 
     use super::*;
-    use crate::attachment::AttachmentValue;
+    use crate::attachment::{AttachmentKey, AttachmentValue};
     use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
     use crate::record::{EdgeRecord, NodeRecord};
     use crate::tick_patch::PortalInit;
+    use crate::worldline_state::WorldlineState;
 
     #[test]
     fn worldline_id_is_transparent_wrapper() {
@@ -548,7 +341,7 @@ mod tests {
     #[test]
     fn worldline_tick_patch_accessors() {
         let header = WorldlineTickHeaderV1 {
-            global_tick: 42,
+            commit_global_tick: GlobalTick::from_raw(42),
             policy_id: 1,
             rule_pack_id: [0u8; 32],
             plan_digest: [1u8; 32],
@@ -563,13 +356,13 @@ mod tests {
             out_slots: vec![],
             patch_digest: [4u8; 32],
         };
-        assert_eq!(patch.global_tick(), 42);
+        assert_eq!(patch.commit_global_tick(), GlobalTick::from_raw(42));
         assert_eq!(patch.policy_id(), 1);
     }
 
     fn test_header() -> WorldlineTickHeaderV1 {
         WorldlineTickHeaderV1 {
-            global_tick: 0,
+            commit_global_tick: GlobalTick::ZERO,
             policy_id: 0,
             rule_pack_id: [0u8; 32],
             plan_digest: [0u8; 32],
@@ -578,10 +371,22 @@ mod tests {
         }
     }
 
+    fn single_root_state(warp_id: WarpId) -> WorldlineState {
+        let root = make_node_id("root");
+        let mut store = crate::GraphStore::new(warp_id);
+        store.insert_node(
+            root,
+            NodeRecord {
+                ty: make_type_id("RootType"),
+            },
+        );
+        WorldlineState::from_root_store(store, root).expect("single-root worldline should be valid")
+    }
+
     #[test]
-    fn apply_to_store_upsert_node() {
+    fn apply_to_worldline_state_upsert_node() {
         let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
+        let mut state = single_root_state(warp_id);
         let node_id = make_node_id("node-1");
         let node_key = NodeKey {
             warp_id,
@@ -601,26 +406,37 @@ mod tests {
             patch_digest: [0u8; 32],
         };
 
-        assert!(store.node(&node_id).is_none());
-        patch.apply_to_store(&mut store).expect("apply failed");
-        assert!(store.node(&node_id).is_some());
-        assert_eq!(store.node(&node_id).map(|n| n.ty), Some(ty));
+        assert!(state.store(&warp_id).unwrap().node(&node_id).is_none());
+        patch
+            .apply_to_worldline_state(&mut state)
+            .expect("apply failed");
+        assert!(state.store(&warp_id).unwrap().node(&node_id).is_some());
+        assert_eq!(
+            state.store(&warp_id).unwrap().node(&node_id).map(|n| n.ty),
+            Some(ty)
+        );
     }
 
     #[test]
-    fn apply_to_store_delete_node() {
+    fn apply_to_worldline_state_delete_node() {
         let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
+        let mut state = single_root_state(warp_id);
         let node_id = make_node_id("node-1");
         let node_key = NodeKey {
             warp_id,
             local_id: node_id,
         };
-        let ty = make_type_id("TestType");
 
-        // First insert the node
-        store.insert_node(node_id, NodeRecord { ty });
-        assert!(store.node(&node_id).is_some());
+        state
+            .warp_state
+            .store_mut(&warp_id)
+            .expect("root store missing")
+            .insert_node(
+                node_id,
+                NodeRecord {
+                    ty: make_type_id("TestType"),
+                },
+            );
 
         let patch = WorldlineTickPatchV1 {
             header: test_header(),
@@ -631,14 +447,16 @@ mod tests {
             patch_digest: [0u8; 32],
         };
 
-        patch.apply_to_store(&mut store).expect("apply failed");
-        assert!(store.node(&node_id).is_none());
+        patch
+            .apply_to_worldline_state(&mut state)
+            .expect("apply failed");
+        assert!(state.store(&warp_id).unwrap().node(&node_id).is_none());
     }
 
     #[test]
-    fn apply_to_store_delete_missing_node_fails() {
+    fn apply_to_worldline_state_delete_missing_node_fails() {
         let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
+        let mut state = single_root_state(warp_id);
         let node_id = make_node_id("missing-node");
         let node_key = NodeKey {
             warp_id,
@@ -654,24 +472,26 @@ mod tests {
             patch_digest: [0u8; 32],
         };
 
-        let result = patch.apply_to_store(&mut store);
+        let result = patch.apply_to_worldline_state(&mut state);
         assert!(matches!(result, Err(ApplyError::MissingNode(_))));
     }
 
     #[test]
-    fn apply_to_store_upsert_and_delete_edge() {
+    fn apply_to_worldline_state_upsert_and_delete_edge() {
         let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
+        let mut state = single_root_state(warp_id);
         let from_id = make_node_id("from");
         let to_id = make_node_id("to");
         let edge_id = make_edge_id("edge-1");
         let ty = make_type_id("EdgeType");
 
-        // Insert nodes first
+        let store = state
+            .warp_state
+            .store_mut(&warp_id)
+            .expect("root store missing");
         store.insert_node(from_id, NodeRecord { ty });
         store.insert_node(to_id, NodeRecord { ty });
 
-        // Upsert edge
         let edge_record = EdgeRecord {
             id: edge_id,
             from: from_id,
@@ -691,11 +511,10 @@ mod tests {
         };
 
         upsert_patch
-            .apply_to_store(&mut store)
+            .apply_to_worldline_state(&mut state)
             .expect("apply failed");
-        assert!(store.has_edge(&edge_id));
+        assert!(state.store(&warp_id).unwrap().has_edge(&edge_id));
 
-        // Delete edge
         let delete_patch = WorldlineTickPatchV1 {
             header: test_header(),
             warp_id,
@@ -710,134 +529,57 @@ mod tests {
         };
 
         delete_patch
-            .apply_to_store(&mut store)
+            .apply_to_worldline_state(&mut state)
             .expect("apply failed");
-        assert!(!store.has_edge(&edge_id));
+        assert!(!state.store(&warp_id).unwrap().has_edge(&edge_id));
     }
 
     #[test]
-    fn apply_to_store_upsert_edge_missing_both_nodes() {
+    fn apply_to_worldline_state_upsert_edge_allows_missing_endpoint_references() {
         let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
+        let mut state = single_root_state(warp_id);
         let from_id = make_node_id("from");
         let to_id = make_node_id("to");
         let edge_id = make_edge_id("edge-1");
         let ty = make_type_id("EdgeType");
 
-        // Neither node inserted — UpsertEdge should fail on the `from` node first
-        let edge_record = EdgeRecord {
-            id: edge_id,
-            from: from_id,
-            to: to_id,
-            ty,
-        };
         let patch = WorldlineTickPatchV1 {
             header: test_header(),
             warp_id,
             ops: vec![WarpOp::UpsertEdge {
                 warp_id,
-                record: edge_record,
+                record: EdgeRecord {
+                    id: edge_id,
+                    from: from_id,
+                    to: to_id,
+                    ty,
+                },
             }],
             in_slots: vec![],
             out_slots: vec![],
             patch_digest: [0u8; 32],
         };
 
-        let result = patch.apply_to_store(&mut store);
-        assert!(
-            matches!(result, Err(ApplyError::MissingNode(ref k)) if k.local_id == from_id),
-            "expected MissingNode for 'from' endpoint, got {result:?}"
-        );
+        patch
+            .apply_to_worldline_state(&mut state)
+            .expect("edge insert should follow tick-patch semantics");
+        assert!(state.store(&warp_id).unwrap().has_edge(&edge_id));
     }
 
     #[test]
-    fn apply_to_store_upsert_edge_missing_from_node() {
-        let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
-        let from_id = make_node_id("from");
-        let to_id = make_node_id("to");
-        let edge_id = make_edge_id("edge-1");
-        let ty = make_type_id("EdgeType");
-
-        // Only insert `to` node — `from` is missing
-        store.insert_node(to_id, NodeRecord { ty });
-
-        let edge_record = EdgeRecord {
-            id: edge_id,
-            from: from_id,
-            to: to_id,
-            ty,
-        };
-        let patch = WorldlineTickPatchV1 {
-            header: test_header(),
-            warp_id,
-            ops: vec![WarpOp::UpsertEdge {
-                warp_id,
-                record: edge_record,
-            }],
-            in_slots: vec![],
-            out_slots: vec![],
-            patch_digest: [0u8; 32],
-        };
-
-        let result = patch.apply_to_store(&mut store);
-        assert!(
-            matches!(result, Err(ApplyError::MissingNode(ref k)) if k.local_id == from_id),
-            "expected MissingNode for 'from' endpoint, got {result:?}"
-        );
-    }
-
-    #[test]
-    fn apply_to_store_upsert_edge_missing_to_node() {
-        let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
-        let from_id = make_node_id("from");
-        let to_id = make_node_id("to");
-        let edge_id = make_edge_id("edge-1");
-        let ty = make_type_id("EdgeType");
-
-        // Only insert `from` node — `to` is missing
-        store.insert_node(from_id, NodeRecord { ty });
-
-        let edge_record = EdgeRecord {
-            id: edge_id,
-            from: from_id,
-            to: to_id,
-            ty,
-        };
-        let patch = WorldlineTickPatchV1 {
-            header: test_header(),
-            warp_id,
-            ops: vec![WarpOp::UpsertEdge {
-                warp_id,
-                record: edge_record,
-            }],
-            in_slots: vec![],
-            out_slots: vec![],
-            patch_digest: [0u8; 32],
-        };
-
-        let result = patch.apply_to_store(&mut store);
-        assert!(
-            matches!(result, Err(ApplyError::MissingNode(ref k)) if k.local_id == to_id),
-            "expected MissingNode for 'to' endpoint, got {result:?}"
-        );
-    }
-
-    #[test]
-    fn apply_to_store_warp_mismatch_fails() {
+    fn apply_to_worldline_state_warp_mismatch_fails() {
         let warp_a = make_warp_id("warp-a");
         let warp_b = make_warp_id("warp-b");
-        let mut store = GraphStore::new(warp_a);
+        let mut state = single_root_state(warp_a);
         let node_id = make_node_id("node-1");
         let node_key = NodeKey {
-            warp_id: warp_b, // Different warp!
+            warp_id: warp_b,
             local_id: node_id,
         };
 
         let patch = WorldlineTickPatchV1 {
             header: test_header(),
-            warp_id: warp_b, // Patch is for warp_b
+            warp_id: warp_b,
             ops: vec![WarpOp::UpsertNode {
                 node: node_key,
                 record: NodeRecord {
@@ -849,57 +591,16 @@ mod tests {
             patch_digest: [0u8; 32],
         };
 
-        // Store is for warp_a, but patch is for warp_b
-        let result = patch.apply_to_store(&mut store);
+        let result = patch.apply_to_worldline_state(&mut state);
         assert!(matches!(result, Err(ApplyError::WarpMismatch { .. })));
     }
 
     #[test]
-    fn apply_to_store_unsupported_portal_op() {
-        let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
-        let node_id = make_node_id("node-1");
-
-        // First insert a node to use as portal owner
-        store.insert_node(
-            node_id,
-            NodeRecord {
-                ty: make_type_id("Test"),
-            },
-        );
-
-        let patch = WorldlineTickPatchV1 {
-            header: test_header(),
-            warp_id,
-            ops: vec![WarpOp::OpenPortal {
-                key: crate::attachment::AttachmentKey::node_alpha(NodeKey {
-                    warp_id,
-                    local_id: node_id,
-                }),
-                child_warp: make_warp_id("child"),
-                child_root: make_node_id("child-root"),
-                init: PortalInit::RequireExisting,
-            }],
-            in_slots: vec![],
-            out_slots: vec![],
-            patch_digest: [0u8; 32],
-        };
-
-        let result = patch.apply_to_store(&mut store);
-        assert!(matches!(
-            result,
-            Err(ApplyError::UnsupportedOperation {
-                op_name: "OpenPortal"
-            })
-        ));
-    }
-
-    #[test]
-    fn apply_to_store_set_node_attachment() {
+    fn apply_to_worldline_state_set_node_attachment() {
         use crate::attachment::{AtomPayload, AttachmentKey};
 
         let warp_id = make_warp_id("test-warp");
-        let mut store = GraphStore::new(warp_id);
+        let mut state = single_root_state(warp_id);
         let node_id = make_node_id("node-1");
         let node_key = NodeKey {
             warp_id,
@@ -907,8 +608,11 @@ mod tests {
         };
         let ty = make_type_id("TestType");
 
-        // Insert node first
-        store.insert_node(node_id, NodeRecord { ty });
+        state
+            .warp_state
+            .store_mut(&warp_id)
+            .expect("root store missing")
+            .insert_node(node_id, NodeRecord { ty });
 
         let attachment_key = AttachmentKey::node_alpha(node_key);
         let payload = AtomPayload::new(ty, bytes::Bytes::from_static(b"test-data"));
@@ -926,8 +630,129 @@ mod tests {
             patch_digest: [0u8; 32],
         };
 
-        assert!(store.node_attachment(&node_id).is_none());
-        patch.apply_to_store(&mut store).expect("apply failed");
-        assert!(store.node_attachment(&node_id).is_some());
+        assert!(state
+            .store(&warp_id)
+            .unwrap()
+            .node_attachment(&node_id)
+            .is_none());
+        patch
+            .apply_to_worldline_state(&mut state)
+            .expect("apply failed");
+        assert!(state
+            .store(&warp_id)
+            .unwrap()
+            .node_attachment(&node_id)
+            .is_some());
+    }
+
+    #[test]
+    fn apply_to_worldline_state_open_portal_creates_child_instance() {
+        let mut state = WorldlineState::empty();
+        let root = *state.root();
+        let portal_key = AttachmentKey::node_alpha(root);
+        let child_warp = make_warp_id("child");
+        let child_root = make_node_id("child-root");
+
+        let patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id: root.warp_id,
+            ops: vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+            in_slots: vec![],
+            out_slots: vec![SlotId::Attachment(portal_key)],
+            patch_digest: [0u8; 32],
+        };
+
+        patch
+            .apply_to_worldline_state(&mut state)
+            .expect("apply failed");
+
+        let child_instance = state
+            .warp_state()
+            .instance(&child_warp)
+            .expect("child instance missing");
+        assert_eq!(child_instance.parent, Some(portal_key));
+        assert_eq!(child_instance.root_node, child_root);
+
+        let child_store = state
+            .warp_state()
+            .store(&child_warp)
+            .expect("child store missing");
+        assert!(child_store.node(&child_root).is_some());
+
+        let root_store = state
+            .warp_state()
+            .store(&root.warp_id)
+            .expect("root store missing");
+        assert_eq!(
+            root_store.node_attachment(&root.local_id),
+            Some(&AttachmentValue::Descend(child_warp))
+        );
+    }
+
+    #[test]
+    fn apply_to_worldline_state_delete_instance_after_clearing_portal() {
+        let mut state = WorldlineState::empty();
+        let root = *state.root();
+        let portal_key = AttachmentKey::node_alpha(root);
+        let child_warp = make_warp_id("child");
+        let child_root = make_node_id("child-root");
+
+        let open_patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id: root.warp_id,
+            ops: vec![WarpOp::OpenPortal {
+                key: portal_key,
+                child_warp,
+                child_root,
+                init: PortalInit::Empty {
+                    root_record: NodeRecord {
+                        ty: make_type_id("ChildRootTy"),
+                    },
+                },
+            }],
+            in_slots: vec![],
+            out_slots: vec![SlotId::Attachment(portal_key)],
+            patch_digest: [0u8; 32],
+        };
+        open_patch
+            .apply_to_worldline_state(&mut state)
+            .expect("open portal failed");
+
+        let delete_patch = WorldlineTickPatchV1 {
+            header: test_header(),
+            warp_id: root.warp_id,
+            ops: vec![
+                WarpOp::SetAttachment {
+                    key: portal_key,
+                    value: None,
+                },
+                WarpOp::DeleteWarpInstance {
+                    warp_id: child_warp,
+                },
+            ],
+            in_slots: vec![],
+            out_slots: vec![SlotId::Attachment(portal_key)],
+            patch_digest: [0u8; 32],
+        };
+        delete_patch
+            .apply_to_worldline_state(&mut state)
+            .expect("delete portal failed");
+
+        assert!(state.warp_state().instance(&child_warp).is_none());
+        assert!(state.warp_state().store(&child_warp).is_none());
+        let root_store = state
+            .warp_state()
+            .store(&root.warp_id)
+            .expect("root store missing");
+        assert!(root_store.node_attachment(&root.local_id).is_none());
     }
 }

@@ -27,12 +27,17 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
+use crate::clock::{GlobalTick, WorldlineTick};
 use crate::graph::GraphStore;
 use crate::ident::{Hash, WarpId};
 use crate::materialization::{compute_value_hash, ChannelId};
-use crate::provenance_store::ProvenanceStore;
-use crate::snapshot::{compute_commit_hash_v2, compute_state_root_for_warp_store};
+use crate::provenance_store::{
+    advance_replay_state, replay_worldline_state_at_from_provenance, validate_replay_base,
+    ProvenanceStore, ReplayError,
+};
+use crate::snapshot::compute_state_root_for_warp_state;
 use crate::worldline::WorldlineId;
+use crate::worldline_state::WorldlineState;
 
 /// Implements `as_bytes()` for a `#[repr(transparent)]` newtype wrapping `Hash`.
 ///
@@ -122,7 +127,7 @@ pub enum PlaybackMode {
     /// Seek to a specific tick, then apply the follow-up behavior.
     Seek {
         /// Target tick to seek to.
-        target: u64,
+        target: WorldlineTick,
         /// Behavior after reaching the target.
         then: SeekThen,
     },
@@ -156,8 +161,10 @@ pub struct CursorReceipt {
     pub worldline_id: WorldlineId,
     /// Warp the cursor is focused on.
     pub warp_id: WarpId,
-    /// Tick number when this receipt was generated.
-    pub tick: u64,
+    /// Worldline position when this receipt was generated.
+    pub worldline_tick: WorldlineTick,
+    /// Commit-cycle stamp for the referenced commit, if any.
+    pub commit_global_tick: Option<GlobalTick>,
     /// Commit hash at this tick for verification.
     pub commit_hash: Hash,
 }
@@ -198,7 +205,7 @@ pub enum SeekError {
     #[error("history unavailable for tick {tick}")]
     HistoryUnavailable {
         /// The tick that was unavailable.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The computed state root doesn't match the expected value.
@@ -210,7 +217,7 @@ pub enum SeekError {
     #[error("state root mismatch at tick {tick}")]
     StateRootMismatch {
         /// The tick where verification failed.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The patch digest stored in provenance doesn't match the expected value.
@@ -220,7 +227,7 @@ pub enum SeekError {
     #[error("patch digest mismatch at tick {tick}")]
     PatchDigestMismatch {
         /// The tick where verification failed.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// The computed commit hash doesn't match the expected value.
@@ -230,7 +237,7 @@ pub enum SeekError {
     #[error("commit hash mismatch at tick {tick}")]
     CommitHashMismatch {
         /// The tick where verification failed.
-        tick: u64,
+        tick: WorldlineTick,
     },
 
     /// Failed to apply a patch during seek.
@@ -239,7 +246,7 @@ pub enum SeekError {
     #[error("apply error at tick {tick}: {source}")]
     ApplyError {
         /// The tick where the apply failed.
-        tick: u64,
+        tick: WorldlineTick,
         /// The underlying apply error.
         #[source]
         source: crate::worldline::ApplyError,
@@ -252,9 +259,34 @@ pub enum SeekError {
     #[error("target tick {target} exceeds pinned frontier {pin}")]
     PinnedFrontierExceeded {
         /// The requested target tick.
-        target: u64,
+        target: WorldlineTick,
         /// The current pinned frontier.
-        pin: u64,
+        pin: WorldlineTick,
+    },
+
+    /// A stored replay checkpoint had materialized state that did not match its metadata hash.
+    #[error("checkpoint state root mismatch at tick {tick}")]
+    CheckpointStateRootMismatch {
+        /// The checkpoint coordinate whose stored state was inconsistent.
+        tick: WorldlineTick,
+    },
+
+    /// The supplied replay base does not belong to the requested worldline root warp.
+    #[error("replay base root warp mismatch: expected {expected:?}, got {actual:?}")]
+    ReplayBaseWarpMismatch {
+        /// Registered root warp for the worldline.
+        expected: WarpId,
+        /// Root warp found in the supplied replay base.
+        actual: WarpId,
+    },
+
+    /// The supplied replay base initial state does not match the registered provenance boundary.
+    #[error("replay base initial boundary hash mismatch")]
+    InitialBoundaryHashMismatch {
+        /// Registered deterministic initial boundary hash.
+        expected: Hash,
+        /// Hash computed from the supplied replay base.
+        actual: Hash,
     },
 }
 
@@ -277,7 +309,7 @@ pub enum StepResult {
 
 /// A playback cursor navigating a worldline.
 ///
-/// A cursor maintains its own isolated copy of the graph store, allowing it
+/// A cursor maintains its own isolated copy of the full worldline state, allowing it
 /// to navigate worldline history independently of the writer. Cursors can be
 /// in two roles:
 ///
@@ -293,7 +325,7 @@ pub enum StepResult {
 /// # Seek Behavior
 ///
 /// When seeking to a target tick:
-/// - If `target < tick`: Rebuild store from initial state (clone from U0)
+/// - If `target < tick`: Rebuild from a checkpoint or from the initial state
 /// - Apply patches from current position to target
 /// - Verify `state_root` and `commit_hash` match expected values
 #[derive(Debug)]
@@ -316,9 +348,9 @@ pub struct PlaybackCursor {
     /// Current tick position (0-indexed into worldline history).
     ///
     /// Invariant: `tick` always reflects the number of patches that have been applied
-    /// to `store` since its initial state. Modifying `tick` without correspondingly
-    /// updating `store` (or vice versa) will cause seek/replay hash verification to fail.
-    pub tick: u64,
+    /// to `state` since its initial state. Modifying `tick` without correspondingly
+    /// updating `state` (or vice versa) will cause seek/replay hash verification to fail.
+    tick: WorldlineTick,
 
     /// Role of this cursor (Writer or Reader).
     ///
@@ -332,26 +364,61 @@ pub struct PlaybackCursor {
     /// behavior (e.g., pausing or seeking).
     pub mode: PlaybackMode,
 
-    /// The cursor's isolated graph store copy.
+    /// The cursor's isolated materialized worldline state.
     ///
     /// # Invariant
     ///
-    /// This store MUST represent the worldline state at exactly `self.tick` patches
-    /// applied from the initial (U0) state. Mutating `store` directly without
+    /// This state MUST represent the worldline state at exactly `self.tick` patches
+    /// applied from the initial (U0) state. Mutating `state` directly without
     /// updating `tick` (or vice versa) will break seek/replay consistency: subsequent
     /// `seek_to()` calls will compute incorrect state roots and fail CUR-003
     /// hash verification. Use `seek_to()` for safe state transitions.
-    pub store: GraphStore,
+    state: WorldlineState,
 
     /// Maximum tick this cursor can advance to (pinned frontier).
     ///
     /// For readers, this is typically the current writer position.
     /// The cursor cannot seek or step beyond this tick. Safe to update
     /// externally to extend or restrict the cursor's visible history.
-    pub pin_max_tick: u64,
+    pub pin_max_tick: WorldlineTick,
+
+    /// Whether this cursor has already validated its U0 replay base.
+    ///
+    /// Once the cursor has either validated the supplied replay base or rebuilt
+    /// itself via provenance-backed replay, ordinary forward replay can trust
+    /// the current materialized state without rehashing the U0 base on every
+    /// tick.
+    replay_base_validated: bool,
 }
 
 impl PlaybackCursor {
+    fn map_replay_error(target: WorldlineTick, error: ReplayError) -> SeekError {
+        match error {
+            ReplayError::History(crate::provenance_store::HistoryError::HistoryUnavailable {
+                tick,
+            })
+            | ReplayError::MissingPatch { tick } => SeekError::HistoryUnavailable { tick },
+            ReplayError::History(_) | ReplayError::TickOverflow { .. } => {
+                SeekError::HistoryUnavailable { tick: target }
+            }
+            ReplayError::Apply { tick, source } => SeekError::ApplyError { tick, source },
+            ReplayError::ReplayBaseWarpMismatch { expected, actual } => {
+                SeekError::ReplayBaseWarpMismatch { expected, actual }
+            }
+            ReplayError::InitialBoundaryHashMismatch { expected, actual } => {
+                SeekError::InitialBoundaryHashMismatch { expected, actual }
+            }
+            ReplayError::PatchDigestMismatch { tick, .. } => {
+                SeekError::PatchDigestMismatch { tick }
+            }
+            ReplayError::StateRootMismatch { tick, .. } => SeekError::StateRootMismatch { tick },
+            ReplayError::CommitHashMismatch { tick, .. } => SeekError::CommitHashMismatch { tick },
+            ReplayError::CheckpointStateRootMismatch { tick, .. } => {
+                SeekError::CheckpointStateRootMismatch { tick }
+            }
+        }
+    }
+
     /// Creates a new playback cursor.
     ///
     /// # Arguments
@@ -360,7 +427,7 @@ impl PlaybackCursor {
     /// * `worldline_id` - The worldline to navigate
     /// * `warp_id` - The warp instance to focus on
     /// * `role` - Writer or Reader role
-    /// * `initial_store` - Initial graph store state (cloned for cursor use)
+    /// * `initial_state` - Initial full worldline state (cloned for cursor use)
     /// * `pin_max_tick` - Maximum tick the cursor can advance to
     #[must_use]
     pub fn new(
@@ -368,27 +435,62 @@ impl PlaybackCursor {
         worldline_id: WorldlineId,
         warp_id: WarpId,
         role: CursorRole,
-        initial_store: &GraphStore,
-        pin_max_tick: u64,
+        initial_state: &WorldlineState,
+        pin_max_tick: WorldlineTick,
     ) -> Self {
+        assert_eq!(
+            initial_state.current_tick(),
+            WorldlineTick::ZERO,
+            "playback cursor initial_state must be an unadvanced replay base"
+        );
+        assert_eq!(
+            initial_state.state_root(),
+            compute_state_root_for_warp_state(initial_state.initial_state(), initial_state.root()),
+            "playback cursor initial_state must materialize the canonical U0 replay base"
+        );
         Self {
             cursor_id,
             worldline_id,
             warp_id,
-            tick: 0,
+            tick: WorldlineTick::ZERO,
             role,
             mode: PlaybackMode::default(),
-            store: initial_store.clone(),
+            state: initial_state.clone(),
             pin_max_tick,
+            replay_base_validated: false,
         }
+    }
+
+    /// Returns the currently focused graph store, if that warp exists in the materialized state.
+    #[must_use]
+    pub fn focused_store(&self) -> Option<&GraphStore> {
+        self.state.store(&self.warp_id)
+    }
+
+    /// Returns the cursor's current worldline position.
+    #[must_use]
+    pub fn current_tick(&self) -> WorldlineTick {
+        self.tick
+    }
+
+    /// Returns the cursor's current materialized worldline state.
+    #[must_use]
+    pub fn materialized_state(&self) -> &WorldlineState {
+        &self.state
+    }
+
+    /// Returns the canonical full-state root for the cursor's current materialization.
+    #[must_use]
+    pub fn current_state_root(&self) -> Hash {
+        self.state.state_root()
     }
 
     /// Seek the cursor to a target tick using provenance store patches.
     ///
-    /// This method rebuilds the cursor's store state by applying recorded
+    /// This method rebuilds the cursor's full state by applying recorded
     /// patches from the provenance store. It follows these rules:
     ///
-    /// 1. If `target < tick`: Rebuild from U0 (clone initial state)
+    /// 1. If `target < tick`: Rebuild from the nearest checkpoint or from U0
     /// 2. Apply patches from current position to target
     /// 3. Verify `state_root` matches expected after each patch
     ///
@@ -396,7 +498,7 @@ impl PlaybackCursor {
     ///
     /// * `target` - The tick to seek to (0-indexed)
     /// * `provenance` - The provenance store providing patches and expected hashes
-    /// * `initial_store` - The initial store state for rebuilding from U0
+    /// * `initial_state` - The initial full state for rebuilding from U0
     ///
     /// # Errors
     ///
@@ -413,9 +515,9 @@ impl PlaybackCursor {
     ///
     pub fn seek_to<P: ProvenanceStore>(
         &mut self,
-        target: u64,
+        target: WorldlineTick,
         provenance: &P,
-        initial_store: &GraphStore,
+        initial_state: &WorldlineState,
     ) -> Result<(), SeekError> {
         // Enforce pinned frontier: cursor must not seek beyond pin_max_tick
         if target > self.pin_max_tick {
@@ -428,6 +530,7 @@ impl PlaybackCursor {
         // Check if target is within available history
         let history_len = provenance
             .len(self.worldline_id)
+            .map(WorldlineTick::from_raw)
             .map_err(|_| SeekError::HistoryUnavailable { tick: target })?;
 
         // Tick represents the number of patches applied:
@@ -440,65 +543,43 @@ impl PlaybackCursor {
             return Err(SeekError::HistoryUnavailable { tick: target });
         }
 
-        // Determine starting point
-        let start_tick = if target < self.tick {
-            // Going backwards: need to rebuild from scratch
-            // TODO: Optimize backward seeks by using provenance.checkpoint_before(worldline, target)
-            // to start from the nearest checkpoint instead of replaying from tick 0.
-            self.store = initial_store.clone();
-            0
+        if target == self.tick {
+            if !self.replay_base_validated && self.tick == WorldlineTick::ZERO {
+                validate_replay_base(provenance, self.worldline_id, initial_state)
+                    .map_err(|error| Self::map_replay_error(target, error))?;
+                self.replay_base_validated = true;
+            }
+            return Ok(());
+        }
+
+        let checkpoint_lookup_tick = target.checked_increment().unwrap_or(target);
+        let should_restore_from_checkpoint = provenance
+            .checkpoint_before(self.worldline_id, checkpoint_lookup_tick)
+            .is_some_and(|checkpoint| checkpoint.worldline_tick > self.tick);
+
+        if target < self.tick || should_restore_from_checkpoint {
+            self.state = replay_worldline_state_at_from_provenance(
+                provenance,
+                self.worldline_id,
+                initial_state,
+                target,
+            )
+            .map_err(|error| Self::map_replay_error(target, error))?;
+            self.replay_base_validated = true;
         } else {
-            self.tick
-        };
-
-        // Apply patches from start_tick to target
-        // If start_tick = 2 and target = 5, we apply patches 2, 3, 4
-        for patch_tick in start_tick..target {
-            let entry = provenance
-                .entry(self.worldline_id, patch_tick)
-                .map_err(|_| SeekError::HistoryUnavailable { tick: patch_tick })?;
-            let patch = entry
-                .patch
-                .ok_or(SeekError::HistoryUnavailable { tick: patch_tick })?;
-            let expected = entry.expected;
-            let parents = entry
-                .parents
-                .into_iter()
-                .map(|parent| parent.commit_hash)
-                .collect::<Vec<_>>();
-
-            // Apply the patch to our store
-            patch
-                .apply_to_store(&mut self.store)
-                .map_err(|e| SeekError::ApplyError {
-                    tick: patch_tick,
-                    source: e,
-                })?;
-
-            // Verify state root matches expected
-            let computed_state_root = compute_state_root_for_warp_store(&self.store, self.warp_id);
-
-            if computed_state_root != expected.state_root {
-                return Err(SeekError::StateRootMismatch { tick: patch_tick });
+            if !self.replay_base_validated {
+                validate_replay_base(provenance, self.worldline_id, initial_state)
+                    .map_err(|error| Self::map_replay_error(target, error))?;
+                self.replay_base_validated = true;
             }
-
-            // Verify patch digest consistency between patch and provenance record
-            if patch.patch_digest != expected.patch_digest {
-                return Err(SeekError::PatchDigestMismatch { tick: patch_tick });
-            }
-
-            // Verify commit hash (Merkle chain integrity).
-            // commit_hash = BLAKE3(version | parents | state_root | patch_digest | policy_id)
-            let computed_commit_hash = compute_commit_hash_v2(
-                &computed_state_root,
-                &parents,
-                &expected.patch_digest,
-                patch.header.policy_id,
-            );
-
-            if computed_commit_hash != expected.commit_hash {
-                return Err(SeekError::CommitHashMismatch { tick: patch_tick });
-            }
+            advance_replay_state(
+                provenance,
+                self.worldline_id,
+                &mut self.state,
+                self.tick,
+                target,
+            )
+            .map_err(|error| Self::map_replay_error(target, error))?;
         }
 
         // Update cursor position
@@ -519,7 +600,7 @@ impl PlaybackCursor {
     /// # Arguments
     ///
     /// * `provenance` - The provenance store providing patches and expected hashes
-    /// * `initial_store` - The initial store state for rebuilding from U0
+    /// * `initial_state` - The initial full state for rebuilding from U0
     ///
     /// # Returns
     ///
@@ -538,7 +619,7 @@ impl PlaybackCursor {
     pub fn step<P: ProvenanceStore>(
         &mut self,
         provenance: &P,
-        initial_store: &GraphStore,
+        initial_state: &WorldlineState,
     ) -> Result<StepResult, SeekError> {
         match self.mode {
             PlaybackMode::Paused => Ok(StepResult::NoOp),
@@ -550,7 +631,16 @@ impl PlaybackCursor {
                         self.mode = PlaybackMode::Paused;
                         return Ok(StepResult::ReachedFrontier);
                     }
-                    self.seek_to(self.tick + 1, provenance, initial_store)?;
+                    self.seek_to(
+                        self.tick
+                            .checked_increment()
+                            .ok_or(SeekError::PinnedFrontierExceeded {
+                                target: WorldlineTick::MAX,
+                                pin: self.pin_max_tick,
+                            })?,
+                        provenance,
+                        initial_state,
+                    )?;
                     Ok(StepResult::Advanced)
                 } else {
                     // Writer: stub - actual advance needs parallel execution integration
@@ -561,7 +651,20 @@ impl PlaybackCursor {
 
             PlaybackMode::StepForward => {
                 if self.role == CursorRole::Reader {
-                    self.seek_to(self.tick + 1, provenance, initial_store)?;
+                    if self.tick >= self.pin_max_tick {
+                        self.mode = PlaybackMode::Paused;
+                        return Ok(StepResult::ReachedFrontier);
+                    }
+                    self.seek_to(
+                        self.tick
+                            .checked_increment()
+                            .ok_or(SeekError::PinnedFrontierExceeded {
+                                target: WorldlineTick::MAX,
+                                pin: self.pin_max_tick,
+                            })?,
+                        provenance,
+                        initial_state,
+                    )?;
                     self.mode = PlaybackMode::Paused;
                     Ok(StepResult::Advanced)
                 } else {
@@ -573,14 +676,14 @@ impl PlaybackCursor {
             }
 
             PlaybackMode::StepBack => {
-                let target = self.tick.saturating_sub(1);
-                self.seek_to(target, provenance, initial_store)?;
+                let target = self.tick.checked_sub(1).unwrap_or(WorldlineTick::ZERO);
+                self.seek_to(target, provenance, initial_state)?;
                 self.mode = PlaybackMode::Paused;
                 Ok(StepResult::Seeked)
             }
 
             PlaybackMode::Seek { target, then } => {
-                self.seek_to(target, provenance, initial_store)?;
+                self.seek_to(target, provenance, initial_state)?;
                 self.mode = match then {
                     SeekThen::Play => PlaybackMode::Play,
                     SeekThen::Pause => PlaybackMode::Paused,
@@ -692,14 +795,14 @@ impl ViewSession {
     ) -> Result<(), crate::provenance_store::HistoryError> {
         // cursor.tick represents the number of patches applied (0 = initial state).
         // No truth to publish at tick 0 since no patches have been applied yet.
-        if cursor.tick == 0 {
+        if cursor.tick == WorldlineTick::ZERO {
             return Ok(());
         }
 
         // Provenance indices are 0-based: entry at index K holds the hash triplet
         // and outputs recorded AFTER applying patch K. Since cursor.tick = N means
         // patches 0..N-1 have been applied, the current state corresponds to index N-1.
-        let prov_tick = cursor.tick - 1;
+        let prov_tick = cursor.tick.checked_sub(1).unwrap_or(WorldlineTick::ZERO);
 
         let entry = provenance.entry(cursor.worldline_id, prov_tick)?;
 
@@ -709,7 +812,8 @@ impl ViewSession {
             cursor_id: cursor.cursor_id,
             worldline_id: cursor.worldline_id,
             warp_id: cursor.warp_id,
-            tick: cursor.tick,
+            worldline_tick: cursor.tick,
+            commit_global_tick: Some(entry.commit_global_tick),
             commit_hash: entry.expected.commit_hash,
         };
 
@@ -817,6 +921,14 @@ impl TruthSink {
 mod tests {
     use super::*;
 
+    fn wt(raw: u64) -> WorldlineTick {
+        WorldlineTick::from_raw(raw)
+    }
+
+    fn gt(raw: u64) -> GlobalTick {
+        GlobalTick::from_raw(raw)
+    }
+
     #[test]
     fn cursor_id_is_transparent_wrapper() {
         let hash = [42u8; 32];
@@ -855,7 +967,8 @@ mod tests {
             cursor_id: CursorId([2u8; 32]),
             worldline_id: WorldlineId([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
-            tick: 42,
+            worldline_tick: wt(42),
+            commit_global_tick: Some(gt(7)),
             commit_hash: [5u8; 32],
         };
         let receipt2 = CursorReceipt {
@@ -863,7 +976,8 @@ mod tests {
             cursor_id: CursorId([2u8; 32]),
             worldline_id: WorldlineId([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
-            tick: 42,
+            worldline_tick: wt(42),
+            commit_global_tick: Some(gt(7)),
             commit_hash: [5u8; 32],
         };
         assert_eq!(receipt1, receipt2);
@@ -876,7 +990,8 @@ mod tests {
             cursor_id: CursorId([2u8; 32]),
             worldline_id: WorldlineId([3u8; 32]),
             warp_id: crate::ident::WarpId([4u8; 32]),
-            tick: 42,
+            worldline_tick: wt(42),
+            commit_global_tick: Some(gt(7)),
             commit_hash: [5u8; 32],
         };
         let frame1 = TruthFrame {
@@ -905,7 +1020,8 @@ mod tests {
             cursor_id: CursorId([0u8; 32]),
             worldline_id: WorldlineId([0u8; 32]),
             warp_id: WarpId([0u8; 32]),
-            tick: 1,
+            worldline_tick: wt(1),
+            commit_global_tick: None,
             commit_hash: [0u8; 32],
         };
 

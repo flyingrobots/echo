@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HOOK_DIR/.." && pwd)"
+# shellcheck source=.githooks/_timing.sh
+source "$HOOK_DIR/_timing.sh"
+hook_timing_prepare "$REPO_ROOT" "pre-push-sequential"
+trap 'hook_timing_append $?' EXIT
+cd "$REPO_ROOT"
 # Resolve the pinned toolchain from rust-toolchain.toml, fallback to explicit env or a sane default
 PINNED_FROM_FILE=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml 2>/dev/null || echo "")
 PINNED="${PINNED:-${PINNED_FROM_FILE:-1.90.0}}"

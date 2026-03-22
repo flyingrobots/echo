@@ -44,6 +44,9 @@ pub use ttd::*;
 /// Deterministic binary codec for length-prefixed scalars and Q32.32 fixed-point helpers.
 pub mod codec;
 
+/// Reserved EINT op id for privileged control intents.
+pub const CONTROL_INTENT_V1_OP_ID: u32 = u32::MAX;
+
 /// Errors produced by the Intent Envelope parser.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EnvelopeError {
@@ -57,6 +60,8 @@ pub enum EnvelopeError {
     Malformed,
     /// Payload length exceeds u32::MAX.
     PayloadTooLarge,
+    /// Public application envelopes may not use the reserved control op id.
+    ReservedOpId,
 }
 
 impl core::fmt::Display for EnvelopeError {
@@ -67,16 +72,12 @@ impl core::fmt::Display for EnvelopeError {
             Self::LengthMismatch => f.write_str("envelope length mismatch"),
             Self::Malformed => f.write_str("malformed envelope"),
             Self::PayloadTooLarge => f.write_str("payload exceeds u32::MAX"),
+            Self::ReservedOpId => f.write_str("reserved control op id is not allowed here"),
         }
     }
 }
 
-/// Packs an application-blind intent envelope v1.
-/// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
-///
-/// # Errors
-/// Returns `PayloadTooLarge` if `vars.len()` exceeds `u32::MAX`.
-pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+fn pack_envelope_v1_raw(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
     let vars_len: u32 = vars
         .len()
         .try_into()
@@ -87,6 +88,20 @@ pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError>
     out.extend_from_slice(&vars_len.to_le_bytes());
     out.extend_from_slice(vars);
     Ok(out)
+}
+
+/// Packs an application-blind intent envelope v1.
+/// Layout: "EINT" (4 bytes) + op_id (u32 LE) + vars_len (u32 LE) + vars
+///
+/// # Errors
+/// Returns [`EnvelopeError::PayloadTooLarge`] if `vars.len()` exceeds
+/// `u32::MAX`, or [`EnvelopeError::ReservedOpId`] if `op_id` is the reserved
+/// control envelope id.
+pub fn pack_intent_v1(op_id: u32, vars: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+    if op_id == CONTROL_INTENT_V1_OP_ID {
+        return Err(EnvelopeError::ReservedOpId);
+    }
+    pack_envelope_v1_raw(op_id, vars)
 }
 
 /// Unpacks an application-blind intent envelope v1.
@@ -122,6 +137,46 @@ pub fn unpack_intent_v1(bytes: &[u8]) -> Result<(u32, &[u8]), EnvelopeError> {
     }
 
     Ok((op_id, &bytes[12..]))
+}
+
+/// Packs a privileged control intent into an EINT envelope v1.
+///
+/// This helper always uses the protocol-reserved
+/// [`CONTROL_INTENT_V1_OP_ID`]; callers do not provide or override the op id.
+///
+/// # Errors
+///
+/// Returns [`EnvelopeError::Malformed`] if
+/// [`kernel_port::ControlIntentV1`] cannot be encoded as canonical CBOR.
+/// Returns [`EnvelopeError::PayloadTooLarge`] if the encoded payload exceeds
+/// the EINT v1 `u32` length field accepted by [`pack_envelope_v1_raw`].
+pub fn pack_control_intent_v1(
+    intent: &kernel_port::ControlIntentV1,
+) -> Result<Vec<u8>, EnvelopeError> {
+    let bytes = encode_cbor(intent).map_err(|_| EnvelopeError::Malformed)?;
+    pack_envelope_v1_raw(CONTROL_INTENT_V1_OP_ID, &bytes)
+}
+
+/// Unpacks and decodes a privileged control intent from an EINT envelope v1.
+///
+/// The envelope must use the protocol-reserved [`CONTROL_INTENT_V1_OP_ID`].
+///
+/// # Errors
+///
+/// Returns [`EnvelopeError::InvalidMagic`], [`EnvelopeError::TooShort`], or
+/// [`EnvelopeError::LengthMismatch`] if `bytes` is not a well-formed EINT v1
+/// envelope as parsed by [`unpack_intent_v1`].
+/// Returns [`EnvelopeError::Malformed`] if the envelope uses any other op id or
+/// if the payload is not valid canonical CBOR for
+/// [`kernel_port::ControlIntentV1`].
+pub fn unpack_control_intent_v1(
+    bytes: &[u8],
+) -> Result<kernel_port::ControlIntentV1, EnvelopeError> {
+    let (op_id, vars) = unpack_intent_v1(bytes)?;
+    if op_id != CONTROL_INTENT_V1_OP_ID {
+        return Err(EnvelopeError::Malformed);
+    }
+    decode_cbor(vars).map_err(|_| EnvelopeError::Malformed)
 }
 
 // -----------------------------------------------------------------------------
@@ -309,6 +364,15 @@ pub struct Rewrite {
 mod tests {
     use super::*;
 
+    fn hex_encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            use core::fmt::Write as _;
+            write!(&mut out, "{byte:02x}").unwrap();
+        }
+        out
+    }
+
     #[test]
     fn test_pack_unpack_round_trip() {
         let op_id = 12345;
@@ -361,5 +425,101 @@ mod tests {
         let (op, vars) = unpack_intent_v1(&packed).unwrap();
         assert_eq!(op, 99);
         assert_eq!(vars, &[] as &[u8]);
+    }
+
+    #[test]
+    fn test_pack_intent_rejects_reserved_control_op_id() {
+        assert_eq!(
+            pack_intent_v1(CONTROL_INTENT_V1_OP_ID, b"reserved"),
+            Err(EnvelopeError::ReservedOpId)
+        );
+    }
+
+    #[test]
+    fn test_control_intent_round_trip() {
+        use crate::kernel_port::{ControlIntentV1, SchedulerMode};
+
+        let packed = pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
+            },
+        })
+        .unwrap();
+
+        let unpacked = unpack_control_intent_v1(&packed).unwrap();
+        assert_eq!(
+            unpacked,
+            ControlIntentV1::Start {
+                mode: SchedulerMode::UntilIdle {
+                    cycle_limit: Some(1),
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn test_control_intent_wire_encoding_is_canonical() {
+        use crate::kernel_port::{ControlIntentV1, SchedulerMode};
+
+        let packed = pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
+            },
+        })
+        .unwrap();
+
+        assert_eq!(
+            hex_encode(&packed),
+            "45494e54ffffffff2f000000a2646b696e64657374617274646d6f6465a2646b696e646a756e74696c5f69646c656b6379636c655f6c696d697401"
+        );
+    }
+
+    #[test]
+    fn test_scheduler_status_wire_encoding_is_canonical() {
+        use crate::kernel_port::{
+            GlobalTick, RunCompletion, RunId, SchedulerState, SchedulerStatus, WorkState,
+        };
+
+        let status = SchedulerStatus {
+            state: SchedulerState::Inactive,
+            active_mode: None,
+            work_state: WorkState::Quiescent,
+            run_id: Some(RunId(7)),
+            latest_cycle_global_tick: Some(GlobalTick(9)),
+            latest_commit_global_tick: Some(GlobalTick(8)),
+            last_quiescent_global_tick: Some(GlobalTick(9)),
+            last_run_completion: Some(RunCompletion::Quiesced),
+        };
+
+        assert_eq!(
+            hex_encode(&encode_cbor(&status).unwrap()),
+            "a865737461746568696e6163746976656672756e5f6964076a776f726b5f737461746569717569657363656e746b6163746976655f6d6f6465f6736c6173745f72756e5f636f6d706c6574696f6e68717569657363656478186c61746573745f6379636c655f676c6f62616c5f7469636b0978196c61746573745f636f6d6d69745f676c6f62616c5f7469636b08781a6c6173745f717569657363656e745f676c6f62616c5f7469636b09"
+        );
+    }
+
+    #[test]
+    fn test_unpack_control_intent_rejects_wrong_op_id() {
+        use crate::kernel_port::{ControlIntentV1, SchedulerMode};
+
+        let payload = encode_cbor(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle { cycle_limit: None },
+        })
+        .unwrap();
+        let packed = pack_intent_v1(99, &payload).unwrap();
+
+        assert_eq!(
+            unpack_control_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
+        );
+    }
+
+    #[test]
+    fn test_unpack_control_intent_rejects_malformed_cbor() {
+        let packed = pack_envelope_v1_raw(CONTROL_INTENT_V1_OP_ID, &[0xff]).unwrap();
+
+        assert_eq!(
+            unpack_control_intent_v1(&packed),
+            Err(EnvelopeError::Malformed)
+        );
     }
 }

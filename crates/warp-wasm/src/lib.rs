@@ -7,7 +7,7 @@
 //! implementation. The boundary is app-agnostic: any kernel that implements
 //! the trait can be installed via [`install_kernel`].
 //!
-//! # ABI Contract (v1)
+//! # ABI Contract (v3)
 //!
 //! All exports return CBOR-encoded bytes wrapped in a success/error envelope:
 //! - Success: `{ "ok": true, ...response_fields }`
@@ -30,7 +30,7 @@ use wasm_bindgen::JsValue;
 #[cfg(feature = "engine")]
 use echo_wasm_abi::kernel_port::HeadInfo;
 use echo_wasm_abi::kernel_port::{
-    self, AbiError, ErrEnvelope, KernelPort, ObservationRequest, OkEnvelope, RawBytesResponse,
+    self, AbiError, ErrEnvelope, KernelPort, ObservationRequest, OkEnvelope,
 };
 
 use std::cell::RefCell;
@@ -161,7 +161,7 @@ where
     F: FnOnce() -> Result<warp_kernel::WarpKernel, warp_kernel::KernelInitError>,
 {
     match make_kernel() {
-        Ok(kernel) => match kernel.get_head() {
+        Ok(kernel) => match kernel.current_head() {
             Ok(head) => Ok((kernel, head)),
             Err(err) => {
                 clear_kernel();
@@ -213,7 +213,7 @@ pub fn init_console_panic_hook() {
 }
 
 // ---------------------------------------------------------------------------
-// Frozen ABI exports (v1)
+// ABI exports (v3)
 // ---------------------------------------------------------------------------
 
 /// Initialize the default engine kernel.
@@ -245,43 +245,6 @@ pub fn dispatch_intent(intent_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel(|k| k.dispatch_intent(intent_bytes)))
 }
 
-/// Run deterministic steps up to a budget.
-///
-/// Returns CBOR-encoded [`StepResponse`](kernel_port::StepResponse).
-/// A budget of 0 returns the current head without executing ticks.
-#[wasm_bindgen]
-pub fn step(step_budget: u32) -> Uint8Array {
-    encode_result(with_kernel(|k| k.step(step_budget)))
-}
-
-/// Drain emitted ViewOps since the last drain.
-///
-/// Returns CBOR-encoded [`DrainResponse`](kernel_port::DrainResponse).
-#[wasm_bindgen]
-pub fn drain_view_ops() -> Uint8Array {
-    encode_result(with_kernel(|k| k.drain_view_ops()))
-}
-
-/// Get current head info (tick, state_root, commit_id).
-///
-/// Returns CBOR-encoded [`HeadInfo`](kernel_port::HeadInfo).
-#[wasm_bindgen]
-pub fn get_head() -> Uint8Array {
-    encode_result(with_kernel_ref(|k| k.get_head()))
-}
-
-/// Execute a read-only query by ID with canonical vars.
-///
-/// Returns CBOR-encoded `{ ok: true, data: <bytes> }` or error envelope.
-#[wasm_bindgen]
-pub fn execute_query(query_id: u32, vars_bytes: &[u8]) -> Uint8Array {
-    let result = with_kernel_ref(|k| {
-        k.execute_query(query_id, vars_bytes)
-            .map(|bytes| RawBytesResponse { data: bytes })
-    });
-    encode_result(result)
-}
-
 /// Observe a worldline at an explicit coordinate, frame, and projection.
 ///
 /// The request bytes must decode as canonical-CBOR `ObservationRequest`.
@@ -299,36 +262,27 @@ pub fn observe(request_bytes: &[u8]) -> Uint8Array {
     encode_result(with_kernel_ref(|k| k.observe(request)))
 }
 
-/// Replay to a specific tick and return the snapshot.
-///
-/// Returns CBOR-encoded `{ ok: true, data: <bytes> }` or error envelope.
-#[wasm_bindgen]
-pub fn snapshot_at(tick: u64) -> Uint8Array {
-    let result = with_kernel(|k| {
-        k.snapshot_at(tick)
-            .map(|bytes| RawBytesResponse { data: bytes })
-    });
-    encode_result(result)
-}
-
-/// Render a snapshot to ViewOps for visualization.
-///
-/// Returns CBOR-encoded `{ ok: true, data: <bytes> }` or error envelope.
-#[wasm_bindgen]
-pub fn render_snapshot(snapshot_bytes: &[u8]) -> Uint8Array {
-    let result = with_kernel_ref(|k| {
-        k.render_snapshot(snapshot_bytes)
-            .map(|bytes| RawBytesResponse { data: bytes })
-    });
-    encode_result(result)
-}
-
 /// Return registry metadata (schema hash, codec id, registry version).
 ///
 /// Returns CBOR-encoded [`RegistryInfo`](kernel_port::RegistryInfo).
 #[wasm_bindgen]
 pub fn get_registry_info() -> Uint8Array {
     encode_result(with_kernel_ref(|k| Ok(k.registry_info())))
+}
+
+/// Return the current read-only scheduler status envelope.
+///
+/// The returned bytes are canonical-CBOR encoded
+/// [`SchedulerStatus`](kernel_port::SchedulerStatus) metadata. Callers should
+/// decode the returned `Uint8Array` as `SchedulerStatus` and treat it as an
+/// observation-only snapshot of scheduler lifecycle state; it does not advance
+/// the runtime or mutate scheduler policy.
+///
+/// Returns a `NOT_INITIALIZED` ABI error envelope until a kernel has been
+/// installed via [`init`].
+#[wasm_bindgen]
+pub fn scheduler_status() -> Uint8Array {
+    encode_result(with_kernel_ref(|k| k.scheduler_status()))
 }
 
 /// Get the codec identifier from the installed registry.
@@ -569,46 +523,70 @@ mod schema_validation_tests {
 mod init_tests {
     use super::*;
     use echo_wasm_abi::kernel_port::{
-        ChannelData, DispatchResponse, DrainResponse, HeadInfo, RegistryInfo, StepResponse,
-        ABI_VERSION,
+        DispatchResponse, GlobalTick, HeadInfo, HeadObservation, ObservationArtifact,
+        ObservationAt, ObservationFrame, ObservationPayload, ObservationProjection, RegistryInfo,
+        ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
+        SchedulerStatus, WorkState, WorldlineTick, ABI_VERSION,
     };
 
     struct StubKernel;
+
+    impl StubKernel {
+        fn current_head() -> HeadInfo {
+            HeadInfo {
+                worldline_tick: WorldlineTick(0),
+                commit_global_tick: None,
+                state_root: vec![2; 32],
+                commit_id: vec![3; 32],
+            }
+        }
+    }
 
     impl KernelPort for StubKernel {
         fn dispatch_intent(&mut self, _intent_bytes: &[u8]) -> Result<DispatchResponse, AbiError> {
             Ok(DispatchResponse {
                 accepted: true,
                 intent_id: vec![0; 32],
+                scheduler_status: SchedulerStatus {
+                    state: SchedulerState::Inactive,
+                    active_mode: Some(SchedulerMode::UntilIdle {
+                        cycle_limit: Some(1),
+                    }),
+                    work_state: WorkState::Quiescent,
+                    run_id: Some(RunId(1)),
+                    latest_cycle_global_tick: Some(GlobalTick(1)),
+                    latest_commit_global_tick: Some(GlobalTick(1)),
+                    last_quiescent_global_tick: Some(GlobalTick(1)),
+                    last_run_completion: Some(RunCompletion::Quiesced),
+                },
             })
         }
 
-        fn step(&mut self, _budget: u32) -> Result<StepResponse, AbiError> {
-            Ok(StepResponse {
-                ticks_executed: 0,
-                head: self.get_head()?,
+        fn observe(&self, _request: ObservationRequest) -> Result<ObservationArtifact, AbiError> {
+            let head = Self::current_head();
+            Ok(ObservationArtifact {
+                resolved: ResolvedObservationCoordinate {
+                    observation_version: 2,
+                    worldline_id: vec![9; 32],
+                    requested_at: ObservationAt::Frontier,
+                    resolved_worldline_tick: head.worldline_tick,
+                    commit_global_tick: head.commit_global_tick,
+                    observed_after_global_tick: Some(GlobalTick(1)),
+                    state_root: head.state_root.clone(),
+                    commit_hash: head.commit_id.clone(),
+                },
+                frame: ObservationFrame::CommitBoundary,
+                projection: ObservationProjection::Head,
+                artifact_hash: vec![4; 32],
+                payload: ObservationPayload::Head {
+                    head: HeadObservation {
+                        worldline_tick: head.worldline_tick,
+                        commit_global_tick: head.commit_global_tick,
+                        state_root: head.state_root,
+                        commit_id: head.commit_id,
+                    },
+                },
             })
-        }
-
-        fn drain_view_ops(&mut self) -> Result<DrainResponse, AbiError> {
-            Ok(DrainResponse {
-                channels: vec![ChannelData {
-                    channel_id: vec![1; 32],
-                    data: Vec::new(),
-                }],
-            })
-        }
-
-        fn get_head(&self) -> Result<HeadInfo, AbiError> {
-            Ok(HeadInfo {
-                tick: 0,
-                state_root: vec![2; 32],
-                commit_id: vec![3; 32],
-            })
-        }
-
-        fn snapshot_at(&mut self, _tick: u64) -> Result<Vec<u8>, AbiError> {
-            Ok(Vec::new())
         }
 
         fn registry_info(&self) -> RegistryInfo {
@@ -619,19 +597,32 @@ mod init_tests {
                 abi_version: ABI_VERSION,
             }
         }
+
+        fn scheduler_status(&self) -> Result<SchedulerStatus, AbiError> {
+            Ok(SchedulerStatus {
+                state: SchedulerState::Inactive,
+                active_mode: None,
+                work_state: WorkState::Quiescent,
+                run_id: None,
+                latest_cycle_global_tick: None,
+                latest_commit_global_tick: None,
+                last_quiescent_global_tick: None,
+                last_run_completion: None,
+            })
+        }
     }
 
     #[test]
     fn clear_kernel_removes_previously_installed_kernel() {
         clear_kernel();
         install_kernel(Box::new(StubKernel));
-        assert!(with_kernel_ref(|k| k.get_head()).is_ok());
+        assert!(with_kernel_ref(|k| Ok(k.registry_info())).is_ok());
 
         clear_kernel();
-        let result = with_kernel_ref(|k| k.get_head());
+        let result = with_kernel_ref(|k| Ok(k.registry_info()));
         assert!(result.is_err());
         let Err(err) = result else {
-            unreachable!("get_head should fail after clear_kernel");
+            unreachable!("registry_info should fail after clear_kernel");
         };
         assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
     }
@@ -647,10 +638,10 @@ mod init_tests {
         };
         assert_eq!(err.code, kernel_port::error_codes::ENGINE_ERROR);
 
-        let result = with_kernel_ref(|k| k.get_head());
+        let result = with_kernel_ref(|k| Ok(k.registry_info()));
         assert!(result.is_err());
         let Err(err) = result else {
-            unreachable!("get_head should fail after init failure");
+            unreachable!("registry_info should fail after init failure");
         };
         assert_eq!(err.code, kernel_port::error_codes::NOT_INITIALIZED);
     }

@@ -8,11 +8,15 @@ use warp_core::{
     InboxAddress, InboxPolicy, IngressDisposition, IngressEnvelope, IngressTarget, NodeId,
     NodeRecord, PlaybackMode, ProvenanceEventKind, ProvenanceService, ProvenanceStore,
     SchedulerCoordinator, SchedulerKind, WorldlineId, WorldlineRuntime, WorldlineState,
-    WorldlineTickPatchV1, WriterHead, WriterHeadKey,
+    WorldlineTick, WorldlineTickPatchV1, WriterHead, WriterHeadKey,
 };
 
 fn wl(n: u8) -> WorldlineId {
     WorldlineId([n; 32])
+}
+
+fn wt(raw: u64) -> WorldlineTick {
+    WorldlineTick::from_raw(raw)
 }
 
 fn empty_engine() -> Engine {
@@ -268,7 +272,7 @@ fn runtime_commit_provenance_matches_worldline_state_mirror() {
     let frontier = runtime.worldlines().get(&worldline_id).unwrap();
     let state = frontier.state();
     let (snapshot, _receipt, patch) = state.tick_history().last().unwrap().clone();
-    let entry = provenance.entry(worldline_id, 0).unwrap();
+    let entry = provenance.entry(worldline_id, wt(0)).unwrap();
     let expected_outputs = state
         .last_materialization()
         .iter()
@@ -276,8 +280,8 @@ fn runtime_commit_provenance_matches_worldline_state_mirror() {
         .collect::<Vec<_>>();
 
     assert_eq!(entry.worldline_id, worldline_id);
-    assert_eq!(entry.worldline_tick, 0);
-    assert_eq!(entry.global_tick, runtime.global_tick());
+    assert_eq!(entry.worldline_tick, wt(0));
+    assert_eq!(entry.commit_global_tick, runtime.global_tick());
     assert_eq!(entry.head_key, Some(head_key));
     assert!(matches!(entry.event_kind, ProvenanceEventKind::LocalCommit));
     assert!(
@@ -291,7 +295,7 @@ fn runtime_commit_provenance_matches_worldline_state_mirror() {
 
     let expected_patch = WorldlineTickPatchV1 {
         header: warp_core::WorldlineTickHeaderV1 {
-            global_tick: runtime.global_tick(),
+            commit_global_tick: runtime.global_tick(),
             policy_id: patch.policy_id(),
             rule_pack_id: patch.rule_pack_id(),
             plan_digest: snapshot.plan_digest,

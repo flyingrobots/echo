@@ -1,8 +1,9 @@
 <!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
 <!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
 # ADR-0010: Observational Seek, Explicit Snapshots, and Administrative Rewind
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-03-10
 - **Amends:** ADR-0008
 - **Related:** ADR-0009
@@ -151,5 +152,5 @@ This ADR does not:
 ## Supersession Note
 
 This ADR clarifies the operational reading of ADR-0008 Section 6.
-If accepted, implementations should treat generic head `seek(...)` wording as
-refined by the explicit observational/admin split described here.
+Implementations should treat generic head `seek(...)` wording as refined by the
+explicit observational/admin split described here.

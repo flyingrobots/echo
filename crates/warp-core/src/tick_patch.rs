@@ -318,7 +318,7 @@ impl WarpOp {
 /// - `commit_status`,
 /// - `in_slots` / `out_slots`, and
 /// - `ops`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WarpTickPatchV1 {
     policy_id: u32,
@@ -451,11 +451,48 @@ impl WarpTickPatchV1 {
     /// Returns an error if an operation is invalid for the current store
     /// state (e.g., deleting a missing edge).
     pub fn apply_to_state(&self, state: &mut WarpState) -> Result<(), TickPatchError> {
-        for op in &self.ops {
-            apply_op_to_state(state, op)?;
-        }
+        apply_ops_to_state(state, &self.ops)
+    }
+}
+
+pub(crate) fn apply_ops_to_state(
+    state: &mut WarpState,
+    ops: &[WarpOp],
+) -> Result<(), TickPatchError> {
+    let mut touches_portal_topology = false;
+    for op in ops {
+        touches_portal_topology |= warp_op_touches_portal_topology(state, op);
+        apply_op_to_state(state, op)?;
+    }
+    if touches_portal_topology {
         validate_portal_invariants(state)?;
-        Ok(())
+    }
+    Ok(())
+}
+
+fn warp_op_touches_portal_topology(state: &WarpState, op: &WarpOp) -> bool {
+    match op {
+        WarpOp::OpenPortal { .. }
+        | WarpOp::UpsertWarpInstance { .. }
+        | WarpOp::DeleteWarpInstance { .. } => true,
+        WarpOp::SetAttachment { key, value } => {
+            matches!(value, Some(AttachmentValue::Descend(_)))
+                || matches!(
+                    attachment_value_for_key(state, key),
+                    Some(AttachmentValue::Descend(_))
+                )
+        }
+        WarpOp::DeleteNode { node } => state
+            .store(&node.warp_id)
+            .and_then(|store| store.node_attachment(&node.local_id))
+            .is_some_and(|value| matches!(value, AttachmentValue::Descend(_))),
+        WarpOp::DeleteEdge {
+            warp_id, edge_id, ..
+        } => state
+            .store(warp_id)
+            .and_then(|store| store.edge_attachment(edge_id))
+            .is_some_and(|value| matches!(value, AttachmentValue::Descend(_))),
+        _ => false,
     }
 }
 
@@ -1344,7 +1381,10 @@ fn producer_before(producers: &[usize], consumer_tick: usize) -> Option<usize> {
 mod tests {
     use super::*;
 
-    use crate::ident::{make_node_id, make_type_id, make_warp_id};
+    use bytes::Bytes;
+
+    use crate::ident::{make_edge_id, make_node_id, make_type_id, make_warp_id};
+    use crate::worldline_state::WorldlineState;
 
     #[test]
     fn new_dedupes_duplicate_ops_by_sort_key_last_wins() {
@@ -1764,5 +1804,125 @@ mod tests {
         set.insert(key_a);
         set.insert(key_b);
         assert_eq!(set.len(), 2, "WarpOpKeys must not collide in BTreeSet");
+    }
+
+    #[test]
+    fn portal_topology_gate_skips_plain_graph_edits() {
+        let worldline = WorldlineState::empty();
+        let root = *worldline.root();
+        let warp_id = root.warp_id;
+        let child = make_node_id("plain-node");
+        let edge_id = make_edge_id("plain-edge");
+        let child_warp = make_warp_id("topology-gate-child");
+        let mut state = worldline.warp_state().clone();
+        let root_instance = WarpInstance {
+            warp_id,
+            root_node: root.local_id,
+            parent: None,
+        };
+        let mut store = state.take_or_create_store(root.warp_id);
+        store.insert_node(
+            child,
+            NodeRecord {
+                ty: make_type_id("PlainTy"),
+            },
+        );
+        store.insert_edge(
+            root.local_id,
+            crate::record::EdgeRecord {
+                id: edge_id,
+                from: root.local_id,
+                to: child,
+                ty: make_type_id("PlainEdgeTy"),
+            },
+        );
+        state.upsert_instance(root_instance.clone(), store);
+
+        let portal_key = AttachmentKey::node_alpha(root);
+        let edge_key = AttachmentKey::edge_beta(EdgeKey {
+            warp_id,
+            local_id: edge_id,
+        });
+
+        assert!(!warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::UpsertNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: child,
+                },
+                record: NodeRecord {
+                    ty: make_type_id("PlainTy"),
+                },
+            },
+        ));
+        assert!(!warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::SetAttachment {
+                key: portal_key,
+                value: Some(AttachmentValue::Atom(AtomPayload::new(
+                    make_type_id("atom"),
+                    Bytes::from_static(b"x"),
+                ))),
+            },
+        ));
+        assert!(!warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::DeleteNode {
+                node: NodeKey {
+                    warp_id,
+                    local_id: child,
+                },
+            },
+        ));
+        assert!(!warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::DeleteEdge {
+                warp_id,
+                from: root.local_id,
+                edge_id,
+            },
+        ));
+
+        let mut store = state.take_or_create_store(warp_id);
+        store.set_node_attachment(root.local_id, Some(AttachmentValue::Descend(child_warp)));
+        state.upsert_instance(root_instance.clone(), store);
+        assert!(warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::SetAttachment {
+                key: portal_key,
+                value: None,
+            },
+        ));
+        assert!(warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::DeleteNode { node: root },
+        ));
+
+        let mut store = state.take_or_create_store(warp_id);
+        store.set_edge_attachment(edge_id, Some(AttachmentValue::Descend(child_warp)));
+        state.upsert_instance(root_instance, store);
+        assert!(warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::DeleteEdge {
+                warp_id,
+                from: root.local_id,
+                edge_id,
+            },
+        ));
+        assert!(warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::SetAttachment {
+                key: edge_key,
+                value: None,
+            },
+        ));
+        assert!(warp_op_touches_portal_topology(
+            &state,
+            &WarpOp::SetAttachment {
+                key: portal_key,
+                value: Some(AttachmentValue::Descend(child_warp)),
+            },
+        ));
     }
 }

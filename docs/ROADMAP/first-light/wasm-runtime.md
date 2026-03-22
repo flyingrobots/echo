@@ -4,8 +4,15 @@
 # WASM Runtime Integration
 
 > **Milestone:** [First Light](README.md) | **Priority:** P1 | **Repo:** Echo
-
-Wire warp-wasm exports to real engine logic. The warp-wasm crate currently ships placeholder stubs (`dispatch_intent`, `step`, `drain_view_ops`, `get_head`, `snapshot_at`, `render_snapshot`) that return empty bytes. This feature replaces those stubs with live Engine plumbing so the browser can drive a full tick loop.
+>
+> **Historical note:** This roadmap item predates the observation-first ABI v2
+> and the intent-shaped ABI v3 control-plane rewrite. It is retained as
+> planning archaeology, not as the current WASM API contract. The live public
+> boundary is documented in [SPEC-0009 WASM ABI v3](../../spec/SPEC-0009-wasm-abi-v3.md).
+>
+> Historical First Light plan for wiring warp-wasm exports to real engine
+> logic. It reflects an earlier `step(...)`-driven browser boundary that has
+> since been replaced.
 
 ## T-4-1-1: Wire Engine lifecycle behind wasm-bindgen exports
 

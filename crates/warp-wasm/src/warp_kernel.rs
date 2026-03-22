@@ -11,11 +11,11 @@ use std::fmt;
 
 use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, ControlIntentV1, DispatchResponse, GlobalTick as AbiGlobalTick,
-    HeadEligibility as AbiHeadEligibility, HeadInfo, HeadKey as AbiHeadKey, KernelPort,
+    HeadEligibility as AbiHeadEligibility, HeadInfo, KernelPort,
     ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
     ObservationProjection as AbiObservationProjection, ObservationRequest as AbiObservationRequest,
     RegistryInfo, RunCompletion, RunId as AbiRunId, SchedulerMode, SchedulerState, SchedulerStatus,
-    WorkState, WorldlineTick as AbiWorldlineTick, ABI_VERSION,
+    WorkState, WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 use warp_core::{
@@ -456,7 +456,7 @@ impl WarpKernel {
         Ok(())
     }
 
-    fn parse_head_key(head: &AbiHeadKey) -> Result<WriterHeadKey, AbiError> {
+    fn parse_head_key(head: &AbiWriterHeadKey) -> Result<WriterHeadKey, AbiError> {
         let worldline_id = Self::parse_worldline_id(&head.worldline_id)?;
         let head_id_bytes: [u8; 32] = head.head_id.as_slice().try_into().map_err(|_| AbiError {
             code: error_codes::INVALID_CONTROL,
@@ -563,12 +563,12 @@ mod tests {
     use echo_wasm_abi::{
         kernel_port::{
             ControlIntentV1, GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
-            HeadKey as AbiHeadKey, ObservationAt as AbiObservationAt,
-            ObservationCoordinate as AbiObservationCoordinate,
+            ObservationAt as AbiObservationAt, ObservationCoordinate as AbiObservationCoordinate,
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
             ObservationRequest as AbiObservationRequest, RunCompletion, SchedulerMode,
             SchedulerState, WorkState, WorldlineTick as AbiWorldlineTick,
+            WriterHeadKey as AbiWriterHeadKey,
         },
         pack_control_intent_v1, pack_intent_v1,
     };
@@ -703,7 +703,7 @@ mod tests {
     fn set_head_eligibility_rejects_unknown_head_as_invalid_control() {
         let mut kernel = WarpKernel::new().unwrap();
         let control = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
-            head: AbiHeadKey {
+            head: AbiWriterHeadKey {
                 worldline_id: kernel.default_worldline.0.to_vec(),
                 head_id: make_head_id("missing").as_bytes().to_vec(),
             },
@@ -761,7 +761,7 @@ mod tests {
         kernel.dispatch_intent(&intent).unwrap();
 
         let dormancy = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
-            head: AbiHeadKey {
+            head: AbiWriterHeadKey {
                 worldline_id: kernel.default_worldline.0.to_vec(),
                 head_id: make_head_id("default").as_bytes().to_vec(),
             },

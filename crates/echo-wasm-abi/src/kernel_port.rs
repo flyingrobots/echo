@@ -287,9 +287,9 @@ pub struct SchedulerStatus {
     pub last_run_completion: Option<RunCompletion>,
 }
 
-/// Stable head key used by control intents.
+/// Stable writer-head key used by control intents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeadKey {
+pub struct WriterHeadKey {
     /// Worldline that owns the head as a canonical 32-byte worldline-id hash.
     pub worldline_id: Vec<u8>,
     /// Stable head identifier within that worldline as a canonical 32-byte
@@ -315,7 +315,7 @@ pub enum ControlIntentV1 {
     /// Change declarative head admission.
     SetHeadEligibility {
         /// Target head whose eligibility should change.
-        head: HeadKey,
+        head: WriterHeadKey,
         /// New declarative eligibility for that head.
         eligibility: HeadEligibility,
     },

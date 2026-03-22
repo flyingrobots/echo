@@ -181,7 +181,8 @@ The scheduler-facing enums use serde's declared shapes directly:
   `HeadDisposition` serialize as snake_case text strings.
 - `SchedulerMode::UntilIdle { cycle_limit }` serializes as
   `{ "kind": "until_idle", "cycle_limit": <u32 or null> }`.
-- `HeadKey.worldline_id` and `HeadKey.head_id` are raw `bytes(32)` values.
+- `WriterHeadKey.worldline_id` and `WriterHeadKey.head_id` are raw `bytes(32)`
+  values.
 
 Concrete `scheduler_status()` example:
 

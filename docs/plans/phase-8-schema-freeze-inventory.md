@@ -183,14 +183,25 @@ For now, this branch keeps the runtime freeze loop Echo-local:
 - and Wesley sync stays deliberately deferred until the upstream Echo-facing
   schema/compiler contract stops moving.
 
-### 3. Stale plan naming around scheduler results
+### 3. Chosen generated owner for shared runtime-schema types
+
+Phase 8 now has a concrete ownership decision for the generated Rust side:
+
+- shared opaque ids, logical counters, and structural runtime key types should
+  land in a future `crates/echo-runtime-schema` crate,
+- `warp-core` should consume or re-export those generated types once the
+  generation path exists,
+- and `echo-wasm-abi` should remain adapter-owned for host DTOs and convert to
+  and from the shared types rather than own a duplicate generated copy.
+
+### 4. Stale plan naming around scheduler results
 
 The inventory resolves this now: Phase 8 should freeze `SchedulerStatus`,
 `SchedulerState`, `WorkState`, `RunCompletion`, `HeadEligibility`, and
 `HeadDisposition` rather than back-porting a stale `SuperTickResult` name for
 cosmetic consistency.
 
-### 4. Opaque id / logical counter mapping rules are not yet written down as schema rules
+### 5. Opaque id / logical counter mapping rules are not yet written down as schema rules
 
 `HeadId`, `IntentKind`, `WorldlineTick`, and `GlobalTick` all have stricter
 semantics than "some bytes" or "some integer." Phase 8 needs schema-side rules

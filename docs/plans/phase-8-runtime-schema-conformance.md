@@ -38,33 +38,32 @@ Phase 8 should not wire Wesley until these answers are explicit.
 2. Most remaining issues are **ownership and naming** issues, not semantic
    model issues.
 3. The biggest blockers before generation are:
-    - ABI `HeadKey` versus schema/runtime `WriterHeadKey`
     - duplicated logical-counter newtypes across `warp-core` and
       `echo-wasm-abi`
     - raw `Vec<u8>` id payloads in ABI DTOs where the frozen schema now wants
       typed opaque scalars and structured keys
+    - lack of a single declared generated Rust home for shared runtime-schema
+      types
 4. GraphQL-specific input wrappers are expected. They should be treated as
    schema transport encodings, not evidence that the core runtime surface is
    wrong.
 
 ## Artifact A: Identifiers and Logical Counters
 
-| Schema type          | Canonical Rust owner today                                                    | Status              | Notes                                                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `HeadId`             | `crates/warp-core/src/head.rs`                                                | Aligned             | Opaque hash-backed newtype matches the scalar intent. The blocker is adapter usage, not runtime semantics.                    |
-| `WorldlineId`        | `crates/warp-core/src/worldline.rs`                                           | Aligned             | Opaque worldline identifier matches the scalar intent.                                                                        |
-| `IntentKind`         | `crates/warp-core/src/head_inbox.rs`                                          | Aligned             | Domain-separated hash-backed newtype already matches the frozen scalar semantics.                                             |
-| `WorldlineTick`      | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Semantics match, but the type is duplicated across core and ABI. Generation needs one clear owner plus conversion boundaries. |
-| `GlobalTick`         | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Same issue as `WorldlineTick`: correct meaning, split ownership.                                                              |
-| `RunId`              | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Same ownership split. The schema is right; the generated owner is not decided.                                                |
-| `WriterHeadKey`      | `crates/warp-core/src/head.rs`                                                | Blocking drift      | Runtime name and shape are correct, but ABI still exposes `HeadKey` with raw `Vec<u8>` fields instead of a typed key wrapper. |
-| `WriterHeadKeyInput` | none; schema-only wrapper                                                     | Intentional wrapper | GraphQL needs an explicit input mirror even though the runtime only needs `WriterHeadKey`.                                    |
+| Schema type          | Canonical Rust owner today                                                    | Status              | Notes                                                                                                                                                           |
+| -------------------- | ----------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HeadId`             | `crates/warp-core/src/head.rs`                                                | Aligned             | Opaque hash-backed newtype matches the scalar intent. The blocker is adapter usage, not runtime semantics.                                                      |
+| `WorldlineId`        | `crates/warp-core/src/worldline.rs`                                           | Aligned             | Opaque worldline identifier matches the scalar intent.                                                                                                          |
+| `IntentKind`         | `crates/warp-core/src/head_inbox.rs`                                          | Aligned             | Domain-separated hash-backed newtype already matches the frozen scalar semantics.                                                                               |
+| `WorldlineTick`      | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Semantics match, but the type is duplicated across core and ABI. Generation needs one clear owner plus conversion boundaries.                                   |
+| `GlobalTick`         | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Same issue as `WorldlineTick`: correct meaning, split ownership.                                                                                                |
+| `RunId`              | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Same ownership split. The schema is right; the generated owner is not decided.                                                                                  |
+| `WriterHeadKey`      | `crates/warp-core/src/head.rs`                                                | Blocking drift      | Runtime name and shape are correct, and the ABI now uses the same name, but the adapter still exposes raw `Vec<u8>` id fields instead of typed opaque wrappers. |
+| `WriterHeadKeyInput` | none; schema-only wrapper                                                     | Intentional wrapper | GraphQL needs an explicit input mirror even though the runtime only needs `WriterHeadKey`.                                                                      |
 
 ### Artifact A blockers
 
-- **Naming drift:** `echo-wasm-abi` still exposes `HeadKey` rather than
-  `WriterHeadKey`.
-- **Typed-id erosion at the adapter boundary:** `HeadKey` stores `worldline_id`
+- **Typed-id erosion at the adapter boundary:** `WriterHeadKey` stores `worldline_id`
   and `head_id` as raw `Vec<u8>` payloads rather than typed wrappers.
 - **Newtype duplication:** `WorldlineTick`, `GlobalTick`, and `RunId` exist in
   both `warp-core` and `echo-wasm-abi` with matching semantics but no declared
@@ -87,7 +86,7 @@ Phase 8 should not wire Wesley until these answers are explicit.
   `maxPerTick: Int!`, but the positive-value rule remains semantic validation,
   not a stronger type-level guarantee.
 - `IngressTarget::ExactHead { key: WriterHeadKey }` inherits the Artifact A
-  `HeadKey` versus `WriterHeadKey` naming drift at the ABI layer.
+  raw-byte adapter drift at the ABI layer.
 
 ## Artifact C: Playback Control
 
@@ -125,20 +124,7 @@ Phase 8 should not wire Wesley until these answers are explicit.
 
 ## Cross-Cutting Generation Blockers
 
-### 1. `HeadKey` must be reconciled with `WriterHeadKey`
-
-The frozen schema uses `WriterHeadKey` and `WriterHeadKeyInput`. The ABI still
-uses `HeadKey`.
-
-That is now needless drift. Before generation starts, Echo should either:
-
-- rename the ABI DTO to `WriterHeadKey`, or
-- explicitly bless `HeadKey` as an adapter alias and document why the alias is
-  worth keeping.
-
-The default should be rename, not alias sprawl.
-
-### 2. Opaque ids should not dissolve into raw byte vectors at the ABI edge
+### 1. Opaque ids should not dissolve into raw byte vectors at the ABI edge
 
 `HeadId`, `WorldlineId`, and `WriterHeadKey` are frozen as typed opaque runtime
 concepts. The current ABI still exposes some of them as raw `Vec<u8>` fields.
@@ -146,20 +132,20 @@ concepts. The current ABI still exposes some of them as raw `Vec<u8>` fields.
 That is workable for hand-written DTOs, but it is the wrong source-of-truth
 shape for generated runtime-schema types.
 
-### 3. Logical counter ownership needs one generated home
+### 2. Logical counter ownership needs one generated home
 
 `WorldlineTick`, `GlobalTick`, and `RunId` are semantically aligned today, but
 they are duplicated in both `warp-core` and `echo-wasm-abi`.
 
-Before generation, Phase 8 should pick one of these ownership models:
+Phase 8 now chooses the shared-owner route:
 
-- generate them once in a shared runtime-schema crate and re-export where
-  needed, or
-- keep `warp-core` as canonical and make ABI wrappers explicit adapter types.
+- generate them once in a future `crates/echo-runtime-schema` crate,
+- let `warp-core` consume or re-export those semantic types,
+- and keep ABI wrappers explicit adapter types when host-wire semantics differ.
 
 What should not happen is silent duplicate generation on both sides.
 
-### 4. GraphQL wrapper DTOs must stay wrapper DTOs
+### 3. GraphQL wrapper DTOs must stay wrapper DTOs
 
 The schema's `*Input` and `*Kind` types exist because GraphQL cannot express
 input unions directly. They should not be mistaken for evidence that the core
@@ -176,9 +162,9 @@ This matters for generation layout:
 
 The next honest Phase 8 implementation slice is:
 
-1. reconcile `HeadKey` versus `WriterHeadKey`,
-2. choose the single generated owner for logical counters and opaque ids,
-3. write the scalar/opaque-id mapping contract for generated Rust output,
+1. write the scalar/opaque-id mapping contract for generated Rust output,
+2. decide which ABI wrappers remain raw bytes versus typed wrapper DTOs,
+3. define the future `echo-runtime-schema` crate boundary,
 4. and only then consider generation plumbing.
 
 That keeps the remaining work Echo-local and schema-first without coupling this

@@ -67,10 +67,14 @@ Generation is explicitly deferred, but the intended artifact boundary is:
   Planned vendored Wesley IR snapshot for the frozen runtime schema.
 - `schemas/runtime/generated/runtime-manifest.json`
   Planned vendored schema manifest/metadata for deterministic regeneration.
+- `crates/echo-runtime-schema/src/lib.rs`
+  Planned shared generated Rust home for opaque ids, logical counters, and
+  structural runtime key types such as `WriterHeadKey`.
 
-No generated Rust output path is frozen yet. That stays deferred until Wesley's
-Echo-facing contract stabilizes enough that wiring `cargo xtask wesley sync`
-will not thrash the Phase 8 freeze target.
+`echo-wasm-abi` remains adapter-owned even after that crate exists. It should
+convert to and from the shared generated runtime-schema types rather than own a
+second generated copy of `WorldlineTick`, `GlobalTick`, `RunId`, or
+`WriterHeadKey`.
 
 ## Notes
 

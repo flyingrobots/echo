@@ -363,6 +363,7 @@ pub struct Rewrite {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     fn hex_encode(bytes: &[u8]) -> String {
         let mut out = String::with_capacity(bytes.len() * 2);
@@ -437,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_control_intent_round_trip() {
-        use crate::kernel_port::{ControlIntentV1, SchedulerMode};
+        use crate::kernel_port::{ControlIntentV1, SchedulerMode, WriterHeadKey};
 
         let packed = pack_control_intent_v1(&ControlIntentV1::Start {
             mode: SchedulerMode::UntilIdle {
@@ -453,6 +454,27 @@ mod tests {
                 mode: SchedulerMode::UntilIdle {
                     cycle_limit: Some(1),
                 },
+            }
+        );
+
+        let packed = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
+            head: WriterHeadKey {
+                worldline_id: vec![1u8; 32],
+                head_id: vec![2u8; 32],
+            },
+            eligibility: crate::kernel_port::HeadEligibility::Dormant,
+        })
+        .unwrap();
+
+        let unpacked = unpack_control_intent_v1(&packed).unwrap();
+        assert_eq!(
+            unpacked,
+            ControlIntentV1::SetHeadEligibility {
+                head: WriterHeadKey {
+                    worldline_id: vec![1u8; 32],
+                    head_id: vec![2u8; 32],
+                },
+                eligibility: crate::kernel_port::HeadEligibility::Dormant,
             }
         );
     }

@@ -538,6 +538,11 @@ impl PlaybackCursor {
         }
 
         if target == self.tick {
+            if !self.replay_base_validated && self.tick == WorldlineTick::ZERO {
+                validate_replay_base(provenance, self.worldline_id, initial_state)
+                    .map_err(|error| Self::map_replay_error(target, error))?;
+                self.replay_base_validated = true;
+            }
             return Ok(());
         }
 

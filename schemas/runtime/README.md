@@ -1,0 +1,38 @@
+<!-- SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0 -->
+<!-- © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots> -->
+
+# ADR-0008 Runtime Schema Fragments
+
+These GraphQL SDL fragments are the **human-authored source of truth** for the
+Phase 8 ADR-0008 runtime schema freeze.
+
+They are intentionally narrower than the browser/TTD protocol schema:
+
+- they cover stable runtime boundary types only,
+- they do **not** include ADR-0009 transport/conflict types,
+- and they do **not** replace the current `echo-wasm-abi` adapter DTOs yet.
+
+## Current Fragments
+
+- [artifact-a-identifiers.graphql](artifact-a-identifiers.graphql)
+  Runtime identifiers and logical counters.
+- [artifact-b-routing-and-admission.graphql](artifact-b-routing-and-admission.graphql)
+  Deterministic ingress routing and head-admission policy types.
+
+## Intent
+
+Phase 8 freezes the runtime shape first and wires generation second.
+
+That means these files are allowed to exist before:
+
+- `cargo xtask wesley sync` grows a runtime-schema path,
+- Wesley IR is vendored for the runtime freeze set,
+- or generated Rust replaces hand-written runtime mirrors.
+
+## Notes
+
+- These files are SDL **fragments**, not a standalone executable GraphQL API.
+- Comments here carry semantic constraints that current GraphQL type syntax
+  cannot express directly, such as opaque-hash ids and logical-counter rules.
+- Future Artifact C and D files will cover playback control and scheduler
+  result surfaces once those slices begin.

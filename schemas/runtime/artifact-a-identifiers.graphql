@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+# ADR-0008 Phase 8 runtime schema fragment: identifiers and logical counters.
+# These scalar and key definitions pin the low-level runtime coordinate system
+# before any generated Rust or adapter DTO work begins.
+
+"""
+Opaque stable identifier for a writer head.
+
+Semantic rule: this is a fixed-width hash-backed identifier. Schema consumers
+must preserve opacity and must not reinterpret it as a human-readable string
+label or derive ordering semantics beyond byte-stable identity.
+"""
+scalar HeadId
+
+"""
+Opaque stable identifier for a worldline.
+
+Semantic rule: this remains an opaque identifier even though implementations
+often derive it from the initial worldline state.
+"""
+scalar WorldlineId
+
+"""
+Opaque stable identifier for an intent kind.
+
+Semantic rule: this is a domain-separated, hash-backed identifier. Schema
+consumers must not collapse it to a display label.
+"""
+scalar IntentKind
+
+"""
+Per-worldline logical append coordinate.
+
+Semantic rule: this is a Lamport-style logical counter, not wall-clock time and
+not a runtime-global ordering cursor.
+"""
+scalar WorldlineTick
+
+"""
+Runtime-global logical cycle coordinate.
+
+Semantic rule: this is correlation metadata for runtime scheduler cycles, not
+wall-clock time and not per-worldline append identity.
+"""
+scalar GlobalTick
+
+"""
+Stable composite key identifying a writer head inside a worldline.
+"""
+type WriterHeadKey {
+    worldlineId: WorldlineId!
+    headId: HeadId!
+}
+
+"""
+Input mirror for exact-head routing and control surfaces.
+"""
+input WriterHeadKeyInput {
+    worldlineId: WorldlineId!
+    headId: HeadId!
+}

@@ -66,6 +66,14 @@ This inventory records:
 
 That is useful, but it is **not** the Phase 8 runtime freeze target.
 
+### What Phase 8 has now seeded in-repo
+
+- `schemas/runtime/artifact-a-identifiers.graphql`
+- `schemas/runtime/artifact-b-routing-and-admission.graphql`
+
+These are the first local, human-authored ADR-0008 runtime schema fragments.
+They are source files, not generated output.
+
 ## Proposed Runtime Schema Artifact Set
 
 Phase 8 should generate from a **runtime-focused** schema set, not from the TTD
@@ -79,6 +87,8 @@ browser/controller schema. The first honest artifact sketch is:
 - `WorldlineTick`
 - `GlobalTick`
 
+Source file: `schemas/runtime/artifact-a-identifiers.graphql`
+
 These are the low-level, semantically strict building blocks. They need schema
 rules for opaque ids and logical counters before any larger DTOs are generated.
 
@@ -88,6 +98,8 @@ rules for opaque ids and logical counters before any larger DTOs are generated.
 - `InboxPolicy`
 - `IngressTarget`
 - `HeadEligibility`
+
+Source file: `schemas/runtime/artifact-b-routing-and-admission.graphql`
 
 This artifact covers deterministic ingress routing and declarative admission,
 without dragging in transport/conflict surface area.
@@ -137,9 +149,9 @@ the underlying ADR-0008 runtime schema is already frozen.
 
 ### 1. Missing runtime Wesley schema
 
-There is no dedicated ADR-0008 runtime schema artifact in-repo today. Phase 8
-needs an explicit source of truth for the runtime freeze set before generated
-Rust can replace hand-written definitions.
+There is not yet a **complete** ADR-0008 runtime schema artifact set in-repo.
+This branch now seeds Artifacts A and B under `schemas/runtime/`, but Artifacts
+C and D, generated IR, and generated Rust output are still missing.
 
 ### 2. Missing generation/sync entrypoint
 

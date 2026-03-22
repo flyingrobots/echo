@@ -37,8 +37,9 @@
 - **Changed** playback, replay, snapshot, and fork materialization now rebuild
   full `WorldlineState` instead of a warp-local store-only approximation.
 - **Added** checkpoint-backed playback and provenance replay so historical
-  materialization can restore from authoritative full-state checkpoints before
-  replaying the remaining suffix.
+  materialization can restore from validated full-state checkpoints as an
+  acceleration path before replaying the remaining suffix from authoritative
+  provenance.
 - **Changed** replay, observation, and ABI metadata now carry typed
   `WorldlineTick` / `GlobalTick` coordinates consistently across the public
   Phase 7 boundary.

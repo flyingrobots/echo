@@ -438,6 +438,17 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
         vec![(checkpoint_output_channel, checkpoint_output_bytes)],
     )
     .expect("append should succeed");
+    let mut checkpoint_cursor = PlaybackCursor::new(
+        test_cursor_id(8),
+        worldline_id,
+        warp_id,
+        CursorRole::Reader,
+        &initial_state,
+        wt(2),
+    );
+    checkpoint_cursor
+        .seek_to(wt(1), &provenance, &initial_state)
+        .expect("checkpoint materialization should succeed");
     provenance
         .add_checkpoint(
             worldline_id,
@@ -446,7 +457,7 @@ fn seek_from_checkpoint_hydrates_metadata_and_outputs() {
                     worldline_tick: wt(1),
                     state_hash: state_root,
                 },
-                state: checkpoint_state.clone(),
+                state: checkpoint_cursor.materialized_state().clone(),
             },
         )
         .expect("checkpoint should be accepted");

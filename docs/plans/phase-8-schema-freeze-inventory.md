@@ -36,23 +36,31 @@ This inventory records:
    The actual stable scheduler result surface is:
    `SchedulerStatus`, `SchedulerState`, `WorkState`, `RunCompletion`,
    `HeadEligibility`, and `HeadDisposition`.
+5. Freezing those runtime surfaces also requires a few supporting types that the
+   earlier plan text underspecified: `WorldlineId`, `InboxAddress`, `SeekThen`,
+   `SchedulerMode`, and `RunId`.
 
 ## Freeze Set Inventory
 
 | Candidate         | Canonical definition today                | Mirror / adapter surface                                                                                       | Phase 8 note                                                                                                               |
 | ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `HeadId`          | `crates/warp-core/src/head.rs`            | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Opaque hash-backed id; schema must preserve byte-level opacity, not invent string semantics                                |
+| `WorldlineId`     | `crates/warp-core/src/worldline.rs`       | ABI worldline-id byte payloads in `crates/echo-wasm-abi/src/kernel_port.rs`                                    | Supporting opaque id needed by `WriterHeadKey`, `IngressTarget`, and observation/control wrappers                          |
 | `WriterHeadKey`   | `crates/warp-core/src/head.rs`            | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Stable composite runtime key; good freeze candidate                                                                        |
 | `PlaybackMode`    | `crates/warp-core/src/playback.rs`        | TTD-generated `PlaybackMode` in `crates/ttd-protocol-rs/lib.rs` is related but not the runtime source of truth | Freeze the runtime enum first; do not treat the TTD schema as authoritative for ADR-0008                                   |
+| `SeekThen`        | `crates/warp-core/src/playback.rs`        | No Wesley/runtime-generated equivalent today                                                                   | Supporting playback-control enum required to express `PlaybackMode::Seek` honestly                                         |
 | `WorldlineTick`   | `crates/warp-core/src/clock.rs`           | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema must preserve logical-counter semantics                                                   |
 | `GlobalTick`      | `crates/warp-core/src/clock.rs`           | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema/docs must keep correlation-not-time semantics explicit                                    |
 | `IntentKind`      | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Stable opaque hash-backed id; schema must not collapse it to an arbitrary string label                                     |
+| `InboxAddress`    | `crates/warp-core/src/head_inbox.rs`      | ABI/control routing byte/string mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                           | Supporting routing alias type needed to freeze `IngressTarget` honestly                                                    |
 | `InboxPolicy`     | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Good freeze candidate once variants are confirmed complete for ADR-0008                                                    |
 | `IngressTarget`   | `crates/warp-core/src/head_inbox.rs`      | ABI/control-intent routing mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                                | Good freeze candidate; schema must preserve `DefaultWriter` / `InboxAddress` / `ExactHead` split                           |
+| `SchedulerMode`   | `crates/echo-wasm-abi/src/kernel_port.rs` | `ControlIntentV1::Start` mapping in `crates/warp-wasm/src/warp_kernel.rs`                                      | Supporting scheduler-control type; `SchedulerStatus.active_mode` cannot be frozen honestly without it                      |
 | `SchedulerStatus` | `crates/echo-wasm-abi/src/kernel_port.rs` | Engine/runtime mapping in `crates/warp-wasm/src/warp_kernel.rs`                                                | This is the real public scheduler result object; Phase 8 should freeze it explicitly instead of reviving `SuperTickResult` |
 | `SchedulerState`  | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable scheduler lifecycle enum                                                                                            |
 | `WorkState`       | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable scheduler boundary/work-availability enum                                                                           |
 | `RunCompletion`   | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable bounded-run completion enum                                                                                         |
+| `RunId`           | `crates/echo-wasm-abi/src/kernel_port.rs` | runtime/ABI mapping in `crates/warp-wasm/src/warp_kernel.rs`                                                   | Supporting control-plane token needed by `SchedulerStatus`                                                                 |
 | `HeadEligibility` | `crates/warp-core/src/head.rs`            | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Runtime/ABI pair must stay structurally aligned                                                                            |
 | `HeadDisposition` | `crates/echo-wasm-abi/src/kernel_port.rs` | runtime truth derived in `crates/warp-wasm/src/warp_kernel.rs`                                                 | ABI-facing scheduler truth surface; freeze alongside `SchedulerStatus`                                                     |
 
@@ -70,6 +78,8 @@ That is useful, but it is **not** the Phase 8 runtime freeze target.
 
 - `schemas/runtime/artifact-a-identifiers.graphql`
 - `schemas/runtime/artifact-b-routing-and-admission.graphql`
+- `schemas/runtime/artifact-c-playback-control.graphql`
+- `schemas/runtime/artifact-d-scheduler-results.graphql`
 
 These are the first local, human-authored ADR-0008 runtime schema fragments.
 They are source files, not generated output.
@@ -109,15 +119,21 @@ without dragging in transport/conflict surface area.
 - `PlaybackMode`
 - `SeekThen`
 
+Source file: `schemas/runtime/artifact-c-playback-control.graphql`
+
 This keeps playback semantics explicit and separate from scheduler lifecycle.
 
 ### Artifact D: Runtime scheduler result surface
 
 - `SchedulerStatus`
+- `SchedulerMode`
 - `SchedulerState`
 - `WorkState`
 - `RunCompletion`
+- `RunId`
 - `HeadDisposition`
+
+Source file: `schemas/runtime/artifact-d-scheduler-results.graphql`
 
 This replaces the stale `SuperTickResult` shorthand with the actual stable
 control-plane surface exposed by ABI v3.
@@ -150,8 +166,8 @@ the underlying ADR-0008 runtime schema is already frozen.
 ### 1. Missing runtime Wesley schema
 
 There is not yet a **complete** ADR-0008 runtime schema artifact set in-repo.
-This branch now seeds Artifacts A and B under `schemas/runtime/`, but Artifacts
-C and D, generated IR, and generated Rust output are still missing.
+This branch now seeds Artifacts A-D under `schemas/runtime/`, but generated IR
+and generated Rust output are still missing.
 
 ### 2. Missing generation/sync entrypoint
 

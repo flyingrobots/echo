@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+# ADR-0008 Phase 8 runtime schema fragment: playback control.
+# This fragment freezes the control-plane playback mode surface without mixing
+# it into scheduler lifecycle or observation DTOs.
+
+"""
+Follow-up behavior after a seek completes.
+"""
+enum SeekThen {
+    PAUSE
+    PLAY
+}
+
+"""
+Discriminant for the input-form playback mode envelope.
+
+GraphQL does not have native input unions, so playback control uses a
+discriminated input wrapper until Wesley grows an equivalent first-class
+construct.
+"""
+enum PlaybackModeKind {
+    PAUSED
+    PLAY
+    STEP_FORWARD
+    STEP_BACK
+    SEEK
+}
+
+"""
+Paused playback state.
+"""
+type PlaybackModePaused {
+    kind: PlaybackModeKind!
+}
+
+"""
+Continuous forward playback state.
+"""
+type PlaybackModePlay {
+    kind: PlaybackModeKind!
+}
+
+"""
+Advance one tick then pause.
+"""
+type PlaybackModeStepForward {
+    kind: PlaybackModeKind!
+}
+
+"""
+Seek one tick backward then pause.
+"""
+type PlaybackModeStepBack {
+    kind: PlaybackModeKind!
+}
+
+"""
+Seek to a specific worldline tick, then apply a follow-up behavior.
+"""
+type PlaybackModeSeek {
+    kind: PlaybackModeKind!
+    target: WorldlineTick!
+    then: SeekThen!
+}
+
+"""
+Playback control state.
+"""
+union PlaybackMode =
+    | PlaybackModePaused
+    | PlaybackModePlay
+    | PlaybackModeStepForward
+    | PlaybackModeStepBack
+    | PlaybackModeSeek
+
+"""
+Input-form playback control state.
+
+Validation rules:
+- `PAUSED`, `PLAY`, `STEP_FORWARD`, and `STEP_BACK` must not provide `target`
+  or `then`
+- `SEEK` requires both `target` and `then`
+"""
+input PlaybackModeInput {
+    kind: PlaybackModeKind!
+    target: WorldlineTick
+    then: SeekThen
+}

@@ -18,6 +18,10 @@ They are intentionally narrower than the browser/TTD protocol schema:
   Runtime identifiers and logical counters.
 - [artifact-b-routing-and-admission.graphql](artifact-b-routing-and-admission.graphql)
   Deterministic ingress routing and head-admission policy types.
+- [artifact-c-playback-control.graphql](artifact-c-playback-control.graphql)
+  Playback control modes and seek-follow-up semantics.
+- [artifact-d-scheduler-results.graphql](artifact-d-scheduler-results.graphql)
+  Scheduler lifecycle/result metadata and supporting control-plane types.
 
 ## Intent
 
@@ -34,5 +38,5 @@ That means these files are allowed to exist before:
 - These files are SDL **fragments**, not a standalone executable GraphQL API.
 - Comments here carry semantic constraints that current GraphQL type syntax
   cannot express directly, such as opaque-hash ids and logical-counter rules.
-- Future Artifact C and D files will cover playback control and scheduler
-  result surfaces once those slices begin.
+- Generation plumbing (`cargo xtask wesley sync`) still does not exist for this
+  runtime schema tree; Phase 8 is pinning source files before generation.

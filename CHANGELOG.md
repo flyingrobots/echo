@@ -27,6 +27,10 @@
   storage, suffix replay rebuilds metadata without a second provenance scan,
   hook timing reaps stale CSV locks, `pr-status` propagates paginated parse
   failures, and mixed timing logs prefer current run records over legacy rows.
+- **Fixed** final Rabbit review follow-ups so checkpoint fixtures carry honest
+  replay metadata, playback rejects non-canonical tick-zero materializations,
+  observation/spec docs spell out deterministic U0 hashes, and verifier timing
+  appends stay serialized without hiding helper failures.
 
 ### feat(warp-core): complete Phase 7 full-state replay
 

@@ -100,6 +100,20 @@ fn setup_worldline_with_ticks_and_checkpoints(
         // So after applying patch at `patch_index`, cursor_tick = patch_index + 1.
         let cursor_tick = patch_index + 1;
         if checkpoint_ticks.contains(&cursor_tick) {
+            let mut checkpoint_cursor = PlaybackCursor::new(
+                test_cursor_id(
+                    u8::try_from(cursor_tick)
+                        .expect("checkpoint fixture cursor ids should fit in u8"),
+                ),
+                worldline_id,
+                warp_id,
+                CursorRole::Reader,
+                &initial_state,
+                wt(num_ticks),
+            );
+            checkpoint_cursor
+                .seek_to(wt(cursor_tick), &provenance, &initial_state)
+                .expect("checkpoint materialization should succeed");
             provenance
                 .add_checkpoint(
                     worldline_id,
@@ -108,7 +122,7 @@ fn setup_worldline_with_ticks_and_checkpoints(
                             worldline_tick: wt(cursor_tick),
                             state_hash: state_root,
                         },
-                        state: current_state.clone(),
+                        state: checkpoint_cursor.materialized_state().clone(),
                     },
                 )
                 .expect("worldline should be registered");

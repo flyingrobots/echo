@@ -438,7 +438,9 @@ mod tests {
 
     #[test]
     fn test_control_intent_round_trip() {
-        use crate::kernel_port::{ControlIntentV1, SchedulerMode, WriterHeadKey};
+        use crate::kernel_port::{
+            ControlIntentV1, HeadId, SchedulerMode, WorldlineId, WriterHeadKey,
+        };
 
         let packed = pack_control_intent_v1(&ControlIntentV1::Start {
             mode: SchedulerMode::UntilIdle {
@@ -459,8 +461,8 @@ mod tests {
 
         let packed = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
             head: WriterHeadKey {
-                worldline_id: vec![1u8; 32],
-                head_id: vec![2u8; 32],
+                worldline_id: WorldlineId::from_bytes([1u8; 32]),
+                head_id: HeadId::from_bytes([2u8; 32]),
             },
             eligibility: crate::kernel_port::HeadEligibility::Dormant,
         })
@@ -471,12 +473,66 @@ mod tests {
             unpacked,
             ControlIntentV1::SetHeadEligibility {
                 head: WriterHeadKey {
-                    worldline_id: vec![1u8; 32],
-                    head_id: vec![2u8; 32],
+                    worldline_id: WorldlineId::from_bytes([1u8; 32]),
+                    head_id: HeadId::from_bytes([2u8; 32]),
                 },
                 eligibility: crate::kernel_port::HeadEligibility::Dormant,
             }
         );
+    }
+
+    #[test]
+    fn test_worldline_id_round_trip_uses_cbor_bytes() {
+        use crate::kernel_port::WorldlineId;
+        use ciborium::value::Value;
+
+        #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+        struct Wrapper {
+            id: WorldlineId,
+        }
+
+        let bytes = encode_cbor(&Wrapper {
+            id: WorldlineId::from_bytes([7u8; 32]),
+        })
+        .unwrap();
+        let value = decode_value(&bytes).unwrap();
+        assert!(matches!(value, Value::Map(_)));
+        let Value::Map(entries) = value else {
+            unreachable!();
+        };
+        let (_, encoded_id) = entries
+            .into_iter()
+            .find(|(key, _)| matches!(key, Value::Text(text) if text == "id"))
+            .expect("id entry should exist");
+        assert_eq!(encoded_id, Value::Bytes(vec![7u8; 32]));
+
+        let decoded: Wrapper = decode_cbor(&bytes).unwrap();
+        assert_eq!(
+            decoded,
+            Wrapper {
+                id: WorldlineId::from_bytes([7u8; 32]),
+            }
+        );
+    }
+
+    #[test]
+    fn test_worldline_id_rejects_non_32_byte_payloads() {
+        use crate::kernel_port::WorldlineId;
+        use ciborium::value::Value;
+
+        #[derive(Debug, PartialEq, Eq, Deserialize)]
+        struct Wrapper {
+            id: WorldlineId,
+        }
+
+        let bytes = encode_value(&Value::Map(vec![(
+            Value::Text("id".into()),
+            Value::Bytes(vec![9u8; 31]),
+        )]))
+        .unwrap();
+
+        let err = decode_cbor::<Wrapper>(&bytes).unwrap_err();
+        assert!(err.to_string().contains("32 bytes"));
     }
 
     #[test]

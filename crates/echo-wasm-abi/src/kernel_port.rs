@@ -28,7 +28,11 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use serde::{Deserialize, Serialize};
+use core::fmt;
+use serde::{
+    Deserialize, Serialize,
+    de::{self, SeqAccess, Visitor},
+};
 
 /// Current ABI version for the kernel port contract.
 ///
@@ -44,6 +48,112 @@ macro_rules! logical_counter {
         pub struct $name(pub u64);
     };
 }
+
+fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct OpaqueIdVisitor;
+
+    impl<'de> Visitor<'de> for OpaqueIdVisitor {
+        type Value = [u8; 32];
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("exactly 32 bytes")
+        }
+
+        fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            value
+                .try_into()
+                .map_err(|_| E::invalid_length(value.len(), &self))
+        }
+
+        fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_bytes(&value)
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut bytes = [0u8; 32];
+            for (index, slot) in bytes.iter_mut().enumerate() {
+                *slot = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(index, &self))?;
+            }
+            if seq.next_element::<u8>()?.is_some() {
+                return Err(de::Error::invalid_length(33, &self));
+            }
+            Ok(bytes)
+        }
+    }
+
+    deserializer.deserialize_bytes(OpaqueIdVisitor)
+}
+
+macro_rules! opaque_id {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[repr(transparent)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name([u8; 32]);
+
+        impl $name {
+            /// Reconstructs an id from its canonical 32-byte representation.
+            #[must_use]
+            pub fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
+            }
+
+            /// Returns the canonical 32-byte representation.
+            #[must_use]
+            pub fn as_bytes(&self) -> &[u8; 32] {
+                &self.0
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_bytes(&self.0)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                deserialize_opaque_id(deserializer).map(Self)
+            }
+        }
+    };
+}
+
+opaque_id!(
+    /// Opaque stable identifier for a worldline.
+    ///
+    /// This is the canonical 32-byte worldline-id hash, carried as typed
+    /// metadata rather than a generic byte vector.
+    WorldlineId
+);
+
+opaque_id!(
+    /// Opaque stable identifier for a head within a worldline.
+    ///
+    /// This is the canonical 32-byte head-id hash, carried as typed metadata
+    /// rather than a generic byte vector.
+    HeadId
+);
 
 logical_counter!(
     /// Per-worldline logical coordinate in host-visible metadata.
@@ -290,11 +400,10 @@ pub struct SchedulerStatus {
 /// Stable writer-head key used by control intents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriterHeadKey {
-    /// Worldline that owns the head as a canonical 32-byte worldline-id hash.
-    pub worldline_id: Vec<u8>,
-    /// Stable head identifier within that worldline as a canonical 32-byte
-    /// domain-separated head-id hash payload.
-    pub head_id: Vec<u8>,
+    /// Worldline that owns the head.
+    pub worldline_id: WorldlineId,
+    /// Stable head identifier within that worldline.
+    pub head_id: HeadId,
 }
 
 /// Privileged control intents routed through the same intent intake surface.
@@ -334,7 +443,7 @@ pub struct ChannelData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObservationCoordinate {
     /// Worldline to observe.
-    pub worldline_id: Vec<u8>,
+    pub worldline_id: WorldlineId,
     /// Requested coordinate within the worldline.
     pub at: ObservationAt,
 }
@@ -405,7 +514,7 @@ pub struct ResolvedObservationCoordinate {
     /// Observation contract version.
     pub observation_version: u32,
     /// Worldline actually observed.
-    pub worldline_id: Vec<u8>,
+    pub worldline_id: WorldlineId,
     /// Original coordinate selector from the request.
     pub requested_at: ObservationAt,
     /// Concrete resolved worldline coordinate.

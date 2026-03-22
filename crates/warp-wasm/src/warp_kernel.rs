@@ -11,11 +11,12 @@ use std::fmt;
 
 use echo_wasm_abi::kernel_port::{
     error_codes, AbiError, ControlIntentV1, DispatchResponse, GlobalTick as AbiGlobalTick,
-    HeadEligibility as AbiHeadEligibility, HeadInfo, KernelPort,
+    HeadEligibility as AbiHeadEligibility, HeadId as AbiHeadId, HeadInfo, KernelPort,
     ObservationArtifact as AbiObservationArtifact, ObservationFrame as AbiObservationFrame,
     ObservationProjection as AbiObservationProjection, ObservationRequest as AbiObservationRequest,
     RegistryInfo, RunCompletion, RunId as AbiRunId, SchedulerMode, SchedulerState, SchedulerStatus,
-    WorkState, WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
+    WorkState, WorldlineId as AbiWorldlineId, WorldlineTick as AbiWorldlineTick,
+    WriterHeadKey as AbiWriterHeadKey, ABI_VERSION,
 };
 use echo_wasm_abi::{unpack_control_intent_v1, unpack_intent_v1, CONTROL_INTENT_V1_OP_ID};
 use warp_core::{
@@ -166,12 +167,12 @@ impl WarpKernel {
         })
     }
 
-    fn parse_worldline_id(bytes: &[u8]) -> Result<WorldlineId, AbiError> {
-        let hash: [u8; 32] = bytes.try_into().map_err(|_| AbiError {
-            code: error_codes::INVALID_WORLDLINE,
-            message: format!("worldline id must be exactly 32 bytes, got {}", bytes.len()),
-        })?;
-        Ok(WorldlineId(hash))
+    fn parse_worldline_id(worldline_id: &AbiWorldlineId) -> WorldlineId {
+        WorldlineId(*worldline_id.as_bytes())
+    }
+
+    fn parse_head_id(head_id: &AbiHeadId) -> HeadId {
+        HeadId::from_bytes(*head_id.as_bytes())
     }
 
     fn parse_channel_ids(
@@ -229,7 +230,7 @@ impl WarpKernel {
     }
 
     fn to_core_request(request: AbiObservationRequest) -> Result<ObservationRequest, AbiError> {
-        let worldline_id = Self::parse_worldline_id(&request.coordinate.worldline_id)?;
+        let worldline_id = Self::parse_worldline_id(&request.coordinate.worldline_id);
         let at = match request.coordinate.at {
             echo_wasm_abi::kernel_port::ObservationAt::Frontier => ObservationAt::Frontier,
             echo_wasm_abi::kernel_port::ObservationAt::Tick { worldline_tick } => {
@@ -457,17 +458,9 @@ impl WarpKernel {
     }
 
     fn parse_head_key(head: &AbiWriterHeadKey) -> Result<WriterHeadKey, AbiError> {
-        let worldline_id = Self::parse_worldline_id(&head.worldline_id)?;
-        let head_id_bytes: [u8; 32] = head.head_id.as_slice().try_into().map_err(|_| AbiError {
-            code: error_codes::INVALID_CONTROL,
-            message: format!(
-                "head id must be exactly 32 bytes, got {}",
-                head.head_id.len()
-            ),
-        })?;
         Ok(WriterHeadKey {
-            worldline_id,
-            head_id: HeadId::from_bytes(head_id_bytes),
+            worldline_id: Self::parse_worldline_id(&head.worldline_id),
+            head_id: Self::parse_head_id(&head.head_id),
         })
     }
 }
@@ -563,12 +556,13 @@ mod tests {
     use echo_wasm_abi::{
         kernel_port::{
             ControlIntentV1, GlobalTick as AbiGlobalTick, HeadEligibility as AbiHeadEligibility,
-            ObservationAt as AbiObservationAt, ObservationCoordinate as AbiObservationCoordinate,
+            HeadId as AbiHeadId, ObservationAt as AbiObservationAt,
+            ObservationCoordinate as AbiObservationCoordinate,
             ObservationFrame as AbiObservationFrame, ObservationPayload as AbiObservationPayload,
             ObservationProjection as AbiObservationProjection,
             ObservationRequest as AbiObservationRequest, RunCompletion, SchedulerMode,
-            SchedulerState, WorkState, WorldlineTick as AbiWorldlineTick,
-            WriterHeadKey as AbiWriterHeadKey,
+            SchedulerState, WorkState, WorldlineId as AbiWorldlineId,
+            WorldlineTick as AbiWorldlineTick, WriterHeadKey as AbiWriterHeadKey,
         },
         pack_control_intent_v1, pack_intent_v1,
     };
@@ -590,6 +584,14 @@ mod tests {
         })
         .unwrap();
         kernel.dispatch_intent(&control)
+    }
+
+    fn abi_worldline_id(worldline_id: WorldlineId) -> AbiWorldlineId {
+        AbiWorldlineId::from_bytes(worldline_id.0)
+    }
+
+    fn abi_head_id(head_id: HeadId) -> AbiHeadId {
+        AbiHeadId::from_bytes(*head_id.as_bytes())
     }
 
     #[test]
@@ -704,8 +706,8 @@ mod tests {
         let mut kernel = WarpKernel::new().unwrap();
         let control = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
             head: AbiWriterHeadKey {
-                worldline_id: kernel.default_worldline.0.to_vec(),
-                head_id: make_head_id("missing").as_bytes().to_vec(),
+                worldline_id: abi_worldline_id(kernel.default_worldline),
+                head_id: abi_head_id(make_head_id("missing")),
             },
             eligibility: AbiHeadEligibility::Dormant,
         })
@@ -762,8 +764,8 @@ mod tests {
 
         let dormancy = pack_control_intent_v1(&ControlIntentV1::SetHeadEligibility {
             head: AbiWriterHeadKey {
-                worldline_id: kernel.default_worldline.0.to_vec(),
-                head_id: make_head_id("default").as_bytes().to_vec(),
+                worldline_id: abi_worldline_id(kernel.default_worldline),
+                head_id: abi_head_id(make_head_id("default")),
             },
             eligibility: AbiHeadEligibility::Dormant,
         })
@@ -850,7 +852,7 @@ mod tests {
         let err = kernel
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
-                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
                         worldline_tick: AbiWorldlineTick(999),
                     },
@@ -871,7 +873,7 @@ mod tests {
         let artifact = kernel
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
-                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
                         worldline_tick: AbiWorldlineTick(0),
                     },
@@ -896,7 +898,7 @@ mod tests {
         let artifact = kernel
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
-                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
                 frame: AbiObservationFrame::CommitBoundary,
@@ -920,7 +922,7 @@ mod tests {
         let artifact = kernel
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
-                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
                 frame: AbiObservationFrame::CommitBoundary,
@@ -950,7 +952,7 @@ mod tests {
         let _ = kernel
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
-                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Frontier,
                 },
                 frame: AbiObservationFrame::RecordedTruth,
@@ -1000,7 +1002,7 @@ mod tests {
         let artifact = kernel
             .observe(AbiObservationRequest {
                 coordinate: AbiObservationCoordinate {
-                    worldline_id: kernel.default_worldline.0.to_vec(),
+                    worldline_id: abi_worldline_id(kernel.default_worldline),
                     at: AbiObservationAt::Tick {
                         worldline_tick: AbiWorldlineTick(1),
                     },

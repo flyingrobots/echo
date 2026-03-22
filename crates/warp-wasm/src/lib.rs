@@ -526,7 +526,7 @@ mod init_tests {
         DispatchResponse, GlobalTick, HeadInfo, HeadObservation, ObservationArtifact,
         ObservationAt, ObservationFrame, ObservationPayload, ObservationProjection, RegistryInfo,
         ResolvedObservationCoordinate, RunCompletion, RunId, SchedulerMode, SchedulerState,
-        SchedulerStatus, WorkState, WorldlineTick, ABI_VERSION,
+        SchedulerStatus, WorkState, WorldlineId, WorldlineTick, ABI_VERSION,
     };
 
     struct StubKernel;
@@ -567,7 +567,7 @@ mod init_tests {
             Ok(ObservationArtifact {
                 resolved: ResolvedObservationCoordinate {
                     observation_version: 2,
-                    worldline_id: vec![9; 32],
+                    worldline_id: WorldlineId::from_bytes([9; 32]),
                     requested_at: ObservationAt::Frontier,
                     resolved_worldline_tick: head.worldline_tick,
                     commit_global_tick: head.commit_global_tick,

@@ -210,7 +210,7 @@ impl ResolvedObservationCoordinate {
     fn to_abi(&self) -> abi::ResolvedObservationCoordinate {
         abi::ResolvedObservationCoordinate {
             observation_version: self.observation_version,
-            worldline_id: self.worldline_id.0.to_vec(),
+            worldline_id: abi::WorldlineId::from_bytes(self.worldline_id.0),
             requested_at: self.requested_at.to_abi(),
             resolved_worldline_tick: abi::WorldlineTick(self.resolved_worldline_tick.as_u64()),
             commit_global_tick: self

@@ -45,7 +45,7 @@ use crate::warp_state::WarpState;
 /// The `hash` field is a deterministic commit hash (`commit_id`) computed from
 /// `state_root` (graph-only hash) and commit metadata (parents, digests,
 /// policy). Parents are explicit to support merges.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Snapshot {
     /// Node identifier that serves as the root of the snapshot.

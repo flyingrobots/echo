@@ -20,7 +20,7 @@ use crate::ident::{Hash, NodeKey};
 use crate::tx::TxId;
 
 /// A tick receipt: the per-candidate outcomes for a single commit attempt.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TickReceipt {
     tx: TxId,

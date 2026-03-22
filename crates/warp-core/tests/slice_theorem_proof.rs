@@ -795,7 +795,7 @@ fn phase_6_semantic_correctness_dependent_chain() {
 
     let wl_patch = WorldlineTickPatchV1 {
         header: WorldlineTickHeaderV1 {
-            commit_global_tick: warp_core::GlobalTick::from_raw(1),
+            commit_global_tick: warp_core::GlobalTick::from_raw(2),
             policy_id: snapshot.policy_id,
             rule_pack_id: patch.rule_pack_id(),
             plan_digest: snapshot.plan_digest,

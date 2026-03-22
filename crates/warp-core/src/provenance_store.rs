@@ -778,15 +778,6 @@ fn finalize_replay_metadata(
     replayed.tx_counter = target_tick.as_u64();
 }
 
-fn clear_replay_metadata(replayed: &mut WorldlineState) {
-    replayed.last_snapshot = None;
-    replayed.tick_history.clear();
-    replayed.last_materialization.clear();
-    replayed.last_materialization_errors.clear();
-    replayed.tx_counter = 0;
-    replayed.committed_ingress.clear();
-}
-
 pub(crate) fn validate_replay_base<P: ProvenanceStore>(
     provenance: &P,
     worldline_id: WorldlineId,
@@ -848,10 +839,7 @@ pub(crate) fn restore_replay_base<P: ProvenanceStore>(
         return Ok((checkpoint.state, checkpoint.checkpoint.worldline_tick));
     }
 
-    let mut replayed = base_state.clone();
-    replayed.warp_state = replayed.initial_state.clone();
-    clear_replay_metadata(&mut replayed);
-    Ok((replayed, WorldlineTick::ZERO))
+    Ok((base_state.replay_base_from_initial(), WorldlineTick::ZERO))
 }
 
 pub(crate) fn advance_replay_state<P: ProvenanceStore>(
@@ -1049,6 +1037,12 @@ fn validate_checkpoint_for_history(
             field: "committed_ingress",
         });
     }
+    if !checkpoint.state.last_materialization_errors.is_empty() {
+        return Err(HistoryError::CheckpointReplayMetadataMismatch {
+            tick: checkpoint_tick,
+            field: "last_materialization_errors",
+        });
+    }
     if checkpoint_tick == WorldlineTick::ZERO {
         if checkpoint.state.last_snapshot.is_some() {
             return Err(HistoryError::CheckpointReplayMetadataMismatch {
@@ -1065,30 +1059,39 @@ fn validate_checkpoint_for_history(
         return Ok(());
     }
 
-    for (index, (snapshot, _, replay_patch)) in checkpoint.state.tick_history.iter().enumerate() {
+    for (index, (snapshot, receipt, replay_patch)) in
+        checkpoint.state.tick_history.iter().enumerate()
+    {
         let entry = &history.entries[index];
-        if snapshot.state_root != entry.expected.state_root {
-            return Err(HistoryError::CheckpointReplayMetadataMismatch {
-                tick: checkpoint_tick,
-                field: "tick_history.state_root",
-            });
-        }
-        if snapshot.hash != entry.expected.commit_hash {
-            return Err(HistoryError::CheckpointReplayMetadataMismatch {
-                tick: checkpoint_tick,
-                field: "tick_history.commit_hash",
-            });
-        }
         let Some(stored_patch) = entry.patch.as_ref() else {
             return Err(HistoryError::CheckpointReplayMetadataMismatch {
                 tick: checkpoint_tick,
                 field: "tick_history.patch",
             });
         };
-        if replay_patch.digest() != stored_patch.patch_digest {
+        let (expected_snapshot, expected_receipt, expected_replay_patch) =
+            replay_artifacts_for_entry(root, entry, stored_patch).map_err(|_| {
+                HistoryError::CheckpointReplayMetadataMismatch {
+                    tick: checkpoint_tick,
+                    field: "tick_history.replay_artifacts",
+                }
+            })?;
+        if snapshot != &expected_snapshot {
             return Err(HistoryError::CheckpointReplayMetadataMismatch {
                 tick: checkpoint_tick,
-                field: "tick_history.patch_digest",
+                field: "tick_history.snapshot",
+            });
+        }
+        if receipt != &expected_receipt {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "tick_history.receipt",
+            });
+        }
+        if replay_patch != &expected_replay_patch {
+            return Err(HistoryError::CheckpointReplayMetadataMismatch {
+                tick: checkpoint_tick,
+                field: "tick_history.patch",
             });
         }
     }
@@ -1124,9 +1127,7 @@ fn validate_checkpoint_for_history(
             .last()
             .map(|(snapshot, _, _)| snapshot),
     ) {
-        (Some(last_snapshot), Some(history_snapshot))
-            if last_snapshot.hash == history_snapshot.hash
-                && last_snapshot.state_root == history_snapshot.state_root => {}
+        (Some(last_snapshot), Some(history_snapshot)) if last_snapshot == history_snapshot => {}
         _ => {
             return Err(HistoryError::CheckpointReplayMetadataMismatch {
                 tick: checkpoint_tick,
@@ -3080,10 +3081,77 @@ mod tests {
                 ),
                 Err(HistoryError::CheckpointReplayMetadataMismatch {
                     tick,
-                    field: "tick_history.commit_hash",
+                    field: "tick_history.snapshot",
                 }) if tick == wt(1)
             ),
             "expected checkpoint write to reject poisoned replay metadata"
+        );
+    }
+
+    #[test]
+    fn add_checkpoint_rejects_poisoned_checkpoint_receipt_metadata() {
+        let mut service = ProvenanceService::new();
+        let worldline_id = test_worldline_id();
+        let head_key = test_head_key();
+        let base_state = WorldlineState::empty();
+        let root = *base_state.root();
+
+        service
+            .register_worldline(worldline_id, &base_state)
+            .unwrap();
+
+        let patch = make_replay_patch(
+            gt(1),
+            root.warp_id,
+            vec![WarpOp::UpsertNode {
+                node: root,
+                record: crate::record::NodeRecord {
+                    ty: make_type_id("ReplayCheckpointReceipt"),
+                },
+            }],
+            Vec::new(),
+            Vec::new(),
+        );
+        let (entry0, mut checkpoint_state) = replay_entry_from_patch(
+            worldline_id,
+            wt(0),
+            head_key,
+            Vec::new(),
+            &base_state,
+            patch,
+        );
+        let poisoned_receipt = {
+            let (_, receipt, _) = &checkpoint_state.tick_history[0];
+            let blocked_by = (0..receipt.entries().len())
+                .map(|idx| receipt.blocked_by(idx).to_vec())
+                .collect::<Vec<_>>();
+            TickReceipt::new(
+                TxId::from_raw(receipt.tx().value() + 100),
+                receipt.entries().to_vec(),
+                blocked_by,
+            )
+        };
+        checkpoint_state.tick_history[0].1 = poisoned_receipt;
+
+        service.append_local_commit(entry0).unwrap();
+        assert!(
+            matches!(
+                service.add_checkpoint(
+                    worldline_id,
+                    ReplayCheckpoint {
+                        checkpoint: CheckpointRef {
+                            worldline_tick: wt(1),
+                            state_hash: checkpoint_state.state_root(),
+                        },
+                        state: checkpoint_state,
+                    },
+                ),
+                Err(HistoryError::CheckpointReplayMetadataMismatch {
+                    tick,
+                    field: "tick_history.receipt",
+                }) if tick == wt(1)
+            ),
+            "expected checkpoint write to reject poisoned receipt metadata"
         );
     }
 

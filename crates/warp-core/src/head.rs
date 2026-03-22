@@ -89,6 +89,10 @@ pub struct WriterHeadKey {
 }
 
 /// Declarative scheduler admission for a writer head.
+///
+/// This enum is intentionally exhaustive for the current writer-head control
+/// plane: admission stays a two-state policy (`Dormant` vs `Admitted`) while
+/// pause/run behavior remains orthogonal in [`PlaybackMode`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum HeadEligibility {

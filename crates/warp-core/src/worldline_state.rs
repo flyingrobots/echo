@@ -341,6 +341,25 @@ impl WorldlineState {
             committed_ingress: BTreeSet::new(),
         }
     }
+
+    /// Clones the canonical `U0` replay base used for suffix replay.
+    ///
+    /// This preserves the deterministic initial boundary and root coordinate
+    /// while dropping frontier-only materialization and replay metadata.
+    pub(crate) fn replay_base_from_initial(&self) -> Self {
+        let initial_state = self.initial_state.clone();
+        Self {
+            warp_state: initial_state.clone(),
+            root: self.root,
+            initial_state,
+            last_snapshot: None,
+            tick_history: Vec::new(),
+            last_materialization: Vec::new(),
+            last_materialization_errors: Vec::new(),
+            tx_counter: 0,
+            committed_ingress: BTreeSet::new(),
+        }
+    }
 }
 
 impl TryFrom<WarpState> for WorldlineState {
@@ -708,5 +727,73 @@ mod tests {
         );
         assert_eq!(checkpoint.tx_counter, state.tx_counter);
         assert!(checkpoint.committed_ingress.is_empty());
+    }
+
+    #[test]
+    fn replay_base_from_initial_resets_frontier_metadata() {
+        let mut state = WorldlineState::empty();
+        state.last_snapshot = Some(Snapshot {
+            root: *state.root(),
+            hash: [1u8; 32],
+            state_root: [2u8; 32],
+            parents: vec![[3u8; 32]],
+            plan_digest: [4u8; 32],
+            decision_digest: [5u8; 32],
+            rewrites_digest: [6u8; 32],
+            patch_digest: [7u8; 32],
+            policy_id: 8,
+            tx: crate::tx::TxId::from_raw(9),
+        });
+        state.tick_history.push((
+            state.last_snapshot.clone().expect("snapshot fixture"),
+            TickReceipt::new(crate::tx::TxId::from_raw(10), Vec::new(), Vec::new()),
+            WarpTickPatchV1::new(
+                0,
+                [11u8; 32],
+                crate::tick_patch::TickCommitStatus::Committed,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+        ));
+        state.last_materialization.push(FinalizedChannel {
+            channel: crate::make_type_id("materialized"),
+            data: vec![1, 2, 3],
+        });
+        state.last_materialization_errors.push(ChannelConflict {
+            channel: crate::make_type_id("materialized"),
+            emission_count: 2,
+            kind: crate::materialization::MaterializationErrorKind::StrictSingleConflict,
+        });
+        state.tx_counter = 11;
+        let head_key = WriterHeadKey {
+            worldline_id: WorldlineId([12u8; 32]),
+            head_id: crate::head::make_head_id("replay-base"),
+        };
+        state.record_committed_ingress(head_key, [[13u8; 32]]);
+
+        let replay_base = state.replay_base_from_initial();
+
+        assert_eq!(replay_base.root, state.root);
+        assert_eq!(
+            crate::snapshot::compute_state_root_for_warp_state(
+                replay_base.initial_state(),
+                replay_base.root()
+            ),
+            crate::snapshot::compute_state_root_for_warp_state(state.initial_state(), state.root())
+        );
+        assert_eq!(
+            crate::snapshot::compute_state_root_for_warp_state(
+                replay_base.warp_state(),
+                replay_base.root()
+            ),
+            crate::snapshot::compute_state_root_for_warp_state(state.initial_state(), state.root())
+        );
+        assert!(replay_base.last_snapshot.is_none());
+        assert!(replay_base.tick_history.is_empty());
+        assert!(replay_base.last_materialization.is_empty());
+        assert!(replay_base.last_materialization_errors.is_empty());
+        assert_eq!(replay_base.tx_counter, 0);
+        assert!(replay_base.committed_ingress.is_empty());
     }
 }

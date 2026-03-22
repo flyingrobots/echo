@@ -85,7 +85,10 @@ hook_timing_lock_is_stale() {
     esac
   done <"$meta_file"
 
-  if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null; then
+  if [[ -n "$pid" ]]; then
+    if kill -0 "$pid" 2>/dev/null; then
+      return 1
+    fi
     return 0
   fi
 

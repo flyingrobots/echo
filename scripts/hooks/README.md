@@ -50,7 +50,7 @@ A successful `make verify-full` run now shares the same success stamp as the
 canonical pre-push full gate for the same worktree, so commit-only churn
 and unchanged unstaged content do not rerun identical full verification
 locally. Local timing data now lands
-in `.git/verify-local/timing.jsonl`, including run-level and per-lane durations,
+in `$(git rev-parse --git-dir)/verify-local/timing.jsonl`, including run-level and per-lane durations,
 which keeps timing artifacts out of the tracked repo while still making lane
 cost visible. The staged and reduced local Rust paths are also intentionally
 narrower than CI: heavy all-target clippy coverage stays in CI, while local

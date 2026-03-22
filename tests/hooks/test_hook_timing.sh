@@ -361,6 +361,7 @@ chmod +x "$tmp/bin/python3"
 (
   cd "$tmp"
   PATH="$tmp/bin:/bin:/usr/sbin:/sbin" /bin/bash -c '
+    set -euo pipefail
     source ./.githooks/_timing.sh
     hook_timing_prepare "$PWD" "cached-method"
     rm -f "$PWD/bin/python3"
@@ -379,12 +380,16 @@ rm -rf "$tmp"
 tmp="$(fixture_root)"
 (
   cd "$tmp"
+  /bin/sh -c 'exit 0' &
+  dead_pid=$!
+  wait "$dead_pid"
   mkdir -p .dx-debug/stale-lock-times.csv.lock
-  cat > .dx-debug/stale-lock-times.csv.lock/owner <<'EOF'
-pid=999999
+  cat > .dx-debug/stale-lock-times.csv.lock/owner <<EOF
+pid=$dead_pid
 started_at=1
 EOF
   /bin/bash -c '
+    set -euo pipefail
     source ./.githooks/_timing.sh
     hook_timing_prepare "$PWD" "stale-lock"
     hook_timing_append 0
@@ -396,6 +401,31 @@ if [[ ! -d "$tmp/.dx-debug/stale-lock-times.csv.lock" ]]; then
 else
   fail "stale timing lock directory should be reaped"
   ls -la "$tmp/.dx-debug"
+fi
+rm -rf "$tmp"
+
+tmp="$(fixture_root)"
+if (
+  cd "$tmp"
+  mkdir -p .dx-debug/live-lock-times.csv.lock
+  sleep 5 &
+  live_pid=$!
+  trap 'kill "$live_pid" 2>/dev/null || true; wait "$live_pid" 2>/dev/null || true' EXIT
+  cat > .dx-debug/live-lock-times.csv.lock/owner <<EOF
+pid=$live_pid
+started_at=1
+EOF
+  /bin/bash -c '
+    set -euo pipefail
+    source ./.githooks/_timing.sh
+    if hook_timing_lock_is_stale "$PWD/.dx-debug/live-lock-times.csv.lock"; then
+      exit 1
+    fi
+  '
+); then
+  pass "live timing locks are never reaped solely by age"
+else
+  fail "live timing locks must not be treated as stale"
 fi
 rm -rf "$tmp"
 

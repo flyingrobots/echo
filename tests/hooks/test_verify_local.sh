@@ -18,6 +18,16 @@ fail() {
   FAIL=$((FAIL + 1))
 }
 
+extract_log_section() {
+  local section="$1"
+  local content="$2"
+  printf '%s\n' "$content" | awk -v header="--- ${section} ---" '
+    $0 == header { flag = 1; next }
+    /^--- .* ---$/ && flag { exit }
+    flag { print }
+  '
+}
+
 run_detect() {
   local tmp
   tmp="$(mktemp)"
@@ -125,6 +135,9 @@ EOF
   cat >"$tmp/bin/cargo-nextest" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -n "${VERIFY_FAKE_NEXTEST_LOG:-}" ]]; then
+  printf '%s|%s\n' "${CARGO_TARGET_DIR:-}" "$*" >>"${VERIFY_FAKE_NEXTEST_LOG}"
+fi
 exit 0
 EOF
   cat >"$tmp/bin/rustup" <<'EOF'
@@ -222,18 +235,27 @@ EOF
   cargo_log="$(mktemp)"
   local npx_log
   npx_log="$(mktemp)"
+  local nextest_log
+  nextest_log="$(mktemp)"
 
   local output
+  local -a verify_env=(
+    "PATH=$tmp/bin:$PATH"
+    "VERIFY_FORCE=1"
+    "VERIFY_USE_NEXTEST=$use_nextest"
+    "VERIFY_LANE_MODE=$lane_mode"
+    "VERIFY_STAMP_SUBJECT=test-head"
+    "VERIFY_CHANGED_FILES_FILE=$changed"
+    "VERIFY_FAKE_CARGO_LOG=$cargo_log"
+    "VERIFY_FAKE_NPX_LOG=$npx_log"
+    "VERIFY_FAKE_NEXTEST_LOG=$nextest_log"
+  )
+  if [[ -n "${VERIFY_FAKE_TIMING_FILE:-}" ]]; then
+    verify_env+=("VERIFY_TIMING_FILE=$VERIFY_FAKE_TIMING_FILE")
+  fi
   output="$(
     cd "$tmp" && \
-    PATH="$tmp/bin:$PATH" \
-    VERIFY_FORCE=1 \
-    VERIFY_USE_NEXTEST="$use_nextest" \
-    VERIFY_LANE_MODE="$lane_mode" \
-    VERIFY_STAMP_SUBJECT="test-head" \
-    VERIFY_CHANGED_FILES_FILE="$changed" \
-    VERIFY_FAKE_CARGO_LOG="$cargo_log" \
-    VERIFY_FAKE_NPX_LOG="$npx_log" \
+    env "${verify_env[@]}" \
     ./scripts/verify-local.sh "$mode"
   )"
 
@@ -242,8 +264,10 @@ EOF
   cat "$cargo_log"
   echo "--- npx-log ---"
   cat "$npx_log"
+  echo "--- nextest-log ---"
+  cat "$nextest_log"
 
-  rm -f "$changed" "$cargo_log" "$npx_log"
+  rm -f "$changed" "$cargo_log" "$npx_log" "$nextest_log"
   rm -rf "$tmp"
 }
 
@@ -570,10 +594,18 @@ EOF
 
   python3 - <<'PY' "$timing_log"
 import json, sys
+expected = 'tree"quoted\\subject'
+rows = 0
+run_rows = 0
 with open(sys.argv[1], 'r', encoding='utf-8') as handle:
     for line in handle:
+        rows += 1
         record = json.loads(line)
-        assert '"' in record["subject"] or '\\' in record["subject"]
+        assert record["subject"] == expected, record
+        if record["record_type"] == "run":
+            run_rows += 1
+assert rows >= 1
+assert run_rows == 1
 PY
 
   rm -f "$timing_log"
@@ -1019,14 +1051,25 @@ else
   printf '%s\n' "$fake_fast_output"
 fi
 
+if fake_fast_unwritable_timing_output="$(
+  VERIFY_FAKE_TIMING_FILE='/dev/null/verify-local/timing.jsonl' \
+  run_fake_verify fast crates/warp-core/src/lib.rs 2>&1
+)"; then
+  pass "verify-local treats timing writes as best-effort when the path is unwritable"
+else
+  fail "verify-local must not fail just because the timing path is unwritable"
+  printf '%s\n' "$fake_fast_unwritable_timing_output"
+fi
+
 fake_fast_nextest_output="$(run_fake_verify fast crates/bin-only/src/main.rs parallel 1)"
-if printf '%s\n' "$fake_fast_nextest_output" | grep -q 'nextest run -p bin-only --bins'; then
+fake_fast_nextest_cargo_log="$(extract_log_section cargo-log "$fake_fast_nextest_output")"
+if printf '%s\n' "$fake_fast_nextest_cargo_log" | grep -q 'nextest run -p bin-only --bins'; then
   pass "nextest uses target-aware args for bin-only crates"
 else
   fail "nextest should use --bins for bin-only crates instead of hardcoded lib/test flags"
   printf '%s\n' "$fake_fast_nextest_output"
 fi
-if printf '%s\n' "$fake_fast_nextest_output" | grep -q 'nextest run -p bin-only --lib --tests'; then
+if printf '%s\n' "$fake_fast_nextest_cargo_log" | grep -q 'nextest run -p bin-only --lib --tests'; then
   fail "nextest must not hardcode --lib --tests for bin-only crates"
   printf '%s\n' "$fake_fast_nextest_output"
 else

@@ -139,7 +139,7 @@ append_timing_record() {
   local timing_dir lock_dir lock_acquired=0 attempts=0
 
   timing_dir="$(dirname "$VERIFY_TIMING_FILE")"
-  mkdir -p "$timing_dir"
+  mkdir -p "$timing_dir" 2>/dev/null || return 0
   lock_dir="${VERIFY_TIMING_FILE}.lock"
   while (( attempts < 100 )); do
     if mkdir "$lock_dir" 2>/dev/null; then

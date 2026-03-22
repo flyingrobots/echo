@@ -29,6 +29,11 @@ cat >"$tmp" <<'EOF'
 {"record_type":"run","mode":"full","elapsed_seconds":2.5,"exit_status":0}
 {"record_type":"run","mode":"full","elapsed_seconds":99.0,"exit_status":1}
 {"record_type":"run","mode":"fast","elapsed_seconds":1.0,"exit_status":0}
+{"record_type":"run","mode":"pre-push","elapsed_seconds":3.0,"exit_status":0}
+{"record_type":"run","mode":"pr","elapsed_seconds":4.0,"exit_status":0}
+{"record_type":"run","mode":"ultra-fast","elapsed_seconds":0.5,"exit_status":0}
+{"record_type":"run","mode":"experimental-a","elapsed_seconds":5.0,"exit_status":0}
+{"record_type":"run","mode":"experimental-b","elapsed_seconds":6.0,"exit_status":0}
 EOF
 
 echo "=== plot-prepush timing ==="
@@ -47,6 +52,13 @@ if printf '%s\n' "$output" | grep -q 'fast'; then
   pass "plotter renders additional current modes from the same file"
 else
   fail "plotter should render additional current modes"
+  printf '%s\n' "$output"
+fi
+
+if printf '%s\n' "$output" | grep -q 'experimental-b'; then
+  pass "plotter renders modes beyond the legacy five-series palette"
+else
+  fail "plotter should render sixth-and-beyond modes deterministically"
   printf '%s\n' "$output"
 fi
 

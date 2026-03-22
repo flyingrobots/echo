@@ -39,6 +39,17 @@ const median = arr => {
 
 let series = [];
 let legends = [];
+let plotColors = [];
+const glyphPalette = ['🔴', '🟢', '🔵', '🟡', '🟣', '🟤', '⚫', '⚪'];
+const colorPalette = [
+  asciichart.red,
+  asciichart.green,
+  asciichart.blue,
+  asciichart.yellow,
+  asciichart.magenta,
+  asciichart.cyan,
+  asciichart.lightgray,
+];
 const runRecords = data.filter(d => d.record_type === 'run' && typeof d.elapsed_seconds === 'number');
 const legacyRecords = data.filter(d => Object.prototype.hasOwnProperty.call(d, 'variant'));
 
@@ -52,10 +63,12 @@ if (runRecords.length === 0 && legacyRecords.length > 0) {
   if (sequential.length > 0) {
     series.push(sequential);
     legends.push({ label: 'sequential', color: '🔴', stats: sequential });
+    plotColors.push(colorPalette[0]);
   }
   if (parallel.length > 0) {
     series.push(parallel);
     legends.push({ label: 'parallel', color: '🟢', stats: parallel });
+    plotColors.push(colorPalette[1]);
   }
 }
 
@@ -66,18 +79,20 @@ if (runRecords.length > 0) {
     ...preferredModes.filter(mode => seenModes.includes(mode)),
     ...seenModes.filter(mode => !preferredModes.includes(mode)).sort(),
   ];
-  for (const mode of modeNames) {
+  for (const [index, mode] of modeNames.entries()) {
     const records = runRecords.filter(d => d.mode === mode);
     const successful = records.filter(d => d.exit_status === 0);
     if (successful.length === 0) {
       continue;
     }
+    const paletteIndex = index % colorPalette.length;
     series.push(successful.map(d => d.elapsed_seconds));
     legends.push({
       label: mode,
-      color: ['🔴', '🟢', '🔵', '🟡', '🟣'][legends.length] || '⚪',
+      color: glyphPalette[index % glyphPalette.length],
       stats: successful.map(d => d.elapsed_seconds),
     });
+    plotColors.push(colorPalette[paletteIndex]);
   }
 }
 
@@ -96,7 +111,7 @@ series = series.map(values => {
 console.log('\n📊 Verify-local Timing Comparison (seconds)\n');
 console.log(asciichart.plot(series, {
   height: 15,
-  colors: [asciichart.red, asciichart.green, asciichart.blue, asciichart.yellow, asciichart.magenta],
+  colors: plotColors,
   format: (x) => x.toFixed(1).padStart(6),
 }));
 

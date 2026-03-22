@@ -51,6 +51,10 @@ The validator does two narrow jobs:
 This keeps Phase 8 moving without pretending Wesley is already stable enough to
 own the runtime freeze loop.
 
+The current Echo-side mismatch inventory lives in:
+
+- [Phase 8 Runtime Schema Conformance Audit](../../docs/plans/phase-8-runtime-schema-conformance.md)
+
 ## Planned Output Contract
 
 Generation is explicitly deferred, but the intended artifact boundary is:

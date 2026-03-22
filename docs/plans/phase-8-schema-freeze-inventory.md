@@ -6,6 +6,7 @@
 - **Status:** Prep inventory for `feat/adr-0008-0009-phase-8`
 - **Date:** 2026-03-22
 - **Primary Plan:** [Implementation Plan: ADR-0008 and ADR-0009](adr-0008-and-0009.md)
+- **Conformance Audit:** [Phase 8 Runtime Schema Conformance Audit](phase-8-runtime-schema-conformance.md)
 
 ## Purpose
 

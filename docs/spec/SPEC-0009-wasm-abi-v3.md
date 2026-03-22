@@ -23,6 +23,10 @@ logical monotone integers:
 - `GlobalTick` is runtime cycle correlation metadata.
 - `RunId` is a control-plane generation token.
 
+On the wire, `WorldlineTick`, `GlobalTick`, and `RunId` are canonical-CBOR
+unsigned integers using the smallest legal width for their value. `null`
+represents `Option<...>::None`.
+
 `WorldlineTick(0)` is intentionally overloaded by coordinate type:
 
 - In historical selectors such as `ObservationAt::Tick { worldline_tick: 0 }`,
@@ -89,17 +93,66 @@ All external writes enter Echo through EINT envelopes.
 - Privileged scheduler/control intents use reserved op id `u32::MAX`
   (`CONTROL_INTENT_V1_OP_ID`).
 
-Control intents decode as canonical-CBOR `ControlIntentV1`:
+The EINT v1 byte layout is:
+
+```text
+"EINT" (4 bytes)
++ op_id (u32 little-endian)
++ vars_len (u32 little-endian)
++ vars (exactly vars_len bytes)
+```
+
+For privileged control intents, `op_id` is always `0xffffffff` and `vars` are
+canonical-CBOR bytes that decode as `ControlIntentV1`.
+
+Canonical payload shapes:
 
 - `Start { mode: UntilIdle { cycle_limit: Option<u32> } }`
+
+    ```cbor
+    {
+      "kind": "start",
+      "mode": {
+        "kind": "until_idle",
+        "cycle_limit": <u32 or null>
+      }
+    }
+    ```
+
 - `Stop`
+
+    ```cbor
+    { "kind": "stop" }
+    ```
+
 - `SetHeadEligibility { head, eligibility }`
+
+    ```cbor
+    {
+      "kind": "set_head_eligibility",
+      "head": {
+        "worldline_id": bytes(32),
+        "head_id": bytes(32)
+      },
+      "eligibility": "dormant" | "admitted"
+    }
+    ```
 
 Notes:
 
 - `cycle_limit`, when present, must be non-zero.
 - The current engine-backed implementation supports `UntilIdle` only.
 - No wall-clock scheduler mode exists in ABI v3.
+
+Concrete `Start { mode: UntilIdle { cycle_limit: Some(1) } }` example:
+
+```text
+ControlIntentV1 payload (canonical CBOR hex):
+a2646b696e64657374617274646d6f6465a2646b696e646a756e74696c5f69646c656b6379636c655f6c696d697401
+
+Packed EINT envelope (hex):
+45494e54ffffffff2f000000a2646b696e64657374617274646d6f6465a2646b696e646a756e74696c5f69646c656b6379636c655f6c696d697401
+```
 
 ## Wire Envelope
 
@@ -119,6 +172,37 @@ All `Uint8Array` returns use a CBOR envelope with an `ok` discriminator:
 
 JS callers check `ok` before decoding the rest. The CBOR encoding follows the
 canonical rules in `docs/js-cbor-mapping.md`.
+
+### Typed Field Encoding
+
+The scheduler-facing enums use serde's declared shapes directly:
+
+- `SchedulerState`, `WorkState`, `RunCompletion`, `HeadEligibility`, and
+  `HeadDisposition` serialize as snake_case text strings.
+- `SchedulerMode::UntilIdle { cycle_limit }` serializes as
+  `{ "kind": "until_idle", "cycle_limit": <u32 or null> }`.
+- `HeadKey.worldline_id` and `HeadKey.head_id` are raw `bytes(32)` values.
+
+Concrete `scheduler_status()` example:
+
+```cbor
+{
+  "state": "inactive",
+  "active_mode": null,
+  "work_state": "quiescent",
+  "run_id": 7,
+  "latest_cycle_global_tick": 9,
+  "latest_commit_global_tick": 8,
+  "last_quiescent_global_tick": 9,
+  "last_run_completion": "quiesced"
+}
+```
+
+Canonical CBOR hex for that payload:
+
+```text
+a865737461746568696e6163746976656672756e5f6964076a776f726b5f737461746569717569657363656e746b6163746976655f6d6f6465f6736c6173745f72756e5f636f6d706c6574696f6e68717569657363656478186c61746573745f6379636c655f676c6f62616c5f7469636b0978196c61746573745f636f6d6d69745f676c6f62616c5f7469636b08781a6c6173745f717569657363656e745f676c6f62616c5f7469636b09
+```
 
 ## Response Types
 

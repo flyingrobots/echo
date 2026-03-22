@@ -364,6 +364,15 @@ pub struct Rewrite {
 mod tests {
     use super::*;
 
+    fn hex_encode(bytes: &[u8]) -> String {
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            use core::fmt::Write as _;
+            write!(&mut out, "{byte:02x}").unwrap();
+        }
+        out
+    }
+
     #[test]
     fn test_pack_unpack_round_trip() {
         let op_id = 12345;
@@ -445,6 +454,46 @@ mod tests {
                     cycle_limit: Some(1),
                 },
             }
+        );
+    }
+
+    #[test]
+    fn test_control_intent_wire_encoding_is_canonical() {
+        use crate::kernel_port::{ControlIntentV1, SchedulerMode};
+
+        let packed = pack_control_intent_v1(&ControlIntentV1::Start {
+            mode: SchedulerMode::UntilIdle {
+                cycle_limit: Some(1),
+            },
+        })
+        .unwrap();
+
+        assert_eq!(
+            hex_encode(&packed),
+            "45494e54ffffffff2f000000a2646b696e64657374617274646d6f6465a2646b696e646a756e74696c5f69646c656b6379636c655f6c696d697401"
+        );
+    }
+
+    #[test]
+    fn test_scheduler_status_wire_encoding_is_canonical() {
+        use crate::kernel_port::{
+            GlobalTick, RunCompletion, RunId, SchedulerState, SchedulerStatus, WorkState,
+        };
+
+        let status = SchedulerStatus {
+            state: SchedulerState::Inactive,
+            active_mode: None,
+            work_state: WorkState::Quiescent,
+            run_id: Some(RunId(7)),
+            latest_cycle_global_tick: Some(GlobalTick(9)),
+            latest_commit_global_tick: Some(GlobalTick(8)),
+            last_quiescent_global_tick: Some(GlobalTick(9)),
+            last_run_completion: Some(RunCompletion::Quiesced),
+        };
+
+        assert_eq!(
+            hex_encode(&encode_cbor(&status).unwrap()),
+            "a865737461746568696e6163746976656672756e5f6964076a776f726b5f737461746569717569657363656e746b6163746976655f6d6f6465f6736c6173745f72756e5f636f6d706c6574696f6e68717569657363656478186c61746573745f6379636c655f676c6f62616c5f7469636b0978196c61746573745f636f6d6d69745f676c6f62616c5f7469636b08781a6c6173745f717569657363656e745f676c6f62616c5f7469636b09"
         );
     }
 

@@ -60,11 +60,24 @@ logical_counter!(
 
 logical_counter!(
     /// Runtime-cycle correlation stamp in host-visible metadata.
+    ///
+    /// `GlobalTick` is monotonic for the lifetime of one initialized kernel and
+    /// spans all worldlines managed by that kernel. It is not a per-worldline
+    /// append id and it resets when the host creates a fresh kernel via
+    /// `init()`. When exposed through [`SchedulerStatus`] as an `Option`, `None`
+    /// means the referenced event has not happened yet in this kernel lifetime
+    /// (for example, no cycle has completed or no commit has occurred).
     GlobalTick
 );
 
 logical_counter!(
     /// Control-plane run generation token.
+    ///
+    /// A fresh `RunId` is minted for every accepted `Start` request. It stays
+    /// stable across all host observations and `dispatch_intent(...)` calls
+    /// during that run, then remains visible in [`SchedulerStatus::run_id`]
+    /// after completion until another `Start` replaces it or the kernel is
+    /// re-initialized.
     RunId
 );
 
@@ -234,6 +247,26 @@ pub enum HeadDisposition {
 }
 
 /// Current scheduler metadata.
+///
+/// ABI invariants:
+///
+/// - `run_id` is `Some(...)` once a run starts and remains `Some(...)` after
+///   that run completes until a later `Start` replaces it or `init()` resets
+///   the kernel.
+/// - `active_mode` is `Some(...)` only while the scheduler is active
+///   (`state = running` or `state = stopping`). The current engine-backed
+///   implementation runs `Start` synchronously, so hosts normally observe
+///   `active_mode = None` together with the completed
+///   `last_run_completion`.
+/// - `latest_commit_global_tick <= latest_cycle_global_tick` whenever both are
+///   present.
+/// - `last_quiescent_global_tick` is monotonic for the lifetime of one
+///   initialized kernel. It records the most recent transition into
+///   quiescence and does not regress when work later becomes runnable again.
+/// - `latest_cycle_global_tick = None` means the kernel has not completed a
+///   runtime cycle yet. `last_run_completion = None` means no run has
+///   completed since initialization or the most recent accepted `Start` has
+///   not finished yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchedulerStatus {
     /// Current scheduler lifecycle state.
@@ -257,9 +290,10 @@ pub struct SchedulerStatus {
 /// Stable head key used by control intents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeadKey {
-    /// Worldline that owns the head.
+    /// Worldline that owns the head as a canonical 32-byte worldline-id hash.
     pub worldline_id: Vec<u8>,
-    /// Stable head identifier within that worldline.
+    /// Stable head identifier within that worldline as a canonical 32-byte
+    /// domain-separated head-id hash payload.
     pub head_id: Vec<u8>,
 }
 

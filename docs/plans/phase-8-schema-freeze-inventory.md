@@ -32,24 +32,29 @@ This inventory records:
    subcommand yet.
 3. The stable ADR-0008 runtime surface still lives in hand-written Rust types in
    `warp-core`, with host-facing adapter DTOs in `echo-wasm-abi`.
-4. The living plan's Phase 8 freeze list contains one stale name:
-   `SuperTickResult` does not exist as a stable public type in the current
-   implementation. The control-plane surface now exposes
-   `SchedulerStatus` plus `RunCompletion`.
+4. The living plan's old `SuperTickResult` shorthand should be retired.
+   The actual stable scheduler result surface is:
+   `SchedulerStatus`, `SchedulerState`, `WorkState`, `RunCompletion`,
+   `HeadEligibility`, and `HeadDisposition`.
 
 ## Freeze Set Inventory
 
-| Candidate         | Canonical definition today           | Mirror / adapter surface                                                                                       | Phase 8 note                                                                                                                                                      |
-| ----------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HeadId`          | `crates/warp-core/src/head.rs`       | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Opaque hash-backed id; schema must preserve byte-level opacity, not invent string semantics                                                                       |
-| `WriterHeadKey`   | `crates/warp-core/src/head.rs`       | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Stable composite runtime key; good freeze candidate                                                                                                               |
-| `PlaybackMode`    | `crates/warp-core/src/playback.rs`   | TTD-generated `PlaybackMode` in `crates/ttd-protocol-rs/lib.rs` is related but not the runtime source of truth | Freeze the runtime enum first; do not treat the TTD schema as authoritative for ADR-0008                                                                          |
-| `WorldlineTick`   | `crates/warp-core/src/clock.rs`      | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema must preserve logical-counter semantics                                                                                          |
-| `GlobalTick`      | `crates/warp-core/src/clock.rs`      | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema/docs must keep correlation-not-time semantics explicit                                                                           |
-| `IntentKind`      | `crates/warp-core/src/head_inbox.rs` | No Wesley/runtime-generated equivalent today                                                                   | Stable opaque hash-backed id; schema must not collapse it to an arbitrary string label                                                                            |
-| `InboxPolicy`     | `crates/warp-core/src/head_inbox.rs` | No Wesley/runtime-generated equivalent today                                                                   | Good freeze candidate once variants are confirmed complete for ADR-0008                                                                                           |
-| `IngressTarget`   | `crates/warp-core/src/head_inbox.rs` | ABI/control-intent routing mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                                | Good freeze candidate; schema must preserve `DefaultWriter` / `InboxAddress` / `ExactHead` split                                                                  |
-| `SuperTickResult` | n/a in current code                  | n/a                                                                                                            | Living-plan name is stale; Phase 8 must decide whether to freeze `SchedulerStatus`, `RunCompletion`, or another explicitly named scheduler result surface instead |
+| Candidate         | Canonical definition today                | Mirror / adapter surface                                                                                       | Phase 8 note                                                                                                               |
+| ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `HeadId`          | `crates/warp-core/src/head.rs`            | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Opaque hash-backed id; schema must preserve byte-level opacity, not invent string semantics                                |
+| `WriterHeadKey`   | `crates/warp-core/src/head.rs`            | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Stable composite runtime key; good freeze candidate                                                                        |
+| `PlaybackMode`    | `crates/warp-core/src/playback.rs`        | TTD-generated `PlaybackMode` in `crates/ttd-protocol-rs/lib.rs` is related but not the runtime source of truth | Freeze the runtime enum first; do not treat the TTD schema as authoritative for ADR-0008                                   |
+| `WorldlineTick`   | `crates/warp-core/src/clock.rs`           | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema must preserve logical-counter semantics                                                   |
+| `GlobalTick`      | `crates/warp-core/src/clock.rs`           | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema/docs must keep correlation-not-time semantics explicit                                    |
+| `IntentKind`      | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Stable opaque hash-backed id; schema must not collapse it to an arbitrary string label                                     |
+| `InboxPolicy`     | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Good freeze candidate once variants are confirmed complete for ADR-0008                                                    |
+| `IngressTarget`   | `crates/warp-core/src/head_inbox.rs`      | ABI/control-intent routing mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                                | Good freeze candidate; schema must preserve `DefaultWriter` / `InboxAddress` / `ExactHead` split                           |
+| `SchedulerStatus` | `crates/echo-wasm-abi/src/kernel_port.rs` | Engine/runtime mapping in `crates/warp-wasm/src/warp_kernel.rs`                                                | This is the real public scheduler result object; Phase 8 should freeze it explicitly instead of reviving `SuperTickResult` |
+| `SchedulerState`  | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable scheduler lifecycle enum                                                                                            |
+| `WorkState`       | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable scheduler boundary/work-availability enum                                                                           |
+| `RunCompletion`   | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable bounded-run completion enum                                                                                         |
+| `HeadEligibility` | `crates/warp-core/src/head.rs`            | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Runtime/ABI pair must stay structurally aligned                                                                            |
+| `HeadDisposition` | `crates/echo-wasm-abi/src/kernel_port.rs` | runtime truth derived in `crates/warp-wasm/src/warp_kernel.rs`                                                 | ABI-facing scheduler truth surface; freeze alongside `SchedulerStatus`                                                     |
 
 ## Current Boundary Shape
 
@@ -60,6 +65,60 @@ This inventory records:
   browser/controller protocol needs.
 
 That is useful, but it is **not** the Phase 8 runtime freeze target.
+
+## Proposed Runtime Schema Artifact Set
+
+Phase 8 should generate from a **runtime-focused** schema set, not from the TTD
+browser/controller schema. The first honest artifact sketch is:
+
+### Artifact A: Runtime identifiers and logical counters
+
+- `HeadId`
+- `WriterHeadKey`
+- `IntentKind`
+- `WorldlineTick`
+- `GlobalTick`
+
+These are the low-level, semantically strict building blocks. They need schema
+rules for opaque ids and logical counters before any larger DTOs are generated.
+
+### Artifact B: Runtime routing and admission
+
+- `InboxAddress`
+- `InboxPolicy`
+- `IngressTarget`
+- `HeadEligibility`
+
+This artifact covers deterministic ingress routing and declarative admission,
+without dragging in transport/conflict surface area.
+
+### Artifact C: Runtime playback control
+
+- `PlaybackMode`
+- `SeekThen`
+
+This keeps playback semantics explicit and separate from scheduler lifecycle.
+
+### Artifact D: Runtime scheduler result surface
+
+- `SchedulerStatus`
+- `SchedulerState`
+- `WorkState`
+- `RunCompletion`
+- `HeadDisposition`
+
+This replaces the stale `SuperTickResult` shorthand with the actual stable
+control-plane surface exposed by ABI v3.
+
+### Deliberately out of this schema set
+
+- observation DTOs such as `HeadInfo`, `HeadObservation`, and snapshot response
+  envelopes
+- transport/conflict types from ADR-0009
+- TTD/browser/controller protocol events and models
+
+Those remain adapter- or product-level concerns until the runtime freeze set is
+pinned.
 
 ### What remains hand-written today
 
@@ -90,10 +149,10 @@ generated artifacts can be trusted.
 
 ### 3. Stale plan naming around scheduler results
 
-`SuperTickResult` survived in the plan, but the implemented ABI v3 control plane
-is centered on `SchedulerStatus`, `SchedulerState`, `WorkState`, and
-`RunCompletion`. Phase 8 needs to freeze the **actual** stable scheduler result
-surface rather than back-porting a stale name for cosmetic consistency.
+The inventory resolves this now: Phase 8 should freeze `SchedulerStatus`,
+`SchedulerState`, `WorkState`, `RunCompletion`, `HeadEligibility`, and
+`HeadDisposition` rather than back-porting a stale `SuperTickResult` name for
+cosmetic consistency.
 
 ### 4. Opaque id / logical counter mapping rules are not yet written down as schema rules
 
@@ -110,9 +169,10 @@ for:
 ### Slice A: Freeze inventory and naming reconciliation
 
 - ratify the freeze set
-- replace stale `SuperTickResult` wording in the living plan with the actual
-  stable scheduler result surface
+- replace stale `SuperTickResult` wording in the living plan with the explicit
+  scheduler result surface
 - record which surfaces remain adapter-only
+- pin the runtime schema artifact split before adding generation
 
 ### Slice B: Runtime schema source of truth
 
@@ -141,6 +201,7 @@ for:
 This prep slice is complete when:
 
 - the freeze candidates and their owners are written down,
-- the stale `SuperTickResult` naming drift is called out explicitly,
+- the stale `SuperTickResult` naming drift is resolved explicitly,
+- the first runtime schema artifact set is sketched concretely,
 - and the next implementation slice can start from a concrete schema authoring
   target instead of inference from Rust code.

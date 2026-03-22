@@ -21,12 +21,23 @@
 - **Fixed** final PR review follow-ups so browser-only large-tick DTOs no
   longer hand-edit generated protocol artifacts, forked provenance retains
   checkpoint state at the copied tip, `verify-local` records failing lane
-  timings even when helpers `exit`, and the session gateway rejects unexpected
-  pre-installed Rustls crypto providers.
+  timings even when helpers `exit`, and the session gateway tolerates an
+  already-installed Rustls crypto provider.
 - **Fixed** final replay/tooling follow-ups so checkpoints are validated before
   storage, suffix replay rebuilds metadata without a second provenance scan,
   hook timing reaps stale CSV locks, `pr-status` propagates paginated parse
   failures, and mixed timing logs prefer current run records over legacy rows.
+
+### feat(warp-core): complete Phase 7 full-state replay
+
+- **Changed** playback, replay, snapshot, and fork materialization now rebuild
+  full `WorldlineState` instead of a warp-local store-only approximation.
+- **Added** checkpoint-backed playback and provenance replay so historical
+  materialization can restore from authoritative full-state checkpoints before
+  replaying the remaining suffix.
+- **Changed** replay, observation, and ABI metadata now carry typed
+  `WorldlineTick` / `GlobalTick` coordinates consistently across the public
+  Phase 7 boundary.
 
 ### feat(tooling): harden the post-Phase-5 dev loop
 

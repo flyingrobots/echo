@@ -35,7 +35,7 @@ This inventory records:
 3. The shared Phase 8 owner crate now exists as
    `crates/echo-runtime-schema`, and it already owns the frozen logical
    counters plus the core `HeadId`/`WorldlineId`/`WriterHeadKey` types. The
-   rest of the freeze set still lives in hand-written Rust in `warp-core`,
+   rest of the freeze set intentionally stays hand-written in `warp-core`,
    with host-facing adapter DTOs in `echo-wasm-abi`.
 4. The living plan's old `SuperTickResult` shorthand should be retired.
    The actual stable scheduler result surface is:
@@ -56,8 +56,8 @@ This inventory records:
 | `SeekThen`        | `crates/warp-core/src/playback.rs`        | No Wesley/runtime-generated equivalent today                                                                   | Supporting playback-control enum required to express `PlaybackMode::Seek` honestly                                         |
 | `WorldlineTick`   | `crates/echo-runtime-schema/src/lib.rs`   | re-exported by `warp-core` and `echo-wasm-abi`                                                                 | Shared logical-counter owner now exists; schema must preserve logical-counter semantics                                    |
 | `GlobalTick`      | `crates/echo-runtime-schema/src/lib.rs`   | re-exported by `warp-core` and `echo-wasm-abi`                                                                 | Shared logical-counter owner now exists; schema/docs must keep correlation-not-time semantics explicit                     |
-| `IntentKind`      | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Stable opaque hash-backed id; schema must not collapse it to an arbitrary string label                                     |
-| `InboxAddress`    | `crates/warp-core/src/head_inbox.rs`      | ABI/control routing byte/string mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                           | Supporting routing alias type needed to freeze `IngressTarget` honestly                                                    |
+| `IntentKind`      | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Stable opaque hash-backed id; intentionally runtime-owned until a real generated consumer exists                           |
+| `InboxAddress`    | `crates/warp-core/src/head_inbox.rs`      | ABI/control routing byte/string mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                           | Supporting routing alias type needed to freeze `IngressTarget` honestly; intentionally runtime-owned for Phase 8           |
 | `InboxPolicy`     | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Good freeze candidate once variants are confirmed complete for ADR-0008                                                    |
 | `IngressTarget`   | `crates/warp-core/src/head_inbox.rs`      | ABI/control-intent routing mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                                | Good freeze candidate; schema must preserve `DefaultWriter` / `InboxAddress` / `ExactHead` split                           |
 | `SchedulerMode`   | `crates/echo-wasm-abi/src/kernel_port.rs` | `ControlIntentV1::Start` mapping in `crates/warp-wasm/src/warp_kernel.rs`                                      | Supporting scheduler-control type; `SchedulerStatus.active_mode` cannot be frozen honestly without it                      |
@@ -195,6 +195,8 @@ Phase 8 now has a concrete ownership decision for the generated Rust side:
   live in `crates/echo-runtime-schema`,
 - `warp-core` already consumes or re-exports those shared types for the subset
   landed in this slice,
+- `IntentKind` and `InboxAddress` intentionally remain in `warp-core` because
+  they are frozen runtime types but not yet worth centralizing,
 - and `echo-wasm-abi` should remain adapter-owned for host DTOs and convert to
   and from the shared types rather than own a duplicate generated copy.
 
@@ -217,7 +219,8 @@ for:
 
 This is now captured in the
 [Phase 8 Runtime Schema Mapping Contract](phase-8-runtime-schema-mapping-contract.md).
-The remaining work is implementation, not policy discovery.
+The remaining Phase 8 work is closeout and explicit deferral, not more
+ownership discovery.
 
 ## Recommended Phase 8 Slice Order
 

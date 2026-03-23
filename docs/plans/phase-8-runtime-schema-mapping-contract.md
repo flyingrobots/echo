@@ -27,12 +27,16 @@ types is:
 
 - `crates/echo-runtime-schema`
 
-That crate now exists as the single Echo-local owner for:
+That crate now exists as the single Echo-local owner for the subset that is
+already clearly shared across runtime and adapter layers:
 
 - opaque runtime identifiers,
 - logical counters,
-- structural runtime key types,
-- and other schema-frozen runtime shapes that are not inherently ABI-only.
+- structural runtime key types.
+
+Not every frozen schema type automatically belongs there. Runtime-local
+behavioral types may stay hand-written in their owning crate when generation
+does not buy anything yet.
 
 The ownership split after generation lands should be:
 
@@ -54,7 +58,8 @@ The default generated form is:
 - opaque-id newtype for identifiers,
 - logical-counter newtype for counters,
 - structured Rust `struct` for composite keys,
-- string newtype for named aliases such as `InboxAddress`
+- string newtype for named aliases such as `InboxAddress` only when a real
+  shared/generated consumer exists
 
 Raw bytes remain acceptable only for fields that are semantically binary
 payloads or content hashes rather than typed runtime identifiers.
@@ -65,11 +70,11 @@ payloads or content hashes rather than typed runtime identifiers.
 | --------------- | --------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `HeadId`        | `echo-runtime-schema` | `#[repr(transparent)] struct HeadId([u8; 32]);`                       | Use typed wrapper DTOs for semantic head identifiers                   | This is an opaque runtime identifier, not a generic byte vector.                |
 | `WorldlineId`   | `echo-runtime-schema` | `#[repr(transparent)] struct WorldlineId([u8; 32]);`                  | Use typed wrapper DTOs for semantic worldline identifiers              | Same rule as `HeadId`.                                                          |
-| `IntentKind`    | `echo-runtime-schema` | `#[repr(transparent)] struct IntentKind([u8; 32]);`                   | Use typed wrapper DTOs where the ABI exposes intent kinds semantically | Domain-separated opaque id, not a label string.                                 |
+| `IntentKind`    | `warp-core` (Phase 8) | hand-written opaque-id newtype                                        | Use typed wrapper DTOs where the ABI exposes intent kinds semantically | Keep runtime-owned until a real generated consumer requires a shared home.      |
 | `WorldlineTick` | `echo-runtime-schema` | `#[repr(transparent)] struct WorldlineTick(u64);`                     | Use typed wrapper DTOs                                                 | Logical coordinate, not wall-clock time and not a bare `u64` in generated code. |
 | `GlobalTick`    | `echo-runtime-schema` | `#[repr(transparent)] struct GlobalTick(u64);`                        | Use typed wrapper DTOs                                                 | Logical cycle stamp, not wall-clock time.                                       |
 | `RunId`         | `echo-runtime-schema` | `#[repr(transparent)] struct RunId(u64);`                             | Use typed wrapper DTOs                                                 | Control-plane generation token.                                                 |
-| `InboxAddress`  | `echo-runtime-schema` | `#[repr(transparent)] struct InboxAddress(String);`                   | Use typed wrapper DTOs when the field is semantically an inbox alias   | This is an application-facing named alias, not an internal head id.             |
+| `InboxAddress`  | `warp-core` (Phase 8) | hand-written string newtype                                           | Use typed wrapper DTOs when the field is semantically an inbox alias   | Keep runtime-owned; centralizing a plain routing alias buys nothing today.      |
 | `WriterHeadKey` | `echo-runtime-schema` | `struct WriterHeadKey { worldline_id: WorldlineId, head_id: HeadId }` | Use typed wrapper DTOs                                                 | Structural runtime key; its fields should stay typed.                           |
 
 ## ABI Raw-Byte Exception Rule
@@ -98,6 +103,8 @@ Disallowed raw-byte default:
 - `warp-core` already consumes or re-exports the shared logical counters and
   core opaque ids/key types introduced in `echo-runtime-schema`.
 - Its role is semantic consumer plus runtime behavior owner.
+- `IntentKind` and `InboxAddress` remain intentionally hand-written here for
+  Phase 8 because they do not yet justify a shared generated home.
 
 ### `echo-wasm-abi`
 
@@ -126,8 +133,8 @@ Disallowed raw-byte default:
 With ownership and scalar-mapping rules pinned and the shared crate now
 scaffolded, the next honest implementation slice is:
 
-1. move the remaining shared semantic freeze-set types such as `IntentKind`
-   and `InboxAddress` into `echo-runtime-schema` if they still belong there,
+1. treat the shared-owner split as intentionally complete for Phase 8 unless a
+   real generated consumer appears for `IntentKind`,
 2. leave hashes and payload blobs as raw bytes,
 3. keep Wesley/codegen plumbing deferred until the upstream schema/compiler
    contract stabilizes.

@@ -44,9 +44,9 @@ Phase 8 should not wire Wesley until these answers are explicit.
     - remaining ABI-edge raw-byte DTOs outside the newly typed
       `WorldlineId`/`HeadId`/`WriterHeadKey` path, where the frozen schema still
       wants semantic wrappers
-    - the remaining freeze-set types that still live only in `warp-core`
-      instead of the shared owner crate, especially `IntentKind` and
-      `InboxAddress`
+    - Wesley/codegen instability upstream, which is why this branch is freezing
+      and validating the runtime schema locally instead of wiring generation
+      plumbing prematurely
 4. GraphQL-specific input wrappers are expected. They should be treated as
    schema transport encodings, not evidence that the core runtime surface is
    wrong.
@@ -57,7 +57,7 @@ Phase 8 should not wire Wesley until these answers are explicit.
 | -------------------- | --------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `HeadId`             | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Opaque hash-backed newtype matches the scalar intent. `warp-core` now consumes the shared owner and the ABI keeps a byte DTO. |
 | `WorldlineId`        | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Opaque worldline identifier matches the scalar intent and now has a shared owner.                                             |
-| `IntentKind`         | `crates/warp-core/src/head_inbox.rs`    | Aligned             | Domain-separated hash-backed newtype already matches the frozen scalar semantics.                                             |
+| `IntentKind`         | `crates/warp-core/src/head_inbox.rs`    | Aligned             | Domain-separated hash-backed newtype matches the frozen scalar semantics and remains intentionally runtime-owned for Phase 8. |
 | `WorldlineTick`      | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Shared logical-counter owner now exists and both `warp-core` and `echo-wasm-abi` consume it.                                  |
 | `GlobalTick`         | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Same as `WorldlineTick`: shared owner exists, semantics stay intact.                                                          |
 | `RunId`              | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Shared owner exists and the ABI re-exports the same control-plane token type.                                                 |
@@ -66,14 +66,14 @@ Phase 8 should not wire Wesley until these answers are explicit.
 
 ### Artifact A blockers
 
-- **Remaining shared-owner gap:** `IntentKind` still lives only in `warp-core`,
-  so the freeze-set owner split is not fully complete for Artifact A.
+- None in the current Echo-local freeze. `IntentKind` remains intentionally
+  runtime-owned until a real generated consumer requires a shared home.
 
 ## Artifact B: Routing and Admission
 
 | Schema type                                | Canonical Rust owner today                                                                  | Status              | Notes                                                                                                                               |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `InboxAddress`                             | `crates/warp-core/src/head_inbox.rs`                                                        | Aligned             | Runtime newtype over `String` matches the scalar alias intent.                                                                      |
+| `InboxAddress`                             | `crates/warp-core/src/head_inbox.rs`                                                        | Aligned             | Runtime newtype over `String` matches the scalar alias intent and remains intentionally runtime-owned for Phase 8.                  |
 | `HeadEligibility`                          | `crates/warp-core/src/head.rs` with ABI mirror in `crates/echo-wasm-abi/src/kernel_port.rs` | Aligned             | The two-state model matches exactly across runtime and ABI.                                                                         |
 | `IngressTarget`                            | `crates/warp-core/src/head_inbox.rs`                                                        | Intentional wrapper | Core enum is correct. Schema unions plus `IngressTargetInput` are GraphQL carriers for the same three-way split.                    |
 | `IngressTargetInput` / `IngressTargetKind` | none; schema-only wrappers                                                                  | Intentional wrapper | Required because GraphQL does not have native input unions.                                                                         |
@@ -132,15 +132,15 @@ concepts. The current ABI still exposes some of them as raw `Vec<u8>` fields.
 That is workable for hand-written DTOs, but it is the wrong source-of-truth
 shape for generated runtime-schema types.
 
-### 2. Shared-owner expansion is not complete yet
+### 2. Shared-owner expansion is intentionally bounded
 
 Phase 8 has already moved the frozen logical counters and core opaque ids/key
 types into `crates/echo-runtime-schema`, and `warp-core`/`echo-wasm-abi` now
 consume that shared owner where their semantics match.
 
-The remaining question is whether other freeze-set semantic types such as
-`IntentKind` and `InboxAddress` should join that shared owner before generation
-plumbing lands.
+Not every frozen schema type should join that crate. `IntentKind` and
+`InboxAddress` remain hand-written in `warp-core` because they are runtime
+behavior types today, not clearly shared generated primitives.
 
 ### 3. GraphQL wrapper DTOs must stay wrapper DTOs
 
@@ -159,6 +159,6 @@ This matters for generation layout:
 
 The scalar and ownership rules are now pinned in the
 [Phase 8 Runtime Schema Mapping Contract](phase-8-runtime-schema-mapping-contract.md).
-The next honest implementation slice is the remaining shared-owner decision for
-`IntentKind` and `InboxAddress`, followed by explicit deferral of Wesley
-generation plumbing until the upstream contract stabilizes.
+The next honest implementation slice is the explicit Phase 8 closeout pass:
+lock the local freeze boundary, defer Wesley generation plumbing, and prepare
+the branch for merge without pretending upstream generator churn is resolved.

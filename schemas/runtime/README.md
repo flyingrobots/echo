@@ -78,6 +78,11 @@ generated copy of `WorldlineTick`, `GlobalTick`, or `RunId`, and it should keep
 opaque-id wrappers explicit where CBOR byte encoding differs from the runtime
 semantic type.
 
+Not every frozen schema type must move into `echo-runtime-schema`. Phase 8
+intentionally leaves runtime-local behavior types such as `IntentKind` and
+`InboxAddress` hand-written in `warp-core` until a real shared/generated
+consumer exists.
+
 ## Notes
 
 - These files are SDL **fragments**, not a standalone executable GraphQL API.

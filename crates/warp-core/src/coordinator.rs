@@ -569,7 +569,7 @@ mod tests {
     };
 
     fn wl(n: u8) -> WorldlineId {
-        WorldlineId([n; 32])
+        WorldlineId::from_bytes([n; 32])
     }
 
     fn wt(raw: u64) -> WorldlineTick {

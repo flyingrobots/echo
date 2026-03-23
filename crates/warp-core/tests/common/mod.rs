@@ -739,7 +739,7 @@ pub fn key_sub(scope: u8, rule: u32, subkey: u32) -> EmitKey {
 
 /// Creates a deterministic worldline ID for testing.
 pub fn test_worldline_id() -> WorldlineId {
-    WorldlineId([1u8; 32])
+    WorldlineId::from_bytes([1u8; 32])
 }
 
 /// Creates a deterministic cursor ID for testing.

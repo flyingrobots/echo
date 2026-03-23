@@ -457,7 +457,7 @@ mod tests {
     use crate::warp_state::WarpState;
 
     fn wl(n: u8) -> WorldlineId {
-        WorldlineId([n; 32])
+        WorldlineId::from_bytes([n; 32])
     }
 
     #[test]
@@ -669,7 +669,7 @@ mod tests {
         });
         state.tx_counter = 42;
         let head_key = WriterHeadKey {
-            worldline_id: WorldlineId([17u8; 32]),
+            worldline_id: WorldlineId::from_bytes([17u8; 32]),
             head_id: crate::head::make_head_id("checkpoint"),
         };
         state.record_committed_ingress(head_key, [[18u8; 32]]);
@@ -768,7 +768,7 @@ mod tests {
         });
         state.tx_counter = 11;
         let head_key = WriterHeadKey {
-            worldline_id: WorldlineId([12u8; 32]),
+            worldline_id: WorldlineId::from_bytes([12u8; 32]),
             head_id: crate::head::make_head_id("replay-base"),
         };
         state.record_committed_ingress(head_key, [[13u8; 32]]);

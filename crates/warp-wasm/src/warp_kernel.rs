@@ -130,7 +130,7 @@ impl WarpKernel {
             return Err(KernelInitError::NonFreshEngine);
         }
         let root = engine.root_key();
-        let default_worldline = WorldlineId(root.warp_id.0);
+        let default_worldline = WorldlineId::from_bytes(root.warp_id.0);
         let mut runtime = WorldlineRuntime::new();
         let default_state = WorldlineState::try_from(engine.state().clone())?;
         let mut provenance = ProvenanceService::new();
@@ -168,7 +168,7 @@ impl WarpKernel {
     }
 
     fn parse_worldline_id(worldline_id: &AbiWorldlineId) -> WorldlineId {
-        WorldlineId(*worldline_id.as_bytes())
+        WorldlineId::from_bytes(*worldline_id.as_bytes())
     }
 
     fn parse_head_id(head_id: &AbiHeadId) -> HeadId {
@@ -587,7 +587,7 @@ mod tests {
     }
 
     fn abi_worldline_id(worldline_id: WorldlineId) -> AbiWorldlineId {
-        AbiWorldlineId::from_bytes(worldline_id.0)
+        AbiWorldlineId::from_bytes(*worldline_id.as_bytes())
     }
 
     fn abi_head_id(head_id: HeadId) -> AbiHeadId {

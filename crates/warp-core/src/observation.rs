@@ -210,7 +210,7 @@ impl ResolvedObservationCoordinate {
     fn to_abi(&self) -> abi::ResolvedObservationCoordinate {
         abi::ResolvedObservationCoordinate {
             observation_version: self.observation_version,
-            worldline_id: abi::WorldlineId::from_bytes(self.worldline_id.0),
+            worldline_id: abi::WorldlineId::from_bytes(*self.worldline_id.as_bytes()),
             requested_at: self.requested_at.to_abi(),
             resolved_worldline_tick: abi::WorldlineTick(self.resolved_worldline_tick.as_u64()),
             commit_global_tick: self
@@ -659,7 +659,7 @@ mod tests {
     };
 
     fn wl(n: u8) -> WorldlineId {
-        WorldlineId([n; 32])
+        WorldlineId::from_bytes([n; 32])
     }
 
     fn wt(raw: u64) -> WorldlineTick {
@@ -681,7 +681,7 @@ mod tests {
         );
 
         let engine = EngineBuilder::new(store, root).workers(1).build();
-        let default_worldline = WorldlineId(engine.root_key().warp_id.0);
+        let default_worldline = WorldlineId::from_bytes(engine.root_key().warp_id.0);
         let mut runtime = WorldlineRuntime::new();
         let default_state = WorldlineState::try_from(engine.state().clone()).unwrap();
         let mut provenance = ProvenanceService::new();

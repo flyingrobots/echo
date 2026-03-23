@@ -208,7 +208,7 @@ fn gv003_fork_reproducibility() {
     ];
 
     let (mut provenance, _initial_store, _warp_id, worldline_id) = setup_worldline_with_ticks(10);
-    let forked_id = WorldlineId([2u8; 32]);
+    let forked_id = WorldlineId::from_bytes([2u8; 32]);
 
     provenance
         .fork(worldline_id, wt(5), forked_id)

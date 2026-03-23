@@ -780,7 +780,7 @@ impl TtdEngine {
             version: echo_session_proto::TTDR_VERSION,
             flags,
             schema_hash,
-            worldline_id: cursor.worldline_id.0,
+            worldline_id: *cursor.worldline_id.as_bytes(),
             tick: cursor.current_tick().as_u64(),
             commit_hash: expected.commit_hash,
             state_root: expected.state_root,
@@ -825,7 +825,7 @@ impl TtdEngine {
             .ok_or_else(|| JsError::new("cursor not found"))?;
 
         Ok(BrowserSnapshot {
-            worldline_id: bytes_to_hex(&cursor.worldline_id.0),
+            worldline_id: bytes_to_hex(cursor.worldline_id.as_bytes()),
             tick: cursor.current_tick().as_u64(),
         })
     }
@@ -854,7 +854,7 @@ impl TtdEngine {
 
         let source_wl_bytes = hex_to_bytes(&snap.worldline_id)
             .map_err(|e| JsError::new(&format!("invalid worldlineId: {e}")))?;
-        let source_wl = WorldlineId(source_wl_bytes);
+        let source_wl = WorldlineId::from_bytes(source_wl_bytes);
         let new_wl = parse_worldline_id(new_worldline_id)?;
 
         let tick = WorldlineTick::from_raw(snap.tick);
@@ -875,7 +875,7 @@ impl TtdEngine {
         }
 
         // Create cursor for the new worldline
-        self.create_cursor(&new_wl.0)
+        self.create_cursor(new_wl.as_bytes())
     }
 
     // ─── Compliance (Stubs) ──────────────────────────────────────────────────
@@ -988,7 +988,7 @@ fn parse_worldline_id_inner(bytes: &[u8]) -> Result<WorldlineId, ParseError> {
     let arr: [u8; 32] = bytes
         .try_into()
         .map_err(|_| ParseError("worldline_id must be 32 bytes"))?;
-    Ok(WorldlineId(arr))
+    Ok(WorldlineId::from_bytes(arr))
 }
 
 fn parse_warp_id_inner(bytes: &[u8]) -> Result<warp_core::WarpId, ParseError> {
@@ -1206,7 +1206,7 @@ mod tests {
     fn test_parse_worldline_id_inner_valid() {
         let wl = parse_worldline_id_inner(&[0u8; 32]);
         assert!(wl.is_ok());
-        assert_eq!(wl.unwrap().0, [0u8; 32]);
+        assert_eq!(*wl.unwrap().as_bytes(), [0u8; 32]);
     }
 
     #[test]
@@ -1374,7 +1374,7 @@ mod tests {
             cursor: CursorReceipt {
                 session_id: s1_id,
                 cursor_id: CursorId([0u8; 32]),
-                worldline_id: WorldlineId([0u8; 32]),
+                worldline_id: WorldlineId::from_bytes([0u8; 32]),
                 warp_id: WarpId([0u8; 32]),
                 worldline_tick: WorldlineTick::ZERO,
                 commit_global_tick: None,
@@ -1389,7 +1389,7 @@ mod tests {
             cursor: CursorReceipt {
                 session_id: s2_id,
                 cursor_id: CursorId([0u8; 32]),
-                worldline_id: WorldlineId([0u8; 32]),
+                worldline_id: WorldlineId::from_bytes([0u8; 32]),
                 warp_id: WarpId([0u8; 32]),
                 worldline_tick: WorldlineTick::ZERO,
                 commit_global_tick: None,
@@ -1501,10 +1501,10 @@ mod tests {
         };
 
         let mut engine = TtdEngine::new();
-        let wl_id = WorldlineId([1u8; 32]);
+        let wl_id = WorldlineId::from_bytes([1u8; 32]);
         let warp_id = WarpId([2u8; 32]);
         engine
-            .register_empty_worldline(&wl_id.0, &warp_id.0)
+            .register_empty_worldline(wl_id.as_bytes(), &warp_id.0)
             .unwrap();
 
         // Manually add a tick with outputs to provenance.
@@ -1564,7 +1564,7 @@ mod tests {
 
         engine.provenance.append_local_commit(entry).unwrap();
 
-        let cursor_id = engine.create_cursor(&wl_id.0).unwrap();
+        let cursor_id = engine.create_cursor(wl_id.as_bytes()).unwrap();
         // Advance cursor to tick 1 so we can commit (cannot commit at tick 0).
         let mut cursor = engine.cursors.remove(&cursor_id).unwrap();
         cursor

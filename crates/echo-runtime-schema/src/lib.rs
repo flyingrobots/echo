@@ -78,9 +78,15 @@ pub type RuntimeIdBytes = [u8; 32];
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
-pub struct WorldlineId(pub RuntimeIdBytes);
+pub struct WorldlineId(RuntimeIdBytes);
 
 impl WorldlineId {
+    /// Reconstructs a worldline id from its canonical 32-byte representation.
+    #[must_use]
+    pub const fn from_bytes(bytes: RuntimeIdBytes) -> Self {
+        Self(bytes)
+    }
+
     /// Returns the canonical byte representation of this id.
     #[must_use]
     pub const fn as_bytes(&self) -> &RuntimeIdBytes {
@@ -176,7 +182,7 @@ mod tests {
 
     #[test]
     fn opaque_ids_round_trip_bytes() {
-        let worldline = WorldlineId([3u8; 32]);
+        let worldline = WorldlineId::from_bytes([3u8; 32]);
         let head = HeadId::from_bytes([7u8; 32]);
         assert_eq!(*worldline.as_bytes(), [3u8; 32]);
         assert_eq!(*head.as_bytes(), [7u8; 32]);
@@ -185,7 +191,7 @@ mod tests {
     #[test]
     fn writer_head_key_preserves_typed_components() {
         let key = WriterHeadKey {
-            worldline_id: WorldlineId([1u8; 32]),
+            worldline_id: WorldlineId::from_bytes([1u8; 32]),
             head_id: HeadId::from_bytes([2u8; 32]),
         };
         assert_eq!(*key.worldline_id.as_bytes(), [1u8; 32]);

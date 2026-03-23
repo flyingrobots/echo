@@ -302,8 +302,8 @@ mod tests {
     #[test]
     fn worldline_id_is_transparent_wrapper() {
         let hash = [42u8; 32];
-        let id = WorldlineId(hash);
-        assert_eq!(id.0, hash);
+        let id = WorldlineId::from_bytes(hash);
+        assert_eq!(*id.as_bytes(), hash);
         assert_eq!(id.as_bytes(), &hash);
     }
 

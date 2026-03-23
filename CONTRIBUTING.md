@@ -101,6 +101,12 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
     - rustup toolchain install 1.90.0
     - rustup override set 1.90.0
 
+### Shared Workspace Settings
+
+- The repo tracks a minimal [.vscode/settings.json](/Users/james/git/echo/.vscode/settings.json) for project-safe tooling settings only.
+- Keep personal editor preferences such as theme, font family, and UI layout in your user-level VS Code settings, not the tracked workspace file.
+- The tracked Rust Analyzer target dir uses the repo-local ignored `target-ra/` path to avoid fighting the default Cargo build directory during background checks.
+
 ## Communication
 
 - Rely on GitHub discussions or issues for longer-form proposals.

@@ -77,10 +77,10 @@ Enabling both `footprint_enforce_release` and `unsafe_graph` is a compile error.
 
 ## echo-wasm-abi
 
-| Feature | Default | Description                                                                 |
-| ------- | ------- | --------------------------------------------------------------------------- |
-| `std`   | **yes** | Standard library support (enables `serde/std`, `ciborium/std`, `half/std`). |
-| `alloc` | no      | Alloc-only mode for `no_std` environments.                                  |
+| Feature | Default | Description                                                                                                |
+| ------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `std`   | **yes** | Standard library support (enables `serde/std`, `ciborium/std`, `half/std`, and `echo-runtime-schema/std`). |
+| `alloc` | no      | Alloc-only mode for `no_std` environments.                                                                 |
 
 ## echo-runtime-schema
 

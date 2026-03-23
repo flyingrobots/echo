@@ -1,5 +1,5 @@
 {
-    "rust-analyzer.cargo.extraEnv": {
-        "CARGO_TARGET_DIR": "/tmp/echo-rust-analyzer-target"
-    }
+  "rust-analyzer.cargo.extraEnv": {
+    "CARGO_TARGET_DIR": "target-ra"
+  }
 }

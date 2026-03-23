@@ -3,6 +3,7 @@
 //! Minimal deterministic codec helpers (length-prefixed, LE scalars).
 
 extern crate alloc;
+use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::str;
@@ -187,7 +188,7 @@ impl<'a> Reader<'a> {
     pub fn read_string(&mut self, max_len: usize) -> Result<String, CodecError> {
         let bytes = self.read_len_prefixed_bytes(max_len)?;
         str::from_utf8(bytes)
-            .map(std::string::ToString::to_string)
+            .map(ToOwned::to_owned)
             .map_err(|_| CodecError::InvalidUtf8)
     }
 }

@@ -707,9 +707,9 @@ run_docs_lint() {
     fi
   done
 
-  while IFS= read -r md_file; do
-    [[ -z "$md_file" ]] && continue
-    case "$md_file" in
+  while IFS= read -r changed_file; do
+    [[ -z "$changed_file" ]] && continue
+    case "$changed_file" in
       schemas/runtime/*.graphql|scripts/validate-runtime-schema-fragments.mjs|tests/hooks/test_runtime_schema_validation.sh)
         should_validate_runtime_schema=1
         ;;
@@ -730,6 +730,10 @@ run_docs_lint() {
   fi
 
   if [[ "$should_validate_runtime_schema" -eq 1 ]]; then
+    if ! command -v node >/dev/null 2>&1; then
+      echo "[verify-local] node not found; cannot run runtime schema validation" >&2
+      return 1
+    fi
     echo "[verify-local] runtime schema validation"
     node scripts/validate-runtime-schema-fragments.mjs
   fi

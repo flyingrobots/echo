@@ -27,7 +27,7 @@ Semantic rule: when `cycleLimit` is present, it must be positive.
 """
 type SchedulerModeUntilIdle {
     kind: SchedulerModeKind!
-    cycleLimit: Int
+    cycleLimit: PositiveInt
 }
 
 """
@@ -44,7 +44,7 @@ Validation rules:
 """
 input SchedulerModeInput {
     kind: SchedulerModeKind!
-    cycleLimit: Int
+    cycleLimit: PositiveInt
 }
 
 """

@@ -6,6 +6,7 @@ node_modules
 dist
 coverage
 target
+target-ra
 target-fmt
 target-clippy
 target-test

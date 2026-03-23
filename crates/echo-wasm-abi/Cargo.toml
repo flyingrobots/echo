@@ -18,7 +18,7 @@ ciborium = { version = "0.2", default-features = false }
 serde-value = { version = "0.7" }
 half = { version = "2.4", default-features = false, features = ["alloc"] }
 thiserror = { version = "2.0" }
-echo-runtime-schema = { workspace = true, features = ["serde"] }
+echo-runtime-schema = { workspace = true, default-features = false, features = ["serde"] }
 
 [features]
 default = ["std"]
@@ -26,6 +26,7 @@ std = [
     "serde/std",
     "ciborium/std",
     "half/std",
+    "echo-runtime-schema/std",
 ]
 alloc = []
 

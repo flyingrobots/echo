@@ -33,6 +33,12 @@ mkdir -p \
   "$tmpdir/docs/assets/dags" \
   "$tmpdir/.cache/echo/deps"
 
+cat >"$tmpdir/package.json" <<'EOF'
+{
+  "type": "module"
+}
+EOF
+
 cp scripts/generate-dependency-dags.js "$tmpdir/scripts/generate-dependency-dags.js"
 cp scripts/parse-tasks-dag.js "$tmpdir/scripts/parse-tasks-dag.js"
 cp scripts/dag-utils.js "$tmpdir/scripts/dag-utils.js"
@@ -89,7 +95,7 @@ if (
   cd "$tmpdir" &&
     node scripts/generate-dependency-dags.js >"$output_file" 2>&1
 ); then
-  if grep -q 'i1 -> i2 \[color="red"' "$tmpdir/docs/assets/dags/issue-deps.dot"; then
+  if grep -Eq 'i1 -> i2 \[[^]]*color="red"' "$tmpdir/docs/assets/dags/issue-deps.dot"; then
     pass "generator reads archived TASKS-DAG source by default"
   else
     fail "generator should render a reality-only edge from the archived TASKS-DAG source"

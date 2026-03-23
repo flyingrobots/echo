@@ -47,6 +47,14 @@ wall-clock time and not per-worldline append identity.
 scalar GlobalTick
 
 """
+Positive signed integer used where GraphQL `Int` needs an explicit positivity
+contract.
+
+Semantic rule: values must be greater than zero.
+"""
+scalar PositiveInt
+
+"""
 Stable composite key identifying a writer head inside a worldline.
 """
 type WriterHeadKey {

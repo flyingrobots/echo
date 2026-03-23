@@ -110,7 +110,7 @@ Semantic rule: `maxPerTick` must be positive.
 """
 type InboxPolicyBudgeted {
     kind: InboxPolicyKind!
-    maxPerTick: Int!
+    maxPerTick: PositiveInt!
 }
 
 """
@@ -132,5 +132,5 @@ Validation rules:
 input InboxPolicyInput {
     kind: InboxPolicyKind!
     intentKinds: [IntentKind!]
-    maxPerTick: Int
+    maxPerTick: PositiveInt
 }

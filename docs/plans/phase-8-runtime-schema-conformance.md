@@ -3,7 +3,7 @@
 
 # Phase 8 Runtime Schema Conformance Audit
 
-- **Status:** Echo-local conformance audit for `feat/adr-0008-0009-phase-8`
+- **Status:** Echo-local conformance audit locked for `feat/adr-0008-0009-phase-8`
 - **Date:** 2026-03-22
 - **Primary Plan:** [Implementation Plan: ADR-0008 and ADR-0009](adr-0008-and-0009.md)
 - **Prep Inventory:** [Phase 8 Prep Inventory: ADR-0008 Runtime Schema Freeze](phase-8-schema-freeze-inventory.md)

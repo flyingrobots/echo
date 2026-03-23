@@ -21,6 +21,7 @@ docs/.vitepress/cache
 .idea
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 .obsidian
 .claude/
 

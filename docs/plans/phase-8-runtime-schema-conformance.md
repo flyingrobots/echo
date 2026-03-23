@@ -36,38 +36,38 @@ Phase 8 should not wire Wesley until these answers are explicit.
 1. The schema fragments are semantically sound against the current ADR-0008
    runtime model. There is no evidence that Artifacts A-D froze the wrong
    concepts.
-2. Most remaining issues are **ownership and naming** issues, not semantic
-   model issues.
+2. The biggest ownership blocker from the earlier Phase 8 slices has now been
+   resolved: shared logical counters and the core
+   `HeadId`/`WorldlineId`/`WriterHeadKey` types live in
+   `crates/echo-runtime-schema`.
 3. The biggest blockers before generation are:
-    - duplicated logical-counter newtypes across `warp-core` and
-      `echo-wasm-abi`
     - remaining ABI-edge raw-byte DTOs outside the newly typed
       `WorldlineId`/`HeadId`/`WriterHeadKey` path, where the frozen schema still
       wants semantic wrappers
-    - lack of a single declared generated Rust home for shared runtime-schema
-      types
+    - the remaining freeze-set types that still live only in `warp-core`
+      instead of the shared owner crate, especially `IntentKind` and
+      `InboxAddress`
 4. GraphQL-specific input wrappers are expected. They should be treated as
    schema transport encodings, not evidence that the core runtime surface is
    wrong.
 
 ## Artifact A: Identifiers and Logical Counters
 
-| Schema type          | Canonical Rust owner today                                                    | Status              | Notes                                                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `HeadId`             | `crates/warp-core/src/head.rs`                                                | Aligned             | Opaque hash-backed newtype matches the scalar intent. The blocker is adapter usage, not runtime semantics.                    |
-| `WorldlineId`        | `crates/warp-core/src/worldline.rs`                                           | Aligned             | Opaque worldline identifier matches the scalar intent.                                                                        |
-| `IntentKind`         | `crates/warp-core/src/head_inbox.rs`                                          | Aligned             | Domain-separated hash-backed newtype already matches the frozen scalar semantics.                                             |
-| `WorldlineTick`      | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Semantics match, but the type is duplicated across core and ABI. Generation needs one clear owner plus conversion boundaries. |
-| `GlobalTick`         | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Same issue as `WorldlineTick`: correct meaning, split ownership.                                                              |
-| `RunId`              | `crates/warp-core/src/clock.rs` and `crates/echo-wasm-abi/src/kernel_port.rs` | Blocking drift      | Same ownership split. The schema is right; the generated owner is not decided.                                                |
-| `WriterHeadKey`      | `crates/warp-core/src/head.rs`                                                | Aligned             | Runtime and ABI now agree on both name and typed field shape (`WorldlineId` + `HeadId`).                                      |
-| `WriterHeadKeyInput` | none; schema-only wrapper                                                     | Intentional wrapper | GraphQL needs an explicit input mirror even though the runtime only needs `WriterHeadKey`.                                    |
+| Schema type          | Canonical Rust owner today              | Status              | Notes                                                                                                                         |
+| -------------------- | --------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `HeadId`             | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Opaque hash-backed newtype matches the scalar intent. `warp-core` now consumes the shared owner and the ABI keeps a byte DTO. |
+| `WorldlineId`        | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Opaque worldline identifier matches the scalar intent and now has a shared owner.                                             |
+| `IntentKind`         | `crates/warp-core/src/head_inbox.rs`    | Aligned             | Domain-separated hash-backed newtype already matches the frozen scalar semantics.                                             |
+| `WorldlineTick`      | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Shared logical-counter owner now exists and both `warp-core` and `echo-wasm-abi` consume it.                                  |
+| `GlobalTick`         | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Same as `WorldlineTick`: shared owner exists, semantics stay intact.                                                          |
+| `RunId`              | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Shared owner exists and the ABI re-exports the same control-plane token type.                                                 |
+| `WriterHeadKey`      | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Runtime and ABI now agree on both name and typed field shape; runtime owner is shared.                                        |
+| `WriterHeadKeyInput` | none; schema-only wrapper               | Intentional wrapper | GraphQL needs an explicit input mirror even though the runtime only needs `WriterHeadKey`.                                    |
 
 ### Artifact A blockers
 
-- **Newtype duplication:** `WorldlineTick`, `GlobalTick`, and `RunId` exist in
-  both `warp-core` and `echo-wasm-abi` with matching semantics but no declared
-  generated owner.
+- **Remaining shared-owner gap:** `IntentKind` still lives only in `warp-core`,
+  so the freeze-set owner split is not fully complete for Artifact A.
 
 ## Artifact B: Routing and Admission
 
@@ -132,18 +132,15 @@ concepts. The current ABI still exposes some of them as raw `Vec<u8>` fields.
 That is workable for hand-written DTOs, but it is the wrong source-of-truth
 shape for generated runtime-schema types.
 
-### 2. Logical counter ownership needs one generated home
+### 2. Shared-owner expansion is not complete yet
 
-`WorldlineTick`, `GlobalTick`, and `RunId` are semantically aligned today, but
-they are duplicated in both `warp-core` and `echo-wasm-abi`.
+Phase 8 has already moved the frozen logical counters and core opaque ids/key
+types into `crates/echo-runtime-schema`, and `warp-core`/`echo-wasm-abi` now
+consume that shared owner where their semantics match.
 
-Phase 8 now chooses the shared-owner route:
-
-- generate them once in a future `crates/echo-runtime-schema` crate,
-- let `warp-core` consume or re-export those semantic types,
-- and keep ABI wrappers explicit adapter types when host-wire semantics differ.
-
-What should not happen is silent duplicate generation on both sides.
+The remaining question is whether other freeze-set semantic types such as
+`IntentKind` and `InboxAddress` should join that shared owner before generation
+plumbing lands.
 
 ### 3. GraphQL wrapper DTOs must stay wrapper DTOs
 
@@ -162,6 +159,6 @@ This matters for generation layout:
 
 The scalar and ownership rules are now pinned in the
 [Phase 8 Runtime Schema Mapping Contract](phase-8-runtime-schema-mapping-contract.md).
-The next honest implementation slice is the ABI-edge cleanup that follows from
-that contract: move semantic runtime identifiers and structural keys off raw
-byte vectors while keeping hashes and payload blobs byte-oriented.
+The next honest implementation slice is the remaining shared-owner decision for
+`IntentKind` and `InboxAddress`, followed by explicit deferral of Wesley
+generation plumbing until the upstream contract stabilizes.

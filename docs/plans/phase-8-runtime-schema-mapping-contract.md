@@ -22,11 +22,12 @@ It answers three concrete questions before any generation plumbing exists:
 
 ## Ownership Decision
 
-The future generated Rust home for shared ADR-0008 runtime-schema types is:
+The generated-or-generation-ready Rust home for shared ADR-0008 runtime-schema
+types is:
 
 - `crates/echo-runtime-schema`
 
-That crate is reserved as the single generated owner for:
+That crate now exists as the single Echo-local owner for:
 
 - opaque runtime identifiers,
 - logical counters,
@@ -94,17 +95,18 @@ Disallowed raw-byte default:
 
 ### `warp-core`
 
-- `warp-core` should stop being the permanent owner of duplicated logical
-  counter definitions once generation lands.
-- Its role becomes semantic consumer plus runtime behavior owner.
+- `warp-core` already consumes or re-exports the shared logical counters and
+  core opaque ids/key types introduced in `echo-runtime-schema`.
+- Its role is semantic consumer plus runtime behavior owner.
 
 ### `echo-wasm-abi`
 
 - `echo-wasm-abi` remains the owner of host DTO layout and CBOR envelope rules.
-- It should not own a second generated copy of `HeadId`, `WorldlineId`,
-  `WorldlineTick`, `GlobalTick`, `RunId`, `InboxAddress`, or `WriterHeadKey`.
-- Existing raw-byte identifier fields are now technical debt to retire, not
-  neutral defaults.
+- It now consumes the shared logical counters from `echo-runtime-schema`.
+- It should keep explicit adapter wrappers where the wire contract differs from
+  the shared semantic type, such as byte-serialized `HeadId` and `WorldlineId`.
+- Existing raw-byte identifier fields outside those typed wrappers are now
+  technical debt to retire, not neutral defaults.
 
 ### `echo-wesley-gen`
 
@@ -116,16 +118,16 @@ Disallowed raw-byte default:
 ## Out of Scope
 
 - wiring `cargo xtask wesley sync`
-- implementing the `echo-runtime-schema` crate
 - changing current ABI v3 wire fields in this document alone
 - ADR-0009 transport/conflict schema mapping
 
 ## Recommended Next Slice
 
-With ownership and scalar-mapping rules pinned, the next honest implementation
-slice is:
+With ownership and scalar-mapping rules pinned and the shared crate now
+scaffolded, the next honest implementation slice is:
 
-1. introduce typed wrapper DTOs at the ABI edge for runtime identifiers and
-   structural keys where Phase 8 has already frozen the semantic type,
+1. move the remaining shared semantic freeze-set types such as `IntentKind`
+   and `InboxAddress` into `echo-runtime-schema` if they still belong there,
 2. leave hashes and payload blobs as raw bytes,
-3. then reserve or scaffold the future `echo-runtime-schema` crate boundary.
+3. keep Wesley/codegen plumbing deferred until the upstream schema/compiler
+   contract stabilizes.

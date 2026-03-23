@@ -23,46 +23,11 @@
 
 use std::collections::BTreeMap;
 
+pub use echo_runtime_schema::{HeadId, WriterHeadKey};
+
 use crate::head_inbox::{HeadInbox, InboxAddress, InboxPolicy};
-use crate::ident::Hash;
 use crate::playback::PlaybackMode;
 use crate::worldline::WorldlineId;
-
-// =============================================================================
-// HeadId
-// =============================================================================
-
-/// Opaque stable identifier for a head (writer or reader).
-///
-/// Derived from a domain-separated BLAKE3 hash of the head's creation label
-/// (`"head:" || label`). Never derived from mutable runtime structure.
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct HeadId(Hash);
-
-impl HeadId {
-    /// Inclusive minimum key used by internal `BTreeMap` range queries.
-    pub(crate) const MIN: Self = Self([0u8; 32]);
-    /// Inclusive maximum key used by internal `BTreeMap` range queries.
-    pub(crate) const MAX: Self = Self([0xff; 32]);
-
-    /// Reconstructs a head id from its canonical 32-byte hash representation.
-    ///
-    /// This is for round-trip deserialization and persistence only. It bypasses
-    /// the domain-separated construction path used by [`make_head_id`], so
-    /// callers should use [`make_head_id`] when deriving fresh ids from names or
-    /// untrusted input.
-    #[must_use]
-    pub fn from_bytes(bytes: Hash) -> Self {
-        Self(bytes)
-    }
-
-    /// Returns the canonical byte representation of this id.
-    #[must_use]
-    pub fn as_bytes(&self) -> &Hash {
-        &self.0
-    }
-}
 
 /// Produces a stable, domain-separated head identifier (prefix `b"head:"`) using BLAKE3.
 #[must_use]
@@ -70,22 +35,7 @@ pub fn make_head_id(label: &str) -> HeadId {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"head:");
     hasher.update(label.as_bytes());
-    HeadId(hasher.finalize().into())
-}
-
-// =============================================================================
-// WriterHeadKey
-// =============================================================================
-
-/// Composite key identifying a writer head within its worldline.
-///
-/// Ordering is `(worldline_id, head_id)` for canonical scheduling.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct WriterHeadKey {
-    /// The worldline this head targets.
-    pub worldline_id: WorldlineId,
-    /// The head identity within that worldline.
-    pub head_id: HeadId,
+    HeadId::from_bytes(hasher.finalize().into())
 }
 
 /// Declarative scheduler admission for a writer head.

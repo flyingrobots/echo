@@ -29,6 +29,7 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
+pub use echo_runtime_schema::{GlobalTick, RunId, WorldlineTick};
 use serde::{
     Deserialize, Serialize,
     de::{self, SeqAccess, Visitor},
@@ -39,15 +40,6 @@ use serde::{
 /// Increment when response types, error codes, or method signatures change
 /// in a backward-incompatible way.
 pub const ABI_VERSION: u32 = 3;
-
-macro_rules! logical_counter {
-    ($(#[$meta:meta])* $name:ident) => {
-        $(#[$meta])*
-        #[repr(transparent)]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-        pub struct $name(pub u64);
-    };
-}
 
 fn deserialize_opaque_id<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
 where
@@ -153,42 +145,6 @@ opaque_id!(
     /// This is the canonical 32-byte head-id hash, carried as typed metadata
     /// rather than a generic byte vector.
     HeadId
-);
-
-logical_counter!(
-    /// Per-worldline logical coordinate in host-visible metadata.
-    ///
-    /// The meaning of `0` depends on the surface carrying it:
-    ///
-    /// - In historical coordinates such as [`ObservationAt::Tick`], `0` names
-    ///   the first committed append.
-    /// - In frontier/head metadata such as [`HeadInfo`] and
-    ///   [`HeadObservation`], `0` paired with `commit_global_tick = None`
-    ///   means the worldline is still at `U0` and has not committed anything.
-    WorldlineTick
-);
-
-logical_counter!(
-    /// Runtime-cycle correlation stamp in host-visible metadata.
-    ///
-    /// `GlobalTick` is monotonic for the lifetime of one initialized kernel and
-    /// spans all worldlines managed by that kernel. It is not a per-worldline
-    /// append id and it resets when the host creates a fresh kernel via
-    /// `init()`. When exposed through [`SchedulerStatus`] as an `Option`, `None`
-    /// means the referenced event has not happened yet in this kernel lifetime
-    /// (for example, no cycle has completed or no commit has occurred).
-    GlobalTick
-);
-
-logical_counter!(
-    /// Control-plane run generation token.
-    ///
-    /// A fresh `RunId` is minted for every accepted `Start` request. It stays
-    /// stable across all host observations and `dispatch_intent(...)` calls
-    /// during that run, then remains visible in [`SchedulerStatus::run_id`]
-    /// after completion until another `Start` replaces it or the kernel is
-    /// re-initialized.
-    RunId
 );
 
 // ---------------------------------------------------------------------------

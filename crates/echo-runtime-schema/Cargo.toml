@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+[package]
+name = "echo-runtime-schema"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90.0"
+description = "Shared ADR-0008 runtime schema types for Echo"
+license = "Apache-2.0"
+repository = "https://github.com/flyingrobots/echo"
+readme = "README.md"
+keywords = ["echo", "runtime", "schema", "worldline"]
+categories = ["data-structures"]
+
+[dependencies]
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["serde/std"]
+
+[lints]
+workspace = true

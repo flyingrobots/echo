@@ -2,6 +2,7 @@
 # © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
 [workspace]
 members = [
+    "crates/echo-runtime-schema",
     "crates/warp-core",
 
     "crates/warp-wasm",
@@ -47,6 +48,7 @@ echo-config-fs = { version = "0.1.0", path = "crates/echo-config-fs" }
 echo-dind-tests = { version = "0.1.0", path = "crates/echo-dind-tests" }
 echo-dry-tests = { version = "0.1.0", path = "crates/echo-dry-tests" }
 echo-graph = { version = "0.1.0", path = "crates/echo-graph" }
+echo-runtime-schema = { version = "0.1.0", path = "crates/echo-runtime-schema", default-features = false }
 echo-registry-api = { version = "0.1.0", path = "crates/echo-registry-api" }
 echo-scene-codec = { version = "0.1.0", path = "crates/echo-scene-codec" }
 echo-scene-port = { version = "0.1.0", path = "crates/echo-scene-port" }

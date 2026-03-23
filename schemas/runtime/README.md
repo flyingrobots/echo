@@ -69,13 +69,14 @@ Generation is explicitly deferred, but the intended artifact boundary is:
 - `schemas/runtime/generated/runtime-manifest.json`
   Planned vendored schema manifest/metadata for deterministic regeneration.
 - `crates/echo-runtime-schema/src/lib.rs`
-  Planned shared generated Rust home for opaque ids, logical counters, and
-  structural runtime key types such as `WriterHeadKey`.
+  Current Echo-local shared Rust home for runtime logical counters and core
+  opaque ids/key types; planned generated home once runtime Wesley sync exists.
 
 `echo-wasm-abi` remains adapter-owned even after that crate exists. It should
-convert to and from the shared generated runtime-schema types rather than own a
-second generated copy of `WorldlineTick`, `GlobalTick`, `RunId`, or
-`WriterHeadKey`.
+convert to and from the shared runtime-schema types rather than own a second
+generated copy of `WorldlineTick`, `GlobalTick`, or `RunId`, and it should keep
+opaque-id wrappers explicit where CBOR byte encoding differs from the runtime
+semantic type.
 
 ## Notes
 

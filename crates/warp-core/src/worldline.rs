@@ -17,29 +17,13 @@
 
 use thiserror::Error;
 
+pub use echo_runtime_schema::WorldlineId;
+
 use crate::clock::GlobalTick;
 use crate::ident::{EdgeKey, Hash, NodeKey, WarpId};
 use crate::materialization::ChannelId;
 use crate::tick_patch::{apply_ops_to_state, SlotId, TickPatchError, WarpOp};
 use crate::worldline_state::WorldlineState;
-
-/// Unique identifier for a worldline.
-///
-/// A worldline ID is typically derived from the initial state hash of the warp,
-/// ensuring that worldlines with different starting points have distinct IDs.
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct WorldlineId(pub Hash);
-
-impl WorldlineId {
-    /// Returns the canonical byte representation of this id.
-    #[inline]
-    #[must_use]
-    pub fn as_bytes(&self) -> &Hash {
-        &self.0
-    }
-}
 
 /// Three-way cryptographic commitment for worldline verification.
 ///

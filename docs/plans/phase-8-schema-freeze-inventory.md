@@ -32,8 +32,11 @@ This inventory records:
 2. The repo documentation says `cargo xtask wesley sync` manages those vendored
    artifacts, but `xtask/src/main.rs` does **not** implement a `wesley`
    subcommand yet.
-3. The stable ADR-0008 runtime surface still lives in hand-written Rust types in
-   `warp-core`, with host-facing adapter DTOs in `echo-wasm-abi`.
+3. The shared Phase 8 owner crate now exists as
+   `crates/echo-runtime-schema`, and it already owns the frozen logical
+   counters plus the core `HeadId`/`WorldlineId`/`WriterHeadKey` types. The
+   rest of the freeze set still lives in hand-written Rust in `warp-core`,
+   with host-facing adapter DTOs in `echo-wasm-abi`.
 4. The living plan's old `SuperTickResult` shorthand should be retired.
    The actual stable scheduler result surface is:
    `SchedulerStatus`, `SchedulerState`, `WorkState`, `RunCompletion`,
@@ -46,13 +49,13 @@ This inventory records:
 
 | Candidate         | Canonical definition today                | Mirror / adapter surface                                                                                       | Phase 8 note                                                                                                               |
 | ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `HeadId`          | `crates/warp-core/src/head.rs`            | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Opaque hash-backed id; schema must preserve byte-level opacity, not invent string semantics                                |
-| `WorldlineId`     | `crates/warp-core/src/worldline.rs`       | ABI worldline-id byte payloads in `crates/echo-wasm-abi/src/kernel_port.rs`                                    | Supporting opaque id needed by `WriterHeadKey`, `IngressTarget`, and observation/control wrappers                          |
-| `WriterHeadKey`   | `crates/warp-core/src/head.rs`            | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Stable composite runtime key; good freeze candidate                                                                        |
+| `HeadId`          | `crates/echo-runtime-schema/src/lib.rs`   | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Opaque hash-backed id; runtime owner is now shared, ABI wrapper remains byte-oriented                                      |
+| `WorldlineId`     | `crates/echo-runtime-schema/src/lib.rs`   | ABI worldline-id wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                         | Supporting opaque id needed by `WriterHeadKey`, `IngressTarget`, and observation/control wrappers                          |
+| `WriterHeadKey`   | `crates/echo-runtime-schema/src/lib.rs`   | ABI head-key wrappers in `crates/echo-wasm-abi/src/kernel_port.rs`                                             | Stable composite runtime key; runtime owner is now shared                                                                  |
 | `PlaybackMode`    | `crates/warp-core/src/playback.rs`        | TTD-generated `PlaybackMode` in `crates/ttd-protocol-rs/lib.rs` is related but not the runtime source of truth | Freeze the runtime enum first; do not treat the TTD schema as authoritative for ADR-0008                                   |
 | `SeekThen`        | `crates/warp-core/src/playback.rs`        | No Wesley/runtime-generated equivalent today                                                                   | Supporting playback-control enum required to express `PlaybackMode::Seek` honestly                                         |
-| `WorldlineTick`   | `crates/warp-core/src/clock.rs`           | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema must preserve logical-counter semantics                                                   |
-| `GlobalTick`      | `crates/warp-core/src/clock.rs`           | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Stable newtype candidate; schema/docs must keep correlation-not-time semantics explicit                                    |
+| `WorldlineTick`   | `crates/echo-runtime-schema/src/lib.rs`   | re-exported by `warp-core` and `echo-wasm-abi`                                                                 | Shared logical-counter owner now exists; schema must preserve logical-counter semantics                                    |
+| `GlobalTick`      | `crates/echo-runtime-schema/src/lib.rs`   | re-exported by `warp-core` and `echo-wasm-abi`                                                                 | Shared logical-counter owner now exists; schema/docs must keep correlation-not-time semantics explicit                     |
 | `IntentKind`      | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Stable opaque hash-backed id; schema must not collapse it to an arbitrary string label                                     |
 | `InboxAddress`    | `crates/warp-core/src/head_inbox.rs`      | ABI/control routing byte/string mirrors in `crates/echo-wasm-abi/src/kernel_port.rs`                           | Supporting routing alias type needed to freeze `IngressTarget` honestly                                                    |
 | `InboxPolicy`     | `crates/warp-core/src/head_inbox.rs`      | No Wesley/runtime-generated equivalent today                                                                   | Good freeze candidate once variants are confirmed complete for ADR-0008                                                    |
@@ -62,7 +65,7 @@ This inventory records:
 | `SchedulerState`  | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable scheduler lifecycle enum                                                                                            |
 | `WorkState`       | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable scheduler boundary/work-availability enum                                                                           |
 | `RunCompletion`   | `crates/echo-wasm-abi/src/kernel_port.rs` | n/a                                                                                                            | Stable bounded-run completion enum                                                                                         |
-| `RunId`           | `crates/echo-wasm-abi/src/kernel_port.rs` | runtime/ABI mapping in `crates/warp-wasm/src/warp_kernel.rs`                                                   | Supporting control-plane token needed by `SchedulerStatus`                                                                 |
+| `RunId`           | `crates/echo-runtime-schema/src/lib.rs`   | re-exported by `echo-wasm-abi`; runtime/ABI mapping in `crates/warp-wasm/src/warp_kernel.rs`                   | Supporting control-plane token needed by `SchedulerStatus`; shared owner now exists                                        |
 | `HeadEligibility` | `crates/warp-core/src/head.rs`            | ABI wrapper in `crates/echo-wasm-abi/src/kernel_port.rs`                                                       | Runtime/ABI pair must stay structurally aligned                                                                            |
 | `HeadDisposition` | `crates/echo-wasm-abi/src/kernel_port.rs` | runtime truth derived in `crates/warp-wasm/src/warp_kernel.rs`                                                 | ABI-facing scheduler truth surface; freeze alongside `SchedulerStatus`                                                     |
 
@@ -188,10 +191,10 @@ For now, this branch keeps the runtime freeze loop Echo-local:
 
 Phase 8 now has a concrete ownership decision for the generated Rust side:
 
-- shared opaque ids, logical counters, and structural runtime key types should
-  land in a future `crates/echo-runtime-schema` crate,
-- `warp-core` should consume or re-export those generated types once the
-  generation path exists,
+- shared opaque ids, logical counters, and structural runtime key types now
+  live in `crates/echo-runtime-schema`,
+- `warp-core` already consumes or re-exports those shared types for the subset
+  landed in this slice,
 - and `echo-wasm-abi` should remain adapter-owned for host DTOs and convert to
   and from the shared types rather than own a duplicate generated copy.
 

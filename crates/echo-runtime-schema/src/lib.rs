@@ -20,8 +20,9 @@ macro_rules! logical_counter {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         #[repr(transparent)]
-        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, serde::Serialize, serde::Deserialize)]
-        #[serde(transparent)]
+        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        #[cfg_attr(feature = "serde", serde(transparent))]
         pub struct $name(pub u64);
 
         impl $name {
@@ -74,10 +75,9 @@ pub type RuntimeIdBytes = [u8; 32];
 
 /// Opaque stable identifier for a worldline.
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize, serde::Deserialize,
-)]
-#[serde(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct WorldlineId(pub RuntimeIdBytes);
 
 impl WorldlineId {
@@ -90,10 +90,9 @@ impl WorldlineId {
 
 /// Opaque stable identifier for a head.
 #[repr(transparent)]
-#[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize, serde::Deserialize,
-)]
-#[serde(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct HeadId(RuntimeIdBytes);
 
 impl HeadId {
@@ -133,9 +132,8 @@ logical_counter!(
 );
 
 /// Composite key identifying a writer head within its worldline.
-#[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WriterHeadKey {
     /// The worldline this head targets.
     pub worldline_id: WorldlineId,

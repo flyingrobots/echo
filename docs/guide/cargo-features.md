@@ -82,6 +82,13 @@ Enabling both `footprint_enforce_release` and `unsafe_graph` is a compile error.
 | `std`   | **yes** | Standard library support (enables `serde/std`, `ciborium/std`, `half/std`). |
 | `alloc` | no      | Alloc-only mode for `no_std` environments.                                  |
 
+## echo-runtime-schema
+
+| Feature | Default | Description                                                                                                                                         |
+| ------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `std`   | **yes** | Standard library support.                                                                                                                           |
+| `serde` | **yes** | Enables serde derives for shared runtime-schema ids, counters, and structural keys. Consumers opt in explicitly when default features are disabled. |
+
 ## echo-registry-api
 
 | Feature | Default | Description               |

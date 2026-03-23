@@ -41,7 +41,7 @@ golden_prng = []
 trig_audit_print = []
 # Serde support for serializable wrappers (use ONLY with deterministic CBOR encoder).
 # NEVER use with serde_json - JSON is non-deterministic and banned in warp-core.
-serde = ["dep:serde", "bytes/serde"]
+serde = ["dep:serde", "bytes/serde", "echo-runtime-schema/serde"]
 
 # Scalar backend lanes (CI/test orchestration).
 # - `det_float`: default float32-backed lane using `F32Scalar`.

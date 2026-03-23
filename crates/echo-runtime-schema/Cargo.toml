@@ -13,11 +13,12 @@ keywords = ["echo", "runtime", "schema", "worldline"]
 categories = ["data-structures"]
 
 [dependencies]
-serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
 
 [features]
-default = ["std"]
-std = ["serde/std"]
+default = ["std", "serde"]
+serde = ["dep:serde"]
+std = ["serde?/std"]
 
 [lints]
 workspace = true

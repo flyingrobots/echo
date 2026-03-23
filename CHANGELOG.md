@@ -5,6 +5,19 @@
 
 ## Unreleased
 
+### Fixed (PR #306 follow-up)
+
+- **Fixed** the Phase 8 runtime-schema/tooling follow-ups so workspace
+  Prettier usage is declared and lockfile-pinned, runtime schema validation now
+  fails clearly when `node` is unavailable, dependency DAG generation uses the
+  archived tasks DAG by default with UTC-stable fallback labels, and the
+  tracked Rust Analyzer workspace target dir is repo-local and cross-platform.
+- **Fixed** shared Phase 8 type extraction so `WorldlineId` is actually opaque
+  like `HeadId`, `echo-wasm-abi` forwards `std`/`serde` into
+  `echo-runtime-schema` explicitly, `echo-wasm-abi --no-default-features`
+  avoids a stray `std` dependency, and positive-only scheduler/inbox schema
+  inputs are represented explicitly as `PositiveInt`.
+
 ### Fixed (PR #304 follow-up)
 
 - **Fixed** the session WebSocket gateway TLS stack to use the Rustls ring

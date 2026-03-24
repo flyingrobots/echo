@@ -391,3 +391,103 @@ Housekeeping tasks: documentation, logging, naming consistency, and debugger UX 
 
 **Est. Hours:** 4h
 **Expected Complexity:** ~120 LoC (scripts + docs + timing assertions)
+
+---
+
+## T-10-8-10: Feature-Gate Contract Verification
+
+**User Story:** As a contributor, I want explicit feature-contract checks for
+no-std / alloc-only crates so that feature-gating regressions are caught before
+PR review or CI.
+
+**Requirements:**
+
+- R1: Identify crates whose manifests promise meaningful `--no-default-features`
+  or alloc-only support
+- R2: Add a local and CI-visible verification path that exercises those feature
+  contracts directly
+- R3: Keep the lane scoped so it stays fast enough to run during review-fix
+  loops
+- R4: Document which crates are covered and what the lane is proving
+
+**Acceptance Criteria:**
+
+- [ ] AC1: At least the current runtime-schema / ABI crates have an explicit
+      `--no-default-features` check
+- [ ] AC2: A deliberate `std` leak in a gated crate fails the lane
+- [ ] AC3: Contributor docs explain when to run the lane and what it covers
+- [ ] AC4: The covered crate list is easy to keep aligned with manifest truth
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Feature-gate verification for crates that claim no-std or alloc-only
+support.
+**Out of Scope:** Broad workspace-wide no-std support or changing crate feature
+semantics.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Intentionally introduce a `std` dependency in a gated path and
+  verify the lane fails
+- **Edges:** `default-features = false`, alloc-only mode, transitive feature
+  forwarding
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 2h
+**Expected Complexity:** ~60 LoC (lane wiring + docs)
+
+---
+
+## T-10-8-11: PR Review Thread Resolution Helper
+
+**User Story:** As a reviewer, I want a safe helper for resolving already-fixed
+PR review threads so that GitHub thread state does not lag behind the branch
+state after review-fix pushes.
+
+**Requirements:**
+
+- R1: Enumerate unresolved review threads for a PR with pagination
+- R2: Support resolving selected or all unresolved threads after a verified push
+- R3: Keep the helper explicit and human-driven; it must not auto-resolve based
+  on heuristics alone
+- R4: Show enough context (path, author, URL) for a reviewer to confirm the
+  action before mutating GitHub state
+
+**Acceptance Criteria:**
+
+- [ ] AC1: One command can list unresolved review threads with exact counts
+- [ ] AC2: One command can resolve chosen thread ids after human confirmation
+- [ ] AC3: The helper works with the existing `gh`-based workflow
+- [ ] AC4: Contributor docs explain when to use it and when to reply manually
+
+**Definition of Done:**
+
+- [ ] Code reviewed and merged
+- [ ] Tests pass (CI green)
+- [ ] Documentation updated (if applicable)
+
+**Scope:** Local tooling for review-thread listing and explicit resolution.
+**Out of Scope:** Auto-reply generation, auto-merging, or policy decisions about
+which comments deserve direct replies.
+
+**Test Plan:**
+
+- **Goldens:** n/a
+- **Failures:** Bad PR number, missing `gh` auth, invalid thread id
+- **Edges:** More than 100 review threads, mixed resolved/unresolved state,
+  outdated but unresolved threads
+- **Fuzz/Stress:** n/a
+
+**Blocked By:** none
+**Blocking:** none
+
+**Est. Hours:** 3h
+**Expected Complexity:** ~90 LoC (script + docs)

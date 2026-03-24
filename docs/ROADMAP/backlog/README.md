@@ -3,7 +3,7 @@
 
 # Backlog
 
-> **Priority:** Unscheduled | **Est:** ~219h
+> **Priority:** Unscheduled | **Est:** ~224h
 
 Unscheduled work across all projects. Items here have no committed timeline and can be picked up opportunistically. git-mind NEXUS (formerly its own milestone) has been demoted here because it runs independently of Echo's critical path.
 
@@ -19,7 +19,7 @@ Unscheduled work across all projects. Items here have no committed timeline and 
 | Importer                | [importer.md](importer.md)                               | ~2h  | Not Started |
 | Deterministic Rhai      | [deterministic-rhai.md](deterministic-rhai.md)           | ~11h | Not Started |
 | Wesley Boundary Grammar | [wesley-boundary-grammar.md](wesley-boundary-grammar.md) | ~20h | Not Started |
-| Tooling & Misc          | [tooling-misc.md](tooling-misc.md)                       | ~33h | Not Started |
+| Tooling & Misc          | [tooling-misc.md](tooling-misc.md)                       | ~38h | Not Started |
 | Wesley Future           | [wesley-future.md](wesley-future.md)                     | ~12h | Not Started |
 | Wesley Docs             | [wesley-docs.md](wesley-docs.md)                         | ~10h | Not Started |
 | TTD Hardening           | [ttd-hardening.md](ttd-hardening.md)                     | ~19h | Not Started |

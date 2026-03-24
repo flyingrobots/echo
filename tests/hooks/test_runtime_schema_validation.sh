@@ -8,6 +8,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 PASS=0
 FAIL=0
 
+tmpdir_directives="$(mktemp -d)"
+
 pass() {
   echo "  PASS: $1"
   PASS=$((PASS + 1))
@@ -22,6 +24,7 @@ tmpdir="$(mktemp -d)"
 output_file="$(mktemp)"
 
 cleanup() {
+  rm -rf "$tmpdir_directives"
   rm -rf "$tmpdir"
   rm -f "$output_file"
 }
@@ -34,6 +37,23 @@ if node scripts/validate-runtime-schema-fragments.mjs >"$output_file" 2>&1; then
   pass "validator accepts the checked-in runtime schema fragments"
 else
   fail "validator should accept the checked-in runtime schema fragments"
+  cat "$output_file"
+fi
+
+cp schemas/runtime/*.graphql "$tmpdir_directives"/
+cat <<'EOF' >"$tmpdir_directives/directive-safe.graphql"
+# SPDX-License-Identifier: Apache-2.0 OR LicenseRef-MIND-UCAL-1.0
+# © James Ross Ω FLYING•ROBOTS <https://github.com/flyingrobots>
+
+type DirectiveSafeProbe {
+    legacyField: String @deprecated(reason: "old")
+}
+EOF
+
+if node scripts/validate-runtime-schema-fragments.mjs --dir "$tmpdir_directives" >"$output_file" 2>&1; then
+  pass "validator accepts directive-bearing GraphQL fields"
+else
+  fail "validator should accept directive-bearing GraphQL fields"
   cat "$output_file"
 fi
 

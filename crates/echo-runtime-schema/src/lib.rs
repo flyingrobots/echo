@@ -14,7 +14,16 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "serde")]
+extern crate alloc;
+
 use core::fmt;
+
+#[cfg(feature = "serde")]
+use serde::{
+    Deserialize, Deserializer, Serialize, Serializer,
+    de::{self, SeqAccess, Visitor},
+};
 
 macro_rules! logical_counter {
     ($(#[$meta:meta])* $name:ident) => {
@@ -76,8 +85,6 @@ pub type RuntimeIdBytes = [u8; 32];
 /// Opaque stable identifier for a worldline.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct WorldlineId(RuntimeIdBytes);
 
 impl WorldlineId {
@@ -97,8 +104,6 @@ impl WorldlineId {
 /// Opaque stable identifier for a head.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct HeadId(RuntimeIdBytes);
 
 impl HeadId {
@@ -147,10 +152,132 @@ pub struct WriterHeadKey {
     pub head_id: HeadId,
 }
 
+#[cfg(feature = "serde")]
+fn serialize_runtime_id<S>(bytes: &RuntimeIdBytes, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_bytes(bytes)
+}
+
+#[cfg(feature = "serde")]
+fn decode_runtime_id<E>(bytes: &[u8]) -> Result<RuntimeIdBytes, E>
+where
+    E: de::Error,
+{
+    bytes
+        .try_into()
+        .map_err(|_| E::invalid_length(bytes.len(), &"exactly 32 bytes"))
+}
+
+#[cfg(feature = "serde")]
+struct RuntimeIdVisitor {
+    type_name: &'static str,
+}
+
+#[cfg(feature = "serde")]
+impl RuntimeIdVisitor {
+    const fn new(type_name: &'static str) -> Self {
+        Self { type_name }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Visitor<'de> for RuntimeIdVisitor {
+    type Value = RuntimeIdBytes;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "exactly 32 bytes for {}", self.type_name)
+    }
+
+    fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        decode_runtime_id(value)
+    }
+
+    fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        self.visit_bytes(value)
+    }
+
+    fn visit_byte_buf<E>(self, value: alloc::vec::Vec<u8>) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        self.visit_bytes(&value)
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut bytes = [0u8; 32];
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = seq
+                .next_element()?
+                .ok_or_else(|| de::Error::invalid_length(index, &self))?;
+        }
+        if seq.next_element::<u8>()?.is_some() {
+            return Err(de::Error::invalid_length(33, &self));
+        }
+        Ok(bytes)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for WorldlineId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_runtime_id(self.as_bytes(), serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for WorldlineId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_bytes(RuntimeIdVisitor::new("WorldlineId"))?;
+        Ok(Self::from_bytes(bytes))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for HeadId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_runtime_id(self.as_bytes(), serializer)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for HeadId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserializer.deserialize_bytes(RuntimeIdVisitor::new("HeadId"))?;
+        Ok(Self::from_bytes(bytes))
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::{GlobalTick, HeadId, RunId, WorldlineId, WorldlineTick, WriterHeadKey};
+    #[cfg(feature = "serde")]
+    use ciborium::value::Value;
+    #[cfg(feature = "serde")]
+    use serde::{Serialize, de::DeserializeOwned};
 
     macro_rules! assert_logical_counter_boundaries {
         ($ty:ty) => {{
@@ -196,5 +323,64 @@ mod tests {
         };
         assert_eq!(*key.worldline_id.as_bytes(), [1u8; 32]);
         assert_eq!(*key.head_id.as_bytes(), [2u8; 32]);
+    }
+
+    #[cfg(feature = "serde")]
+    fn encode_cbor<T: Serialize>(value: &T) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        ciborium::into_writer(value, &mut bytes).unwrap();
+        bytes
+    }
+
+    #[cfg(feature = "serde")]
+    fn decode_cbor<T: DeserializeOwned>(bytes: &[u8]) -> T {
+        ciborium::from_reader(bytes).unwrap()
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn runtime_ids_serialize_as_cbor_bytes() {
+        let worldline = WorldlineId::from_bytes([3u8; 32]);
+        let head = HeadId::from_bytes([7u8; 32]);
+
+        let worldline_value: Value = decode_cbor(&encode_cbor(&worldline));
+        let head_value: Value = decode_cbor(&encode_cbor(&head));
+
+        assert_eq!(worldline_value, Value::Bytes(vec![3u8; 32]));
+        assert_eq!(head_value, Value::Bytes(vec![7u8; 32]));
+        assert_eq!(
+            decode_cbor::<WorldlineId>(&encode_cbor(&worldline)),
+            worldline
+        );
+        assert_eq!(decode_cbor::<HeadId>(&encode_cbor(&head)), head);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn writer_head_key_cbor_round_trip_preserves_byte_encoding() {
+        let key = WriterHeadKey {
+            worldline_id: WorldlineId::from_bytes([5u8; 32]),
+            head_id: HeadId::from_bytes([9u8; 32]),
+        };
+
+        let value: Value = decode_cbor(&encode_cbor(&key));
+        assert!(matches!(value, Value::Map(_)));
+        let entries = match value {
+            Value::Map(entries) => entries,
+            _ => return,
+        };
+
+        let encoded_worldline = entries.iter().find_map(|(field, value)| match field {
+            Value::Text(name) if name == "worldline_id" => Some(value),
+            _ => None,
+        });
+        let encoded_head = entries.iter().find_map(|(field, value)| match field {
+            Value::Text(name) if name == "head_id" => Some(value),
+            _ => None,
+        });
+
+        assert_eq!(encoded_worldline, Some(&Value::Bytes(vec![5u8; 32])));
+        assert_eq!(encoded_head, Some(&Value::Bytes(vec![9u8; 32])));
+        assert_eq!(decode_cbor::<WriterHeadKey>(&encode_cbor(&key)), key);
     }
 }

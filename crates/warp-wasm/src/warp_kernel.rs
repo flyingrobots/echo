@@ -167,11 +167,11 @@ impl WarpKernel {
         })
     }
 
-    fn parse_worldline_id(worldline_id: &AbiWorldlineId) -> WorldlineId {
+    fn to_core_worldline_id(worldline_id: &AbiWorldlineId) -> WorldlineId {
         WorldlineId::from_bytes(*worldline_id.as_bytes())
     }
 
-    fn parse_head_id(head_id: &AbiHeadId) -> HeadId {
+    fn to_core_head_id(head_id: &AbiHeadId) -> HeadId {
         HeadId::from_bytes(*head_id.as_bytes())
     }
 
@@ -230,7 +230,7 @@ impl WarpKernel {
     }
 
     fn to_core_request(request: AbiObservationRequest) -> Result<ObservationRequest, AbiError> {
-        let worldline_id = Self::parse_worldline_id(&request.coordinate.worldline_id);
+        let worldline_id = Self::to_core_worldline_id(&request.coordinate.worldline_id);
         let at = match request.coordinate.at {
             echo_wasm_abi::kernel_port::ObservationAt::Frontier => ObservationAt::Frontier,
             echo_wasm_abi::kernel_port::ObservationAt::Tick { worldline_tick } => {
@@ -436,7 +436,7 @@ impl WarpKernel {
                 self.clear_active_run_state(false);
             }
             ControlIntentV1::SetHeadEligibility { head, eligibility } => {
-                let key = Self::parse_head_key(&head)?;
+                let key = Self::to_core_head_key(&head);
                 let eligibility = match eligibility {
                     AbiHeadEligibility::Dormant => HeadEligibility::Dormant,
                     AbiHeadEligibility::Admitted => HeadEligibility::Admitted,
@@ -457,11 +457,11 @@ impl WarpKernel {
         Ok(())
     }
 
-    fn parse_head_key(head: &AbiWriterHeadKey) -> Result<WriterHeadKey, AbiError> {
-        Ok(WriterHeadKey {
-            worldline_id: Self::parse_worldline_id(&head.worldline_id),
-            head_id: Self::parse_head_id(&head.head_id),
-        })
+    fn to_core_head_key(head: &AbiWriterHeadKey) -> WriterHeadKey {
+        WriterHeadKey {
+            worldline_id: Self::to_core_worldline_id(&head.worldline_id),
+            head_id: Self::to_core_head_id(&head.head_id),
+        }
     }
 }
 

@@ -533,6 +533,15 @@ mod tests {
 
         let err = decode_cbor::<Wrapper>(&bytes).unwrap_err();
         assert!(err.to_string().contains("32 bytes"));
+
+        let bytes = encode_value(&Value::Map(vec![(
+            Value::Text("id".into()),
+            Value::Bytes(vec![9u8; 33]),
+        )]))
+        .unwrap();
+
+        let err = decode_cbor::<Wrapper>(&bytes).unwrap_err();
+        assert!(err.to_string().contains("32 bytes"));
     }
 
     #[test]

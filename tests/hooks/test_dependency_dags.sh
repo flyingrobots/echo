@@ -99,7 +99,11 @@ if (
     pass "generator reads archived TASKS-DAG source by default"
   else
     fail "generator should render a reality-only edge from the archived TASKS-DAG source"
-    cat "$tmpdir/docs/assets/dags/issue-deps.dot"
+    if [[ -f "$tmpdir/docs/assets/dags/issue-deps.dot" ]]; then
+      cat "$tmpdir/docs/assets/dags/issue-deps.dot"
+    else
+      cat "$output_file"
+    fi
   fi
 else
   fail "generator should succeed with only the archived TASKS-DAG source present"

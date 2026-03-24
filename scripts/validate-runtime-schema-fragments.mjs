@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) James Ross FLYING-ROBOTS <https://github.com/flyingrobots>
 
-import { readdirSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse, visit } from "graphql";
 
 const BUILTIN_TYPES = new Set(["String", "Int", "Float", "Boolean", "ID"]);
+const DEFINITION_KIND_NAMES = new Map([
+    ["ScalarTypeDefinition", "scalar"],
+    ["ObjectTypeDefinition", "type"],
+    ["InputObjectTypeDefinition", "input"],
+    ["EnumTypeDefinition", "enum"],
+    ["UnionTypeDefinition", "union"],
+]);
 const SCRIPT_DIR = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 
@@ -57,8 +65,41 @@ function listSchemaFiles(schemaDir) {
     return files;
 }
 
+function resolvePrettierInvocation() {
+    const localPrettier = resolve(
+        REPO_ROOT,
+        "node_modules",
+        ".bin",
+        process.platform === "win32" ? "prettier.cmd" : "prettier",
+    );
+    const candidates = [
+        { command: "npx", prefix: ["prettier"] },
+        { command: "pnpm", prefix: ["exec", "prettier"] },
+        { command: localPrettier, prefix: [], requireExists: true },
+    ];
+
+    for (const candidate of candidates) {
+        if (candidate.requireExists && !existsSync(candidate.command)) {
+            continue;
+        }
+        const probe = spawnSync(
+            candidate.command,
+            [...candidate.prefix, "--version"],
+            { encoding: "utf8" },
+        );
+        if (!probe.error && probe.status === 0) {
+            return candidate;
+        }
+    }
+
+    throw new Error(
+        "failed to locate prettier via npx, pnpm exec, or node_modules/.bin",
+    );
+}
+
 function runPrettierCheck(files) {
     const formattingErrors = [];
+    const prettier = resolvePrettierInvocation();
 
     for (const file of files) {
         const source = readFileSync(file, "utf8");
@@ -68,9 +109,9 @@ function runPrettierCheck(files) {
             basename(file),
         );
         const result = spawnSync(
-            "npx",
+            prettier.command,
             [
-                "prettier",
+                ...prettier.prefix,
                 "--parser",
                 "graphql",
                 "--stdin-filepath",
@@ -84,7 +125,7 @@ function runPrettierCheck(files) {
 
         if (result.error) {
             throw new Error(
-                `failed to run npx prettier for schema validation: ${result.error.message}`,
+                `failed to run prettier for schema validation: ${result.error.message}`,
             );
         }
 
@@ -109,68 +150,49 @@ function runPrettierCheck(files) {
     }
 }
 
-function sanitizeLines(source) {
-    const lines = source.split(/\r?\n/u);
-    const sanitized = [];
-    let inDescription = false;
-
-    for (const rawLine of lines) {
-        let line = rawLine;
-
-        if (inDescription) {
-            if (line.includes('"""')) {
-                inDescription = false;
-            }
-            sanitized.push("");
-            continue;
-        }
-
-        const firstTripleQuote = line.indexOf('"""');
-        if (firstTripleQuote !== -1) {
-            const secondTripleQuote = line.indexOf('"""', firstTripleQuote + 3);
-            if (secondTripleQuote === -1) {
-                inDescription = true;
-            }
-            sanitized.push("");
-            continue;
-        }
-
-        const commentStart = line.indexOf("#");
-        if (commentStart !== -1) {
-            line = line.slice(0, commentStart);
-        }
-
-        sanitized.push(line.trimEnd());
-    }
-
-    return sanitized;
+function lineForNode(node) {
+    return node?.loc?.startToken?.line ?? 1;
 }
 
-function collectDefinitions(file, lines, definitions, errors) {
-    for (let index = 0; index < lines.length; index += 1) {
-        const match = lines[index].match(
-            /^\s*(scalar|type|input|enum|union)\s+([A-Za-z_][A-Za-z0-9_]*)\b/u,
-        );
-        if (!match) {
-            continue;
+function parseDocuments(files) {
+    return files.map((file) => {
+        const source = readFileSync(file, "utf8");
+        try {
+            return {
+                file,
+                document: parse(source, { noLocation: false }),
+            };
+        } catch (error) {
+            if (error instanceof Error && "locations" in error) {
+                const line = error.locations?.[0]?.line ?? 1;
+                throw new Error(`${file}:${line}: ${error.message}`);
+            }
+            throw error;
         }
-
-        const kind = match[1];
-        const name = match[2];
-        const previous = definitions.get(name);
-        if (previous) {
-            errors.push(
-                `${file}:${index + 1}: duplicate ${kind} ${name}; already defined at ${previous.file}:${previous.line}`,
-            );
-            continue;
-        }
-
-        definitions.set(name, { kind, file, line: index + 1 });
-    }
+    });
 }
 
-function extractTypeNames(typeExpression) {
-    return typeExpression.match(/[A-Za-z_][A-Za-z0-9_]*/gu) ?? [];
+function collectDefinitions(documents, definitions, errors) {
+    for (const { file, document } of documents) {
+        for (const definition of document.definitions) {
+            const kind = DEFINITION_KIND_NAMES.get(definition.kind);
+            if (!kind || !("name" in definition) || !definition.name) {
+                continue;
+            }
+
+            const name = definition.name.value;
+            const line = lineForNode(definition.name);
+            const previous = definitions.get(name);
+            if (previous) {
+                errors.push(
+                    `${file}:${line}: duplicate ${kind} ${name}; already defined at ${previous.file}:${previous.line}`,
+                );
+                continue;
+            }
+
+            definitions.set(name, { kind, file, line });
+        }
+    }
 }
 
 function validateReference(file, lineNumber, refName, definitions, errors) {
@@ -185,92 +207,19 @@ function validateReference(file, lineNumber, refName, definitions, errors) {
     }
 }
 
-function validateReferences(file, lines, definitions, errors) {
-    let bodyKind = null;
-
-    for (let index = 0; index < lines.length; index += 1) {
-        const trimmed = lines[index].trim();
-        if (trimmed.length === 0) {
-            continue;
-        }
-
-        if (bodyKind === "type" || bodyKind === "input") {
-            if (trimmed.startsWith("}")) {
-                bodyKind = null;
-                continue;
-            }
-
-            const colonIndex = trimmed.indexOf(":");
-            if (colonIndex !== -1) {
-                const typeExpression = trimmed.slice(colonIndex + 1);
-                for (const refName of extractTypeNames(typeExpression)) {
-                    validateReference(
-                        file,
-                        index + 1,
-                        refName,
-                        definitions,
-                        errors,
-                    );
-                }
-            }
-            continue;
-        }
-
-        if (bodyKind === "enum") {
-            if (trimmed.startsWith("}")) {
-                bodyKind = null;
-            }
-            continue;
-        }
-
-        if (bodyKind === "union") {
-            if (trimmed.startsWith("|")) {
-                for (const refName of extractTypeNames(trimmed.slice(1))) {
-                    validateReference(
-                        file,
-                        index + 1,
-                        refName,
-                        definitions,
-                        errors,
-                    );
-                }
-                continue;
-            }
-            bodyKind = null;
-        }
-
-        const match = trimmed.match(
-            /^(scalar|type|input|enum|union)\s+([A-Za-z_][A-Za-z0-9_]*)\b/u,
-        );
-        if (!match) {
-            continue;
-        }
-
-        const kind = match[1];
-        if (kind === "type" || kind === "input" || kind === "enum") {
-            if (trimmed.includes("{")) {
-                bodyKind = kind;
-            }
-            continue;
-        }
-
-        if (kind === "union") {
-            const equalsIndex = trimmed.indexOf("=");
-            if (equalsIndex !== -1) {
-                for (const refName of extractTypeNames(
-                    trimmed.slice(equalsIndex + 1),
-                )) {
-                    validateReference(
-                        file,
-                        index + 1,
-                        refName,
-                        definitions,
-                        errors,
-                    );
-                }
-            }
-            bodyKind = "union";
-        }
+function validateReferences(documents, definitions, errors) {
+    for (const { file, document } of documents) {
+        visit(document, {
+            NamedType(node) {
+                validateReference(
+                    file,
+                    lineForNode(node.name),
+                    node.name.value,
+                    definitions,
+                    errors,
+                );
+            },
+        });
     }
 }
 
@@ -280,21 +229,12 @@ function main() {
 
     runPrettierCheck(files);
 
-    const parsedFiles = files.map((file) => ({
-        file,
-        lines: sanitizeLines(readFileSync(file, "utf8")),
-    }));
-
+    const documents = parseDocuments(files);
     const definitions = new Map();
     const errors = [];
 
-    for (const parsed of parsedFiles) {
-        collectDefinitions(parsed.file, parsed.lines, definitions, errors);
-    }
-
-    for (const parsed of parsedFiles) {
-        validateReferences(parsed.file, parsed.lines, definitions, errors);
-    }
+    collectDefinitions(documents, definitions, errors);
+    validateReferences(documents, definitions, errors);
 
     if (errors.length > 0) {
         console.error("runtime schema validation failed:");

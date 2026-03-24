@@ -47,10 +47,11 @@ wall-clock time and not per-worldline append identity.
 scalar GlobalTick
 
 """
-Positive signed integer used where GraphQL `Int` needs an explicit positivity
-contract.
+Positive integer used where runtime semantics require Rust `u32` values but the
+schema still needs a scalar-level positivity contract.
 
-Semantic rule: values must be greater than zero.
+Semantic rule: values span the full positive `u32` range `1..=4_294_967_295`.
+Generators must not silently narrow this to GraphQL signed-`Int` semantics.
 """
 scalar PositiveInt
 

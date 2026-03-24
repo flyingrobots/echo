@@ -15,6 +15,9 @@ categories = ["data-structures"]
 [dependencies]
 serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
 
+[dev-dependencies]
+ciborium = "0.2"
+
 [features]
 default = ["std", "serde"]
 serde = ["dep:serde"]

@@ -65,7 +65,7 @@ type InboxAddressTarget {
 Route directly to an exact writer head.
 """
 type ExactHeadTarget {
-    key: WriterHeadKey!
+    headKey: WriterHeadKey!
 }
 
 """

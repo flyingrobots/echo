@@ -20,6 +20,9 @@ importers:
       asciichart:
         specifier: ^1.5.25
         version: 1.5.25
+      graphql:
+        specifier: 16.11.0
+        version: 16.11.0
       prettier:
         specifier: 3.8.1
         version: 3.8.1
@@ -1133,6 +1136,10 @@ packages:
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
     engines: {node: '>=6.9.0'}
+
+  graphql@16.11.0:
+    resolution: {integrity: sha512-mS1lbMsxgQj6hge1XZ6p7GPhbrtFwUFYi3wRzXAC/FmYnyXMTvvI3td3rjmQ2u8ewXueaSvRPWaEcgVVOT9Jnw==}
+    engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
 
   hast-util-to-html@9.0.5:
     resolution: {integrity: sha512-OguPdidb+fbHQSU4Q4ZiLKnzWo8Wwsf5bZfbvu7//a9oTYoqD/fWpe96NuHkoS9h0ccGOTe0C4NGXdtS0iObOw==}
@@ -2545,6 +2552,8 @@ snapshots:
     optional: true
 
   gensync@1.0.0-beta.2: {}
+
+  graphql@16.11.0: {}
 
   hast-util-to-html@9.0.5:
     dependencies:

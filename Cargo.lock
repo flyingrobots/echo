@@ -1248,6 +1248,7 @@ version = "0.1.0"
 name = "echo-runtime-schema"
 version = "0.1.0"
 dependencies = [
+ "ciborium",
  "serde",
 ]
 

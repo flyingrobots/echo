@@ -82,9 +82,9 @@ Phase 8 should not wire Wesley until these answers are explicit.
 
 ### Artifact B notes
 
-- `InboxPolicy::Budgeted { max_per_tick: u32 }` maps cleanly to the schema's
-  `maxPerTick: Int!`, but the positive-value rule remains semantic validation,
-  not a stronger type-level guarantee.
+- `InboxPolicy::Budgeted { max_per_tick: u32 }` now maps to
+  `maxPerTick: PositiveInt!`, where the schema pins the full positive `u32`
+  range rather than a signed-`Int` subset.
 - `IngressTarget::ExactHead { key: WriterHeadKey }` now inherits the aligned
   typed-id ABI surface from Artifact A rather than a raw-byte fallback.
 
@@ -127,10 +127,13 @@ Phase 8 should not wire Wesley until these answers are explicit.
 ### 1. Opaque ids should not dissolve into raw byte vectors at the ABI edge
 
 `HeadId`, `WorldlineId`, and `WriterHeadKey` are frozen as typed opaque runtime
-concepts. The current ABI still exposes some of them as raw `Vec<u8>` fields.
+concepts, and the current ABI now carries typed wrappers for those ids/keys.
+The remaining raw-byte DTO fields are payload/hash/blob carriers rather than
+semantic runtime identifiers.
 
-That is workable for hand-written DTOs, but it is the wrong source-of-truth
-shape for generated runtime-schema types.
+That boundary is workable for hand-written adapters, but it still means the
+generated runtime-schema types must stay separate from byte-oriented transport
+payloads.
 
 ### 2. Shared-owner expansion is intentionally bounded
 

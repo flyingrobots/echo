@@ -17,6 +17,10 @@
   `echo-runtime-schema` explicitly, `echo-wasm-abi --no-default-features`
   avoids a stray `std` dependency, and positive-only scheduler/inbox schema
   inputs are represented explicitly as `PositiveInt`.
+- **Fixed** late Phase 8 review follow-ups so contributor docs use portable
+  workspace links, the runtime-schema README matches the default `serde`
+  contract, the schema audit/inventory docs reflect the typed-id migration, and
+  dependency-DAG docs use the correct GitHub workflow wording.
 
 ### Fixed (PR #304 follow-up)
 

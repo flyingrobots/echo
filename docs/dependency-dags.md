@@ -86,7 +86,7 @@ cargo xtask dags --snapshot-label 2026-01-02
 Sources:
 
 - Source data: `docs/archive/tasks/TASKS-DAG.md`
-- Generator: `scripts/generate-tasks-dag.js` (scheduled by `.github/workflows/refresh-dependency-dags.yml` to keep the rendered output aligned with `docs/archive/tasks/TASKS-DAG.md`)
+- Generator: `scripts/generate-tasks-dag.js` (scheduled by the GitHub workflow `.github/workflows/refresh-dependency-dags.yml` to keep the rendered output aligned with `docs/archive/tasks/TASKS-DAG.md`)
 - DOT: `docs/assets/dags/tasks-dag.dot`
 - SVG: `docs/assets/dags/tasks-dag.svg`
 

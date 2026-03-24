@@ -15,5 +15,5 @@ inherently ABI-only:
 `warp-core` consumes or re-exports these semantic types. `echo-wasm-abi`
 converts to and from them where the host wire format differs.
 
-Serde derives are feature-gated. Consumers that need serialization support must
-enable this crate's `serde` feature explicitly.
+Serde derives are feature-gated. The `serde` feature is enabled by default;
+consumers using `default-features = false` must enable `serde` explicitly.

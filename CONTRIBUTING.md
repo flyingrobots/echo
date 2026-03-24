@@ -103,7 +103,7 @@ Echo is a deterministic, renderer-agnostic engine. We prioritize:
 
 ### Shared Workspace Settings
 
-- The repo tracks a minimal [.vscode/settings.json](/Users/james/git/echo/.vscode/settings.json) for project-safe tooling settings only.
+- The repo tracks a minimal [.vscode/settings.json](.vscode/settings.json) for project-safe tooling settings only.
 - Keep personal editor preferences such as theme, font family, and UI layout in your user-level VS Code settings, not the tracked workspace file.
 - The tracked Rust Analyzer target dir uses the repo-local ignored `target-ra/` path to avoid fighting the default Cargo build directory during background checks.
 

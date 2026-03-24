@@ -97,6 +97,7 @@ browser/controller schema. The first honest artifact sketch is:
 ### Artifact A: Runtime identifiers and logical counters
 
 - `HeadId`
+- `WorldlineId`
 - `WriterHeadKey`
 - `IntentKind`
 - `WorldlineTick`

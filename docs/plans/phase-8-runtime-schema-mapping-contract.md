@@ -109,7 +109,8 @@ Disallowed raw-byte default:
 ### `echo-wasm-abi`
 
 - `echo-wasm-abi` remains the owner of host DTO layout and CBOR envelope rules.
-- It now consumes the shared logical counters from `echo-runtime-schema`.
+- It mirrors the shared logical-counter semantics at the host boundary with
+  adapter-owned wrappers.
 - It should keep explicit adapter wrappers where the wire contract differs from
   the shared semantic type, such as byte-serialized `HeadId` and `WorldlineId`.
 - Existing raw-byte identifier fields outside those typed wrappers are now

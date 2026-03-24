@@ -73,9 +73,9 @@ function resolvePrettierInvocation() {
         process.platform === "win32" ? "prettier.cmd" : "prettier",
     );
     const candidates = [
-        { command: "npx", prefix: ["prettier"] },
-        { command: "pnpm", prefix: ["exec", "prettier"] },
         { command: localPrettier, prefix: [], requireExists: true },
+        { command: "pnpm", prefix: ["exec", "prettier"] },
+        { command: "npx", prefix: ["--no-install", "prettier"] },
     ];
 
     for (const candidate of candidates) {
@@ -93,7 +93,7 @@ function resolvePrettierInvocation() {
     }
 
     throw new Error(
-        "failed to locate prettier via npx, pnpm exec, or node_modules/.bin",
+        "failed to locate prettier via node_modules/.bin, pnpm exec, or npx --no-install",
     );
 }
 

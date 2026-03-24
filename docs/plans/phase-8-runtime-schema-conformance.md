@@ -58,9 +58,9 @@ Phase 8 should not wire Wesley until these answers are explicit.
 | `HeadId`             | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Opaque hash-backed newtype matches the scalar intent. `warp-core` now consumes the shared owner and the ABI keeps a byte DTO. |
 | `WorldlineId`        | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Opaque worldline identifier matches the scalar intent and now has a shared owner.                                             |
 | `IntentKind`         | `crates/warp-core/src/head_inbox.rs`    | Aligned             | Domain-separated hash-backed newtype matches the frozen scalar semantics and remains intentionally runtime-owned for Phase 8. |
-| `WorldlineTick`      | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Shared logical-counter owner now exists and both `warp-core` and `echo-wasm-abi` consume it.                                  |
-| `GlobalTick`         | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Same as `WorldlineTick`: shared owner exists, semantics stay intact.                                                          |
-| `RunId`              | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Shared owner exists and the ABI re-exports the same control-plane token type.                                                 |
+| `WorldlineTick`      | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Shared logical-counter owner exists in runtime code; the ABI now mirrors the same semantics with adapter-owned wrappers.      |
+| `GlobalTick`         | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Same as `WorldlineTick`: runtime owner is shared, while the ABI keeps a wire-local wrapper with matching semantics.           |
+| `RunId`              | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Runtime owner is shared; the ABI carries the same control-plane token through an adapter-owned wrapper.                       |
 | `WriterHeadKey`      | `crates/echo-runtime-schema/src/lib.rs` | Aligned             | Runtime and ABI now agree on both name and typed field shape; runtime owner is shared.                                        |
 | `WriterHeadKeyInput` | none; schema-only wrapper               | Intentional wrapper | GraphQL needs an explicit input mirror even though the runtime only needs `WriterHeadKey`.                                    |
 
@@ -137,9 +137,13 @@ payloads.
 
 ### 2. Shared-owner expansion is intentionally bounded
 
-Phase 8 has already moved the frozen logical counters and core opaque ids/key
-types into `crates/echo-runtime-schema`, and `warp-core`/`echo-wasm-abi` now
-consume that shared owner where their semantics match.
+Phase 8 has already moved the frozen runtime logical counters and core opaque
+ids/key types into `crates/echo-runtime-schema`, and `warp-core` consumes that
+shared owner directly.
+
+`echo-wasm-abi` remains adapter-owned: it mirrors the same logical-counter
+semantics and typed opaque-id shapes, but its host-wire DTO wrappers no longer
+control the runtime crate's serde feature surface.
 
 Not every frozen schema type should join that crate. `IntentKind` and
 `InboxAddress` remain hand-written in `warp-core` because they are runtime

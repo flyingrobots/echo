@@ -182,7 +182,7 @@ The scheduler-facing enums use serde's declared shapes directly:
 - `SchedulerMode::UntilIdle { cycle_limit }` serializes as
   `{ "kind": "until_idle", "cycle_limit": <u32 or null> }`.
 - `WorldlineId` and `HeadId` are typed opaque wrappers that serialize as
-  `bytes(32)`.
+  `bytes(32)`. Array-of-32-integers encodings are invalid for these fields.
 
 Concrete `scheduler_status()` example:
 

@@ -29,10 +29,9 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
-pub use echo_runtime_schema::{GlobalTick, RunId, WorldlineTick};
 use serde::{
     Deserialize, Serialize,
-    de::{self, SeqAccess, Visitor},
+    de::{self, Visitor},
 };
 
 /// Current ABI version for the kernel port contract.
@@ -47,7 +46,7 @@ where
 {
     struct OpaqueIdVisitor;
 
-    impl<'de> Visitor<'de> for OpaqueIdVisitor {
+    impl Visitor<'_> for OpaqueIdVisitor {
         type Value = [u8; 32];
 
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -68,22 +67,6 @@ where
             E: de::Error,
         {
             self.visit_bytes(&value)
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>,
-        {
-            let mut bytes = [0u8; 32];
-            for (index, slot) in bytes.iter_mut().enumerate() {
-                *slot = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(index, &self))?;
-            }
-            if seq.next_element::<u8>()?.is_some() {
-                return Err(de::Error::invalid_length(33, &self));
-            }
-            Ok(bytes)
         }
     }
 
@@ -131,6 +114,35 @@ macro_rules! opaque_id {
     };
 }
 
+macro_rules! logical_counter {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[repr(transparent)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+        #[serde(transparent)]
+        pub struct $name(pub u64);
+
+        impl $name {
+            /// Zero value for this logical counter.
+            pub const ZERO: Self = Self(0);
+            /// Largest representable value for this logical counter.
+            pub const MAX: Self = Self(u64::MAX);
+
+            /// Builds the counter from its raw logical value.
+            #[must_use]
+            pub const fn from_raw(raw: u64) -> Self {
+                Self(raw)
+            }
+
+            /// Returns the raw logical value.
+            #[must_use]
+            pub const fn as_u64(self) -> u64 {
+                self.0
+            }
+        }
+    };
+}
+
 opaque_id!(
     /// Opaque stable identifier for a worldline.
     ///
@@ -145,6 +157,23 @@ opaque_id!(
     /// This is the canonical 32-byte head-id hash, carried as typed metadata
     /// rather than a generic byte vector.
     HeadId
+);
+
+logical_counter!(
+    /// Per-worldline append identity for committed history.
+    WorldlineTick
+);
+
+logical_counter!(
+    /// Runtime-cycle correlation stamp. No wall-clock semantics.
+    GlobalTick
+);
+
+logical_counter!(
+    /// Control-plane generation token for scheduler runs.
+    ///
+    /// This value is not provenance, replay state, or hash input.
+    RunId
 );
 
 // ---------------------------------------------------------------------------

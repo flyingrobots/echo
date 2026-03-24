@@ -22,7 +22,7 @@ use core::fmt;
 #[cfg(feature = "serde")]
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
-    de::{self, SeqAccess, Visitor},
+    de::{self, Visitor},
 };
 
 macro_rules! logical_counter {
@@ -183,7 +183,7 @@ impl RuntimeIdVisitor {
 }
 
 #[cfg(feature = "serde")]
-impl<'de> Visitor<'de> for RuntimeIdVisitor {
+impl Visitor<'_> for RuntimeIdVisitor {
     type Value = RuntimeIdBytes;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -197,7 +197,7 @@ impl<'de> Visitor<'de> for RuntimeIdVisitor {
         decode_runtime_id(value)
     }
 
-    fn visit_borrowed_bytes<E>(self, value: &'de [u8]) -> Result<Self::Value, E>
+    fn visit_borrowed_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
@@ -209,22 +209,6 @@ impl<'de> Visitor<'de> for RuntimeIdVisitor {
         E: de::Error,
     {
         self.visit_bytes(&value)
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: SeqAccess<'de>,
-    {
-        let mut bytes = [0u8; 32];
-        for (index, byte) in bytes.iter_mut().enumerate() {
-            *byte = seq
-                .next_element()?
-                .ok_or_else(|| de::Error::invalid_length(index, &self))?;
-        }
-        if seq.next_element::<u8>()?.is_some() {
-            return Err(de::Error::invalid_length(33, &self));
-        }
-        Ok(bytes)
     }
 }
 
@@ -277,7 +261,7 @@ mod tests {
     #[cfg(feature = "serde")]
     use ciborium::value::Value;
     #[cfg(feature = "serde")]
-    use serde::{Serialize, de::DeserializeOwned};
+    use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
     macro_rules! assert_logical_counter_boundaries {
         ($ty:ty) => {{
@@ -382,5 +366,26 @@ mod tests {
         assert_eq!(encoded_worldline, Some(&Value::Bytes(vec![5u8; 32])));
         assert_eq!(encoded_head, Some(&Value::Bytes(vec![9u8; 32])));
         assert_eq!(decode_cbor::<WriterHeadKey>(&encode_cbor(&key)), key);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn runtime_ids_reject_cbor_integer_arrays() {
+        #[derive(Debug, PartialEq, Eq, Deserialize)]
+        struct Wrapper {
+            id: WorldlineId,
+        }
+
+        let bytes = encode_cbor(&Value::Map(vec![(
+            Value::Text("id".into()),
+            Value::Array(
+                (0u8..32)
+                    .map(|value| Value::Integer(value.into()))
+                    .collect(),
+            ),
+        )]));
+
+        let err = ciborium::from_reader::<Wrapper, _>(&bytes[..]).unwrap_err();
+        assert!(err.to_string().contains("bytes"));
     }
 }

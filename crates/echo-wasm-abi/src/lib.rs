@@ -545,6 +545,30 @@ mod tests {
     }
 
     #[test]
+    fn test_worldline_id_rejects_integer_arrays() {
+        use crate::kernel_port::WorldlineId;
+        use ciborium::value::Value;
+
+        #[derive(Debug, PartialEq, Eq, Deserialize)]
+        struct Wrapper {
+            id: WorldlineId,
+        }
+
+        let bytes = encode_value(&Value::Map(vec![(
+            Value::Text("id".into()),
+            Value::Array(
+                (0u8..32)
+                    .map(|value| Value::Integer(value.into()))
+                    .collect(),
+            ),
+        )]))
+        .unwrap();
+
+        let err = decode_cbor::<Wrapper>(&bytes).unwrap_err();
+        assert!(err.to_string().contains("bytes"));
+    }
+
+    #[test]
     fn test_control_intent_wire_encoding_is_canonical() {
         use crate::kernel_port::{ControlIntentV1, SchedulerMode};
 

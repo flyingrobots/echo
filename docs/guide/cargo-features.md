@@ -3,7 +3,7 @@
 
 # Cargo Feature Flags
 
-Generated from `Cargo.toml` files as of 2026-03-07. Run
+Generated from `Cargo.toml` files as of 2026-03-24. Run
 `grep -r '^\[features\]' crates/*/Cargo.toml` to verify.
 
 > **Source of truth:** Crate `Cargo.toml` manifests. This page is a curated
@@ -77,10 +77,10 @@ Enabling both `footprint_enforce_release` and `unsafe_graph` is a compile error.
 
 ## echo-wasm-abi
 
-| Feature | Default | Description                                                                                                |
-| ------- | ------- | ---------------------------------------------------------------------------------------------------------- |
-| `std`   | **yes** | Standard library support (enables `serde/std`, `ciborium/std`, `half/std`, and `echo-runtime-schema/std`). |
-| `alloc` | no      | Alloc-only mode for `no_std` environments.                                                                 |
+| Feature | Default | Description                                                                     |
+| ------- | ------- | ------------------------------------------------------------------------------- |
+| `std`   | **yes** | Standard library support (enables `serde/std`, `ciborium/std`, and `half/std`). |
+| `alloc` | no      | Alloc-only mode for `no_std` environments.                                      |
 
 ## echo-runtime-schema
 

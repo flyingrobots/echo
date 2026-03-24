@@ -73,9 +73,9 @@ Generation is explicitly deferred, but the intended artifact boundary is:
   opaque ids/key types; planned generated home once runtime Wesley sync exists.
 
 `echo-wasm-abi` remains adapter-owned even after that crate exists. It should
-convert to and from the shared runtime-schema types rather than own a second
-generated copy of `WorldlineTick`, `GlobalTick`, or `RunId`, and it should keep
-opaque-id wrappers explicit where CBOR byte encoding differs from the runtime
+preserve the same logical-counter and opaque-id semantics at the host boundary
+without widening the runtime crate's feature surface, and it should keep
+explicit wrappers where the CBOR wire contract differs from the runtime
 semantic type.
 
 Not every frozen schema type must move into `echo-runtime-schema`. Phase 8

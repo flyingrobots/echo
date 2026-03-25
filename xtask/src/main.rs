@@ -76,6 +76,8 @@ struct DoghouseArgs {
 enum DoghouseCommand {
     /// Capture a sortie and emit JSONL events with the current verdict.
     Sortie(DoghouseSortieArgs),
+    /// Re-enable CodeRabbit by toggling its summary-comment checkboxes when it is paused behind them.
+    RearmCoderabbit(DoghouseRearmCoderabbitArgs),
 }
 
 #[derive(Args)]
@@ -88,6 +90,15 @@ struct DoghouseSortieArgs {
     /// Local artifact root for recorded PR snapshots.
     #[arg(long, default_value = "artifacts/pr-review")]
     out_dir: PathBuf,
+}
+
+#[derive(Args)]
+struct DoghouseRearmCoderabbitArgs {
+    /// Optional PR number or selector understood by `gh pr view`.
+    selector: Option<String>,
+    /// Confirm that Doghouse should edit the CodeRabbit summary comment.
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Subcommand)]
@@ -277,6 +288,7 @@ fn main() -> Result<()> {
 fn run_doghouse(args: DoghouseArgs) -> Result<()> {
     match args.command {
         DoghouseCommand::Sortie(args) => run_doghouse_sortie(args),
+        DoghouseCommand::RearmCoderabbit(args) => run_doghouse_rearm_coderabbit(args),
     }
 }
 
@@ -329,9 +341,9 @@ fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
     let overview = fetch_pr_overview(args.selector.as_deref())?;
     let checks = fetch_pr_checks(&overview)?;
     let threads = fetch_unresolved_review_threads(&overview)?;
-    let rabbit_cooldown = fetch_code_rabbit_cooldown(&overview)?;
+    let code_rabbit = fetch_code_rabbit_state(&overview)?;
     let snapshot =
-        build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent, rabbit_cooldown)?;
+        build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent, code_rabbit)?;
     let previous_snapshot = load_latest_pr_snapshot(snapshot.pr.number, &args.out_dir)?;
     let delta = previous_snapshot
         .as_ref()
@@ -400,9 +412,9 @@ fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
     let overview = fetch_pr_overview(args.selector.as_deref())?;
     let checks = fetch_pr_checks(&overview)?;
     let threads = fetch_unresolved_review_threads(&overview)?;
-    let rabbit_cooldown = fetch_code_rabbit_cooldown(&overview)?;
+    let code_rabbit = fetch_code_rabbit_state(&overview)?;
     let snapshot =
-        build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent, rabbit_cooldown)?;
+        build_pr_snapshot_artifact(&overview, &checks, &threads, args.intent, code_rabbit)?;
     let prior_snapshots = load_prior_pr_snapshots(snapshot.pr.number, &args.out_dir)?;
     let baseline = select_doghouse_baseline(&prior_snapshots, &snapshot);
     let delta = baseline
@@ -464,6 +476,77 @@ fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
             latest_sortie_jsonl: jsonl_paths.latest_jsonl.display().to_string(),
         })
         .context("failed to serialize doghouse artifacts event")?
+    );
+
+    Ok(())
+}
+
+fn run_doghouse_rearm_coderabbit(args: DoghouseRearmCoderabbitArgs) -> Result<()> {
+    let overview = fetch_pr_overview(args.selector.as_deref())?;
+    let Some(comment) = fetch_latest_code_rabbit_summary_comment(&overview)? else {
+        bail!(
+            "No CodeRabbit summary comment was found for PR #{}.",
+            overview.number
+        );
+    };
+    let Some(state) = analyze_code_rabbit_summary_comment(comment.clone()) else {
+        bail!(
+            "The latest CodeRabbit summary comment on PR #{} does not expose a recognizable state.",
+            overview.number
+        );
+    };
+
+    if !state.rearm_actionable {
+        bail!(
+            "CodeRabbit is not currently blocked behind a checkbox rearm on PR #{}.",
+            overview.number
+        );
+    }
+    if !args.yes {
+        bail!(
+            "Refusing to edit the CodeRabbit summary comment without --yes for PR #{}.",
+            overview.number
+        );
+    }
+
+    let Some(database_id) = state.summary_comment_database_id else {
+        bail!(
+            "CodeRabbit summary comment on PR #{} does not expose a database id.",
+            overview.number
+        );
+    };
+    let Some((updated_body, toggled_checkbox_count)) = build_code_rabbit_rearm_body(&comment.body)
+    else {
+        bail!(
+            "CodeRabbit summary comment on PR #{} did not contain any actionable unchecked checkboxes.",
+            overview.number
+        );
+    };
+
+    let route = format!(
+        "repos/{}/{}/issues/comments/{}",
+        overview.owner, overview.repo, database_id
+    );
+    let _ = run_gh_capture([
+        "api",
+        &route,
+        "--method",
+        "PATCH",
+        "-f",
+        &format!("body={updated_body}"),
+    ])?;
+
+    println!(
+        "{}",
+        serde_json::to_string(&DoghouseCodeRabbitRearmEvent {
+            kind: "doghouse.coderabbit_rearm",
+            pr_number: overview.number,
+            summary_comment_url: state.summary_comment_url,
+            summary_comment_database_id: Some(database_id),
+            toggled_checkbox_count,
+            updated: true,
+        })
+        .context("failed to serialize doghouse CodeRabbit rearm event")?
     );
 
     Ok(())
@@ -1632,6 +1715,12 @@ fn determine_doghouse_next_action(
         .is_some_and(|checks| !checks.is_empty())
     {
         "wait_for_pending_checks"
+    } else if snapshot
+        .code_rabbit
+        .as_ref()
+        .is_some_and(|state| state.rearm_actionable)
+    {
+        "rearm_coderabbit"
     } else if snapshot.pr.review_decision != "APPROVED" {
         match sortie_intent {
             DoghouseSortieIntent::MergeCheck => "merge_ready_pending_approval",
@@ -1687,11 +1776,24 @@ fn determine_doghouse_next_action(
         reasons.push(format!("merge state is {}", snapshot.pr.merge_state));
     }
     if let Some(code_rabbit) = snapshot.code_rabbit.as_ref() {
+        if code_rabbit.rearm_actionable {
+            let unchecked = code_rabbit
+                .checkboxes
+                .iter()
+                .filter(|checkbox| !checkbox.checked)
+                .count();
+            reasons.push(format!(
+                "CodeRabbit summary comment wants manual rearm via {unchecked} unchecked checkbox(es); keep human and Codex review state separate while re-enabling Rabbit"
+            ));
+        }
         if code_rabbit.cooldown_active {
             reasons.push(format!(
                 "CodeRabbit summary comment is rate-limited until {} ({}s remaining); do not request another Rabbit round yet, but keep tracking human and Codex review state separately",
-                code_rabbit.cooldown_expires_at,
-                code_rabbit.cooldown_remaining_seconds
+                code_rabbit
+                    .cooldown_expires_at
+                    .as_deref()
+                    .unwrap_or("<unknown>"),
+                code_rabbit.cooldown_remaining_seconds.unwrap_or_default()
             ));
         }
     } else if snapshot
@@ -1728,6 +1830,10 @@ fn determine_doghouse_next_action(
         ),
         (DoghouseSortieIntent::FixBatch, "request_review") => reasons.push(
             "fix-batch intent finished the repair pass; the next move is another review round"
+                .to_owned(),
+        ),
+        (_, "rearm_coderabbit") => reasons.push(
+            "the immediate next mechanical step is to re-enable CodeRabbit on its own summary comment before asking it for more work"
                 .to_owned(),
         ),
         (DoghouseSortieIntent::Resume, "ready_for_merge") => reasons.push(
@@ -2096,7 +2202,13 @@ fn fetch_pr_checks(pr: &PrOverview) -> Result<Vec<PrCheckSummary>> {
         .collect())
 }
 
-fn fetch_code_rabbit_cooldown(pr: &PrOverview) -> Result<Option<DoghouseCodeRabbitState>> {
+fn fetch_code_rabbit_state(pr: &PrOverview) -> Result<Option<DoghouseCodeRabbitState>> {
+    Ok(fetch_latest_code_rabbit_summary_comment(pr)?.and_then(analyze_code_rabbit_summary_comment))
+}
+
+fn fetch_latest_code_rabbit_summary_comment(
+    pr: &PrOverview,
+) -> Result<Option<CodeRabbitSummaryComment>> {
     let output = run_gh_capture([
         "api",
         "graphql",
@@ -2107,12 +2219,12 @@ fn fetch_code_rabbit_cooldown(pr: &PrOverview) -> Result<Option<DoghouseCodeRabb
         "-F",
         &format!("number={}", pr.number),
         "-f",
-        "query=query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { comments(last:50) { nodes { url body updatedAt author { login } } } } } }",
+        "query=query($owner:String!, $name:String!, $number:Int!) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { comments(last:50) { nodes { databaseId url body updatedAt author { login } } } } } }",
     ])?;
     let response: CodeRabbitCommentsQueryResponse =
         serde_json::from_str(&output).context("failed to parse CodeRabbit comments response")?;
     let comments = response.data.repository.pull_request.comments.nodes;
-    let summary_comment = comments
+    Ok(comments
         .into_iter()
         .filter(|comment| {
             comment
@@ -2125,37 +2237,71 @@ fn fetch_code_rabbit_cooldown(pr: &PrOverview) -> Result<Option<DoghouseCodeRabb
                 .body
                 .contains("This is an auto-generated comment: summarize by coderabbit.ai")
         })
-        .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
-
-    Ok(summary_comment.and_then(detect_code_rabbit_cooldown))
+        .max_by(|left, right| left.updated_at.cmp(&right.updated_at)))
 }
 
-fn detect_code_rabbit_cooldown(
+fn analyze_code_rabbit_summary_comment(
     comment: CodeRabbitSummaryComment,
 ) -> Option<DoghouseCodeRabbitState> {
-    if !comment
+    let callout = extract_code_rabbit_callout(&comment.body);
+    let checkboxes = extract_code_rabbit_checkboxes(&comment.body);
+    let active_changes_gate = code_rabbit_summary_mentions_active_changes(&comment.body)
+        || callout
+            .as_ref()
+            .is_some_and(|callout| code_rabbit_summary_mentions_active_changes(&callout.text));
+    let rearm_actionable =
+        active_changes_gate && checkboxes.iter().any(|checkbox| !checkbox.checked);
+
+    let mut state = DoghouseCodeRabbitState {
+        summary_comment_url: comment.url,
+        summary_comment_database_id: comment.database_id,
+        summary_comment_updated_at: comment.updated_at.clone(),
+        summary_state: DoghouseCodeRabbitSummaryState::Ready,
+        callout_present: callout.is_some(),
+        callout_kind: callout.as_ref().map(|callout| callout.kind.clone()),
+        callout_title: callout.as_ref().and_then(|callout| callout.title.clone()),
+        cooldown_active: false,
+        cooldown_expires_at: None,
+        cooldown_remaining_seconds: None,
+        rearm_actionable,
+        checkboxes,
+        request_review_actionable: true,
+    };
+
+    if comment
         .body
         .contains("This is an auto-generated comment: rate limited by coderabbit.ai")
-        && !comment.body.contains("## Rate limit exceeded")
+        || comment.body.contains("## Rate limit exceeded")
     {
-        return None;
+        let wait_phrase = extract_code_rabbit_wait_phrase(&comment.body)?;
+        let wait_seconds = parse_code_rabbit_wait_seconds(&wait_phrase)?;
+        let updated_at = OffsetDateTime::parse(&comment.updated_at, &Rfc3339).ok()?;
+        let expires_at = updated_at + time::Duration::seconds(wait_seconds);
+        let now = OffsetDateTime::now_utc();
+        let remaining_seconds = (expires_at - now).whole_seconds().max(0);
+
+        state.cooldown_active = remaining_seconds > 0;
+        state.cooldown_expires_at = Some(expires_at.format(&Rfc3339).ok()?);
+        state.cooldown_remaining_seconds = Some(remaining_seconds);
+        state.summary_state = if state.cooldown_active {
+            DoghouseCodeRabbitSummaryState::RateLimited
+        } else if state.rearm_actionable {
+            DoghouseCodeRabbitSummaryState::RearmRequired
+        } else {
+            DoghouseCodeRabbitSummaryState::CalloutPresent
+        };
+        state.request_review_actionable = remaining_seconds == 0 && !state.rearm_actionable;
+        return Some(state);
     }
 
-    let wait_phrase = extract_code_rabbit_wait_phrase(&comment.body)?;
-    let wait_seconds = parse_code_rabbit_wait_seconds(&wait_phrase)?;
-    let updated_at = OffsetDateTime::parse(&comment.updated_at, &Rfc3339).ok()?;
-    let expires_at = updated_at + time::Duration::seconds(wait_seconds);
-    let now = OffsetDateTime::now_utc();
-    let remaining_seconds = (expires_at - now).whole_seconds().max(0);
+    if state.rearm_actionable {
+        state.summary_state = DoghouseCodeRabbitSummaryState::RearmRequired;
+        state.request_review_actionable = false;
+    } else if state.callout_present {
+        state.summary_state = DoghouseCodeRabbitSummaryState::CalloutPresent;
+    }
 
-    Some(DoghouseCodeRabbitState {
-        summary_comment_url: comment.url,
-        summary_comment_updated_at: comment.updated_at,
-        cooldown_active: remaining_seconds > 0,
-        cooldown_expires_at: expires_at.format(&Rfc3339).ok()?,
-        cooldown_remaining_seconds: remaining_seconds,
-        request_review_actionable: remaining_seconds == 0,
-    })
+    Some(state)
 }
 
 fn extract_code_rabbit_wait_phrase(body: &str) -> Option<String> {
@@ -2191,6 +2337,152 @@ fn parse_code_rabbit_wait_seconds(phrase: &str) -> Option<i64> {
     }
 
     Some(total)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodeRabbitCallout {
+    kind: String,
+    title: Option<String>,
+    text: String,
+}
+
+fn extract_code_rabbit_callout(body: &str) -> Option<CodeRabbitCallout> {
+    let lines = body.lines().collect::<Vec<_>>();
+    let start = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with("> [!"))?;
+
+    let mut block_lines = Vec::new();
+    for line in &lines[start..] {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with('>') {
+            break;
+        }
+        let content = trimmed.strip_prefix('>').map_or(trimmed, str::trim_start);
+        block_lines.push(content.to_owned());
+    }
+
+    if block_lines.is_empty() {
+        return None;
+    }
+
+    let kind = block_lines[0]
+        .strip_prefix("[!")
+        .and_then(|line| line.strip_suffix(']'))
+        .map(str::to_owned)?;
+
+    let title = block_lines
+        .iter()
+        .skip(1)
+        .map(|line| line.trim())
+        .find_map(|line| {
+            if line.starts_with("## ") {
+                Some(line.trim_start_matches("## ").trim().to_owned())
+            } else if !line.is_empty() && !line.starts_with('<') {
+                Some(line.to_owned())
+            } else {
+                None
+            }
+        });
+
+    let text = block_lines
+        .iter()
+        .skip(1)
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Some(CodeRabbitCallout { kind, title, text })
+}
+
+fn extract_code_rabbit_checkboxes(body: &str) -> Vec<DoghouseCodeRabbitCheckbox> {
+    body.lines()
+        .filter_map(parse_code_rabbit_checkbox_line)
+        .collect()
+}
+
+fn parse_code_rabbit_checkbox_line(line: &str) -> Option<DoghouseCodeRabbitCheckbox> {
+    let trimmed = line.trim_start();
+    let trimmed = trimmed.strip_prefix('>').map_or(trimmed, str::trim_start);
+
+    let (checked, rest) = if let Some(rest) = trimmed.strip_prefix("- [ ]") {
+        (false, rest)
+    } else if let Some(rest) = trimmed.strip_prefix("- [x]") {
+        (true, rest)
+    } else if let Some(rest) = trimmed.strip_prefix("- [X]") {
+        (true, rest)
+    } else {
+        return None;
+    };
+
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+
+    let checkbox_id = rest.find("\"checkboxId\": \"").and_then(|start| {
+        let remainder = &rest[start + "\"checkboxId\": \"".len()..];
+        remainder.find('"').map(|end| remainder[..end].to_owned())
+    });
+    let label = rest
+        .split_once("-->")
+        .map_or(rest, |(_, tail)| tail)
+        .trim()
+        .to_owned();
+
+    if label.is_empty() {
+        return None;
+    }
+
+    Some(DoghouseCodeRabbitCheckbox {
+        checked,
+        label,
+        checkbox_id,
+    })
+}
+
+fn build_code_rabbit_rearm_body(body: &str) -> Option<(String, usize)> {
+    if !code_rabbit_summary_mentions_active_changes(body) {
+        return None;
+    }
+
+    let mut toggled_checkbox_count = 0_usize;
+    let mut rewritten = Vec::new();
+    for line in body.lines() {
+        if parse_code_rabbit_checkbox_line(line).is_some_and(|checkbox| !checkbox.checked) {
+            rewritten.push(line.replacen("- [ ]", "- [x]", 1));
+            toggled_checkbox_count += 1;
+        } else {
+            rewritten.push(line.to_owned());
+        }
+    }
+
+    if toggled_checkbox_count == 0 {
+        return None;
+    }
+
+    Some((rewritten.join("\n"), toggled_checkbox_count))
+}
+
+fn code_rabbit_summary_mentions_active_changes(text: &str) -> bool {
+    let lowered = text.to_ascii_lowercase();
+    [
+        "active changes",
+        "active pull request changes",
+        "actively reviewing",
+        "still making changes",
+        "changes are still being made",
+        "review paused",
+        "review has been paused",
+        "resume review",
+        "continue review",
+        "re-enable",
+        "enable coderabbit",
+        "resume automatic review",
+        "manual intervention",
+    ]
+    .iter()
+    .any(|needle| lowered.contains(needle))
 }
 
 fn fetch_unresolved_review_threads(pr: &PrOverview) -> Result<Vec<ReviewThreadSummary>> {
@@ -2496,6 +2788,8 @@ struct CodeRabbitCommentsConnection {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct CodeRabbitSummaryComment {
     url: String,
+    #[serde(rename = "databaseId")]
+    database_id: Option<u64>,
     body: String,
     #[serde(rename = "updatedAt")]
     updated_at: String,
@@ -2545,12 +2839,49 @@ enum DoghouseSortieIntent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DoghouseCodeRabbitSummaryState {
+    Ready,
+    RateLimited,
+    RearmRequired,
+    CalloutPresent,
+}
+
+fn default_code_rabbit_summary_state() -> DoghouseCodeRabbitSummaryState {
+    DoghouseCodeRabbitSummaryState::Ready
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DoghouseCodeRabbitCheckbox {
+    checked: bool,
+    label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    checkbox_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct DoghouseCodeRabbitState {
     summary_comment_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    summary_comment_database_id: Option<u64>,
     summary_comment_updated_at: String,
+    #[serde(default = "default_code_rabbit_summary_state")]
+    summary_state: DoghouseCodeRabbitSummaryState,
+    #[serde(default)]
+    callout_present: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    callout_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    callout_title: Option<String>,
     cooldown_active: bool,
-    cooldown_expires_at: String,
-    cooldown_remaining_seconds: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cooldown_expires_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cooldown_remaining_seconds: Option<i64>,
+    #[serde(default)]
+    rearm_actionable: bool,
+    #[serde(default)]
+    checkboxes: Vec<DoghouseCodeRabbitCheckbox>,
     request_review_actionable: bool,
 }
 
@@ -2752,13 +3083,23 @@ impl DoghouseIntentEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct DoghouseCodeRabbitEvent {
     kind: &'static str,
+    summary_state: DoghouseCodeRabbitSummaryState,
+    currently_reviewing: bool,
     check_bucket: Option<String>,
     check_state: Option<String>,
+    callout_present: bool,
+    callout_kind: Option<String>,
+    callout_title: Option<String>,
     cooldown_active: bool,
     cooldown_expires_at: Option<String>,
     cooldown_remaining_seconds: Option<i64>,
+    checkbox_count: usize,
+    unchecked_checkbox_count: usize,
+    checkboxes: Vec<DoghouseCodeRabbitCheckbox>,
+    rearm_actionable: bool,
     request_review_actionable: bool,
     summary_comment_url: Option<String>,
+    summary_comment_database_id: Option<u64>,
     summary_comment_updated_at: Option<String>,
 }
 
@@ -2768,11 +3109,43 @@ impl DoghouseCodeRabbitEvent {
             .checks
             .iter()
             .find(|check| check.name.eq_ignore_ascii_case("CodeRabbit"));
+        let currently_reviewing = check.is_some_and(|check| check.bucket == "pending");
+        let summary_state = snapshot
+            .code_rabbit
+            .as_ref()
+            .map_or(DoghouseCodeRabbitSummaryState::Ready, |state| {
+                state.summary_state.clone()
+            });
+        let checkbox_count = snapshot
+            .code_rabbit
+            .as_ref()
+            .map_or(0, |state| state.checkboxes.len());
+        let unchecked_checkbox_count = snapshot.code_rabbit.as_ref().map_or(0, |state| {
+            state
+                .checkboxes
+                .iter()
+                .filter(|checkbox| !checkbox.checked)
+                .count()
+        });
 
         Self {
             kind: "doghouse.coderabbit",
+            summary_state,
+            currently_reviewing,
             check_bucket: check.map(|check| check.bucket.clone()),
             check_state: check.map(|check| check.state.clone()),
+            callout_present: snapshot
+                .code_rabbit
+                .as_ref()
+                .is_some_and(|state| state.callout_present),
+            callout_kind: snapshot
+                .code_rabbit
+                .as_ref()
+                .and_then(|state| state.callout_kind.clone()),
+            callout_title: snapshot
+                .code_rabbit
+                .as_ref()
+                .and_then(|state| state.callout_title.clone()),
             cooldown_active: snapshot
                 .code_rabbit
                 .as_ref()
@@ -2780,28 +3153,49 @@ impl DoghouseCodeRabbitEvent {
             cooldown_expires_at: snapshot
                 .code_rabbit
                 .as_ref()
-                .map(|state| state.cooldown_expires_at.clone()),
+                .and_then(|state| state.cooldown_expires_at.clone()),
             cooldown_remaining_seconds: snapshot
                 .code_rabbit
                 .as_ref()
-                .map(|state| state.cooldown_remaining_seconds),
+                .and_then(|state| state.cooldown_remaining_seconds),
+            checkbox_count,
+            unchecked_checkbox_count,
+            checkboxes: snapshot
+                .code_rabbit
+                .as_ref()
+                .map_or_else(Vec::new, |state| state.checkboxes.clone()),
+            rearm_actionable: snapshot
+                .code_rabbit
+                .as_ref()
+                .is_some_and(|state| state.rearm_actionable),
             request_review_actionable: snapshot.code_rabbit.as_ref().map_or_else(
-                || check.is_none_or(|check| check.bucket != "pending"),
-                |state| {
-                    state.request_review_actionable
-                        && check.is_none_or(|check| check.bucket != "pending")
-                },
+                || !currently_reviewing,
+                |state| state.request_review_actionable && !currently_reviewing,
             ),
             summary_comment_url: snapshot
                 .code_rabbit
                 .as_ref()
                 .map(|state| state.summary_comment_url.clone()),
+            summary_comment_database_id: snapshot
+                .code_rabbit
+                .as_ref()
+                .and_then(|state| state.summary_comment_database_id),
             summary_comment_updated_at: snapshot
                 .code_rabbit
                 .as_ref()
                 .map(|state| state.summary_comment_updated_at.clone()),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseCodeRabbitRearmEvent {
+    kind: &'static str,
+    pr_number: u64,
+    summary_comment_url: String,
+    summary_comment_database_id: Option<u64>,
+    toggled_checkbox_count: usize,
+    updated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -4760,13 +5154,15 @@ mod tests {
     fn detects_coderabbit_cooldown_from_summary_comment() {
         let updated_at = OffsetDateTime::now_utc();
         let comment = CodeRabbitSummaryComment {
+            database_id: Some(4123437114),
             url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-1".to_owned(),
             body: [
                 "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
                 "<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->",
-                "## Rate limit exceeded",
-                "",
-                "Please wait **5 minutes and 59 seconds** before requesting another review.",
+                "> [!WARNING]",
+                "> ## Rate limit exceeded",
+                ">",
+                "> Please wait **5 minutes and 59 seconds** before requesting another review.",
             ]
             .join("\n"),
             updated_at: assert_ok(updated_at.format(&Rfc3339), "test timestamp should format"),
@@ -4775,20 +5171,103 @@ mod tests {
             }),
         };
 
-        let cooldown = detect_code_rabbit_cooldown(comment)
-            .unwrap_or_else(|| unreachable!("cooldown should be detected"));
+        let cooldown = analyze_code_rabbit_summary_comment(comment)
+            .unwrap_or_else(|| unreachable!("CodeRabbit state should be detected"));
 
+        assert_eq!(
+            cooldown.summary_state,
+            DoghouseCodeRabbitSummaryState::RateLimited
+        );
+        assert_eq!(cooldown.summary_comment_database_id, Some(4123437114));
+        assert!(cooldown.callout_present);
+        assert_eq!(cooldown.callout_kind.as_deref(), Some("WARNING"));
+        assert_eq!(
+            cooldown.callout_title.as_deref(),
+            Some("Rate limit exceeded")
+        );
         assert!(cooldown.cooldown_active);
-        assert!(cooldown.cooldown_remaining_seconds > 0);
-        assert!(cooldown.cooldown_remaining_seconds <= 359);
+        assert!(cooldown
+            .cooldown_remaining_seconds
+            .is_some_and(|seconds| seconds > 0));
+        assert!(cooldown
+            .cooldown_remaining_seconds
+            .is_some_and(|seconds| seconds <= 359));
         assert_eq!(
             cooldown.cooldown_expires_at,
-            assert_ok(
+            Some(assert_ok(
                 (updated_at + time::Duration::seconds(359)).format(&Rfc3339),
                 "cooldown expiry should format",
-            )
+            ))
         );
         assert!(!cooldown.request_review_actionable);
+    }
+
+    #[test]
+    fn detects_coderabbit_rearm_gate_from_active_changes_callout() {
+        let comment = CodeRabbitSummaryComment {
+            database_id: Some(4123999999),
+            url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-2".to_owned(),
+            body: [
+                "<!-- This is an auto-generated comment: summarize by coderabbit.ai -->",
+                "> [!IMPORTANT]",
+                "> ## Active changes detected",
+                ">",
+                "> You are still making active changes on this PR. Resume review when you are ready.",
+                "",
+                "- [ ] <!-- {\"checkboxId\": \"abc-123\"} --> Resume CodeRabbit review",
+            ]
+            .join("\n"),
+            updated_at: "2026-03-25T07:01:37Z".to_owned(),
+            author: Some(CodeRabbitCommentAuthor {
+                login: "coderabbitai".to_owned(),
+            }),
+        };
+
+        let state = analyze_code_rabbit_summary_comment(comment)
+            .unwrap_or_else(|| unreachable!("CodeRabbit state should be detected"));
+
+        assert_eq!(
+            state.summary_state,
+            DoghouseCodeRabbitSummaryState::RearmRequired
+        );
+        assert!(state.callout_present);
+        assert!(state.rearm_actionable);
+        assert_eq!(state.checkboxes.len(), 1);
+        assert_eq!(state.checkboxes[0].label, "Resume CodeRabbit review");
+        assert_eq!(state.checkboxes[0].checkbox_id.as_deref(), Some("abc-123"));
+        assert!(!state.request_review_actionable);
+    }
+
+    #[test]
+    fn coderabbit_checkbox_parser_ignores_markdown_link_bullets() {
+        assert_eq!(
+            parse_code_rabbit_checkbox_line(
+                "- [X](https://twitter.com/intent/tweet?text=hello) share"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn coderabbit_rearm_body_toggles_only_task_checkboxes() {
+        let body = [
+            "> [!IMPORTANT]",
+            "> ## Active changes detected",
+            ">",
+            "> Resume review when you are ready.",
+            "",
+            "- [ ] <!-- {\"checkboxId\": \"abc-123\"} --> Resume CodeRabbit review",
+            "- [X](https://example.com/share) share",
+        ]
+        .join("\n");
+
+        let (updated, toggled) = build_code_rabbit_rearm_body(&body)
+            .unwrap_or_else(|| unreachable!("rearm body should be rewritable"));
+
+        assert_eq!(toggled, 1);
+        assert!(updated
+            .contains("- [x] <!-- {\"checkboxId\": \"abc-123\"} --> Resume CodeRabbit review"));
+        assert!(updated.contains("- [X](https://example.com/share) share"));
     }
 
     #[test]
@@ -4808,18 +5287,32 @@ mod tests {
         snapshot.code_rabbit = Some(DoghouseCodeRabbitState {
             summary_comment_url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-1"
                 .to_owned(),
+            summary_comment_database_id: Some(4123437114),
             summary_comment_updated_at: "2026-03-25T07:01:37Z".to_owned(),
+            summary_state: DoghouseCodeRabbitSummaryState::RateLimited,
+            callout_present: true,
+            callout_kind: Some("WARNING".to_owned()),
+            callout_title: Some("Rate limit exceeded".to_owned()),
             cooldown_active: true,
-            cooldown_expires_at: "2026-03-25T07:07:36Z".to_owned(),
-            cooldown_remaining_seconds: 359,
+            cooldown_expires_at: Some("2026-03-25T07:07:36Z".to_owned()),
+            cooldown_remaining_seconds: Some(359),
+            rearm_actionable: false,
+            checkboxes: Vec::new(),
             request_review_actionable: false,
         });
 
         let event = DoghouseCodeRabbitEvent::from_snapshot(&snapshot);
 
+        assert_eq!(
+            event.summary_state,
+            DoghouseCodeRabbitSummaryState::RateLimited
+        );
+        assert!(event.currently_reviewing);
         assert_eq!(event.check_bucket.as_deref(), Some("pending"));
         assert_eq!(event.check_state.as_deref(), Some("PENDING"));
         assert!(event.cooldown_active);
+        assert!(event.callout_present);
+        assert_eq!(event.callout_kind.as_deref(), Some("WARNING"));
         assert!(!event.request_review_actionable);
         assert_eq!(event.cooldown_remaining_seconds, Some(359));
     }
@@ -4945,10 +5438,17 @@ mod tests {
         snapshot.code_rabbit = Some(DoghouseCodeRabbitState {
             summary_comment_url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-1"
                 .to_owned(),
+            summary_comment_database_id: Some(4123437114),
             summary_comment_updated_at: "2026-03-25T07:01:37Z".to_owned(),
+            summary_state: DoghouseCodeRabbitSummaryState::RateLimited,
+            callout_present: true,
+            callout_kind: Some("WARNING".to_owned()),
+            callout_title: Some("Rate limit exceeded".to_owned()),
             cooldown_active: true,
-            cooldown_expires_at: "2026-03-25T07:07:36Z".to_owned(),
-            cooldown_remaining_seconds: 359,
+            cooldown_expires_at: Some("2026-03-25T07:07:36Z".to_owned()),
+            cooldown_remaining_seconds: Some(359),
+            rearm_actionable: false,
+            checkboxes: Vec::new(),
             request_review_actionable: false,
         });
 
@@ -4963,6 +5463,52 @@ mod tests {
             .reasons
             .iter()
             .any(|reason| reason.contains("human and Codex review state separately")));
+    }
+
+    #[test]
+    fn doghouse_next_action_rearms_coderabbit_when_checkbox_gate_is_immediate_blocker() {
+        let mut overview = sample_pr_overview();
+        overview.merge_state = "BLOCKED".to_owned();
+        let mut snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            overview,
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        snapshot.code_rabbit = Some(DoghouseCodeRabbitState {
+            summary_comment_url: "https://github.com/flyingrobots/echo/pull/308#issuecomment-2"
+                .to_owned(),
+            summary_comment_database_id: Some(4123999999),
+            summary_comment_updated_at: "2026-03-25T07:11:37Z".to_owned(),
+            summary_state: DoghouseCodeRabbitSummaryState::RearmRequired,
+            callout_present: true,
+            callout_kind: Some("IMPORTANT".to_owned()),
+            callout_title: Some("Active changes detected".to_owned()),
+            cooldown_active: false,
+            cooldown_expires_at: None,
+            cooldown_remaining_seconds: None,
+            rearm_actionable: true,
+            checkboxes: vec![DoghouseCodeRabbitCheckbox {
+                checked: false,
+                label: "Resume CodeRabbit review".to_owned(),
+                checkbox_id: Some("abc-123".to_owned()),
+            }],
+            request_review_actionable: false,
+        });
+
+        let action = determine_doghouse_next_action(&snapshot, None);
+
+        assert_eq!(action.action, "rearm_coderabbit");
+        assert!(action
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("manual rearm via 1 unchecked checkbox")));
     }
 
     #[test]

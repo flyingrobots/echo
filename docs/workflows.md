@@ -76,7 +76,8 @@ The repo also exposes maintenance commands via `cargo xtask …`:
 - `cargo xtask dags --snapshot-label none` omits snapshot labels (best for CI automation).
 - `cargo xtask dags --snapshot-label rolling` emits a stable `rolling` label.
 - `cargo xtask dags --snapshot-label 2026-01-02` pins a date label (useful for comparisons).
-- `cargo xtask doghouse sortie 308 --intent merge-check` emits agent-native JSONL for the selected PR, including sortie intent, CodeRabbit cooldown state, baseline selection, comparison trust/quality assessment, semantic delta, and an intent-aware next-action verdict that still keeps human/Codex review state separate.
+- `cargo xtask doghouse sortie 308 --intent merge-check` emits agent-native JSONL for the selected PR, including sortie intent, CodeRabbit summary-comment state (cooldown, checkbox rearm, or other callout weirdness), actionable checkbox ids/labels when present, baseline selection, comparison trust/quality assessment, semantic delta, and an intent-aware next-action verdict that still keeps human/Codex review state separate.
+- `cargo xtask doghouse rearm-coderabbit 308 --yes` edits the latest CodeRabbit summary comment when Rabbit has paused itself behind an active-changes checkbox gate.
 - `cargo xtask pr-status` summarizes the current PR head, exact unresolved review-thread count, grouped check state, and a concise current-blockers section.
 - `cargo xtask pr-status 306` targets an explicit PR number instead of the current branch PR.
 - `cargo xtask pr-snapshot` records a durable local PR review snapshot under `artifacts/pr-review/`.

@@ -46,11 +46,21 @@ The JSONL stream now separates:
 
 - baseline selection: which prior snapshot was picked
 - sortie intent: why the current capture happened, plus the baseline intent when known
-- CodeRabbit state: whether Rabbit is pending, cooling down, or safe to re-request, without masking human or Codex review state
+- CodeRabbit state: whether Rabbit is pending, cooling down, blocked behind a summary-comment checkbox rearm, or otherwise in a weird callout state, without masking human or Codex review state; the JSONL event includes the actionable checkbox labels/ids when present
 - comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
 - comparison quality: whether the baseline is `good_enough`, `stale`, `noisy`, `stale_and_noisy`, or an `initial_capture`
 - semantic delta: what actually changed
 - next action: what the agent should do now, using an intent-aware policy instead of state alone
+
+When CodeRabbit pauses itself behind summary-comment checkboxes, the mutation entrypoint is:
+
+```sh
+cargo xtask doghouse rearm-coderabbit 308 --yes
+```
+
+That command is intentionally narrow: it only edits the latest CodeRabbit summary comment when the
+comment itself matches the active-changes / resume-review gate and contains actionable unchecked
+task checkboxes.
 
 ## Documents
 

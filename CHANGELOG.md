@@ -5,6 +5,15 @@
 
 ## Unreleased
 
+### Fixed (PR #308 follow-up)
+
+- The PR workflow hardening follow-ups so `pr-preflight` skips deleted
+  file-targeted inputs, `pr-threads reply` can target an explicit PR context
+  instead of assuming the checkout repo, review-thread batch resolution reports
+  partial progress before failure, GitHub auth-error detection avoids generic
+  `author`-style false positives, and the workflow docs point at the tracked
+  `docs/archive/AGENTS.md` path.
+
 ### Fixed (PR #306 follow-up)
 
 - The Phase 8 runtime-schema/tooling follow-ups so workspace Prettier usage is

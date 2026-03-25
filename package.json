@@ -16,6 +16,7 @@
     "@playwright/test": "^1.48.0",
     "asciichart": "^1.5.25",
     "graphql": "16.11.0",
+    "markdownlint-cli2": "0.22.0",
     "prettier": "3.8.1",
     "vitepress": "1.6.4"
   },

@@ -49,7 +49,7 @@ The JSONL stream now separates:
 - comparison assessment: how trustworthy that comparison is (`strong`, `usable`, `weak`, or `none`)
 - comparison quality: whether the baseline is `good_enough`, `stale`, `noisy`, `stale_and_noisy`, or an `initial_capture`
 - semantic delta: what actually changed
-- next action: what the agent should do now
+- next action: what the agent should do now, using an intent-aware policy instead of state alone
 
 ## Documents
 

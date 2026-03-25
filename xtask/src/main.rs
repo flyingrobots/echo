@@ -1605,6 +1605,9 @@ fn determine_doghouse_next_action(
     snapshot: &PrSnapshotArtifact,
     delta: Option<&PrSnapshotDelta>,
 ) -> DoghouseNextAction {
+    let sortie_intent = snapshot
+        .sortie_intent
+        .unwrap_or(DoghouseSortieIntent::ManualProbe);
     let action = if snapshot.pr.state == "MERGED" {
         "complete_merged"
     } else if !snapshot.unresolved_threads.is_empty() {
@@ -1622,14 +1625,25 @@ fn determine_doghouse_next_action(
     {
         "wait_for_pending_checks"
     } else if snapshot.pr.review_decision != "APPROVED" {
-        "request_review"
+        match sortie_intent {
+            DoghouseSortieIntent::MergeCheck => "merge_ready_pending_approval",
+            DoghouseSortieIntent::PostPush => "wait_for_review_feedback",
+            DoghouseSortieIntent::FixBatch
+            | DoghouseSortieIntent::Resume
+            | DoghouseSortieIntent::ManualProbe => "request_review",
+        }
     } else if matches!(snapshot.pr.merge_state.as_str(), "CLEAN" | "HAS_HOOKS") {
         "ready_for_merge"
+    } else if matches!(sortie_intent, DoghouseSortieIntent::MergeCheck) {
+        "merge_blocked_investigate_state"
     } else {
         "investigate_merge_state"
     };
 
-    let mut reasons = Vec::new();
+    let mut reasons = vec![format!(
+        "sortie intent is {}",
+        doghouse_sortie_intent_label(&sortie_intent)
+    )];
     if snapshot.pr.state == "MERGED" {
         reasons.push("PR state is MERGED".to_owned());
     }
@@ -1664,6 +1678,36 @@ fn determine_doghouse_next_action(
     {
         reasons.push(format!("merge state is {}", snapshot.pr.merge_state));
     }
+    match (sortie_intent, action) {
+        (DoghouseSortieIntent::MergeCheck, "merge_ready_pending_approval") => reasons.push(
+            "merge-check intent found only a formal approval blocker, not a live code or CI blocker"
+                .to_owned(),
+        ),
+        (DoghouseSortieIntent::MergeCheck, "ready_for_merge") => reasons
+            .push("merge-check intent found no live blockers".to_owned()),
+        (DoghouseSortieIntent::MergeCheck, "wait_for_pending_checks") => reasons.push(
+            "merge-check intent cannot conclude until pending checks clear".to_owned(),
+        ),
+        (DoghouseSortieIntent::MergeCheck, "merge_blocked_investigate_state") => reasons.push(
+            "merge-check intent found a non-clean merge state after code and CI blockers were cleared"
+                .to_owned(),
+        ),
+        (DoghouseSortieIntent::PostPush, "wait_for_review_feedback") => reasons.push(
+            "post-push intent stays in observation mode until the new head gets review feedback"
+                .to_owned(),
+        ),
+        (DoghouseSortieIntent::PostPush, "wait_for_pending_checks") => reasons.push(
+            "post-push intent stays in observation mode until CI settles".to_owned(),
+        ),
+        (DoghouseSortieIntent::FixBatch, "request_review") => reasons.push(
+            "fix-batch intent finished the repair pass; the next move is another review round"
+                .to_owned(),
+        ),
+        (DoghouseSortieIntent::Resume, "ready_for_merge") => reasons.push(
+            "resume intent reconstructed a merge-ready state".to_owned(),
+        ),
+        _ => {}
+    }
     if let Some(delta) = delta {
         reasons.push(format!(
             "delta summary: {} blocker(s) added, {} removed; {} thread(s) opened, {} resolved",
@@ -1676,6 +1720,7 @@ fn determine_doghouse_next_action(
 
     DoghouseNextAction {
         kind: "doghouse.next_action",
+        sortie_intent: Some(sortie_intent),
         action: action.to_owned(),
         reasons,
     }
@@ -2663,6 +2708,7 @@ impl DoghouseDeltaEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct DoghouseNextAction {
     kind: &'static str,
+    sortie_intent: Option<DoghouseSortieIntent>,
     action: String,
     reasons: Vec<String>,
 }
@@ -4490,6 +4536,62 @@ mod tests {
     }
 
     #[test]
+    fn doghouse_next_action_merge_check_reports_pending_approval() {
+        let mut overview = sample_pr_overview();
+        overview.merge_state = "BLOCKED".to_owned();
+        let mut snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            overview,
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        snapshot.sortie_intent = Some(DoghouseSortieIntent::MergeCheck);
+
+        let action = determine_doghouse_next_action(&snapshot, None);
+
+        assert_eq!(action.sortie_intent, Some(DoghouseSortieIntent::MergeCheck));
+        assert_eq!(action.action, "merge_ready_pending_approval");
+        assert!(action
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("formal approval blocker")));
+    }
+
+    #[test]
+    fn doghouse_next_action_post_push_waits_for_review_feedback() {
+        let mut overview = sample_pr_overview();
+        overview.merge_state = "BLOCKED".to_owned();
+        let mut snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            overview,
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        snapshot.sortie_intent = Some(DoghouseSortieIntent::PostPush);
+
+        let action = determine_doghouse_next_action(&snapshot, None);
+
+        assert_eq!(action.sortie_intent, Some(DoghouseSortieIntent::PostPush));
+        assert_eq!(action.action, "wait_for_review_feedback");
+        assert!(action
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("observation mode")));
+    }
+
+    #[test]
     fn doghouse_next_action_requests_review_when_only_formal_review_state_remains() {
         let mut overview = sample_pr_overview();
         overview.merge_state = "BLOCKED".to_owned();
@@ -4508,6 +4610,10 @@ mod tests {
 
         let action = determine_doghouse_next_action(&snapshot, None);
 
+        assert_eq!(
+            action.sortie_intent,
+            Some(DoghouseSortieIntent::ManualProbe)
+        );
         assert_eq!(action.action, "request_review");
     }
 

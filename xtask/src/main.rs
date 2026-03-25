@@ -36,6 +36,8 @@ struct Cli {
 enum Commands {
     /// Generate dependency DAG DOT/SVG artifacts for issues + milestones.
     Dags(DagsArgs),
+    /// Emit agent-native Doghouse recorder events.
+    Doghouse(DoghouseArgs),
     /// Summarize current-head PR status, unresolved threads, and check state.
     PrStatus(PrStatusArgs),
     /// Record a durable PR review-state snapshot under local ignored artifacts.
@@ -61,6 +63,28 @@ struct DindArgs {
     /// DIND subcommand to execute.
     #[command(subcommand)]
     command: DindCommands,
+}
+
+#[derive(Args)]
+struct DoghouseArgs {
+    /// Doghouse subcommand to execute.
+    #[command(subcommand)]
+    command: DoghouseCommand,
+}
+
+#[derive(Subcommand)]
+enum DoghouseCommand {
+    /// Capture a sortie and emit JSONL events with the current verdict.
+    Sortie(DoghouseSortieArgs),
+}
+
+#[derive(Args)]
+struct DoghouseSortieArgs {
+    /// Optional PR number or selector understood by `gh pr view`.
+    selector: Option<String>,
+    /// Local artifact root for recorded PR snapshots.
+    #[arg(long, default_value = "artifacts/pr-review")]
+    out_dir: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -231,6 +255,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Dags(args) => run_dags(args),
+        Commands::Doghouse(args) => run_doghouse(args),
         Commands::PrStatus(args) => run_pr_status(args),
         Commands::PrSnapshot(args) => run_pr_snapshot(args),
         Commands::PrThreads(args) => run_pr_threads(args),
@@ -240,6 +265,12 @@ fn main() -> Result<()> {
         Commands::LintDeadRefs(args) => run_lint_dead_refs(args),
         Commands::MarkdownFix(args) => run_markdown_fix(&args),
         Commands::DocsLint(args) => run_docs_lint(args),
+    }
+}
+
+fn run_doghouse(args: DoghouseArgs) -> Result<()> {
+    match args.command {
+        DoghouseCommand::Sortie(args) => run_doghouse_sortie(args),
     }
 }
 
@@ -346,6 +377,71 @@ fn run_pr_snapshot(args: PrSnapshotArgs) -> Result<()> {
             delta_paths.latest_markdown.display()
         );
     }
+
+    Ok(())
+}
+
+fn run_doghouse_sortie(args: DoghouseSortieArgs) -> Result<()> {
+    let overview = fetch_pr_overview(args.selector.as_deref())?;
+    let checks = fetch_pr_checks(&overview)?;
+    let threads = fetch_unresolved_review_threads(&overview)?;
+    let snapshot = build_pr_snapshot_artifact(&overview, &checks, &threads)?;
+    let prior_snapshots = load_prior_pr_snapshots(snapshot.pr.number, &args.out_dir)?;
+    let baseline = select_doghouse_baseline(&prior_snapshots, &snapshot);
+    let delta = baseline
+        .as_ref()
+        .map(|selection| build_pr_snapshot_delta(&selection.snapshot, &snapshot));
+    let snapshot_paths = write_pr_snapshot_artifact(&snapshot, &args.out_dir)?;
+    let delta_paths = if let Some(delta) = delta.as_ref() {
+        Some(write_pr_snapshot_delta_artifact(
+            delta,
+            snapshot.pr.number,
+            &snapshot.filename_stamp,
+            &snapshot.pr.head_sha_short,
+            &args.out_dir,
+        )?)
+    } else {
+        None
+    };
+    let next_action = determine_doghouse_next_action(&snapshot, delta.as_ref());
+    let event_lines =
+        build_doghouse_sortie_events(&snapshot, baseline.as_ref(), delta.as_ref(), &next_action)?;
+    let jsonl_paths = write_doghouse_jsonl_events(
+        &event_lines,
+        snapshot.pr.number,
+        &snapshot.filename_stamp,
+        &snapshot.pr.head_sha_short,
+        &args.out_dir,
+    )?;
+
+    for line in event_lines {
+        println!("{line}");
+    }
+    println!(
+        "{}",
+        serde_json::to_string(&DoghouseArtifactsEvent {
+            kind: "doghouse.artifacts",
+            snapshot_json: snapshot_paths.snapshot_json.display().to_string(),
+            snapshot_markdown: snapshot_paths.snapshot_markdown.display().to_string(),
+            latest_json: snapshot_paths.latest_json.display().to_string(),
+            latest_markdown: snapshot_paths.latest_markdown.display().to_string(),
+            delta_json: delta_paths
+                .as_ref()
+                .map(|paths| paths.snapshot_json.display().to_string()),
+            delta_markdown: delta_paths
+                .as_ref()
+                .map(|paths| paths.snapshot_markdown.display().to_string()),
+            latest_delta_json: delta_paths
+                .as_ref()
+                .map(|paths| paths.latest_json.display().to_string()),
+            latest_delta_markdown: delta_paths
+                .as_ref()
+                .map(|paths| paths.latest_markdown.display().to_string()),
+            sortie_jsonl: jsonl_paths.snapshot_jsonl.display().to_string(),
+            latest_sortie_jsonl: jsonl_paths.latest_jsonl.display().to_string(),
+        })
+        .context("failed to serialize doghouse artifacts event")?
+    );
 
     Ok(())
 }
@@ -575,6 +671,102 @@ fn load_latest_pr_snapshot(pr_number: u64, out_dir: &Path) -> Result<Option<PrSn
     Ok(Some(snapshot))
 }
 
+fn load_prior_pr_snapshots(pr_number: u64, out_dir: &Path) -> Result<Vec<PrSnapshotArtifact>> {
+    let pr_dir = out_dir.join(format!("pr-{pr_number}"));
+    if !pr_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut snapshots = Vec::new();
+    for entry in std::fs::read_dir(&pr_dir)
+        .with_context(|| format!("failed to read {}", pr_dir.display()))?
+    {
+        let entry = entry.with_context(|| format!("failed to read {}", pr_dir.display()))?;
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|value| value.to_str());
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        if file_name.is_some_and(|value| {
+            value == "latest.json" || value.ends_with(".delta.json") || value == "latest.delta.json"
+        }) {
+            continue;
+        }
+        let contents = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let snapshot: PrSnapshotArtifact = serde_json::from_str(&contents)
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        snapshots.push(snapshot);
+    }
+
+    snapshots.sort_by(|left, right| {
+        left.recorded_at
+            .cmp(&right.recorded_at)
+            .then_with(|| left.filename_stamp.cmp(&right.filename_stamp))
+    });
+    Ok(snapshots)
+}
+
+fn select_doghouse_baseline(
+    snapshots: &[PrSnapshotArtifact],
+    current: &PrSnapshotArtifact,
+) -> Option<DoghouseBaselineSelection> {
+    if snapshots.is_empty() {
+        return None;
+    }
+
+    let newest_first = snapshots.iter().rev();
+
+    if let Some(snapshot) = newest_first
+        .clone()
+        .find(|snapshot| snapshot.pr.head_sha != current.pr.head_sha)
+    {
+        return Some(DoghouseBaselineSelection {
+            strategy: DoghouseBaselineStrategy::PreviousDifferentHead,
+            snapshot: snapshot.clone(),
+        });
+    }
+
+    if let Some(snapshot) = newest_first
+        .clone()
+        .find(|snapshot| snapshot_semantically_differs(snapshot, current))
+    {
+        return Some(DoghouseBaselineSelection {
+            strategy: DoghouseBaselineStrategy::PreviousSemanticChange,
+            snapshot: snapshot.clone(),
+        });
+    }
+
+    snapshots
+        .last()
+        .cloned()
+        .map(|snapshot| DoghouseBaselineSelection {
+            strategy: DoghouseBaselineStrategy::ImmediatePrevious,
+            snapshot,
+        })
+}
+
+fn snapshot_semantically_differs(left: &PrSnapshotArtifact, right: &PrSnapshotArtifact) -> bool {
+    left.pr.state != right.pr.state
+        || left.pr.review_decision != right.pr.review_decision
+        || left.pr.merge_state != right.pr.merge_state
+        || left.blockers != right.blockers
+        || left.checks != right.checks
+        || left
+            .unresolved_threads
+            .iter()
+            .map(|thread| thread.thread_id.as_str())
+            .collect::<Vec<_>>()
+            != right
+                .unresolved_threads
+                .iter()
+                .map(|thread| thread.thread_id.as_str())
+                .collect::<Vec<_>>()
+}
+
 fn write_pr_snapshot_artifact(
     snapshot: &PrSnapshotArtifact,
     out_dir: &Path,
@@ -608,6 +800,33 @@ fn write_pr_snapshot_artifact(
         snapshot_markdown,
         latest_json,
         latest_markdown,
+    })
+}
+
+fn write_doghouse_jsonl_events(
+    lines: &[String],
+    pr_number: u64,
+    filename_stamp: &str,
+    head_sha_short: &str,
+    out_dir: &Path,
+) -> Result<DoghouseJsonlPaths> {
+    let pr_dir = out_dir.join(format!("pr-{pr_number}"));
+    std::fs::create_dir_all(&pr_dir)
+        .with_context(|| format!("failed to create {}", pr_dir.display()))?;
+
+    let basename = format!("{filename_stamp}-{head_sha_short}.sortie.jsonl");
+    let snapshot_jsonl = pr_dir.join(basename);
+    let latest_jsonl = pr_dir.join("latest.sortie.jsonl");
+    let payload = format!("{}\n", lines.join("\n"));
+
+    std::fs::write(&snapshot_jsonl, &payload)
+        .with_context(|| format!("failed to write {}", snapshot_jsonl.display()))?;
+    std::fs::write(&latest_jsonl, &payload)
+        .with_context(|| format!("failed to write {}", latest_jsonl.display()))?;
+
+    Ok(DoghouseJsonlPaths {
+        snapshot_jsonl,
+        latest_jsonl,
     })
 }
 
@@ -1109,6 +1328,142 @@ fn print_pr_snapshot_delta_summary(delta: &PrSnapshotDelta) {
         delta.added_checks.len(),
         delta.removed_checks.len()
     );
+}
+
+fn build_doghouse_sortie_events(
+    snapshot: &PrSnapshotArtifact,
+    baseline: Option<&DoghouseBaselineSelection>,
+    delta: Option<&PrSnapshotDelta>,
+    next_action: &DoghouseNextAction,
+) -> Result<Vec<String>> {
+    let mut lines = Vec::new();
+    lines.push(
+        serde_json::to_string(&DoghouseSnapshotEvent {
+            kind: "doghouse.snapshot",
+            pr_number: snapshot.pr.number,
+            pr_url: snapshot.pr.url.clone(),
+            pr_title: snapshot.pr.title.clone(),
+            pr_state: snapshot.pr.state.clone(),
+            recorded_at: snapshot.recorded_at.clone(),
+            head_sha: snapshot.pr.head_sha.clone(),
+            head_sha_short: snapshot.pr.head_sha_short.clone(),
+            review_decision: snapshot.pr.review_decision.clone(),
+            merge_state: snapshot.pr.merge_state.clone(),
+            blocker_count: snapshot.blockers.len(),
+            blockers: snapshot.blockers.clone(),
+            unresolved_thread_count: snapshot.unresolved_threads.len(),
+            check_counts: summarize_check_counts(&snapshot.grouped_checks),
+        })
+        .context("failed to serialize doghouse snapshot event")?,
+    );
+
+    lines.push(
+        serde_json::to_string(&DoghouseBaselineEvent::from_selection(baseline))
+            .context("failed to serialize doghouse baseline event")?,
+    );
+
+    if let Some(delta) = delta {
+        lines.push(
+            serde_json::to_string(&DoghouseDeltaEvent::from_delta(delta))
+                .context("failed to serialize doghouse delta event")?,
+        );
+    }
+
+    lines.push(
+        serde_json::to_string(next_action)
+            .context("failed to serialize doghouse next-action event")?,
+    );
+
+    Ok(lines)
+}
+
+fn summarize_check_counts(
+    grouped_checks: &BTreeMap<String, Vec<String>>,
+) -> BTreeMap<String, usize> {
+    grouped_checks
+        .iter()
+        .map(|(bucket, checks)| (bucket.clone(), checks.len()))
+        .collect()
+}
+
+fn determine_doghouse_next_action(
+    snapshot: &PrSnapshotArtifact,
+    delta: Option<&PrSnapshotDelta>,
+) -> DoghouseNextAction {
+    let action = if snapshot.pr.state == "MERGED" {
+        "complete_merged"
+    } else if !snapshot.unresolved_threads.is_empty() {
+        "fix_unresolved_threads"
+    } else if snapshot
+        .grouped_checks
+        .get("fail")
+        .is_some_and(|checks| !checks.is_empty())
+    {
+        "fix_failing_checks"
+    } else if snapshot
+        .grouped_checks
+        .get("pending")
+        .is_some_and(|checks| !checks.is_empty())
+    {
+        "wait_for_pending_checks"
+    } else if snapshot.pr.review_decision != "APPROVED" {
+        "request_review"
+    } else if matches!(snapshot.pr.merge_state.as_str(), "CLEAN" | "HAS_HOOKS") {
+        "ready_for_merge"
+    } else {
+        "investigate_merge_state"
+    };
+
+    let mut reasons = Vec::new();
+    if snapshot.pr.state == "MERGED" {
+        reasons.push("PR state is MERGED".to_owned());
+    }
+    if !snapshot.unresolved_threads.is_empty() {
+        reasons.push(format!(
+            "{} unresolved review thread(s) remain",
+            snapshot.unresolved_threads.len()
+        ));
+    }
+    if let Some(failing) = snapshot
+        .grouped_checks
+        .get("fail")
+        .filter(|checks| !checks.is_empty())
+    {
+        reasons.push(format!("failing checks: {}", failing.join(", ")));
+    }
+    if let Some(pending) = snapshot
+        .grouped_checks
+        .get("pending")
+        .filter(|checks| !checks.is_empty())
+    {
+        reasons.push(format!("pending checks: {}", pending.join(", ")));
+    }
+    if snapshot.pr.state == "OPEN" && snapshot.pr.review_decision != "APPROVED" {
+        reasons.push(format!(
+            "review decision is {}",
+            snapshot.pr.review_decision
+        ));
+    }
+    if snapshot.pr.state == "OPEN"
+        && !matches!(snapshot.pr.merge_state.as_str(), "CLEAN" | "HAS_HOOKS")
+    {
+        reasons.push(format!("merge state is {}", snapshot.pr.merge_state));
+    }
+    if let Some(delta) = delta {
+        reasons.push(format!(
+            "delta summary: {} blocker(s) added, {} removed; {} thread(s) opened, {} resolved",
+            delta.blockers_added.len(),
+            delta.blockers_removed.len(),
+            delta.threads_opened.len(),
+            delta.threads_resolved.len()
+        ));
+    }
+
+    DoghouseNextAction {
+        kind: "doghouse.next_action",
+        action: action.to_owned(),
+        reasons,
+    }
 }
 
 fn display_check_bucket(bucket: &str) -> &'static str {
@@ -1774,11 +2129,31 @@ struct PrSnapshotPaths {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct DoghouseJsonlPaths {
+    snapshot_jsonl: PathBuf,
+    latest_jsonl: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PrSnapshotDeltaPaths {
     snapshot_json: PathBuf,
     snapshot_markdown: PathBuf,
     latest_json: PathBuf,
     latest_markdown: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DoghouseBaselineSelection {
+    strategy: DoghouseBaselineStrategy,
+    snapshot: PrSnapshotArtifact,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DoghouseBaselineStrategy {
+    PreviousDifferentHead,
+    PreviousSemanticChange,
+    ImmediatePrevious,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1839,6 +2214,136 @@ struct PrCheckTransition {
     current_bucket: String,
     current_state: String,
     kind: PrCheckTransitionKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseSnapshotEvent {
+    kind: &'static str,
+    pr_number: u64,
+    pr_url: String,
+    pr_title: String,
+    pr_state: String,
+    recorded_at: String,
+    head_sha: String,
+    head_sha_short: String,
+    review_decision: String,
+    merge_state: String,
+    blocker_count: usize,
+    blockers: Vec<String>,
+    unresolved_thread_count: usize,
+    check_counts: BTreeMap<String, usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseBaselineEvent {
+    kind: &'static str,
+    selection: String,
+    found: bool,
+    recorded_at: Option<String>,
+    head_sha: Option<String>,
+    head_sha_short: Option<String>,
+    blocker_count: Option<usize>,
+    unresolved_thread_count: Option<usize>,
+}
+
+impl DoghouseBaselineEvent {
+    fn from_selection(selection: Option<&DoghouseBaselineSelection>) -> Self {
+        match selection {
+            Some(selection) => Self {
+                kind: "doghouse.baseline",
+                selection: match selection.strategy {
+                    DoghouseBaselineStrategy::PreviousDifferentHead => {
+                        "previous_different_head".to_owned()
+                    }
+                    DoghouseBaselineStrategy::PreviousSemanticChange => {
+                        "previous_semantic_change".to_owned()
+                    }
+                    DoghouseBaselineStrategy::ImmediatePrevious => "immediate_previous".to_owned(),
+                },
+                found: true,
+                recorded_at: Some(selection.snapshot.recorded_at.clone()),
+                head_sha: Some(selection.snapshot.pr.head_sha.clone()),
+                head_sha_short: Some(selection.snapshot.pr.head_sha_short.clone()),
+                blocker_count: Some(selection.snapshot.blockers.len()),
+                unresolved_thread_count: Some(selection.snapshot.unresolved_threads.len()),
+            },
+            None => Self {
+                kind: "doghouse.baseline",
+                selection: "none".to_owned(),
+                found: false,
+                recorded_at: None,
+                head_sha: None,
+                head_sha_short: None,
+                blocker_count: None,
+                unresolved_thread_count: None,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseDeltaEvent {
+    kind: &'static str,
+    previous_head_sha: String,
+    previous_head_sha_short: String,
+    current_head_sha: String,
+    current_head_sha_short: String,
+    blockers_added: Vec<String>,
+    blockers_removed: Vec<String>,
+    blockers_unchanged_count: usize,
+    threads_opened: Vec<ReviewThreadSummary>,
+    threads_resolved: Vec<ReviewThreadSummary>,
+    threads_persisting_count: usize,
+    improved_checks: Vec<PrCheckTransition>,
+    regressed_checks: Vec<PrCheckTransition>,
+    shifted_checks: Vec<PrCheckTransition>,
+    added_checks: Vec<PrCheckSummary>,
+    removed_checks: Vec<PrCheckSummary>,
+}
+
+impl DoghouseDeltaEvent {
+    fn from_delta(delta: &PrSnapshotDelta) -> Self {
+        Self {
+            kind: "doghouse.delta",
+            previous_head_sha: delta.previous.head_sha.clone(),
+            previous_head_sha_short: delta.previous.head_sha_short.clone(),
+            current_head_sha: delta.current.head_sha.clone(),
+            current_head_sha_short: delta.current.head_sha_short.clone(),
+            blockers_added: delta.blockers_added.clone(),
+            blockers_removed: delta.blockers_removed.clone(),
+            blockers_unchanged_count: delta.blockers_unchanged.len(),
+            threads_opened: delta.threads_opened.clone(),
+            threads_resolved: delta.threads_resolved.clone(),
+            threads_persisting_count: delta.threads_persisting.len(),
+            improved_checks: delta.improved_checks.clone(),
+            regressed_checks: delta.regressed_checks.clone(),
+            shifted_checks: delta.shifted_checks.clone(),
+            added_checks: delta.added_checks.clone(),
+            removed_checks: delta.removed_checks.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseNextAction {
+    kind: &'static str,
+    action: String,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct DoghouseArtifactsEvent {
+    kind: &'static str,
+    snapshot_json: String,
+    snapshot_markdown: String,
+    latest_json: String,
+    latest_markdown: String,
+    delta_json: Option<String>,
+    delta_markdown: Option<String>,
+    latest_delta_json: Option<String>,
+    latest_delta_markdown: Option<String>,
+    sortie_jsonl: String,
+    latest_sortie_jsonl: String,
 }
 
 fn default_pr_state() -> String {
@@ -3343,6 +3848,158 @@ mod tests {
         assert!(markdown.contains("## Check Transition"));
         assert!(markdown.contains("Removed blockers"));
         assert!(markdown.contains("Improved checks"));
+    }
+
+    #[test]
+    fn doghouse_baseline_prefers_previous_different_head() {
+        let latest_same_head = snapshot_fixture(
+            "2026-03-25T08:10:00Z",
+            "20260325T081000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+        let mut older_overview = sample_pr_overview();
+        older_overview.head_sha = "bbbbbbbbbbbb95783719ba9e0be52c4f2f0670e2".to_owned();
+        let older_different_head = snapshot_fixture(
+            "2026-03-25T08:00:00Z",
+            "20260325T080000Z",
+            older_overview,
+            vec!["review decision: REVIEW_REQUIRED"],
+            vec![],
+            vec![],
+        );
+        let snapshots = vec![older_different_head.clone(), latest_same_head];
+        let current = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+
+        let selection = select_doghouse_baseline(&snapshots, &current)
+            .unwrap_or_else(|| unreachable!("baseline should be selected"));
+
+        assert_eq!(
+            selection.strategy,
+            DoghouseBaselineStrategy::PreviousDifferentHead
+        );
+        assert_eq!(
+            selection.snapshot.pr.head_sha,
+            older_different_head.pr.head_sha
+        );
+    }
+
+    #[test]
+    fn doghouse_baseline_falls_back_to_previous_semantic_change() {
+        let mut changed_overview = sample_pr_overview();
+        changed_overview.merge_state = "CLEAN".to_owned();
+        changed_overview.review_decision = "APPROVED".to_owned();
+        let older_changed = snapshot_fixture(
+            "2026-03-25T08:05:00Z",
+            "20260325T080500Z",
+            changed_overview,
+            vec![],
+            vec![],
+            vec![],
+        );
+        let latest_changed = snapshot_fixture(
+            "2026-03-25T08:10:00Z",
+            "20260325T081000Z",
+            sample_pr_overview(),
+            vec!["review decision: REVIEW_REQUIRED"],
+            vec![],
+            vec![],
+        );
+        let current = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec![],
+            vec![],
+            vec![],
+        );
+
+        let selection =
+            select_doghouse_baseline(&[older_changed, latest_changed.clone()], &current)
+                .unwrap_or_else(|| unreachable!("baseline should be selected"));
+
+        assert_eq!(
+            selection.strategy,
+            DoghouseBaselineStrategy::PreviousSemanticChange
+        );
+        assert_eq!(selection.snapshot.recorded_at, latest_changed.recorded_at);
+    }
+
+    #[test]
+    fn doghouse_next_action_prioritizes_unresolved_threads() {
+        let snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec!["unresolved review threads: 1"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pending".to_owned(),
+                state: "PENDING".to_owned(),
+            }],
+            vec![sample_review_thread()],
+        );
+
+        let action = determine_doghouse_next_action(&snapshot, None);
+
+        assert_eq!(action.action, "fix_unresolved_threads");
+    }
+
+    #[test]
+    fn doghouse_next_action_requests_review_when_only_formal_review_state_remains() {
+        let mut overview = sample_pr_overview();
+        overview.merge_state = "BLOCKED".to_owned();
+        let snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            overview,
+            vec!["review decision: REVIEW_REQUIRED", "merge state: BLOCKED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+
+        let action = determine_doghouse_next_action(&snapshot, None);
+
+        assert_eq!(action.action, "request_review");
+    }
+
+    #[test]
+    fn doghouse_sortie_events_emit_expected_kinds() {
+        let snapshot = snapshot_fixture(
+            "2026-03-25T08:20:00Z",
+            "20260325T082000Z",
+            sample_pr_overview(),
+            vec!["review decision: REVIEW_REQUIRED"],
+            vec![PrCheckSummary {
+                name: "Tests".to_owned(),
+                bucket: "pass".to_owned(),
+                state: "SUCCESS".to_owned(),
+            }],
+            vec![],
+        );
+        let action = determine_doghouse_next_action(&snapshot, None);
+        let lines = assert_ok(
+            build_doghouse_sortie_events(&snapshot, None, None, &action),
+            "sortie events should serialize",
+        );
+
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("\"kind\":\"doghouse.snapshot\""));
+        assert!(lines[1].contains("\"kind\":\"doghouse.baseline\""));
+        assert!(lines[2].contains("\"kind\":\"doghouse.next_action\""));
     }
 
     #[test]

@@ -30,6 +30,18 @@ The product question is:
 - Prefer semantic deltas over raw file diffs.
 - Preserve the Draft Punks flavor later, but earn it with a solid mechanic first.
 
+## Current Plumbing
+
+The agent-native plumbing entrypoint is:
+
+```sh
+cargo xtask doghouse sortie 308
+```
+
+That command emits JSONL to stdout, writes local snapshot/delta artifacts under
+`artifacts/pr-review/`, and includes a machine-usable next-action verdict. It is meant to be
+the plumbing layer. Friendlier human porcelain can sit on top later.
+
 ## Documents
 
 - [Flight Recorder Brief](./flight-recorder-brief.md)

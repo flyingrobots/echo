@@ -102,6 +102,7 @@ browser/controller schema. The first honest artifact sketch is:
 - `IntentKind`
 - `WorldlineTick`
 - `GlobalTick`
+- `PositiveInt`
 
 Source file: `schemas/runtime/artifact-a-identifiers.graphql`
 

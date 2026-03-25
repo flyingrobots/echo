@@ -404,8 +404,8 @@ PR review or CI.
 
 - R1: Identify crates whose manifests promise meaningful `--no-default-features`
   or alloc-only support
-- R2: Add a local and CI-visible verification path that exercises those feature
-  contracts directly
+- R2: Add a `cargo xtask ...` local and CI-visible verification path that
+  exercises those feature contracts directly
 - R3: Keep the lane scoped so it stays fast enough to run during review-fix
   loops
 - R4: Document which crates are covered and what the lane is proving
@@ -413,7 +413,7 @@ PR review or CI.
 **Acceptance Criteria:**
 
 - [ ] AC1: At least the current runtime-schema / ABI crates have an explicit
-      `--no-default-features` check
+      `cargo xtask ...` `--no-default-features` verification path
 - [ ] AC2: A deliberate `std` leak in a gated crate fails the lane
 - [ ] AC3: Contributor docs explain when to run the lane and what it covers
 - [ ] AC4: The covered crate list is easy to keep aligned with manifest truth
@@ -455,7 +455,8 @@ state after review-fix pushes.
 **Requirements:**
 
 - R1: Enumerate unresolved review threads for a PR with pagination
-- R2: Support resolving selected or all unresolved threads after a verified push
+- R2: Support resolving selected or all unresolved threads after a verified
+  push via a `cargo xtask ...` entrypoint
 - R3: Keep the helper explicit and human-driven; it must not auto-resolve based
   on heuristics alone
 - R4: Show enough context (path, author, URL) for a reviewer to confirm the
@@ -463,7 +464,8 @@ state after review-fix pushes.
 
 **Acceptance Criteria:**
 
-- [ ] AC1: One command can list unresolved review threads with exact counts
+- [ ] AC1: One `cargo xtask ...` command can list unresolved review threads
+      with exact counts
 - [ ] AC2: One command can resolve chosen thread ids after human confirmation
 - [ ] AC3: The helper works with the existing `gh`-based workflow
 - [ ] AC4: Contributor docs explain when to use it and when to reply manually

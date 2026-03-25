@@ -21,6 +21,11 @@
   workspace links, the runtime-schema README matches the default `serde`
   contract, the schema audit/inventory docs reflect the typed-id migration, and
   dependency-DAG docs use the correct GitHub workflow wording.
+- **Fixed** final Phase 8 review follow-ups so shared logical counters enforce
+  their checked-arithmetic boundary, runtime-schema validation runs through the
+  pinned `pnpm schema:runtime:check` entrypoint, worldline-id/schema
+  nullability docs match the frozen 32-byte and scheduler-state contracts, and
+  backlog follow-up tasks now require `cargo xtask` as the maintenance surface.
 
 ### Fixed (PR #304 follow-up)
 

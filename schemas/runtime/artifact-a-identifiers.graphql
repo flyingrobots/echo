@@ -8,9 +8,9 @@
 """
 Opaque stable identifier for a writer head.
 
-Semantic rule: this is a fixed-width hash-backed identifier. Schema consumers
-must preserve opacity and must not reinterpret it as a human-readable string
-label or derive ordering semantics beyond byte-stable identity.
+Semantic rule: this is a fixed-width 32-byte hash-backed identifier. Schema
+consumers must preserve opacity and must not reinterpret it as a human-readable
+string label or derive ordering semantics beyond byte-stable identity.
 """
 scalar HeadId
 

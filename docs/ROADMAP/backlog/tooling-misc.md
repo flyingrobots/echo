@@ -232,7 +232,7 @@ merge-readiness state are visible before push/merge decisions.
 
 **Requirements:**
 
-- R1: Add a small script or xtask that summarizes unresolved review-thread
+- R1: Add a `cargo xtask ...` command that summarizes unresolved review-thread
   counts for a PR using paginated GitHub API queries
 - R2: Include failing/pending check names, the current head SHA, and the
   current approval / merge-readiness state
